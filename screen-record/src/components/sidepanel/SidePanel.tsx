@@ -50,6 +50,7 @@ const PANEL_TAB_ORDER: ActivePanel[] = [
   'text',
 ];
 const PANEL_EXIT_MS = 320;
+const KEEP_ALIVE_PANEL_IDS = new Set<ActivePanel>(['background', 'narration']);
 
 // ============================================================================
 // PanelTabs
@@ -207,6 +208,7 @@ interface SidePanelProps {
   selectedTextIds?: string[];
   hasMouseData?: boolean;
   onUpdateSegment: (segment: VideoSegment) => void;
+  onUpdateSegmentSilently?: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -285,6 +287,7 @@ export function SidePanel({
   selectedTextIds,
   hasMouseData,
   onUpdateSegment,
+  onUpdateSegmentSilently,
   beginBatch,
   commitBatch
 }: SidePanelProps) {
@@ -512,6 +515,7 @@ export function SidePanel({
           canUseAudioSource={canUseAudioSubtitleSource}
           audioSegments={audioSegments}
           onUpdateSegment={onUpdateSegment}
+          onUpdateSegmentSilently={onUpdateSegmentSilently}
         />
       );
     }
@@ -533,24 +537,42 @@ export function SidePanel({
       <PanelTabs activePanel={effectivePanel} onPanelChange={setActivePanel} hiddenTabs={renderedHiddenTabs} />
       <div className="side-panel-content mt-3 flex-1 min-h-0 overflow-hidden px-2 pb-2">
         <div className="side-panel-panels relative h-full">
-          <AnimatePresence initial={false} custom={slideDirection}>
-            <motion.div
-              key={effectivePanel}
-              custom={slideDirection}
-              variants={panelMotionVariants}
-              className="side-panel-pane absolute inset-0 overflow-y-auto thin-scrollbar pr-1 pb-2"
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={{
-                x: { type: "spring", stiffness: 360, damping: 34, mass: 0.9 },
-                opacity: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
-                scale: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
-              }}
-            >
-              {renderPanel(effectivePanel)}
-            </motion.div>
-          </AnimatePresence>
+          {PANEL_TAB_ORDER.filter((panelId) => KEEP_ALIVE_PANEL_IDS.has(panelId)).map((panelId) => {
+            const isActive = effectivePanel === panelId;
+            const isHidden = renderedHiddenTabs.has(panelId);
+            if (isHidden && !isActive) return null;
+            return (
+              <div
+                key={`keep-alive-${panelId}`}
+                className={`side-panel-pane side-panel-pane-keepalive side-panel-pane-${panelId} absolute inset-0 overflow-y-auto thin-scrollbar pr-1 pb-2 ${
+                  isActive ? 'z-10 opacity-100' : 'invisible pointer-events-none z-0 opacity-0'
+                }`}
+                aria-hidden={!isActive}
+              >
+                {renderPanel(panelId)}
+              </div>
+            );
+          })}
+          {!KEEP_ALIVE_PANEL_IDS.has(effectivePanel) && (
+            <AnimatePresence initial={false} custom={slideDirection}>
+              <motion.div
+                key={effectivePanel}
+                custom={slideDirection}
+                variants={panelMotionVariants}
+                className="side-panel-pane absolute inset-0 overflow-y-auto thin-scrollbar pr-1 pb-2"
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={{
+                  x: { type: "spring", stiffness: 360, damping: 34, mass: 0.9 },
+                  opacity: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
+                  scale: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
+                }}
+              >
+                {renderPanel(effectivePanel)}
+              </motion.div>
+            </AnimatePresence>
+          )}
         </div>
       </div>
     </div>

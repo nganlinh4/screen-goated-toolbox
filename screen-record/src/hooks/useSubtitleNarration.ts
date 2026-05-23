@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Translations } from '@/i18n';
 import { invoke } from '@/lib/ipc';
 import { overlapsRange, type TrackSelectionRange } from '@/lib/timelineSegmentSelection';
-import type { NarrationSegment, SubtitleSegment, TtsProfileSnapshot } from '@/types/video';
+import type {
+  NarrationSegment,
+  SubtitleSegment,
+  TtsProfileSnapshot,
+} from '@/types/video';
 import type { NarrationProfilePayload } from '@/hooks/useNarrationSettings';
 
 interface SubtitleNarrationRequestItem {
@@ -477,7 +481,6 @@ export function useSubtitleNarration({
 
     const poll = async () => {
       try {
-        const pollStartedAt = performance.now();
         const nextStatus = await invoke<SubtitleNarrationJobStatus>(
           'get_subtitle_narration_status',
           {
@@ -486,17 +489,11 @@ export function useSubtitleNarration({
             knownErrorCount: allErrorItemsRef.current.length,
           },
         );
-        const invokeMs = performance.now() - pollStartedAt;
         if (cancelled) return;
         knownResultsRevisionRef.current = Math.max(
           knownResultsRevisionRef.current,
           nextStatus.resultsRevision ?? knownResultsRevisionRef.current,
         );
-        if (invokeMs > 80 || nextStatus.results.length > 0) {
-          console.info(
-            `[NarrationPerf][StatusPoll] job=${jobId} state=${nextStatus.state} results=${nextStatus.results.length} revision=${nextStatus.resultsRevision ?? 0} completed=${nextStatus.completedItems}/${nextStatus.totalItems} invoke_ms=${invokeMs.toFixed(1)}`,
-          );
-        }
         if (nextStatus.results.length > 0) {
           allResultItemsRef.current = [
             ...allResultItemsRef.current,

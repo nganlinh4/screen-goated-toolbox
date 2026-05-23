@@ -168,8 +168,10 @@ function App() {
   const onProjectLoadedRef = useRef<(project: Project) => void>(null!);
   const currentProjectIdRef = useRef<string | null>(null);
   const currentProjectDataRef = useRef<Project | null>(null);
-  const narrationApplyPerfSeqRef = useRef(0);
   const hasDeferredNarrationEditorFlushRef = useRef(false);
+  const isPlayingRef = useRef(false);
+  const pendingSilentSegmentRef = useRef<VideoSegment | null>(null);
+  const pendingSilentSegmentTimerRef = useRef<number | null>(null);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<((opts?: PersistOptions) => Promise<void>) | null>(null);
   const compositionPersistChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -319,9 +321,71 @@ function App() {
   const setSegment = useCallback((
     value: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null),
   ) => {
-    editorHistory.setSegment(value);
-    rawSetSegment(value);
-  }, [editorHistory]);
+    if (pendingSilentSegmentTimerRef.current !== null) {
+      window.clearTimeout(pendingSilentSegmentTimerRef.current);
+      pendingSilentSegmentTimerRef.current = null;
+    }
+    pendingSilentSegmentRef.current = null;
+    const baseSegment =
+      segmentRef.current ??
+      currentProjectDataRef.current?.segment ??
+      segment;
+    const nextSegment = typeof value === "function"
+      ? (value as (current: VideoSegment | null) => VideoSegment | null)(baseSegment)
+      : value;
+    editorHistory.setSegment(nextSegment);
+    rawSetSegment(nextSegment);
+    if (nextSegment && currentProjectDataRef.current) {
+      currentProjectDataRef.current = {
+        ...currentProjectDataRef.current,
+        segment: nextSegment,
+      };
+    }
+  }, [editorHistory, segment]);
+
+  const flushPendingSilentSegment = useCallback(() => {
+    pendingSilentSegmentTimerRef.current = null;
+    const nextSegment = pendingSilentSegmentRef.current;
+    pendingSilentSegmentRef.current = null;
+    rawSetSegment(nextSegment);
+  }, []);
+
+  const setSegmentSilently = useCallback((
+    value: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null),
+  ) => {
+    const baseSegment =
+      segmentRef.current ??
+      currentProjectDataRef.current?.segment ??
+      segment;
+    const nextSegment = typeof value === "function"
+      ? (value as (current: VideoSegment | null) => VideoSegment | null)(baseSegment)
+      : value;
+    segmentRef.current = nextSegment;
+    if (nextSegment && currentProjectDataRef.current) {
+      currentProjectDataRef.current = {
+        ...currentProjectDataRef.current,
+        segment: nextSegment,
+      };
+    }
+    if (!isPlayingRef.current) {
+      rawSetSegment(nextSegment);
+      return;
+    }
+    pendingSilentSegmentRef.current = nextSegment;
+    if (pendingSilentSegmentTimerRef.current === null) {
+      pendingSilentSegmentTimerRef.current = window.setTimeout(flushPendingSilentSegment, 300);
+    }
+  }, [flushPendingSilentSegment, segment]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    if (!isPlaying && pendingSilentSegmentRef.current) {
+      if (pendingSilentSegmentTimerRef.current !== null) {
+        window.clearTimeout(pendingSilentSegmentTimerRef.current);
+      }
+      flushPendingSilentSegment();
+    }
+  }, [flushPendingSilentSegment, isPlaying]);
 
   const setComposition = useCallback((
     value: ProjectComposition | null | ((prev: ProjectComposition | null) => ProjectComposition | null),
@@ -605,30 +669,6 @@ function App() {
   const handleTogglePlayPause = useCallback(() => {
     handleVideoTogglePlayPause();
   }, [handleVideoTogglePlayPause]);
-
-  useEffect(() => {
-    if (!isPlaying) return undefined;
-    if (
-      typeof PerformanceObserver === "undefined" ||
-      !PerformanceObserver.supportedEntryTypes?.includes("longtask")
-    ) {
-      return undefined;
-    }
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        if (entry.duration < 80) continue;
-        console.info(
-          `[NarrationPerf][LongTask] duration_ms=${entry.duration.toFixed(1)} start_ms=${entry.startTime.toFixed(1)} name=${entry.name || ""}`,
-        );
-      }
-    });
-    try {
-      observer.observe({ entryTypes: ["longtask"] });
-    } catch {
-      return undefined;
-    }
-    return () => observer.disconnect();
-  }, [isPlaying]);
 
   // FPS of the most-recent recording (set on stop, cleared when a different project loads).
   const [lastCaptureFps, setLastCaptureFps] = useState<number | null>(null);
@@ -1269,16 +1309,11 @@ function App() {
   );
 
   const applyNarrationAudioSegments = useCallback(
-    (segments: NarrationSegment[], replaceSubtitleIds: string[]) => {
-      const perfStart = performance.now();
-      const traceId = ++narrationApplyPerfSeqRef.current;
-      const incomingBatchId = segments[0]?.narrationBatchId ?? null;
-      const incomingIds = segments.map((segment) => segment.id);
+    (
+      segments: NarrationSegment[],
+      replaceSubtitleIds: string[],
+    ) => {
       const wasPlaying = Boolean(videoRef.current && !videoRef.current.paused);
-      const beforeCount =
-        currentProjectDataRef.current?.composition?.narrationSegments?.length ??
-        composition?.narrationSegments?.length ??
-        0;
       const baseComposition =
         currentProjectDataRef.current?.composition ?? composition ?? null;
       if (!baseComposition) {
@@ -1287,7 +1322,7 @@ function App() {
       }
 
       const replaceSet = new Set(replaceSubtitleIds);
-      const nextNarrationSegments = [
+      let nextNarrationSegments = [
         ...(baseComposition.narrationSegments ?? []).filter((segment) => {
           const sourceIds = segment.sourceSubtitleIds?.length
             ? segment.sourceSubtitleIds
@@ -1304,7 +1339,9 @@ function App() {
         ...baseComposition,
         narrationSegments: nextNarrationSegments,
       };
-      let nextSegment = segmentRef.current;
+      let nextSegment =
+        currentProjectDataRef.current?.segment ??
+        segmentRef.current;
       let nextDuration = duration;
 
       if (isPlaceholderBackedProject && nextSegment) {
@@ -1343,15 +1380,6 @@ function App() {
           null;
         applyLiveNarrationSegments(projectId, segments, replaceSubtitleIds);
         hasDeferredNarrationEditorFlushRef.current = true;
-        const syncMs = performance.now() - perfStart;
-        window.requestAnimationFrame(() => {
-          window.requestAnimationFrame(() => {
-            const twoFrameMs = performance.now() - perfStart;
-            console.info(
-              `[NarrationPerf][ApplyLive] trace=${traceId} job=${incomingBatchId ?? ""} incoming=${segments.length} replace=${replaceSubtitleIds.length} before=${beforeCount} after=${nextNarrationSegments.length} playing=1 sync_ms=${syncMs.toFixed(1)} two_frame_ms=${twoFrameMs.toFixed(1)} ids=${incomingIds.slice(0, 2).join(",")}`,
-            );
-          });
-        });
         return;
       }
 
@@ -1360,26 +1388,12 @@ function App() {
         editorHistory.replaceSnapshot({ segment: nextSegment });
         startTransition(() => {
           rawSetSegment(nextSegment);
-          setEditorPreviewDuration(nextDuration);
+          if (shouldResizeSegment) setEditorPreviewDuration(nextDuration);
         });
       }
       editorHistory.replaceSnapshot({ composition: nextComposition });
       startTransition(() => {
         rawSetComposition(nextComposition);
-      });
-
-      const syncMs = performance.now() - perfStart;
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          const twoFrameMs = performance.now() - perfStart;
-          if (syncMs < 12 && twoFrameMs < 80 && !wasPlaying) return;
-          const activeAudioElements = document.querySelectorAll(".imported-audio-element").length;
-          // Targeted WebView-only performance trace: logs only narration arrivals
-          // that are likely to affect playback or happen during playback.
-          console.info(
-            `[NarrationPerf][Apply] trace=${traceId} job=${incomingBatchId ?? ""} incoming=${segments.length} replace=${replaceSubtitleIds.length} before=${beforeCount} after=${nextNarrationSegments.length} playing=${wasPlaying ? 1 : 0} sync_ms=${syncMs.toFixed(1)} two_frame_ms=${twoFrameMs.toFixed(1)} audio_el=${activeAudioElements} project_state=0 placeholder=${isPlaceholderBackedProject ? 1 : 0} resized=${nextDuration > duration ? 1 : 0} ids=${incomingIds.slice(0, 2).join(",")}`,
-          );
-        });
       });
     },
     [
@@ -1392,7 +1406,7 @@ function App() {
     ],
   );
 
-  const flushDeferredNarrationEditorState = useCallback((reason: string) => {
+  const flushDeferredNarrationEditorState = useCallback((_reason: string) => {
     if (!hasDeferredNarrationEditorFlushRef.current) return;
     const latestComposition = currentProjectDataRef.current?.composition ?? null;
     const latestSegment = currentProjectDataRef.current?.segment ?? null;
@@ -1404,12 +1418,13 @@ function App() {
       null;
     if (!latestComposition) return;
     hasDeferredNarrationEditorFlushRef.current = false;
-    const startedAt = performance.now();
-    if (latestSegment && latestDuration && latestDuration > duration) {
+    if (latestSegment) {
       editorHistory.replaceSnapshot({ segment: latestSegment });
       startTransition(() => {
         rawSetSegment(latestSegment);
-        setEditorPreviewDuration(latestDuration);
+        if (latestDuration && latestDuration > duration) {
+          setEditorPreviewDuration(latestDuration);
+        }
       });
     }
     editorHistory.replaceSnapshot({ composition: latestComposition });
@@ -1418,13 +1433,6 @@ function App() {
     });
     window.requestAnimationFrame(() => {
       clearLiveNarrationSegments(projectId);
-    });
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        console.info(
-          `[NarrationPerf][DeferredFlush] reason=${reason} narration=${latestComposition.narrationSegments?.length ?? 0} two_frame_ms=${(performance.now() - startedAt).toFixed(1)}`,
-        );
-      });
     });
   }, [duration, editorHistory, projects.currentProjectId, setEditorPreviewDuration]);
 
@@ -2104,6 +2112,7 @@ function App() {
           }
           segment={segment}
           setSegment={setSegment}
+          setSegmentSilently={setSegmentSilently}
           composition={composition}
           setComposition={setComposition}
           handleToggleKeystrokeMode={handleToggleKeystrokeMode}

@@ -223,9 +223,12 @@ fn update_stream_markdown_content_ex(
             && (wordCount <= 12 || longestToken >= 4);
     }}
 
-    function fitsVertically() {{
+    function fitsWindow() {{
         void body.offsetHeight;
-        return doc.scrollHeight <= (winH + 2) && !hasPathologicalWrap();
+        var scrollW = Math.max(doc.scrollWidth || 0, body.scrollWidth || 0);
+        return doc.scrollHeight <= (winH + 2)
+            && scrollW <= (winW + 2)
+            && !hasPathologicalWrap();
     }}
 
     var minSize = (textLen < 200) ? 6 : 14;
@@ -273,7 +276,7 @@ fn update_stream_markdown_content_ex(
         while (low <= high) {{
             var mid = Math.floor((low + high) / 2);
             body.style.fontSize = mid + 'px';
-            if (fitsVertically()) {{
+            if (fitsWindow()) {{
                 best = mid;
                 low = mid + 1;
             }} else {{
@@ -291,7 +294,7 @@ fn update_stream_markdown_content_ex(
             while (settleLow <= settleHigh) {{
                 var settleMid = Math.floor((settleLow + settleHigh) / 2);
                 body.style.fontSize = settleMid + 'px';
-                if (fitsVertically()) {{
+                if (fitsWindow()) {{
                     settleBest = settleMid;
                     settleLow = settleMid + 1;
                 }} else {{

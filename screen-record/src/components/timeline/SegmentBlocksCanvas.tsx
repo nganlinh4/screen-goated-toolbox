@@ -26,6 +26,29 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function fillRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
 export function overlapsVisibleRange(
   startTime: number,
   endTime: number,
@@ -83,8 +106,9 @@ export const SegmentBlocksCanvas: React.FC<SegmentBlocksCanvasProps> = ({
     ctx.scale(dpr, dpr);
     const computed = getComputedStyle(canvas);
     const defaultColor = computed.getPropertyValue(colorVar).trim() || fallbackColor;
-    const y = 3;
-    const h = Math.max(2, cssHeight - 6);
+    const y = 0;
+    const h = Math.max(2, cssHeight);
+    const radius = Math.min(10, h / 2);
 
     for (const segment of segments) {
       if (!overlapsVisibleRange(segment.startTime, segment.endTime, visibleRange)) continue;
@@ -95,7 +119,7 @@ export const SegmentBlocksCanvas: React.FC<SegmentBlocksCanvasProps> = ({
       const w = Math.max(1, ((end - start) / duration) * cssWidth);
       ctx.globalAlpha = segment.selected ? Math.min(0.78, alpha + 0.24) : alpha;
       ctx.fillStyle = segment.color || defaultColor;
-      ctx.fillRect(x, y, w, h);
+      fillRoundedRect(ctx, x, y, w, h, radius);
     }
     ctx.globalAlpha = 1;
   }, [alpha, colorVar, duration, fallbackColor, segments, size.height, size.width, visibleRange]);

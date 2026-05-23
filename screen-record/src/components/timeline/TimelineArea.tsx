@@ -996,6 +996,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       segments={narrationSegments ?? []}
                       liveProjectId={liveNarrationProjectId}
                       duration={duration}
+                      isPlaying={!!isPlaying}
                       onSegmentClick={onNarrationSegmentClick}
                       onUpdateSegment={onUpdateNarrationSegment}
                       onDeleteSegments={onDeleteNarrationSegments}

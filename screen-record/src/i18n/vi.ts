@@ -349,6 +349,7 @@ const vi: Translations = {
   narrationSourceTrack: 'Đọc từ',
   narrationReadUnsplitSubtitles: 'Đọc bằng phụ đề chưa chia',
   narrationGrouping: 'Gộp lượt đọc',
+  narrationGroupingBudgetValue: '~{count} từ/nhóm',
   narrationGroupingGroups: 'nhóm',
   narrationErrorDetails: 'Xem chi tiết lỗi',
   narrationErrorLogHint: 'Log đầy đủ: %LOCALAPPDATA%\\SGT\\logs\\session.log',

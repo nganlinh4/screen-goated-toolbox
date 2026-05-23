@@ -17,8 +17,10 @@ import {
 import type {
   NarrationSegment,
   ProjectComposition,
+  SubtitleChainItem,
   SubtitleSegment,
   SubtitleTrack,
+  SubtitleViewState,
   VideoSegment,
 } from '@/types/video';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
@@ -79,8 +81,26 @@ interface UseS2sNarrationParams {
     sourceSegments: SubtitleSegment[],
     targetSegments: SubtitleSegment[],
     targetLanguage: string,
-  ) => void;
+    options?: PopulateS2sSubtitleTracksOptions,
+  ) => VideoSegment | void;
   onFinalize: () => void | Promise<void>;
+}
+
+export interface PopulateS2sSubtitleTracksOptions {
+  preserveExistingOutside?: boolean;
+  baseSourceSegments?: SubtitleSegment[];
+  baseTargetSegments?: SubtitleSegment[];
+  replacementRanges?: Array<{ startTime: number; endTime: number }>;
+  restoreSnapshot?: S2sSubtitleStateSnapshot | null;
+  debugPhase?: string;
+  liveUpdate?: boolean;
+}
+
+interface S2sSubtitleStateSnapshot {
+  subtitleTracks?: SubtitleTrack[];
+  activeSubtitleView?: SubtitleViewState;
+  subtitleCustomChain?: SubtitleChainItem[];
+  subtitleSegments?: SubtitleSegment[];
 }
 
 function mappedTime(
@@ -199,24 +219,95 @@ function localizeS2sStatus(t: Translations, status: S2sNarrationStatus) {
 function mergeS2sSubtitleSegments(
   existingSegments: readonly SubtitleSegment[],
   incomingSegments: readonly SubtitleSegment[],
+  replacementRanges?: readonly { startTime: number; endTime: number }[],
 ) {
-  if (incomingSegments.length === 0) return [...existingSegments];
   const incomingIds = new Set(incomingSegments.map((segment) => segment.id));
-  const rangeStart = Math.min(...incomingSegments.map((segment) => segment.startTime));
-  const rangeEnd = Math.max(...incomingSegments.map((segment) => segment.endTime));
+  const normalizedRanges = replacementRanges
+    ?.map((range) => ({
+      startTime: Math.min(range.startTime, range.endTime),
+      endTime: Math.max(range.startTime, range.endTime),
+    }))
+    .filter((range) => range.endTime - range.startTime > 0.001);
+  if (incomingSegments.length === 0 && (!normalizedRanges || normalizedRanges.length === 0)) {
+    return [...existingSegments];
+  }
+  const fallbackRanges = incomingSegments.length > 0
+    ? incomingSegments.map((segment) => ({
+        startTime: segment.startTime,
+        endTime: segment.endTime,
+      }))
+    : [];
+  const ranges = normalizedRanges && normalizedRanges.length > 0
+    ? normalizedRanges
+    : fallbackRanges;
   const epsilon = 0.001;
   const kept = existingSegments.filter((segment) => {
     if (incomingIds.has(segment.id)) return false;
-    const outsideRange =
-      segment.endTime <= rangeStart + epsilon ||
-      segment.startTime >= rangeEnd - epsilon;
-    return outsideRange;
+    return !ranges.some((range) =>
+      segment.startTime < range.endTime - epsilon &&
+      range.startTime + epsilon < segment.endTime,
+    );
   });
   return [...kept, ...incomingSegments].sort((left, right) =>
     left.startTime === right.startTime
       ? left.endTime - right.endTime
       : left.startTime - right.startTime,
   );
+}
+
+function replaceS2sSubtitleSegments(incomingSegments: readonly SubtitleSegment[]) {
+  const byId = new Map<string, SubtitleSegment>();
+  for (const segment of incomingSegments) {
+    byId.set(segment.id, segment);
+  }
+  return [...byId.values()].sort((left, right) =>
+    left.startTime === right.startTime
+      ? left.endTime - right.endTime
+      : left.startTime - right.startTime,
+  );
+}
+
+function cloneSubtitleSegment(segment: SubtitleSegment): SubtitleSegment {
+  return {
+    ...segment,
+    style: segment.style ? { ...segment.style } : segment.style,
+    sourceGroup: segment.sourceGroup ? { ...segment.sourceGroup } : segment.sourceGroup,
+    provenance: segment.provenance ? { ...segment.provenance } : segment.provenance,
+  };
+}
+
+function cloneSubtitleSnapshot(segment: VideoSegment | null): S2sSubtitleStateSnapshot | null {
+  if (!segment) return null;
+  const normalized = normalizeSubtitleTrackState(segment);
+  return {
+    subtitleTracks: normalized.subtitleTracks?.map((track) => ({
+      ...track,
+      segments: track.segments.map(cloneSubtitleSegment),
+    })),
+    activeSubtitleView: normalized.activeSubtitleView
+      ? { ...normalized.activeSubtitleView }
+      : undefined,
+    subtitleCustomChain: normalized.subtitleCustomChain?.map((item) => ({ ...item })),
+    subtitleSegments: normalized.subtitleSegments?.map(cloneSubtitleSegment),
+  };
+}
+
+function restoreSubtitleSnapshot(
+  segment: VideoSegment,
+  snapshot: S2sSubtitleStateSnapshot,
+): VideoSegment {
+  return normalizeSubtitleTrackState({
+    ...segment,
+    subtitleTracks: snapshot.subtitleTracks?.map((track) => ({
+      ...track,
+      segments: track.segments.map(cloneSubtitleSegment),
+    })),
+    activeSubtitleView: snapshot.activeSubtitleView
+      ? { ...snapshot.activeSubtitleView }
+      : undefined,
+    subtitleCustomChain: snapshot.subtitleCustomChain?.map((item) => ({ ...item })),
+    subtitleSegments: snapshot.subtitleSegments?.map(cloneSubtitleSegment),
+  });
 }
 
 export function useS2sNarration({
@@ -247,9 +338,28 @@ export function useS2sNarration({
   const batchIdRef = useRef<string>('');
   const sourceSubtitleResultsRef = useRef<SubtitleSegment[]>([]);
   const targetSubtitleResultsRef = useRef<SubtitleSegment[]>([]);
+  const baseSourceSubtitleResultsRef = useRef<SubtitleSegment[]>([]);
+  const baseTargetSubtitleResultsRef = useRef<SubtitleSegment[]>([]);
+  const baseSubtitleSnapshotRef = useRef<S2sSubtitleStateSnapshot | null>(null);
   const lastProgressSignatureRef = useRef('');
   const lastProgressAtRef = useRef(0);
   const lastStallLogAtRef = useRef(0);
+  const jobTargetLanguageRef = useRef(targetLanguage);
+  const latestRefs = useRef({
+    t,
+    onApplyNarrationSegments,
+    onPopulateEmptySubtitles,
+    onFinalize,
+  });
+
+  useEffect(() => {
+    latestRefs.current = {
+      t,
+      onApplyNarrationSegments,
+      onPopulateEmptySubtitles,
+      onFinalize,
+    };
+  }, [onApplyNarrationSegments, onFinalize, onPopulateEmptySubtitles, t]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -284,44 +394,74 @@ export function useS2sNarration({
           );
         }
         revisionRef.current = Math.max(revisionRef.current, next.resultsRevision);
-        setStatus({ ...next, message: localizeS2sStatus(t, next), results: [] });
+        const activeTargetLanguage = jobTargetLanguageRef.current;
+        const latest = latestRefs.current;
+        setStatus({ ...next, message: localizeS2sStatus(latest.t, next), results: [] });
         const plan = planRef.current;
         if (plan && next.results.length > 0) {
           const flat = next.results.flatMap((result) => result.segments);
+          const sourceSubtitles = flat.map((result) =>
+            buildSubtitle(result, plan, 'source', result.sourceText),
+          );
+          const targetSubtitles = flat.map((result) =>
+            buildSubtitle(result, plan, 'target', result.targetText),
+          );
           const narrations = flat.map((result) =>
             buildNarration(result, plan, batchIdRef.current),
           );
           const replaceIds = flat.map((result) => s2sSubtitleId(result, 'target'));
-          sourceSubtitleResultsRef.current.push(
-            ...flat.map((result) =>
-              buildSubtitle(result, plan, 'source', result.sourceText),
-            ),
-          );
-          targetSubtitleResultsRef.current.push(
-            ...flat.map((result) =>
-              buildSubtitle(result, plan, 'target', result.targetText),
-            ),
-          );
-          onPopulateEmptySubtitles(
+          sourceSubtitleResultsRef.current = replaceS2sSubtitleSegments([
+            ...sourceSubtitleResultsRef.current,
+            ...sourceSubtitles,
+          ]);
+          targetSubtitleResultsRef.current = replaceS2sSubtitleSegments([
+            ...targetSubtitleResultsRef.current,
+            ...targetSubtitles,
+          ]);
+          latest.onPopulateEmptySubtitles(
             sourceSubtitleResultsRef.current,
             targetSubtitleResultsRef.current,
-            targetLanguage,
+            activeTargetLanguage,
+            {
+              preserveExistingOutside: true,
+              baseSourceSegments: baseSourceSubtitleResultsRef.current,
+              baseTargetSegments: baseTargetSubtitleResultsRef.current,
+              restoreSnapshot: baseSubtitleSnapshotRef.current,
+              debugPhase: 'live',
+              liveUpdate: true,
+            },
           );
-          await onApplyNarrationSegments(narrations, replaceIds);
+          await latest.onApplyNarrationSegments(narrations, replaceIds);
         }
         if (next.state === 'completed') {
-          onPopulateEmptySubtitles(
+          latest.onPopulateEmptySubtitles(
             sourceSubtitleResultsRef.current,
             targetSubtitleResultsRef.current,
-            targetLanguage,
+            activeTargetLanguage,
+            {
+              preserveExistingOutside: true,
+              baseSourceSegments: baseSourceSubtitleResultsRef.current,
+              baseTargetSegments: baseTargetSubtitleResultsRef.current,
+              restoreSnapshot: baseSubtitleSnapshotRef.current,
+              debugPhase: 'complete',
+            },
           );
           setJobId(null);
-          await onFinalize();
+          await latest.onFinalize();
           return;
         }
         if (next.state === 'cancelled' || next.state === 'error') {
+          latest.onPopulateEmptySubtitles(
+            [],
+            [],
+            activeTargetLanguage,
+            {
+              restoreSnapshot: baseSubtitleSnapshotRef.current,
+              debugPhase: next.state,
+            },
+          );
           setJobId(null);
-          await onFinalize();
+          await latest.onFinalize();
           return;
         }
         window.setTimeout(poll, next.results.length > 0 ? 250 : 600);
@@ -337,22 +477,24 @@ export function useS2sNarration({
           results: [],
           error: error instanceof Error ? error.message : String(error),
         });
+        latestRefs.current.onPopulateEmptySubtitles(
+          [],
+          [],
+          jobTargetLanguageRef.current,
+          {
+            restoreSnapshot: baseSubtitleSnapshotRef.current,
+            debugPhase: 'poll-error',
+          },
+        );
         setJobId(null);
-        await onFinalize();
+        await latestRefs.current.onFinalize();
       }
     };
     void poll();
     return () => {
       cancelled = true;
     };
-  }, [
-    jobId,
-    onApplyNarrationSegments,
-    onFinalize,
-    onPopulateEmptySubtitles,
-    t,
-    targetLanguage,
-  ]);
+  }, [jobId]);
 
   const handleGenerate = useCallback(async () => {
     if (jobId || isStarting) return;
@@ -383,8 +525,16 @@ export function useS2sNarration({
     try {
       planRef.current = plan;
       batchIdRef.current = `s2s-narration-${Date.now()}`;
+      jobTargetLanguageRef.current = targetLanguage;
       sourceSubtitleResultsRef.current = [];
       targetSubtitleResultsRef.current = [];
+      baseSubtitleSnapshotRef.current = cloneSubtitleSnapshot(segment);
+      const normalizedSegment = segment ? normalizeSubtitleTrackState(segment) : null;
+      const targetTrackId = getTranslationSubtitleTrackId(targetLanguage);
+      baseSourceSubtitleResultsRef.current =
+        normalizedSegment?.subtitleTracks?.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID)?.segments ?? [];
+      baseTargetSubtitleResultsRef.current =
+        normalizedSegment?.subtitleTracks?.find((track) => track.id === targetTrackId)?.segments ?? [];
       revisionRef.current = 0;
       lastProgressSignatureRef.current = '';
       lastProgressAtRef.current = performance.now();
@@ -448,10 +598,19 @@ export function useS2sNarration({
   const handleCancel = useCallback(async () => {
     if (!jobId) return;
     await invoke('cancel_s2s_narration', { jobId });
+    latestRefs.current.onPopulateEmptySubtitles(
+      [],
+      [],
+      jobTargetLanguageRef.current,
+      {
+        restoreSnapshot: baseSubtitleSnapshotRef.current,
+        debugPhase: 'manual-cancel',
+      },
+    );
     setJobId(null);
     setStatus((prev) => prev ? { ...prev, state: 'cancelled', message: 'Cancelled' } : prev);
-    await onFinalize();
-  }, [jobId, onFinalize]);
+    await latestRefs.current.onFinalize();
+  }, [jobId]);
 
   return {
     canGenerate: !jobId && !isStarting,
@@ -467,11 +626,16 @@ export function populateEmptyS2sSubtitleTracks(
   sourceSegments: SubtitleSegment[],
   targetSegments: SubtitleSegment[],
   targetLanguage: string,
+  options: PopulateS2sSubtitleTracksOptions = {},
 ): VideoSegment {
+  const sourceSegment = options.restoreSnapshot
+    ? restoreSubtitleSnapshot(segment, options.restoreSnapshot)
+    : segment;
   if (sourceSegments.length === 0 && targetSegments.length === 0) {
-    return normalizeSubtitleTrackState(segment);
+    if (options.restoreSnapshot) return sourceSegment;
+    return normalizeSubtitleTrackState(sourceSegment);
   }
-  const normalized = normalizeSubtitleTrackState(segment);
+  const normalized = normalizeSubtitleTrackState(sourceSegment);
   const targetTrackId = getTranslationSubtitleTrackId(targetLanguage);
   const existingOriginalSegments = normalized.subtitleTracks
     ?.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID)
@@ -479,12 +643,20 @@ export function populateEmptyS2sSubtitleTracks(
   const existingTargetSegments = normalized.subtitleTracks
     ?.find((track) => track.id === targetTrackId)
     ?.segments ?? [];
+  const sourceBaseSegments = options.baseSourceSegments ?? existingOriginalSegments;
+  const targetBaseSegments = options.baseTargetSegments ?? existingTargetSegments;
+  const nextSourceSegments = options.preserveExistingOutside
+    ? mergeS2sSubtitleSegments(sourceBaseSegments, sourceSegments, options.replacementRanges)
+    : replaceS2sSubtitleSegments(sourceSegments);
+  const nextTargetSegments = options.preserveExistingOutside
+    ? mergeS2sSubtitleSegments(targetBaseSegments, targetSegments, options.replacementRanges)
+    : replaceS2sSubtitleSegments(targetSegments);
   const originalTrack: SubtitleTrack = {
     id: ORIGINAL_SUBTITLE_TRACK_ID,
     kind: 'original',
     slotLabel: null,
     targetLanguage: null,
-    segments: mergeS2sSubtitleSegments(existingOriginalSegments, sourceSegments),
+    segments: nextSourceSegments,
   };
   const withOriginal = upsertSubtitleTrack(normalized, originalTrack);
   if (targetSegments.length === 0) return withOriginal;
@@ -493,7 +665,7 @@ export function populateEmptyS2sSubtitleTracks(
     kind: 'translation',
     slotLabel: null,
     targetLanguage,
-    segments: mergeS2sSubtitleSegments(existingTargetSegments, targetSegments),
+    segments: nextTargetSegments,
   });
   return setActiveSubtitleTrackView(withTranslation, targetTrackId);
 }

@@ -57,12 +57,22 @@ pub const MARKDOWN_CSS: &str = r#"
         margin: 0;
         padding: 0; /* Padding now handled by WebView edge margin */
         overflow-x: hidden;
+        overflow-wrap: anywhere;
+        word-break: normal;
         word-wrap: break-word;
         /* Appearing animation */
         animation: content-appear 0.35s cubic-bezier(0.2, 0, 0.2, 1) forwards;
     }
 
     body > *:first-child { margin-top: 0; }
+
+    p, li, blockquote,
+    h1, h2, h3, h4, h5, h6,
+    td, th {
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: normal;
+    }
 
     h1 {
         font-size: 1.8em;
@@ -78,7 +88,7 @@ pub const MARKDOWN_CSS: &str = r#"
         font-weight: 600;
         text-align: center;
         position: relative;
-        overflow: hidden;
+        overflow: visible;
     }
 
     h2 {
@@ -114,12 +124,13 @@ pub const MARKDOWN_CSS: &str = r#"
     p:last-child { margin-bottom: 0; }
 
     /* Interactive Word Styling - COLOR ONLY, preserves font scaling.
-       `display: inline-block` is required for the streaming reveal's
-       `transform: translateY()` rise-from-below animation — transforms are
-       silently ignored on pure inline elements. Wrapping still behaves like
-       inline because each span is separated by literal whitespace in the HTML. */
+       Keep words inline so markdown identities that contain long tokens
+       (URLs, inline code, command flags) participate in normal line wrapping. */
     .word {
-        display: inline-block;
+        display: inline;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: normal;
         transition: color 0.2s ease, text-shadow 0.2s ease;
         cursor: text;
     }
@@ -155,7 +166,7 @@ pub const MARKDOWN_CSS: &str = r#"
 
     /* Ensure code blocks remain non-interactive */
     pre .word {
-        display: inline-block;
+        display: inline;
         transition: none;
     }
     pre .word:hover,
@@ -165,10 +176,43 @@ pub const MARKDOWN_CSS: &str = r#"
         text-shadow: none;
     }
 
+    pre {
+        max-width: 100%;
+        overflow-x: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: normal;
+    }
+
     pre code {
         background: transparent;
         padding: 0;
         color: var(--code-color);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: normal;
+    }
+
+    a,
+    span,
+    code,
+    kbd,
+    samp,
+    var,
+    mark,
+    small,
+    abbr,
+    cite,
+    strong,
+    em,
+    del,
+    ins,
+    sub,
+    sup {
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: normal;
+        white-space: normal;
     }
 
     a { color: var(--link-color); text-decoration: none; transition: all 0.2s; cursor: pointer; }
@@ -180,6 +224,7 @@ pub const MARKDOWN_CSS: &str = r#"
 
     table {
         width: 100%;
+        table-layout: fixed;
         border-collapse: separate;
         border-spacing: 0;
         margin: 12px 0; /* Reduced from 16px */
