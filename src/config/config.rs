@@ -92,7 +92,7 @@ fn default_model_priority_chains() -> ModelPriorityChains {
 }
 
 fn default_realtime_translation_model() -> String {
-    crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS.to_string()
+    crate::model_config::REALTIME_TRANSLATION_MODEL_LLM.to_string()
 }
 
 fn default_realtime_font_size() -> u32 {
@@ -607,7 +607,7 @@ impl Default for Config {
             ollama_text_model: String::new(),
 
             // Realtime Audio
-            realtime_translation_model: crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS
+            realtime_translation_model: crate::model_config::REALTIME_TRANSLATION_MODEL_LLM
                 .to_string(),
             realtime_transcription_model: crate::model_config::DEFAULT_REALTIME_TRANSCRIPTION_MODEL
                 .to_string(),

@@ -364,6 +364,7 @@ pub fn get() -> LocaleText {
         font_minus_tooltip: "Font -",
         font_plus_tooltip: "Font +",
         google_gtx_label: "Google Translate",
+        llm_label: "LLM",
         opacity_label: "Opacity",
         downloaded_successfully: "Downloaded!",
         download_recording_tooltip: "Download Recording",

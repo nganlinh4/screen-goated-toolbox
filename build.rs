@@ -88,12 +88,8 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
         ("QWEN3_ASR_0_6B_MODEL_ID", "qwen3_asr_0_6b_model_id"),
         ("QWEN3_ASR_1_7B_MODEL_ID", "qwen3_asr_1_7b_model_id"),
         (
-            "REALTIME_TRANSLATION_MODEL_CEREBRAS",
-            "realtime_translation_model_cerebras",
-        ),
-        (
-            "REALTIME_TRANSLATION_MODEL_GEMMA",
-            "realtime_translation_model_gemma",
+            "REALTIME_TRANSLATION_MODEL_LLM",
+            "realtime_translation_model_llm",
         ),
         (
             "REALTIME_TRANSLATION_MODEL_GTX",
@@ -248,41 +244,6 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
     lines.push(format!(
         "        _ => {},",
         rust_string(manifest_string(defaults, "realtime_transcription_model"))
-    ));
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
-    lines.push(String::new());
-
-    lines.push(
-        "pub fn generated_realtime_translation_api_model(provider_id: &str) -> &'static str {"
-            .to_string(),
-    );
-    lines.push("    match provider_id {".to_string());
-    for value in manifest_array(&manifest, "live_translation_providers") {
-        let item = value
-            .as_object()
-            .expect("live translation provider entries must be objects");
-        lines.push(format!(
-            "        {} => {},",
-            rust_string(manifest_string(item, "id")),
-            rust_string(manifest_string(item, "api_model"))
-        ));
-    }
-    let default_translation_id = manifest_string(defaults, "live_session_translation_provider_id");
-    let default_translation_model = manifest_array(&manifest, "live_translation_providers")
-        .iter()
-        .find_map(|value| {
-            let item = value.as_object()?;
-            if manifest_string(item, "id") == default_translation_id {
-                Some(manifest_string(item, "api_model"))
-            } else {
-                None
-            }
-        })
-        .expect("default live translation provider must exist in manifest");
-    lines.push(format!(
-        "        _ => {},",
-        rust_string(default_translation_model)
     ));
     lines.push("    }".to_string());
     lines.push("}".to_string());

@@ -24,8 +24,7 @@ object RealtimeModelIds {
     const val GEMINI_LIVE_API_MODEL_2_5 = GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_2_5
     const val GEMINI_LIVE_API_MODEL_3_1 = GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_3_1
 
-    const val TRANSLATION_CEREBRAS = GeneratedLiveModelCatalog.TRANSLATION_PROVIDER_CEREBRAS
-    const val TRANSLATION_GEMMA = GeneratedLiveModelCatalog.TRANSLATION_PROVIDER_GEMMA
+    const val TRANSLATION_LLM = GeneratedLiveModelCatalog.TRANSLATION_PROVIDER_LLM
     const val TRANSLATION_GTX = GeneratedLiveModelCatalog.TRANSLATION_PROVIDER_GTX
 
     fun defaultTranscriptionProvider(modelId: String = TRANSCRIPTION_GEMINI_S2S): ProviderDescriptor {
@@ -42,13 +41,12 @@ object RealtimeModelIds {
 
     fun normalizeTranslationModelId(modelId: String): String {
         return when (modelId) {
-            "taalas-rt" -> TRANSLATION_CEREBRAS
-            TRANSLATION_CEREBRAS, TRANSLATION_GEMMA, TRANSLATION_GTX -> modelId
+            TRANSLATION_LLM, TRANSLATION_GTX -> modelId
             else -> GeneratedLiveModelCatalog.DEFAULT_TRANSLATION_PROVIDER_ID
         }
     }
 
-    fun translationProviderDescriptor(id: String = TRANSLATION_CEREBRAS): ProviderDescriptor {
+    fun translationProviderDescriptor(id: String = TRANSLATION_LLM): ProviderDescriptor {
         return GeneratedLiveModelCatalog.translationProviderDescriptor(normalizeTranslationModelId(id))
     }
 }

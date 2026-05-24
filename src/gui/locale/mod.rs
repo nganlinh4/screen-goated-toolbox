@@ -322,6 +322,7 @@ pub struct LocaleText {
     pub font_minus_tooltip: &'static str,
     pub font_plus_tooltip: &'static str,
     pub google_gtx_label: &'static str,
+    pub llm_label: &'static str,
     pub opacity_label: &'static str,
     pub downloaded_successfully: &'static str,
     pub download_recording_tooltip: &'static str,

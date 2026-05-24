@@ -365,6 +365,7 @@ pub fn get() -> LocaleText {
         font_minus_tooltip: "Giảm cỡ chữ",
         font_plus_tooltip: "Tăng cỡ chữ",
         google_gtx_label: "Google Dịch",
+        llm_label: "LLM",
         opacity_label: "Độ mờ",
         downloaded_successfully: "Đã tải về!",
         download_recording_tooltip: "Tải bản ghi âm",

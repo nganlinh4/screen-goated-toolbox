@@ -33,7 +33,7 @@ lazy_static::lazy_static! {
     pub static ref NEW_TARGET_LANGUAGE: Mutex<String> = Mutex::new(String::new());
     /// Signal to change translation model
     pub static ref TRANSLATION_MODEL_CHANGE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    /// The new translation model to use ("google-gemma" or "groq-llama")
+    /// The new translation model to use ("text-llm" or "google-gtx")
     pub static ref NEW_TRANSLATION_MODEL: Mutex<String> = Mutex::new(String::new());
     /// Signal to change transcription model
     pub static ref TRANSCRIPTION_MODEL_CHANGE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
