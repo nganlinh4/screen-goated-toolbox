@@ -126,6 +126,9 @@ pub fn set_target_language(language: &str) {
 }
 
 pub fn set_translation_model(model: &str) {
+    if load_session_config().transcription_model == "gemini-live-s2s" {
+        return;
+    }
     if let Ok(mut new_model) = NEW_TRANSLATION_MODEL.lock() {
         *new_model = model.to_string();
     }
