@@ -96,10 +96,6 @@ pub fn realtime_transcription_api_model(model_id: &str) -> String {
         .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string())
 }
 
-pub fn realtime_translation_api_model(provider_id: &str) -> &'static str {
-    generated_realtime_translation_api_model(provider_id)
-}
-
 pub fn tts_gemini_model_options() -> &'static [(&'static str, &'static str)] {
     GENERATED_TTS_GEMINI_MODELS
 }

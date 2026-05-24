@@ -345,14 +345,11 @@ internal fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSess
     }
     val translationProvider = translationBlock?.let {
         when (it.model) {
-            RealtimeModelIds.TRANSLATION_GEMMA -> RealtimeModelIds.translationProviderDescriptor(
-                RealtimeModelIds.TRANSLATION_GEMMA,
-            )
             RealtimeModelIds.TRANSLATION_GTX -> RealtimeModelIds.translationProviderDescriptor(
                 RealtimeModelIds.TRANSLATION_GTX,
             )
             else -> RealtimeModelIds.translationProviderDescriptor(
-                RealtimeModelIds.TRANSLATION_CEREBRAS,
+                RealtimeModelIds.TRANSLATION_LLM,
             )
         }
     } ?: fallback.translationProvider

@@ -291,6 +291,9 @@ class AndroidLiveSessionRepository(
 
     fun currentPresetRuntimeSettings(): PresetRuntimeSettings = presetRuntimeSettings.value
 
+    fun currentTextToTextChain(): List<String> =
+        presetRuntimeSettings.value.modelPriorityChains.textToText
+
     fun translationModelId(): String = state.value.config.translationProvider.id
 
     fun transcriptionModelId(): String = state.value.config.transcriptionProvider.id

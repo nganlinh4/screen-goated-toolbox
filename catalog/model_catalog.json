@@ -14,17 +14,14 @@
     "gemini_live_s2s_model_id": "gemini-live-s2s",
     "qwen3_asr_0_6b_model_id": "qwen3-asr-0.6b",
     "qwen3_asr_1_7b_model_id": "qwen3-asr-1.7b",
-    "realtime_translation_model_cerebras": "cerebras-oss",
-    "realtime_translation_model_gemma": "google-gemma",
-    "realtime_translation_model_gtx": "google-gtx",
-    "realtime_translation_gemma_api_model": "gemma-4-26b-a4b-it",
-    "realtime_translation_gtx_api_model": "google-translate-gtx"
+    "realtime_translation_model_llm": "text-llm",
+    "realtime_translation_model_gtx": "google-gtx"
   },
   "defaults": {
     "tts_gemini_live_model": "gemini-3.1-flash-live-preview",
     "realtime_transcription_model": "gemini-live-s2s",
     "live_session_transcription_provider_id": "gemini-live-s2s",
-    "live_session_translation_provider_id": "cerebras-oss"
+    "live_session_translation_provider_id": "text-llm"
   },
   "preset_defaults": {
     "PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID": "gemma-4-26b-a4b-vision",
@@ -53,9 +50,12 @@
     ],
     "text_to_text": [
       "qwen_3_235b_a22b_instruct_2507",
-      "gemma-4-26b-a4b",
+      "gpt_oss_120b_cerebras",
+      "zai_glm_4_7",
       "text_accurate_kimi",
-      "text_gemini_3_1_flash_lite"
+      "gemini-live-text-3.1",
+      "text_gemini_3_1_flash_lite",
+      "gemma-4-26b-a4b"
     ]
   },
   "search_disabled_full_names": [
@@ -192,12 +192,8 @@
   ],
   "live_translation_providers": [
     {
-      "id": "cerebras-oss",
-      "api_model": "qwen-3-235b-a22b-instruct-2507"
-    },
-    {
-      "id": "google-gemma",
-      "api_model": "gemma-4-26b-a4b-it"
+      "id": "text-llm",
+      "api_model": ""
     },
     {
       "id": "google-gtx",
@@ -245,19 +241,6 @@
       "quota_en": "1000 requests/day"
     },
     {
-      "id": "gemma-4-26b-a4b-vision",
-      "provider": "google",
-      "name_vi": "Gemma tốt",
-      "name_ko": "좋은 Gemma",
-      "name_en": "Good Gemma",
-      "full_name": "gemma-4-26b-a4b-it",
-      "model_type": "Vision",
-      "enabled": true,
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited"
-    },
-    {
       "id": "gemini-live-vision",
       "provider": "gemini-live",
       "name_vi": "Live 2.5",
@@ -295,6 +278,19 @@
       "quota_vi": "14400 lượt/ngày",
       "quota_ko": "14400 요청/일",
       "quota_en": "14400 requests/day"
+    },
+    {
+      "id": "gemma-4-26b-a4b-vision",
+      "provider": "google",
+      "name_vi": "Gemma tốt",
+      "name_ko": "좋은 Gemma",
+      "name_en": "Good Gemma",
+      "full_name": "gemma-4-26b-a4b-it",
+      "model_type": "Vision",
+      "enabled": true,
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited"
     },
     {
       "id": "gemma-4-31b-vision",
@@ -414,19 +410,6 @@
       "quota_en": "1000 requests/day"
     },
     {
-      "id": "gemma-4-26b-a4b",
-      "provider": "google",
-      "name_vi": "Gemma tốt",
-      "name_ko": "좋은 Gemma",
-      "name_en": "Good Gemma",
-      "full_name": "gemma-4-26b-a4b-it",
-      "model_type": "Text",
-      "enabled": true,
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited"
-    },
-    {
       "id": "text_accurate_kimi",
       "provider": "groq",
       "name_vi": "Chính xác",
@@ -466,12 +449,51 @@
       "quota_en": "250 requests/day"
     },
     {
+      "id": "llama_3_1_8b_cerebras",
+      "provider": "cerebras",
+      "name_vi": "C-Tốc độ",
+      "name_ko": "C-속도",
+      "name_en": "C-Speed",
+      "full_name": "llama3.1-8b",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "14400 lượt/ngày",
+      "quota_ko": "14400 요청/일",
+      "quota_en": "14400 requests/day"
+    },
+    {
+      "id": "gpt_oss_120b_cerebras",
+      "provider": "cerebras",
+      "name_vi": "C-Suy luận",
+      "name_ko": "C-추론",
+      "name_en": "C-Reasoning",
+      "full_name": "gpt-oss-120b",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "14400 lượt/ngày",
+      "quota_ko": "14400 요청/일",
+      "quota_en": "14400 requests/day"
+    },
+    {
       "id": "qwen_3_235b_a22b_instruct_2507",
       "provider": "cerebras",
       "name_vi": "C-Chính xác",
       "name_ko": "C-정확함",
       "name_en": "C-Accurate",
       "full_name": "qwen-3-235b-a22b-instruct-2507",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "14400 lượt/ngày",
+      "quota_ko": "14400 요청/일",
+      "quota_en": "14400 requests/day"
+    },
+    {
+      "id": "zai_glm_4_7",
+      "provider": "cerebras",
+      "name_vi": "C-Thông minh",
+      "name_ko": "C-스마트",
+      "name_en": "C-Smart",
+      "full_name": "zai-glm-4.7",
       "model_type": "Text",
       "enabled": true,
       "quota_vi": "14400 lượt/ngày",
@@ -516,6 +538,19 @@
       "quota_vi": "14400 lượt/ngày",
       "quota_ko": "14400 요청/일",
       "quota_en": "14400 requests/day"
+    },
+    {
+      "id": "gemma-4-26b-a4b",
+      "provider": "google",
+      "name_vi": "Gemma tốt",
+      "name_ko": "좋은 Gemma",
+      "name_en": "Good Gemma",
+      "full_name": "gemma-4-26b-a4b-it",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited"
     },
     {
       "id": "gemma-4-31b",

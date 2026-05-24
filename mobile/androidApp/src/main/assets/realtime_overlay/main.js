@@ -28,9 +28,8 @@
             geminiLive25Title: 'Gemini Live 2.5 (Cloud)',
             geminiLive31Title: 'Gemini Live 3.1 (Cloud)',
             geminiS2sTitle: 'Gemini S2S',
-            gemmaTitle: 'AI Translation (Gemma)',
-            cerebrasTitle: 'Instant AI (Cerebras)',
-            gtxTitle: 'Unlimited Translation (Google)',
+            llmLabel: 'LLM',
+            gtxLabel: 'Google Translate',
             targetLanguageTitle: 'Target language',
             ttsSettingsTitle: 'Text-to-speech settings',
             ttsTitle: 'Read',
@@ -115,12 +114,15 @@
             deviceBtn.classList.toggle('active', source === 'device');
         }
 
-        // Model name mappings for display
-        const TRANSLATION_MODEL_LABELS = {
-            'google-gemma': 'Gemma',
-            'cerebras-oss': 'Cerebras',
-            'google-gtx': 'GTX',
-        };
+        // Model display labels: resolved from overlayLocale at call time so
+        // setLocaleStrings can swap them without rebuilding the DOM.
+        function translationModelLabel(modelName) {
+            switch (modelName) {
+                case 'text-llm': return overlayLocale.llmLabel || 'LLM';
+                case 'google-gtx': return overlayLocale.gtxLabel || 'Google Translate';
+                default: return modelName;
+            }
+        }
         const TRANSCRIPTION_MODEL_LABELS = {
             'gemini-live-audio': 'Gemini Live',
             'moonshine-tiny-streaming': 'Moonshine Tiny',
@@ -152,7 +154,7 @@
             const btn = document.getElementById('translation-model-btn');
             const label = document.getElementById('translation-model-label');
             if (btn) btn.dataset.value = modelName;
-            if (label) label.textContent = TRANSLATION_MODEL_LABELS[modelName] || modelName;
+            if (label) label.textContent = translationModelLabel(modelName);
             // Legacy
             const icons = document.querySelectorAll('.model-icon');
             if (icons.length) setSelectedByDataValue(icons, modelName);
@@ -519,9 +521,13 @@
             updateTitleById('mic-btn', overlayLocale.micInputTitle);
             updateTitleById('device-btn', overlayLocale.deviceAudioTitle);
             updateTitleById('speak-btn', overlayLocale.ttsSettingsTitle);
-            updateTitleBySelector('.model-icon[data-value="google-gemma"]', overlayLocale.gemmaTitle);
-            updateTitleBySelector('.model-icon[data-value="cerebras-oss"]', overlayLocale.cerebrasTitle);
-            updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxTitle);
+            updateTitleBySelector('.model-icon[data-value="text-llm"]', overlayLocale.llmLabel);
+            updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxLabel);
+            // Refresh the displayed picker label too, since its source switched to overlayLocale.
+            const currentTranslationModelBtn = document.getElementById('translation-model-btn');
+            if (currentTranslationModelBtn && window.setTranslationModel) {
+                window.setTranslationModel(currentTranslationModelBtn.dataset.value || '');
+            }
             updateTitleBySelector('.trans-model-icon[data-value="gemini-live-audio"]', overlayLocale.geminiLive25Title);
             updateTitleBySelector('.trans-model-icon[data-value="gemini-live-s2s"]', overlayLocale.geminiS2sTitle);
             const currentTranscriptionModelBtn = document.getElementById('transcription-model-btn');

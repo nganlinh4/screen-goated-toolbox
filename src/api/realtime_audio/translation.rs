@@ -145,28 +145,34 @@ pub fn run_translation_loop(
             };
 
             let started_at = Instant::now();
-            let (gemini_key, cerebras_key, translation_model, history_entries) = {
+            let (keys, translation_model, text_chain, config_snapshot, history_entries) = {
                 let app = APP.lock().unwrap();
-                let gemini = app.config.gemini_api_key.clone();
-                let cerebras = app.config.cerebras_api_key.clone();
+                let keys = TranslationKeys {
+                    gemini: app.config.gemini_api_key.clone(),
+                    cerebras: app.config.cerebras_api_key.clone(),
+                    groq: app.config.api_key.clone(),
+                };
                 let model = app.config.realtime_translation_model.clone();
+                let chain = app.config.model_priority_chains.text_to_text.clone();
+                let cfg = app.config.clone();
                 drop(app);
                 let history = if let Ok(s) = state.lock() {
                     s.translation_history.clone()
                 } else {
                     Vec::new()
                 };
-                (gemini, cerebras, model, history)
+                (keys, model, chain, cfg, history)
             };
 
             let current_model = translation_model.as_str();
             let translation = translate_with_provider(
                 current_model,
-                &gemini_key,
-                &cerebras_key,
+                &keys,
                 &request,
                 &target_language,
                 &history_entries,
+                &text_chain,
+                &config_snapshot,
             );
 
             let applied = if let Some(result) = translation {
@@ -183,9 +189,10 @@ pub fn run_translation_loop(
                     request: &request,
                     target_language: &target_language,
                     current_model,
-                    gemini_key: &gemini_key,
-                    cerebras_key: &cerebras_key,
+                    keys: &keys,
                     history_entries: &history_entries,
+                    text_chain: &text_chain,
+                    config: &config_snapshot,
                     translation_hwnd,
                     state: &state,
                 });
@@ -205,13 +212,20 @@ pub fn run_translation_loop(
     }
 }
 
+struct TranslationKeys {
+    gemini: String,
+    cerebras: String,
+    groq: String,
+}
+
 struct FallbackTranslationRequest<'a> {
     request: &'a TranslationRequest,
     target_language: &'a str,
     current_model: &'a str,
-    gemini_key: &'a str,
-    cerebras_key: &'a str,
+    keys: &'a TranslationKeys,
     history_entries: &'a [(String, String)],
+    text_chain: &'a [String],
+    config: &'a crate::config::Config,
     translation_hwnd: HWND,
     state: &'a SharedRealtimeState,
 }
@@ -264,27 +278,18 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) -> bool 
         request,
         target_language,
         current_model,
-        gemini_key,
-        cerebras_key,
+        keys,
         history_entries,
+        text_chain,
+        config,
         translation_hwnd,
         state,
     } = request;
 
-    let alt_model = if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS {
-        crate::model_config::REALTIME_TRANSLATION_MODEL_GTX
-    } else if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX {
-        crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS
+    let alt_model = if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX {
+        crate::model_config::REALTIME_TRANSLATION_MODEL_LLM
     } else {
-        let pool = [
-            crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS,
-            crate::model_config::REALTIME_TRANSLATION_MODEL_GTX,
-        ];
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        pool[(nanos as usize) % pool.len()]
+        crate::model_config::REALTIME_TRANSLATION_MODEL_GTX
     };
 
     {
@@ -294,8 +299,7 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) -> bool 
     }
     unsafe {
         let flag = match alt_model {
-            crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA => 1,
-            crate::model_config::REALTIME_TRANSLATION_MODEL_GTX => 2,
+            crate::model_config::REALTIME_TRANSLATION_MODEL_GTX => 1,
             _ => 0,
         };
         let _ = PostMessageW(
@@ -308,11 +312,12 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) -> bool 
 
     let translated = translate_with_provider(
         alt_model,
-        gemini_key,
-        cerebras_key,
+        keys,
         request,
         target_language,
         history_entries,
+        text_chain,
+        config,
     );
 
     if let Some(result) = translated
@@ -326,36 +331,76 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) -> bool 
 
 fn translate_with_provider(
     current_model: &str,
-    gemini_key: &str,
-    cerebras_key: &str,
+    keys: &TranslationKeys,
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],
+    text_chain: &[String],
+    config: &crate::config::Config,
 ) -> Option<ValidatedTranslationResponse> {
     if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX {
         return translate_with_google_gtx_request(request, target_language);
     }
 
-    if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA {
-        let model_name = crate::model_config::realtime_translation_api_model(current_model);
-        return translate_with_google_model(
-            gemini_key,
-            model_name,
-            request,
-            target_language,
-            history_entries,
-        );
-    }
+    translate_with_llm_chain(keys, request, target_language, history_entries, text_chain, config)
+}
 
-    let model_name = crate::model_config::realtime_translation_api_model(current_model);
-    translate_with_cerebras(
-        cerebras_key,
-        model_name,
-        request,
-        target_language,
-        history_entries,
-        current_model,
-    )
+fn translate_with_llm_chain(
+    keys: &TranslationKeys,
+    request: &TranslationRequest,
+    target_language: &str,
+    history_entries: &[(String, String)],
+    text_chain: &[String],
+    config: &crate::config::Config,
+) -> Option<ValidatedTranslationResponse> {
+    for model_id in text_chain {
+        let Some(model) = crate::model_config::get_model_by_id(model_id) else {
+            continue;
+        };
+        if !model.enabled {
+            continue;
+        }
+        if !crate::retry_model_chain::provider_is_available(&model.provider, config) {
+            continue;
+        }
+
+        let result = match model.provider.as_str() {
+            "cerebras" => translate_with_cerebras(
+                &keys.cerebras,
+                &model.full_name,
+                request,
+                target_language,
+                history_entries,
+                &model.id,
+            ),
+            "google" => translate_with_google_model(
+                &keys.gemini,
+                &model.full_name,
+                request,
+                target_language,
+                history_entries,
+            ),
+            "gemini-live" => translate_with_gemini_live(
+                &model.full_name,
+                request,
+                target_language,
+                history_entries,
+            ),
+            "groq" => translate_with_groq(
+                &keys.groq,
+                &model.full_name,
+                request,
+                target_language,
+                history_entries,
+            ),
+            _ => continue,
+        };
+
+        if result.is_some() {
+            return result;
+        }
+    }
+    None
 }
 
 fn translate_with_google_model(
@@ -416,19 +461,23 @@ fn translate_with_cerebras(
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],
-    current_model: &str,
+    stats_key: &str,
 ) -> Option<ValidatedTranslationResponse> {
     if api_key.trim().is_empty() {
         return None;
     }
 
-    let payload = serde_json::json!({
+    // Cerebras reasoning models reject strict json_schema; fall back to free-text JSON.
+    let is_reasoning = model_name.contains("gpt-oss") || model_name.contains("zai-glm");
+    let mut payload = serde_json::json!({
         "model": model_name,
-        "messages": build_cerebras_messages(request, target_language, history_entries),
+        "messages": build_chat_messages(request, target_language, history_entries),
         "stream": false,
         "max_tokens": 512,
-        "response_format": cerebras_response_format(),
     });
+    if !is_reasoning {
+        payload["response_format"] = cerebras_response_format();
+    }
 
     let resp = UREQ_AGENT
         .post("https://api.cerebras.ai/v1/chat/completions")
@@ -448,12 +497,69 @@ fn translate_with_cerebras(
             .and_then(|v| v.to_str().ok())
             .unwrap_or("?");
         if let Ok(mut app) = APP.lock() {
-            app.model_usage_stats.insert(
-                crate::model_config::realtime_translation_api_model(current_model).to_string(),
-                format!("{} / {}", remaining, limit),
-            );
+            app.model_usage_stats
+                .insert(stats_key.to_string(), format!("{} / {}", remaining, limit));
         }
     }
+
+    let root: serde_json::Value = resp.into_body().read_json().ok()?;
+    let content = root
+        .get("choices")?
+        .as_array()?
+        .first()?
+        .get("message")?
+        .get("content")?
+        .as_str()?;
+
+    parse_translation_response(content, request)
+}
+
+fn translate_with_gemini_live(
+    model_name: &str,
+    request: &TranslationRequest,
+    target_language: &str,
+    history_entries: &[(String, String)],
+) -> Option<ValidatedTranslationResponse> {
+    let prompt = build_structured_prompt(request, target_language, history_entries);
+    let text = crate::api::gemini_live::gemini_live_generate(
+        model_name.to_string(),
+        prompt,
+        String::new(),
+        None,
+        None,
+        false,
+        "",
+        |_| {},
+    )
+    .ok()?;
+    parse_translation_response(&text, request)
+}
+
+fn translate_with_groq(
+    api_key: &str,
+    model_name: &str,
+    request: &TranslationRequest,
+    target_language: &str,
+    history_entries: &[(String, String)],
+) -> Option<ValidatedTranslationResponse> {
+    if api_key.trim().is_empty() {
+        return None;
+    }
+
+    let payload = serde_json::json!({
+        "model": model_name,
+        "messages": build_chat_messages(request, target_language, history_entries),
+        "stream": false,
+        "max_tokens": 512,
+        "response_format": { "type": "json_object" },
+    });
+
+    let resp = UREQ_AGENT
+        .post("https://api.groq.com/openai/v1/chat/completions")
+        .header("Authorization", &format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .send_json(payload)
+        .ok()?;
 
     let root: serde_json::Value = resp.into_body().read_json().ok()?;
     let content = root
@@ -553,7 +659,7 @@ fn validate_translation_response(
     })
 }
 
-fn build_cerebras_messages(
+fn build_chat_messages(
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],

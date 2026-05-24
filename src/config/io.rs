@@ -77,7 +77,7 @@ fn migrate_config(config: &mut Config) {
 
     if config.realtime_translation_model == "taalas-rt" {
         config.realtime_translation_model =
-            crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS.to_string();
+            crate::model_config::REALTIME_TRANSLATION_MODEL_LLM.to_string();
     }
 
     config.sync_active_profile_from_presets();

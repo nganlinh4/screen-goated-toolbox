@@ -827,9 +827,8 @@ class OverlayController(
         private val TRANSCRIPTION_MODEL_LABELS = TRANSCRIPTION_MODEL_IDS.entries.associate { (k, v) -> v to k }
 
         private val TRANSLATION_MODEL_IDS = mapOf(
-            "Gemma" to "google-gemma",
-            "Cerebras" to "cerebras-oss",
-            "GTX" to "google-gtx",
+            "LLM" to "text-llm",
+            "Google Dịch" to "google-gtx",
         )
         private val TRANSLATION_MODEL_LABELS = TRANSLATION_MODEL_IDS.entries.associate { (k, v) -> v to k }
     }

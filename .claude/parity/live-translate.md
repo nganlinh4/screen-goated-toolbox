@@ -35,7 +35,7 @@
 - Canonical defaults match Windows config:
   - `audio_source=device`
   - `target_language=Vietnamese`
-  - `translation_model=cerebras-oss`
+  - `translation_model=text-llm`
   - `transcription_model=gemini`
   - `font_size=16`
 - Realtime overlay contract:
@@ -65,8 +65,9 @@
   - mobile UI language changes must not force a full pane HTML reload just to swap strings
   - if the translation pane is hidden, mobile must skip opening new translation requests just like Windows skips work when translation visibility is off
 - Realtime control contract:
-  - translation providers must expose `cerebras-oss`, `google-gemma`, and `google-gtx`
-  - `cerebras-oss` resolves to the centralized Cerebras realtime API model `qwen-3-235b-a22b-instruct-2507` on both Windows and Android
+  - translation providers must expose exactly two ids: `text-llm` and `google-gtx`
+  - `text-llm` walks the centralized `text_to_text` priority chain at translate time, picking the first model whose provider key/availability check passes (Cerebras / Google / Groq are the supported HTTP backends today); the per-model API name comes from the shared model catalog, not a separate realtime constant
+  - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
   - transcription providers must expose `gemini` and `parakeet`
   - Android may mark Parakeet unavailable, but must not hide it or pretend it is active
   - TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model
@@ -78,10 +79,10 @@
 - Overlay lifetime is not tied to a transient provider failure. Recoverable transcription, translation, TTS, or capture failures must not silently close the floating overlay.
 - On Windows, `device` source plus realtime Read/TTS requires per-app capture when TTS is enabled. If no app is selected, the app selector must reopen instead of starting Gemini Live with no capture stream; cancelling selection exits that capture attempt cleanly rather than running a dead zero-audio session.
 - Translation failure must follow the Windows model fallback contract:
-  - `cerebras-oss -> google-gtx`
-  - `google-gtx -> cerebras-oss`
-  - `google-gemma -> random(cerebras-oss, google-gtx)` as Windows currently does
-- The realtime provider IDs may stay stable, but their backing API model names must come from centralized model configuration rather than scattered raw strings.
+  - `text-llm -> google-gtx` (after the LLM chain has been exhausted internally)
+  - `google-gtx -> text-llm`
+- LLM chain iteration inside `text-llm` is the first-line fallback; the top-level `text-llm <-> google-gtx` toggle is only used when the LLM chain produces no usable result at all.
+- Provider IDs are stable, but the backing API model names always resolve through the shared model catalog rather than scattered raw strings.
 - Translation failure must not silently fall back to whole-transcript translation.
 - Translation failure or empty/no-op output must leave `last_processed_len` unchanged so the same source snapshot is retried on the next interval.
 - Translation cadence is latency-adaptive on top of the `1500ms` base interval. Slower providers stretch the next request interval upward, but success/failure must never skip source ranges.

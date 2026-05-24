@@ -3,6 +3,10 @@ package dev.screengoated.toolbox.mobile.service
 import android.util.Base64
 import android.util.Log
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
+import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
+import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
+import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
+import dev.screengoated.toolbox.mobile.preset.streamGeminiLiveText
 import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
 import dev.screengoated.toolbox.mobile.shared.live.TranslationResponse
@@ -413,76 +417,152 @@ class RealtimeTranslationClient(
     suspend fun translate(
         geminiApiKey: String,
         cerebrasApiKey: String,
+        groqApiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
         providerId: String,
-        model: String,
+        llmChain: List<String>,
     ): TranslationExecutionResult = withContext(Dispatchers.IO) {
-        val primary = TranslationProvider(providerId, model)
+        val primaryId = providerId
 
-        val primaryAvailable = isProviderAvailable(primary.id, geminiApiKey, cerebrasApiKey)
-
-        if (primaryAvailable) {
-            runCatching {
-                val response = translateWithProvider(
-                    provider = primary,
-                    geminiApiKey = geminiApiKey,
-                    cerebrasApiKey = cerebrasApiKey,
-                    request = request,
-                    targetLanguage = targetLanguage,
-                )
-                return@withContext TranslationExecutionResult(primary.id, response)
-            }
+        runCatching {
+            val response = dispatchProvider(
+                providerId = primaryId,
+                geminiApiKey = geminiApiKey,
+                cerebrasApiKey = cerebrasApiKey,
+                groqApiKey = groqApiKey,
+                request = request,
+                targetLanguage = targetLanguage,
+                llmChain = llmChain,
+            )
+            return@withContext TranslationExecutionResult(primaryId, response)
         }
 
-        val fallback = fallbackProvider(primary.id, geminiApiKey, cerebrasApiKey)
-        val response = translateWithProvider(
-            provider = fallback,
+        val fallbackId = if (primaryId == PROVIDER_GTX) PROVIDER_LLM else PROVIDER_GTX
+        val response = dispatchProvider(
+            providerId = fallbackId,
             geminiApiKey = geminiApiKey,
             cerebrasApiKey = cerebrasApiKey,
+            groqApiKey = groqApiKey,
             request = request,
             targetLanguage = targetLanguage,
+            llmChain = llmChain,
         )
-        TranslationExecutionResult(fallback.id, response)
+        TranslationExecutionResult(fallbackId, response)
     }
 
-    private fun translateWithProvider(
-        provider: TranslationProvider,
+    private suspend fun dispatchProvider(
+        providerId: String,
         geminiApiKey: String,
         cerebrasApiKey: String,
+        groqApiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
+        llmChain: List<String>,
     ): TranslationResponse {
         Log.d(
             TRANSLATION_TAG,
-            "request provider=${provider.id} range=${request.sourceStart}-${request.sourceEnd} finalize=${request.bytesToCommit} draft=${request.draftSource.length}",
+            "request provider=$providerId range=${request.sourceStart}-${request.sourceEnd} finalize=${request.bytesToCommit} draft=${request.draftSource.length}",
         )
-        when (provider.id) {
-            PROVIDER_GTX -> return translateWithGoogleGtx(request, targetLanguage)
+        if (providerId == PROVIDER_GTX) {
+            return translateWithGoogleGtx(request, targetLanguage)
+        }
+        return translateWithLlmChain(
+            chainModelIds = llmChain,
+            geminiApiKey = geminiApiKey,
+            cerebrasApiKey = cerebrasApiKey,
+            groqApiKey = groqApiKey,
+            request = request,
+            targetLanguage = targetLanguage,
+        )
+    }
 
-            PROVIDER_CEREBRAS -> {
-                val apiKey = cerebrasApiKey.takeIf { it.isNotBlank() }
-                    ?: error("Add your Cerebras API key before using Cerebras translation.")
-                return translateWithCerebras(
-                    endpoint = "https://api.cerebras.ai/v1/chat/completions",
-                    apiKey = apiKey,
-                    model = provider.model,
-                    request = request,
-                    targetLanguage = targetLanguage,
-                )
+    private suspend fun translateWithLlmChain(
+        chainModelIds: List<String>,
+        geminiApiKey: String,
+        cerebrasApiKey: String,
+        groqApiKey: String,
+        request: TranslationRequest,
+        targetLanguage: String,
+    ): TranslationResponse {
+        var lastError: Throwable? = null
+        for (modelId in chainModelIds) {
+            val descriptor = PresetModelCatalog.getById(modelId) ?: continue
+            val attempt = runCatching {
+                when (descriptor.provider) {
+                    PresetModelProvider.CEREBRAS -> {
+                        val key = cerebrasApiKey.takeIf { it.isNotBlank() }
+                            ?: return@runCatching null
+                        translateWithCerebras(
+                            endpoint = "https://api.cerebras.ai/v1/chat/completions",
+                            apiKey = key,
+                            model = descriptor.fullName,
+                            request = request,
+                            targetLanguage = targetLanguage,
+                        )
+                    }
+
+                    PresetModelProvider.GOOGLE -> {
+                        val key = geminiApiKey.takeIf { it.isNotBlank() }
+                            ?: return@runCatching null
+                        translateWithGemini(
+                            endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${descriptor.fullName}:generateContent",
+                            apiKey = key,
+                            request = request,
+                            targetLanguage = targetLanguage,
+                        )
+                    }
+
+                    PresetModelProvider.GEMINI_LIVE -> {
+                        val key = geminiApiKey.takeIf { it.isNotBlank() }
+                            ?: return@runCatching null
+                        translateWithGeminiLive(
+                            descriptor = descriptor,
+                            apiKey = key,
+                            request = request,
+                            targetLanguage = targetLanguage,
+                        )
+                    }
+
+                    PresetModelProvider.GROQ -> {
+                        val key = groqApiKey.takeIf { it.isNotBlank() }
+                            ?: return@runCatching null
+                        translateWithGroq(
+                            apiKey = key,
+                            model = descriptor.fullName,
+                            request = request,
+                            targetLanguage = targetLanguage,
+                        )
+                    }
+
+                    else -> null
+                }
             }
-
-            else -> {
-                val apiKey = geminiApiKey.takeIf { it.isNotBlank() }
-                    ?: error("Add your Gemini API key before using Gemma translation.")
-                return translateWithGemini(
-                    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${provider.model}:generateContent",
-                    apiKey = apiKey,
-                    request = request,
-                    targetLanguage = targetLanguage,
-                )
+            val result = attempt.getOrElse {
+                lastError = it
+                null
+            }
+            if (result != null) {
+                return result
             }
         }
+        throw lastError ?: IOException("No LLM provider in the priority chain produced a translation.")
+    }
+
+    private suspend fun translateWithGeminiLive(
+        descriptor: PresetModelDescriptor,
+        apiKey: String,
+        request: TranslationRequest,
+        targetLanguage: String,
+    ): TranslationResponse {
+        val text = httpClient.streamGeminiLiveText(
+            model = descriptor,
+            apiKey = apiKey,
+            prompt = "",
+            inputText = buildStructuredPrompt(request, targetLanguage),
+            onChunk = {},
+        )
+        return parseTranslationResponse(text, request)
     }
 
     private fun translateWithCerebras(
@@ -492,14 +572,17 @@ class RealtimeTranslationClient(
         request: TranslationRequest,
         targetLanguage: String,
     ): TranslationResponse {
-        val requestBody = JSONObject()
+        // Cerebras reasoning models reject strict json_schema; rely on prompt-driven JSON.
+        val isReasoning = model.contains("gpt-oss") || model.contains("zai-glm")
+        val payload = JSONObject()
             .put("model", model)
             .put("messages", cerebrasMessages(request, targetLanguage))
             .put("stream", false)
             .put("max_tokens", 512)
-            .put("response_format", cerebrasResponseFormat())
-            .toString()
-            .toRequestBody(JSON_MEDIA_TYPE)
+        if (!isReasoning) {
+            payload.put("response_format", cerebrasResponseFormat())
+        }
+        val requestBody = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
 
         val httpRequest = Request.Builder()
             .url(endpoint)
@@ -511,6 +594,43 @@ class RealtimeTranslationClient(
         httpClient.newCall(httpRequest).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("Translation request failed with ${response.code}")
+            }
+            val body = response.body?.string().orEmpty()
+            val root = JSONObject(body)
+            val jsonText = root.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                .orEmpty()
+            return parseTranslationResponse(jsonText, request)
+        }
+    }
+
+    private fun translateWithGroq(
+        apiKey: String,
+        model: String,
+        request: TranslationRequest,
+        targetLanguage: String,
+    ): TranslationResponse {
+        val requestBody = JSONObject()
+            .put("model", model)
+            .put("messages", cerebrasMessages(request, targetLanguage))
+            .put("stream", false)
+            .put("max_tokens", 512)
+            .put("response_format", JSONObject().put("type", "json_object"))
+            .toString()
+            .toRequestBody(JSON_MEDIA_TYPE)
+
+        val httpRequest = Request.Builder()
+            .url("https://api.groq.com/openai/v1/chat/completions")
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .post(requestBody)
+            .build()
+
+        httpClient.newCall(httpRequest).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("Groq translation request failed with ${response.code}")
             }
             val body = response.body?.string().orEmpty()
             val root = JSONObject(body)
@@ -849,57 +969,12 @@ class RealtimeTranslationClient(
         }
     }
 
-    private fun isProviderAvailable(
-        providerId: String,
-        geminiApiKey: String,
-        cerebrasApiKey: String,
-    ): Boolean {
-        return when (providerId) {
-            PROVIDER_GTX -> true
-            PROVIDER_CEREBRAS -> cerebrasApiKey.isNotBlank()
-            else -> geminiApiKey.isNotBlank()
-        }
-    }
-
-    private fun fallbackProvider(
-        providerId: String,
-        geminiApiKey: String,
-        cerebrasApiKey: String,
-    ): TranslationProvider {
-        val candidates = when (providerId) {
-            PROVIDER_CEREBRAS -> listOf(
-                TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL),
-            )
-            PROVIDER_GTX -> listOf(
-                TranslationProvider(
-                    PROVIDER_CEREBRAS,
-                    LiveTranslationModelCatalog.CEREBRAS_API_MODEL,
-                ),
-                TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL),
-            )
-            else -> listOf(
-                TranslationProvider(
-                    PROVIDER_CEREBRAS,
-                    LiveTranslationModelCatalog.CEREBRAS_API_MODEL,
-                ),
-                TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL),
-            )
-        }
-        return candidates.firstOrNull { isProviderAvailable(it.id, geminiApiKey, cerebrasApiKey) }
-            ?: TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL)
-    }
-
     private companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-        private val PROVIDER_CEREBRAS = LiveTranslationModelCatalog.PROVIDER_CEREBRAS
+        private val PROVIDER_LLM = LiveTranslationModelCatalog.PROVIDER_LLM
         private val PROVIDER_GTX = LiveTranslationModelCatalog.PROVIDER_GTX
         private const val TRANSLATION_TAG = "LiveTranslate"
     }
-
-    private data class TranslationProvider(
-        val id: String,
-        val model: String,
-    )
 
     data class TranslationExecutionResult(
         val providerId: String,

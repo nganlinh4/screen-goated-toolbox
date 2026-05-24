@@ -365,6 +365,7 @@ pub fn get() -> LocaleText {
         font_minus_tooltip: "글꼴 축소",
         font_plus_tooltip: "글꼴 확대",
         google_gtx_label: "Google 번역",
+        llm_label: "LLM",
         opacity_label: "불투명도",
         downloaded_successfully: "다운로드 완료!",
         download_recording_tooltip: "녹음 다운로드",

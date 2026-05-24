@@ -339,11 +339,10 @@ pub unsafe extern "system" fn translation_wnd_proc(
             }
             WM_MODEL_SWITCH => {
                 // Animate the model switch in the UI
-                // WPARAM: 0 = groq-llama, 1 = google-gemma, 2 = google-gtx
+                // WPARAM: 0 = text-llm, 1 = google-gtx
                 let model_name = match wparam.0 {
-                    1 => "google-gemma",
-                    2 => "google-gtx",
-                    _ => "groq-llama",
+                    1 => "google-gtx",
+                    _ => "text-llm",
                 };
                 let hwnd_key = hwnd.0 as isize;
                 let script = format!(

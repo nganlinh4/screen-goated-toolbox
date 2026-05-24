@@ -440,52 +440,62 @@ fn render_translation_model_menu(
 ) {
     let current_model = APP
         .lock()
-        .map(|a| a.config.realtime_translation_model.clone())
+        .map(|a| {
+            (
+                a.config.realtime_translation_model.clone(),
+                crate::model_config::normalize_realtime_transcription_model_id(
+                    &a.config.realtime_transcription_model,
+                ) == "gemini-live-s2s",
+            )
+        })
         .unwrap_or_default();
-    let model_label = match current_model.as_str() {
-        "google-gemma" => "Gemma",
-        "google-gtx" => locale.google_gtx_label,
-        _ => "Cerebras",
+    let (current_model, is_s2s) = current_model;
+    let model_label = if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX {
+        locale.google_gtx_label
+    } else {
+        locale.llm_label
     };
 
-    render_combo(
-        ui,
-        "realtime_egui_translation_model",
-        model_label,
-        82.0,
-        theme,
-        |ui| {
-            if ui
-                .selectable_label(
-                    current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS,
-                    "Cerebras",
-                )
-                .clicked()
-            {
-                controller::set_translation_model(
-                    crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS,
-                );
-                ui.close();
-            }
-            if ui
-                .selectable_label(current_model == "google-gemma", "Gemma")
-                .clicked()
-            {
-                controller::set_translation_model("google-gemma");
-                ui.close();
-            }
-            if ui
-                .selectable_label(
-                    current_model == "google-gtx",
-                    locale.google_gtx_label.to_string(),
-                )
-                .clicked()
-            {
-                controller::set_translation_model("google-gtx");
-                ui.close();
-            }
-        },
-    );
+    ui.add_enabled_ui(!is_s2s, |ui| {
+        render_combo(
+            ui,
+            "realtime_egui_translation_model",
+            model_label,
+            82.0,
+            theme,
+            |ui| {
+                if ui
+                    .selectable_label(
+                        current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_LLM,
+                        locale.llm_label,
+                    )
+                    .clicked()
+                {
+                    controller::set_translation_model(
+                        crate::model_config::REALTIME_TRANSLATION_MODEL_LLM,
+                    );
+                    ui.close();
+                }
+                if ui
+                    .selectable_label(
+                        current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX,
+                        locale.google_gtx_label.to_string(),
+                    )
+                    .clicked()
+                {
+                    controller::set_translation_model(
+                        crate::model_config::REALTIME_TRANSLATION_MODEL_GTX,
+                    );
+                    ui.close();
+                }
+            },
+        )
+        .on_hover_text(if is_s2s {
+            locale.realtime_tooltip_s2s_translation_model
+        } else {
+            locale.realtime_tooltip_translation_model
+        });
+    });
 }
 
 fn render_language_selector(ui: &mut egui::Ui, theme: &RealtimeEguiTheme) {

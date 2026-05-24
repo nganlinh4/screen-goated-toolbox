@@ -657,7 +657,6 @@ pub fn render_global_settings(
                     let saved_use_ollama = config.use_ollama;
                     let saved_use_cerebras = config.use_cerebras;
                     let saved_ollama_base_url = config.ollama_base_url.clone();
-                    // Realtime model reset to default (google-gemma)
 
                     *config = Config::default();
 

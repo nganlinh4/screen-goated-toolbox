@@ -191,14 +191,12 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     } else {
         // Language selector and model dropdown for translation window
         {
-            let gemma_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA;
-            let cerebras_id = crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS;
+            let llm_id = crate::model_config::REALTIME_TRANSLATION_MODEL_LLM;
             let gtx_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GTX;
 
             let trans_model_options = [
-                (gemma_id, "Gemma"),
-                (cerebras_id, "Cerebras"),
-                (gtx_id, "GTX"),
+                (llm_id, text.llm_label),
+                (gtx_id, text.google_gtx_label),
             ];
             let model_options_html: String = trans_model_options
                 .iter()

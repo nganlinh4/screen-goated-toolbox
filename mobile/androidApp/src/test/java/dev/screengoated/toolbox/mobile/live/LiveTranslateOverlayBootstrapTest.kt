@@ -39,8 +39,7 @@ class LiveTranslateOverlayBootstrapTest {
     fun `live translate model catalogs expose fixture-required providers`() {
         val controls = loadFixture().requiredControls
         val translation = listOf(
-            RealtimeModelIds.TRANSLATION_CEREBRAS,
-            RealtimeModelIds.TRANSLATION_GEMMA,
+            RealtimeModelIds.TRANSLATION_LLM,
             RealtimeModelIds.TRANSLATION_GTX,
         )
         val transcription = listOf(

@@ -753,10 +753,11 @@ class LiveSessionRuntime(
                 val result = translationClient.translate(
                     geminiApiKey = repository.currentApiKey(),
                     cerebrasApiKey = repository.currentCerebrasApiKey(),
+                    groqApiKey = repository.currentGroqApiKey(),
                     request = request,
                     targetLanguage = repository.currentConfig().targetLanguage,
                     providerId = requestedProvider,
-                    model = repository.currentConfig().translationProvider.model,
+                    llmChain = repository.currentTextToTextChain(),
                 )
                 val usedProvider = result.providerId
                 repository.applyTranslationResponse(
