@@ -7,6 +7,9 @@ Cargo.lock
 tools/
 nul
 
+# Scratch / temporary release notes drafts
+tmp-release-notes-*.txt
+
 # Cursor build artifacts
 build_cursor.exe
 cursor_data.txt
