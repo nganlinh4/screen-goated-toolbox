@@ -36,7 +36,6 @@ const TARGET_SEGMENT_SAMPLES: usize = 48_000;
 const MAX_SEGMENT_SAMPLES: usize = 80_000;
 const END_SILENCE_FRAMES: usize = 3;
 const AUDIO_IDLE_FINISH_MS: u128 = 1_200;
-const DISPLAY_SEGMENT_LIMIT: usize = 8;
 const FIRST_AUDIO_SILENT_RETRY_MS: u128 = 3_800;
 const FIRST_AUDIO_ACTIVE_RETRY_MS: u128 = 5_200;
 const S2S_HEDGE_TIMEOUT_MS: u128 = 45_000;
@@ -2302,8 +2301,8 @@ fn publish_text(
     inputs: &BTreeMap<u64, String>,
     outputs: &BTreeMap<u64, String>,
 ) {
-    let source_display = split_recent_for_s2s_visuals(inputs, DISPLAY_SEGMENT_LIMIT);
-    let target_display = split_recent_for_s2s_visuals(outputs, DISPLAY_SEGMENT_LIMIT);
+    let source_display = split_s2s_visuals(inputs);
+    let target_display = split_s2s_visuals(outputs);
     let (source_display, target_display) = if let Ok(mut s) = state.lock() {
         s.full_transcript = source_display.full.clone();
         s.transcript_committed_pos = source_display.committed_len;
@@ -2337,10 +2336,9 @@ struct S2sVisualText {
     committed_len: usize,
 }
 
-fn split_recent_for_s2s_visuals(items: &BTreeMap<u64, String>, limit: usize) -> S2sVisualText {
-    let mut recent = items
+fn split_s2s_visuals(items: &BTreeMap<u64, String>) -> S2sVisualText {
+    let mut segments = items
         .iter()
-        .rev()
         .filter_map(|(_, value)| {
             let trimmed = value.trim();
             if trimmed.is_empty() {
@@ -2349,12 +2347,10 @@ fn split_recent_for_s2s_visuals(items: &BTreeMap<u64, String>, limit: usize) -> 
                 Some(trimmed)
             }
         })
-        .take(limit)
         .collect::<Vec<_>>();
-    recent.reverse();
 
-    let draft = recent.pop().unwrap_or_default().to_string();
-    let committed = recent.join(" ");
+    let draft = segments.pop().unwrap_or_default().to_string();
+    let committed = segments.join(" ");
     let full = if committed.is_empty() {
         draft.clone()
     } else if draft.is_empty() {
