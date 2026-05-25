@@ -60,8 +60,13 @@ def collect_files():
         if not d.exists():
             continue
         for f in sorted(d.rglob("*")):
-            if f.is_file() and should_include(f):
-                files.append(f)
+            try:
+                if f.is_file() and should_include(f):
+                    files.append(f)
+            except OSError:
+                # Broken symlinks (e.g. node_modules/.bin/.esbuild-*) raise
+                # WinError 1920 on stat(); just skip them.
+                continue
     for inc_file in INCLUDE_FILES:
         f = ROOT / inc_file
         if f.is_file():
