@@ -52,16 +52,18 @@
       "qwen_3_235b_a22b_instruct_2507",
       "gpt_oss_120b_cerebras",
       "zai_glm_4_7",
-      "text_accurate_kimi",
+      "text_llama_3_3_70b",
+      "text_qwen3_32b",
       "gemini-live-text-3.1",
       "text_gemini_3_1_flash_lite",
       "gemma-4-26b-a4b"
     ]
   },
   "search_disabled_full_names": [
-    "gemma-3-27b-it",
     "gemini-3-flash-preview",
-    "gemini-3.1-flash-lite-preview"
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-flash-live-preview",
+    "gemini-2.5-flash-native-audio-preview-12-2025"
   ],
   "non_llm_ids": [
     "gemini-live-audio",
@@ -267,19 +269,6 @@
       "quota_en": "Unlimited"
     },
     {
-      "id": "gemma-3-27b-vision",
-      "provider": "google",
-      "name_vi": "Gemma chậm",
-      "name_ko": "Gemma 느림",
-      "name_en": "Gemma Slow",
-      "full_name": "gemma-3-27b-it",
-      "model_type": "Vision",
-      "enabled": true,
-      "quota_vi": "14400 lượt/ngày",
-      "quota_ko": "14400 요청/일",
-      "quota_en": "14400 requests/day"
-    },
-    {
       "id": "gemma-4-26b-a4b-vision",
       "provider": "google",
       "name_vi": "Gemma tốt",
@@ -288,9 +277,9 @@
       "full_name": "gemma-4-26b-a4b-it",
       "model_type": "Vision",
       "enabled": true,
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited"
+      "quota_vi": "1500 lượt/ngày",
+      "quota_ko": "1500 요청/일",
+      "quota_en": "1500 requests/day"
     },
     {
       "id": "gemma-4-31b-vision",
@@ -301,9 +290,9 @@
       "full_name": "gemma-4-31b-it",
       "model_type": "Vision",
       "enabled": true,
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited"
+      "quota_vi": "1500 lượt/ngày",
+      "quota_ko": "1500 요청/일",
+      "quota_en": "1500 requests/day"
     },
     {
       "id": "gemini-flash-lite",
@@ -345,12 +334,12 @@
       "quota_en": "20 requests/day"
     },
     {
-      "id": "gemini-pro",
+      "id": "gemini-pro-1.6",
       "provider": "google",
-      "name_vi": "Siêu ch.xác, chậm",
-      "name_ko": "초정밀, 느림",
-      "name_en": "Super Accurate, Slow",
-      "full_name": "gemini-robotics-er-1.5-preview",
+      "name_vi": "Siêu ch.xác, mới",
+      "name_ko": "신 초정밀",
+      "name_en": "Super Accurate, New",
+      "full_name": "gemini-robotics-er-1.6-preview",
       "model_type": "Vision",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",
@@ -364,6 +353,19 @@
       "name_ko": "초정밀",
       "name_en": "Super Accurate",
       "full_name": "gemini-3-flash-preview",
+      "model_type": "Vision",
+      "enabled": true,
+      "quota_vi": "20 lượt/ngày",
+      "quota_ko": "20 요청/일",
+      "quota_en": "20 requests/day"
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "provider": "google",
+      "name_vi": "Cực chính xác",
+      "name_ko": "최정밀",
+      "name_en": "Ultra Accurate",
+      "full_name": "gemini-3.5-flash",
       "model_type": "Vision",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",
@@ -410,12 +412,25 @@
       "quota_en": "1000 requests/day"
     },
     {
-      "id": "text_accurate_kimi",
+      "id": "text_llama_3_3_70b",
       "provider": "groq",
       "name_vi": "Chính xác",
       "name_ko": "정확함",
       "name_en": "Accurate",
-      "full_name": "moonshotai/kimi-k2-instruct-0905",
+      "full_name": "llama-3.3-70b-versatile",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "1000 lượt/ngày",
+      "quota_ko": "1000 요청/일",
+      "quota_en": "1000 requests/day"
+    },
+    {
+      "id": "text_qwen3_32b",
+      "provider": "groq",
+      "name_vi": "Qwen mới",
+      "name_ko": "신 Qwen",
+      "name_en": "Qwen New",
+      "full_name": "qwen/qwen3-32b",
       "model_type": "Text",
       "enabled": true,
       "quota_vi": "1000 lượt/ngày",
@@ -457,9 +472,9 @@
       "full_name": "llama3.1-8b",
       "model_type": "Text",
       "enabled": true,
-      "quota_vi": "14400 lượt/ngày",
-      "quota_ko": "14400 요청/일",
-      "quota_en": "14400 requests/day"
+      "quota_vi": "2400 lượt/ngày",
+      "quota_ko": "2400 요청/일",
+      "quota_en": "2400 requests/day"
     },
     {
       "id": "gpt_oss_120b_cerebras",
@@ -470,9 +485,9 @@
       "full_name": "gpt-oss-120b",
       "model_type": "Text",
       "enabled": true,
-      "quota_vi": "14400 lượt/ngày",
-      "quota_ko": "14400 요청/일",
-      "quota_en": "14400 requests/day"
+      "quota_vi": "2400 lượt/ngày",
+      "quota_ko": "2400 요청/일",
+      "quota_en": "2400 requests/day"
     },
     {
       "id": "qwen_3_235b_a22b_instruct_2507",
@@ -483,9 +498,9 @@
       "full_name": "qwen-3-235b-a22b-instruct-2507",
       "model_type": "Text",
       "enabled": true,
-      "quota_vi": "14400 lượt/ngày",
-      "quota_ko": "14400 요청/일",
-      "quota_en": "14400 requests/day"
+      "quota_vi": "2400 lượt/ngày",
+      "quota_ko": "2400 요청/일",
+      "quota_en": "2400 requests/day"
     },
     {
       "id": "zai_glm_4_7",
@@ -496,9 +511,9 @@
       "full_name": "zai-glm-4.7",
       "model_type": "Text",
       "enabled": true,
-      "quota_vi": "14400 lượt/ngày",
-      "quota_ko": "14400 요청/일",
-      "quota_en": "14400 requests/day"
+      "quota_vi": "2400 lượt/ngày",
+      "quota_ko": "2400 요청/일",
+      "quota_en": "2400 requests/day"
     },
     {
       "id": "gemini-live-text",
@@ -527,19 +542,6 @@
       "quota_en": "Unlimited"
     },
     {
-      "id": "gemma-3-27b",
-      "provider": "google",
-      "name_vi": "Gemma chậm",
-      "name_ko": "Gemma 느림",
-      "name_en": "Gemma Slow",
-      "full_name": "gemma-3-27b-it",
-      "model_type": "Text",
-      "enabled": true,
-      "quota_vi": "14400 lượt/ngày",
-      "quota_ko": "14400 요청/일",
-      "quota_en": "14400 requests/day"
-    },
-    {
       "id": "gemma-4-26b-a4b",
       "provider": "google",
       "name_vi": "Gemma tốt",
@@ -548,9 +550,9 @@
       "full_name": "gemma-4-26b-a4b-it",
       "model_type": "Text",
       "enabled": true,
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited"
+      "quota_vi": "1500 lượt/ngày",
+      "quota_ko": "1500 요청/일",
+      "quota_en": "1500 requests/day"
     },
     {
       "id": "gemma-4-31b",
@@ -561,9 +563,9 @@
       "full_name": "gemma-4-31b-it",
       "model_type": "Text",
       "enabled": true,
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited"
+      "quota_vi": "1500 lượt/ngày",
+      "quota_ko": "1500 요청/일",
+      "quota_en": "1500 requests/day"
     },
     {
       "id": "text_gemini_flash_lite",
@@ -605,12 +607,12 @@
       "quota_en": "20 requests/day"
     },
     {
-      "id": "text_gemini_pro",
+      "id": "text_gemini_pro_1_6",
       "provider": "google",
-      "name_vi": "Siêu ch.xác, chậm",
-      "name_ko": "초정밀, 느림",
-      "name_en": "Super Accurate, Slow",
-      "full_name": "gemini-robotics-er-1.5-preview",
+      "name_vi": "Siêu ch.xác, mới",
+      "name_ko": "신 초정밀",
+      "name_en": "Super Accurate, New",
+      "full_name": "gemini-robotics-er-1.6-preview",
       "model_type": "Text",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",
@@ -624,6 +626,19 @@
       "name_ko": "초정밀",
       "name_en": "Super Accurate",
       "full_name": "gemini-3-flash-preview",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "20 lượt/ngày",
+      "quota_ko": "20 요청/일",
+      "quota_en": "20 requests/day"
+    },
+    {
+      "id": "text_gemini_3_5_flash",
+      "provider": "google",
+      "name_vi": "Cực chính xác",
+      "name_ko": "최정밀",
+      "name_en": "Ultra Accurate",
+      "full_name": "gemini-3.5-flash",
       "model_type": "Text",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",
@@ -787,12 +802,12 @@
       "quota_en": "20 requests/day"
     },
     {
-      "id": "gemini-audio-pro",
+      "id": "gemini-audio-pro-1.6",
       "provider": "google",
-      "name_vi": "Siêu ch.xác, chậm",
-      "name_ko": "초정밀, 느림",
-      "name_en": "Super Accurate, Slow",
-      "full_name": "gemini-robotics-er-1.5-preview",
+      "name_vi": "Siêu ch.xác, mới",
+      "name_ko": "신 초정밀",
+      "name_en": "Super Accurate, New",
+      "full_name": "gemini-robotics-er-1.6-preview",
       "model_type": "Audio",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",
@@ -806,6 +821,19 @@
       "name_ko": "초정밀",
       "name_en": "Super Accurate",
       "full_name": "gemini-3-flash-preview",
+      "model_type": "Audio",
+      "enabled": true,
+      "quota_vi": "20 lượt/ngày",
+      "quota_ko": "20 요청/일",
+      "quota_en": "20 requests/day"
+    },
+    {
+      "id": "gemini-audio-3.5-flash",
+      "provider": "google",
+      "name_vi": "Cực chính xác",
+      "name_ko": "최정밀",
+      "name_en": "Ultra Accurate",
+      "full_name": "gemini-3.5-flash",
       "model_type": "Audio",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",

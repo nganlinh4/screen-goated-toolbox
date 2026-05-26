@@ -326,7 +326,7 @@ mod tests {
             "gemma-4-26b-a4b".to_string(),
             "qr-scanner".to_string(),
             "scout".to_string(),
-            "text_accurate_kimi".to_string(),
+            "text_llama_3_3_70b".to_string(),
         ];
 
         migrate_config(&mut config);
@@ -343,7 +343,7 @@ mod tests {
             vec![
                 crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
                 "gemma-4-26b-a4b".to_string(),
-                "text_accurate_kimi".to_string()
+                "text_llama_3_3_70b".to_string()
             ]
         );
     }

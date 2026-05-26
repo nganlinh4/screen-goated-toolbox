@@ -84,7 +84,7 @@ where
                     "cerebras".to_string(),
                 )
             } else if !groq_api_key.trim().is_empty() {
-                ("text_accurate_kimi".to_string(), "groq".to_string())
+                ("text_fast_120b".to_string(), "groq".to_string())
             } else {
                 (original_model_id.to_string(), original_provider.to_string())
             }
