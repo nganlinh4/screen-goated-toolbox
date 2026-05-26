@@ -582,7 +582,15 @@ fn render_recent(ui: &mut egui::Ui, text: &LocaleText, state: &mut TtsPlayground
         .max_height(90.0)
         .show(ui, |ui| {
             for artifact in &state.recent {
-                let preview = artifact.text.chars().take(38).collect::<String>();
+                // Collapse whitespace (incl. embedded newlines) into single spaces so
+                // multi-line source text can't paint across two lines inside a fixed-
+                // height row.
+                let preview_flat = artifact
+                    .text
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let preview = preview_flat.chars().take(38).collect::<String>();
                 let label = format!(
                     "{} | {} | {:.1}s | {}",
                     artifact.created_label,
