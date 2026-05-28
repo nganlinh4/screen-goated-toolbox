@@ -1,22 +1,25 @@
-use super::state::{MAX_RECENT_ARTIFACTS, TtsPlaygroundArtifact};
-use crate::config::TtsMethod;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use super::state::{CurrentClip, RecentClip};
+use crate::api::tts::types::TtsCollectedAudio;
+use crate::config::TtsMethod;
+
+const MAX_RECENT: usize = 5;
+
 #[derive(Serialize, Deserialize)]
 struct StoredClip {
-    id: u64,
+    id: String,
     text: String,
     method: TtsMethod,
     voice_label: String,
     sample_rate: u32,
     duration_ms: u64,
-    latency_ms: u128,
     created_label: String,
     wav_file: String,
 }
 
-pub(super) fn load_recent() -> Vec<TtsPlaygroundArtifact> {
+pub(super) fn load_recent() -> Vec<(CurrentClip, TtsCollectedAudio)> {
     let (_, db_path, dir) = paths();
     let clips: Vec<StoredClip> = std::fs::read_to_string(&db_path)
         .ok()
@@ -28,41 +31,51 @@ pub(super) fn load_recent() -> Vec<TtsPlaygroundArtifact> {
         .filter_map(|clip| {
             let wav_data = std::fs::read(dir.join(&clip.wav_file)).ok()?;
             let pcm_samples = decode_wav_to_24khz_mono(&wav_data).ok()?;
-            Some(TtsPlaygroundArtifact {
+            let duration_sec = clip.duration_ms as f32 / 1000.0;
+            let current = CurrentClip {
                 id: clip.id,
                 text: clip.text,
-                method: clip.method,
                 voice_label: clip.voice_label,
-                pcm_samples,
+                created_label: clip.created_label,
+                duration_sec,
+                sample_rate: clip.sample_rate,
+            };
+            let audio = TtsCollectedAudio {
                 wav_data,
+                pcm_samples,
                 sample_rate: clip.sample_rate,
                 duration_ms: clip.duration_ms,
-                latency_ms: clip.latency_ms,
-                created_label: clip.created_label,
-            })
+            };
+            Some((current, audio))
         })
-        .take(MAX_RECENT_ARTIFACTS)
+        .take(MAX_RECENT)
         .collect()
 }
 
-pub(super) fn save_recent(clips: &std::collections::VecDeque<TtsPlaygroundArtifact>) {
+pub(super) fn save_recent(
+    clips: &[(RecentClip, std::sync::Arc<TtsCollectedAudio>)],
+    methods: &[(String, TtsMethod)],
+) {
     let (_, db_path, dir) = paths();
     let _ = std::fs::create_dir_all(&dir);
     let mut stored = Vec::new();
-    for artifact in clips.iter().take(MAX_RECENT_ARTIFACTS) {
-        let wav_file = format!("clip_{}.wav", artifact.id);
-        if std::fs::write(dir.join(&wav_file), &artifact.wav_data).is_err() {
+    for (clip, audio) in clips.iter().take(MAX_RECENT) {
+        let wav_file = format!("{}.wav", safe_file_stem(&clip.id));
+        if std::fs::write(dir.join(&wav_file), &audio.wav_data).is_err() {
             continue;
         }
         stored.push(StoredClip {
-            id: artifact.id,
-            text: artifact.text.clone(),
-            method: artifact.method.clone(),
-            voice_label: artifact.voice_label.clone(),
-            sample_rate: artifact.sample_rate,
-            duration_ms: artifact.duration_ms,
-            latency_ms: artifact.latency_ms,
-            created_label: artifact.created_label.clone(),
+            id: clip.id.clone(),
+            text: clip.text.clone(),
+            method: methods
+                .iter()
+                .find(|(id, _)| id == &clip.id)
+                .map(|(_, method)| method.clone())
+                .unwrap_or_default(),
+            voice_label: clip.voice_label.clone(),
+            sample_rate: audio.sample_rate,
+            duration_ms: audio.duration_ms,
+            created_label: clip.created_label.clone(),
             wav_file,
         });
     }
@@ -77,11 +90,7 @@ pub(super) fn save_managed_wav(prefix: &str, wav_data: &[u8]) -> Result<PathBuf,
         .timestamp_nanos_opt()
         .unwrap_or_default()
         .unsigned_abs();
-    let safe_prefix = prefix
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
-        .collect::<String>();
-    let path = dir.join(format!("{safe_prefix}_{id}.wav"));
+    let path = dir.join(format!("{}_{}.wav", safe_file_stem(prefix), id));
     std::fs::write(&path, wav_data).map_err(|err| err.to_string())?;
     Ok(path)
 }
@@ -93,16 +102,6 @@ pub(super) fn encode_managed_wav(
 ) -> Result<PathBuf, String> {
     let wav_data = crate::api::audio::encode_wav(samples, sample_rate, 1);
     save_managed_wav(prefix, &wav_data)
-}
-
-fn paths() -> (PathBuf, PathBuf, PathBuf) {
-    let config_dir = dirs::config_dir()
-        .unwrap_or_default()
-        .join("screen-goated-toolbox");
-    let dir = config_dir.join("tts_playground");
-    let db_path = dir.join("clips.json");
-    let _ = std::fs::create_dir_all(&dir);
-    (config_dir, db_path, dir)
 }
 
 pub(super) fn decode_wav_to_24khz_mono(wav_data: &[u8]) -> Result<Vec<i16>, String> {
@@ -145,6 +144,16 @@ pub(super) fn decode_wav_to_24khz_mono(wav_data: &[u8]) -> Result<Vec<i16>, Stri
     }
 }
 
+fn paths() -> (PathBuf, PathBuf, PathBuf) {
+    let config_dir = dirs::config_dir()
+        .unwrap_or_default()
+        .join("screen-goated-toolbox");
+    let dir = config_dir.join("tts_playground");
+    let db_path = dir.join("clips.json");
+    let _ = std::fs::create_dir_all(&dir);
+    (config_dir, db_path, dir)
+}
+
 fn resample_linear(samples: &[i16], from_rate: u32, to_rate: u32) -> Vec<i16> {
     if samples.is_empty() || from_rate == to_rate {
         return samples.to_vec();
@@ -165,4 +174,11 @@ fn resample_linear(samples: &[i16], from_rate: u32, to_rate: u32) -> Vec<i16> {
         }
     }
     output
+}
+
+fn safe_file_stem(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect()
 }

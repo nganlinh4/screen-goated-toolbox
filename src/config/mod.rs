@@ -33,6 +33,7 @@ mod config;
 mod io;
 pub mod preset;
 pub mod tts_catalog;
+mod tts_catalog_gemini;
 pub mod types;
 
 // ============================================================================

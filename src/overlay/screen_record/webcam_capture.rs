@@ -1,12 +1,11 @@
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use pollster::block_on;
-use windows::core::HSTRING;
 use windows::Devices::Enumeration::{DeviceClass, DeviceInformation};
 use windows::Media::Capture::{
     MediaCapture, MediaCaptureInitializationSettings, MediaCaptureMemoryPreference,
@@ -14,7 +13,8 @@ use windows::Media::Capture::{
 };
 use windows::Media::MediaProperties::{MediaEncodingProfile, VideoEncodingQuality};
 use windows::Storage::StorageFile;
-use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
+use windows::core::HSTRING;
 
 const WEBCAM_POLL_SLEEP_MS: u64 = 20;
 static HAS_VIDEO_CAPTURE_DEVICE: OnceLock<bool> = OnceLock::new();

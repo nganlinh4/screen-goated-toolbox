@@ -2,6 +2,8 @@
 
 use crate::config::TtsMethod;
 
+pub use super::tts_catalog_gemini::{GEMINI_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES};
+
 #[derive(Clone, Debug)]
 pub struct TtsProviderInfo {
     pub method: TtsMethod,

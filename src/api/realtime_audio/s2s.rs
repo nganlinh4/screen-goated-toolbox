@@ -2545,9 +2545,7 @@ fn is_speech_like_frame(frame: &[i16], rms: f32) -> bool {
     (0.015..=0.24).contains(&zcr) && (1.2..=18.0).contains(&crest)
 }
 
-fn adaptive_vad_snapshot(
-    adaptive_vad: &Arc<Mutex<AdaptiveS2sVadState>>,
-) -> AdaptiveS2sVadSnapshot {
+fn adaptive_vad_snapshot(adaptive_vad: &Arc<Mutex<AdaptiveS2sVadState>>) -> AdaptiveS2sVadSnapshot {
     adaptive_vad
         .lock()
         .map(|state| state.snapshot())
@@ -2592,8 +2590,8 @@ fn is_segment_worth_sending(segment: &Segment, vad: AdaptiveS2sVadSnapshot) -> b
         return confidence >= 0.18 || speech_like_ratio >= 0.08;
     }
 
-    let min_speech_like =
-        MIN_SPEECH_LIKE_RATIO + (STRICT_MIN_SPEECH_LIKE_RATIO - MIN_SPEECH_LIKE_RATIO) * vad.strictness;
+    let min_speech_like = MIN_SPEECH_LIKE_RATIO
+        + (STRICT_MIN_SPEECH_LIKE_RATIO - MIN_SPEECH_LIKE_RATIO) * vad.strictness;
     let min_confidence = 0.24 + (STRICT_MIN_SPEECH_CONFIDENCE - 0.24) * vad.strictness;
     speech_like_ratio >= min_speech_like || confidence >= min_confidence
 }
@@ -2798,8 +2796,8 @@ mod tests {
         for i in 0..FRAME_SAMPLES * 8 {
             let phase = i as f32 / 16_000.0;
             let envelope = if i % 1_600 < 1_100 { 1.0 } else { 0.45 };
-            let sample = ((phase * 240.0 * std::f32::consts::TAU).sin() * 9_000.0 * envelope)
-                as i16;
+            let sample =
+                ((phase * 240.0 * std::f32::consts::TAU).sin() * 9_000.0 * envelope) as i16;
             samples.push(sample);
         }
         let segment = Segment::new(1, samples, 8, 0.20);

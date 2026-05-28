@@ -10,16 +10,14 @@ use crate::api::tts::TTS_MANAGER;
 use crate::api::tts::types::TtsCollectedAudio;
 use crate::api::tts::types::TtsRequestProfile;
 use crate::config::tts_catalog::{
-    KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES, SUPERTONIC_LANGUAGES, SUPERTONIC_VOICES,
-    narration_tts_providers, normalize_kokoro_lang, normalize_magpie_voice, tts_method_id,
+    GEMINI_VOICES, KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES, SUPERTONIC_LANGUAGES,
+    SUPERTONIC_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES, narration_tts_providers,
+    normalize_kokoro_lang, normalize_magpie_voice, tts_method_id,
 };
 use crate::config::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
     MagpieVoiceConfig, StepAudioVoiceConfig, SupertonicSettings, SupertonicVoiceConfig,
     TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
-};
-use crate::gui::settings_ui::tts_playground_data::{
-    GEMINI_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES,
 };
 use crate::model_config::tts_gemini_model_options;
 
