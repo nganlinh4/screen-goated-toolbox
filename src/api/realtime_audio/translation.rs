@@ -342,7 +342,14 @@ fn translate_with_provider(
         return translate_with_google_gtx_request(request, target_language);
     }
 
-    translate_with_llm_chain(keys, request, target_language, history_entries, text_chain, config)
+    translate_with_llm_chain(
+        keys,
+        request,
+        target_language,
+        history_entries,
+        text_chain,
+        config,
+    )
 }
 
 fn translate_with_llm_chain(

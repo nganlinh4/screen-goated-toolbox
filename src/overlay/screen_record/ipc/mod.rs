@@ -246,8 +246,8 @@ pub fn handle_ipc_command(
             })
         }
         "pick_audio_file" => {
-            let selected =
-                crate::gui::settings_ui::tts_playground::pick_step_audio_reference_audio()?;
+            let selected = crate::overlay::tts_playground::pick_step_audio_reference_audio()
+                .map_err(|e| e.to_string())?;
             Ok(match selected {
                 Some(path) => serde_json::json!(path.display().to_string()),
                 None => serde_json::Value::Null,

@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+ * Theme tokens
+ *
+ * The Rust runtime sets data-theme=dark|light on <html> before mount based on
+ * the active SGT theme. CSS variables are RGB triples (no rgb() wrapper) so
+ * Tailwind's `rgb(var(--token) / <alpha>)` syntax works.
+ * ------------------------------------------------------------------------ */
+
+:root,
+[data-theme="light"] {
+  --surface: 246 247 251;
+  --surface-soft: 255 255 255;
+  --surface-strong: 232 234 241;
+  --border: 220 224 233;
+  --border-strong: 200 206 218;
+  --fg: 22 24 32;
+  --muted: 110 118 134;
+  --accent: 79 122 255;
+  --accent-soft: 207 220 255;
+  --danger: 208 82 82;
+}
+
+[data-theme="dark"] {
+  --surface: 17 18 26;
+  --surface-soft: 24 26 36;
+  --surface-strong: 32 34 46;
+  --border: 44 47 60;
+  --border-strong: 64 68 84;
+  --fg: 230 232 240;
+  --muted: 142 148 165;
+  --accent: 132 159 255;
+  --accent-soft: 40 56 110;
+  --danger: 230 116 116;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-strong) / 0.6);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--muted) / 0.7);
+}
+
+/* Drag region — only the top header bar */
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}

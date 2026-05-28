@@ -194,10 +194,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             let llm_id = crate::model_config::REALTIME_TRANSLATION_MODEL_LLM;
             let gtx_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GTX;
 
-            let trans_model_options = [
-                (llm_id, text.llm_label),
-                (gtx_id, text.google_gtx_label),
-            ];
+            let trans_model_options = [(llm_id, text.llm_label), (gtx_id, text.google_gtx_label)];
             let model_options_html: String = trans_model_options
                 .iter()
                 .map(|(val, label)| {

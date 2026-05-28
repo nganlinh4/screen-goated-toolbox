@@ -113,7 +113,6 @@ pub struct SettingsApp {
     pub(crate) pointer_gallery: crate::gui::settings_ui::pointer_gallery::PointerGallery,
     pub(crate) show_translation_gummy: bool,
     pub(crate) show_tts_playground: bool,
-    pub(crate) tts_playground: crate::gui::settings_ui::tts_playground::TtsPlaygroundUiState,
 
     // --- ARGUMENT HANDLING ---
     pub(crate) pending_file_path: Option<std::path::PathBuf>,

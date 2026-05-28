@@ -359,7 +359,6 @@ impl SettingsApp {
             pointer_gallery: crate::gui::settings_ui::pointer_gallery::PointerGallery::new(),
             show_translation_gummy: false,
             show_tts_playground: false,
-            tts_playground: crate::gui::settings_ui::tts_playground::TtsPlaygroundUiState::new(),
             // -----------------------------
 
             // --- ARGUMENT HANDLING ---

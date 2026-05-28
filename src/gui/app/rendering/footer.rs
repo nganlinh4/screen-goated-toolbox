@@ -71,14 +71,12 @@ impl SettingsApp {
             crate::overlay::translation_gummy::show_translation_gummy();
         }
 
-        if crate::gui::settings_ui::tts_playground::render_tts_playground(
-            ctx,
-            &mut self.config,
-            &text,
-            &mut self.show_tts_playground,
-            &mut self.tts_playground,
-        ) {
-            self.save_and_sync();
+        // The TTS Playground now lives in a WRY mini-app window. The footer
+        // sets `show_tts_playground=true` to request open; consume the flag
+        // and route to the WebView window.
+        if self.show_tts_playground {
+            self.show_tts_playground = false;
+            crate::overlay::tts_playground::show_tts_playground();
         }
 
         // Render Download Manager Modal

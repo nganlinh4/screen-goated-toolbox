@@ -1,14 +1,12 @@
-use super::state::TtsPlaygroundArtifact;
+//! File dialogs used by the TTS Playground (pick a source audio file, save a
+//! WAV / MP3). Promoted here from the now-retiring egui module so the WRY
+//! mini-app + any other callers don't have to depend on the old GUI tree.
+
 use std::path::{Path, PathBuf};
 
-pub(super) fn save_wav_dialog(artifact: &TtsPlaygroundArtifact) -> Result<PathBuf, String> {
-    let filename = default_filename(artifact, "wav");
-    let path = save_file_dialog(&filename, "WAV Audio (*.wav)", "*.wav", "wav")?;
-    std::fs::write(&path, &artifact.wav_data).map_err(|err| err.to_string())?;
-    Ok(path)
-}
-
-pub(super) fn pick_audio_file_dialog() -> Result<Option<PathBuf>, String> {
+/// Picks an existing audio file (WAV / FLAC / OGG / AIFF…) via the Windows
+/// system open-file dialog. Returns `Ok(None)` when the user cancels.
+pub fn pick_audio_file_dialog() -> Result<Option<PathBuf>, String> {
     #[cfg(windows)]
     {
         pick_audio_file_dialog_windows()
@@ -19,14 +17,24 @@ pub(super) fn pick_audio_file_dialog() -> Result<Option<PathBuf>, String> {
     }
 }
 
-pub(super) fn save_mp3_dialog(artifact: &TtsPlaygroundArtifact) -> Result<PathBuf, String> {
+/// Writes the WAV bytes for a TTS Playground clip to a user-chosen path and
+/// returns the path. Cancel returns Err("Save cancelled") so callers can
+/// distinguish cancel from real I/O errors.
+pub fn save_wav(default_filename: &str, wav_bytes: &[u8]) -> Result<PathBuf, String> {
+    let path = save_file_dialog(default_filename, "WAV Audio (*.wav)", "*.wav", "wav")?;
+    std::fs::write(&path, wav_bytes).map_err(|err| err.to_string())?;
+    Ok(path)
+}
+
+/// Transcodes WAV bytes to MP3 using ffmpeg and writes the result to a
+/// user-chosen path. Uses the FFmpeg dependency manager so an automatic
+/// download happens if missing.
+pub fn save_mp3(default_filename: &str, wav_bytes: &[u8], clip_id: u64) -> Result<PathBuf, String> {
     let ffmpeg =
         crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge()?;
-
-    let filename = default_filename(artifact, "mp3");
-    let output_path = save_file_dialog(&filename, "MP3 Audio (*.mp3)", "*.mp3", "mp3")?;
-    let temp_wav = std::env::temp_dir().join(format!("sgt_tts_playground_{}.wav", artifact.id));
-    std::fs::write(&temp_wav, &artifact.wav_data).map_err(|err| err.to_string())?;
+    let output_path = save_file_dialog(default_filename, "MP3 Audio (*.mp3)", "*.mp3", "mp3")?;
+    let temp_wav = std::env::temp_dir().join(format!("sgt_tts_playground_{clip_id}.wav"));
+    std::fs::write(&temp_wav, wav_bytes).map_err(|err| err.to_string())?;
 
     let output = std::process::Command::new(&ffmpeg)
         .args([
@@ -48,8 +56,27 @@ pub(super) fn save_mp3_dialog(artifact: &TtsPlaygroundArtifact) -> Result<PathBu
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("FFmpeg MP3 export failed: {stderr}"));
     }
-
     Ok(output_path)
+}
+
+fn save_file_dialog(
+    default_name: &str,
+    filter_name: &str,
+    filter_pattern: &str,
+    default_ext: &str,
+) -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    {
+        save_file_dialog_windows(default_name, filter_name, filter_pattern, default_ext)
+    }
+    #[cfg(not(windows))]
+    {
+        let path = dirs::download_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(default_name);
+        let _ = (filter_name, filter_pattern, default_ext);
+        Ok(path)
+    }
 }
 
 #[cfg(windows)]
@@ -116,47 +143,6 @@ fn pick_audio_file_dialog_windows() -> Result<Option<PathBuf>, String> {
         CoTaskMemFree(Some(path.0 as *const _));
         CoUninitialize();
         Ok((!path_str.is_empty()).then(|| PathBuf::from(path_str)))
-    }
-}
-
-fn default_filename(artifact: &TtsPlaygroundArtifact, ext: &str) -> String {
-    let method = match artifact.method {
-        crate::config::TtsMethod::GeminiLive => "gemini",
-        crate::config::TtsMethod::GoogleTranslate => "google",
-        crate::config::TtsMethod::EdgeTTS => "edge",
-        crate::config::TtsMethod::FishAudioS2Pro => "removed-tts-model",
-        crate::config::TtsMethod::StepAudioEditX => "step-editx",
-        crate::config::TtsMethod::MagpieMultilingual => "magpie",
-        crate::config::TtsMethod::Kokoro => "kokoro",
-        crate::config::TtsMethod::Supertonic => "supertonic",
-        crate::config::TtsMethod::VieneuTts => "vieneu",
-        crate::config::TtsMethod::VoxtralTts => "voxtral",
-    };
-    let voice = artifact
-        .voice_label
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
-        .collect::<String>();
-    format!("tts-playground-{method}-{voice}-{}.{}", artifact.id, ext)
-}
-
-fn save_file_dialog(
-    default_name: &str,
-    filter_name: &str,
-    filter_pattern: &str,
-    default_ext: &str,
-) -> Result<PathBuf, String> {
-    #[cfg(windows)]
-    {
-        save_file_dialog_windows(default_name, filter_name, filter_pattern, default_ext)
-    }
-    #[cfg(not(windows))]
-    {
-        let path = dirs::download_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(default_name);
-        let _ = (filter_name, filter_pattern, default_ext);
-        Ok(path)
     }
 }
 
