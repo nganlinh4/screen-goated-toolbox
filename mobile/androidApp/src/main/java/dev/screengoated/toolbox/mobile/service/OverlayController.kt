@@ -17,6 +17,7 @@ import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker
+import dev.screengoated.toolbox.mobile.service.overlay.OverlayPickerOption
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayPaneWindow
 import dev.screengoated.toolbox.mobile.service.overlay.RealtimeOverlayModelOptions
 import dev.screengoated.toolbox.mobile.service.overlay.RealtimeOverlayHtmlBuilder
@@ -503,13 +504,17 @@ class OverlayController(
             geminiS2sLabel = overlayLocale.geminiS2sTitle,
             unavailableSuffix = overlayLocale.unavailableSuffix,
         )
-        val models = options.map { it.label }
         val currentId = repository.transcriptionModelId()
         val currentLabel = options.firstOrNull { it.id == currentId }?.label ?: options.first().label
-        transcriptionModelPicker.show(
+        transcriptionModelPicker.showOptions(
             anchorBounds = anchor,
             selectedLanguage = currentLabel,
-            languages = models,
+            options = options.map {
+                OverlayPickerOption(
+                    label = it.label,
+                    enabled = it.enabled,
+                )
+            },
             isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
             title = overlayLocale.transcriptionModelTitle,
             searchHint = overlayLocale.pickerSearchHint,

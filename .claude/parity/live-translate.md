@@ -74,7 +74,7 @@
   - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
   - Windows transcription providers are exposed in this order: `gemini-live-audio`, `gemini-live-s2s`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`
   - Android transcription providers expose the same cloud/S2S and Zipformer control surface, keep `parakeet` visible as unavailable, and additionally expose the documented Android-native Moonshine variants: `moonshine-tiny-streaming`, `moonshine-small-streaming`, and `moonshine-medium-streaming`
-  - Android may mark Parakeet unavailable, but must not hide it or pretend it is active
+  - Android may mark Parakeet unavailable, but must not hide it, enable it in the picker, or pretend it is active
 - Gemini S2S disables the translation model selector and read-locks TTS on both platforms
 - While Gemini S2S is active, translation model changes are rejected at the controller/state boundary, not only hidden in the visible UI.
 - While Gemini S2S is active, TTS disable requests are rejected at the controller/state boundary, not only hidden in the visible UI.
