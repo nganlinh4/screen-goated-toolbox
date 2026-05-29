@@ -66,7 +66,7 @@ class LiveSessionRuntime(
             // surface is still tearing down. Chrome GPU crashes with a null-deref if
             // we create LAYER_TYPE_HARDWARE WebViews during that compositor transition.
             delay(600)
-            launchSession(scope)
+            launchSession(scope, preserveFrozenPrefix = false)
         }
     }
 
@@ -84,11 +84,15 @@ class LiveSessionRuntime(
         scope.launch {
             audioCaptureController.preserveConsentOnClose = true
             stopSession(keepOverlay = true)
-            launchSession(scope)
+            repository.freezeCurrentTranscript()
+            launchSession(scope, preserveFrozenPrefix = true)
         }
     }
 
-    private suspend fun launchSession(scope: CoroutineScope) {
+    private suspend fun launchSession(
+        scope: CoroutineScope,
+        preserveFrozenPrefix: Boolean,
+    ) {
         lastTranslationAttemptAtMs = 0L
         translationIntervalMs = TRANSLATION_INTERVAL_MS
         val config = repository.currentConfig()
@@ -119,7 +123,7 @@ class LiveSessionRuntime(
         )
 
         sessionJob = scope.launch {
-            repository.markStarting()
+            repository.markStarting(preserveFrozenPrefix = preserveFrozenPrefix)
 
             // Auto-download native runtimes on demand (all engines).
             if (useMoonshine) {

@@ -417,6 +417,49 @@
           }
         ]
       }
+    },
+    {
+      "name": "restart freezes visible transcript without reprocessing it",
+      "steps": [
+        {
+          "type": "appendTranscript",
+          "text": "old session.",
+          "atMs": 100
+        },
+        {
+          "type": "freezeCurrentTranscript"
+        },
+        {
+          "type": "appendTranscript",
+          "text": "new tail",
+          "atMs": 200
+        },
+        {
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "sourceStart": 0,
+            "sourceEnd": 8,
+            "finalizedSourceEnd": 0,
+            "pendingSource": "new tail",
+            "finalizedSource": "",
+            "draftSource": "new tail",
+            "previousDraftTranslation": ""
+          }
+        }
+      ],
+      "expectedState": {
+        "frozenPrefix": "old session.",
+        "fullTranscript": "new tail",
+        "displayTranscript": "old session. new tail",
+        "lastCommittedPos": 0,
+        "lastProcessedLen": 0,
+        "committedTranslation": "",
+        "uncommittedTranslation": "",
+        "uncommittedSourceStart": 0,
+        "uncommittedSourceEnd": 0,
+        "displayTranslation": "",
+        "translationHistory": []
+      }
     }
   ]
 }

@@ -118,6 +118,7 @@ data class TranslationHistoryEntry(
 
 @Serializable
 data class LiveTextState(
+    val frozenPrefix: String = "",
     val fullTranscript: String = "",
     val displayTranscript: String = "",
     val lastCommittedPos: Int = 0,

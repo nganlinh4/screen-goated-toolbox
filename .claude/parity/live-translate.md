@@ -88,6 +88,7 @@
 ## Failure And Recovery
 - Missing BYOK key blocks session start.
 - Stop preserves the latest display state in memory until the next session start resets it.
+- Source/model/S2S-language restarts freeze the current transcript as visible prefix text and start the new capture with fresh translation state; the frozen prefix remains visible/copyable but is never reprocessed for translation.
 - Overlay lifetime is not tied to a transient provider failure. Recoverable transcription, translation, TTS, or capture failures must not silently close the floating overlay.
 - On Windows, `device` source plus realtime Read/TTS requires per-app capture when TTS is enabled. If no app is selected, the app selector must reopen instead of starting Gemini Live with no capture stream; cancelling selection exits that capture attempt cleanly rather than running a dead zero-audio session.
 - Translation failure must follow the Windows model fallback contract:

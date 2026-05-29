@@ -174,8 +174,12 @@ class AndroidLiveSessionRepository(
         store.markAwaitingPermissions(state.value.permissions)
     }
 
-    fun markStarting() {
-        store.markStarting()
+    fun markStarting(preserveFrozenPrefix: Boolean = false) {
+        store.markStarting(preserveFrozenPrefix = preserveFrozenPrefix)
+    }
+
+    fun freezeCurrentTranscript() {
+        store.freezeCurrentTranscript()
     }
 
     fun markListening() {
