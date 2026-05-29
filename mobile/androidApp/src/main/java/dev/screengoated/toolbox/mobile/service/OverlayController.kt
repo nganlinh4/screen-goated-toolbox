@@ -14,6 +14,7 @@ import androidx.core.content.edit
 import dev.screengoated.toolbox.mobile.ProjectionConsentProxyActivity
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
+import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayPaneWindow
@@ -486,43 +487,47 @@ class OverlayController(
 
     private fun showTranscriptionModelPicker() {
         val anchor = transcriptionWindow?.currentBounds() ?: return
-        val geminiS2sLabel = currentOverlayLocale().geminiS2sTitle
+        val overlayLocale = currentOverlayLocale()
+        val geminiS2sLabel = overlayLocale.geminiS2sTitle
+        val parakeetLabel = parakeetUnavailableLabel(overlayLocale.unavailableSuffix)
         val models = listOf(
             "Gemini Live | 100+ languages",
             geminiS2sLabel,
+            parakeetLabel,
             "Moonshine Tiny | 1 language",
             "Moonshine Small | 1 language",
             "Moonshine Medium | 1 language",
             "Zipformer | 8 languages",
         )
         val currentId = repository.transcriptionModelId()
-        val currentLabel = if (currentId == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
-            geminiS2sLabel
-        } else {
-            TRANSCRIPTION_MODEL_LABELS[currentId] ?: "Gemini Live | 100+ languages"
+        val currentLabel = when (currentId) {
+            RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S -> geminiS2sLabel
+            RealtimeModelIds.TRANSCRIPTION_PARAKEET -> parakeetLabel
+            else -> TRANSCRIPTION_MODEL_LABELS[currentId] ?: "Gemini Live | 100+ languages"
         }
         transcriptionModelPicker.show(
             anchorBounds = anchor,
             selectedLanguage = currentLabel,
             languages = models,
             isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
-            title = "Transcription Model",
+            title = overlayLocale.transcriptionModelTitle,
         )
     }
 
     private fun onTranscriptionModelSelected(label: String) {
-        val modelId = if (label == currentOverlayLocale().geminiS2sTitle) {
-            dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S
-        } else {
-            TRANSCRIPTION_MODEL_IDS[label] ?: return
+        val overlayLocale = currentOverlayLocale()
+        val modelId = when (label) {
+            overlayLocale.geminiS2sTitle -> RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S
+            parakeetUnavailableLabel(overlayLocale.unavailableSuffix) -> RealtimeModelIds.TRANSCRIPTION_PARAKEET
+            else -> TRANSCRIPTION_MODEL_IDS[label] ?: return
         }
         if (repository.transcriptionModelId() != modelId) {
             repository.updateTranscriptionModel(modelId)
             // Reset language to English when switching models to avoid stale
             // language codes that don't exist in the new model's language list
             repository.updateTranscriptionLanguage(
-                if (modelId == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S ||
-                    modelId == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5
+                if (modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S ||
+                    modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5
                 ) {
                     "all"
                 } else {
@@ -536,24 +541,33 @@ class OverlayController(
     }
 
     private fun showTranslationModelPicker() {
-        if (repository.transcriptionModelId() == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
+        if (repository.transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
             return
         }
         val anchor = translationWindow?.currentBounds() ?: return
-        val models = listOf("Gemma", "Cerebras", "GTX")
+        val overlayLocale = currentOverlayLocale()
+        val models = listOf(overlayLocale.llmLabel, overlayLocale.gtxLabel)
         val currentId = repository.currentConfig().translationProvider.id
-        val currentLabel = TRANSLATION_MODEL_LABELS[currentId] ?: "Gemma"
+        val currentLabel = when (currentId) {
+            RealtimeModelIds.TRANSLATION_GTX -> overlayLocale.gtxLabel
+            else -> overlayLocale.llmLabel
+        }
         translationModelPicker.show(
             anchorBounds = anchor,
             selectedLanguage = currentLabel,
             languages = models,
             isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
-            title = "Translation Model",
+            title = overlayLocale.translationModelTitle,
         )
     }
 
     private fun onTranslationModelSelected(label: String) {
-        val modelId = TRANSLATION_MODEL_IDS[label] ?: return
+        val overlayLocale = currentOverlayLocale()
+        val modelId = when (label) {
+            overlayLocale.gtxLabel -> RealtimeModelIds.TRANSLATION_GTX
+            overlayLocale.llmLabel -> RealtimeModelIds.TRANSLATION_LLM
+            else -> return
+        }
         repository.updateTranslationModel(modelId)
     }
 
@@ -573,7 +587,7 @@ class OverlayController(
                 selectedLanguage = currentName,
                 languages = zipLangs,
                 isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
-                title = "Zipformer Language",
+                title = currentOverlayLocale().transcriptionLanguageTitle,
             )
         }
     }
@@ -826,11 +840,9 @@ class OverlayController(
         )
         private val TRANSCRIPTION_MODEL_LABELS = TRANSCRIPTION_MODEL_IDS.entries.associate { (k, v) -> v to k }
 
-        private val TRANSLATION_MODEL_IDS = mapOf(
-            "LLM" to "text-llm",
-            "Google Dịch" to "google-gtx",
-        )
-        private val TRANSLATION_MODEL_LABELS = TRANSLATION_MODEL_IDS.entries.associate { (k, v) -> v to k }
+        private fun parakeetUnavailableLabel(unavailableSuffix: String): String {
+            return "Parakeet ($unavailableSuffix)"
+        }
     }
 }
 

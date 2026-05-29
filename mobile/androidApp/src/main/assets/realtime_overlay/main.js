@@ -26,10 +26,14 @@
             micInputTitle: 'Microphone input',
             deviceAudioTitle: 'Device audio',
             geminiLive25Title: 'Gemini Live 2.5 (Cloud)',
+            geminiLiveTitle: 'Gemini Live (Cloud)',
             geminiLive31Title: 'Gemini Live 3.1 (Cloud)',
             geminiS2sTitle: 'Gemini S2S',
             llmLabel: 'LLM',
             gtxLabel: 'Google Translate',
+            transcriptionModelTitle: 'Transcription model',
+            translationModelTitle: 'Translation model',
+            transcriptionLanguageTitle: 'Transcription language',
             targetLanguageTitle: 'Target language',
             ttsSettingsTitle: 'Text-to-speech settings',
             ttsTitle: 'Read',
@@ -125,6 +129,7 @@
         }
         const TRANSCRIPTION_MODEL_LABELS = {
             'gemini-live-audio': 'Gemini Live',
+            'parakeet': 'Parakeet',
             'moonshine-tiny-streaming': 'Moonshine Tiny',
             'moonshine-small-streaming': 'Moonshine Small',
             'moonshine-medium-streaming': 'Moonshine Medium',
@@ -523,6 +528,9 @@
             updateTitleById('speak-btn', overlayLocale.ttsSettingsTitle);
             updateTitleBySelector('.model-icon[data-value="text-llm"]', overlayLocale.llmLabel);
             updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxLabel);
+            updateTitleById('translation-model-btn', overlayLocale.translationModelTitle);
+            updateTitleById('transcription-model-btn', overlayLocale.transcriptionModelTitle);
+            updateTitleById('trans-lang-badge', overlayLocale.transcriptionLanguageTitle);
             // Refresh the displayed picker label too, since its source switched to overlayLocale.
             const currentTranslationModelBtn = document.getElementById('translation-model-btn');
             if (currentTranslationModelBtn && window.setTranslationModel) {

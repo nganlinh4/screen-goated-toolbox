@@ -36,7 +36,7 @@
   - `audio_source=device`
   - `target_language=Vietnamese`
   - `translation_model=text-llm`
-  - `transcription_model=gemini`
+  - `transcription_model=gemini-live-s2s`
   - `font_size=16`
 - Realtime overlay contract:
   - transcription pane header shows the live waveform canvas, not a fake activity stub
@@ -68,8 +68,10 @@
   - translation providers must expose exactly two ids: `text-llm` and `google-gtx`
   - `text-llm` walks the centralized `text_to_text` priority chain at translate time, picking the first model whose provider key/availability check passes (Cerebras / Google / Groq are the supported HTTP backends today); the per-model API name comes from the shared model catalog, not a separate realtime constant
   - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
-  - transcription providers must expose `gemini` and `parakeet`
+  - Windows transcription providers are exposed in this order: `gemini-live-audio`, `gemini-live-s2s`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`
+  - Android transcription providers expose the same cloud/S2S and Zipformer control surface, keep `parakeet` visible as unavailable, and additionally expose the documented Android-native Moonshine variants: `moonshine-tiny-streaming`, `moonshine-small-streaming`, and `moonshine-medium-streaming`
   - Android may mark Parakeet unavailable, but must not hide it or pretend it is active
+  - Gemini S2S disables the translation model selector and read-locks TTS on both platforms
   - TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model
 - Android mobile uses a native overlay language picker window instead of relying on the embedded WebView `<select>` popup, because the control must remain usable inside detached overlay windows.
 
@@ -108,6 +110,7 @@
 - Android target-language choices must use the same ISO-639-1-backed full language list contract as Windows.
 - Android launcher does not expose overlay/source/language controls; those live in the overlay itself.
 - Android may surface Parakeet as unavailable until a real mobile implementation exists, but it must remain visible and must not fake active transcription.
+- Android exposes Moonshine Tiny/Small/Medium as mobile-only local ASR choices because Windows Qwen3 is a Windows CUDA/runtime feature and is not a mobile runtime.
 - Android keeps the Windows glass/tint look and animated blur/mask text appearance. Mobile-specific performance work must preserve the same visible effect rather than swapping in a different animation.
 - Android uses a native overlay language picker window for the target-language control while keeping the same ISO-639-1-backed language list and selected-language semantics as Windows.
 - Android overlay windows must stay non-focusable so the system IME can still open while the floating panes remain on screen.

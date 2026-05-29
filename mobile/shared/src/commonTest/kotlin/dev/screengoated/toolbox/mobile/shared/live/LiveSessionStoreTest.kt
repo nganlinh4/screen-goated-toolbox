@@ -50,10 +50,13 @@ class LiveSessionStoreTest {
         val liveText = store.state.value.liveText
         assertEquals("Hello world. Next phrase", liveText.fullTranscript)
         assertEquals("Hello world. Next phrase", liveText.displayTranscript)
-        assertEquals("Next phrase", liveText.currentSourceDraft)
+        assertEquals(
+            "Next phrase",
+            liveText.fullTranscript.substring(liveText.uncommittedSourceStart, liveText.uncommittedSourceEnd),
+        )
         assertEquals("Bonjour monde.", liveText.committedTranslation)
         assertEquals("Next translated phrase", liveText.uncommittedTranslation)
         assertEquals("Bonjour monde. Next translated phrase", liveText.displayTranslation)
-        assertEquals(TranscriptionMethod.GEMINI_LIVE_S2S, store.state.value.transcriptionMethod)
+        assertEquals(TranscriptionMethod.GEMINI_LIVE_S2S, liveText.transcriptionMethod)
     }
 }

@@ -115,16 +115,16 @@ object LiveTranslateParity {
     ): LiveTextState {
         val sourceFull = joinDisplayText(sourceCommitted, sourceDraft)
         val targetFull = joinDisplayText(targetCommitted, targetDraft)
-        val sourceCommittedLen = if (sourceCommitted.isBlank()) 0 else sourceCommitted.length
+        val sourceDraftStart = joinedDraftStart(sourceCommitted, sourceDraft, sourceFull)
         return state.copy(
             transcriptionMethod = TranscriptionMethod.GEMINI_LIVE_S2S,
             fullTranscript = sourceFull,
             displayTranscript = sourceFull,
-            lastCommittedPos = sourceCommittedLen,
-            lastProcessedLen = sourceCommittedLen,
+            lastCommittedPos = sourceDraftStart,
+            lastProcessedLen = sourceDraftStart,
             committedTranslation = targetCommitted,
             uncommittedTranslation = targetDraft,
-            uncommittedSourceStart = sourceCommittedLen,
+            uncommittedSourceStart = sourceDraftStart,
             uncommittedSourceEnd = sourceFull.length,
             displayTranslation = targetFull,
             lastTranscriptAppendAtMs = nowMs,
@@ -467,6 +467,22 @@ object LiveTranslateParity {
                 draft.firstOrNull()?.isWhitespace() == true -> "$committed$draft"
             else -> "$committed $draft"
         }
+    }
+
+    private fun joinedDraftStart(
+        committed: String,
+        draft: String,
+        full: String,
+    ): Int {
+        if (draft.isBlank()) {
+            return full.length
+        }
+        if (committed.isBlank()) {
+            return full.length - draft.trimStart().length
+        }
+        val insertedSeparator = committed.lastOrNull()?.isWhitespace() != true &&
+            draft.firstOrNull()?.isWhitespace() != true
+        return committed.length + if (insertedSeparator) 1 else 0
     }
 
     private fun clearUncommittedTranslation(state: LiveTextState): LiveTextState {

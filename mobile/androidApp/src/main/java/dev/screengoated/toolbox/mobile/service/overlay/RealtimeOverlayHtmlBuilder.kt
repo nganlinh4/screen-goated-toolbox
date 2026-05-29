@@ -105,7 +105,7 @@ internal class RealtimeOverlayHtmlBuilder(
         return if (isTranslation) {
             """
             <span class="ctrl-btn speak-btn" id="speak-btn" title="${locale.overlay.ttsSettingsTitle}"><span class="material-symbols-rounded">${RealtimeOverlayIcons.VOLUME_UP}</span></span>
-            <button class="model-dropdown" id="translation-model-btn" type="button" title="Translation Model" data-value="">
+            <button class="model-dropdown" id="translation-model-btn" type="button" title="${locale.overlay.translationModelTitle}" data-value="">
                 <span id="translation-model-label">--</span>
             </button>
             <button class="language-btn" id="language-select" type="button" title="${locale.overlay.targetLanguageTitle}" data-base-title="${locale.overlay.targetLanguageTitle}" data-language="" data-code="">
@@ -119,10 +119,10 @@ internal class RealtimeOverlayHtmlBuilder(
                 <span class="material-symbols-rounded audio-icon" id="mic-btn" data-value="mic" title="${locale.overlay.micInputTitle}">${RealtimeOverlayIcons.MIC}</span>
                 <span class="material-symbols-rounded audio-icon" id="device-btn" data-value="device" title="${locale.overlay.deviceAudioTitle}">${RealtimeOverlayIcons.SPEAKER_GROUP}</span>
             </div>
-            <button class="model-dropdown" id="transcription-model-btn" type="button" title="Transcription Model" data-value="">
+            <button class="model-dropdown" id="transcription-model-btn" type="button" title="${locale.overlay.transcriptionModelTitle}" data-value="">
                 <span id="transcription-model-label">--</span>
             </button>
-            <button class="trans-lang-badge greyed" id="trans-lang-badge" type="button" title="Transcription Language" data-code="EN">EN</button>
+            <button class="trans-lang-badge greyed" id="trans-lang-badge" type="button" title="${locale.overlay.transcriptionLanguageTitle}" data-code="EN">EN</button>
             """.trimIndent()
         }
     }

@@ -37,19 +37,30 @@ class LiveTranslateOverlayBootstrapTest {
 
     @Test
     fun `live translate model catalogs expose fixture-required providers`() {
-        val controls = loadFixture().requiredControls
+        val fixture = loadFixture()
+        val controls = fixture.requiredControls
+        val requiredModels = fixture.requiredModels
         val translation = listOf(
             RealtimeModelIds.TRANSLATION_LLM,
             RealtimeModelIds.TRANSLATION_GTX,
         )
         val transcription = listOf(
             RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5,
+            RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S,
             RealtimeModelIds.TRANSCRIPTION_PARAKEET,
+            "moonshine-tiny-streaming",
+            "moonshine-small-streaming",
+            "moonshine-medium-streaming",
+            "zipformer",
         )
 
+        assertEquals(requiredModels.translationProviders, translation)
+        assertEquals(requiredModels.androidTranscriptionProviders, transcription)
         assertTrue(translation.contains(defaultTranslationProviderId()))
         assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5))
+        assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S))
         assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_PARAKEET))
+        assertTrue(requiredModels.androidUnavailableTranscriptionProviders.contains(RealtimeModelIds.TRANSCRIPTION_PARAKEET))
         assertTrue(controls.translationPane.contains("translation-model-toggle"))
         assertTrue(controls.transcriptionPane.contains("transcription-model-toggle"))
     }
@@ -92,6 +103,7 @@ class LiveTranslateOverlayBootstrapTest {
 @Serializable
 private data class OverlayFixture(
     val defaults: OverlayDefaults,
+    val requiredModels: RequiredModels,
     val requiredControls: RequiredControls,
 )
 
@@ -107,6 +119,14 @@ private data class OverlayDefaults(
     val ttsSpeed: Int,
     val ttsAutoSpeed: Boolean,
     val ttsVolume: Int,
+)
+
+@Serializable
+private data class RequiredModels(
+    val translationProviders: List<String>,
+    val windowsTranscriptionProviders: List<String>,
+    val androidTranscriptionProviders: List<String>,
+    val androidUnavailableTranscriptionProviders: List<String>,
 )
 
 @Serializable

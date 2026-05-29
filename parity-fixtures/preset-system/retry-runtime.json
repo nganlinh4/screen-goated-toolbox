@@ -14,9 +14,13 @@
     ],
     "text_to_text": [
       "qwen_3_235b_a22b_instruct_2507",
-      "gemma-4-26b-a4b",
+      "gpt_oss_120b_cerebras",
+      "zai_glm_4_7",
       "text_llama_3_3_70b",
-      "text_gemini_3_1_flash_lite"
+      "text_qwen3_32b",
+      "gemini-live-text-3.1",
+      "text_gemini_3_1_flash_lite",
+      "gemma-4-26b-a4b"
     ]
   }
 }
