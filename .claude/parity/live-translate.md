@@ -10,7 +10,7 @@
 - Windows realtime model config: [src/model_config.rs](../../src/model_config.rs)
 - Windows realtime overlay state: [src/overlay/realtime_webview/state.rs](../../src/overlay/realtime_webview/state.rs)
 - Windows realtime overlay IPC + controls: [src/overlay/realtime_webview/webview.rs](../../src/overlay/realtime_webview/webview.rs)
-- Windows app selection popup: [src/overlay/realtime_webview/app_selection.rs](../../src/overlay/realtime_webview/app_selection.rs)
+- Windows app selection popup: [src/overlay/realtime_webview/app_selection/mod.rs](../../src/overlay/realtime_webview/app_selection/mod.rs)
 - Windows text chunk UI behavior: [src/overlay/html_components/js_logic.rs](../../src/overlay/html_components/js_logic.rs)
 
 ## Behavior Contract

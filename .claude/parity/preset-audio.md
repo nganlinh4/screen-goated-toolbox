@@ -9,7 +9,7 @@
 - Windows record-then-process runtime: [src/api/audio/recording.rs](../../src/api/audio/recording.rs)
 - Windows audio provider routing: [src/api/audio/transcription.rs](../../src/api/audio/transcription.rs), [src/api/audio/gemini_live.rs](../../src/api/audio/gemini_live.rs)
 - Windows audio result/media templates: [src/overlay/process/pipeline.rs](../../src/overlay/process/pipeline.rs), [src/overlay/process/chain/templates.rs](../../src/overlay/process/chain/templates.rs)
-- Windows realtime overlay/runtime: [src/overlay/realtime_webview/manager.rs](../../src/overlay/realtime_webview/manager.rs), [src/overlay/realtime_egui.rs](../../src/overlay/realtime_egui.rs)
+- Windows realtime overlay/runtime: [src/overlay/realtime_webview/manager.rs](../../src/overlay/realtime_webview/manager.rs), [src/overlay/realtime_egui/mod.rs](../../src/overlay/realtime_egui/mod.rs)
 
 ## Behavior Contract
 - Android audio presets launch from the bubble runtime, not from the main inspector screen.

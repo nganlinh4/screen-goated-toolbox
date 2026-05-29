@@ -3,7 +3,7 @@
 ## Canonical Source
 - Windows runtime entrypoint: [src/api/tts/mod.rs](../../src/api/tts/mod.rs)
 - Windows manager queue + interrupt model: [src/api/tts/manager.rs](../../src/api/tts/manager.rs)
-- Windows provider workers: [src/api/tts/worker.rs](../../src/api/tts/worker.rs)
+- Windows provider workers: [src/api/tts/worker/mod.rs](../../src/api/tts/worker/mod.rs)
 - Windows audio player: [src/api/tts/player.rs](../../src/api/tts/player.rs)
 - Windows Gemini websocket transport: [src/api/tts/websocket.rs](../../src/api/tts/websocket.rs)
 - Windows TTS types + request modes: [src/api/tts/types.rs](../../src/api/tts/types.rs)
