@@ -46,7 +46,9 @@
   - phonemizer / aux data shipped as `.tar.bz2` is extracted via the OS-bundled `tar` binary; the archive is removed after extraction.
   - `is_<model>_downloaded()` checks one mandatory file per category (weights, voices/embeddings, tokenizer, phonemizer marker) rather than a single sentinel — partial installs from cancelled downloads must read as "missing".
 - Global settings behavior:
-  - methods are `Gemini Live`, `Edge TTS`, `Google Translate`, plus the visible Windows open-weight variants (`StepAudioEditX`, `MagpieMultilingual`, `Kokoro`, `Supertonic`, `VieneuTts`)
+  - Windows methods are `Gemini Live`, `Edge TTS`, `Google Translate`, plus the visible Windows open-weight variants (`StepAudioEditX`, `MagpieMultilingual`, `Kokoro`, `Supertonic`, `VieneuTts`)
+  - Android exposes only methods with a real Android runtime: `Gemini Live`, `Edge TTS`, and `Google Translate`
+  - Android must normalize stale persisted/deep-linked open-weight method values back to `Gemini Live` instead of surfacing an unusable selector entry
   - `VoxtralTts` is a legacy/deferred config value and is not exposed in the Windows selector; Windows coerces it back to `VieneuTts`
   - Google Translate only exposes `Slow` and `Normal`
   - switching to Google Translate while current speed is `Fast` must coerce the saved speed to `Normal`
@@ -69,10 +71,10 @@
 ## Deviations
 - Android uses `AudioTrack` instead of Windows WASAPI for playback output.
 - Android uses system language identification APIs plus script fallbacks instead of `whatlang`, but keeps the same ISO-639-3 / ISO-639-1 matching semantics at the settings and provider layers.
-- Open-weights leaderboard TTS providers are not yet wired on Android. Kokoro and Supertonic run on Windows via sherpa-onnx, while VieNeu/Step/Magpie use managed local runtimes; the Android ports of those pipelines are tracked as follow-ups. Selecting any visible open-weight method on Android emits a clear "offline pipeline not yet available on Android" error from `AndroidTtsRuntimeService.runWorkerLoop` — the request channel still drains so the player stays usable.
+- Open-weights leaderboard TTS providers are feature-excluded on Android until a real mobile runtime exists. Kokoro and Supertonic run on Windows via sherpa-onnx, while VieNeu/Step/Magpie use managed local runtimes that are not viable to expose as normal Android phone/tablet options. Android may keep enum/settings fields for backward-compatible deserialization, but the selector must not show those methods and stale values must normalize to `Gemini Live`.
 
 ## Open-Weights Catalog
 - Authoritative entries live in [catalog/model_catalog.json](../../catalog/model_catalog.json) under `tts_open_models`.
 - Each entry carries: `id`, `method` (matches `TtsMethod` variant name), `label`, `elo`, `runtime` (`sherpa-onnx`, `managed-sidecar`, or `deferred`), plus either install metadata (`install_dir`, `download_primary`, `download_fallback_modelscope`, `required_files`, `required_archives`, `approx_size_mb`) or a `deferred_reason` explaining the upstream blocker.
 - ModelScope mirrors are recorded as the second host because Hugging Face repositories occasionally gate or rate-limit by region; the Rust downloader tries HF first and falls back per file.
-- Adding a new offline TTS provider follows: catalog entry → `TtsMethod` variant → `<Provider>Settings` struct (offline-only fields, no API keys) → asset module under `src/api/realtime_audio/<provider>_assets.rs` (with HF+ModelScope fallback) → worker file under `src/api/tts/worker/worker_<provider>.rs` → dispatch arm in `worker/mod.rs` → Windows settings panel in `gui/settings_ui/global/tts_settings.rs` → downloaded_tools card in `gui/settings_ui/global/downloaded_tools/model_sections.rs` → Android `MobileTtsMethod` variant → matching mobile settings struct → dispatch in `AndroidTtsRuntimeService` (initially emits "not yet available on Android" until the Android pipeline lands) → exhaustive match updates in `MobileShellDecor.kt` and `GlobalTtsSettingsDialogContent.kt`.
+- Adding a new offline TTS provider follows: catalog entry → `TtsMethod` variant → `<Provider>Settings` struct (offline-only fields, no API keys) → asset module under `src/api/realtime_audio/<provider>_assets.rs` (with HF+ModelScope fallback) → worker file under `src/api/tts/worker/worker_<provider>.rs` → dispatch arm in `worker/mod.rs` → Windows settings panel in `gui/settings_ui/global/tts_settings.rs` → downloaded_tools card in `gui/settings_ui/global/downloaded_tools/model_sections.rs`. Android only adds a selector entry after a real mobile runtime has been implemented and verified on target devices.

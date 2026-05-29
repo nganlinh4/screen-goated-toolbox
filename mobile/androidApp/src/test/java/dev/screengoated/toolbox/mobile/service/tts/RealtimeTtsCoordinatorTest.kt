@@ -131,10 +131,10 @@ class RealtimeTtsCoordinatorTest {
     @Test
     fun `visible tts methods follow windows selector contract`() {
         val case = fixtureCase("android_visible_tts_methods_follow_windows_selector")
-        val expectedMethods = case.getValue("windows_selector_methods")
+        val expectedMethods = case.getValue("android_selector_methods")
             .jsonArray
             .map { it.jsonPrimitive.content }
-        val hiddenMethods = case.getValue("legacy_hidden_methods")
+        val hiddenMethods = case.getValue("android_excluded_windows_local_methods")
             .jsonArray
             .map { it.jsonPrimitive.content }
 
@@ -145,8 +145,8 @@ class RealtimeTtsCoordinatorTest {
     }
 
     @Test
-    fun `legacy voxtral tts setting coerces to vieneu like windows`() {
-        val case = fixtureCase("legacy_voxtral_tts_coerces_to_vieneu")
+    fun `legacy voxtral tts setting coerces to supported android method`() {
+        val case = fixtureCase("legacy_voxtral_tts_coerces_to_android_supported_method")
         val initialMethod = case.getValue("initial_settings")
             .jsonObject
             .getValue("method")
@@ -166,21 +166,24 @@ class RealtimeTtsCoordinatorTest {
     }
 
     @Test
-    fun `open weight tts methods return explicit android unavailable error`() {
-        val case = fixtureCase("android_open_weight_methods_are_explicitly_unavailable")
+    fun `open weight tts methods are excluded from android selector and normalized away`() {
+        val case = fixtureCase("android_open_weight_methods_are_feature_excluded")
         val methods = case.getValue("methods")
             .jsonArray
             .map { it.jsonPrimitive.content }
-        val expectedSuffix = case.getValue("expected_error_suffix").jsonPrimitive.content
-        val serviceSource = repoFile(
-            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/tts/AndroidTtsRuntimeService.kt"
+        val expectedMethod = MobileTtsMethod.valueOf(
+            case.getValue("expected_normalized_method").jsonPrimitive.content,
         )
 
         methods.forEach { method ->
-            MobileTtsMethod.valueOf(method)
-            assertTrue("Missing unavailable branch for $method", serviceSource.contains("MobileTtsMethod.$method"))
+            val parsedMethod = MobileTtsMethod.valueOf(method)
+            assertTrue("$method should not be selectable", parsedMethod !in globalTtsMethodOptions())
+            assertEquals(
+                "$method should normalize to a supported Android runtime",
+                expectedMethod,
+                MobileGlobalTtsSettings(method = parsedMethod).normalizedForWindowsParity().method,
+            )
         }
-        assertTrue(serviceSource.contains(expectedSuffix))
     }
 
     private fun fixtureCase(name: String) = json
@@ -202,16 +205,6 @@ class RealtimeTtsCoordinatorTest {
             ?: error("Missing TTS runtime fixture. Tried: $candidates")
     }
 
-    private fun repoFile(path: String): String {
-        val candidates = listOf(
-            Paths.get("..", path),
-            Paths.get("..", "..", path),
-            Paths.get(path),
-        )
-        val file = candidates.firstOrNull { Files.exists(it) }
-            ?: error("Missing repo file: $path. Tried: $candidates")
-        return Files.readAllBytes(file).decodeToString()
-    }
 }
 
 private class FakeTtsRuntimeService : TtsRuntimeService {

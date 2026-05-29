@@ -2,14 +2,11 @@ package dev.screengoated.toolbox.mobile.ui.i18n
 
 import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
-import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.next
 import dev.screengoated.toolbox.mobile.ui.MobileShellSection
 import dev.screengoated.toolbox.mobile.ui.credentialsProviderOrder
 import dev.screengoated.toolbox.mobile.ui.layoutBehavior
 import dev.screengoated.toolbox.mobile.ui.shouldLockPagerForCarouselTouch
-import dev.screengoated.toolbox.mobile.ui.ttssettings.openWeightLanguageOptionalLabel
-import dev.screengoated.toolbox.mobile.ui.ttssettings.openWeightTtsCopy
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -54,32 +51,6 @@ class MobileShellParityTest {
                 .ttsPreviewTexts
                 .first()
             assertTrue(text.startsWith(localeObject.getValue("expected_prefix").jsonPrimitive.content))
-        }
-    }
-
-    @Test
-    fun openWeightTtsLabelsComeFromUiLocaleBundle() {
-        val case = mobileShellFixtureCase("open_weight_tts_labels_come_from_ui_language_bundle")
-        case.getValue("locales").jsonArray.forEach { localeCase ->
-            val localeObject = localeCase.jsonObject
-            val locale = MobileLocaleText.forLanguage(
-                localeObject.getValue("ui_language").jsonPrimitive.content,
-            )
-            val copy = openWeightTtsCopy(MobileTtsMethod.STEP_AUDIO_EDITX, locale)
-
-            assertEquals(
-                localeObject.getValue("expected_voice_label").jsonPrimitive.content,
-                locale.ttsVoiceLabel,
-            )
-            assertEquals(
-                localeObject.getValue("expected_language_label").jsonPrimitive.content,
-                openWeightLanguageOptionalLabel(locale),
-            )
-            assertTrue(
-                copy.unavailable.contains(
-                    localeObject.getValue("expected_unavailable_phrase").jsonPrimitive.content,
-                ),
-            )
         }
     }
 
