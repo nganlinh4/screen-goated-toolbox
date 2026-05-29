@@ -37,6 +37,9 @@ internal data class S2sSegment(
     val samples: ShortArray,
     val speechFrames: Int,
     val peakRms: Float,
+    val meanRms: Float,
+    val energeticFrames: Int,
+    val speechLikeFrames: Int,
     val activeMs: Long,
 ) {
     val audioMs: Int get() = samples.size * 1000 / 16_000
@@ -113,11 +116,13 @@ internal sealed interface S2sEvent {
         override val segmentId: Long,
         override val generation: Long,
         val audioMs: Int,
+        val queuedAtMs: Long,
     ) : S2sEvent
 }
 
 internal data class SegmentPlayback(
     var audioMs: Int,
+    var queuedAtMs: Long = 0L,
     val audioChunks: ArrayDeque<ByteArray> = ArrayDeque(),
     var sourceText: String = "",
     var targetText: String = "",
@@ -129,6 +134,12 @@ internal enum class SegmentResult {
     OK,
     RETRY_FRESH,
     EMPTY_FINAL,
+}
+
+internal enum class AdaptiveS2sVadOutcome {
+    HEALTHY,
+    EMPTY_NO_INPUT,
+    RETRY_FRESH,
 }
 
 internal class S2sContextMemory {

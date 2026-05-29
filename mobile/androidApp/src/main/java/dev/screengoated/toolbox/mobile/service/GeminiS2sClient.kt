@@ -21,6 +21,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.sqrt
 
 class GeminiS2sClient(
@@ -45,6 +46,8 @@ class GeminiS2sClient(
                 "volume=${initialSettings.realtime.volumePercent}",
         )
         val contextMemory = S2sContextMemory()
+        val adaptiveVad = AdaptiveS2sVadState()
+        val backlogMs = AtomicInteger(0)
         val attempts = Channel<S2sEvent>(Channel.UNLIMITED)
         val workerChannels = List(SESSION_COUNT) { Channel<S2sSegment>(Channel.UNLIMITED) }
         val coordinator = launch(Dispatchers.IO) {
@@ -55,6 +58,7 @@ class GeminiS2sClient(
                 settingsProvider = settingsProvider,
                 onDisplay = onDisplay,
                 logTag = TAG,
+                backlogMs = backlogMs,
             )
         }
         val workers = workerChannels.mapIndexed { workerIndex, channel ->
@@ -69,13 +73,14 @@ class GeminiS2sClient(
                         contextText = contextText,
                         settingsProvider = settingsProvider,
                         output = attempts,
+                        adaptiveVad = adaptiveVad,
                     )
                 }
             }
         }
 
         try {
-            collectSegments(audioChunks) { segment ->
+            collectSegments(audioChunks, adaptiveVad, backlogMs) { segment ->
                 workerChannels[(segment.id % SESSION_COUNT).toInt()].send(segment)
             }
         } finally {
@@ -96,8 +101,16 @@ class GeminiS2sClient(
         contextText: String,
         settingsProvider: () -> GeminiS2sRuntimeSettings,
         output: Channel<S2sEvent>,
+        adaptiveVad: AdaptiveS2sVadState,
     ) {
-        output.send(S2sEvent.Queued(segment.id, segment.generation, segment.audioMs))
+        output.send(
+            S2sEvent.Queued(
+                segmentId = segment.id,
+                generation = segment.generation,
+                audioMs = segment.audioMs,
+                queuedAtMs = SystemClock.elapsedRealtime(),
+            ),
+        )
         val first = runHedgedSegment(
             apiKey = apiKey,
             model = model,
@@ -109,7 +122,9 @@ class GeminiS2sClient(
             settingsProvider = settingsProvider,
             output = output,
         )
-        if (first == SegmentResult.RETRY_FRESH && currentCoroutineContext().isActive) {
+        if (first == SegmentResult.OK) {
+            adaptiveVad.observe(AdaptiveS2sVadOutcome.HEALTHY, segment)
+        } else if (first == SegmentResult.RETRY_FRESH && currentCoroutineContext().isActive) {
             Log.i(TAG, "retry segment=${segment.id} worker=$workerIndex gen=${segment.generation}")
             val second = runHedgedSegment(
                 apiKey = apiKey,
@@ -122,9 +137,14 @@ class GeminiS2sClient(
                 settingsProvider = settingsProvider,
                 output = output,
             )
-            if (second == SegmentResult.EMPTY_FINAL) {
+            if (second == SegmentResult.OK) {
+                adaptiveVad.observe(AdaptiveS2sVadOutcome.HEALTHY, segment)
+            } else if (second == SegmentResult.EMPTY_FINAL) {
+                adaptiveVad.observe(AdaptiveS2sVadOutcome.EMPTY_NO_INPUT, segment)
                 output.send(S2sEvent.Done(segment.id, segment.generation + 1_000_000, empty = true))
             }
+        } else if (first == SegmentResult.EMPTY_FINAL) {
+            adaptiveVad.observe(AdaptiveS2sVadOutcome.EMPTY_NO_INPUT, segment)
         }
     }
 
@@ -399,6 +419,8 @@ class GeminiS2sClient(
 
     private suspend fun collectSegments(
         audioChunks: kotlinx.coroutines.flow.Flow<ShortArray>,
+        adaptiveVad: AdaptiveS2sVadState,
+        backlogMs: AtomicInteger,
         emitSegment: suspend (S2sSegment) -> Unit,
     ) {
         var nextSegmentId = 0L
@@ -430,29 +452,42 @@ class GeminiS2sClient(
                 peakRms = 0f
                 return
             }
-            val speechRatio = speechFrames.toFloat() / (pending.size.toFloat() / FRAME_SAMPLES).coerceAtLeast(1f)
-            val shouldEmit = speechFrames >= MIN_SEGMENT_SPEECH_FRAMES &&
-                peakRms >= MIN_SEGMENT_PEAK_RMS &&
-                speechRatio >= MIN_SEGMENT_SPEECH_RATIO
+            val samples = ShortArray(pending.size)
+            for (i in pending.indices) samples[i] = pending[i]
+            val metrics = analyzeSegmentSamples(samples)
+            val segment = S2sSegment(
+                id = nextSegmentId,
+                generation = 0L,
+                samples = samples,
+                speechFrames = speechFrames,
+                peakRms = maxOf(peakRms, metrics.peakRms),
+                meanRms = metrics.meanRms,
+                energeticFrames = metrics.energeticFrames,
+                speechLikeFrames = metrics.speechLikeFrames,
+                activeMs = activeMs,
+            )
+            val vadSnapshot = adaptiveVad.snapshot(backlogMs.get())
+            val shouldEmit = isSegmentWorthSending(segment, vadSnapshot)
             if (shouldEmit) {
                 val id = nextSegmentId++
                 val worker = (id % SESSION_COUNT).toInt()
                 generation[worker] += 1
-                val samples = ShortArray(pending.size)
-                for (i in pending.indices) samples[i] = pending[i]
+                val audioMs = samples.size * 1000 / SAMPLE_RATE
+                backlogMs.addAndGet(audioMs)
                 Log.i(
                     TAG,
-                    "queued segment=$id worker=$worker audio_ms=${samples.size * 1000 / SAMPLE_RATE} reason=$reason speech_frames=$speechFrames peak_rms=${"%.4f".format(Locale.US, peakRms)}",
+                    "queued segment=$id worker=$worker audio_ms=$audioMs reason=$reason speech_frames=$speechFrames speech_ratio=${"%.2f".format(Locale.US, segmentSpeechRatio(segment))} speech_like_ratio=${"%.2f".format(Locale.US, segmentSpeechLikeRatio(segment))} confidence=${"%.2f".format(Locale.US, segmentSpeechConfidence(segment))} strictness=${"%.2f".format(Locale.US, vadSnapshot.strictness)} mean_rms=${"%.4f".format(Locale.US, segment.meanRms)} peak_rms=${"%.4f".format(Locale.US, segment.peakRms)} backlog_ms=${backlogMs.get()}",
                 )
                 emitSegment(
-                    S2sSegment(
+                    segment.copy(
                         id = id,
                         generation = generation[worker],
-                        samples = samples,
-                        speechFrames = speechFrames,
-                        peakRms = peakRms,
-                        activeMs = activeMs,
                     ),
+                )
+            } else {
+                Log.i(
+                    TAG,
+                    "vad-skip segment=${nextSegmentId} strictness=${"%.2f".format(Locale.US, vadSnapshot.strictness)} confidence=${"%.2f".format(Locale.US, segmentSpeechConfidence(segment))} speech_like_ratio=${"%.2f".format(Locale.US, segmentSpeechLikeRatio(segment))} speech_ratio=${"%.2f".format(Locale.US, segmentSpeechRatio(segment))} mean_rms=${"%.4f".format(Locale.US, segment.meanRms)} peak_rms=${"%.4f".format(Locale.US, segment.peakRms)}",
                 )
             }
             pending.clear()
@@ -555,6 +590,163 @@ class GeminiS2sClient(
         return sqrt(sum / samples.size).toFloat()
     }
 
+    private data class SegmentMetrics(
+        val meanRms: Float,
+        val peakRms: Float,
+        val energeticFrames: Int,
+        val speechLikeFrames: Int,
+    )
+
+    private class AdaptiveS2sVadState {
+        private var strictness = 0f
+        private var consecutiveEmptyNoInput = 0
+
+        @Synchronized
+        fun snapshot(backlogMs: Int): AdaptiveS2sVadSnapshot {
+            val backlogPressure = (backlogMs.toFloat() / 30_000f).coerceIn(0f, 0.55f)
+            return AdaptiveS2sVadSnapshot(strictness = maxOf(strictness, backlogPressure))
+        }
+
+        @Synchronized
+        fun observe(outcome: AdaptiveS2sVadOutcome, segment: S2sSegment) {
+            when (outcome) {
+                AdaptiveS2sVadOutcome.HEALTHY -> {
+                    consecutiveEmptyNoInput = 0
+                    strictness = (strictness - 0.10f).coerceAtLeast(0f)
+                }
+                AdaptiveS2sVadOutcome.EMPTY_NO_INPUT -> {
+                    consecutiveEmptyNoInput += 1
+                    val highEnergy = segment.meanRms >= 0.025f ||
+                        segment.peakRms >= 0.060f ||
+                        speechRatio(segment) >= 0.60f
+                    val step = if (highEnergy) 0.22f else 0.12f
+                    strictness = (strictness + step).coerceAtMost(1f)
+                }
+                AdaptiveS2sVadOutcome.RETRY_FRESH -> Unit
+            }
+            Log.i(
+                TAG,
+                "adaptive-vad outcome=$outcome strictness=${"%.2f".format(Locale.US, strictness)} consecutive_empty=$consecutiveEmptyNoInput segment=${segment.id} confidence=${"%.2f".format(Locale.US, speechConfidence(segment))} speech_like_ratio=${"%.2f".format(Locale.US, speechLikeRatio(segment))} speech_ratio=${"%.2f".format(Locale.US, speechRatio(segment))} mean_rms=${"%.4f".format(Locale.US, segment.meanRms)} peak_rms=${"%.4f".format(Locale.US, segment.peakRms)}",
+            )
+        }
+
+        private fun speechRatio(segment: S2sSegment): Float {
+            val frameCount = ((segment.samples.size + FRAME_SAMPLES - 1) / FRAME_SAMPLES).coerceAtLeast(1)
+            return segment.speechFrames.toFloat() / frameCount.toFloat()
+        }
+
+        private fun speechLikeRatio(segment: S2sSegment): Float {
+            val frameCount = ((segment.samples.size + FRAME_SAMPLES - 1) / FRAME_SAMPLES).coerceAtLeast(1)
+            return segment.speechLikeFrames.toFloat() / frameCount.toFloat()
+        }
+
+        private fun energeticRatio(segment: S2sSegment): Float {
+            val frameCount = ((segment.samples.size + FRAME_SAMPLES - 1) / FRAME_SAMPLES).coerceAtLeast(1)
+            return segment.energeticFrames.toFloat() / frameCount.toFloat()
+        }
+
+        private fun speechConfidence(segment: S2sSegment): Float {
+            val energyScore = (segment.meanRms / 0.055f).coerceIn(0f, 1f)
+            return (speechLikeRatio(segment) * 0.45f) +
+                (speechRatio(segment) * 0.30f) +
+                (energeticRatio(segment) * 0.15f) +
+                (energyScore * 0.10f)
+        }
+    }
+
+    private data class AdaptiveS2sVadSnapshot(val strictness: Float = 0f)
+
+    private fun analyzeSegmentSamples(samples: ShortArray): SegmentMetrics {
+        if (samples.isEmpty()) {
+            return SegmentMetrics(0f, 0f, 0, 0)
+        }
+        var rmsSum = 0f
+        var peakRms = 0f
+        var energeticFrames = 0
+        var speechLikeFrames = 0
+        var frameCount = 0
+        var offset = 0
+        while (offset < samples.size) {
+            val end = minOf(offset + FRAME_SAMPLES, samples.size)
+            val frame = samples.copyOfRange(offset, end)
+            val frameRms = rms(frame)
+            frameCount++
+            rmsSum += frameRms
+            peakRms = maxOf(peakRms, frameRms)
+            if (frameRms >= MIN_SPEECH_THRESHOLD) energeticFrames++
+            if (isSpeechLikeFrame(frame, frameRms)) speechLikeFrames++
+            offset = end
+        }
+        return SegmentMetrics(
+            meanRms = rmsSum / frameCount.coerceAtLeast(1),
+            peakRms = peakRms,
+            energeticFrames = energeticFrames,
+            speechLikeFrames = speechLikeFrames,
+        )
+    }
+
+    private fun isSpeechLikeFrame(frame: ShortArray, frameRms: Float): Boolean {
+        if (frame.size < 2 || frameRms < MIN_SPEECH_THRESHOLD) return false
+        var peak = 0f
+        var zeroCrossings = 0
+        for (index in frame.indices) {
+            peak = maxOf(peak, kotlin.math.abs(frame[index] / 32768f))
+            if (index > 0) {
+                val prev = frame[index - 1]
+                val current = frame[index]
+                if ((prev < 0 && current >= 0) || (prev >= 0 && current < 0)) {
+                    zeroCrossings++
+                }
+            }
+        }
+        val crest = peak / frameRms.coerceAtLeast(0.0001f)
+        val zcr = zeroCrossings.toFloat() / (frame.size - 1).toFloat()
+        return zcr in 0.015f..0.24f && crest in 1.2f..18.0f
+    }
+
+    private fun isSegmentWorthSending(segment: S2sSegment, vad: AdaptiveS2sVadSnapshot): Boolean {
+        val speechRatio = segmentSpeechRatio(segment)
+        val speechLikeRatio = segmentSpeechLikeRatio(segment)
+        val confidence = segmentSpeechConfidence(segment)
+        val baseline = segment.speechFrames >= MIN_SEGMENT_SPEECH_FRAMES ||
+            speechRatio >= MIN_SEGMENT_SPEECH_RATIO ||
+            (segment.peakRms >= MIN_SEGMENT_PEAK_RMS && speechLikeRatio >= 0.08f)
+        if (!baseline) return false
+
+        if (vad.strictness <= 0f) {
+            return confidence >= 0.18f || speechLikeRatio >= 0.08f
+        }
+
+        val minSpeechLike = MIN_SPEECH_LIKE_RATIO +
+            (STRICT_MIN_SPEECH_LIKE_RATIO - MIN_SPEECH_LIKE_RATIO) * vad.strictness
+        val minConfidence = 0.24f +
+            (STRICT_MIN_SPEECH_CONFIDENCE - 0.24f) * vad.strictness
+        return speechLikeRatio >= minSpeechLike || confidence >= minConfidence
+    }
+
+    private fun segmentSpeechRatio(segment: S2sSegment): Float {
+        val frameCount = ((segment.samples.size + FRAME_SAMPLES - 1) / FRAME_SAMPLES).coerceAtLeast(1)
+        return segment.speechFrames.toFloat() / frameCount.toFloat()
+    }
+
+    private fun segmentSpeechLikeRatio(segment: S2sSegment): Float {
+        val frameCount = ((segment.samples.size + FRAME_SAMPLES - 1) / FRAME_SAMPLES).coerceAtLeast(1)
+        return segment.speechLikeFrames.toFloat() / frameCount.toFloat()
+    }
+
+    private fun segmentEnergeticRatio(segment: S2sSegment): Float {
+        val frameCount = ((segment.samples.size + FRAME_SAMPLES - 1) / FRAME_SAMPLES).coerceAtLeast(1)
+        return segment.energeticFrames.toFloat() / frameCount.toFloat()
+    }
+
+    private fun segmentSpeechConfidence(segment: S2sSegment): Float {
+        val energyScore = (segment.meanRms / 0.055f).coerceIn(0f, 1f)
+        return (segmentSpeechLikeRatio(segment) * 0.45f) +
+            (segmentSpeechRatio(segment) * 0.30f) +
+            (segmentEnergeticRatio(segment) * 0.15f) +
+            (energyScore * 0.10f)
+    }
+
     private companion object {
         private const val TAG = "RealtimeS2SAndroid"
         private const val LIVE_WS_ENDPOINT =
@@ -582,6 +774,9 @@ class GeminiS2sClient(
         private const val MIN_SEGMENT_SPEECH_FRAMES = 4
         private const val MIN_SEGMENT_PEAK_RMS = 0.025f
         private const val MIN_SEGMENT_SPEECH_RATIO = 0.08f
+        private const val MIN_SPEECH_LIKE_RATIO = 0.18f
+        private const val STRICT_MIN_SPEECH_LIKE_RATIO = 0.32f
+        private const val STRICT_MIN_SPEECH_CONFIDENCE = 0.38f
         private const val VAD_HEALTH_INTERVAL_MS = 2_000L
     }
 }

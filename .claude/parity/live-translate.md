@@ -31,6 +31,7 @@
 - Normal finished-span commit records the `(source, translation)` pair in `translation_history`, advances `last_committed_pos` to `finalized_source_end`, and replaces the draft translation with the returned draft patch for the remaining source span.
 - Force commit appends the current uncommitted translation to committed output, advances `last_committed_pos` to `uncommitted_source_end`, and records the `(source, translation)` pair in `translation_history`.
 - Target-language changes clear `translation_history` and keep the rest of the state aligned with the Windows runtime.
+- Target-language changes restart active Gemini S2S sessions so the new target language is applied to the Live setup prompt immediately. Non-S2S text translation can keep running because each request reads the current target language.
 - Launcher UI is intentionally minimal on Android, but overlay UI is not. Overlay controls, control placement, text animation, waveform behavior, and per-pane layout must follow the Windows realtime overlay contract rather than a mobile-specific redesign.
 - Canonical defaults match Windows config:
   - `audio_source=device`
@@ -71,8 +72,10 @@
   - Windows transcription providers are exposed in this order: `gemini-live-audio`, `gemini-live-s2s`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`
   - Android transcription providers expose the same cloud/S2S and Zipformer control surface, keep `parakeet` visible as unavailable, and additionally expose the documented Android-native Moonshine variants: `moonshine-tiny-streaming`, `moonshine-small-streaming`, and `moonshine-medium-streaming`
   - Android may mark Parakeet unavailable, but must not hide it or pretend it is active
-  - Gemini S2S disables the translation model selector and read-locks TTS on both platforms
-  - TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model
+- Gemini S2S disables the translation model selector and read-locks TTS on both platforms
+- Gemini S2S segmenting uses adaptive VAD on both platforms: Gemini empty-audio feedback increases VAD strictness, healthy segments relax it, and backlog pressure can raise the minimum speech confidence to avoid queuing non-speech audio.
+- Gemini S2S ordered playback skips stale pending segments that block later ready audio, using a longer grace period when input/output text has already arrived for that segment.
+- TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model
 - Android mobile uses a native overlay language picker window instead of relying on the embedded WebView `<select>` popup, because the control must remain usable inside detached overlay windows.
 
 ## Failure And Recovery

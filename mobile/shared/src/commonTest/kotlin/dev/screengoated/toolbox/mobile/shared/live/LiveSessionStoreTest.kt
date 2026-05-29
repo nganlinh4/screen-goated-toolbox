@@ -17,6 +17,31 @@ class LiveSessionStoreTest {
     }
 
     @Test
+    fun target_language_change_only_restarts_gemini_s2s() {
+        assertTrue(
+            LiveTranslateParity.targetLanguageChangeRequiresRestart(
+                previousLanguage = "Vietnamese",
+                nextLanguage = "Korean",
+                transcriptionProviderId = "gemini-live-s2s",
+            ),
+        )
+        assertFalse(
+            LiveTranslateParity.targetLanguageChangeRequiresRestart(
+                previousLanguage = "Vietnamese",
+                nextLanguage = "Korean",
+                transcriptionProviderId = "gemini-live-audio",
+            ),
+        )
+        assertFalse(
+            LiveTranslateParity.targetLanguageChangeRequiresRestart(
+                previousLanguage = "Vietnamese",
+                nextLanguage = "Vietnamese",
+                transcriptionProviderId = "gemini-live-s2s",
+            ),
+        )
+    }
+
+    @Test
     fun permission_snapshot_respects_overlay_and_playback_requirements() {
         val config = LiveSessionConfig(
             sourceMode = SourceMode.DEVICE,
