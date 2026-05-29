@@ -43,6 +43,7 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
             s2sClient = container.geminiS2sClient,
             translationClient = container.realtimeTranslationClient,
             ttsRuntimeService = container.ttsRuntimeService,
+            toastBus = container.toastBus,
             overlaySupported = dev.screengoated.toolbox.mobile.BuildConfig.OVERLAY_SUPPORTED,
             stopRequested = { stopSession() },
             sourceModeChanged = ::updateForegroundType,
