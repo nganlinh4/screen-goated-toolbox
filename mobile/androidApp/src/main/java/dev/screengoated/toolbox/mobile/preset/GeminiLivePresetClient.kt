@@ -263,15 +263,15 @@ private fun handleGeminiLivePresetMessage(
     setupReady: CompletableDeferred<Unit>,
     events: LinkedBlockingDeque<GeminiLivePresetEvent>,
 ) {
-    if (message.contains("setupComplete")) {
-        if (!setupReady.isCompleted) {
-            setupReady.complete(Unit)
-        }
-        return
-    }
-
     runCatching {
         val root = JSONObject(message)
+        if (root.has("setupComplete")) {
+            if (!setupReady.isCompleted) {
+                setupReady.complete(Unit)
+            }
+            return@runCatching
+        }
+
         root.optJSONObject("error")
             ?.optString("message")
             ?.takeIf(String::isNotBlank)
