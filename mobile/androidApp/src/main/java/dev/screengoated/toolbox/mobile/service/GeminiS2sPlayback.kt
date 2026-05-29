@@ -62,9 +62,9 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
     suspend fun publish() {
         onDisplay(
             S2sDisplaySnapshot(
-                sourceCommitted = recentGeminiS2sWindow(sourceCommitted),
+                sourceCommitted = sourceCommitted,
                 sourceDraft = "",
-                targetCommitted = recentGeminiS2sWindow(targetCommitted),
+                targetCommitted = targetCommitted,
                 targetDraft = "",
             ),
         )
@@ -134,9 +134,9 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
                     playback.targetText = mergeGeminiS2sSegmentText(playback.targetText, event.text)
                     onDisplay(
                         S2sDisplaySnapshot(
-                            sourceCommitted = recentGeminiS2sWindow(sourceCommitted),
+                            sourceCommitted = sourceCommitted,
                             sourceDraft = playback.sourceText,
-                            targetCommitted = recentGeminiS2sWindow(targetCommitted),
+                            targetCommitted = targetCommitted,
                             targetDraft = playback.targetText,
                         ),
                     )
@@ -195,14 +195,5 @@ private fun geminiS2sPlaybackSpeed(settings: GeminiS2sRuntimeSettings, backlogMs
     }
 }
 
-private fun recentGeminiS2sWindow(text: String): String {
-    val trimmed = text.trim()
-    if (trimmed.length <= RECENT_DISPLAY_CHARS) return trimmed
-    val start = trimmed.length - RECENT_DISPLAY_CHARS
-    val boundary = trimmed.indexOf(' ', start).takeIf { it >= 0 } ?: start
-    return trimmed.substring(boundary).trimStart()
-}
-
-private const val RECENT_DISPLAY_CHARS = 1_200
 private const val S2S_ORDERED_PENDING_SKIP_MS = 8_000L
 private const val S2S_ORDERED_TRANSCRIPT_PENDING_SKIP_MS = 28_000L

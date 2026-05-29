@@ -83,6 +83,8 @@
     "androidTtsRequestsTransientDuckFocus": true,
     "androidS2sAdaptiveVad": true,
     "androidS2sStaleOrderedSkip": true,
+    "androidS2sFullTranscriptDisplay": true,
+    "androidTextLlmUsesProviderAvailability": true,
     "targetLanguageChangeRestartsS2s": true,
     "ttsDisplayedSpeedSource": "runtime-effective-while-speaking",
     "localeUpdatePath": "discrete-js-no-html-reload",

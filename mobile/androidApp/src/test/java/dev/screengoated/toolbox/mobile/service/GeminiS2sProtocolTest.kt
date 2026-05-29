@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.service
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -32,6 +33,16 @@ class GeminiS2sProtocolTest {
     }
 
     @Test
+    fun `s2s playback preserves full committed display text`() {
+        val source = loadSourceFile(PLAYBACK_SOURCE_PATH).readText()
+
+        assertTrue(source.contains("sourceCommitted = sourceCommitted"))
+        assertTrue(source.contains("targetCommitted = targetCommitted"))
+        assertFalse(source.contains("RECENT_DISPLAY_CHARS"))
+        assertFalse(source.contains("recentGeminiS2sWindow"))
+    }
+
+    @Test
     fun `segment text merge preserves word boundaries after overlap trim`() {
         assertEquals(
             "alpha beta gamma delta",
@@ -55,6 +66,8 @@ class GeminiS2sProtocolTest {
     private companion object {
         private const val CLIENT_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sClient.kt"
+        private const val PLAYBACK_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sPlayback.kt"
         private const val PROTOCOL_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sProtocol.kt"
     }

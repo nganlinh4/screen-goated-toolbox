@@ -3,9 +3,12 @@ package dev.screengoated.toolbox.mobile.service
 import android.util.Base64
 import android.util.Log
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
+import dev.screengoated.toolbox.mobile.preset.ApiKeys
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
+import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
+import dev.screengoated.toolbox.mobile.preset.providerIsAvailable
 import dev.screengoated.toolbox.mobile.preset.streamGeminiLiveText
 import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
@@ -422,18 +425,23 @@ class RealtimeTranslationClient(
         targetLanguage: String,
         providerId: String,
         llmChain: List<String>,
+        runtimeSettings: PresetRuntimeSettings,
     ): TranslationExecutionResult = withContext(Dispatchers.IO) {
         val primaryId = providerId
+        val apiKeys = ApiKeys(
+            geminiKey = geminiApiKey,
+            cerebrasKey = cerebrasApiKey,
+            groqKey = groqApiKey,
+        )
 
         runCatching {
             val response = dispatchProvider(
                 providerId = primaryId,
-                geminiApiKey = geminiApiKey,
-                cerebrasApiKey = cerebrasApiKey,
-                groqApiKey = groqApiKey,
+                apiKeys = apiKeys,
                 request = request,
                 targetLanguage = targetLanguage,
                 llmChain = llmChain,
+                runtimeSettings = runtimeSettings,
             )
             return@withContext TranslationExecutionResult(primaryId, response)
         }
@@ -441,24 +449,22 @@ class RealtimeTranslationClient(
         val fallbackId = if (primaryId == PROVIDER_GTX) PROVIDER_LLM else PROVIDER_GTX
         val response = dispatchProvider(
             providerId = fallbackId,
-            geminiApiKey = geminiApiKey,
-            cerebrasApiKey = cerebrasApiKey,
-            groqApiKey = groqApiKey,
+            apiKeys = apiKeys,
             request = request,
             targetLanguage = targetLanguage,
             llmChain = llmChain,
+            runtimeSettings = runtimeSettings,
         )
         TranslationExecutionResult(fallbackId, response)
     }
 
     private suspend fun dispatchProvider(
         providerId: String,
-        geminiApiKey: String,
-        cerebrasApiKey: String,
-        groqApiKey: String,
+        apiKeys: ApiKeys,
         request: TranslationRequest,
         targetLanguage: String,
         llmChain: List<String>,
+        runtimeSettings: PresetRuntimeSettings,
     ): TranslationResponse {
         Log.d(
             TRANSLATION_TAG,
@@ -469,9 +475,8 @@ class RealtimeTranslationClient(
         }
         return translateWithLlmChain(
             chainModelIds = llmChain,
-            geminiApiKey = geminiApiKey,
-            cerebrasApiKey = cerebrasApiKey,
-            groqApiKey = groqApiKey,
+            apiKeys = apiKeys,
+            runtimeSettings = runtimeSettings,
             request = request,
             targetLanguage = targetLanguage,
         )
@@ -479,19 +484,21 @@ class RealtimeTranslationClient(
 
     private suspend fun translateWithLlmChain(
         chainModelIds: List<String>,
-        geminiApiKey: String,
-        cerebrasApiKey: String,
-        groqApiKey: String,
+        apiKeys: ApiKeys,
+        runtimeSettings: PresetRuntimeSettings,
         request: TranslationRequest,
         targetLanguage: String,
     ): TranslationResponse {
         var lastError: Throwable? = null
         for (modelId in chainModelIds) {
             val descriptor = PresetModelCatalog.getById(modelId) ?: continue
+            if (!providerIsAvailable(descriptor.provider, apiKeys, runtimeSettings)) {
+                continue
+            }
             val attempt = runCatching {
                 when (descriptor.provider) {
                     PresetModelProvider.CEREBRAS -> {
-                        val key = cerebrasApiKey.takeIf { it.isNotBlank() }
+                        val key = apiKeys.cerebrasKey.takeIf { it.isNotBlank() }
                             ?: return@runCatching null
                         translateWithCerebras(
                             endpoint = "https://api.cerebras.ai/v1/chat/completions",
@@ -503,7 +510,7 @@ class RealtimeTranslationClient(
                     }
 
                     PresetModelProvider.GOOGLE -> {
-                        val key = geminiApiKey.takeIf { it.isNotBlank() }
+                        val key = apiKeys.geminiKey.takeIf { it.isNotBlank() }
                             ?: return@runCatching null
                         translateWithGemini(
                             endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${descriptor.fullName}:generateContent",
@@ -514,7 +521,7 @@ class RealtimeTranslationClient(
                     }
 
                     PresetModelProvider.GEMINI_LIVE -> {
-                        val key = geminiApiKey.takeIf { it.isNotBlank() }
+                        val key = apiKeys.geminiKey.takeIf { it.isNotBlank() }
                             ?: return@runCatching null
                         translateWithGeminiLive(
                             descriptor = descriptor,
@@ -525,7 +532,7 @@ class RealtimeTranslationClient(
                     }
 
                     PresetModelProvider.GROQ -> {
-                        val key = groqApiKey.takeIf { it.isNotBlank() }
+                        val key = apiKeys.groqKey.takeIf { it.isNotBlank() }
                             ?: return@runCatching null
                         translateWithGroq(
                             apiKey = key,
