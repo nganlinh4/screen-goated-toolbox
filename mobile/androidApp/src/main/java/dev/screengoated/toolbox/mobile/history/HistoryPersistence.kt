@@ -12,11 +12,14 @@ internal data class HistoryPaths(
     val supportsFolderOpen: Boolean,
 )
 
-internal class HistoryPersistence(
-    context: Context,
+internal class HistoryPersistence internal constructor(
+    private val paths: HistoryPaths,
     private val json: Json,
 ) {
-    private val paths: HistoryPaths = buildPaths(context.applicationContext)
+    constructor(
+        context: Context,
+        json: Json,
+    ) : this(buildPaths(context.applicationContext), json)
 
     fun paths(): HistoryPaths = paths
 
@@ -78,19 +81,21 @@ internal class HistoryPersistence(
         paths.mediaDir.mkdirs()
     }
 
-    private fun buildPaths(context: Context): HistoryPaths {
-        val externalRoot = context.getExternalFilesDir(null)?.resolve("history")
-        val rootDir = externalRoot ?: File(context.filesDir, "history")
-        val mediaDir = rootDir.resolve("history_media")
-        rootDir.mkdirs()
-        mediaDir.mkdirs()
-        return HistoryPaths(
-            rootDir = rootDir,
-            databaseFile = rootDir.resolve("history.json"),
-            settingsFile = rootDir.resolve("history_settings.json"),
-            mediaDir = mediaDir,
-            supportsFolderOpen = externalRoot != null &&
-                mediaDir.absolutePath.startsWith("/storage/emulated/0/"),
-        )
+    private companion object {
+        fun buildPaths(context: Context): HistoryPaths {
+            val externalRoot = context.getExternalFilesDir(null)?.resolve("history")
+            val rootDir = externalRoot ?: File(context.filesDir, "history")
+            val mediaDir = rootDir.resolve("history_media")
+            rootDir.mkdirs()
+            mediaDir.mkdirs()
+            return HistoryPaths(
+                rootDir = rootDir,
+                databaseFile = rootDir.resolve("history.json"),
+                settingsFile = rootDir.resolve("history_settings.json"),
+                mediaDir = mediaDir,
+                supportsFolderOpen = externalRoot != null &&
+                    mediaDir.absolutePath.startsWith("/storage/emulated/0/"),
+            )
+        }
     }
 }
