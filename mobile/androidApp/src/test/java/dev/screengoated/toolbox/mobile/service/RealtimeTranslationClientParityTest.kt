@@ -59,14 +59,36 @@ class RealtimeTranslationClientParityTest {
     }
 
     @Test
+    fun `translation success requires accepted state apply`() {
+        val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
+        val repositorySource = loadSourceFile(REPOSITORY_SOURCE_PATH).readText()
+        val storeSource = loadSourceFile(LIVE_SESSION_STORE_SOURCE_PATH).readText()
+
+        assertTrue(storeSource.contains("): Boolean"))
+        assertTrue(storeSource.contains("applied = liveText != current.liveText"))
+        assertTrue(repositorySource.contains("): Boolean"))
+        assertTrue(runtimeSource.contains("val applied = repository.applyTranslationResponse("))
+        assertTrue(runtimeSource.contains("if (!applied)"))
+        assertTrue(runtimeSource.contains("Translation response was rejected by the current transcript state."))
+    }
+
+    @Test
     fun `s2s overlay tooltips are localized and refreshed without reload`() {
         val overlaySource = loadSourceFile(OVERLAY_JS_SOURCE_PATH).readText()
         val webViewSource = loadSourceFile(OVERLAY_WEBVIEW_SOURCE_PATH).readText()
+        val builderSource = loadSourceFile(OVERLAY_HTML_BUILDER_SOURCE_PATH).readText()
+        val htmlSupportSource = loadSourceFile(OVERLAY_HTML_SUPPORT_SOURCE_PATH).readText()
 
         assertTrue(webViewSource.contains("put(\"s2sTranslationModelTitle\", overlay.s2sTranslationModelTitle)"))
         assertTrue(webViewSource.contains("put(\"s2sTargetLanguageTitle\", overlay.s2sTargetLanguageTitle)"))
         assertTrue(webViewSource.contains("put(\"directSpeechTitle\", overlay.directSpeechTitle)"))
         assertTrue(webViewSource.contains("put(\"ttsS2sLockedTitle\", overlay.ttsS2sLockedTitle)"))
+        assertTrue(builderSource.contains("val locale = MobileLocaleText.forLanguage(DEFAULT_TEMPLATE_LANGUAGE)"))
+        assertTrue(!builderSource.contains("val uiLanguage: String"))
+        assertTrue(htmlSupportSource.contains("id=\"tts-modal-title-text\""))
+        assertTrue(htmlSupportSource.contains("id=\"tts-speed-label\""))
+        assertTrue(htmlSupportSource.contains("id=\"tts-volume-label\""))
+        assertTrue(htmlSupportSource.contains("id=\"download-cancel-text\""))
         assertTrue(overlaySource.contains("overlayLocale.s2sTranslationModelTitle"))
         assertTrue(overlaySource.contains("overlayLocale.s2sTargetLanguageTitle"))
         assertTrue(overlaySource.contains("overlayLocale.directSpeechTitle"))
@@ -103,12 +125,18 @@ class RealtimeTranslationClientParityTest {
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/LiveSessionRuntime.kt"
         private const val REPOSITORY_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/model/AndroidLiveSessionRepository.kt"
+        private const val LIVE_SESSION_STORE_SOURCE_PATH =
+            "mobile/shared/src/commonMain/kotlin/dev/screengoated/toolbox/mobile/shared/live/LiveSessionStore.kt"
         private const val OVERLAY_CONTROLLER_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/OverlayController.kt"
         private const val OVERLAY_WEBVIEW_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/OverlayControllerWebView.kt"
         private const val OVERLAY_LANGUAGE_PICKER_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/OverlayLanguagePicker.kt"
+        private const val OVERLAY_HTML_BUILDER_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/RealtimeOverlayHtmlBuilder.kt"
+        private const val OVERLAY_HTML_SUPPORT_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/RealtimeOverlayHtmlSupport.kt"
         private const val GEMINI_S2S_CLIENT_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sClient.kt"
         private const val MOBILE_LOCALE_SOURCE_PATH =

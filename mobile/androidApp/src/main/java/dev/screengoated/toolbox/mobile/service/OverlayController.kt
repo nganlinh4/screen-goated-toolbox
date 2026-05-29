@@ -220,7 +220,6 @@ class OverlayController(
                 RealtimeOverlayPaneSettings(
                     isTranslation = false,
                     isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
-                    uiLanguage = snapshot.uiPreferences.uiLanguage,
                 ),
             ),
             settings = overlayPaneRuntimeSettings(
@@ -237,7 +236,6 @@ class OverlayController(
                 RealtimeOverlayPaneSettings(
                     isTranslation = true,
                     isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
-                    uiLanguage = snapshot.uiPreferences.uiLanguage,
                 ),
             ),
             settings = overlayPaneRuntimeSettings(

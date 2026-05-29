@@ -763,11 +763,14 @@ class LiveSessionRuntime(
                     runtimeSettings = repository.currentPresetRuntimeSettings(),
                 )
                 val usedProvider = result.providerId
-                repository.applyTranslationResponse(
+                val applied = repository.applyTranslationResponse(
                     request = request,
                     response = result.response,
                     nowMs = SystemClock.elapsedRealtime(),
                 )
+                if (!applied) {
+                    error("Translation response was rejected by the current transcript state.")
+                }
                 // Only persist fallback switch if user hasn't changed the model during this request
                 if (usedProvider != requestedProvider &&
                     repository.translationModelId() == requestedProvider
