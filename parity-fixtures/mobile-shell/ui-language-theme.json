@@ -38,6 +38,29 @@
       ]
     },
     {
+      "name": "open_weight_tts_labels_come_from_ui_language_bundle",
+      "locales": [
+        {
+          "ui_language": "en",
+          "expected_voice_label": "Voice:",
+          "expected_language_label": "Language (BCP-47, optional):",
+          "expected_unavailable_phrase": "not available for this model on Android yet"
+        },
+        {
+          "ui_language": "vi",
+          "expected_voice_label": "Giọng đọc:",
+          "expected_language_label": "Ngôn ngữ (BCP-47, tùy chọn):",
+          "expected_unavailable_phrase": "chưa có trên Android"
+        },
+        {
+          "ui_language": "ko",
+          "expected_voice_label": "목소리:",
+          "expected_language_label": "언어 (BCP-47, 선택 사항):",
+          "expected_unavailable_phrase": "아직 Android에서 사용할 수 없습니다"
+        }
+      ]
+    },
+    {
       "name": "mobile_branding_uses_windows_app_icon_pair",
       "expected_dark_asset": "assets/app-icon-small.png",
       "expected_light_asset": "assets/app-icon-small-light.png"
