@@ -90,6 +90,15 @@
       ]
     },
     {
+      "name": "legacy_voxtral_tts_coerces_to_vieneu",
+      "initial_settings": {
+        "method": "VOXTRAL_TTS"
+      },
+      "expected": {
+        "method": "VIENEU_TTS"
+      }
+    },
+    {
       "name": "android_open_weight_methods_are_explicitly_unavailable",
       "methods": [
         "STEP_AUDIO_EDITX",

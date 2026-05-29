@@ -5,6 +5,7 @@ import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.model.normalizedForWindowsParity
 import dev.screengoated.toolbox.mobile.model.withMethod
 import dev.screengoated.toolbox.mobile.ui.ttssettings.globalTtsMethodOptions
 import kotlinx.serialization.json.Json
@@ -141,6 +142,27 @@ class RealtimeTtsCoordinatorTest {
         hiddenMethods.forEach { hidden ->
             assertTrue(hidden !in globalTtsMethodOptions().map { it.name })
         }
+    }
+
+    @Test
+    fun `legacy voxtral tts setting coerces to vieneu like windows`() {
+        val case = fixtureCase("legacy_voxtral_tts_coerces_to_vieneu")
+        val initialMethod = case.getValue("initial_settings")
+            .jsonObject
+            .getValue("method")
+            .jsonPrimitive
+            .content
+        val expectedMethod = case.getValue("expected")
+            .jsonObject
+            .getValue("method")
+            .jsonPrimitive
+            .content
+
+        val normalized = MobileGlobalTtsSettings(
+            method = MobileTtsMethod.valueOf(initialMethod),
+        ).normalizedForWindowsParity()
+
+        assertEquals(MobileTtsMethod.valueOf(expectedMethod), normalized.method)
     }
 
     @Test
