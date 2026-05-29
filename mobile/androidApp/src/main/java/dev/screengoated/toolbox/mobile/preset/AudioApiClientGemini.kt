@@ -318,34 +318,43 @@ private fun handleGeminiLiveMessage(
     finalTranscript: StringBuilder,
     onChunk: (String) -> Unit,
 ) {
-    if (message.contains("setupComplete")) {
-        if (!setupReady.isCompleted) {
-            setupReady.complete(Unit)
+    runCatching {
+        val root = JSONObject(message)
+        if (root.has("setupComplete")) {
+            if (!setupReady.isCompleted) {
+                setupReady.complete(Unit)
+            }
+            return@runCatching
         }
-        return
-    }
-    if (message.contains("\"error\"")) {
-        val root = runCatching { JSONObject(message) }.getOrNull()
-        val error = root?.optJSONObject("error")?.optString("message")
-            ?: root?.optString("error")
-            ?: "Gemini Live audio transcription failed."
-        events.offer(GeminiLiveInputEvent.Error(error))
-        return
-    }
-    val text = extractGeminiLiveInputTranscript(message)
-    if (text.isNotBlank()) {
-        val delta = transcriptDelta(transcript.toString(), text)
-        if (delta.isNotEmpty()) {
-            transcript.append(delta)
-            finalTranscript.clear()
-            finalTranscript.append(transcript)
-            onChunk(delta)
+
+        root.optJSONObject("error")
+            ?.optString("message")
+            ?.takeIf(String::isNotBlank)
+            ?.let { error ->
+                events.offer(GeminiLiveInputEvent.Error(error))
+                return@runCatching
+            }
+        root.optString("error")
+            .takeIf(String::isNotBlank)
+            ?.let { error ->
+                events.offer(GeminiLiveInputEvent.Error(error))
+                return@runCatching
+            }
+
+        val text = extractGeminiLiveInputTranscript(root)
+        if (text.isNotBlank()) {
+            val delta = transcriptDelta(transcript.toString(), text)
+            if (delta.isNotEmpty()) {
+                transcript.append(delta)
+                finalTranscript.clear()
+                finalTranscript.append(transcript)
+                onChunk(delta)
+            }
         }
     }
 }
 
-private fun extractGeminiLiveInputTranscript(message: String): String {
-    val root = runCatching { JSONObject(message) }.getOrNull() ?: return ""
+private fun extractGeminiLiveInputTranscript(root: JSONObject): String {
     val serverContent = root.optJSONObject("serverContent") ?: return ""
     return serverContent.optJSONObject("inputTranscription")?.optString("text").orEmpty()
 }

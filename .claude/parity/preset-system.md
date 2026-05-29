@@ -139,6 +139,7 @@
 ## Fixtures
 - Shared fixtures: [parity-fixtures/preset-system/catalog-overrides.json](../../parity-fixtures/preset-system/catalog-overrides.json)
 - Retry/runtime defaults fixture: [parity-fixtures/preset-system/retry-runtime.json](../../parity-fixtures/preset-system/retry-runtime.json)
+- Gemini Live socket fixture: [parity-fixtures/preset-system/gemini-live-socket-protocol.json](../../parity-fixtures/preset-system/gemini-live-socket-protocol.json)
 - Node graph editor fixture: [parity-fixtures/preset-system/node-graph-editor.json](../../parity-fixtures/preset-system/node-graph-editor.json)
 - Android unit tests should cover override merge, restore default, and placeholder capability resolution.
 

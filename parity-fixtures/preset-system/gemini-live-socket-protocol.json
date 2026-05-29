@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "setupComplete": {
+    "payload": {
+      "setupComplete": {}
+    },
+    "expected": {
+      "setupComplete": true,
+      "error": null
+    }
+  },
+  "errorContainingSetupCompleteText": {
+    "payload": {
+      "error": {
+        "message": "setupComplete failed before preset session start"
+      }
+    },
+    "expected": {
+      "setupComplete": false,
+      "error": "setupComplete failed before preset session start"
+    }
+  },
+  "transcriptContainingErrorText": {
+    "payload": {
+      "serverContent": {
+        "inputTranscription": {
+          "text": "The speaker said quote error quote during the demo."
+        }
+      }
+    },
+    "expected": {
+      "setupComplete": false,
+      "error": null,
+      "transcript": "The speaker said quote error quote during the demo."
+    }
+  }
+}
