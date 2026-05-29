@@ -90,9 +90,13 @@ class LiveTranslateOverlayBootstrapTest {
 
         assertEquals(fixture.requiredModels.androidTranscriptionProviders, transcriptionOptions.map { it.id })
         assertEquals(fixture.requiredModels.translationProviders, translationOptions.map { it.id })
+        transcriptionOptions.forEach { option ->
+            val shouldBeUnavailable = option.id in fixture.requiredModels.androidUnavailableTranscriptionProviders
+            assertEquals("${option.id} enabled state", !shouldBeUnavailable, option.enabled)
+        }
         allOptions.forEach { option ->
             assertTrue("Model picker label must not fall back to id: ${option.id}", option.label != option.id)
-        assertTrue("Model picker label must not be blank: ${option.id}", option.label.isNotBlank())
+            assertTrue("Model picker label must not be blank: ${option.id}", option.label.isNotBlank())
         }
         assertEquals("Gemini Live | 100+ languages", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5 }.label)
         assertEquals("Gemini S2S", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S }.label)

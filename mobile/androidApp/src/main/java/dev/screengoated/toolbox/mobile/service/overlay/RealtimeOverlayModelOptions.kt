@@ -5,6 +5,7 @@ import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 internal data class RealtimeOverlayModelOption(
     val id: String,
     val label: String,
+    val enabled: Boolean = true,
 )
 
 internal object RealtimeOverlayModelOptions {
@@ -30,7 +31,11 @@ internal object RealtimeOverlayModelOptions {
         return listOf(
             RealtimeOverlayModelOption(RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5, GEMINI_LIVE_LABEL),
             RealtimeOverlayModelOption(RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S, geminiS2sLabel),
-            RealtimeOverlayModelOption(RealtimeModelIds.TRANSCRIPTION_PARAKEET, parakeetLabel(unavailableSuffix)),
+            RealtimeOverlayModelOption(
+                id = RealtimeModelIds.TRANSCRIPTION_PARAKEET,
+                label = parakeetLabel(unavailableSuffix),
+                enabled = false,
+            ),
             RealtimeOverlayModelOption("moonshine-tiny-streaming", MOONSHINE_TINY_LABEL),
             RealtimeOverlayModelOption("moonshine-small-streaming", MOONSHINE_SMALL_LABEL),
             RealtimeOverlayModelOption("moonshine-medium-streaming", MOONSHINE_MEDIUM_LABEL),

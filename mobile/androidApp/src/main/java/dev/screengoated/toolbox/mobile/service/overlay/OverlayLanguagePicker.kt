@@ -22,6 +22,11 @@ import androidx.core.graphics.toColorInt
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 
+internal data class OverlayPickerOption(
+    val label: String,
+    val enabled: Boolean = true,
+)
+
 internal class OverlayLanguagePicker(
     private val context: Context,
     private val windowManager: WindowManager,
@@ -39,6 +44,24 @@ internal class OverlayLanguagePicker(
         anchorBounds: OverlayBounds,
         selectedLanguage: String,
         languages: List<String>,
+        isDark: Boolean,
+        title: String,
+        searchHint: String,
+    ) {
+        showOptions(
+            anchorBounds = anchorBounds,
+            selectedLanguage = selectedLanguage,
+            options = languages.map { OverlayPickerOption(it) },
+            isDark = isDark,
+            title = title,
+            searchHint = searchHint,
+        )
+    }
+
+    fun showOptions(
+        anchorBounds: OverlayBounds,
+        selectedLanguage: String,
+        options: List<OverlayPickerOption>,
         isDark: Boolean,
         title: String,
         searchHint: String,
@@ -135,17 +158,17 @@ internal class OverlayLanguagePicker(
         fun populateList(filter: String) {
             list.removeAllViews()
             val filtered = if (filter.isBlank()) {
-                languages
+                options
             } else {
-                languages.filter {
-                    val (primary, secondary) = splitLabel(it)
+                options.filter {
+                    val (primary, secondary) = splitLabel(it.label)
                     primary.contains(filter, ignoreCase = true) ||
                         secondary.contains(filter, ignoreCase = true) ||
                         LanguageCatalog.codeForName(primary).contains(filter, ignoreCase = true)
                 }
             }
-            for (language in filtered) {
-                list.addView(languageRow(language, selectedLanguage == language, isDark))
+            for (option in filtered) {
+                list.addView(languageRow(option, selectedLanguage == option.label, isDark))
             }
         }
 
@@ -206,20 +229,23 @@ internal class OverlayLanguagePicker(
     }
 
     private fun languageRow(
-        language: String,
+        option: OverlayPickerOption,
         selected: Boolean,
         isDark: Boolean,
     ): LinearLayout {
         val accent = if (selected) "#00C8FF".toColorInt() else Color.TRANSPARENT
-        val (primary, secondaryRaw) = splitLabel(language)
+        val (primary, secondaryRaw) = splitLabel(option.label)
         val secondary = secondaryRaw.ifBlank { LanguageCatalog.codeForName(primary) }
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            isEnabled = option.enabled
             background = GradientDrawable().apply {
                 cornerRadius = dp(14).toFloat()
                 setColor(
                     when {
+                        !option.enabled && isDark -> Color.argb(16, 255, 255, 255)
+                        !option.enabled -> Color.argb(10, 0, 0, 0)
                         selected && isDark -> Color.argb(52, 0, 200, 255)
                         selected -> Color.argb(28, 0, 200, 255)
                         isDark -> Color.argb(26, 255, 255, 255)
@@ -230,8 +256,10 @@ internal class OverlayLanguagePicker(
             }
             setPadding(dp(12), dp(11), dp(12), dp(11))
             setOnClickListener {
-                onSelected(language)
-                hide()
+                if (option.enabled) {
+                    onSelected(option.label)
+                    hide()
+                }
             }
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -243,7 +271,14 @@ internal class OverlayLanguagePicker(
             addView(
                 TextView(context).apply {
                     text = primary
-                    setTextColor(if (isDark) "#F4F2F8".toColorInt() else "#17151B".toColorInt())
+                    setTextColor(
+                        when {
+                            !option.enabled && isDark -> "#7D7784".toColorInt()
+                            !option.enabled -> "#928B98".toColorInt()
+                            isDark -> "#F4F2F8".toColorInt()
+                            else -> "#17151B".toColorInt()
+                        },
+                    )
                     textSize = 13f
                     typeface = this@OverlayLanguagePicker.typeface
                     ellipsize = TextUtils.TruncateAt.END
@@ -254,7 +289,15 @@ internal class OverlayLanguagePicker(
             addView(
                 TextView(context).apply {
                     text = secondary
-                    setTextColor(if (selected) "#00C8FF".toColorInt() else if (isDark) "#A19CA9".toColorInt() else "#6E6874".toColorInt())
+                    setTextColor(
+                        when {
+                            !option.enabled && isDark -> "#6E6874".toColorInt()
+                            !option.enabled -> "#928B98".toColorInt()
+                            selected -> "#00C8FF".toColorInt()
+                            isDark -> "#A19CA9".toColorInt()
+                            else -> "#6E6874".toColorInt()
+                        },
+                    )
                     textSize = 11f
                     typeface = Typeface.create(this@OverlayLanguagePicker.typeface, Typeface.BOLD)
                 },
