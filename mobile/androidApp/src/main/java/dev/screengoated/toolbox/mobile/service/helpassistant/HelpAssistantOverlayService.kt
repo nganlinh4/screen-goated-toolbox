@@ -26,6 +26,7 @@ import dev.screengoated.toolbox.mobile.service.preset.PresetOverlayDismissTarget
 import dev.screengoated.toolbox.mobile.service.preset.PresetOverlayResultModule
 import dev.screengoated.toolbox.mobile.service.preset.PresetResultHtmlBuilder
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -118,9 +119,15 @@ class HelpAssistantOverlayService : Service() {
                     geminiApiKey = appContainer.repository.currentApiKey(),
                 ),
             )
+            result.exceptionOrNull()?.let { error ->
+                apiKeyErrorToastText(error.message ?: error.toString(), uiLanguage)?.let(appContainer.toastBus::show)
+            }
             val markdown = result.fold(
                 onSuccess = { answer -> helpResultMarkdown(question, answer) },
-                onFailure = { error -> helpErrorMarkdown(error.message ?: "Unknown error") },
+                onFailure = { error ->
+                    val rawMessage = error.message ?: "Unknown error"
+                    helpErrorMarkdown(apiKeyErrorToastText(rawMessage, uiLanguage) ?: rawMessage)
+                },
             )
             val isError = result.isFailure
             val windowState = PresetResultWindowState(

@@ -34,6 +34,14 @@
       "expected_en": "Add your Gemini API key before starting Translation Gummy."
     },
     {
+      "name": "help_assistant_missing_key",
+      "raw_error": "NO_API_KEY:gemini",
+      "surface": "help_assistant_overlay",
+      "expected_notice": true,
+      "expected_provider": "Google Gemini",
+      "expected_en": "You haven't entered a Google Gemini API key!"
+    },
+    {
       "name": "invalid_openrouter_key",
       "raw_error": "INVALID_API_KEY:openrouter",
       "surface": "preset_result_overlay",
