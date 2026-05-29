@@ -75,10 +75,12 @@
     },
     {
       "name": "android_visible_tts_methods_follow_windows_selector",
-      "windows_selector_methods": [
+      "android_selector_methods": [
         "GEMINI_LIVE",
         "EDGE_TTS",
-        "GOOGLE_TRANSLATE",
+        "GOOGLE_TRANSLATE"
+      ],
+      "android_excluded_windows_local_methods": [
         "STEP_AUDIO_EDITX",
         "MAGPIE_MULTILINGUAL",
         "KOKORO",
@@ -90,16 +92,16 @@
       ]
     },
     {
-      "name": "legacy_voxtral_tts_coerces_to_vieneu",
+      "name": "legacy_voxtral_tts_coerces_to_android_supported_method",
       "initial_settings": {
         "method": "VOXTRAL_TTS"
       },
       "expected": {
-        "method": "VIENEU_TTS"
+        "method": "GEMINI_LIVE"
       }
     },
     {
-      "name": "android_open_weight_methods_are_explicitly_unavailable",
+      "name": "android_open_weight_methods_are_feature_excluded",
       "methods": [
         "STEP_AUDIO_EDITX",
         "MAGPIE_MULTILINGUAL",
@@ -108,7 +110,7 @@
         "VIENEU_TTS",
         "VOXTRAL_TTS"
       ],
-      "expected_error_suffix": "offline pipeline not yet available on Android."
+      "expected_normalized_method": "GEMINI_LIVE"
     }
   ]
 }

@@ -48,14 +48,12 @@ data class MobileEdgeTtsSettings(
 )
 
 // ---------------------------------------------------------------------------
-// Offline open-weights TTS provider settings (Windows-parity)
+// Offline open-weights TTS provider settings (serialized compatibility only)
 // ---------------------------------------------------------------------------
 //
-// These mirror the matching Rust structs in src/config/types/tts.rs. Kokoro is
-// the only offline provider with a working pipeline on Windows today; the
-// other four leaderboard entries are placeholders so the enum + settings shape
-// stays parity-clean. Android does not yet run Kokoro on-device — see the
-// deviation note in .claude/parity/tts-runtime.md.
+// These mirror persisted Windows-era method/settings shapes so older Android
+// snapshots deserialize safely. Android does not expose these methods until a
+// real mobile runtime exists; see .claude/parity/tts-runtime.md.
 
 @Serializable
 data class MobileKokoroSettings(
@@ -97,20 +95,35 @@ data class MobileGlobalTtsSettings(
 )
 
 fun MobileGlobalTtsSettings.withMethod(method: MobileTtsMethod): MobileGlobalTtsSettings {
-    val coercedSpeed = if (method == MobileTtsMethod.GOOGLE_TRANSLATE && speedPreset == MobileTtsSpeedPreset.FAST) {
+    val supportedMethod = method.androidSupportedMethod()
+    val coercedSpeed = if (supportedMethod == MobileTtsMethod.GOOGLE_TRANSLATE && speedPreset == MobileTtsSpeedPreset.FAST) {
         MobileTtsSpeedPreset.NORMAL
     } else {
         speedPreset
     }
-    return copy(method = method, speedPreset = coercedSpeed)
+    return copy(method = supportedMethod, speedPreset = coercedSpeed)
 }
 
 fun MobileGlobalTtsSettings.normalizedForWindowsParity(): MobileGlobalTtsSettings {
-    return if (method == MobileTtsMethod.VOXTRAL_TTS) {
-        copy(method = MobileTtsMethod.VIENEU_TTS)
-    } else {
-        this
+    return copy(method = method.androidSupportedMethod())
+}
+
+fun MobileTtsMethod.androidSupportedMethod(): MobileTtsMethod {
+    return when (this) {
+        MobileTtsMethod.GEMINI_LIVE,
+        MobileTtsMethod.EDGE_TTS,
+        MobileTtsMethod.GOOGLE_TRANSLATE -> this
+        MobileTtsMethod.STEP_AUDIO_EDITX,
+        MobileTtsMethod.MAGPIE_MULTILINGUAL,
+        MobileTtsMethod.KOKORO,
+        MobileTtsMethod.SUPERTONIC,
+        MobileTtsMethod.VIENEU_TTS,
+        MobileTtsMethod.VOXTRAL_TTS -> MobileTtsMethod.GEMINI_LIVE
     }
+}
+
+fun MobileTtsMethod.isAndroidSupported(): Boolean {
+    return this == androidSupportedMethod()
 }
 
 data class GeminiVoiceOption(

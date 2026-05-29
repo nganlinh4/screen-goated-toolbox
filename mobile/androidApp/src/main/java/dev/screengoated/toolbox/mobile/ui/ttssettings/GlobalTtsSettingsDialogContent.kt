@@ -49,6 +49,7 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.model.androidSupportedMethod
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyVolumeState
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
@@ -81,13 +82,14 @@ internal fun RenderGlobalTtsSettingsDialog(
 ) {
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val activeMethod = settings.method.androidSupportedMethod()
     val selectMethod: (MobileTtsMethod) -> Unit = { method ->
         onMethodChanged(method)
         if (method == MobileTtsMethod.GOOGLE_TRANSLATE && settings.speedPreset == MobileTtsSpeedPreset.FAST) {
             onSpeedPresetChanged(MobileTtsSpeedPreset.NORMAL)
         }
     }
-    val accent = when (settings.method) {
+    val accent = when (activeMethod) {
         MobileTtsMethod.GEMINI_LIVE -> MaterialTheme.colorScheme.primary
         MobileTtsMethod.EDGE_TTS -> MaterialTheme.colorScheme.tertiary
         MobileTtsMethod.GOOGLE_TRANSLATE -> MaterialTheme.colorScheme.secondary
@@ -101,7 +103,7 @@ internal fun RenderGlobalTtsSettingsDialog(
 
     ExpressiveDialogSurface(
         title = locale.ttsSettingsTitle,
-        icon = when (settings.method) {
+        icon = when (activeMethod) {
             MobileTtsMethod.GEMINI_LIVE -> R.drawable.ms_auto_awesome
             MobileTtsMethod.EDGE_TTS -> R.drawable.ms_graphic_eq
             MobileTtsMethod.GOOGLE_TRANSLATE -> R.drawable.ms_language
@@ -115,7 +117,7 @@ internal fun RenderGlobalTtsSettingsDialog(
         accent = accent,
         morphPair = ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Cookie6Sided),
         onDismiss = onDismiss,
-        supporting = when (settings.method) {
+        supporting = when (activeMethod) {
             MobileTtsMethod.GEMINI_LIVE -> locale.ttsMethodStandard
             MobileTtsMethod.EDGE_TTS -> locale.ttsMethodEdge
             MobileTtsMethod.GOOGLE_TRANSLATE -> locale.ttsMethodFast
@@ -129,7 +131,7 @@ internal fun RenderGlobalTtsSettingsDialog(
         headerTrailing = if (isLandscape && !geminiOnly) {
             {
                 MethodToggleRow(
-                    currentMethod = settings.method,
+                    currentMethod = activeMethod,
                     locale = locale,
                     onSelect = selectMethod,
                     compact = true,
@@ -152,7 +154,7 @@ internal fun RenderGlobalTtsSettingsDialog(
         ) {
             if (!isLandscape && !geminiOnly) {
                 MethodToggleRow(
-                    currentMethod = settings.method,
+                    currentMethod = activeMethod,
                     locale = locale,
                     onSelect = selectMethod,
                     compact = true,
@@ -180,7 +182,7 @@ internal fun RenderGlobalTtsSettingsDialog(
                         onTranslationGummyMuteToggle = onTranslationGummyMuteToggle,
                     )
                 } else {
-                    when (settings.method) {
+                    when (activeMethod) {
                         MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
                             settings = settings,
                             locale = locale,
@@ -212,11 +214,14 @@ internal fun RenderGlobalTtsSettingsDialog(
                         MobileTtsMethod.KOKORO,
                         MobileTtsMethod.SUPERTONIC,
                         MobileTtsMethod.VIENEU_TTS,
-                        MobileTtsMethod.VOXTRAL_TTS -> OpenWeightsSection(
-                            settings = settings,
-                            method = settings.method,
+                        MobileTtsMethod.VOXTRAL_TTS -> GeminiLiveSection(
+                            settings = settings.copy(method = MobileTtsMethod.GEMINI_LIVE),
                             locale = locale,
-                            onSettingsChanged = onSettingsChanged,
+                            onModelChanged = onGeminiModelChanged,
+                            onSpeedPresetChanged = onSpeedPresetChanged,
+                            onConditionsChanged = onConditionsChanged,
+                            onVoiceChanged = onVoiceChanged,
+                            onPreviewVoice = onPreviewGeminiVoice,
                         )
                     }
                 }
@@ -403,11 +408,6 @@ internal fun globalTtsMethodOptions(): List<MobileTtsMethod> = listOf(
     MobileTtsMethod.GEMINI_LIVE,
     MobileTtsMethod.EDGE_TTS,
     MobileTtsMethod.GOOGLE_TRANSLATE,
-    MobileTtsMethod.STEP_AUDIO_EDITX,
-    MobileTtsMethod.MAGPIE_MULTILINGUAL,
-    MobileTtsMethod.KOKORO,
-    MobileTtsMethod.SUPERTONIC,
-    MobileTtsMethod.VIENEU_TTS,
 )
 
 @Composable
