@@ -3,38 +3,72 @@
 @tailwind utilities;
 
 /* ---------------------------------------------------------------------------
- * Theme tokens
+ * Theme tokens — "studio console": warm, solid, editorial. No glass, no
+ * gradients, no backdrop-blur. Elevation comes from crisp borders + flat
+ * solid shadows.
  *
  * The Rust runtime sets data-theme=dark|light on <html> before mount based on
- * the active SGT theme. CSS variables are RGB triples (no rgb() wrapper) so
+ * the active SGT theme. Color variables are RGB triples (no rgb() wrapper) so
  * Tailwind's `rgb(var(--token) / <alpha>)` syntax works.
  * ------------------------------------------------------------------------ */
 
 :root,
 [data-theme="light"] {
-  --surface: 246 247 251;
-  --surface-soft: 255 255 255;
-  --surface-strong: 232 234 241;
-  --border: 220 224 233;
-  --border-strong: 200 206 218;
-  --fg: 22 24 32;
-  --muted: 110 118 134;
-  --accent: 79 122 255;
-  --accent-soft: 207 220 255;
-  --danger: 208 82 82;
+  /* Surfaces — warm paper tiers */
+  --surface: 247 245 240;
+  --surface-soft: 255 254 252;
+  --surface-strong: 237 233 225;
+  --surface-container: 242 239 232;
+  --surface-container-high: 234 230 221;
+  --surface-container-highest: 224 219 208;
+  /* Lines */
+  --border: 225 220 209;
+  --border-strong: 201 194 180;
+  /* Text */
+  --fg: 30 28 24;
+  --muted: 113 107 96;
+  /* Accent — terracotta */
+  --accent: 194 65 12;
+  --accent-fg: 255 255 255;
+  --accent-soft: 245 224 210;
+  /* Semantic */
+  --success: 15 118 110;
+  --danger: 190 60 54;
+  /* Solid elevation shadows */
+  --shadow-elevation-1: 0 1px 2px rgba(40, 33, 20, 0.06);
+  --shadow-elevation-2: 0 2px 4px rgba(40, 33, 20, 0.07), 0 1px 2px rgba(40, 33, 20, 0.05);
+  --shadow-elevation-3: 0 4px 10px rgba(40, 33, 20, 0.09);
+  --shadow-elevation-4: 0 10px 24px rgba(40, 33, 20, 0.12);
+  /* Geometry */
+  --radius: 0.625rem;
 }
 
 [data-theme="dark"] {
-  --surface: 17 18 26;
-  --surface-soft: 24 26 36;
-  --surface-strong: 32 34 46;
-  --border: 44 47 60;
-  --border-strong: 64 68 84;
-  --fg: 230 232 240;
-  --muted: 142 148 165;
-  --accent: 132 159 255;
-  --accent-soft: 40 56 110;
-  --danger: 230 116 116;
+  /* Surfaces — deep warm charcoal tiers */
+  --surface: 23 22 20;
+  --surface-soft: 30 29 26;
+  --surface-strong: 40 37 33;
+  --surface-container: 30 29 26;
+  --surface-container-high: 40 37 33;
+  --surface-container-highest: 51 47 42;
+  /* Lines */
+  --border: 56 52 47;
+  --border-strong: 80 74 66;
+  /* Text */
+  --fg: 240 236 228;
+  --muted: 158 150 138;
+  /* Accent — warm amber */
+  --accent: 237 137 54;
+  --accent-fg: 28 22 14;
+  --accent-soft: 64 46 28;
+  /* Semantic */
+  --success: 45 212 191;
+  --danger: 232 110 104;
+  /* Solid elevation shadows — heavier on dark */
+  --shadow-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-elevation-2: 0 2px 5px rgba(0, 0, 0, 0.34), 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-elevation-3: 0 4px 12px rgba(0, 0, 0, 0.42);
+  --shadow-elevation-4: 0 10px 26px rgba(0, 0, 0, 0.52);
 }
 
 html,
@@ -45,27 +79,67 @@ body,
   overflow: hidden;
 }
 
+/* Thin, auto-hiding scrollbars. `overflow: auto` hides them when content fits;
+ * the thumb is transparent at rest and only fades in while the scroll area is
+ * hovered, so it never adds visual noise. */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--border-strong) / 0.6);
-  border-radius: 4px;
+  background: transparent;
+  border-radius: 99px;
+}
+
+:hover::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-strong) / 0.45);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--muted) / 0.7);
+  background: rgb(var(--muted) / 0.6);
 }
 
-/* Drag region — only the top header bar */
-.drag-region {
-  -webkit-app-region: drag;
-  app-region: drag;
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
-.no-drag {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+/* ---------------------------------------------------------------------------
+ * Range sliders. `.seek-bar` is the shared track; the Player passes an inline
+ * 2-stop linear-gradient as a PROGRESS METER (not decoration), so the filled
+ * portion reads in accent. NumberRange uses a flat track via .range-flat.
+ * ------------------------------------------------------------------------ */
+.seek-bar {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  border-radius: 99px;
+  background: rgb(var(--surface-strong));
+  cursor: pointer;
+  outline: none;
+}
+
+.seek-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgb(var(--surface-soft));
+  border: 2px solid rgb(var(--accent));
+  box-shadow: var(--shadow-elevation-1);
+  transition: transform 0.1s ease;
+}
+
+.seek-bar::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.seek-bar:active::-webkit-slider-thumb {
+  background: rgb(var(--accent));
 }

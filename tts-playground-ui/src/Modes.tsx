@@ -1,5 +1,4 @@
-import clsx from "clsx";
-import { Card, FormRow, Select } from "./components";
+import { Button, Card, FormRow, Select } from "./components";
 import { ttsApi } from "./ipc";
 import { useTtsState } from "./state";
 
@@ -9,36 +8,27 @@ export function AudioEditPanel() {
   const subtasks = s.catalogs.audioEditSubtasksByTask[e.editType] ?? [];
   const isParalinguistic = e.editType === "paralinguistic";
   return (
-    <Card title={s.strings.methodStepAudio}>
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          onClick={() => void ttsApi.pickSourceAudio()}
-          className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs hover:border-border-strong"
-        >
+    <Card title={s.strings.methodStepAudio} className="tts-panel-audio-edit">
+      <div className="tts-source-actions flex flex-wrap gap-1.5">
+        <Button variant="secondary" size="sm" className="tts-pick-source" onClick={() => void ttsApi.pickSourceAudio()}>
           {s.strings.pickSource}
-        </button>
-        <button
-          onClick={() => void ttsApi.useCurrentAsSource()}
-          className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs hover:border-border-strong"
-        >
+        </Button>
+        <Button variant="secondary" size="sm" className="tts-use-current" onClick={() => void ttsApi.useCurrentAsSource()}>
           {s.strings.useCurrent}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant={s.player.isMicRecording ? "danger" : "secondary"}
+          size="sm"
+          className="tts-record-mic"
           onClick={() => {
             if (s.player.isMicRecording) void ttsApi.stopMicRecording();
             else void ttsApi.startMicRecording();
           }}
-          className={clsx(
-            "rounded-md border px-2.5 py-1 text-xs",
-            s.player.isMicRecording
-              ? "border-danger bg-danger/15 text-danger"
-              : "border-border bg-surface hover:border-border-strong",
-          )}
         >
           {s.player.isMicRecording ? s.strings.stopMic : s.strings.recordMic}
-        </button>
+        </Button>
       </div>
-      <p className="truncate text-[11px] text-muted" title={e.sourcePath}>
+      <p className="tts-source-path truncate text-xs text-muted" title={e.sourcePath}>
         {e.sourcePath || s.strings.noSource}
       </p>
       <FormRow label={s.strings.task}>
@@ -78,14 +68,16 @@ export function AudioEditPanel() {
         </FormRow>
       )}
       {isParalinguistic && (
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-muted">{s.strings.targetText}</label>
+        <div className="tts-target-text flex flex-col gap-1.5">
+          <label className="tts-target-label text-xs font-medium text-muted">
+            {s.strings.targetText}
+          </label>
           <textarea
             value={e.targetText}
             onChange={(ev) =>
               void ttsApi.patchAudioEdit({ targetText: ev.target.value })
             }
-            className="min-h-[72px] resize-none rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-[12px] outline-none focus:border-accent"
+            className="tts-target-area min-h-[72px] resize-none rounded-md bg-surface px-2.5 py-2 font-mono text-sm leading-relaxed text-fg outline-none transition focus:ring-2 focus:ring-accent/25"
           />
         </div>
       )}
@@ -96,36 +88,30 @@ export function AudioEditPanel() {
 export function S2SPanel() {
   const s = useTtsState();
   return (
-    <Card title="Gemini S2S">
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          onClick={() => void ttsApi.pickSourceAudio()}
-          className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs hover:border-border-strong"
-        >
+    <Card title="Gemini S2S" className="tts-panel-s2s">
+      <div className="tts-source-actions flex flex-wrap gap-1.5">
+        <Button variant="secondary" size="sm" className="tts-pick-source" onClick={() => void ttsApi.pickSourceAudio()}>
           {s.strings.pickSource}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant={s.player.isMicRecording ? "danger" : "secondary"}
+          size="sm"
+          className="tts-record-mic"
           onClick={() => {
             if (s.player.isMicRecording) void ttsApi.stopMicRecording();
             else void ttsApi.startMicRecording();
           }}
-          className={clsx(
-            "rounded-md border px-2.5 py-1 text-xs",
-            s.player.isMicRecording
-              ? "border-danger bg-danger/15 text-danger"
-              : "border-border bg-surface hover:border-border-strong",
-          )}
         >
           {s.player.isMicRecording ? s.strings.stopMic : s.strings.recordMic}
-        </button>
+        </Button>
       </div>
       <p
-        className="truncate text-[11px] text-muted"
+        className="tts-source-path truncate text-xs text-muted"
         title={s.audioEdit.sourcePath}
       >
         {s.audioEdit.sourcePath || s.strings.noSource}
       </p>
-      <FormRow label="Target">
+      <FormRow label={s.strings.s2sTarget}>
         <Select
           value={s.s2sTargetLanguage}
           options={s.catalogs.s2sLanguages}

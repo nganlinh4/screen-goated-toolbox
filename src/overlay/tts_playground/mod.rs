@@ -26,6 +26,10 @@ use wry::WebContext;
 use crate::win_types::SendHwnd;
 
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 401;
+/// Posted when the host app's theme/language changes so the webview re-renders.
+pub(super) const WM_APP_SYNC: u32 = WM_USER + 402;
+/// Posted periodically while audio is playing so the player position advances.
+pub(super) const WM_APP_TICK: u32 = WM_USER + 403;
 
 pub(super) static REGISTER_CLASS: Once = Once::new();
 pub(super) static mut WINDOW_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
@@ -53,4 +57,18 @@ pub(super) fn current_ui_language() -> String {
         .lock()
         .map(|app| app.config.ui_language.clone())
         .unwrap_or_else(|_| "en".to_string())
+}
+
+/// Called by the host app when theme or UI language changes, so the open
+/// playground window updates live. No-op if the window isn't open yet.
+pub fn update_settings() {
+    unsafe {
+        if !IS_READY {
+            return;
+        }
+        let hwnd = std::ptr::addr_of!(WINDOW_HWND).read();
+        if !hwnd.is_invalid() {
+            let _ = PostMessageW(Some(hwnd.0), WM_APP_SYNC, WPARAM(0), LPARAM(0));
+        }
+    }
 }

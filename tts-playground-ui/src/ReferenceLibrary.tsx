@@ -7,10 +7,11 @@ export function ReferenceLibraryPanel() {
   const s = useTtsState();
   const stepActive = s.stepAudio.reference;
   return (
-    <div className="flex flex-col gap-3">
+    <div className="tts-reference-library flex flex-col gap-3">
       <Card
         title={s.strings.modeReferenceLibrary}
         description={s.strings.referenceLibraryDesc}
+        className="tts-panel-references-step"
         action={
           <SmallButton onClick={() => void ttsApi.addReference()}>
             {s.strings.referenceAdd}
@@ -20,15 +21,15 @@ export function ReferenceLibraryPanel() {
         <ReferenceList
           items={s.catalogs.stepAudioReferences}
           activeId={stepActive}
-          emptyLabel="No VieNeu references saved yet."
+          emptyLabel={s.strings.referenceEmpty}
           target="stepAudio"
         />
       </Card>
-      <Card title={s.strings.methodVieneu}>
+      <Card title={s.strings.methodVieneu} className="tts-panel-references-vieneu">
         <ReferenceList
           items={s.catalogs.vieneuReferences}
           activeId={s.vieneu.reference}
-          emptyLabel="No VieNeu references saved yet."
+          emptyLabel={s.strings.referenceEmpty}
           target="vieneu"
         />
       </Card>
@@ -49,28 +50,30 @@ function ReferenceList({
 }) {
   const s = useTtsState();
   if (items.length === 0) {
-    return <p className="text-xs text-muted">{emptyLabel}</p>;
+    return <p className="tts-reference-empty text-xs text-muted">{emptyLabel}</p>;
   }
   return (
-    <ul className="flex flex-col gap-2">
+    <ul className="tts-reference-list flex flex-col gap-2">
       {items.map((r) => {
         const active = r.id === activeId;
         return (
           <li
             key={r.id}
             className={
-              "flex flex-col gap-2 rounded border p-2 text-xs " +
-              (active ? "border-accent/70 bg-accent/10" : "border-border/60 bg-surface")
+              "tts-reference-item flex flex-col gap-2 rounded-md p-2.5 text-xs shadow-elevation-1 " +
+              (active
+                ? "tts-reference-item--active bg-accent-soft/60 ring-1 ring-accent"
+                : "bg-surface-soft")
             }
           >
-            <div className="grid grid-cols-[1fr,auto] gap-2">
+            <div className="tts-reference-head grid grid-cols-[1fr,auto] gap-2">
               <input
                 value={r.name}
                 aria-label={s.strings.referenceLabel}
                 onChange={(ev) =>
                   void ttsApi.updateReference(r.id, { label: ev.target.value })
                 }
-                className="rounded border border-border bg-surface-soft px-2 py-1 font-medium outline-none focus:border-accent"
+                className="tts-reference-name rounded-md bg-surface px-2.5 py-1.5 font-medium text-fg outline-none transition focus:ring-2 focus:ring-accent/25"
               />
               <SmallButton
                 onClick={() => {
@@ -84,7 +87,7 @@ function ReferenceList({
                 {r.name}
               </SmallButton>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="tts-reference-actions flex flex-wrap gap-1.5">
               <SmallButton onClick={() => void ttsApi.pickReferenceAudio(r.id)}>
                 {s.strings.referencePickAudio}
               </SmallButton>
@@ -109,10 +112,10 @@ function ReferenceList({
                 {s.strings.referenceUseGlobal}
               </SmallButton>
               <SmallButton onClick={() => void ttsApi.deleteReference(r.id)}>
-                Delete
+                {s.strings.delete}
               </SmallButton>
             </div>
-            <p className="truncate text-[11px] text-muted" title={r.audioPath}>
+            <p className="tts-reference-audio truncate text-xs text-muted" title={r.audioPath}>
               {r.audioPath || s.strings.referenceNoAudio}
             </p>
             <textarea
@@ -123,10 +126,10 @@ function ReferenceList({
                 })
               }
               placeholder={s.strings.referenceExactTranscript}
-              className="min-h-[52px] resize-none rounded border border-border bg-surface-soft px-2 py-1 text-[11px] outline-none focus:border-accent"
+              className="tts-reference-transcript min-h-[52px] resize-none rounded-md bg-surface px-2.5 py-1.5 text-xs text-fg outline-none transition focus:ring-2 focus:ring-accent/25"
             />
             <span
-              className="truncate font-mono text-[10px] text-muted"
+              className="tts-reference-id truncate font-mono text-2xs text-muted"
               title={r.id}
             >
               {r.id}

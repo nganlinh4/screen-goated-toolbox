@@ -118,6 +118,13 @@ function baseState(): TtsPlaygroundState {
       referenceVoice: "Reference",
       geminiModelLabel: "Model",
       instructionsLabel: "Instructions",
+      instructionsHint: "Style hint",
+      preview: "Preview",
+      delete: "Delete",
+      stepAudioDesc: "Desc",
+      vieneuDesc: "Desc",
+      s2sTarget: "Target",
+      referenceEmpty: "Empty",
     },
   };
 }

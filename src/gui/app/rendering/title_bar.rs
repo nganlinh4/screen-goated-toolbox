@@ -99,6 +99,13 @@ impl SettingsApp {
 
     fn render_title_bar_left_side(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
         let is_dark = ui.ctx().style().visuals.dark_mode;
+        // Launcher buttons use bright accent fills; in dark mode those fills are
+        // light enough that near-black label text reads better than white.
+        let btn_text = if is_dark {
+            egui::Color32::from_rgb(22, 22, 26)
+        } else {
+            egui::Color32::WHITE
+        };
 
         // Theme Switcher
         let (theme_icon, tooltip) = match self.config.theme_mode {
@@ -163,10 +170,15 @@ impl SettingsApp {
             .add(
                 egui::Button::new(
                     egui::RichText::new(format!("🎵 {}", text.prompt_dj_btn))
-                        .color(egui::Color32::WHITE)
+                        .color(btn_text)
                         .size(12.0),
                 )
-                .fill(egui::Color32::from_rgb(100, 100, 200))
+                // PromptDJ accent — violet (its on-brand #9900ff family).
+                .fill(if is_dark {
+                    egui::Color32::from_rgb(150, 118, 245)
+                } else {
+                    egui::Color32::from_rgb(124, 58, 237)
+                })
                 .corner_radius(6.0),
             )
             .clicked()
@@ -179,10 +191,15 @@ impl SettingsApp {
             .add(
                 egui::Button::new(
                     egui::RichText::new(format!("⬇ {}", text.download_feature_btn))
-                        .color(egui::Color32::WHITE)
+                        .color(btn_text)
                         .size(12.0),
                 )
-                .fill(egui::Color32::from_rgb(200, 100, 100))
+                // Download Manager — red.
+                .fill(if is_dark {
+                    egui::Color32::from_rgb(224, 96, 96)
+                } else {
+                    egui::Color32::from_rgb(216, 62, 62)
+                })
                 .corner_radius(6.0),
             )
             .clicked()
@@ -195,10 +212,15 @@ impl SettingsApp {
             .add(
                 egui::Button::new(
                     egui::RichText::new(format!("🎥 {}", text.screen_record_btn))
-                        .color(egui::Color32::WHITE)
+                        .color(btn_text)
                         .size(12.0),
                 )
-                .fill(egui::Color32::from_rgb(60, 140, 100))
+                // Screen Record accent — blue (its design-system primary).
+                .fill(if is_dark {
+                    egui::Color32::from_rgb(74, 130, 200)
+                } else {
+                    egui::Color32::from_rgb(37, 99, 235)
+                })
                 .corner_radius(6.0),
             )
             .clicked()
@@ -206,17 +228,17 @@ impl SettingsApp {
             crate::overlay::screen_record::show_screen_record();
         }
 
-        // Help Assistant
+        // Help Assistant — teal (distinct from the violet PromptDJ button).
         let help_bg = if is_dark {
-            egui::Color32::from_rgb(80, 60, 120)
+            egui::Color32::from_rgb(30, 160, 148)
         } else {
-            egui::Color32::from_rgb(180, 160, 220)
+            egui::Color32::from_rgb(15, 140, 130)
         };
         if ui
             .add(
                 egui::Button::new(
                     egui::RichText::new(format!("❓ {}", text.help_assistant_btn))
-                        .color(egui::Color32::WHITE)
+                        .color(btn_text)
                         .size(12.0),
                 )
                 .fill(help_bg)

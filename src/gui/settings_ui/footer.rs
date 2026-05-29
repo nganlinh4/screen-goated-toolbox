@@ -67,20 +67,24 @@ pub fn render_footer(
     ui.horizontal(|ui| {
         // 1. Left Side: Quick launch buttons
         let is_dark = ui.visuals().dark_mode;
-        let btn_color = if is_dark {
-            egui::Color32::from_rgb(245, 248, 255)
+        // Launcher fills are light in dark mode, so near-black label text reads
+        // better there; white in light mode where the fills are deeper.
+        let btn_text = if is_dark {
+            egui::Color32::from_rgb(22, 22, 26)
         } else {
-            egui::Color32::from_rgb(250, 252, 255)
+            egui::Color32::WHITE
         };
+        // Pointer gallery — green (distinct from Screen Record's blue).
+        let btn_color = btn_text;
         let btn_bg = if is_dark {
-            egui::Color32::from_rgb(72, 118, 210)
+            egui::Color32::from_rgb(56, 168, 112)
         } else {
-            egui::Color32::from_rgb(66, 124, 224)
+            egui::Color32::from_rgb(34, 150, 94)
         };
         let btn_bg_hover = if is_dark {
-            egui::Color32::from_rgb(86, 132, 222)
+            egui::Color32::from_rgb(70, 182, 126)
         } else {
-            egui::Color32::from_rgb(80, 138, 236)
+            egui::Color32::from_rgb(44, 164, 106)
         };
 
         if render_launch_button(
@@ -96,7 +100,7 @@ pub fn render_footer(
             *show_pointer_gallery = true;
         }
 
-        let relay_color = egui::Color32::from_rgb(255, 245, 247);
+        let relay_color = btn_text;
         let relay_bg = if is_dark {
             egui::Color32::from_rgb(200, 85, 110)
         } else {
@@ -120,16 +124,18 @@ pub fn render_footer(
             *show_translation_gummy = true;
         }
 
-        let playground_color = egui::Color32::from_rgb(245, 255, 250);
+        // Matches the TTS Playground mini-app accent: warm amber (dark) /
+        // terracotta (light).
+        let playground_color = btn_text;
         let playground_bg = if is_dark {
-            egui::Color32::from_rgb(66, 150, 112)
+            egui::Color32::from_rgb(237, 137, 54)
         } else {
-            egui::Color32::from_rgb(58, 170, 126)
+            egui::Color32::from_rgb(194, 65, 12)
         };
         let playground_bg_hover = if is_dark {
-            egui::Color32::from_rgb(78, 168, 128)
+            egui::Color32::from_rgb(245, 152, 76)
         } else {
-            egui::Color32::from_rgb(70, 188, 142)
+            egui::Color32::from_rgb(214, 84, 30)
         };
         if render_launch_button(
             ui,

@@ -1,17 +1,18 @@
 import clsx from "clsx";
 import { useTtsState } from "./state";
 import { ttsApi } from "./ipc";
+import { Button } from "./components";
 
 export function Studio() {
   const s = useTtsState();
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div className="tts-studio-panels flex h-full flex-col gap-3">
       {s.mode === "SpeechToSpeech" ? <SpeechToSpeechInput /> : <TextInput />}
       <Player />
       <RecentClips />
       <Exports />
       {s.player.error && (
-        <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">
+        <div className="tts-error rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
           {s.player.error}
         </div>
       )}
@@ -21,33 +22,33 @@ export function Studio() {
 
 function SpeechToSpeechInput() {
   const s = useTtsState();
+  const canGenerate = !s.player.isGenerating && Boolean(s.audioEdit.sourcePath);
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-soft p-3 shadow-sm">
-      <label className="text-xs font-medium text-muted">Gemini S2S</label>
-      <p className="truncate text-[11px] text-muted" title={s.audioEdit.sourcePath}>
+    <div className="tts-s2s-input flex flex-col gap-2.5 rounded-lg bg-surface-soft p-3.5 shadow-elevation-2">
+      <label className="tts-input-label text-xs font-medium uppercase tracking-wide text-muted">
+        Gemini S2S
+      </label>
+      <p
+        className="tts-s2s-source truncate text-xs text-muted"
+        title={s.audioEdit.sourcePath}
+      >
         {s.audioEdit.sourcePath || s.strings.noSource}
       </p>
-      <div className="flex items-center justify-end gap-1.5">
-        <button
+      <div className="tts-input-actions flex items-center justify-end gap-2">
+        {s.player.isGenerating && (
+          <Button variant="ghost" size="sm" className="tts-cancel" onClick={() => void ttsApi.cancelGeneration()}>
+            {s.strings.cancel}
+          </Button>
+        )}
+        <Button
+          variant="primary"
+          size="md"
+          className="tts-generate"
+          disabled={!canGenerate}
           onClick={() => void ttsApi.generate()}
-          disabled={s.player.isGenerating || !s.audioEdit.sourcePath}
-          className={clsx(
-            "rounded-md px-3 py-1 text-xs font-medium shadow-sm transition-colors",
-            s.player.isGenerating || !s.audioEdit.sourcePath
-              ? "cursor-not-allowed bg-accent-soft text-muted"
-              : "bg-accent text-white hover:brightness-110",
-          )}
         >
           {s.player.isGenerating ? s.strings.generating : s.strings.generate}
-        </button>
-        {s.player.isGenerating && (
-          <button
-            onClick={() => void ttsApi.cancelGeneration()}
-            className="text-[11px] text-muted underline-offset-2 hover:text-fg hover:underline"
-          >
-            {s.strings.cancel}
-          </button>
-        )}
+        </Button>
       </div>
     </div>
   );
@@ -55,7 +56,8 @@ function SpeechToSpeechInput() {
 
 function TextInput() {
   const s = useTtsState();
-  const editMode = s.mode === "AudioEdit" && s.audioEdit.editType !== "paralinguistic";
+  const editMode =
+    s.mode === "AudioEdit" && s.audioEdit.editType !== "paralinguistic";
   const canGenerate =
     !s.player.isGenerating &&
     (s.mode === "AudioEdit"
@@ -69,8 +71,8 @@ function TextInput() {
   // For audio-edit non-paralinguistic flows the source transcript IS the input;
   // for everything else the draft text is the synth input.
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-soft p-3 shadow-sm">
-      <label className="text-xs font-medium text-muted">
+    <div className="tts-text-input flex flex-col gap-2.5 rounded-lg bg-surface-soft p-3.5 shadow-elevation-2">
+      <label className="tts-input-label text-xs font-medium uppercase tracking-wide text-muted">
         {editMode ? s.strings.sourceTranscript : s.strings.textLabel}
       </label>
       <textarea
@@ -83,46 +85,40 @@ function TextInput() {
           }
         }}
         placeholder={s.strings.textHint}
-        className="min-h-[120px] resize-none rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-[12px] leading-relaxed text-fg outline-none focus:border-accent"
+        className="tts-text-area min-h-[120px] resize-none rounded-md bg-surface px-2.5 py-2 font-mono text-sm leading-relaxed text-fg outline-none transition focus:ring-2 focus:ring-accent/25"
       />
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] text-muted">
+      <div className="tts-text-footer flex items-center justify-between gap-2">
+        <span className="tts-char-count text-xs text-muted tabular-nums">
           {(s.strings.charCountTemplate || "{n} chars").replace(
             "{n}",
             String((editMode ? s.audioEdit.sourceText : s.draftText).length),
           )}
         </span>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => void ttsApi.clear()}
-            className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs text-muted hover:border-border-strong hover:text-fg"
-          >
+        <div className="tts-text-actions flex items-center gap-2">
+          {s.player.isGenerating && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="tts-cancel"
+              onClick={() => void ttsApi.cancelGeneration()}
+            >
+              {s.strings.cancel}
+            </Button>
+          )}
+          <Button variant="secondary" size="sm" className="tts-clear" onClick={() => void ttsApi.clear()}>
             {s.strings.clear}
-          </button>
-          <button
-            onClick={() => void ttsApi.generate()}
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            className="tts-generate"
             disabled={!canGenerate}
-            className={clsx(
-              "rounded-md px-3 py-1 text-xs font-medium shadow-sm transition-colors",
-              !canGenerate
-                ? "cursor-not-allowed bg-accent-soft text-muted"
-                : "bg-accent text-white hover:brightness-110",
-            )}
+            onClick={() => void ttsApi.generate()}
           >
-            {s.player.isGenerating
-              ? s.strings.generating
-              : s.strings.generate}
-          </button>
+            {s.player.isGenerating ? s.strings.generating : s.strings.generate}
+          </Button>
         </div>
       </div>
-      {s.player.isGenerating && (
-        <button
-          onClick={() => void ttsApi.cancelGeneration()}
-          className="self-end text-[11px] text-muted underline-offset-2 hover:text-fg hover:underline"
-        >
-          {s.strings.cancel}
-        </button>
-      )}
     </div>
   );
 }
@@ -132,7 +128,7 @@ function Player() {
   const current = s.player.current;
   if (!current) {
     return (
-      <div className="rounded-lg border border-border bg-surface-soft px-3 py-3 text-center text-xs text-muted shadow-sm">
+      <div className="tts-player tts-player-empty rounded-lg border border-dashed border-border bg-surface px-3 py-5 text-center text-xs text-muted">
         {s.strings.noAudio}
       </div>
     );
@@ -145,12 +141,15 @@ function Player() {
     ? s.strings.resume
     : s.strings.play;
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-soft p-3 shadow-sm">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-xs font-medium" title={current.voiceLabel}>
+    <div className="tts-player flex flex-col gap-2.5 rounded-lg bg-surface-soft p-3.5 shadow-elevation-2">
+      <div className="tts-player-meta flex items-baseline justify-between gap-2">
+        <span
+          className="tts-player-voice truncate text-sm font-semibold text-fg"
+          title={current.voiceLabel}
+        >
           {current.voiceLabel}
         </span>
-        <span className="font-mono text-[11px] text-muted">
+        <span className="tts-player-time shrink-0 font-mono text-xs tabular-nums text-muted">
           {fmt(s.player.positionSec)} / {fmt(duration)}
         </span>
       </div>
@@ -161,33 +160,29 @@ function Player() {
         step={0.05}
         value={s.player.positionSec}
         onChange={(e) => void ttsApi.seek(Number(e.target.value))}
-        className="seek-bar"
+        className="tts-player-seek seek-bar"
         style={{
-          background: `linear-gradient(to right, rgb(var(--accent)) ${pct}%, rgb(var(--border-strong)) ${pct}%)`,
+          background: `linear-gradient(to right, rgb(var(--accent)) ${pct}%, rgb(var(--surface-strong)) ${pct}%)`,
         }}
       />
-      <div className="flex items-center gap-1.5">
-        <button
+      <div className="tts-player-transport flex items-center gap-2">
+        <Button
+          variant="primary"
+          size="md"
+          className="tts-play"
           onClick={() => {
             if (s.player.isPlaying) void ttsApi.pause();
             else void ttsApi.play();
           }}
-          className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:brightness-110"
         >
           {playLabel}
-        </button>
-        <button
-          onClick={() => void ttsApi.stop()}
-          className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs text-fg hover:border-border-strong"
-        >
+        </Button>
+        <Button variant="secondary" size="sm" className="tts-stop" onClick={() => void ttsApi.stop()}>
           {s.strings.stop}
-        </button>
-        <button
-          onClick={() => void ttsApi.replay()}
-          className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs text-fg hover:border-border-strong"
-        >
+        </Button>
+        <Button variant="secondary" size="sm" className="tts-replay" onClick={() => void ttsApi.replay()}>
           {s.strings.replay}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -197,36 +192,36 @@ function RecentClips() {
   const s = useTtsState();
   if (s.player.recent.length === 0) return null;
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1.5 rounded-lg border border-border bg-surface-soft p-3 shadow-sm">
-      <div className="text-xs font-medium text-muted">{s.strings.recent}</div>
-      <ul className="flex flex-col gap-0.5 overflow-y-auto">
+    <div className="tts-recent flex min-h-0 flex-1 flex-col gap-2 rounded-lg bg-surface-soft p-3.5 shadow-elevation-2">
+      <div className="tts-recent-title text-xs font-semibold uppercase tracking-wide text-muted">
+        {s.strings.recent}
+      </div>
+      <ul className="tts-recent-list flex flex-col gap-0.5 overflow-y-auto">
         {s.player.recent.map((clip) => (
           <li
             key={clip.id}
-            className="group flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-[11px] hover:bg-surface-strong"
+            className="tts-recent-item group flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 transition hover:bg-surface-strong"
             onClick={() => void ttsApi.playRecent(clip.id)}
           >
-            <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
-              <span className="shrink-0 font-mono text-muted">
+            <span className="tts-recent-meta flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs">
+              <span className="shrink-0 font-mono text-2xs text-muted">
                 {clip.createdLabel}
               </span>
-              <span className="truncate text-muted">|</span>
-              <span className="shrink-0 truncate font-medium" title={clip.voiceLabel}>
+              <span className="shrink-0 truncate font-medium text-fg" title={clip.voiceLabel}>
                 {clip.voiceLabel}
               </span>
-              <span className="shrink-0 font-mono text-muted">
+              <span className="shrink-0 font-mono text-2xs text-muted">
                 {clip.durationSec.toFixed(1)}s
               </span>
-              <span className="truncate text-muted">
-                {flatten(clip.text)}
-              </span>
+              <span className="truncate text-muted">·</span>
+              <span className="truncate text-muted">{flatten(clip.text)}</span>
             </span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 void ttsApi.deleteRecent(clip.id);
               }}
-              className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger"
+              className="tts-recent-delete shrink-0 rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"
               aria-label="Delete"
               title="Delete"
             >
@@ -250,25 +245,24 @@ function Exports() {
   const s = useTtsState();
   if (!s.player.current) return null;
   return (
-    <div className="flex items-center gap-1.5">
-      <button
+    <div className="tts-exports flex items-center gap-2">
+      <Button
+        variant="secondary"
+        size="md"
+        className="tts-export-wav flex-1"
         onClick={() => void ttsApi.downloadWav()}
-        className="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-fg hover:border-border-strong"
       >
         {s.strings.downloadWav}
-      </button>
-      <button
-        onClick={() => void ttsApi.downloadMp3()}
+      </Button>
+      <Button
+        variant="secondary"
+        size="md"
+        className={clsx("tts-export-mp3 flex-1", s.player.isExporting && "cursor-wait")}
         disabled={s.player.isExporting}
-        className={clsx(
-          "flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-fg",
-          s.player.isExporting
-            ? "cursor-wait text-muted"
-            : "hover:border-border-strong",
-        )}
+        onClick={() => void ttsApi.downloadMp3()}
       >
         {s.player.isExporting ? s.strings.exporting : s.strings.downloadMp3}
-      </button>
+      </Button>
     </div>
   );
 }

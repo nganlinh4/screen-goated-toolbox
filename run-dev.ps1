@@ -83,6 +83,7 @@ try {
         Sync-Frontend "PromptDJ" "promptdj-midi" "src\overlay\prompt_dj\dist"
         Sync-Frontend "Translation Gummy" "translation-gummy-ui" "src\overlay\translation_gummy\dist"
         Sync-Frontend "Screen Record" "screen-record" "src\overlay\screen_record\dist"
+        Sync-Frontend "TTS Playground" "tts-playground-ui" "src\overlay\tts_playground\dist"
     }
 
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
