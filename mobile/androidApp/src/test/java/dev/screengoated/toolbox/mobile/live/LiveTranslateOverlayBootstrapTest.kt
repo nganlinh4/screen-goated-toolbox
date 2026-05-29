@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.live
 
+import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
@@ -56,6 +57,7 @@ class LiveTranslateOverlayBootstrapTest {
 
         assertEquals(requiredModels.translationProviders, translation)
         assertEquals(requiredModels.androidTranscriptionProviders, transcription)
+        assertEquals(requiredModels.targetLanguages, LanguageCatalog.names)
         assertTrue(translation.contains(defaultTranslationProviderId()))
         assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5))
         assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S))
@@ -71,6 +73,7 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(fixture.requiredVisuals.androidS2sRejectsTtsDisable)
         assertTrue(fixture.requiredVisuals.androidTextLlmUsesProviderAvailability)
         assertTrue(fixture.requiredVisuals.androidRejectedTranslationApplyIsFailure)
+        assertTrue(fixture.requiredVisuals.androidRejectedPrimaryApplyCanTryFallback)
         assertTrue(fixture.requiredVisuals.androidForceCommitPrimesTranslationInterval)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.ttsModalLocaleRefresh)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.downloadModalLocaleRefresh)
@@ -142,6 +145,7 @@ private data class RequiredModels(
     val windowsTranscriptionProviders: List<String>,
     val androidTranscriptionProviders: List<String>,
     val androidUnavailableTranscriptionProviders: List<String>,
+    val targetLanguages: List<String>,
 )
 
 @Serializable
@@ -160,6 +164,7 @@ private data class RequiredVisuals(
     val androidS2sRejectsTtsDisable: Boolean,
     val androidTextLlmUsesProviderAvailability: Boolean,
     val androidRejectedTranslationApplyIsFailure: Boolean,
+    val androidRejectedPrimaryApplyCanTryFallback: Boolean,
     val androidForceCommitPrimesTranslationInterval: Boolean,
     val ttsModalLocaleRefresh: String,
     val downloadModalLocaleRefresh: String,

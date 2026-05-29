@@ -428,34 +428,56 @@ class RealtimeTranslationClient(
         runtimeSettings: PresetRuntimeSettings,
     ): TranslationExecutionResult = withContext(Dispatchers.IO) {
         val primaryId = providerId
+        runCatching {
+            return@withContext translateWithExactProvider(
+                geminiApiKey = geminiApiKey,
+                cerebrasApiKey = cerebrasApiKey,
+                groqApiKey = groqApiKey,
+                request = request,
+                targetLanguage = targetLanguage,
+                providerId = primaryId,
+                llmChain = llmChain,
+                runtimeSettings = runtimeSettings,
+            )
+        }
+
+        val fallbackId = if (primaryId == PROVIDER_GTX) PROVIDER_LLM else PROVIDER_GTX
+        translateWithExactProvider(
+            geminiApiKey = geminiApiKey,
+            cerebrasApiKey = cerebrasApiKey,
+            groqApiKey = groqApiKey,
+            request = request,
+            targetLanguage = targetLanguage,
+            providerId = fallbackId,
+            llmChain = llmChain,
+            runtimeSettings = runtimeSettings,
+        )
+    }
+
+    suspend fun translateWithExactProvider(
+        geminiApiKey: String,
+        cerebrasApiKey: String,
+        groqApiKey: String,
+        request: TranslationRequest,
+        targetLanguage: String,
+        providerId: String,
+        llmChain: List<String>,
+        runtimeSettings: PresetRuntimeSettings,
+    ): TranslationExecutionResult = withContext(Dispatchers.IO) {
         val apiKeys = ApiKeys(
             geminiKey = geminiApiKey,
             cerebrasKey = cerebrasApiKey,
             groqKey = groqApiKey,
         )
-
-        runCatching {
-            val response = dispatchProvider(
-                providerId = primaryId,
-                apiKeys = apiKeys,
-                request = request,
-                targetLanguage = targetLanguage,
-                llmChain = llmChain,
-                runtimeSettings = runtimeSettings,
-            )
-            return@withContext TranslationExecutionResult(primaryId, response)
-        }
-
-        val fallbackId = if (primaryId == PROVIDER_GTX) PROVIDER_LLM else PROVIDER_GTX
         val response = dispatchProvider(
-            providerId = fallbackId,
+            providerId = providerId,
             apiKeys = apiKeys,
             request = request,
             targetLanguage = targetLanguage,
             llmChain = llmChain,
             runtimeSettings = runtimeSettings,
         )
-        TranslationExecutionResult(fallbackId, response)
+        TranslationExecutionResult(providerId, response)
     }
 
     private suspend fun dispatchProvider(
