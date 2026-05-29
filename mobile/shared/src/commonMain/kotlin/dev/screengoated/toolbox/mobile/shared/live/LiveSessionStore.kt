@@ -50,14 +50,31 @@ class LiveSessionStore(
         }
     }
 
-    fun markStarting() {
+    fun markStarting(preserveFrozenPrefix: Boolean = false) {
         mutableState.update { current ->
+            val liveText = LiveTranslateParity.reset(
+                transcriptionMethod = current.liveText.transcriptionMethod,
+            )
+            val nextLiveText = if (preserveFrozenPrefix) {
+                liveText.copy(
+                    frozenPrefix = current.liveText.frozenPrefix,
+                    displayTranscript = current.liveText.frozenPrefix,
+                )
+            } else {
+                liveText
+            }
             current.copy(
                 phase = SessionPhase.STARTING,
-                liveText = LiveTranslateParity.reset(
-                    transcriptionMethod = current.liveText.transcriptionMethod,
-                ),
+                liveText = nextLiveText,
                 lastError = null,
+            )
+        }
+    }
+
+    fun freezeCurrentTranscript() {
+        mutableState.update { current ->
+            current.copy(
+                liveText = LiveTranslateParity.freezeCurrentTranscript(current.liveText),
             )
         }
     }

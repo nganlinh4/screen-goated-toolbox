@@ -86,6 +86,26 @@ class LiveSessionStoreTest {
     }
 
     @Test
+    fun restart_freezes_visible_prefix_without_reprocessing_translation() {
+        val store = LiveSessionStore()
+        store.appendTranscript("old session.", nowMs = 100)
+
+        store.freezeCurrentTranscript()
+        store.markStarting(preserveFrozenPrefix = true)
+        store.appendTranscript("new tail", nowMs = 200)
+
+        val liveText = store.state.value.liveText
+        assertEquals("old session.", liveText.frozenPrefix)
+        assertEquals("new tail", liveText.fullTranscript)
+        assertEquals("old session. new tail", liveText.displayTranscript)
+
+        val request = store.claimTranslationRequest()
+            ?: error("expected request for new session text")
+        assertEquals(0, request.sourceStart)
+        assertEquals("new tail", request.pendingSource)
+    }
+
+    @Test
     fun rejected_translation_response_reports_not_applied() {
         val store = LiveSessionStore()
         store.appendTranscript("hello. tail", nowMs = 100)

@@ -106,6 +106,9 @@ fn shared_fixtures_match_windows_realtime_state() {
                 "forceCommitAll" => {
                     state.force_commit_all();
                 }
+                "freezeCurrentTranscript" => {
+                    state.freeze_current_transcript();
+                }
                 "clearTranslationHistory" => {
                     state.translation_history.clear();
                 }
@@ -113,6 +116,11 @@ fn shared_fixtures_match_windows_realtime_state() {
             }
         }
 
+        assert_eq!(
+            state.frozen_prefix, case.expected_state.frozen_prefix,
+            "case {}",
+            case.name
+        );
         assert_eq!(
             state.full_transcript, case.expected_state.full_transcript,
             "case {}",
@@ -244,6 +252,8 @@ struct FixturePatch {
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct FixtureExpectedState {
+    #[serde(default)]
+    frozen_prefix: String,
     full_transcript: String,
     display_transcript: String,
     last_committed_pos: usize,

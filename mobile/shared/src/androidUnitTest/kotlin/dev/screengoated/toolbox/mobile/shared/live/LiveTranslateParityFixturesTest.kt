@@ -50,6 +50,7 @@ class LiveTranslateParityFixturesTest {
 
                     "forceCommitAll" -> LiveTranslateParity.forceCommitAll(state)
                     "clearTranslationHistory" -> LiveTranslateParity.clearTranslationHistory(state)
+                    "freezeCurrentTranscript" -> LiveTranslateParity.freezeCurrentTranscript(state)
                     else -> error("Unknown fixture step type: ${step.type}")
                 }
             }
@@ -114,6 +115,7 @@ class LiveTranslateParityFixturesTest {
         expected: FixtureExpectedState,
         actual: LiveTextState,
     ) {
+        assertEquals(expected.frozenPrefix, actual.frozenPrefix)
         assertEquals(expected.fullTranscript, actual.fullTranscript)
         assertEquals(expected.displayTranscript, actual.displayTranscript)
         assertEquals(expected.lastCommittedPos, actual.lastCommittedPos)
@@ -180,6 +182,7 @@ private data class FixtureExpectedRequest(
 
 @Serializable
 private data class FixtureExpectedState(
+    val frozenPrefix: String = "",
     val fullTranscript: String,
     val displayTranscript: String,
     val lastCommittedPos: Int,

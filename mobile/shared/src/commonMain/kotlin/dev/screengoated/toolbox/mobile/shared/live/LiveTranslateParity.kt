@@ -28,6 +28,23 @@ object LiveTranslateParity {
         transcriptionMethod = transcriptionMethod,
     )
 
+    fun freezeCurrentTranscript(state: LiveTextState): LiveTextState {
+        val frozenPrefix = joinDisplayText(state.frozenPrefix, state.fullTranscript)
+        return state.copy(
+            frozenPrefix = frozenPrefix,
+            fullTranscript = "",
+            displayTranscript = frozenPrefix,
+            lastCommittedPos = 0,
+            lastProcessedLen = 0,
+            committedTranslation = "",
+            uncommittedTranslation = "",
+            uncommittedSourceStart = 0,
+            uncommittedSourceEnd = 0,
+            displayTranslation = "",
+            translationHistory = emptyList(),
+        )
+    }
+
     fun setTranscriptionMethod(
         state: LiveTextState,
         method: TranscriptionMethod,
@@ -67,7 +84,7 @@ object LiveTranslateParity {
 
         val newState = state.copy(
             fullTranscript = fullTranscript,
-            displayTranscript = fullTranscript,
+            displayTranscript = joinDisplayText(state.frozenPrefix, fullTranscript),
             lastTranscriptAppendAtMs = nowMs,
         )
 
@@ -111,7 +128,7 @@ object LiveTranslateParity {
         val fullTranscript = state.fullTranscript + textToAppend
         return state.copy(
             fullTranscript = fullTranscript,
-            displayTranscript = fullTranscript,
+            displayTranscript = joinDisplayText(state.frozenPrefix, fullTranscript),
             lastTranscriptAppendAtMs = nowMs,
         )
     }
@@ -130,7 +147,7 @@ object LiveTranslateParity {
         return state.copy(
             transcriptionMethod = TranscriptionMethod.GEMINI_LIVE_S2S,
             fullTranscript = sourceFull,
-            displayTranscript = sourceFull,
+            displayTranscript = joinDisplayText(state.frozenPrefix, sourceFull),
             lastCommittedPos = sourceDraftStart,
             lastProcessedLen = sourceDraftStart,
             committedTranslation = targetCommitted,
@@ -389,7 +406,7 @@ object LiveTranslateParity {
                 val transcript = state.fullTranscript + ". "
                 return state.copy(
                     fullTranscript = transcript,
-                    displayTranscript = transcript,
+                    displayTranscript = joinDisplayText(state.frozenPrefix, transcript),
                 )
             }
             return state
