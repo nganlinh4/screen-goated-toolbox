@@ -3,6 +3,10 @@ package dev.screengoated.toolbox.mobile.translationgummy
 import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -50,6 +54,37 @@ class TranslationGummySocketProtocolTest {
         assertTrue(source.contains(".put(\"outputAudioTranscription\", JSONObject())"))
     }
 
+    @Test
+    fun `socket parser treats setup complete as structural event only`() {
+        val fixture = loadSocketFixture()
+        val source = loadSourceFile().readText()
+        val setupCase = fixture.getValue("setupComplete").jsonObject
+        assertEquals(
+            true,
+            setupCase.getValue("expected").jsonObject.getValue("setupComplete").jsonPrimitive.boolean,
+        )
+
+        val errorCase = fixture.getValue("errorContainingSetupCompleteText").jsonObject
+        assertEquals(
+            false,
+            errorCase.getValue("expected").jsonObject.getValue("setupComplete").jsonPrimitive.boolean,
+        )
+        assertTrue(errorCase.getValue("expected").jsonObject.getValue("error").jsonPrimitive.content.contains("setupComplete"))
+        assertFalse(source.contains("message.contains(\"setupComplete\")"))
+        assertTrue(source.contains("val root = JSONObject(message)"))
+        assertTrue(source.contains("if (root.has(\"setupComplete\"))"))
+    }
+
+    @Test
+    fun `audio stream end payload matches socket fixture`() {
+        val fixture = loadSocketFixture().getValue("audioStreamEnd").jsonObject
+        val root = fixture.getValue("expectedRoot").jsonPrimitive.content
+        val flag = fixture.getValue("expectedFlag").jsonPrimitive.content
+        val source = loadSourceFile().readText()
+
+        assertTrue(source.contains(".put(\"$root\", JSONObject().put(\"$flag\", true))"))
+    }
+
     private fun loadSourceFile(): File {
         val workingDirectory = requireNotNull(System.getProperty("user.dir"))
         return generateSequence(File(workingDirectory).absoluteFile) { current ->
@@ -70,8 +105,20 @@ class TranslationGummySocketProtocolTest {
         return json.decodeFromString(File(repoRoot, PROMPT_FIXTURE_PATH).readText())
     }
 
+    private fun loadSocketFixture(): JsonObject {
+        val workingDirectory = requireNotNull(System.getProperty("user.dir"))
+        val repoRoot = generateSequence(File(workingDirectory).absoluteFile) { current ->
+            current.parentFile ?: return@generateSequence null
+        }.firstOrNull { root ->
+            File(root, SOCKET_FIXTURE_PATH).exists()
+        } ?: error("Could not locate $SOCKET_FIXTURE_PATH from $workingDirectory")
+
+        return json.parseToJsonElement(File(repoRoot, SOCKET_FIXTURE_PATH).readText()).jsonObject
+    }
+
     private companion object {
         private const val PROMPT_FIXTURE_PATH = "parity-fixtures/translation-gummy/prompt-contract.json"
+        private const val SOCKET_FIXTURE_PATH = "parity-fixtures/translation-gummy/socket-protocol.json"
         private const val SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummySocketProtocol.kt"
     }

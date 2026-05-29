@@ -98,12 +98,11 @@ internal fun buildTranslationGummyAudioStreamEndPayload(): String {
 }
 
 internal fun parseTranslationGummySocketUpdate(message: String): TranslationGummySocketUpdate {
-    if (message.contains("setupComplete")) {
-        return TranslationGummySocketUpdate(setupComplete = true)
-    }
-
     return runCatching {
         val root = JSONObject(message)
+        if (root.has("setupComplete")) {
+            return@runCatching TranslationGummySocketUpdate(setupComplete = true)
+        }
 
         // GoAway: server signals imminent termination
         if (root.has("goAway")) {
