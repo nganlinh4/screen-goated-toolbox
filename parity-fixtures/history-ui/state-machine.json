@@ -70,11 +70,59 @@
           "sourceText": "three"
         },
         {
+          "type": "save_text",
+          "resultText": "four",
+          "sourceText": "four"
+        },
+        {
+          "type": "save_text",
+          "resultText": "five",
+          "sourceText": "five"
+        },
+        {
+          "type": "save_text",
+          "resultText": "six",
+          "sourceText": "six"
+        },
+        {
+          "type": "save_text",
+          "resultText": "seven",
+          "sourceText": "seven"
+        },
+        {
+          "type": "save_text",
+          "resultText": "eight",
+          "sourceText": "eight"
+        },
+        {
+          "type": "save_text",
+          "resultText": "nine",
+          "sourceText": "nine"
+        },
+        {
+          "type": "save_text",
+          "resultText": "ten",
+          "sourceText": "ten"
+        },
+        {
+          "type": "save_text",
+          "resultText": "eleven",
+          "sourceText": "eleven"
+        },
+        {
           "type": "set_max_items",
-          "value": 2
+          "value": 10
         }
       ],
       "expectedOrder": [
+        "eleven",
+        "ten",
+        "nine",
+        "eight",
+        "seven",
+        "six",
+        "five",
+        "four",
         "three",
         "two"
       ]

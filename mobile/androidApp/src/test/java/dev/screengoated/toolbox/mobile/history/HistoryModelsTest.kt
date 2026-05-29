@@ -1,16 +1,23 @@
 package dev.screengoated.toolbox.mobile.history
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class HistoryModelsTest {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -99,6 +106,135 @@ class HistoryModelsTest {
             filterHistoryItems(items, case.getValue("query").jsonPrimitive.content).size,
         )
         assertEquals(emptyList<HistoryItem>(), filterHistoryItems(items, "text_1.txt"))
+    }
+
+    @Test
+    fun repositorySavesTextNewestFirstAndKeepsSourceBackingFile() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = createRepository(dispatcher)
+        val orderCase = fixtureCase("save_text_newest_first")
+        val backingCase = fixtureCase("text_item_keeps_source_in_backing_file")
+
+        orderCase.getValue("operations").jsonArray.forEach { operation ->
+            val obj = operation.jsonObject
+            repository.saveText(
+                resultText = obj.getValue("resultText").jsonPrimitive.content,
+                inputText = obj.getValue("sourceText").jsonPrimitive.content,
+            )
+        }
+        advanceUntilIdle()
+
+        assertEquals(
+            orderCase.getValue("expectedOrder").jsonArray.map { it.jsonPrimitive.content },
+            repository.state.value.items.map { it.text },
+        )
+
+        val backingOperation = backingCase.getValue("operations").jsonArray.single().jsonObject
+        val backingRepository = createRepository(dispatcher)
+        backingRepository.saveText(
+            resultText = backingOperation.getValue("resultText").jsonPrimitive.content,
+            inputText = backingOperation.getValue("sourceText").jsonPrimitive.content,
+        )
+        advanceUntilIdle()
+        val item = backingRepository.state.value.items.single()
+
+        assertEquals(
+            HistoryType.valueOf(backingCase.getValue("expectedItemType").jsonPrimitive.content),
+            item.itemType,
+        )
+        assertEquals(backingCase.getValue("expectedVisibleText").jsonPrimitive.content, item.text)
+        assertEquals(
+            backingCase.getValue("expectedBackingText").jsonPrimitive.content,
+            requireNotNull(backingRepository.mediaFileFor(item)).readText(),
+        )
+    }
+
+    @Test
+    fun repositoryPrunesDeletesClearsAndResetsFromFixture() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val pruneRepository = createRepository(dispatcher)
+        val pruneCase = fixtureCase("prune_removes_oldest")
+
+        pruneCase.getValue("operations").jsonArray.forEach { operation ->
+            val obj = operation.jsonObject
+            when (obj.getValue("type").jsonPrimitive.content) {
+                "save_text" -> pruneRepository.saveText(
+                    resultText = obj.getValue("resultText").jsonPrimitive.content,
+                    inputText = obj.getValue("sourceText").jsonPrimitive.content,
+                )
+                "set_max_items" -> pruneRepository.updateMaxItems(
+                    obj.getValue("value").jsonPrimitive.int,
+                )
+                else -> error("Unsupported history fixture operation: $obj")
+            }
+        }
+        advanceUntilIdle()
+
+        assertEquals(
+            pruneCase.getValue("expectedOrder").jsonArray.map { it.jsonPrimitive.content },
+            pruneRepository.state.value.items.map { it.text },
+        )
+
+        val resetRepository = createRepository(dispatcher)
+        resetRepository.updateMaxItems(MAX_HISTORY_LIMIT)
+        advanceUntilIdle()
+        resetRepository.resetSettingsToDefaults()
+        advanceUntilIdle()
+        assertEquals(
+            fixtureCase("settings_reset_restores_history_default_50")
+                .getValue("expectedNormalizedMaxItems")
+                .jsonPrimitive
+                .int,
+            resetRepository.state.value.maxItems,
+        )
+
+        val deleteRepository = createRepository(dispatcher)
+        val deleteCase = fixtureCase("delete_and_clear_all_remove_items")
+        deleteCase.getValue("operations").jsonArray.forEach { operation ->
+            val obj = operation.jsonObject
+            when (obj.getValue("type").jsonPrimitive.content) {
+                "save_text" -> deleteRepository.saveText(
+                    resultText = obj.getValue("resultText").jsonPrimitive.content,
+                    inputText = obj.getValue("sourceText").jsonPrimitive.content,
+                )
+                "delete_by_result_text" -> {
+                    advanceUntilIdle()
+                    val id = requireNotNull(
+                        deleteRepository.state.value.items.firstOrNull {
+                            it.text == obj.getValue("resultText").jsonPrimitive.content
+                        },
+                    ).id
+                    deleteRepository.delete(id)
+                }
+                "clear_all" -> deleteRepository.clearAll()
+                else -> error("Unsupported history fixture operation: $obj")
+            }
+        }
+        advanceUntilIdle()
+
+        assertEquals(
+            deleteCase.getValue("expectedCount").jsonPrimitive.int,
+            deleteRepository.state.value.items.size,
+        )
+    }
+
+    private fun createRepository(
+        dispatcher: CoroutineDispatcher,
+    ): HistoryRepository {
+        val root = Files.createTempDirectory("sgt-history-test").toFile()
+        return HistoryRepository(
+            persistence = HistoryPersistence(
+                paths = HistoryPaths(
+                    rootDir = root,
+                    databaseFile = File(root, "history.json"),
+                    settingsFile = File(root, "history_settings.json"),
+                    mediaDir = File(root, "history_media"),
+                    supportsFolderOpen = true,
+                ),
+                json = json,
+            ),
+            ioDispatcher = dispatcher,
+        )
     }
 
     private fun fixtureCase(name: String) = json
