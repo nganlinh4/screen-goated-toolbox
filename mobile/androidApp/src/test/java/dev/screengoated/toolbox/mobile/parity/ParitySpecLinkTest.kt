@@ -57,6 +57,23 @@ class ParitySpecLinkTest {
         }
     }
 
+    @Test
+    fun `preset model catalog is generated from shared manifest on both platforms`() {
+        val root = repoRoot()
+        val spec = File(root, ".claude/parity/preset-system.md").readText()
+        val windowsBuild = File(root, "build.rs").readText()
+        val androidBuild = File(root, "mobile/androidApp/build.gradle.kts").readText()
+        val generator = File(root, "scripts/generate_android_preset_model_catalog.py").readText()
+
+        assertTrue(spec.contains("[catalog/model_catalog.json]"))
+        assertTrue(windowsBuild.contains("""manifest_dir.join("catalog/model_catalog.json")"""))
+        assertTrue(windowsBuild.contains("""model_catalog_generated.rs"""))
+        assertTrue(androidBuild.contains("""repoRoot.resolve("catalog/model_catalog.json")"""))
+        assertTrue(androidBuild.contains("generatePresetModelCatalog"))
+        assertTrue(androidBuild.contains("GeneratedPresetModelCatalogData.kt"))
+        assertTrue(generator.contains("Generated from catalog/model_catalog.json. Do not edit by hand."))
+    }
+
     private fun repoRoot(): File {
         val workingDir = requireNotNull(System.getProperty("user.dir"))
         var dir = File(workingDir).canonicalFile
