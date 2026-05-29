@@ -140,8 +140,9 @@ class AndroidLiveSessionRepository(
     }
 
     fun updateGlobalTtsSettings(settings: MobileGlobalTtsSettings) {
-        mutableGlobalTtsSettings.value = settings
-        settingsStore.saveGlobalTtsSettings(settings)
+        val normalized = normalizeGlobalTtsSettings(settings)
+        mutableGlobalTtsSettings.value = normalized
+        settingsStore.saveGlobalTtsSettings(normalized)
     }
 
     fun updateUiPreferences(preferences: MobileUiPreferences) {
@@ -405,7 +406,7 @@ class AndroidLiveSessionRepository(
     }
 
     private fun normalizeGlobalTtsSettings(settings: MobileGlobalTtsSettings): MobileGlobalTtsSettings {
-        return settings.copy(
+        return settings.normalizedForWindowsParity().copy(
             geminiModel = RealtimeModelIds.normalizeTtsGeminiModel(settings.geminiModel),
         )
     }

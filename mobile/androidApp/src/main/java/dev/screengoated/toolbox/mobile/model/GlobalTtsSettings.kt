@@ -105,6 +105,14 @@ fun MobileGlobalTtsSettings.withMethod(method: MobileTtsMethod): MobileGlobalTts
     return copy(method = method, speedPreset = coercedSpeed)
 }
 
+fun MobileGlobalTtsSettings.normalizedForWindowsParity(): MobileGlobalTtsSettings {
+    return if (method == MobileTtsMethod.VOXTRAL_TTS) {
+        copy(method = MobileTtsMethod.VIENEU_TTS)
+    } else {
+        this
+    }
+}
+
 data class GeminiVoiceOption(
     val name: String,
     val gender: String,
