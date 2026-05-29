@@ -27,6 +27,13 @@ class LiveTranslateParityFixturesTest {
                         nowMs = step.atMs ?: 0L,
                     )
 
+                    "setTranscriptSegments" -> LiveTranslateParity.setTranscriptSegments(
+                        state = state,
+                        committed = step.committed.orEmpty(),
+                        draft = step.draft.orEmpty(),
+                        nowMs = step.atMs ?: 0L,
+                    )
+
                     "claimTranslationRequest" -> {
                         val request = LiveTranslateParity.claimTranslationRequest(state)
                         assertRequest(step.expectedRequest, request)
@@ -153,6 +160,8 @@ private data class FixtureCase(
 private data class FixtureStep(
     val type: String,
     val text: String? = null,
+    val committed: String? = null,
+    val draft: String? = null,
     val atMs: Long? = null,
     val expectedRequest: FixtureExpectedRequest? = null,
     val response: TranslationResponse? = null,

@@ -656,6 +656,7 @@
                 installControlTapGuard(icon);
                 icon.addEventListener('click', (e) => {
                     e.stopPropagation();
+                    if (s2sMode) return;
                     preserveControlsScroll(() => {
                         setTranslationModel(icon.getAttribute('data-value'));
                         window.ipc.postMessage('translationModel:' + icon.getAttribute('data-value'));

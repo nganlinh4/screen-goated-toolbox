@@ -74,6 +74,7 @@
   - Android transcription providers expose the same cloud/S2S and Zipformer control surface, keep `parakeet` visible as unavailable, and additionally expose the documented Android-native Moonshine variants: `moonshine-tiny-streaming`, `moonshine-small-streaming`, and `moonshine-medium-streaming`
   - Android may mark Parakeet unavailable, but must not hide it or pretend it is active
 - Gemini S2S disables the translation model selector and read-locks TTS on both platforms
+- While Gemini S2S is active, translation model changes are rejected at the controller/state boundary, not only hidden in the visible UI.
 - Gemini S2S segmenting uses adaptive VAD on both platforms: Gemini empty-audio feedback increases VAD strictness, healthy segments relax it, and backlog pressure can raise the minimum speech confidence to avoid queuing non-speech audio.
 - Gemini S2S ordered playback skips stale pending segments that block later ready audio, using a longer grace period when input/output text has already arrived for that segment.
 - Gemini S2S display preserves the full accumulated source and target transcript on both platforms; it must not trim the committed display to only a recent window.

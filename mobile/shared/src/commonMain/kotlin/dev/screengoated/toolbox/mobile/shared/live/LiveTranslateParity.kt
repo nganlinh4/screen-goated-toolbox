@@ -46,6 +46,8 @@ object LiveTranslateParity {
         draft: String,
         nowMs: Long,
     ): LiveTextState {
+        val committed = sanitizeTranscriptSegment(committed)
+        val draft = sanitizeTranscriptSegment(draft)
         val fullTranscript = if (committed.isEmpty()) {
             draft.trimStart()
         } else if (draft.isEmpty()) {
@@ -70,17 +72,18 @@ object LiveTranslateParity {
         )
 
         return if (sharedPrefix < translationBoundary) {
-            // Text diverged before the translation boundary — reset uncommitted translation
-            newState.copy(
-                uncommittedTranslation = "",
-                uncommittedSourceStart = sharedPrefix.coerceAtMost(fullTranscript.length),
-                uncommittedSourceEnd = sharedPrefix.coerceAtMost(fullTranscript.length),
-                lastProcessedLen = sharedPrefix.coerceAtMost(fullTranscript.length),
-            )
+            rollbackTranslationTo(newState, sharedPrefix.coerceAtMost(fullTranscript.length))
         } else {
-            newState.copy(
-                lastProcessedLen = state.lastCommittedPos.coerceAtMost(fullTranscript.length),
-            )
+            if (state.uncommittedSourceStart > fullTranscript.length) {
+                clearUncommittedTranslation(newState)
+            } else {
+                newState.copy(
+                    displayTranslation = updateDisplayTranslation(
+                        committedTranslation = newState.committedTranslation,
+                        uncommittedTranslation = newState.uncommittedTranslation,
+                    ),
+                )
+            }
         }
     }
 
@@ -503,6 +506,42 @@ object LiveTranslateParity {
                 uncommittedTranslation = "",
             ),
         )
+    }
+
+    private fun rollbackTranslationTo(
+        state: LiveTextState,
+        position: Int,
+    ): LiveTextState {
+        if (position == 0) {
+            return state.copy(
+                lastCommittedPos = 0,
+                lastProcessedLen = 0,
+                committedTranslation = "",
+                uncommittedTranslation = "",
+                uncommittedSourceStart = 0,
+                uncommittedSourceEnd = 0,
+                displayTranslation = "",
+                translationHistory = emptyList(),
+            )
+        }
+        if (position >= state.lastCommittedPos) {
+            return clearUncommittedTranslation(state)
+        }
+        return state.copy(
+            lastCommittedPos = position,
+            lastProcessedLen = position,
+            uncommittedTranslation = "",
+            uncommittedSourceStart = position,
+            uncommittedSourceEnd = position,
+            displayTranslation = updateDisplayTranslation(
+                committedTranslation = state.committedTranslation,
+                uncommittedTranslation = "",
+            ),
+        )
+    }
+
+    private fun sanitizeTranscriptSegment(segment: String): String {
+        return segment.replace('\n', ' ').replace('\t', ' ')
     }
 
     private data class TranslationChunk(
