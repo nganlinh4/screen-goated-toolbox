@@ -6,6 +6,7 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.model.withMethod
+import dev.screengoated.toolbox.mobile.ui.ttssettings.globalTtsMethodOptions
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -126,6 +127,40 @@ class RealtimeTtsCoordinatorTest {
         assertEquals(expectedPlaybackVolume, playbackVolumePercent(request))
     }
 
+    @Test
+    fun `visible tts methods follow windows selector contract`() {
+        val case = fixtureCase("android_visible_tts_methods_follow_windows_selector")
+        val expectedMethods = case.getValue("windows_selector_methods")
+            .jsonArray
+            .map { it.jsonPrimitive.content }
+        val hiddenMethods = case.getValue("legacy_hidden_methods")
+            .jsonArray
+            .map { it.jsonPrimitive.content }
+
+        assertEquals(expectedMethods, globalTtsMethodOptions().map { it.name })
+        hiddenMethods.forEach { hidden ->
+            assertTrue(hidden !in globalTtsMethodOptions().map { it.name })
+        }
+    }
+
+    @Test
+    fun `open weight tts methods return explicit android unavailable error`() {
+        val case = fixtureCase("android_open_weight_methods_are_explicitly_unavailable")
+        val methods = case.getValue("methods")
+            .jsonArray
+            .map { it.jsonPrimitive.content }
+        val expectedSuffix = case.getValue("expected_error_suffix").jsonPrimitive.content
+        val serviceSource = repoFile(
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/tts/AndroidTtsRuntimeService.kt"
+        )
+
+        methods.forEach { method ->
+            MobileTtsMethod.valueOf(method)
+            assertTrue("Missing unavailable branch for $method", serviceSource.contains("MobileTtsMethod.$method"))
+        }
+        assertTrue(serviceSource.contains(expectedSuffix))
+    }
+
     private fun fixtureCase(name: String) = json
         .parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString())
         .jsonObject
@@ -143,6 +178,17 @@ class RealtimeTtsCoordinatorTest {
         )
         return candidates.firstOrNull { Files.exists(it) }
             ?: error("Missing TTS runtime fixture. Tried: $candidates")
+    }
+
+    private fun repoFile(path: String): String {
+        val candidates = listOf(
+            Paths.get("..", path),
+            Paths.get("..", "..", path),
+            Paths.get(path),
+        )
+        val file = candidates.firstOrNull { Files.exists(it) }
+            ?: error("Missing repo file: $path. Tried: $candidates")
+        return Files.readAllBytes(file).decodeToString()
     }
 }
 

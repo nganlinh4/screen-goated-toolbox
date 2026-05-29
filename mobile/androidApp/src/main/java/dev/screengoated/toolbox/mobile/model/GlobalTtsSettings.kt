@@ -13,6 +13,8 @@ enum class MobileTtsMethod {
     STEP_AUDIO_EDITX,
     MAGPIE_MULTILINGUAL,
     KOKORO,
+    SUPERTONIC,
+    VIENEU_TTS,
     VOXTRAL_TTS,
 }
 
@@ -70,6 +72,12 @@ data class MobileStepAudioSettings(val voice: String = "", val stylePrompt: Stri
 data class MobileMagpieSettings(val voice: String = "")
 
 @Serializable
+data class MobileSupertonicSettings(val voice: String = "F1")
+
+@Serializable
+data class MobileVieneuSettings(val referenceVoicePath: String = "")
+
+@Serializable
 data class MobileVoxtralSettings(val voice: String = "")
 
 @Serializable
@@ -83,6 +91,8 @@ data class MobileGlobalTtsSettings(
     val kokoroSettings: MobileKokoroSettings = MobileKokoroSettings(),
     val stepAudioSettings: MobileStepAudioSettings = MobileStepAudioSettings(),
     val magpieSettings: MobileMagpieSettings = MobileMagpieSettings(),
+    val supertonicSettings: MobileSupertonicSettings = MobileSupertonicSettings(),
+    val vieneuSettings: MobileVieneuSettings = MobileVieneuSettings(),
     val voxtralSettings: MobileVoxtralSettings = MobileVoxtralSettings(),
 )
 
