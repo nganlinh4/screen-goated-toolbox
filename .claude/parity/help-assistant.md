@@ -8,7 +8,7 @@
 ## Behavior Contract
 - The helper assistant fetches and caches the shared `help-index.json` file from GitHub raw:
   - `https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/help-index.json`
-- Requests score every index chunk by keyword matches in `path + text`, apply an extra path-match boost, and send the top 20 matching chunks as source context.
+- Requests score every index chunk by non-overlapping keyword matches in `path + text`, apply an extra path-match boost, and send the top 20 matching chunks as source context.
 - If the question has no searchable terms, requests use the first 20 chunks from the index.
 - The model chain is fixed:
   - primary: `gemini-3.1-flash-lite-preview`

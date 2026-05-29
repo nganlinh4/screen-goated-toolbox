@@ -15,8 +15,6 @@ class HelpAssistantClient(
 ) {
     private var cachedIndex: List<ChunkEntry>? = null
 
-    private data class ChunkEntry(val path: String, val text: String)
-
     suspend fun ask(request: HelpAssistantRequest): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val apiKey = request.geminiApiKey.trim()
@@ -25,7 +23,7 @@ class HelpAssistantClient(
             }
 
             val index = fetchHelpIndex()
-            val topChunks = searchChunks(index, request.question.trim())
+            val topChunks = rankHelpAssistantChunks(index, request.question.trim())
             val context = topChunks.joinToString("\n\n") { "=== ${it.path} ===\n${it.text}" }
 
             // Try primary model, fall back on error
@@ -59,30 +57,6 @@ class HelpAssistantClient(
             cachedIndex = entries
             return entries
         }
-    }
-
-    private fun searchChunks(index: List<ChunkEntry>, question: String): List<ChunkEntry> {
-        val terms = question.lowercase()
-            .split(Regex("[^a-zA-Z0-9_]+"))
-            .filter { it.length >= 2 }
-
-        if (terms.isEmpty()) return index.take(TOP_K)
-
-        return index.map { chunk ->
-            val haystack = "${chunk.path}\n${chunk.text}".lowercase()
-            val pathLower = chunk.path.lowercase()
-            var score = 0.0
-            for (term in terms) {
-                val count = haystack.windowed(term.length).count { it == term }
-                if (count > 0) score += 1.0 + kotlin.math.ln(count.toDouble())
-                if (pathLower.contains(term)) score += 3.0
-            }
-            chunk to score
-        }
-            .filter { it.second > 0.0 }
-            .sortedByDescending { it.second }
-            .take(TOP_K)
-            .map { it.first }
     }
 
     private fun askGemini(
@@ -145,8 +119,6 @@ class HelpAssistantClient(
     }
 
     companion object {
-        private const val TOP_K = 20
-
         internal const val SYSTEM_PROMPT: String =
             "You are the SGT (Screen Goated Toolbox) Android app help assistant. The user is asking from the Android version of the app — assume questions are about the Android app unless they explicitly mention Windows. " +
             "Answer in a helpful, concise and easy to understand way in the question's language, no made up information, only true information. Go straight to the point. " +
@@ -155,3 +127,37 @@ class HelpAssistantClient(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }
+
+internal const val HELP_ASSISTANT_TOP_K = 20
+
+internal data class ChunkEntry(val path: String, val text: String)
+
+internal fun rankHelpAssistantChunks(index: List<ChunkEntry>, question: String): List<ChunkEntry> {
+    val terms = question.lowercase()
+        .split(Regex("[^a-zA-Z0-9_]+"))
+        .filter { it.length >= 2 }
+
+    if (terms.isEmpty()) return index.take(HELP_ASSISTANT_TOP_K)
+
+    return index.mapIndexed { indexInSource, chunk ->
+        val haystack = "${chunk.path}\n${chunk.text}".lowercase()
+        val pathLower = chunk.path.lowercase()
+        var score = 0.0
+        for (term in terms) {
+            val count = haystack.split(term).size - 1
+            if (count > 0) score += 1.0 + kotlin.math.ln(count.toDouble())
+            if (pathLower.contains(term)) score += 3.0
+        }
+        IndexedHelpChunk(chunk, score, indexInSource)
+    }
+        .filter { it.score > 0.0 }
+        .sortedWith(compareByDescending<IndexedHelpChunk> { it.score }.thenBy { it.index })
+        .take(HELP_ASSISTANT_TOP_K)
+        .map { it.chunk }
+}
+
+private data class IndexedHelpChunk(
+    val chunk: ChunkEntry,
+    val score: Double,
+    val index: Int,
+)

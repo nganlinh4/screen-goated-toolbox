@@ -49,8 +49,9 @@ class HelpAssistantClientTest {
 
         val index = cases.getValue("help_index_context")
         assertEquals(HELP_INDEX_URL, index.getValue("url").jsonPrimitive.content)
-        assertEquals(20, index.getValue("top_k").jsonPrimitive.content.toInt())
+        assertEquals(HELP_ASSISTANT_TOP_K, index.getValue("top_k").jsonPrimitive.content.toInt())
         assertTrue(index.getValue("empty_terms_use_first_chunks").jsonPrimitive.boolean)
+        assertEquals(listOf("path", "text"), index.getValue("score_inputs").jsonArray.map { it.jsonPrimitive.content })
         assertEquals(3.0, index.getValue("path_match_boost").jsonPrimitive.double, 0.0)
 
         val modelChain = cases.getValue("model_chain")
@@ -64,6 +65,26 @@ class HelpAssistantClientTest {
         assertTrue(prompt.getValue("markdown_output").jsonPrimitive.boolean)
         assertTrue(prompt.getValue("forbid_made_up_information").jsonPrimitive.boolean)
         assertTrue(prompt.getValue("forbid_source_code_framing").jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun searchRankingUsesWindowsNonOverlappingMatchCount() {
+        val case = fixtureCase("search_ranking_uses_non_overlapping_matches")
+        val chunksById = case.getValue("chunks").jsonArray.map { element ->
+            val chunk = element.jsonObject
+            chunk.getValue("id").jsonPrimitive.content to ChunkEntry(
+                path = chunk.getValue("path").jsonPrimitive.content,
+                text = chunk.getValue("text").jsonPrimitive.content,
+            )
+        }
+        val ranked = rankHelpAssistantChunks(
+            index = chunksById.map { it.second },
+            question = case.getValue("question").jsonPrimitive.content,
+        )
+        val idsByChunk = chunksById.associate { (id, chunk) -> chunk to id }
+        val expected = case.getValue("expected_top_ids").jsonArray.map { it.jsonPrimitive.content }
+
+        assertEquals(expected, ranked.map { idsByChunk.getValue(it) })
     }
 
     @Test
@@ -102,4 +123,12 @@ class HelpAssistantClientTest {
         return candidates.firstOrNull { Files.exists(it) }
             ?: error("Missing help assistant fixture. Tried: $candidates")
     }
+
+    private fun fixtureCase(name: String) = json
+        .parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString())
+        .jsonObject
+        .getValue("cases")
+        .jsonArray
+        .first { it.jsonObject.getValue("name").jsonPrimitive.content == name }
+        .jsonObject
 }
