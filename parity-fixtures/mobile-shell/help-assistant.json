@@ -13,6 +13,26 @@
       "path_match_boost": 3.0
     },
     {
+      "name": "search_ranking_uses_non_overlapping_matches",
+      "question": "aa",
+      "chunks": [
+        {
+          "id": "overlap-heavy",
+          "path": "docs/one.txt",
+          "text": "aaaaa"
+        },
+        {
+          "id": "three-clear-matches",
+          "path": "docs/two.txt",
+          "text": "aa aa aa"
+        }
+      ],
+      "expected_top_ids": [
+        "three-clear-matches",
+        "overlap-heavy"
+      ]
+    },
+    {
       "name": "android_settings_entry_surface",
       "section": "SETTINGS",
       "entry_surface": "material3_dialog_or_sheet",
