@@ -5,6 +5,7 @@ import { ttsApi } from "./ipc";
 import type { TtsMethod, TtsMode } from "./types";
 import { ProviderPanel } from "./Providers";
 import { Studio } from "./Studio";
+import { Select } from "./components";
 
 export function App() {
   useThemeAttr();
@@ -35,12 +36,11 @@ export function App() {
           s2s: s.strings.modeS2S,
         }}
       />
-      <div className="tts-body flex min-h-0 flex-1 gap-3 px-4 pb-4">
-        <section className="tts-controls flex min-w-0 flex-1 flex-col overflow-y-auto pr-1">
+      <div className="tts-body flex min-h-0 flex-1 gap-4 px-4 pb-4 pt-3">
+        <section className="tts-controls flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden pr-1">
           {s.mode === "TtsClone" && (
             <>
               <MethodPicker method={s.method} strings={s.strings} />
-              <div className="h-2" />
               <ProviderPanel />
             </>
           )}
@@ -52,8 +52,7 @@ export function App() {
             <ProviderPanel forceMode="ReferenceLibrary" />
           )}
         </section>
-        <div className="w-px bg-border/60" />
-        <aside className="tts-studio flex w-[300px] shrink-0 flex-col">
+        <aside className="tts-studio flex shrink-0 basis-[min(42%,360px)] min-w-[280px] flex-col">
           <Studio />
         </aside>
       </div>
@@ -64,20 +63,24 @@ export function App() {
 function Header({ title }: { title: string }) {
   return (
     <header
-      className="drag-region flex h-10 items-center justify-between border-b border-border/60 bg-surface-soft px-4"
-      onPointerDown={(e) => {
-        // Only left-button drags; right click should not move the window.
-        if (e.button === 0) {
-          void ttsApi.startDrag();
+      className="tts-header flex h-11 items-center justify-between bg-surface-container px-4"
+      onMouseDown={(e) => {
+        // Left-button only, and never when the press lands on an interactive
+        // control (the window buttons) — otherwise the OS drag loop swallows
+        // their click. Mirrors Translation Gummy's drag guard.
+        if (e.button !== 0) return;
+        if ((e.target as HTMLElement).closest("button, input, textarea, a, [role='button']")) {
+          return;
         }
+        void ttsApi.startDrag();
       }}
       onDoubleClick={() => void ttsApi.minimizeWindow()}
     >
-      <span className="text-sm font-medium tracking-tight">
-        <span className="mr-2 text-accent">🔊</span>
+      <span className="tts-title flex items-center gap-2.5 text-sm font-semibold tracking-tight">
+        <WaveMark />
         {title}
       </span>
-      <div className="no-drag flex items-center gap-1">
+      <div className="tts-window-controls no-drag flex items-center gap-1">
         <WindowButton
           ariaLabel="Minimize"
           onClick={() => void ttsApi.minimizeWindow()}
@@ -105,6 +108,28 @@ function Header({ title }: { title: string }) {
   );
 }
 
+/** Small accent waveform mark — replaces the generic 🔊 emoji. */
+function WaveMark() {
+  return (
+    <svg viewBox="0 0 20 14" className="tts-wave-mark h-3.5 w-5 text-accent" aria-hidden>
+      {[2, 6, 10, 14, 18].map((x, i) => {
+        const h = [5, 11, 8, 13, 6][i];
+        return (
+          <rect
+            key={x}
+            x={x - 1}
+            y={(14 - h) / 2}
+            width="2"
+            height={h}
+            rx="1"
+            fill="currentColor"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 function WindowButton({
   children,
   onClick,
@@ -121,10 +146,10 @@ function WindowButton({
       aria-label={ariaLabel}
       onClick={onClick}
       className={clsx(
-        "no-drag flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors",
+        "tts-window-btn no-drag flex h-7 w-7 items-center justify-center rounded-md text-muted transition ease-spring",
         danger
-          ? "hover:bg-danger/15 hover:text-danger"
-          : "hover:bg-surface-strong hover:text-fg",
+          ? "tts-window-btn-close hover:bg-danger/15 hover:text-danger"
+          : "tts-window-btn-minimize hover:bg-surface-strong hover:text-fg",
       )}
     >
       {children}
@@ -151,8 +176,8 @@ function ModeBar({
     { id: "ReferenceLibrary", label: strings.referenceLibrary },
   ];
   return (
-    <nav className="border-b border-border/60 bg-surface-soft px-3">
-      <div className="flex items-end gap-1">
+    <nav className="tts-mode-bar bg-surface-container px-4 pb-2.5 pt-1">
+      <div className="tts-mode-track inline-flex gap-0.5 rounded-md bg-surface p-0.5">
         {tabs.map((t) => {
           const active = mode === t.id;
           return (
@@ -160,16 +185,14 @@ function ModeBar({
               key={t.id}
               onClick={() => void ttsApi.setMode(t.id)}
               className={clsx(
-                "relative -mb-px px-3 py-2 text-xs font-medium transition-colors",
+                `tts-mode-tab tts-mode-tab-${t.id}`,
+                "rounded-[6px] px-3 py-1 text-xs font-medium transition ease-spring",
                 active
-                  ? "text-fg"
+                  ? "tts-mode-tab--active bg-surface-soft text-fg shadow-elevation-1"
                   : "text-muted hover:text-fg",
               )}
             >
               {t.label}
-              {active && (
-                <span className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-accent" />
-              )}
             </button>
           );
         })}
@@ -196,21 +219,18 @@ function MethodPicker({
     { id: "VieneuTts", label: strings.methodVieneu },
   ];
   return (
-    <div className="card flex items-center gap-3 rounded-lg border border-border bg-surface-soft px-3 py-2 shadow-sm">
-      <label className="text-xs font-medium text-muted">
+    <div className="tts-method-picker flex items-center gap-3 rounded-lg bg-surface-soft px-3.5 py-2.5 shadow-elevation-2">
+      <label className="tts-method-label shrink-0 text-xs font-medium uppercase tracking-wide text-muted">
         {strings.methodLabel}
       </label>
-      <select
-        value={method}
-        onChange={(e) => void ttsApi.setMethod(e.target.value as TtsMethod)}
-        className="flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm focus:border-accent focus:outline-none"
-      >
-        {methods.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
+      <div className="min-w-0 flex-1">
+        <Select
+          value={method}
+          options={methods.map((m) => ({ value: m.id, label: m.label }))}
+          onChange={(id) => void ttsApi.setMethod(id)}
+          className="tts-method-select"
+        />
+      </div>
     </div>
   );
 }

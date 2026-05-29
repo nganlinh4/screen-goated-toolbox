@@ -65,6 +65,20 @@ unsafe extern "system" fn window_proc(
                 let _ = SetFocus(Some(hwnd));
                 LRESULT(0)
             }
+            super::WM_APP_SYNC => {
+                // Host theme/language changed — refresh chrome + push the new
+                // theme + localized strings into the webview.
+                refresh_window_chrome(hwnd);
+                super::state::sync_to_webview();
+                LRESULT(0)
+            }
+            super::WM_APP_TICK => {
+                // Advance the player position and push it so the seek bar/time
+                // update live during playback.
+                super::runtime::tick_position();
+                super::state::sync_to_webview();
+                LRESULT(0)
+            }
             WM_NCCALCSIZE => {
                 if wparam.0 != 0 {
                     LRESULT(0)
@@ -243,6 +257,7 @@ unsafe fn internal_create_loop() {
         super::IS_INITIALIZING = false;
     }
     super::state::sync_to_webview();
+    spawn_playback_ticker(hwnd);
 
     unsafe {
         let mut msg = MSG::default();
@@ -266,6 +281,30 @@ fn internal_create_loop_entry() {
     unsafe {
         internal_create_loop();
     }
+}
+
+/// Posts `WM_APP_TICK` to the window ~6×/s while audio is playing, so the
+/// player UI advances without waiting for a user-driven IPC round-trip. Idle
+/// (no post) when nothing is playing, so it costs nothing at rest.
+fn spawn_playback_ticker(hwnd: HWND) {
+    let target = crate::win_types::SendHwnd(hwnd);
+    std::thread::spawn(move || {
+        // Capture the whole SendHwnd (Send) rather than the bare HWND field.
+        let target = target;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(160));
+            let ready = unsafe { super::IS_READY };
+            if !ready {
+                return;
+            }
+            let playing = super::state::with_state(|s| s.is_playing);
+            if playing {
+                unsafe {
+                    let _ = PostMessageW(Some(target.0), super::WM_APP_TICK, WPARAM(0), LPARAM(0));
+                }
+            }
+        }
+    });
 }
 
 fn refresh_window_chrome(hwnd: HWND) {

@@ -53,7 +53,7 @@ function GeminiPanel() {
   const s = useTtsState();
   const g = s.gemini;
   return (
-    <Card title={s.strings.methodGemini}>
+    <Card title={s.strings.methodGemini} className="tts-panel-gemini">
       <FormRow label={s.strings.geminiModelLabel}>
         <Select
           value={g.model}
@@ -72,7 +72,7 @@ function GeminiPanel() {
             onChange={(voice) => void ttsApi.patchGemini({ voice })}
           />
           <SmallButton onClick={() => void ttsApi.previewVoice(g.voice)}>
-            Preview
+            {s.strings.preview}
           </SmallButton>
         </div>
       </FormRow>
@@ -83,24 +83,27 @@ function GeminiPanel() {
           strings={s.strings}
         />
       </FormRow>
-      <FormRow label={s.strings.instructionsLabel}>
+      <div className="tts-gemini-instruction-field flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted">
+          {s.strings.instructionsLabel}
+        </label>
         <textarea
           value={g.instruction}
-          placeholder="Optional style instruction for Gemini Live"
+          placeholder={s.strings.instructionsHint}
           onChange={(ev) =>
             void ttsApi.patchGemini({ instruction: ev.target.value })
           }
-          className="min-h-[52px] resize-none rounded-md border border-border bg-surface px-2 py-1.5 text-xs outline-none focus:border-accent"
+          className="tts-gemini-instruction min-h-[52px] w-full resize-none rounded-md bg-surface px-2.5 py-2 text-xs leading-relaxed text-fg outline-none transition focus:ring-2 focus:ring-accent/25"
         />
-      </FormRow>
+      </div>
       <FormRow label={s.strings.voicePerLanguage}>
-        <div className="flex flex-col gap-1.5">
+        <div className="tts-gemini-conditions flex flex-col gap-1.5">
           {g.conditions.map((c, idx) => (
             <div
               key={`${c.language}-${idx}`}
-              className="grid grid-cols-[112px,1fr,24px] items-center gap-2 rounded border border-border/60 bg-surface px-2 py-1"
+              className="tts-gemini-condition-row grid grid-cols-[112px,1fr,24px] items-center gap-2 rounded-md bg-surface px-2 py-1.5"
             >
-              <span className="truncate text-[11px] font-medium text-muted">
+              <span className="tts-condition-lang truncate text-xs font-medium text-muted">
                 {c.name || c.language}
               </span>
               <input
@@ -113,7 +116,7 @@ function GeminiPanel() {
                   );
                   void ttsApi.patchGemini({ conditions: next });
                 }}
-                className="min-w-0 rounded border border-border bg-surface-soft px-2 py-1 text-[11px] outline-none focus:border-accent"
+                className="min-w-0 rounded-md bg-surface-soft px-2 py-1 text-xs text-fg outline-none transition focus:ring-2 focus:ring-accent/25"
               />
               <button
                 onClick={() =>
@@ -121,7 +124,7 @@ function GeminiPanel() {
                     conditions: g.conditions.filter((_, i) => i !== idx),
                   })
                 }
-                className="text-muted hover:text-danger"
+                className="tts-condition-remove text-muted hover:text-danger"
                 aria-label="Remove"
               >
                 ×
@@ -163,6 +166,7 @@ function EdgePanel() {
   return (
     <Card
       title={s.strings.methodEdge}
+      className="tts-panel-edge"
       action={
         <SmallButton onClick={() => void ttsApi.resetProvider("edge")}>
           {s.strings.reset}
@@ -197,11 +201,11 @@ function EdgePanel() {
 function VoicePerLanguageEdge({ voices }: { voices: EdgeVoiceConfig[] }) {
   const s = useTtsState();
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="text-[11px] font-medium uppercase tracking-wider text-muted">
+    <div className="tts-voice-grid tts-voice-grid-edge flex flex-col gap-1.5">
+      <div className="tts-voice-grid-title text-xs font-medium uppercase tracking-wide text-muted">
         {s.strings.voicePerLanguage}
       </div>
-      <ul className="flex max-h-44 flex-col gap-1 overflow-y-auto">
+      <ul className="tts-voice-list flex max-h-44 flex-col gap-1 overflow-y-auto">
         {voices.map((v) => {
           const opts =
             s.catalogs.edgeVoicesByLanguage[v.language] ??
@@ -209,9 +213,9 @@ function VoicePerLanguageEdge({ voices }: { voices: EdgeVoiceConfig[] }) {
           return (
             <li
               key={v.language}
-              className="grid grid-cols-[72px,1fr,auto,24px] items-center gap-2 rounded border border-border/60 bg-surface px-2 py-1"
+              className="tts-voice-row grid grid-cols-[72px,1fr,auto,24px] items-center gap-2 rounded-md bg-surface px-2 py-1.5"
             >
-              <span className="font-mono text-[11px] text-muted">
+              <span className="tts-voice-lang font-mono text-xs text-muted">
                 {v.language}
               </span>
               <Select
@@ -227,14 +231,14 @@ function VoicePerLanguageEdge({ voices }: { voices: EdgeVoiceConfig[] }) {
                 }}
               />
               <SmallButton onClick={() => void ttsApi.previewVoice(v.voice)}>
-                Preview
+                {s.strings.preview}
               </SmallButton>
               <button
                 onClick={() => {
                   const next = voices.filter((x) => x.language !== v.language);
                   void ttsApi.patchEdge({ voices: next });
                 }}
-                className="text-muted hover:text-danger"
+                className="tts-voice-remove text-muted hover:text-danger"
                 aria-label="Remove"
               >
                 <svg viewBox="0 0 16 16" className="h-3.5 w-3.5">
@@ -269,7 +273,7 @@ function VoicePerLanguageEdge({ voices }: { voices: EdgeVoiceConfig[] }) {
 function GooglePanel() {
   const s = useTtsState();
   return (
-    <Card title={s.strings.methodGoogle}>
+    <Card title={s.strings.methodGoogle} className="tts-panel-google">
       <FormRow label={s.strings.speedLabel}>
         <SpeedRadios
           value={s.google.speed}
@@ -290,7 +294,8 @@ function StepAudioPanel() {
   return (
     <Card
       title={s.strings.methodStepAudio}
-      description="English, Mandarin, Sichuanese, Cantonese, Japanese, Korean."
+      className="tts-panel-step-audio"
+      description={s.strings.stepAudioDesc}
       action={
         <SmallButton onClick={() => void ttsApi.resetProvider("stepAudio")}>
           {s.strings.reset}
@@ -352,6 +357,7 @@ function LocalProviderPanelView({
   return (
     <Card
       title={title}
+      className={`tts-panel-${provider}`}
       action={
         <SmallButton onClick={() => void ttsApi.resetProvider(provider)}>
           {s.strings.reset}
@@ -414,19 +420,19 @@ function VoicePerLanguageLocal({
 }) {
   const s = useTtsState();
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="text-[11px] font-medium uppercase tracking-wider text-muted">
+    <div className="tts-voice-grid tts-voice-grid-local flex flex-col gap-1.5">
+      <div className="tts-voice-grid-title text-xs font-medium uppercase tracking-wide text-muted">
         {s.strings.voicePerLanguage}
       </div>
-      <ul className="flex max-h-44 flex-col gap-1 overflow-y-auto">
+      <ul className="tts-voice-list flex max-h-44 flex-col gap-1 overflow-y-auto">
         {voices.map((v) => {
           const opts = voicesByLanguage[v.language] ?? [];
           return (
             <li
               key={v.language}
-              className="grid grid-cols-[72px,1fr,auto,24px] items-center gap-2 rounded border border-border/60 bg-surface px-2 py-1"
+              className="tts-voice-row grid grid-cols-[72px,1fr,auto,24px] items-center gap-2 rounded-md bg-surface px-2 py-1.5"
             >
-              <span className="font-mono text-[11px] text-muted">
+              <span className="tts-voice-lang font-mono text-xs text-muted">
                 {v.language}
               </span>
               <Select
@@ -441,13 +447,13 @@ function VoicePerLanguageLocal({
                 }
               />
               <SmallButton onClick={() => void ttsApi.previewVoice(v.voice)}>
-                Preview
+                {s.strings.preview}
               </SmallButton>
               <button
                 onClick={() =>
                   onChange(voices.filter((x) => x.language !== v.language))
                 }
-                className="text-muted hover:text-danger"
+                className="tts-voice-remove text-muted hover:text-danger"
                 aria-label="Remove"
               >
                 <svg viewBox="0 0 16 16" className="h-3.5 w-3.5">
@@ -486,7 +492,7 @@ function AddLanguageRow({
   const s = useTtsState();
   if (languages.length === 0) return null;
   return (
-    <div className="grid grid-cols-[1fr,auto] gap-2">
+    <div className="tts-add-language grid grid-cols-[1fr,auto] gap-2">
       <Select
         value=""
         placeholder={s.strings.addLanguage + "…"}
@@ -508,7 +514,8 @@ function VieneuPanel() {
   return (
     <Card
       title={s.strings.methodVieneu}
-      description="Vietnamese & English, local sidecar."
+      className="tts-panel-vieneu"
+      description={s.strings.vieneuDesc}
       action={
         <SmallButton onClick={() => void ttsApi.resetProvider("vieneu")}>
           {s.strings.reset}

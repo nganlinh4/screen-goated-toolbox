@@ -135,7 +135,7 @@ impl WebPayload {
             gemini: serde_json::json!({
                 "model": pg.gemini_model,
                 "voice": pg.gemini_voice,
-                "speed": format!("{:?}", pg.gemini_speed),
+                "speed": pg.gemini_speed,
                 "instruction": pg.gemini_instruction,
                 "conditions": pg
                     .gemini_language_conditions
@@ -160,7 +160,7 @@ impl WebPayload {
                     .collect::<Vec<_>>(),
             }),
             google: serde_json::json!({
-                "speed": format!("{:?}", pg.google_speed),
+                "speed": pg.google_speed,
             }),
             step_audio: serde_json::json!({
                 "reference": step_audio.reference_voice_id,
@@ -328,6 +328,13 @@ struct StringsView {
     reference_exact_transcript: String,
     gemini_model_label: String,
     instructions_label: String,
+    instructions_hint: String,
+    preview: String,
+    delete: String,
+    step_audio_desc: String,
+    vieneu_desc: String,
+    s2s_target: String,
+    reference_empty: String,
     char_count_template: String,
 }
 
@@ -365,16 +372,16 @@ impl StringsView {
             download_mp3: text.tts_playground_download_mp3.to_string(),
             recent: text.tts_playground_recent.to_string(),
             voice_per_language: text.tts_voice_per_language_label.to_string(),
-            add_language: "Add language".to_string(),
-            reset: "Reset".to_string(),
+            add_language: text.tts_add_language_label.to_string(),
+            reset: text.tts_reset_to_defaults_label.to_string(),
             speed_label: text.tts_speed_label.to_string(),
             speed_slow: text.tts_speed_slow.to_string(),
             speed_normal: text.tts_speed_normal.to_string(),
             speed_fast: text.tts_speed_fast.to_string(),
             pitch_label: text.tts_pitch_label.to_string(),
             rate_label: text.tts_rate_label.to_string(),
-            threads_label: "Threads".to_string(),
-            quality_steps_label: "Quality steps".to_string(),
+            threads_label: text.tts_cpu_threads_label.to_string(),
+            quality_steps_label: text.tts_quality_steps_label.to_string(),
             pick_source: text.tts_step_audio_pick_source.to_string(),
             use_current: text.tts_step_audio_use_current_clip.to_string(),
             record_mic: text.tts_reference_record_mic.to_string(),
@@ -401,7 +408,14 @@ impl StringsView {
             reference_exact_transcript: text.tts_reference_exact_transcript.to_string(),
             gemini_model_label: text.tts_gemini_model_label.to_string(),
             instructions_label: text.tts_instructions_label.to_string(),
-            char_count_template: "{n}".to_string(),
+            instructions_hint: text.tts_playground_instruction_hint.to_string(),
+            preview: text.tts_preview_label.to_string(),
+            delete: text.tool_action_delete.to_string(),
+            step_audio_desc: text.tts_step_audio_desc.to_string(),
+            vieneu_desc: text.tts_vieneu_desc.to_string(),
+            s2s_target: text.tts_s2s_target_label.to_string(),
+            reference_empty: text.tts_reference_empty.to_string(),
+            char_count_template: text.tts_playground_char_count.to_string(),
         }
     }
 }

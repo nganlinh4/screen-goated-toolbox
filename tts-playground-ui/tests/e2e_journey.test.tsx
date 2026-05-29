@@ -140,6 +140,13 @@ function baseState(): TtsPlaygroundState {
       referenceVoice: "Reference",
       geminiModelLabel: "Model",
       instructionsLabel: "Instructions",
+      instructionsHint: "Style hint",
+      preview: "Preview",
+      delete: "Delete",
+      stepAudioDesc: "Desc",
+      vieneuDesc: "Desc",
+      s2sTarget: "Target",
+      referenceEmpty: "Empty",
     },
   };
 }
@@ -297,11 +304,14 @@ describe("WRY round-trip user journey", () => {
 
   it("hides the no-op speed/threads sliders on Magpie", () => {
     render(<App />);
-    pushState({ method: "Magpie" });
+    pushState({ method: "MagpieMultilingual" });
 
-    // Locate the Magpie card by its header so we don't pick up other
-    // mentions like the global Speed label that lives on Edge/Google etc.
-    const card = screen.getByText("Magpie").closest("div");
+    // Locate the Magpie card by its heading. The method picker trigger also
+    // shows "Magpie", so we target the card title (an <h3> heading role) to
+    // disambiguate.
+    const card = screen
+      .getByRole("heading", { name: "Magpie" })
+      .closest("div");
     expect(card).toBeTruthy();
     // Magpie no longer advertises Speed / Threads (the backend struct
     // doesn't carry them) — Kokoro and Supertonic still do.

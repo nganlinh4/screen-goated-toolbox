@@ -180,6 +180,13 @@ export type LocaleStrings = {
   referenceExactTranscript: string;
   geminiModelLabel: string;
   instructionsLabel: string;
+  instructionsHint: string;
+  preview: string;
+  delete: string;
+  stepAudioDesc: string;
+  vieneuDesc: string;
+  s2sTarget: string;
+  referenceEmpty: string;
 };
 
 export type CatalogOption<V extends string = string> = {

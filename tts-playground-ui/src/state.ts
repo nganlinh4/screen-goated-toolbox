@@ -127,6 +127,14 @@ const FALLBACK: TtsPlaygroundState = {
     referenceExactTranscript: "Exact reference transcript",
     geminiModelLabel: "Model",
     instructionsLabel: "Instructions",
+    instructionsHint: "Optional style instruction for Gemini Live",
+    preview: "Preview",
+    delete: "Delete",
+    stepAudioDesc:
+      "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.",
+    vieneuDesc: "Vietnamese & English, local sidecar.",
+    s2sTarget: "Target",
+    referenceEmpty: "No reference voices saved yet.",
   },
 };
 
