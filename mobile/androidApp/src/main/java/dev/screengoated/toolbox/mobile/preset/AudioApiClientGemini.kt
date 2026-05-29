@@ -44,7 +44,7 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 val code = response.code
-                if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+                if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
                 throw IOException("Gemini audio request failed with $code")
             }
             val body = response.body ?: throw IOException("Gemini audio response body was empty.")
@@ -68,7 +68,7 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 val code = response.code
-                if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+                if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
                 throw IOException("Gemini audio request failed with $code")
             }
             val body = response.body?.string().orEmpty()

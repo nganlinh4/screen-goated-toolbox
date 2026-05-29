@@ -10,12 +10,12 @@
 - Android translation gummy startup: [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummyService.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummyService.kt)
 
 ## Behavior Contract
-- Any `NO_API_KEY:*` or `INVALID_API_KEY` failure must be surfaced as a global user notice on the active platform.
+- Any `NO_API_KEY:*`, `INVALID_API_KEY`, or `INVALID_API_KEY:*` failure must be surfaced as a global user notice on the active platform.
 - The notice must appear even if the initiating surface does not have a visible overlay or screen-level error card.
 - Windows uses the shared overlay badge toast surface for the notice.
 - Android uses a single app-level toast bus for the notice.
 - Local in-window or in-screen error state may still render, but it must not be the only user-visible signal for an API-key failure.
-- The toast should preserve the provider name when available.
+- The toast must preserve the provider name when available; preset provider clients should emit provider-bearing invalid-key errors instead of collapsing 401/403 responses to generic `INVALID_API_KEY`.
 
 ## Fixtures
 - Shared triggers: [parity-fixtures/api-key-notifications/triggers.json](../../parity-fixtures/api-key-notifications/triggers.json)

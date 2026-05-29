@@ -63,7 +63,7 @@ private suspend fun TextApiClient.streamGeminiStreaming(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
             throw IOException("Gemini request failed with $code")
         }
 
@@ -117,7 +117,7 @@ private suspend fun TextApiClient.generateGeminiBlocking(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
             throw IOException("Gemini request failed with $code")
         }
 
