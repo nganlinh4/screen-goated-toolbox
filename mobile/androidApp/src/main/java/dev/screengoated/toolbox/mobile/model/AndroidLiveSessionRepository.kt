@@ -132,6 +132,7 @@ class AndroidLiveSessionRepository(
 
     fun updateRealtimeTtsSettings(settings: RealtimeTtsSettings) {
         mutableRealtimeTtsSettings.value = settings.copy(
+            enabled = settings.enabled || transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S,
             speedPercent = settings.speedPercent.coerceIn(50, 200),
             volumePercent = settings.volumePercent.coerceIn(0, 100),
         )

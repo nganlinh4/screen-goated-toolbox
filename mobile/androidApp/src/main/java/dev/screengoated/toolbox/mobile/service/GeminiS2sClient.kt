@@ -317,13 +317,14 @@ class GeminiS2sClient(
             var audioChunks = 0
             var textUpdates = 0
             var emptyReads = 0
-            val retryThreshold = if (segment.activeMs > 0) FIRST_AUDIO_ACTIVE_RETRY_MS else FIRST_AUDIO_SILENT_RETRY_MS
+            val hardTimeoutMs = groupedHardTimeoutMs(segment.audioMs.toLong(), finalAttempt)
             while (currentCoroutineContext().isActive) {
                 val now = SystemClock.elapsedRealtime()
+                val retryThreshold = groupedFirstAudioTimeoutMs(segment.audioMs.toLong(), textUpdates)
                 if (firstAudioAtMs == 0L && now - startedAtMs >= retryThreshold) {
                     Log.i(
                         TAG,
-                        "done segment=${segment.id} gen=${segment.generation} attempt=$attempt reason=no_first_audio_retry retry_ms=$retryThreshold text_updates=$textUpdates chunks=$audioChunks first_audio_ms=none",
+                        "done segment=${segment.id} gen=${segment.generation} attempt=$attempt reason=no_first_audio_retry retry_ms=$retryThreshold source_audio_ms=${segment.audioMs} text_updates=$textUpdates chunks=$audioChunks first_audio_ms=none",
                     )
                     output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
                     return
@@ -336,7 +337,11 @@ class GeminiS2sClient(
                     output.send(S2sRaceEvent.Done(segment.id, segment.generation, attempt))
                     return
                 }
-                if (now - startedAtMs > SEGMENT_ATTEMPT_TIMEOUT_MS) {
+                if (now - startedAtMs > hardTimeoutMs) {
+                    Log.i(
+                        TAG,
+                        "done segment=${segment.id} gen=${segment.generation} attempt=$attempt reason=timeout timeout_ms=$hardTimeoutMs source_audio_ms=${segment.audioMs} chunks=$audioChunks first_audio_ms=${if (firstAudioAtMs == 0L) "none" else firstAudioAtMs - startedAtMs}",
+                    )
                     output.send(
                         if (audioChunks > 0) {
                             S2sRaceEvent.Done(segment.id, segment.generation, attempt)
@@ -747,6 +752,30 @@ class GeminiS2sClient(
             (energyScore * 0.10f)
     }
 
+    private fun groupedFirstAudioTimeoutMs(
+        sourceAudioMs: Long,
+        textUpdates: Int,
+    ): Long {
+        val base = if (textUpdates == 0) {
+            FIRST_AUDIO_SILENT_RETRY_MS
+        } else {
+            FIRST_AUDIO_ACTIVE_RETRY_MS
+        }
+        return (base + sourceAudioMs * 2).coerceIn(5_500L, 30_000L)
+    }
+
+    private fun groupedHardTimeoutMs(
+        sourceAudioMs: Long,
+        finalAttempt: Boolean,
+    ): Long {
+        val base = if (finalAttempt) {
+            S2S_HEDGE_FINAL_TIMEOUT_MS
+        } else {
+            S2S_HEDGE_TIMEOUT_MS
+        }
+        return (base + sourceAudioMs * 4).coerceAtMost(180_000L)
+    }
+
     private companion object {
         private const val TAG = "RealtimeS2SAndroid"
         private const val LIVE_WS_ENDPOINT =
@@ -764,7 +793,8 @@ class GeminiS2sClient(
         private const val FIRST_AUDIO_SILENT_RETRY_MS = 3_800L
         private const val FIRST_AUDIO_ACTIVE_RETRY_MS = 5_200L
         private const val AUDIO_IDLE_FINISH_MS = 1_200L
-        private const val SEGMENT_ATTEMPT_TIMEOUT_MS = 30_000L
+        private const val S2S_HEDGE_TIMEOUT_MS = 45_000L
+        private const val S2S_HEDGE_FINAL_TIMEOUT_MS = 60_000L
         private const val SPEECH_THRESHOLD_MULTIPLIER = 2.2f
         private const val MIN_SPEECH_THRESHOLD = 0.012f
         private const val MAX_SPEECH_THRESHOLD = 0.035f
