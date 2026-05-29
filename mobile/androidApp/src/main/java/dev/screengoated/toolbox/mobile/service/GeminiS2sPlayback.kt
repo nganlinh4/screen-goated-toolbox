@@ -11,6 +11,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import java.io.IOException
 import java.util.TreeMap
+import java.util.concurrent.atomic.AtomicInteger
 
 internal fun waitForGeminiS2sSetup(
     session: BlockingWebSocketSession,
@@ -51,6 +52,7 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
     settingsProvider: () -> GeminiS2sRuntimeSettings,
     onDisplay: (S2sDisplaySnapshot) -> Unit,
     logTag: String,
+    backlogMs: AtomicInteger,
 ) {
     val tracked = TreeMap<Long, SegmentPlayback>()
     var nextPlay = 0L
@@ -71,6 +73,20 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
     suspend fun drainReady() {
         while (currentCoroutineContext().isActive) {
             val playback = tracked[nextPlay] ?: break
+            if (
+                playback.audioChunks.isEmpty() &&
+                !playback.done &&
+                shouldSkipStalePendingSegment(playback)
+            ) {
+                Log.i(
+                    logTag,
+                    "skip-play segment=$nextPlay reason=pending-timeout delay_ms=${segmentDelayMs(playback)} source_audio_ms=${playback.audioMs} input_text=${playback.sourceText.isNotBlank()} output_text=${playback.targetText.isNotBlank()} backlog_ms=${backlogMs.get()}",
+                )
+                tracked.remove(nextPlay)
+                decrementBacklog(backlogMs, playback.audioMs)
+                nextPlay++
+                continue
+            }
             if (playback.audioChunks.isEmpty() && !playback.done) break
             while (playback.audioChunks.isNotEmpty()) {
                 val bytes = playback.audioChunks.removeFirst()
@@ -92,6 +108,7 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
                     contextMemory.push(playback.targetText)
                 }
                 tracked.remove(nextPlay)
+                decrementBacklog(backlogMs, playback.audioMs)
                 nextPlay++
                 publish()
                 if (!tracked.containsKey(nextPlay)) {
@@ -107,7 +124,10 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
         for (event in events) {
             val playback = tracked.getOrPut(event.segmentId) { SegmentPlayback(audioMs = 0) }
             when (event) {
-                is S2sEvent.Queued -> playback.audioMs = event.audioMs
+                is S2sEvent.Queued -> {
+                    playback.audioMs = event.audioMs
+                    playback.queuedAtMs = event.queuedAtMs
+                }
                 is S2sEvent.SourceText -> playback.sourceText =
                     mergeGeminiS2sSegmentText(playback.sourceText, event.text)
                 is S2sEvent.TargetText -> {
@@ -141,6 +161,30 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
     }
 }
 
+private fun shouldSkipStalePendingSegment(segment: SegmentPlayback): Boolean {
+    val delayMs = segmentDelayMs(segment)
+    val baseGraceMs = if (segment.sourceText.isNotBlank() || segment.targetText.isNotBlank()) {
+        S2S_ORDERED_TRANSCRIPT_PENDING_SKIP_MS
+    } else {
+        S2S_ORDERED_PENDING_SKIP_MS
+    }
+    val sourceMultiplier = if (segment.targetText.isNotBlank()) 4 else 2
+    val graceMs = baseGraceMs + (segment.audioMs.toLong() * sourceMultiplier)
+    return delayMs >= graceMs
+}
+
+private fun segmentDelayMs(segment: SegmentPlayback): Long {
+    if (segment.queuedAtMs <= 0L) return 0L
+    return SystemClock.elapsedRealtime() - segment.queuedAtMs
+}
+
+private fun decrementBacklog(backlogMs: AtomicInteger, audioMs: Int) {
+    val remaining = backlogMs.addAndGet(-audioMs)
+    if (remaining < 0) {
+        backlogMs.set(0)
+    }
+}
+
 private fun geminiS2sPlaybackSpeed(settings: GeminiS2sRuntimeSettings, backlogMs: Int): Int {
     val base = settings.realtime.speedPercent.coerceIn(50, 200)
     if (!settings.realtime.autoSpeed) return base
@@ -160,3 +204,5 @@ private fun recentGeminiS2sWindow(text: String): String {
 }
 
 private const val RECENT_DISPLAY_CHARS = 1_200
+private const val S2S_ORDERED_PENDING_SKIP_MS = 8_000L
+private const val S2S_ORDERED_TRANSCRIPT_PENDING_SKIP_MS = 28_000L

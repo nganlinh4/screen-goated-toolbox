@@ -24,6 +24,7 @@ import dev.screengoated.toolbox.mobile.service.tts.TtsConsumer
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionPatch
+import dev.screengoated.toolbox.mobile.shared.live.LiveTranslateParity
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -446,11 +447,21 @@ class OverlayController(
         if (language.isBlank()) {
             return
         }
+        val previousConfig = repository.currentConfig()
         repository.updateConfig(LiveSessionPatch(targetLanguage = language))
         languagePicker.hide()
         transcriptionLanguagePicker.hide()
         transcriptionModelPicker.hide()
         translationModelPicker.hide()
+        if (
+            LiveTranslateParity.targetLanguageChangeRequiresRestart(
+                previousLanguage = previousConfig.targetLanguage,
+                nextLanguage = language,
+                transcriptionProviderId = previousConfig.transcriptionProvider.id,
+            )
+        ) {
+            restartRequested()
+        }
     }
 
     private fun showLanguagePicker() {
@@ -521,23 +532,7 @@ class OverlayController(
             parakeetUnavailableLabel(overlayLocale.unavailableSuffix) -> RealtimeModelIds.TRANSCRIPTION_PARAKEET
             else -> TRANSCRIPTION_MODEL_IDS[label] ?: return
         }
-        if (repository.transcriptionModelId() != modelId) {
-            repository.updateTranscriptionModel(modelId)
-            // Reset language to English when switching models to avoid stale
-            // language codes that don't exist in the new model's language list
-            repository.updateTranscriptionLanguage(
-                if (modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S ||
-                    modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5
-                ) {
-                    "all"
-                } else {
-                    "en"
-                },
-            )
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                restartRequested()
-            }, 300)
-        }
+        updateTranscriptionModel(modelId)
     }
 
     private fun showTranslationModelPicker() {
@@ -610,7 +605,23 @@ class OverlayController(
     private fun updateTranscriptionModel(modelId: String) {
         if (repository.transcriptionModelId() != modelId) {
             repository.updateTranscriptionModel(modelId)
-            restartRequested()
+            // Reset language to a valid baseline for the newly selected model
+            // before the restarted session reads config.
+            repository.updateTranscriptionLanguage(defaultTranscriptionLanguageFor(modelId))
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                restartRequested()
+            }, 300)
+        }
+    }
+
+    private fun defaultTranscriptionLanguageFor(modelId: String): String {
+        return if (
+            modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S ||
+            modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5
+        ) {
+            "all"
+        } else {
+            "en"
         }
     }
 

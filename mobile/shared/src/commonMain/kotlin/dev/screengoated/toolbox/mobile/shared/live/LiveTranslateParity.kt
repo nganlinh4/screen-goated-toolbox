@@ -11,6 +11,14 @@ private const val PARAKEET_TIMEOUT_DECAY_RATE = 2.5
 private const val MAX_TRANSLATION_HISTORY = 3
 
 object LiveTranslateParity {
+    fun targetLanguageChangeRequiresRestart(
+        previousLanguage: String,
+        nextLanguage: String,
+        transcriptionProviderId: String,
+    ): Boolean {
+        return previousLanguage != nextLanguage && transcriptionProviderId == "gemini-live-s2s"
+    }
+
     fun reset(
         nowMs: Long = 0L,
         transcriptionMethod: TranscriptionMethod = TranscriptionMethod.GEMINI_LIVE_S2S,

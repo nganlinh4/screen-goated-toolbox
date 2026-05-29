@@ -63,6 +63,9 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(requiredModels.androidUnavailableTranscriptionProviders.contains(RealtimeModelIds.TRANSCRIPTION_PARAKEET))
         assertTrue(controls.translationPane.contains("translation-model-toggle"))
         assertTrue(controls.transcriptionPane.contains("transcription-model-toggle"))
+        assertTrue(fixture.requiredVisuals.androidS2sAdaptiveVad)
+        assertTrue(fixture.requiredVisuals.androidS2sStaleOrderedSkip)
+        assertTrue(fixture.requiredVisuals.targetLanguageChangeRestartsS2s)
     }
 
     private fun defaultTranslationProviderId(): String = LiveSessionConfig().translationProvider.id
@@ -105,6 +108,7 @@ private data class OverlayFixture(
     val defaults: OverlayDefaults,
     val requiredModels: RequiredModels,
     val requiredControls: RequiredControls,
+    val requiredVisuals: RequiredVisuals,
 )
 
 @Serializable
@@ -133,4 +137,11 @@ private data class RequiredModels(
 private data class RequiredControls(
     val transcriptionPane: List<String>,
     val translationPane: List<String>,
+)
+
+@Serializable
+private data class RequiredVisuals(
+    val androidS2sAdaptiveVad: Boolean,
+    val androidS2sStaleOrderedSkip: Boolean,
+    val targetLanguageChangeRestartsS2s: Boolean,
 )
