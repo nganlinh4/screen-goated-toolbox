@@ -84,6 +84,55 @@ class MobileShellParityTest {
     }
 
     @Test
+    fun settingsActionFeedbackComesFromUiLocaleBundle() {
+        val case = mobileShellFixtureCase("settings_action_feedback_comes_from_ui_language_bundle")
+        case.getValue("locales").jsonArray.forEach { localeCase ->
+            val localeObject = localeCase.jsonObject
+            val locale = MobileLocaleText.forLanguage(
+                localeObject.getValue("ui_language").jsonPrimitive.content,
+            )
+
+            assertEquals(
+                localeObject.getValue("expected_compact_overlay_opacity").jsonPrimitive.content,
+                locale.compactOverlayOpacityLabel(),
+            )
+            assertEquals(
+                localeObject.getValue("expected_reset_done").jsonPrimitive.content,
+                locale.resetDefaultsDoneMessage(),
+            )
+        }
+    }
+
+    @Test
+    fun toolsHelpCopyComesFromUiLocaleBundle() {
+        val case = mobileShellFixtureCase("tools_help_copy_comes_from_ui_language_bundle")
+        case.getValue("locales").jsonArray.forEach { localeCase ->
+            val localeObject = localeCase.jsonObject
+            val locale = MobileLocaleText.forLanguage(
+                localeObject.getValue("ui_language").jsonPrimitive.content,
+            )
+            val copy = locale.toolsHelpCopy()
+
+            assertEquals(
+                localeObject.getValue("expected_language_code").jsonPrimitive.content,
+                locale.languageCode(),
+            )
+            assertEquals(
+                localeObject.getValue("expected_title").jsonPrimitive.content,
+                copy.title,
+            )
+            assertEquals(
+                localeObject.getValue("expected_bubble_title").jsonPrimitive.content,
+                copy.bubbleTitle,
+            )
+            assertEquals(
+                localeObject.getValue("expected_dismiss").jsonPrimitive.content,
+                copy.dismiss,
+            )
+        }
+    }
+
+    @Test
     fun overlayChromeTextComesFromUiLocaleBundle() {
         val en = MobileLocaleText.forLanguage("en").overlay.placeholderText
         val vi = MobileLocaleText.forLanguage("vi").overlay.placeholderText

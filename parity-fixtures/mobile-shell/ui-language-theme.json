@@ -61,6 +61,52 @@
       ]
     },
     {
+      "name": "settings_action_feedback_comes_from_ui_language_bundle",
+      "locales": [
+        {
+          "ui_language": "en",
+          "expected_compact_overlay_opacity": "Overlay opacity",
+          "expected_reset_done": "Defaults restored"
+        },
+        {
+          "ui_language": "vi",
+          "expected_compact_overlay_opacity": "Độ mờ overlay",
+          "expected_reset_done": "Đã khôi phục mặc định"
+        },
+        {
+          "ui_language": "ko",
+          "expected_compact_overlay_opacity": "오버레이 불투명도",
+          "expected_reset_done": "기본값으로 복원됨"
+        }
+      ]
+    },
+    {
+      "name": "tools_help_copy_comes_from_ui_language_bundle",
+      "locales": [
+        {
+          "ui_language": "en",
+          "expected_language_code": "en",
+          "expected_title": "Quick Guide",
+          "expected_bubble_title": "Quick Settings Bubble",
+          "expected_dismiss": "Got it"
+        },
+        {
+          "ui_language": "vi",
+          "expected_language_code": "vi",
+          "expected_title": "Hướng dẫn sử dụng",
+          "expected_bubble_title": "Bong bóng Quick Settings",
+          "expected_dismiss": "Đã hiểu"
+        },
+        {
+          "ui_language": "ko",
+          "expected_language_code": "ko",
+          "expected_title": "사용 가이드",
+          "expected_bubble_title": "Quick Settings 버블",
+          "expected_dismiss": "알겠습니다"
+        }
+      ]
+    },
+    {
       "name": "mobile_branding_uses_windows_app_icon_pair",
       "expected_dark_asset": "assets/app-icon-small.png",
       "expected_light_asset": "assets/app-icon-small-light.png"

@@ -550,11 +550,7 @@ internal fun ResetDefaultsCard(
 ) {
     var showConfirm by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
-    val doneMsg = when {
-        locale.resetDefaultsButton.contains("Khôi") -> "Đã khôi phục mặc định"
-        locale.resetDefaultsButton.contains("복원") -> "기본값으로 복원됨"
-        else -> "Defaults restored"
-    }
+    val doneMsg = locale.resetDefaultsDoneMessage()
 
     Card(
         modifier = modifier.fillMaxWidth(),
