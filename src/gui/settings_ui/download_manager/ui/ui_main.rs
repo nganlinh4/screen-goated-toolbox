@@ -183,7 +183,7 @@ impl DownloadManager {
             ui.label(
                 egui::RichText::new(format!("...\\{}", path_str))
                     .strong()
-                    .color(ctx.style().visuals.weak_text_color()),
+                    .color(ctx.global_style().visuals.weak_text_color()),
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

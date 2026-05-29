@@ -353,7 +353,7 @@ pub(super) fn paint_internal(
             painter.rect_filled(
                 front_rect,
                 1.0 * scale,
-                painter.ctx().style().visuals.panel_fill,
+                painter.ctx().global_style().visuals.panel_fill,
             );
             painter.rect_stroke(front_rect, 1.0 * scale, stroke, egui::StrokeKind::Middle);
         }
@@ -377,7 +377,7 @@ pub(super) fn paint_internal(
             painter.rect_filled(
                 front_rect,
                 0.8 * scale,
-                painter.ctx().style().visuals.panel_fill,
+                painter.ctx().global_style().visuals.panel_fill,
             );
             painter.rect_stroke(front_rect, 0.8 * scale, stroke, egui::StrokeKind::Middle);
         }

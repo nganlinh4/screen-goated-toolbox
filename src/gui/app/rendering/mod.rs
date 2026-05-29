@@ -15,14 +15,16 @@ use eframe::egui;
 use std::sync::atomic::Ordering;
 
 impl SettingsApp {
-    pub(crate) fn render_main_layout(&mut self, ctx: &egui::Context) {
+    pub(crate) fn render_main_layout(&mut self, root_ui: &mut egui::Ui) {
         let text = LocaleText::get(&self.config.ui_language);
-        let _is_dark = ctx.style().visuals.dark_mode;
+        let ctx = root_ui.ctx().clone();
+        let ctx = &ctx;
+        let panel_fill = root_ui.visuals().panel_fill;
 
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::NONE
-                    .fill(ctx.style().visuals.panel_fill)
+                    .fill(panel_fill)
                     .corner_radius(egui::CornerRadius {
                         nw: 0,
                         ne: 0,
@@ -30,10 +32,21 @@ impl SettingsApp {
                         se: 0, // Footer handles bottom corners now
                     }),
             )
-            .show(ctx, |ui| {
+            .show_inside(root_ui, |ui| {
+                // The panel's own max_rect edges are the real content bounds.
+                // Nested columns can report a wrong `available_height`/`_width`,
+                // so thread these absolute coords down to anything that must
+                // fill to the bottom / right (the node-graph canvas).
+                let content_bottom = ui.max_rect().bottom();
+                let content_right = ui.max_rect().right();
                 let available_width = ui.available_width();
-                let left_width = available_width * 0.35;
-                let right_width = available_width * 0.65;
+                // Responsive split: the sidebar holds the fixed-width preset
+                // grid, so clamp it to its content (never starve it on narrow
+                // windows, never let it bloat on wide ones). The detail view
+                // takes all remaining width — on wide monitors that means the
+                // node-graph canvas fills the space instead of leaving it dead.
+                let left_width = (available_width * 0.35).clamp(440.0, 500.0);
+                let right_width = (available_width - left_width).max(0.0);
 
                 ui.horizontal(|ui| {
                     // Left Sidebar
@@ -70,14 +83,27 @@ impl SettingsApp {
                         egui::vec2((right_width - 20.0).max(0.0), ui.available_height()),
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
-                            self.render_detail_view(ui, ctx, &text);
+                            self.render_detail_view(
+                                ui,
+                                ctx,
+                                &text,
+                                content_bottom,
+                                content_right,
+                            );
                         },
                     );
                 });
             });
     }
 
-    fn render_detail_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, text: &LocaleText) {
+    fn render_detail_view(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        text: &LocaleText,
+        content_bottom: f32,
+        content_right: f32,
+    ) {
         // Poll translation gummy request to open TTS settings
         if crate::overlay::translation_gummy::REQUEST_OPEN_TTS_SETTINGS
             .swap(false, std::sync::atomic::Ordering::SeqCst)
@@ -131,12 +157,13 @@ impl SettingsApp {
                     &history_manager,
                     &mut self.search_query,
                     text,
+                    content_bottom,
                 ) {
                     self.save_and_sync();
                 }
             }
             ViewMode::Preset(idx) => {
-                self.render_preset_view(ui, ctx, idx, text);
+                self.render_preset_view(ui, ctx, idx, text, content_bottom, content_right);
             }
         }
     }
@@ -147,6 +174,8 @@ impl SettingsApp {
         _ctx: &egui::Context,
         idx: usize,
         text: &LocaleText,
+        content_bottom: f32,
+        content_right: f32,
     ) {
         let preset_key = self.config.presets.get(idx).map(|preset| {
             let profile_id = self
@@ -179,6 +208,8 @@ impl SettingsApp {
                 &self.hotkey_conflict_msg,
                 text,
                 snarl,
+                content_bottom,
+                content_right,
             )
         {
             // Sync back to blocks and connections

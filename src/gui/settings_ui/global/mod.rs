@@ -52,16 +52,9 @@ pub fn render_global_settings(
     let mut changed = false;
 
     let is_dark = ui.visuals().dark_mode;
-    let card_bg = if is_dark {
-        egui::Color32::from_rgba_unmultiplied(28, 32, 42, 250) // Darker for better text contrast
-    } else {
-        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 255)
-    };
-    let card_stroke = if is_dark {
-        egui::Stroke::new(1.0, egui::Color32::from_gray(50))
-    } else {
-        egui::Stroke::new(1.0, egui::Color32::from_gray(210))
-    };
+    let theme = crate::gui::theme::AppTheme::from_dark(is_dark);
+    let card_bg = theme.card_bg();
+    let card_stroke = theme.card_stroke();
 
     ui.add_space(5.0);
 

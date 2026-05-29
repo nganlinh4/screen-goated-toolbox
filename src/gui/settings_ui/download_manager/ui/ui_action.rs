@@ -114,7 +114,7 @@ impl DownloadManager {
         if self.sessions[idx].show_error_log {
             ui.add_space(4.0);
             egui::Frame::group(ui.style())
-                .fill(if ctx.style().visuals.dark_mode {
+                .fill(if ctx.global_style().visuals.dark_mode {
                     egui::Color32::from_black_alpha(100)
                 } else {
                     egui::Color32::from_gray(240)
@@ -145,7 +145,7 @@ impl DownloadManager {
         path: &std::path::Path,
     ) {
         ui.vertical_centered(|ui| {
-            let success_color = if ctx.style().visuals.dark_mode {
+            let success_color = if ctx.global_style().visuals.dark_mode {
                 egui::Color32::GREEN
             } else {
                 egui::Color32::from_rgb(0, 128, 0)

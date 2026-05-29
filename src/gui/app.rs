@@ -16,7 +16,11 @@ impl eframe::App for SettingsApp {
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // egui 0.34 hands the root viewport a `&mut Ui`; derive the Context for
+        // the non-panel logic + overlays (which paint via Area / ctx painters).
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         // Log first update
         static LOGGED_STARTUP: std::sync::atomic::AtomicBool =
             std::sync::atomic::AtomicBool::new(false);
@@ -88,13 +92,13 @@ impl eframe::App for SettingsApp {
 
         // --- UI LAYOUT ---
         if main_ui_ready {
-            // Title Bar (Custom Windows Bar)
+            // Title Bar (Custom Windows Bar) — top panel, shown into the root ui.
             if self.custom_chrome_ready {
-                self.render_title_bar(ctx);
+                self.render_title_bar(ui);
             }
 
-            // Footer & Tips Modal
-            self.render_footer_and_tips_modal(ctx);
+            // Footer & Tips Modal — bottom panel.
+            self.render_footer_and_tips_modal(ui);
 
             let tts_playground_hovered = ctx
                 .data(|data| data.get_temp::<bool>(egui::Id::new("tts_playground_hovered")))
@@ -105,8 +109,8 @@ impl eframe::App for SettingsApp {
                 });
             }
 
-            // Main Layout
-            self.render_main_layout(ctx);
+            // Main Layout — central panel, fills the remaining root ui.
+            self.render_main_layout(ui);
 
             // Window Resizing (Must be last to override cursors at edges)
             if self.custom_chrome_ready {
@@ -125,7 +129,7 @@ impl eframe::App for SettingsApp {
         if let Some(splash) = &self.splash
             && splash.paint(ctx, &self.config.theme_mode)
         {
-            let is_currently_dark = ctx.style().visuals.dark_mode;
+            let is_currently_dark = ctx.global_style().visuals.dark_mode;
             self.config.theme_mode = if is_currently_dark {
                 crate::config::ThemeMode::Light
             } else {

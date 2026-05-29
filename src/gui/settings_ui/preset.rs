@@ -7,6 +7,10 @@ use crate::gui::locale::LocaleText;
 use eframe::egui;
 use egui_snarl::Snarl;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preset editor wires several independent config handles plus the layout floor"
+)]
 pub fn render_preset_editor(
     ui: &mut egui::Ui,
     config: &mut Config,
@@ -15,6 +19,8 @@ pub fn render_preset_editor(
     hotkey_conflict_msg: &Option<String>,
     text: &LocaleText,
     snarl: &mut Snarl<ChainNode>,
+    content_bottom: f32,
+    content_right: f32,
 ) -> bool {
     if preset_idx >= config.presets.len() {
         return false;
@@ -23,8 +29,12 @@ pub fn render_preset_editor(
     let mut preset = config.presets[preset_idx].clone();
     let mut changed = false;
 
-    // Constrain entire preset editor to a consistent width (matching history UI)
-    ui.set_max_width(510.0);
+    // Forms read best at a fixed width, but the node-graph canvas below should
+    // use the full detail-view width (responsive) instead of leaving dead space
+    // on wide windows. Cap the config sections here; restore full width before
+    // the graph.
+    let full_width = ui.available_width();
+    ui.set_max_width(full_width.min(510.0));
 
     // Check if this is a default preset (ID starts with "preset_")
     let is_default_preset = preset.id.starts_with("preset_");
@@ -38,16 +48,9 @@ pub fn render_preset_editor(
 
     // --- HEADER CARD: Name, Type & Settings ---
     let is_dark = ui.visuals().dark_mode;
-    let header_bg = if is_dark {
-        egui::Color32::from_rgba_unmultiplied(28, 32, 42, 250) // Darker for better text contrast
-    } else {
-        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 255) // Pure white for light mode
-    };
-    let header_stroke = if is_dark {
-        egui::Stroke::new(1.0, egui::Color32::from_gray(50))
-    } else {
-        egui::Stroke::new(1.0, egui::Color32::from_gray(210))
-    };
+    let theme = crate::gui::theme::AppTheme::from_dark(is_dark);
+    let header_bg = theme.card_bg();
+    let header_stroke = theme.card_stroke();
 
     ui.add_space(5.0);
     egui::Frame::new()
@@ -614,13 +617,23 @@ pub fn render_preset_editor(
             egui::Color32::from_rgba_unmultiplied(240, 242, 248, 255) // Soft light gray
         };
 
+        // Width + height both come from the panel's true edges (`content_right`
+        // / `content_bottom`), not the column's `available_*` which report
+        // capped values here. Leave a clear margin from the window edge on the
+        // right, and a gap above the footer at the bottom (so the canvas doesn't
+        // literally touch either). The frame adds a 6+6 inner margin.
+        const EDGE_GAP: f32 = 16.0;
+        let graph_left = ui.cursor().left();
+        let graph_top = ui.cursor().top();
+        let graph_w = (content_right - graph_left - EDGE_GAP).max(320.0);
+        let graph_min_h = (content_bottom - graph_top - EDGE_GAP - 12.0).max(300.0);
+        ui.set_max_width(graph_w);
         ui.push_id("node_graph_area", |ui| {
             egui::Frame::new()
                 .fill(graph_bg)
                 .inner_margin(6.0)
                 .corner_radius(8.0)
                 .show(ui, |ui| {
-                    ui.set_min_height(325.0); // Allocate space for the graph
                     if render_node_graph(
                         ui,
                         snarl,
@@ -631,6 +644,7 @@ pub fn render_preset_editor(
                         config.use_ollama,
                         &preset.preset_type,
                         text,
+                        graph_min_h,
                     ) {
                         changed = true;
                     }

@@ -42,7 +42,7 @@ pub fn update(update_ctx: SplashUpdateContext<'_>) -> SplashStatus {
         audio,
         has_played_impact,
     } = update_ctx;
-    *is_dark = ctx.style().visuals.dark_mode;
+    *is_dark = ctx.global_style().visuals.dark_mode;
 
     let now = ctx.input(|i| i.time);
     let dt = ctx.input(|i| i.stable_dt);

@@ -259,16 +259,16 @@ fn paint_theme_switcher(
                 };
                 ui.painter().rect_filled(rect, 8.0, fill);
 
-                let old_panel_fill = ctx.style().visuals.panel_fill;
+                let old_panel_fill = ctx.global_style().visuals.panel_fill;
                 if !is_dark {
                     let cutout_color =
                         Color32::from_rgb(109, 174, 235).linear_multiply(switcher_alpha);
-                    ctx.style_mut(|s| s.visuals.panel_fill = cutout_color);
+                    ctx.global_style_mut(|s| s.visuals.panel_fill = cutout_color);
                 }
 
                 paint_icon(ui.painter(), rect.shrink(6.0), icon, icon_color);
 
-                ctx.style_mut(|s| s.visuals.panel_fill = old_panel_fill);
+                ctx.global_style_mut(|s| s.visuals.panel_fill = old_panel_fill);
 
                 if resp.clicked() && switcher_alpha > 0.9 {
                     theme_clicked = true;
