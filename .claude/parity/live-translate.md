@@ -99,6 +99,7 @@
 - Translation failure must not silently fall back to whole-transcript translation.
 - Translation failure or empty/no-op output must leave `last_processed_len` unchanged so the same source snapshot is retried on the next interval.
 - A provider response only counts as successful after the current state accepts the exact source snapshot. Rejected/stale responses must not update metrics, commit fallback model switches, or advance the adaptive success cadence.
+- If the selected provider returns a response that the exact source-snapshot state rejects, the runtime may try the alternate top-level provider for that same snapshot; it is still a failure unless one provider response is accepted by state.
 - Translation cadence is latency-adaptive on top of the `1500ms` base interval. Slower providers stretch the next request interval upward, but success/failure must never skip source ranges.
 - Timeout gating matches the Windows Gemini path:
   - user silence threshold: `800ms`

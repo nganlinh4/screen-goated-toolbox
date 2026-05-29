@@ -67,9 +67,22 @@ class RealtimeTranslationClientParityTest {
         assertTrue(storeSource.contains("): Boolean"))
         assertTrue(storeSource.contains("applied = liveText != current.liveText"))
         assertTrue(repositorySource.contains("): Boolean"))
-        assertTrue(runtimeSource.contains("val applied = repository.applyTranslationResponse("))
+        assertTrue(runtimeSource.contains("applied = repository.applyTranslationResponse("))
         assertTrue(runtimeSource.contains("if (!applied)"))
         assertTrue(runtimeSource.contains("Translation response was rejected by the current transcript state."))
+    }
+
+    @Test
+    fun `translation fallback can run after rejected primary apply`() {
+        val clientSource = loadSourceFile(CLIENT_SOURCE_PATH).readText()
+        val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
+
+        assertTrue(clientSource.contains("suspend fun translateWithExactProvider("))
+        assertTrue(runtimeSource.contains("if (!applied && usedProvider == requestedProvider)"))
+        assertTrue(runtimeSource.contains("fallbackTranslationProviderId(requestedProvider)"))
+        assertTrue(runtimeSource.contains("translationClient.translateWithExactProvider("))
+        assertTrue(runtimeSource.contains("usedProvider = result.providerId"))
+        assertTrue(runtimeSource.contains("applied = repository.applyTranslationResponse("))
     }
 
     @Test

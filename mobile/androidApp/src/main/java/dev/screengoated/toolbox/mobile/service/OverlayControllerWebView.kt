@@ -334,7 +334,10 @@ private fun overlayLocaleJson(uiLanguage: String): String {
 internal fun transcriptOldText(state: LiveSessionState): String {
     val transcript = state.liveText.fullTranscript
     val committed = state.liveText.lastCommittedPos.coerceIn(0, transcript.length)
-    return transcript.substring(0, committed).trimEnd()
+    return joinTranscriptDisplay(
+        state.liveText.frozenPrefix,
+        transcript.substring(0, committed).trimEnd(),
+    )
 }
 
 internal fun transcriptNewText(state: LiveSessionState): String {
@@ -345,5 +348,15 @@ internal fun transcriptNewText(state: LiveSessionState): String {
         " $rawNew"
     } else {
         rawNew
+    }
+}
+
+private fun joinTranscriptDisplay(prefix: String, tail: String): String {
+    val trimmedPrefix = prefix.trim()
+    val trimmedTail = tail.trim()
+    return when {
+        trimmedPrefix.isEmpty() -> trimmedTail
+        trimmedTail.isEmpty() -> trimmedPrefix
+        else -> "$trimmedPrefix $trimmedTail"
     }
 }

@@ -9,6 +9,7 @@ import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.service.tts.RealtimeTtsCoordinator
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
+import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.live.TranscriptionMethod
@@ -756,7 +757,7 @@ class LiveSessionRuntime(
             val startedAt = SystemClock.elapsedRealtime()
             val requestedProvider = repository.currentConfig().translationProvider.id
             try {
-                val result = translationClient.translate(
+                var result = translationClient.translate(
                     geminiApiKey = repository.currentApiKey(),
                     cerebrasApiKey = repository.currentCerebrasApiKey(),
                     groqApiKey = repository.currentGroqApiKey(),
@@ -766,12 +767,31 @@ class LiveSessionRuntime(
                     llmChain = repository.currentTextToTextChain(),
                     runtimeSettings = repository.currentPresetRuntimeSettings(),
                 )
-                val usedProvider = result.providerId
-                val applied = repository.applyTranslationResponse(
+                var usedProvider = result.providerId
+                var applied = repository.applyTranslationResponse(
                     request = request,
                     response = result.response,
                     nowMs = SystemClock.elapsedRealtime(),
                 )
+                if (!applied && usedProvider == requestedProvider) {
+                    val fallbackProvider = fallbackTranslationProviderId(requestedProvider)
+                    result = translationClient.translateWithExactProvider(
+                        geminiApiKey = repository.currentApiKey(),
+                        cerebrasApiKey = repository.currentCerebrasApiKey(),
+                        groqApiKey = repository.currentGroqApiKey(),
+                        request = request,
+                        targetLanguage = repository.currentConfig().targetLanguage,
+                        providerId = fallbackProvider,
+                        llmChain = repository.currentTextToTextChain(),
+                        runtimeSettings = repository.currentPresetRuntimeSettings(),
+                    )
+                    usedProvider = result.providerId
+                    applied = repository.applyTranslationResponse(
+                        request = request,
+                        response = result.response,
+                        nowMs = SystemClock.elapsedRealtime(),
+                    )
+                }
                 if (!applied) {
                     error("Translation response was rejected by the current transcript state.")
                 }
@@ -867,6 +887,14 @@ private const val TRANSLATION_INTERVAL_MS = 1_500L
 private const val TRANSLATION_INTERVAL_MAX_MS = 4_000L
 private const val TRANSLATION_TAG = "LiveTranslate"
 private const val SESSION_TAG = "LiveSessionRuntime"
+
+private fun fallbackTranslationProviderId(providerId: String): String {
+    return if (providerId == LiveTranslationModelCatalog.PROVIDER_GTX) {
+        LiveTranslationModelCatalog.PROVIDER_LLM
+    } else {
+        LiveTranslationModelCatalog.PROVIDER_GTX
+    }
+}
 
 /** Mirrors Windows `utils::split_at_sentence_boundary`. */
 private fun splitAtSentenceBoundary(text: String): Pair<String, String>? {
