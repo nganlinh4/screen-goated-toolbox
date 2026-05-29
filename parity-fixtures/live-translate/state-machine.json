@@ -352,6 +352,71 @@
           }
         ]
       }
+    },
+    {
+      "name": "transcript correction rolls translation back to shared prefix",
+      "steps": [
+        {
+          "type": "appendTranscript",
+          "text": "hello. tail",
+          "atMs": 100
+        },
+        {
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "sourceStart": 0,
+            "sourceEnd": 11,
+            "finalizedSourceEnd": 6,
+            "pendingSource": "hello. tail",
+            "finalizedSource": "hello.",
+            "draftSource": " tail",
+            "previousDraftTranslation": ""
+          }
+        },
+        {
+          "type": "applyTranslationResponse",
+          "response": {
+            "patches": [
+              {
+                "sourceStart": 0,
+                "sourceEnd": 6,
+                "state": "final",
+                "translation": "hola."
+              },
+              {
+                "sourceStart": 6,
+                "sourceEnd": 11,
+                "state": "draft",
+                "translation": "cola"
+              }
+            ]
+          },
+          "atMs": 140
+        },
+        {
+          "type": "setTranscriptSegments",
+          "committed": "help. tail",
+          "draft": "",
+          "atMs": 180
+        }
+      ],
+      "expectedState": {
+        "fullTranscript": "help. tail",
+        "displayTranscript": "help. tail",
+        "lastCommittedPos": 3,
+        "lastProcessedLen": 3,
+        "committedTranslation": "hola.",
+        "uncommittedTranslation": "",
+        "uncommittedSourceStart": 3,
+        "uncommittedSourceEnd": 3,
+        "displayTranslation": "hola.",
+        "translationHistory": [
+          {
+            "source": "hello.",
+            "translation": "hola."
+          }
+        ]
+      }
     }
   ]
 }

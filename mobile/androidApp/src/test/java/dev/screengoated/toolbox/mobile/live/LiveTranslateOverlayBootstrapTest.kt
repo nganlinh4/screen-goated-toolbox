@@ -66,6 +66,7 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(fixture.requiredVisuals.androidS2sAdaptiveVad)
         assertTrue(fixture.requiredVisuals.androidS2sStaleOrderedSkip)
         assertTrue(fixture.requiredVisuals.androidS2sFullTranscriptDisplay)
+        assertTrue(fixture.requiredVisuals.androidS2sRejectsTranslationModelChanges)
         assertTrue(fixture.requiredVisuals.androidTextLlmUsesProviderAvailability)
         assertTrue(fixture.requiredVisuals.targetLanguageChangeRestartsS2s)
     }
@@ -146,6 +147,7 @@ private data class RequiredVisuals(
     val androidS2sAdaptiveVad: Boolean,
     val androidS2sStaleOrderedSkip: Boolean,
     val androidS2sFullTranscriptDisplay: Boolean,
+    val androidS2sRejectsTranslationModelChanges: Boolean,
     val androidTextLlmUsesProviderAvailability: Boolean,
     val targetLanguageChangeRestartsS2s: Boolean,
 )

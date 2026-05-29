@@ -299,6 +299,9 @@ class AndroidLiveSessionRepository(
     fun transcriptionModelId(): String = state.value.config.transcriptionProvider.id
 
     fun updateTranslationModel(modelId: String) {
+        if (transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
+            return
+        }
         updateConfig(
             LiveSessionPatch(
                 translationProvider = translationProviderFor(modelId),

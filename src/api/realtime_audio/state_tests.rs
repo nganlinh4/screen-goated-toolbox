@@ -23,6 +23,12 @@ fn shared_fixtures_match_windows_realtime_state() {
                 "appendTranscript" => {
                     state.append_transcript(step.text.as_deref().unwrap_or_default());
                 }
+                "setTranscriptSegments" => {
+                    state.set_transcript_segments(
+                        step.committed.as_deref().unwrap_or_default(),
+                        step.draft.as_deref().unwrap_or_default(),
+                    );
+                }
                 "claimTranslationRequest" => {
                     let actual = state.get_translation_request();
                     match step.expected_request {
@@ -205,6 +211,8 @@ struct FixtureStep {
     #[serde(rename = "type")]
     step_type: String,
     text: Option<String>,
+    committed: Option<String>,
+    draft: Option<String>,
     expected_request: Option<FixtureExpectedRequest>,
     response: Option<FixtureResponse>,
 }
