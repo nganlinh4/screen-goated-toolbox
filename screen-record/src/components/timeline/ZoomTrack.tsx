@@ -336,6 +336,35 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     window.addEventListener('mouseup', onUp);
   };
 
+  // Resize a block's transition ramp (easeIn / easeOut) without moving the
+  // block bounds — the equivalent of the old left fade-in handle, on both sides.
+  const startResizeTransition = (
+    index: number,
+    side: 'in' | 'out',
+    rect: DOMRect,
+  ) => {
+    beginBatch();
+    const onMove = (me: MouseEvent) => {
+      const current = segmentRef.current.zoomBlocks ?? [];
+      const block = current[index];
+      if (!block || rect.width <= 0 || duration <= 0) return;
+      const t = Math.max(0, Math.min(duration, ((me.clientX - rect.left) / rect.width) * duration));
+      const span = block.endTime - block.startTime;
+      const updated =
+        side === 'in'
+          ? { ...block, easeIn: Math.max(0, Math.min(span - block.easeOut, t - block.startTime)) }
+          : { ...block, easeOut: Math.max(0, Math.min(span - block.easeIn, block.endTime - t)) };
+      callbacksRef.current.onUpdateBlocks(current.map((b, i) => (i === index ? updated : b)));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      commitBatch();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   // Handle point deletion
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -663,10 +692,27 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
           if (duration <= 0) return null;
           const active = editingKeyframeId === index;
           const disabled = block.enabled === false;
+          const showHandles = active || hoveredBlockIdx === index;
           const leftPct = (block.startTime / duration) * 100;
-          const widthPct = Math.max(0, ((block.endTime - block.startTime) / duration) * 100);
+          const span = Math.max(0, block.endTime - block.startTime);
+          const widthPct = (span / duration) * 100;
           const fillOpacity = Math.min(0.5, 0.16 + (block.zoomFactor - 1) * 0.18);
           const center = (block.startTime + block.endTime) / 2;
+
+          // Clamp the ramp pair to the span, then express as % of the block.
+          let easeIn = Math.max(0, block.easeIn);
+          let easeOut = Math.max(0, block.easeOut);
+          if (span > 0 && easeIn + easeOut > span) {
+            const s = span / (easeIn + easeOut);
+            easeIn *= s;
+            easeOut *= s;
+          }
+          const holdStart = span > 0 ? (easeIn / span) * 100 : 0; // ramp-in/hold boundary
+          const holdEnd = span > 0 ? 100 - (easeOut / span) * 100 : 100; // hold/ramp-out boundary
+          // Background ramps up across easeIn, holds, then ramps down across easeOut.
+          const rampFill = disabled
+            ? 'repeating-linear-gradient(45deg, rgba(59,130,246,0.10) 0px, rgba(59,130,246,0.10) 4px, transparent 4px, transparent 8px)'
+            : `linear-gradient(90deg, rgba(59,130,246,${fillOpacity * 0.18}) 0%, rgba(59,130,246,${fillOpacity}) ${holdStart}%, rgba(59,130,246,${fillOpacity}) ${holdEnd}%, rgba(59,130,246,${fillOpacity * 0.18}) 100%)`;
 
           return (
             <div
@@ -679,9 +725,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
               style={{
                 left: `${leftPct}%`,
                 width: `${widthPct}%`,
-                background: disabled
-                  ? 'repeating-linear-gradient(45deg, rgba(59,130,246,0.10) 0px, rgba(59,130,246,0.10) 4px, transparent 4px, transparent 8px)'
-                  : `rgba(59, 130, 246, ${fillOpacity})`,
+                background: rampFill,
                 border: '1px solid var(--timeline-zoom-color)',
               }}
               onMouseEnter={() => { if (globalDragVisualMode === null) setHoveredBlockIdx(index); }}
@@ -697,7 +741,8 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
               >
                 {Math.round((block.zoomFactor - 1) * 100)}%
               </div>
-              {/* Left resize handle */}
+
+              {/* Outer edge handles — resize the block bounds (start / end) */}
               <div
                 className="zoom-block-handle-left absolute inset-y-0 left-0 w-2 -ml-1 cursor-col-resize z-10"
                 onClick={(e) => e.stopPropagation()}
@@ -706,11 +751,10 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   startResizeBlock(index, 'start', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
                 }}
               >
-                <div className={`absolute inset-y-1 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
-                  hoveredBlockIdx === index ? 'bg-[var(--timeline-zoom-color)]' : 'bg-[var(--timeline-zoom-color)]/50'
+                <div className={`absolute inset-y-0.5 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
+                  showHandles ? 'bg-[var(--timeline-zoom-color)]' : 'bg-[var(--timeline-zoom-color)]/50'
                 }`} />
               </div>
-              {/* Right resize handle */}
               <div
                 className="zoom-block-handle-right absolute inset-y-0 right-0 w-2 -mr-1 cursor-col-resize z-10"
                 onClick={(e) => e.stopPropagation()}
@@ -719,10 +763,43 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   startResizeBlock(index, 'end', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
                 }}
               >
-                <div className={`absolute inset-y-1 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
-                  hoveredBlockIdx === index ? 'bg-[var(--timeline-zoom-color)]' : 'bg-[var(--timeline-zoom-color)]/50'
+                <div className={`absolute inset-y-0.5 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
+                  showHandles ? 'bg-[var(--timeline-zoom-color)]' : 'bg-[var(--timeline-zoom-color)]/50'
                 }`} />
               </div>
+
+              {/* Transition handles — drag the ramp/hold boundary to resize the
+                  ease-in / ease-out fade (shown when active or hovered). */}
+              {showHandles && (
+                <>
+                  <div
+                    className="zoom-block-transition-in absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize z-20"
+                    style={{ left: `${holdStart}%` }}
+                    title="Ease in"
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      startResizeTransition(index, 'in', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
+                    }}
+                  >
+                    <div className="absolute inset-y-1 left-1/2 -translate-x-1/2 w-px border-l border-dashed border-white/80" />
+                    <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white/90" />
+                  </div>
+                  <div
+                    className="zoom-block-transition-out absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize z-20"
+                    style={{ left: `${holdEnd}%` }}
+                    title="Ease out"
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      startResizeTransition(index, 'out', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
+                    }}
+                  >
+                    <div className="absolute inset-y-1 left-1/2 -translate-x-1/2 w-px border-l border-dashed border-white/80" />
+                    <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white/90" />
+                  </div>
+                </>
+              )}
             </div>
           );
         })}
