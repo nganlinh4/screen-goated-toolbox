@@ -85,11 +85,16 @@ export function useVideoPlayback({
       trimSegment.endTime,
     ]),
     crop: nextSegment.crop ?? null,
-    zoomKeyframes: nextSegment.zoomKeyframes.map((keyframe) => [
-      keyframe.time,
-      keyframe.zoomFactor,
-      keyframe.positionX,
-      keyframe.positionY,
+    zoomBlocks: (nextSegment.zoomBlocks ?? []).map((block) => [
+      block.startTime,
+      block.endTime,
+      block.easeIn,
+      block.easeOut,
+      block.zoomFactor,
+      block.positionX,
+      block.positionY,
+      block.followCursor ? 1 : 0,
+      block.enabled === false ? 0 : 1,
     ]),
     speedPoints: (nextSegment.speedPoints ?? []).map((point) => [
       point.time,
@@ -197,12 +202,8 @@ export function useVideoPlayback({
       ? {
           ...normalizedSegment,
           crop: undefined,
-          zoomKeyframes: normalizedSegment.zoomKeyframes.map((k) => ({
-            ...k,
-            zoomFactor: 1.0,
-            positionX: 0.5,
-            positionY: 0.5,
-          })),
+          // Disable manual zoom while cropping so the crop UI shows the full frame.
+          zoomBlocks: [],
         }
       : normalizedSegment;
 
@@ -513,12 +514,8 @@ export function useVideoPlayback({
       ? {
           ...normalizedSegment,
           crop: undefined,
-          zoomKeyframes: normalizedSegment.zoomKeyframes.map((k) => ({
-            ...k,
-            zoomFactor: 1.0,
-            positionX: 0.5,
-            positionY: 0.5,
-          })),
+          // Disable manual zoom while cropping so the crop UI shows the full frame.
+          zoomBlocks: [],
         }
       : normalizedSegment;
 
@@ -582,12 +579,8 @@ export function useVideoPlayback({
       ? {
           ...normalizedSegment,
           crop: undefined,
-          zoomKeyframes: normalizedSegment.zoomKeyframes.map((k) => ({
-            ...k,
-            zoomFactor: 1.0,
-            positionX: 0.5,
-            positionY: 0.5,
-          })),
+          // Disable manual zoom while cropping so the crop UI shows the full frame.
+          zoomBlocks: [],
         }
       : normalizedSegment;
 

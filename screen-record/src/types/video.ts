@@ -11,6 +11,25 @@ export interface ZoomKeyframe {
   easingType: "linear" | "easeOut" | "easeInOut";
 }
 
+/**
+ * A discrete, bounded zoom region on the timeline (Screen Studio-style).
+ * The camera eases in over `easeIn` seconds, holds the target across the body,
+ * then eases out over `easeOut` seconds. Outside the block the camera reverts to
+ * the auto path (or default), so gaps between blocks naturally show auto-zoom.
+ */
+export interface ZoomBlock {
+  id: string;
+  startTime: number; // block begins (camera starts easing in)
+  endTime: number; // block ends (camera fully eased back out)
+  easeIn: number; // ramp-in duration in seconds
+  easeOut: number; // ramp-out duration in seconds
+  zoomFactor: number; // hold target
+  positionX: number; // 0..1 anchor
+  positionY: number; // 0..1 anchor
+  followCursor?: boolean; // when true, anchor follows the auto path inside the block
+  enabled: boolean; // disable without deleting
+}
+
 export interface TextBackground {
   enabled: boolean;
   color: string;
@@ -360,7 +379,9 @@ export interface VideoSegment {
   trimStart: number;
   trimEnd: number;
   trimSegments?: TrimSegment[];
+  /** @deprecated legacy point-keyframe model — migrated to `zoomBlocks` on load. */
   zoomKeyframes: ZoomKeyframe[];
+  zoomBlocks?: ZoomBlock[];
   smoothMotionPath?: { time: number; x: number; y: number; zoom: number }[];
   zoomInfluencePoints?: { time: number; value: number }[];
   textSegments: TextSegment[];

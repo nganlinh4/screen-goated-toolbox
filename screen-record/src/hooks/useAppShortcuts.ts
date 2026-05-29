@@ -191,11 +191,11 @@ export function useAppShortcuts({
           handleDeleteText();
         } else if (
           editingKeyframeId !== null &&
-          segment?.zoomKeyframes[editingKeyframeId]
+          segment?.zoomBlocks?.[editingKeyframeId]
         ) {
           setSegment({
             ...segment,
-            zoomKeyframes: segment.zoomKeyframes.filter(
+            zoomBlocks: segment.zoomBlocks.filter(
               (_, i) => i !== editingKeyframeId,
             ),
           });

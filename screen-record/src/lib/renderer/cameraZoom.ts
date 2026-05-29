@@ -1,4 +1,4 @@
-import { VideoSegment, ZoomKeyframe } from '@/types/video';
+import { VideoSegment, ZoomKeyframe, ZoomBlock } from '@/types/video';
 
 export const DEFAULT_ZOOM_STATE: ZoomKeyframe = {
   time: 0,
@@ -180,72 +180,38 @@ export function calculateCurrentZoomStateInternal(
     };
   }
 
-  // --- 2. CALCULATE MANUAL KEYFRAME STATE (Foreground Track) ---
-  // Improved logic to blend seamlessly with Auto-Zoom
+  // --- 2. CALCULATE MANUAL ZOOM BLOCK STATE (Foreground Track) ---
+  // Each zoom block is a bounded region: ease-in → hold → ease-out.  Outside
+  // every block manualInfluence is 0, so the auto path / default shows through —
+  // a gap between two blocks naturally reverts to auto-zoom.  Blocks are
+  // independent (no spanning spline), which is what lets auto-zoom live between
+  // two manual zooms.
 
   let manualState: ZoomKeyframe | null = null;
   let manualInfluence = 0.0;
 
-  const sortedKeyframes = [...segment.zoomKeyframes].sort((a: ZoomKeyframe, b: ZoomKeyframe) => a.time - b.time);
-
-  if (sortedKeyframes.length > 0) {
-    // Dynamic blending window size based on movement
-    const calculateDynamicWindow = (kf1: ZoomKeyframe, kf2?: ZoomKeyframe) => {
-      if (!kf2) return 3.0; // Default tail if single keyframe
-      const dx = Math.abs(kf1.positionX - kf2.positionX);
-      const dy = Math.abs(kf1.positionY - kf2.positionY);
-      const dz = Math.abs(kf1.zoomFactor - kf2.zoomFactor);
-      const distanceScore = Math.sqrt(dx * dx + dy * dy) + (dz * 0.5);
-      return Math.max(1.5, Math.min(4.0, distanceScore * 3.0)); // Adaptive 1.5s to 4s
-    };
-
-    const nextKfIdx = sortedKeyframes.findIndex(k => k.time > currentTime);
-    const prevKf = nextKfIdx > 0 ? sortedKeyframes[nextKfIdx - 1] : (nextKfIdx === -1 ? sortedKeyframes[sortedKeyframes.length - 1] : null);
-    const nextKf = nextKfIdx !== -1 ? sortedKeyframes[nextKfIdx] : null;
-
-    if (prevKf && nextKf) {
-      // BETWEEN TWO KEYFRAMES — always smoothly interpolate between adjacent keyframes.
-      // Manual keyframes form a continuous connected curve regardless of auto-path.
-      // No decay to default between keyframes — no independent humps.
-      manualInfluence = 1.0;
-      const timeDiff = nextKf.time - prevKf.time;
-      const rawT = (currentTime - prevKf.time) / timeDiff;
-      const t = Math.max(0, Math.min(1, rawT));
-      const easedT = easeCameraMove(t);
-
-      const { zoom: currentZoom, posX, posY } = blendZoomStates(prevKf, nextKf, easedT);
-
+  const blocks = segment.zoomBlocks;
+  if (blocks && blocks.length > 0) {
+    // Pick the block with the strongest envelope at currentTime.  This handles
+    // gaps (all envelopes 0 → auto) and any accidental overlap deterministically.
+    let bestBlock: ZoomBlock | null = null;
+    let bestEnv = 0;
+    for (const b of blocks) {
+      if (b.enabled === false) continue;
+      const env = zoomBlockEnvelope(b, currentTime);
+      if (env > bestEnv) { bestEnv = env; bestBlock = b; }
+    }
+    if (bestBlock && bestEnv > 0) {
+      manualInfluence = bestEnv;
+      const followsCursor = bestBlock.followCursor === true && autoState !== null;
       manualState = {
-        time: currentTime, duration: 0, zoomFactor: currentZoom, positionX: posX, positionY: posY, easingType: 'easeOut'
+        time: currentTime,
+        duration: 0,
+        zoomFactor: bestBlock.zoomFactor,
+        positionX: followsCursor ? autoState!.positionX : bestBlock.positionX,
+        positionY: followsCursor ? autoState!.positionY : bestBlock.positionY,
+        easingType: 'easeOut',
       };
-    } else if (prevKf) {
-      // AFTER LAST KEYFRAME
-      if (hasAutoPath) {
-        const currentTarget = autoState || DEFAULT_ZOOM_STATE;
-        const decayWindow = calculateDynamicWindow(prevKf, currentTarget);
-
-        const timeFromPrev = currentTime - prevKf.time;
-        if (timeFromPrev < decayWindow) {
-          const progress = timeFromPrev / decayWindow; // 0 at keyframe → 1 at end of decay
-          manualInfluence = 1 - easeCameraMove(progress);
-        }
-      } else {
-        // Hold last keyframe forever if no auto path
-        manualInfluence = 1.0;
-      }
-      manualState = prevKf;
-    } else if (nextKf) {
-      // BEFORE FIRST KEYFRAME — cosine ease from default to keyframe
-      const currentTarget = autoState || DEFAULT_ZOOM_STATE;
-      const hasCustomDuration = nextKf.duration > 0;
-      const rampWindow = hasCustomDuration ? nextKf.duration : calculateDynamicWindow(nextKf, currentTarget);
-
-      const timeToNext = nextKf.time - currentTime;
-      if (timeToNext <= rampWindow) {
-        const progress = 1 - timeToNext / rampWindow; // 0 at ramp start → 1 at keyframe
-        manualInfluence = easeCameraMove(progress);
-      }
-      manualState = nextKf;
     }
   }
 
@@ -276,4 +242,71 @@ export function calculateCurrentZoomStateInternal(
   result.positionX = Math.max(0, Math.min(1, result.positionX));
   result.positionY = Math.max(0, Math.min(1, result.positionY));
   return result;
+}
+
+// Manual-zoom block envelope: 0 outside the block, ramps up over easeIn,
+// holds at 1 across the body, ramps down over easeOut.  Reuses smootherStep so
+// the camera arrives/leaves with zero velocity and acceleration.
+export function zoomBlockEnvelope(b: ZoomBlock, t: number): number {
+  if (t <= b.startTime || t >= b.endTime) return 0;
+  const dur = b.endTime - b.startTime;
+  if (dur <= 1e-6) return 0;
+  let easeIn = Math.max(0, b.easeIn);
+  let easeOut = Math.max(0, b.easeOut);
+  // If the ramps would overlap, scale both to fit the block duration.
+  if (easeIn + easeOut > dur) {
+    const s = dur / (easeIn + easeOut);
+    easeIn *= s;
+    easeOut *= s;
+  }
+  const tIn = b.startTime + easeIn;
+  const tOut = b.endTime - easeOut;
+  if (t < tIn && easeIn > 1e-6) return easeCameraMove((t - b.startTime) / easeIn);
+  if (t > tOut && easeOut > 1e-6) return easeCameraMove((b.endTime - t) / easeOut);
+  return 1.0;
+}
+
+// --- Legacy migration: point keyframes → bounded zoom blocks ---
+// Each keyframe becomes one block whose body brackets the keyframe time, with
+// short eased ramps. Bounds reuse the old half-way-to-neighbour range math so
+// migrated projects keep zooms at the same spots; gaps between non-adjacent
+// keyframes now correctly revert to auto-zoom.
+const MIGRATION_RAMP_SEC = 0.6;
+
+export function zoomKeyframesToBlocks(
+  keyframes: ZoomKeyframe[],
+  totalDuration: number,
+): ZoomBlock[] {
+  if (!keyframes || keyframes.length === 0) return [];
+  const sorted = [...keyframes].sort((a, b) => a.time - b.time);
+  return sorted.map((kf, i) => {
+    const prev = i > 0 ? sorted[i - 1] : null;
+    const next = i < sorted.length - 1 ? sorted[i + 1] : null;
+
+    let startTime: number;
+    if (kf.duration > 0) {
+      startTime = Math.max(prev ? prev.time : 0, kf.time - kf.duration);
+    } else {
+      startTime = prev ? prev.time + (kf.time - prev.time) * 0.5 : Math.max(0, kf.time - 2.0);
+    }
+    const endTime = next
+      ? kf.time + (next.time - kf.time) * 0.5
+      : Math.min(totalDuration || kf.time + 2.0, kf.time + 2.0);
+
+    const easeIn = Math.max(0, Math.min(MIGRATION_RAMP_SEC, kf.time - startTime));
+    const easeOut = Math.max(0, Math.min(MIGRATION_RAMP_SEC, endTime - kf.time));
+
+    return {
+      id: `zb-${i}-${Math.round(kf.time * 1000)}`,
+      startTime,
+      endTime,
+      easeIn,
+      easeOut,
+      zoomFactor: kf.zoomFactor,
+      positionX: kf.positionX,
+      positionY: kf.positionY,
+      followCursor: false,
+      enabled: true,
+    };
+  });
 }

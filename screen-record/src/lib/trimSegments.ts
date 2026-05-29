@@ -1,4 +1,5 @@
 import type { SpeedPoint, TrimSegment, VideoSegment } from '@/types/video';
+import { zoomKeyframesToBlocks } from '@/lib/renderer/cameraZoom';
 
 const MIN_SEGMENT_DURATION = 0.1;
 const EPSILON = 0.0001;
@@ -198,12 +199,19 @@ export function normalizeSpeedPoints(
 
 export function normalizeSegmentTrimData(segment: VideoSegment, duration: number): VideoSegment {
   const segs = getTrimSegments(segment, duration);
+  // Migrate legacy point-keyframes → bounded zoom blocks (idempotent: once
+  // zoomBlocks exist this is a no-op).
+  const zoomBlocks =
+    segment.zoomBlocks && segment.zoomBlocks.length > 0
+      ? segment.zoomBlocks
+      : zoomKeyframesToBlocks(segment.zoomKeyframes ?? [], duration);
   return {
     ...segment,
     trimSegments: segs,
     trimStart: segs[0].startTime,
     trimEnd: segs[segs.length - 1].endTime,
     speedPoints: normalizeSpeedPoints(segment.speedPoints, segs[segs.length - 1].endTime),
+    zoomBlocks,
   };
 }
 
