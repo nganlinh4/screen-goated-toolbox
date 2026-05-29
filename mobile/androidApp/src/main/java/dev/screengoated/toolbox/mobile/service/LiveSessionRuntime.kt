@@ -104,8 +104,8 @@ class LiveSessionRuntime(
 
         realtimeTtsCoordinator.stopAndReset()
         if (config.transcriptionProvider.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET) {
-            repository.updateTranscriptionModel(RealtimeModelIds.TRANSCRIPTION_MOONSHINE)
-            repository.updateTranscriptionLanguage("en")
+            repository.fail("Parakeet is visible for Windows parity but is not available on Android yet.")
+            return
         }
         val modelId = repository.currentConfig().transcriptionProvider.id
         val useGeminiS2s = modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S

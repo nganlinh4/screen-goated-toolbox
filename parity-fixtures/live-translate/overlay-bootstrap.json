@@ -5,12 +5,38 @@
     "targetLanguage": "Vietnamese",
     "translationModel": "text-llm",
     "translationApiModel": "",
-    "transcriptionModel": "gemini",
+    "transcriptionModel": "gemini-live-s2s",
     "fontSize": 16,
     "ttsEnabled": false,
     "ttsSpeed": 100,
     "ttsAutoSpeed": true,
     "ttsVolume": 100
+  },
+  "requiredModels": {
+    "translationProviders": [
+      "text-llm",
+      "google-gtx"
+    ],
+    "windowsTranscriptionProviders": [
+      "gemini-live-audio",
+      "gemini-live-s2s",
+      "parakeet",
+      "qwen3-asr-0.6b",
+      "qwen3-asr-1.7b",
+      "zipformer"
+    ],
+    "androidTranscriptionProviders": [
+      "gemini-live-audio",
+      "gemini-live-s2s",
+      "parakeet",
+      "moonshine-tiny-streaming",
+      "moonshine-small-streaming",
+      "moonshine-medium-streaming",
+      "zipformer"
+    ],
+    "androidUnavailableTranscriptionProviders": [
+      "parakeet"
+    ]
   },
   "requiredControls": {
     "transcriptionPane": [
