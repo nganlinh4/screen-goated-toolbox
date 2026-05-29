@@ -163,11 +163,7 @@ internal fun OverlayOpacityCard(
     }
 }
 
-private fun compactOverlayOpacityLabel(locale: MobileLocaleText): String = when {
-    locale.turnOn == "Bật" -> "Độ mờ overlay"
-    locale.turnOn == "켜기" -> "오버레이 불투명도"
-    else -> "Overlay opacity"
-}
+private fun compactOverlayOpacityLabel(locale: MobileLocaleText): String = locale.compactOverlayOpacityLabel()
 
 @Composable
 internal fun ResetDefaultsActionButton(
@@ -177,11 +173,7 @@ internal fun ResetDefaultsActionButton(
 ) {
     var showConfirm by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
-    val doneMsg = when {
-        locale.resetDefaultsButton.contains("Khôi") -> "Đã khôi phục mặc định"
-        locale.resetDefaultsButton.contains("복원") -> "기본값으로 복원됨"
-        else -> "Defaults restored"
-    }
+    val doneMsg = locale.resetDefaultsDoneMessage()
 
     SettingsActionButton(
         text = locale.resetDefaultsButton,

@@ -45,6 +45,15 @@ data class OverlayLocaleText(
     val pickerSearchHint: String,
 )
 
+data class MobileToolsHelpCopy(
+    val title: String,
+    val bubbleTitle: String,
+    val bubbleDescription: String,
+    val favoriteTitle: String,
+    val favoriteDescription: String,
+    val dismiss: String,
+)
+
 data class MobileLocaleText(
     val appTitle: String,
     val appHeaderTitle: String,
@@ -298,6 +307,59 @@ data class MobileLocaleText(
         return ttsFailedLoadVoicesTemplate.replace("{}", error)
     }
 
+    fun compactOverlayOpacityLabel(): String {
+        return selectByCurrentLocale(
+            en = "Overlay opacity",
+            vi = "Độ mờ overlay",
+            ko = "오버레이 불투명도",
+        )
+    }
+
+    fun resetDefaultsDoneMessage(): String {
+        return selectByCurrentLocale(
+            en = "Defaults restored",
+            vi = "Đã khôi phục mặc định",
+            ko = "기본값으로 복원됨",
+        )
+    }
+
+    fun toolsHelpCopy(): MobileToolsHelpCopy {
+        return when (languageCode()) {
+            "vi" -> MobileToolsHelpCopy(
+                title = "Hướng dẫn sử dụng",
+                bubbleTitle = "Bong bóng Quick Settings",
+                bubbleDescription = "Thêm mục bong bóng SGT vào Quick Settings, bật bong bóng và cấp quyền overlay (có thể phải mở khoá Restricted settings của SGT trước), một bong bóng nổi sẽ xuất hiện trên màn hình. Nhấn vào để mở bảng công cụ yêu thích và dùng tại bất kỳ ứng dụng nào.",
+                favoriteTitle = "Đánh dấu yêu thích",
+                favoriteDescription = "Nhấn nút ★ ở thanh công cụ bên dưới, sau đó đánh dấu vào công cụ ưa thích để thêm/xóa yêu thích. Các tool yêu thích sẽ hiển thị trong bong bóng nổi. Một số công cụ sẽ yêu cầu bật Dịch vụ trợ năng lần đầu cho SGT.",
+                dismiss = "Đã hiểu",
+            )
+            "ko" -> MobileToolsHelpCopy(
+                title = "사용 가이드",
+                bubbleTitle = "Quick Settings 버블",
+                bubbleDescription = "Quick Settings에 SGT 버블 타일을 추가하고, 버블을 켜고 오버레이 권한을 부여하세요 (먼저 SGT의 제한된 설정을 해제해야 할 수 있습니다). 화면에 플로팅 버블이 나타납니다. 탭하면 즐겨찾기 도구 패널이 열리고 어떤 앱에서든 바로 사용할 수 있습니다.",
+                favoriteTitle = "즐겨찾기 추가",
+                favoriteDescription = "하단 툴바의 ★ 버튼을 누른 후 각 도구 카드의 배지를 탭하여 즐겨찾기를 추가/제거하세요. 즐겨찾기 도구는 플로팅 버블에 표시됩니다. 일부 도구는 처음 사용 시 SGT 접근성 서비스를 켜야 합니다.",
+                dismiss = "알겠습니다",
+            )
+            else -> MobileToolsHelpCopy(
+                title = "Quick Guide",
+                bubbleTitle = "Quick Settings Bubble",
+                bubbleDescription = "Add the SGT bubble tile to Quick Settings, enable the bubble and grant overlay permission (you may need to unlock Restricted settings for SGT first). A floating bubble will appear on your screen. Tap it to open your favorite tools panel and use them from any app.",
+                favoriteTitle = "Favoriting Tools",
+                favoriteDescription = "Tap the ★ button in the bottom toolbar, then tap the badge on each tool card to add/remove favorites. Favorited tools appear in the floating bubble. Some tools will require enabling the Accessibility Service for SGT on first use.",
+                dismiss = "Got it",
+            )
+        }
+    }
+
+    fun languageCode(): String {
+        return when (ttsPreviewAction) {
+            "Nghe thử" -> "vi"
+            "미리 듣기" -> "ko"
+            else -> "en"
+        }
+    }
+
     fun nextPreviewText(
         voiceName: String,
         previousIndex: Int,
@@ -320,6 +382,14 @@ data class MobileLocaleText(
             index = nextIndex,
             text = ttsPreviewTexts[nextIndex].replace("{}", voiceName),
         )
+    }
+
+    private fun selectByCurrentLocale(en: String, vi: String, ko: String): String {
+        return when (languageCode()) {
+            "vi" -> vi
+            "ko" -> ko
+            else -> en
+        }
     }
 
     companion object {
