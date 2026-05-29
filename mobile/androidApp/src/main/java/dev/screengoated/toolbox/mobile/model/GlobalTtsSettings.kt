@@ -47,37 +47,6 @@ data class MobileEdgeTtsSettings(
     val voiceConfigs: List<MobileEdgeTtsVoiceConfig> = defaultEdgeTtsVoiceConfigs(),
 )
 
-// ---------------------------------------------------------------------------
-// Offline open-weights TTS provider settings (serialized compatibility only)
-// ---------------------------------------------------------------------------
-//
-// These mirror persisted Windows-era method/settings shapes so older Android
-// snapshots deserialize safely. Android does not expose these methods until a
-// real mobile runtime exists; see .claude/parity/tts-runtime.md.
-
-@Serializable
-data class MobileKokoroSettings(
-    val voice: String = "af_heart",
-    val speed: Float = 1.0f,
-    val lang: String = "",
-    val numThreads: Int = 2,
-)
-
-@Serializable
-data class MobileStepAudioSettings(val voice: String = "", val stylePrompt: String = "")
-
-@Serializable
-data class MobileMagpieSettings(val voice: String = "")
-
-@Serializable
-data class MobileSupertonicSettings(val voice: String = "F1")
-
-@Serializable
-data class MobileVieneuSettings(val referenceVoicePath: String = "")
-
-@Serializable
-data class MobileVoxtralSettings(val voice: String = "")
-
 @Serializable
 data class MobileGlobalTtsSettings(
     val method: MobileTtsMethod = MobileTtsMethod.GEMINI_LIVE,
@@ -86,12 +55,6 @@ data class MobileGlobalTtsSettings(
     val speedPreset: MobileTtsSpeedPreset = MobileTtsSpeedPreset.FAST,
     val languageConditions: List<MobileTtsLanguageCondition> = defaultTtsLanguageConditions(),
     val edgeSettings: MobileEdgeTtsSettings = MobileEdgeTtsSettings(),
-    val kokoroSettings: MobileKokoroSettings = MobileKokoroSettings(),
-    val stepAudioSettings: MobileStepAudioSettings = MobileStepAudioSettings(),
-    val magpieSettings: MobileMagpieSettings = MobileMagpieSettings(),
-    val supertonicSettings: MobileSupertonicSettings = MobileSupertonicSettings(),
-    val vieneuSettings: MobileVieneuSettings = MobileVieneuSettings(),
-    val voxtralSettings: MobileVoxtralSettings = MobileVoxtralSettings(),
 )
 
 fun MobileGlobalTtsSettings.withMethod(method: MobileTtsMethod): MobileGlobalTtsSettings {

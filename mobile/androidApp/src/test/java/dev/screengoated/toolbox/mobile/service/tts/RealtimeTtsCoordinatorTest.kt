@@ -8,6 +8,7 @@ import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.model.normalizedForWindowsParity
 import dev.screengoated.toolbox.mobile.model.withMethod
 import dev.screengoated.toolbox.mobile.ui.ttssettings.globalTtsMethodOptions
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -183,6 +184,19 @@ class RealtimeTtsCoordinatorTest {
                 expectedMethod,
                 MobileGlobalTtsSettings(method = parsedMethod).normalizedForWindowsParity().method,
             )
+        }
+    }
+
+    @Test
+    fun `open weight tts settings are not serialized on Android`() {
+        val case = fixtureCase("android_open_weight_settings_are_not_serialized")
+        val forbiddenFields = case.getValue("forbidden_settings_fields")
+            .jsonArray
+            .map { it.jsonPrimitive.content }
+        val payload = json.encodeToString(MobileGlobalTtsSettings())
+
+        forbiddenFields.forEach { field ->
+            assertTrue("$field should not be part of Android TTS settings", "\"$field\"" !in payload)
         }
     }
 

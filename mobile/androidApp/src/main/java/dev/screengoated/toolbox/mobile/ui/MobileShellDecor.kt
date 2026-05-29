@@ -20,6 +20,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
+import dev.screengoated.toolbox.mobile.model.androidSupportedMethod
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 internal object ShellSpacing {
@@ -70,15 +71,10 @@ internal fun methodLabel(
     locale: MobileLocaleText,
     method: MobileTtsMethod,
 ): String {
-    return when (method) {
+    return when (method.androidSupportedMethod()) {
         MobileTtsMethod.GEMINI_LIVE -> "Gemini Live"
         MobileTtsMethod.EDGE_TTS -> "Edge TTS"
         MobileTtsMethod.GOOGLE_TRANSLATE -> "Google Trans."
-        MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
-        MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
-        MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
-        MobileTtsMethod.SUPERTONIC -> "Supertonic 3"
-        MobileTtsMethod.VIENEU_TTS -> "VieNeu-TTS v2"
-        MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
+        else -> "Gemini Live"
     }
 }

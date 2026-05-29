@@ -111,6 +111,17 @@
         "VOXTRAL_TTS"
       ],
       "expected_normalized_method": "GEMINI_LIVE"
+    },
+    {
+      "name": "android_open_weight_settings_are_not_serialized",
+      "forbidden_settings_fields": [
+        "kokoroSettings",
+        "stepAudioSettings",
+        "magpieSettings",
+        "supertonicSettings",
+        "vieneuSettings",
+        "voxtralSettings"
+      ]
     }
   ]
 }

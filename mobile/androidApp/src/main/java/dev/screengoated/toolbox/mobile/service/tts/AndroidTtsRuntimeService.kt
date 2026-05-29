@@ -4,6 +4,7 @@ import android.content.Context
 import dev.screengoated.toolbox.mobile.AppToastBus
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.model.androidSupportedMethod
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -203,7 +204,7 @@ class AndroidTtsRuntimeService(
 
 
             android.util.Log.d("TTS-Timing", "Worker picked up job: method=${job.request.settingsSnapshot.method} text='${job.request.text.take(30)}...'")
-            val method = job.request.settingsSnapshot.method
+            val method = job.request.settingsSnapshot.method.androidSupportedMethod()
             val apiKey = settingsStore.loadApiKey().trim()
             if (method == MobileTtsMethod.GEMINI_LIVE && apiKey.isBlank()) {
                 job.audioEvents.offer(ProviderAudioEvent.Error("NO_API_KEY:google"))
@@ -228,31 +229,7 @@ class AndroidTtsRuntimeService(
                         request = job.request,
                         sink = job.audioEvents,
                     )
-
-                    // Offline leaderboard TTS providers are tracked under the
-                    // Android parity spec deviation. Keep the worker exhaustive
-                    // and return one user-facing unavailable message.
-                    MobileTtsMethod.STEP_AUDIO_EDITX,
-                    MobileTtsMethod.MAGPIE_MULTILINGUAL,
-                    MobileTtsMethod.KOKORO,
-                    MobileTtsMethod.SUPERTONIC,
-                    MobileTtsMethod.VIENEU_TTS,
-                    MobileTtsMethod.VOXTRAL_TTS -> {
-                        val name = when (method) {
-                            MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
-                            MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
-                            MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
-                            MobileTtsMethod.SUPERTONIC -> "Supertonic 3"
-                            MobileTtsMethod.VIENEU_TTS -> "VieNeu-TTS v2"
-                            MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
-                            else -> method.name
-                        }
-                        job.audioEvents.offer(
-                            ProviderAudioEvent.Error(
-                                "$name: offline pipeline not yet available on Android."
-                            )
-                        )
-                    }
+                    else -> error("Unsupported Android TTS method was not normalized: $method")
                 }
             }.also {
                 // Pre-connect next warm socket after each Gemini request
