@@ -41,6 +41,13 @@
       "question_surface_differs_from_windows": true
     },
     {
+      "name": "android_overlay_permission_recovery",
+      "missing_overlay_permission": "launch_system_overlay_settings",
+      "pending_question_preserved": true,
+      "retry_overlay_after_permission_granted": true,
+      "fallback_answer_surface": "none"
+    },
+    {
       "name": "model_chain",
       "primary": "gemini-3.1-flash-lite-preview",
       "fallback": "gemma-4-26b-a4b-it",

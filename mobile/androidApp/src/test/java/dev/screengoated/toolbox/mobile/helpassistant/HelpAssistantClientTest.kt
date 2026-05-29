@@ -65,6 +65,15 @@ class HelpAssistantClientTest {
         assertTrue(prompt.getValue("markdown_output").jsonPrimitive.boolean)
         assertTrue(prompt.getValue("forbid_made_up_information").jsonPrimitive.boolean)
         assertTrue(prompt.getValue("forbid_source_code_framing").jsonPrimitive.boolean)
+
+        val overlayRecovery = cases.getValue("android_overlay_permission_recovery")
+        assertEquals(
+            "launch_system_overlay_settings",
+            overlayRecovery.getValue("missing_overlay_permission").jsonPrimitive.content,
+        )
+        assertTrue(overlayRecovery.getValue("pending_question_preserved").jsonPrimitive.boolean)
+        assertTrue(overlayRecovery.getValue("retry_overlay_after_permission_granted").jsonPrimitive.boolean)
+        assertEquals("none", overlayRecovery.getValue("fallback_answer_surface").jsonPrimitive.content)
     }
 
     @Test
