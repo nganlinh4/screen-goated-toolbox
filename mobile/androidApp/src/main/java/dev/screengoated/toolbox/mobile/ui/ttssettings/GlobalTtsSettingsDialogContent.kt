@@ -215,6 +215,7 @@ internal fun RenderGlobalTtsSettingsDialog(
                         MobileTtsMethod.VOXTRAL_TTS -> OpenWeightsSection(
                             settings = settings,
                             method = settings.method,
+                            locale = locale,
                             onSettingsChanged = onSettingsChanged,
                         )
                     }
