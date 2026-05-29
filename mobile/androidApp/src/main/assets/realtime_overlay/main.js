@@ -29,6 +29,7 @@
             geminiLiveTitle: 'Gemini Live (Cloud)',
             geminiLive31Title: 'Gemini Live 3.1 (Cloud)',
             geminiS2sTitle: 'Gemini S2S',
+            unavailableSuffix: 'Unavailable',
             llmLabel: 'LLM',
             gtxLabel: 'Google Translate',
             transcriptionModelTitle: 'Transcription model',
@@ -134,12 +135,21 @@
         }
         const TRANSCRIPTION_MODEL_LABELS = {
             'gemini-live-audio': 'Gemini Live',
-            'parakeet': 'Parakeet',
             'moonshine-tiny-streaming': 'Moonshine Tiny',
             'moonshine-small-streaming': 'Moonshine Small',
             'moonshine-medium-streaming': 'Moonshine Medium',
             'zipformer': 'Zipformer',
         };
+
+        function transcriptionModelLabel(modelName) {
+            if (modelName === 'gemini-live-s2s') {
+                return overlayLocale.geminiS2sTitle || 'Gemini S2S';
+            }
+            if (modelName === 'parakeet') {
+                return 'Parakeet (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')';
+            }
+            return TRANSCRIPTION_MODEL_LABELS[modelName] || modelName;
+        }
 
         function applyS2sMode(enabled) {
             s2sMode = !!enabled;
@@ -193,9 +203,7 @@
             const label = document.getElementById('transcription-model-label');
             if (btn) btn.dataset.value = modelName;
             if (label) {
-                label.textContent = modelName === 'gemini-live-s2s'
-                    ? (overlayLocale.geminiS2sTitle || 'Gemini S2S')
-                    : (TRANSCRIPTION_MODEL_LABELS[modelName] || modelName);
+                label.textContent = transcriptionModelLabel(modelName);
             }
             // Legacy
             const icons = document.querySelectorAll('.trans-model-icon');
