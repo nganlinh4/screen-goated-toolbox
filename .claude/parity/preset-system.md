@@ -14,6 +14,7 @@
 - Windows result button canvas: [src/overlay/result/button_canvas/mod.rs](../../src/overlay/result/button_canvas/mod.rs)
 - Windows shared Grid.js helpers: [src/overlay/html_components/grid_js.rs](../../src/overlay/html_components/grid_js.rs)
 - Windows shared font manager: [src/overlay/html_components/font_manager.rs](../../src/overlay/html_components/font_manager.rs)
+- Shared model catalog manifest: [catalog/model_catalog.json](../../catalog/model_catalog.json)
 - Windows model catalog: [src/model_config.rs](../../src/model_config.rs)
 - Windows text provider pipeline: [src/api/text/translate/mod.rs](../../src/api/text/translate/mod.rs)
 
@@ -55,7 +56,7 @@
   - The Android bubble may expose a live-translate-style drag-to-dismiss target, but dropping onto it must be equivalent to turning the Quick Settings bubble service off
 - Android preset overlays support both Windows-style markdown view and raw HTML result documents for text-output presets.
 - Android preset text execution must resolve every block model ID through the Windows-mirrored model catalog before making a provider request.
-- Android preset model catalog must be generated from the Windows Rust source file [src/model_config.rs](../../src/model_config.rs) during the Android build, rather than maintained as a separate handwritten copy.
+- Android preset model catalog must be generated from the same shared manifest that feeds Windows [src/model_config.rs](../../src/model_config.rs): [catalog/model_catalog.json](../../catalog/model_catalog.json). It must not be maintained as a separate handwritten copy.
 - Android preset text execution must use the resolved Windows provider + `full_name` API model, not Android prefix guessing or raw preset block IDs.
 - Android preset text execution must mirror the Windows text request contract for supported providers:
   - the built-in translate-region preset (`preset_translate`) uses `gemma-4-26b-a4b-vision` and plain markdown rendering; the Windows build carries the backtick hotkey on this preset
