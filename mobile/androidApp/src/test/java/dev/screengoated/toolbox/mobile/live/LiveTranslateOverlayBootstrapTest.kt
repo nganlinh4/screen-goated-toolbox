@@ -65,6 +65,8 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(controls.transcriptionPane.contains("transcription-model-toggle"))
         assertTrue(fixture.requiredVisuals.androidS2sAdaptiveVad)
         assertTrue(fixture.requiredVisuals.androidS2sStaleOrderedSkip)
+        assertTrue(fixture.requiredVisuals.androidS2sFullTranscriptDisplay)
+        assertTrue(fixture.requiredVisuals.androidTextLlmUsesProviderAvailability)
         assertTrue(fixture.requiredVisuals.targetLanguageChangeRestartsS2s)
     }
 
@@ -143,5 +145,7 @@ private data class RequiredControls(
 private data class RequiredVisuals(
     val androidS2sAdaptiveVad: Boolean,
     val androidS2sStaleOrderedSkip: Boolean,
+    val androidS2sFullTranscriptDisplay: Boolean,
+    val androidTextLlmUsesProviderAvailability: Boolean,
     val targetLanguageChangeRestartsS2s: Boolean,
 )

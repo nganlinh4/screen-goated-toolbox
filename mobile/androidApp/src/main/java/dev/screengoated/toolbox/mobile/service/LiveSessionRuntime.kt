@@ -758,6 +758,7 @@ class LiveSessionRuntime(
                     targetLanguage = repository.currentConfig().targetLanguage,
                     providerId = requestedProvider,
                     llmChain = repository.currentTextToTextChain(),
+                    runtimeSettings = repository.currentPresetRuntimeSettings(),
                 )
                 val usedProvider = result.providerId
                 repository.applyTranslationResponse(

@@ -68,6 +68,7 @@
 - Realtime control contract:
   - translation providers must expose exactly two ids: `text-llm` and `google-gtx`
   - `text-llm` walks the centralized `text_to_text` priority chain at translate time, picking the first model whose provider key/availability check passes (Cerebras / Google / Groq are the supported HTTP backends today); the per-model API name comes from the shared model catalog, not a separate realtime constant
+  - Android `text-llm` must reuse the same provider enabled/key availability checks as the preset retry chain before attempting a provider in the priority chain
   - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
   - Windows transcription providers are exposed in this order: `gemini-live-audio`, `gemini-live-s2s`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`
   - Android transcription providers expose the same cloud/S2S and Zipformer control surface, keep `parakeet` visible as unavailable, and additionally expose the documented Android-native Moonshine variants: `moonshine-tiny-streaming`, `moonshine-small-streaming`, and `moonshine-medium-streaming`
@@ -75,6 +76,7 @@
 - Gemini S2S disables the translation model selector and read-locks TTS on both platforms
 - Gemini S2S segmenting uses adaptive VAD on both platforms: Gemini empty-audio feedback increases VAD strictness, healthy segments relax it, and backlog pressure can raise the minimum speech confidence to avoid queuing non-speech audio.
 - Gemini S2S ordered playback skips stale pending segments that block later ready audio, using a longer grace period when input/output text has already arrived for that segment.
+- Gemini S2S display preserves the full accumulated source and target transcript on both platforms; it must not trim the committed display to only a recent window.
 - TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model
 - Android mobile uses a native overlay language picker window instead of relying on the embedded WebView `<select>` popup, because the control must remain usable inside detached overlay windows.
 
