@@ -48,18 +48,18 @@ internal fun overlayBaseHtmlTemplate(): String {
                 </div>
                 <button class="download-cancel-btn" id="download-cancel-btn" title="{{CANCEL_DOWNLOAD_TITLE}}">
                     <span class="material-symbols-rounded">{{CLOSE_SVG}}</span>
-                    {{CANCEL_TEXT}}
+                    <span id="download-cancel-text">{{CANCEL_TEXT}}</span>
                 </button>
             </div>
             <div id="tts-modal-overlay"></div>
             <div id="tts-modal">
                 <div class="tts-modal-title">
                     <span class="material-symbols-rounded">{{VOLUME_UP_SVG}}</span>
-                    {{TTS_TITLE}}
+                    <span id="tts-modal-title-text">{{TTS_TITLE}}</span>
                     <div class="toggle-switch" id="tts-toggle" style="margin-left: auto;"></div>
                 </div>
                 <div class="tts-modal-row">
-                    <span class="tts-modal-label">{{TTS_SPEED}}</span>
+                    <span class="tts-modal-label" id="tts-speed-label">{{TTS_SPEED}}</span>
                     <div class="speed-slider-container">
                         <input type="range" class="speed-slider" id="speed-slider" min="50" max="200" value="100" step="10">
                         <span class="speed-value" id="speed-value">1.0x</span>
@@ -67,7 +67,7 @@ internal fun overlayBaseHtmlTemplate(): String {
                     </div>
                 </div>
                 <div class="tts-modal-row">
-                    <span class="tts-modal-label">{{TTS_VOLUME}}</span>
+                    <span class="tts-modal-label" id="tts-volume-label">{{TTS_VOLUME}}</span>
                     <div class="speed-slider-container">
                         <input type="range" class="speed-slider" id="volume-slider" min="0" max="100" value="100" step="5">
                         <span class="speed-value" id="volume-value">100%</span>

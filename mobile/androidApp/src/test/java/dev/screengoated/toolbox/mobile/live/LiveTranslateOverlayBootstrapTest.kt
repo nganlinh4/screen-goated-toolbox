@@ -70,7 +70,10 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(fixture.requiredVisuals.androidS2sRejectsTranslationModelChanges)
         assertTrue(fixture.requiredVisuals.androidS2sRejectsTtsDisable)
         assertTrue(fixture.requiredVisuals.androidTextLlmUsesProviderAvailability)
+        assertTrue(fixture.requiredVisuals.androidRejectedTranslationApplyIsFailure)
         assertTrue(fixture.requiredVisuals.androidForceCommitPrimesTranslationInterval)
+        assertEquals("live-on-ui-language-change", fixture.requiredVisuals.ttsModalLocaleRefresh)
+        assertEquals("live-on-ui-language-change", fixture.requiredVisuals.downloadModalLocaleRefresh)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.s2sTooltipLocaleRefresh)
         assertEquals("active-ui-language-bundle", fixture.requiredVisuals.nativePickerLocaleSource)
         assertTrue(fixture.requiredVisuals.targetLanguageChangeRestartsS2s)
@@ -156,7 +159,10 @@ private data class RequiredVisuals(
     val androidS2sRejectsTranslationModelChanges: Boolean,
     val androidS2sRejectsTtsDisable: Boolean,
     val androidTextLlmUsesProviderAvailability: Boolean,
+    val androidRejectedTranslationApplyIsFailure: Boolean,
     val androidForceCommitPrimesTranslationInterval: Boolean,
+    val ttsModalLocaleRefresh: String,
+    val downloadModalLocaleRefresh: String,
     val s2sTooltipLocaleRefresh: String,
     val nativePickerLocaleSource: String,
     val targetLanguageChangeRestartsS2s: Boolean,

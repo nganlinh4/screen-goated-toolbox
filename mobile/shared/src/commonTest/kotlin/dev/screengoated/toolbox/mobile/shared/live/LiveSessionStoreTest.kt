@@ -84,4 +84,46 @@ class LiveSessionStoreTest {
         assertEquals("Bonjour monde. Next translated phrase", liveText.displayTranslation)
         assertEquals(TranscriptionMethod.GEMINI_LIVE_S2S, liveText.transcriptionMethod)
     }
+
+    @Test
+    fun rejected_translation_response_reports_not_applied() {
+        val store = LiveSessionStore()
+        store.appendTranscript("hello. tail", nowMs = 100)
+        val request = store.claimTranslationRequest()
+            ?: error("expected translation request")
+
+        val response = TranslationResponse(
+            patches = listOf(
+                TranslationPatch(
+                    sourceStart = request.sourceStart,
+                    sourceEnd = request.finalizedSourceEnd,
+                    state = "final",
+                    translation = "xin chao.",
+                ),
+                TranslationPatch(
+                    sourceStart = request.draftSourceStart,
+                    sourceEnd = request.sourceEnd,
+                    state = "draft",
+                    translation = "duoi",
+                ),
+            ),
+        )
+        assertTrue(
+            store.applyTranslationResponse(
+                request = request,
+                response = response,
+                nowMs = 130,
+            ),
+        )
+
+        val applied = store.applyTranslationResponse(
+            request = request,
+            response = response,
+            nowMs = 150,
+        )
+
+        assertFalse(applied)
+        assertEquals(11, store.state.value.liveText.lastProcessedLen)
+        assertEquals("xin chao. duoi", store.state.value.liveText.displayTranslation)
+    }
 }

@@ -233,10 +233,13 @@ class AndroidLiveSessionRepository(
         request: TranslationRequest,
         response: TranslationResponse,
         nowMs: Long,
-    ) {
+    ): Boolean {
         val previousLiveText = state.value.liveText
-        store.applyTranslationResponse(request, response, nowMs)
-        persistCommittedSegment(previousLiveText, state.value.liveText)
+        val applied = store.applyTranslationResponse(request, response, nowMs)
+        if (applied) {
+            persistCommittedSegment(previousLiveText, state.value.liveText)
+        }
+        return applied
     }
 
     fun forceCommitIfDue(nowMs: Long): Boolean {

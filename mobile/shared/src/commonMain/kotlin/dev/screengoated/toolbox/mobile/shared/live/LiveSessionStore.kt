@@ -167,18 +167,22 @@ class LiveSessionStore(
         request: TranslationRequest,
         response: TranslationResponse,
         nowMs: Long,
-    ) {
+    ): Boolean {
+        var applied = false
         mutableState.update { current ->
+            val liveText = LiveTranslateParity.applyTranslationResponse(
+                state = current.liveText,
+                request = request,
+                response = response,
+                nowMs = nowMs,
+            )
+            applied = liveText != current.liveText
             current.copy(
-                liveText = LiveTranslateParity.applyTranslationResponse(
-                    state = current.liveText,
-                    request = request,
-                    response = response,
-                    nowMs = nowMs,
-                ),
+                liveText = liveText,
                 lastError = null,
             )
         }
+        return applied
     }
 
     fun forceCommitIfDue(nowMs: Long): Boolean {

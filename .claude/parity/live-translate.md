@@ -62,6 +62,7 @@
   - runtime header actions (`+/-`, mic/device, language, translation model, transcription model, TTS toggle/modal) must preserve the current horizontal header scroll position instead of snapping back to the start
   - runtime header actions must update the already-loaded WebView through discrete JS bridge calls; they must not trigger a full HTML reload just to reflect changed source/model/language/font settings
   - overlay placeholder text, TTS labels, download modal labels, and overlay control tooltips must come from the active mobile UI language bundle rather than fixed English strings
+  - TTS modal labels and download modal button labels must refresh through the live locale bridge without reloading pane HTML
   - Gemini S2S-specific translation-model, target-language, direct-speech, and locked-TTS tooltips must come from the active mobile UI language bundle and update without HTML reload
   - when the mobile UI language changes, the overlay chrome must refresh to the new locale on the current session through discrete JS locale updates instead of waiting for a full app restart
   - mobile UI language changes must not force a full pane HTML reload just to swap strings
@@ -96,6 +97,7 @@
 - Provider IDs are stable, but the backing API model names always resolve through the shared model catalog rather than scattered raw strings.
 - Translation failure must not silently fall back to whole-transcript translation.
 - Translation failure or empty/no-op output must leave `last_processed_len` unchanged so the same source snapshot is retried on the next interval.
+- A provider response only counts as successful after the current state accepts the exact source snapshot. Rejected/stale responses must not update metrics, commit fallback model switches, or advance the adaptive success cadence.
 - Translation cadence is latency-adaptive on top of the `1500ms` base interval. Slower providers stretch the next request interval upward, but success/failure must never skip source ranges.
 - Timeout gating matches the Windows Gemini path:
   - user silence threshold: `800ms`

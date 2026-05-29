@@ -6,7 +6,6 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 internal data class RealtimeOverlayPaneSettings(
     val isTranslation: Boolean,
     val isDark: Boolean,
-    val uiLanguage: String,
 )
 
 internal class RealtimeOverlayHtmlBuilder(
@@ -20,7 +19,7 @@ internal class RealtimeOverlayHtmlBuilder(
 
     fun build(settings: RealtimeOverlayPaneSettings): String {
         return htmlCache.getOrPut(settings) {
-            val locale = MobileLocaleText.forLanguage(settings.uiLanguage)
+            val locale = MobileLocaleText.forLanguage(DEFAULT_TEMPLATE_LANGUAGE)
             val replacements = linkedMapOf(
                 "FONT_CSS" to overlayFontCss(),
                 "CSS_CONTENT" to overlayCss(
@@ -129,5 +128,9 @@ internal class RealtimeOverlayHtmlBuilder(
 
     private fun asset(name: String): String {
         return context.assets.open("realtime_overlay/$name").bufferedReader().use { it.readText() }
+    }
+
+    private companion object {
+        const val DEFAULT_TEMPLATE_LANGUAGE = "en"
     }
 }
