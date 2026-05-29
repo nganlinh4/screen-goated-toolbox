@@ -62,6 +62,7 @@
   - runtime header actions (`+/-`, mic/device, language, translation model, transcription model, TTS toggle/modal) must preserve the current horizontal header scroll position instead of snapping back to the start
   - runtime header actions must update the already-loaded WebView through discrete JS bridge calls; they must not trigger a full HTML reload just to reflect changed source/model/language/font settings
   - overlay placeholder text, TTS labels, download modal labels, and overlay control tooltips must come from the active mobile UI language bundle rather than fixed English strings
+  - Gemini S2S-specific translation-model, target-language, direct-speech, and locked-TTS tooltips must come from the active mobile UI language bundle and update without HTML reload
   - when the mobile UI language changes, the overlay chrome must refresh to the new locale on the current session through discrete JS locale updates instead of waiting for a full app restart
   - mobile UI language changes must not force a full pane HTML reload just to swap strings
   - if the translation pane is hidden, mobile must skip opening new translation requests just like Windows skips work when translation visibility is off
@@ -75,8 +76,10 @@
   - Android may mark Parakeet unavailable, but must not hide it or pretend it is active
 - Gemini S2S disables the translation model selector and read-locks TTS on both platforms
 - While Gemini S2S is active, translation model changes are rejected at the controller/state boundary, not only hidden in the visible UI.
+- While Gemini S2S is active, TTS disable requests are rejected at the controller/state boundary, not only hidden in the visible UI.
 - Gemini S2S segmenting uses adaptive VAD on both platforms: Gemini empty-audio feedback increases VAD strictness, healthy segments relax it, and backlog pressure can raise the minimum speech confidence to avoid queuing non-speech audio.
 - Gemini S2S ordered playback skips stale pending segments that block later ready audio, using a longer grace period when input/output text has already arrived for that segment.
+- Gemini S2S first-audio retry and hard hedge timeouts scale with source audio length on both platforms, using the Windows grouped timeout formulas.
 - Gemini S2S display preserves the full accumulated source and target transcript on both platforms; it must not trim the committed display to only a recent window.
 - TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model
 - Android mobile uses a native overlay language picker window instead of relying on the embedded WebView `<select>` popup, because the control must remain usable inside detached overlay windows.
@@ -98,6 +101,7 @@
   - user silence threshold: `800ms`
   - AI silence threshold: `1000ms`
   - minimum pending source length for force commit: `10` characters
+- Force commit primes the next translation pass immediately by rewinding the adaptive interval timer, so newly committed draft text does not wait for the previous provider latency window.
 
 ## Fixtures
 - Shared fixtures: [parity-fixtures/live-translate/state-machine.json](../../parity-fixtures/live-translate/state-machine.json)
@@ -119,6 +123,7 @@
 - Android exposes Moonshine Tiny/Small/Medium as mobile-only local ASR choices because Windows Qwen3 is a Windows CUDA/runtime feature and is not a mobile runtime.
 - Android keeps the Windows glass/tint look and animated blur/mask text appearance. Mobile-specific performance work must preserve the same visible effect rather than swapping in a different animation.
 - Android uses a native overlay language picker window for the target-language control while keeping the same ISO-639-1-backed language list and selected-language semantics as Windows.
+- Android native overlay pickers used by live translate must use the active mobile UI language bundle for visible picker chrome such as search hints.
 - Android overlay windows must stay non-focusable so the system IME can still open while the floating panes remain on screen.
 - Android routes its own TTS through non-capturable audio attributes and disables playback capture for the app in the manifest, so mobile does not expose the Windows app-selection/per-app-capture UI or the Windows no-selected-app selector recovery path. This is the approved mobile deviation for avoiding TTS feedback in `device` mode.
 - Android realtime Read setting changes must apply to the remaining unread committed text without dropping it. Volume/speed changes must not stay stuck behind already queued stale utterances.

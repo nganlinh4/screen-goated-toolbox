@@ -725,8 +725,10 @@ class LiveSessionRuntime(
 
     private suspend fun runTranslationLoop() {
         while (currentCoroutineContext().isActive) {
-            repository.forceCommitIfDue(SystemClock.elapsedRealtime())
             val nowMs = SystemClock.elapsedRealtime()
+            if (repository.forceCommitIfDue(nowMs)) {
+                lastTranslationAttemptAtMs = (nowMs - translationIntervalMs).coerceAtLeast(0L)
+            }
             if (nowMs - lastTranslationAttemptAtMs < translationIntervalMs) {
                 maybeSpeakCommittedText()
                 delay(100)

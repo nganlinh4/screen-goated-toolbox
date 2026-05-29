@@ -35,7 +35,12 @@
             translationModelTitle: 'Translation model',
             transcriptionLanguageTitle: 'Transcription language',
             targetLanguageTitle: 'Target language',
+            s2sTranslationModelTitle: 'Gemini S2S uses the TTS Gemini Live model',
+            s2sTargetLanguageTitle: 'Change target language and restart the current S2S session',
+            directSpeechTitle: 'Direct speech output',
             ttsSettingsTitle: 'Text-to-speech settings',
+            ttsS2sLockedTitle: 'Direct speech output is always on for Gemini S2S',
+            ttsEnableTitle: 'Enable realtime reading',
             ttsTitle: 'Read',
             ttsSpeed: 'Speed',
             ttsAuto: 'Auto',
@@ -144,14 +149,32 @@
             if (translationBtn) {
                 translationBtn.disabled = s2sMode;
                 translationBtn.classList.toggle('disabled', s2sMode);
+                translationBtn.title = s2sMode
+                    ? (overlayLocale.s2sTranslationModelTitle || overlayLocale.translationModelTitle)
+                    : overlayLocale.translationModelTitle;
+            }
+            const langBtn = document.getElementById('language-select');
+            if (langBtn) {
+                langBtn.dataset.baseTitle = s2sMode
+                    ? (overlayLocale.s2sTargetLanguageTitle || overlayLocale.targetLanguageTitle)
+                    : overlayLocale.targetLanguageTitle;
+                if (window.setTargetLanguage) {
+                    window.setTargetLanguage(langBtn.dataset.language || '', langBtn.dataset.code || '');
+                }
             }
             if (speakBtn) {
                 speakBtn.classList.toggle('active', s2sMode || ttsEnabled);
                 speakBtn.classList.toggle('locked', s2sMode);
+                speakBtn.title = s2sMode
+                    ? (overlayLocale.directSpeechTitle || overlayLocale.ttsSettingsTitle)
+                    : overlayLocale.ttsSettingsTitle;
             }
             if (ttsToggle) {
                 ttsToggle.classList.toggle('on', s2sMode || ttsEnabled);
                 ttsToggle.classList.toggle('locked', s2sMode);
+                ttsToggle.title = s2sMode
+                    ? (overlayLocale.ttsS2sLockedTitle || overlayLocale.ttsTitle)
+                    : (overlayLocale.ttsEnableTitle || overlayLocale.ttsTitle);
             }
         }
 
@@ -525,10 +548,8 @@
             updateTitleById('header-toggle', overlayLocale.toggleHeaderTitle);
             updateTitleById('mic-btn', overlayLocale.micInputTitle);
             updateTitleById('device-btn', overlayLocale.deviceAudioTitle);
-            updateTitleById('speak-btn', overlayLocale.ttsSettingsTitle);
             updateTitleBySelector('.model-icon[data-value="text-llm"]', overlayLocale.llmLabel);
             updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxLabel);
-            updateTitleById('translation-model-btn', overlayLocale.translationModelTitle);
             updateTitleById('transcription-model-btn', overlayLocale.transcriptionModelTitle);
             updateTitleById('trans-lang-badge', overlayLocale.transcriptionLanguageTitle);
             // Refresh the displayed picker label too, since its source switched to overlayLocale.
@@ -549,9 +570,7 @@
             updateTextNode('download-msg', overlayLocale.pleaseWaitText);
             updateTextNode('download-footnote', '');
             updateTextNode('download-cancel-text', overlayLocale.cancelText);
-            if (ttsToggle) {
-                ttsToggle.title = overlayLocale.ttsTitle;
-            }
+            applyS2sMode(s2sMode);
             const autoToggle = document.getElementById('auto-speed-toggle');
             if (autoToggle) {
                 autoToggle.textContent = overlayLocale.ttsAuto;
@@ -559,7 +578,9 @@
             }
             updateTitleById('download-cancel-btn', overlayLocale.cancelText);
             if (langSelect) {
-                langSelect.dataset.baseTitle = overlayLocale.targetLanguageTitle;
+                langSelect.dataset.baseTitle = s2sMode
+                    ? (overlayLocale.s2sTargetLanguageTitle || overlayLocale.targetLanguageTitle)
+                    : overlayLocale.targetLanguageTitle;
                 if (window.setTargetLanguage) {
                     window.setTargetLanguage(
                         langSelect.dataset.language || '',

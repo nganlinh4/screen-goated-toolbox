@@ -355,9 +355,9 @@ class OverlayController(
         if (!translationVisible) {
             stopTextToSpeech()
             languagePicker.hide()
-        transcriptionLanguagePicker.hide()
-        transcriptionModelPicker.hide()
-        translationModelPicker.hide()
+            transcriptionLanguagePicker.hide()
+            transcriptionModelPicker.hide()
+            translationModelPicker.hide()
         }
         if (!listeningVisible && !translationVisible) {
             stopRequested()
@@ -475,6 +475,7 @@ class OverlayController(
             languages = repository.supportedLanguages,
             isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
             title = locale.overlay.targetLanguageTitle,
+            searchHint = locale.overlay.pickerSearchHint,
         )
     }
 
@@ -522,6 +523,7 @@ class OverlayController(
             languages = models,
             isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
             title = overlayLocale.transcriptionModelTitle,
+            searchHint = overlayLocale.pickerSearchHint,
         )
     }
 
@@ -553,6 +555,7 @@ class OverlayController(
             languages = models,
             isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
             title = overlayLocale.translationModelTitle,
+            searchHint = overlayLocale.pickerSearchHint,
         )
     }
 
@@ -583,6 +586,7 @@ class OverlayController(
                 languages = zipLangs,
                 isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
                 title = currentOverlayLocale().transcriptionLanguageTitle,
+                searchHint = currentOverlayLocale().pickerSearchHint,
             )
         }
     }
@@ -626,6 +630,11 @@ class OverlayController(
     }
 
     private fun updateTtsEnabled(enabled: Boolean) {
+        if (repository.transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
+            val current = repository.currentRealtimeTtsSettings()
+            repository.updateRealtimeTtsSettings(current.copy(enabled = true))
+            return
+        }
         val current = repository.currentRealtimeTtsSettings()
         repository.updateRealtimeTtsSettings(current.copy(enabled = enabled))
         if (!enabled) {

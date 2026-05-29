@@ -41,6 +41,7 @@ internal class OverlayLanguagePicker(
         languages: List<String>,
         isDark: Boolean,
         title: String,
+        searchHint: String,
     ) {
         hide()
         val screen = screenBoundsProvider()
@@ -102,7 +103,7 @@ internal class OverlayLanguagePicker(
 
         // Search box
         val searchBox = EditText(context).apply {
-            hint = "Search..."
+            hint = searchHint
             setHintTextColor(subtextColor)
             setTextColor(textColor)
             textSize = 13f
