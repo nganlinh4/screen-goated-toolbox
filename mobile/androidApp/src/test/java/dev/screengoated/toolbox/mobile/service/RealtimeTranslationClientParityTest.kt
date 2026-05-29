@@ -59,6 +59,24 @@ class RealtimeTranslationClientParityTest {
     }
 
     @Test
+    fun `translation cadence stays adaptive and failure keeps session alive`() {
+        val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
+
+        assertTrue(runtimeSource.contains("private const val TRANSLATION_INTERVAL_MS = 1_500L"))
+        assertTrue(runtimeSource.contains("private const val TRANSLATION_INTERVAL_MAX_MS = 4_000L"))
+        assertTrue(runtimeSource.contains("private fun computeAdaptiveTranslationIntervalMs(latencyMs: Long): Long"))
+        assertTrue(runtimeSource.contains("return (latencyMs + 250L)"))
+        assertTrue(runtimeSource.contains(".coerceAtLeast(TRANSLATION_INTERVAL_MS)"))
+        assertTrue(runtimeSource.contains(".coerceAtMost(TRANSLATION_INTERVAL_MAX_MS)"))
+        assertTrue(runtimeSource.contains("translationIntervalMs = computeAdaptiveTranslationIntervalMs(latencyMs)"))
+        assertTrue(runtimeSource.contains("catch (error: Throwable)"))
+        assertTrue(runtimeSource.contains("Translation failure should not kill the session"))
+        assertTrue(runtimeSource.contains("translationIntervalMs = (translationIntervalMs + 250L).coerceAtMost(TRANSLATION_INTERVAL_MAX_MS)"))
+        assertTrue(runtimeSource.contains("repository.markListening()"))
+        assertTrue(!runtimeSource.contains("repository.fail(error.message ?: \"Translation"))
+    }
+
+    @Test
     fun `hidden translation pane skips provider requests and realtime tts`() {
         val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
         val controllerSource = loadSourceFile(OVERLAY_CONTROLLER_SOURCE_PATH).readText()
@@ -96,6 +114,22 @@ class RealtimeTranslationClientParityTest {
         assertTrue(runtimeSource.contains("translationClient.translateWithExactProvider("))
         assertTrue(runtimeSource.contains("usedProvider = result.providerId"))
         assertTrue(runtimeSource.contains("applied = repository.applyTranslationResponse("))
+    }
+
+    @Test
+    fun `fallback switch is persisted only after accepted fallback response`() {
+        val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
+
+        val rejectedPrimaryIndex = runtimeSource.indexOf("if (!applied && usedProvider == requestedProvider)")
+        val fallbackApplyIndex = runtimeSource.indexOf("applied = repository.applyTranslationResponse(", rejectedPrimaryIndex + 1)
+        val rejectedFallbackIndex = runtimeSource.indexOf("if (!applied)", fallbackApplyIndex)
+        val persistSwitchIndex = runtimeSource.indexOf("repository.updateTranslationModel(usedProvider)")
+
+        assertTrue(rejectedPrimaryIndex >= 0)
+        assertTrue(fallbackApplyIndex > rejectedPrimaryIndex)
+        assertTrue(rejectedFallbackIndex > fallbackApplyIndex)
+        assertTrue(persistSwitchIndex > rejectedFallbackIndex)
+        assertTrue(runtimeSource.contains("repository.translationModelId() == requestedProvider"))
     }
 
     @Test
