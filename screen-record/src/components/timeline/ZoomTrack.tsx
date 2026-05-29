@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { VideoSegment, ZoomKeyframe } from '@/types/video';
+import { VideoSegment, ZoomBlock } from '@/types/video';
 import {
   type AdjacentSegmentIndices,
   type AdjustableLineDragVisualMode,
@@ -25,32 +25,8 @@ function valueToTrackYPercent(value: number) {
   return `${(valueToTrackY(value) / ZOOM_TRACK_VIEWBOX_HEIGHT) * 100}%`;
 }
 
-const getKeyframeRange = (
-  keyframes: ZoomKeyframe[],
-  index: number,
-  totalDuration: number
-): { rangeStart: number; rangeEnd: number } => {
-  const kf = keyframes[index];
-  const prev = index > 0 ? keyframes[index - 1] : null;
-  const next = index < keyframes.length - 1 ? keyframes[index + 1] : null;
-
-  // Left range: use custom duration if set, otherwise auto-calculate
-  let rangeStart: number;
-  if (kf.duration > 0) {
-    rangeStart = Math.max(prev ? prev.time : 0, kf.time - kf.duration);
-  } else {
-    rangeStart = prev
-      ? prev.time + (kf.time - prev.time) * 0.5
-      : Math.max(0, kf.time - 2.0);
-  }
-
-  // Right range: halfway to next keyframe, or up to 2s after
-  const rangeEnd = next
-    ? kf.time + (next.time - kf.time) * 0.5
-    : Math.min(totalDuration, kf.time + 2.0);
-
-  return { rangeStart, rangeEnd };
-};
+// Smallest block we allow when resizing/creating.
+const MIN_BLOCK_WIDTH_SEC = 0.2;
 
 interface ZoomTrackProps {
   segment: VideoSegment;
@@ -59,7 +35,7 @@ interface ZoomTrackProps {
   onKeyframeClick: (time: number, index: number) => void;
   onKeyframeDragStart: (index: number) => void;
   onUpdateInfluencePoints: (points: { time: number; value: number }[]) => void;
-  onUpdateKeyframes: (keyframes: ZoomKeyframe[]) => void;
+  onUpdateBlocks: (blocks: ZoomBlock[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -71,10 +47,11 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   onKeyframeClick,
   onKeyframeDragStart,
   onUpdateInfluencePoints,
-  onUpdateKeyframes,
+  onUpdateBlocks,
   beginBatch,
   commitBatch,
 }) => {
+  const blocks = segment.zoomBlocks ?? [];
   const hasInfluenceCurve = segment.smoothMotionPath && segment.smoothMotionPath.length > 0;
   const points = segment.zoomInfluencePoints || [];
   const draggingIdxRef = useRef<number | null>(null);
@@ -82,10 +59,10 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   pointsRef.current = points;
   const segmentRef = useRef(segment);
   segmentRef.current = segment;
-  const callbacksRef = useRef({ onUpdateKeyframes });
-  callbacksRef.current = { onUpdateKeyframes };
+  const callbacksRef = useRef({ onUpdateBlocks });
+  callbacksRef.current = { onUpdateBlocks };
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-  const [hoveredRangeIdx, setHoveredRangeIdx] = useState<number | null>(null);
+  const [hoveredBlockIdx, setHoveredBlockIdx] = useState<number | null>(null);
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
   const [activeDragIdx, setActiveDragIdx] = useState<number | null>(null);
   const [axisLockMode, setAxisLockMode] = useState<'armed' | 'horizontal' | 'vertical' | null>(null);
@@ -120,7 +97,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   React.useEffect(() => {
     if (globalDragVisualMode === null) return;
     setHoveredIdx(null);
-    setHoveredRangeIdx(null);
+    setHoveredBlockIdx(null);
     setHoveredSegmentIndices(null);
   }, [globalDragVisualMode]);
 
@@ -319,22 +296,44 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     window.addEventListener('mouseup', mu);
   };
 
-  const handleDuplicateKeyframe = (index: number) => {
-    const keyframes = segmentRef.current.zoomKeyframes;
-    const source = keyframes[index];
-    if (!source) return;
-
-    const next = index < keyframes.length - 1 ? keyframes[index + 1] : null;
-    const minTime = source.time + 0.1;
-    const maxTime = next ? Math.min(duration, next.time - 0.1) : duration;
-    if (maxTime < minTime) return;
-
-    const duplicatedTime = Math.max(minTime, Math.min(source.time + 5, maxTime));
+  // Resize one edge of a zoom block with self-contained window listeners
+  // (mirrors the influence-point drag pattern — independent of the timeline
+  // drag coordinator, which only owns whole-block body moves).
+  const startResizeBlock = (
+    index: number,
+    edge: 'start' | 'end',
+    rect: DOMRect,
+  ) => {
     beginBatch();
-    callbacksRef.current.onUpdateKeyframes(
-      [...keyframes, { ...source, time: duplicatedTime }].sort((a, b) => a.time - b.time)
-    );
-    commitBatch();
+    const onMove = (me: MouseEvent) => {
+      const current = segmentRef.current.zoomBlocks ?? [];
+      const block = current[index];
+      if (!block || rect.width <= 0 || duration <= 0) return;
+      const t = Math.max(0, Math.min(duration, ((me.clientX - rect.left) / rect.width) * duration));
+      const prev = index > 0 ? current[index - 1] : null;
+      const next = index < current.length - 1 ? current[index + 1] : null;
+
+      let updated: ZoomBlock;
+      if (edge === 'start') {
+        const lower = prev ? prev.endTime + MIN_BLOCK_WIDTH_SEC : 0;
+        const newStart = Math.max(lower, Math.min(block.endTime - MIN_BLOCK_WIDTH_SEC, t));
+        const span = block.endTime - newStart;
+        updated = { ...block, startTime: newStart, easeIn: Math.min(block.easeIn, span) };
+      } else {
+        const upper = next ? next.startTime - MIN_BLOCK_WIDTH_SEC : duration;
+        const newEnd = Math.min(upper, Math.max(block.startTime + MIN_BLOCK_WIDTH_SEC, t));
+        const span = newEnd - block.startTime;
+        updated = { ...block, endTime: newEnd, easeOut: Math.min(block.easeOut, span) };
+      }
+      callbacksRef.current.onUpdateBlocks(current.map((b, i) => (i === index ? updated : b)));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      commitBatch();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   };
 
   // Handle point deletion
@@ -553,27 +552,6 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     );
   };
 
-  const handleTrackMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (globalDragVisualMode !== null) {
-      setHoveredRangeIdx(null);
-      return;
-    }
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0 || duration <= 0 || segment.zoomKeyframes.length === 0) {
-      setHoveredRangeIdx(null);
-      return;
-    }
-
-    const hoverTime = ((e.clientX - rect.left) / rect.width) * duration;
-    const rangeIdx = segment.zoomKeyframes.findIndex((_, index) => {
-      const { rangeStart, rangeEnd } = getKeyframeRange(segment.zoomKeyframes, index, duration);
-      return hoverTime >= rangeStart && hoverTime <= rangeEnd;
-    });
-
-    setHoveredRangeIdx(rangeIdx >= 0 ? rangeIdx : null);
-  };
-
   const highlightedSegmentIndices =
     activeSegmentIndices ??
     (globalDragVisualMode === null && isCtrlPressed
@@ -589,8 +567,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   return (
     <div
       className="zoom-track timeline-lane timeline-lane-strong relative h-7"
-      onMouseMove={handleTrackMouseMove}
-      onMouseLeave={() => setHoveredRangeIdx(null)}
+      onMouseLeave={() => setHoveredBlockIdx(null)}
     >
       {/* Influence curve layer */}
       {hasInfluenceCurve && (
@@ -678,101 +655,75 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
         </>
       )}
 
-      {/* Keyframe markers layer */}
-      <div className="zoom-keyframes-layer absolute inset-0 z-20 pointer-events-none">
-        {segment.zoomKeyframes.map((keyframe, index) => {
+      {/* Zoom block bars layer — each block is a draggable/resizable region.
+          z-40 sits above the influence curve so blocks are interactive while the
+          curve stays editable in the gaps between them. */}
+      <div className="zoom-blocks-layer absolute inset-0 z-40 pointer-events-none">
+        {blocks.map((block, index) => {
+          if (duration <= 0) return null;
           const active = editingKeyframeId === index;
-          const { rangeStart, rangeEnd } = getKeyframeRange(segment.zoomKeyframes, index, duration);
-          const peakOpacity = Math.min(0.35, 0.08 + (keyframe.zoomFactor - 1) * 0.15);
-          const rangeWidth = rangeEnd - rangeStart;
-          const peakPct = rangeWidth > 0 ? ((keyframe.time - rangeStart) / rangeWidth) * 100 : 50;
-          const showLeftHandle = rangeWidth > 0 && (keyframe.time - rangeStart) > 0.05;
+          const disabled = block.enabled === false;
+          const leftPct = (block.startTime / duration) * 100;
+          const widthPct = Math.max(0, ((block.endTime - block.startTime) / duration) * 100);
+          const fillOpacity = Math.min(0.5, 0.16 + (block.zoomFactor - 1) * 0.18);
+          const center = (block.startTime + block.endTime) / 2;
 
           return (
-            <React.Fragment key={index}>
-              {/* Left range handle */}
-              {showLeftHandle && (
+            <div
+              key={block.id}
+              className={`zoom-block absolute inset-y-0.5 rounded-md pointer-events-auto cursor-grab group/block ${
+                active ? 'ring-1 ring-white/80 shadow-[0_0_8px_rgba(59,130,246,0.45)]' : ''
+              } ${disabled ? 'opacity-40' : ''}`}
+              data-active={active ? 'true' : 'false'}
+              data-disabled={disabled ? 'true' : 'false'}
+              style={{
+                left: `${leftPct}%`,
+                width: `${widthPct}%`,
+                background: disabled
+                  ? 'repeating-linear-gradient(45deg, rgba(59,130,246,0.10) 0px, rgba(59,130,246,0.10) 4px, transparent 4px, transparent 8px)'
+                  : `rgba(59, 130, 246, ${fillOpacity})`,
+                border: '1px solid var(--timeline-zoom-color)',
+              }}
+              onMouseEnter={() => { if (globalDragVisualMode === null) setHoveredBlockIdx(index); }}
+              onMouseLeave={() => setHoveredBlockIdx(null)}
+              onClick={(e) => { e.stopPropagation(); onKeyframeClick(center, index); }}
+              onPointerDown={(e) => { e.stopPropagation(); onKeyframeDragStart(index); }}
+            >
+              {/* Zoom % label */}
               <div
-                className="zoom-range-handle absolute inset-y-0 w-3 cursor-col-resize z-30 pointer-events-auto group/handle"
-                style={{ left: `calc(${(rangeStart / duration) * 100}% - 6px)` }}
+                className="zoom-block-label timeline-chip absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[9px] font-medium whitespace-nowrap pointer-events-none"
+                data-tone="accent"
+                data-active={active ? 'true' : 'false'}
+              >
+                {Math.round((block.zoomFactor - 1) * 100)}%
+              </div>
+              {/* Left resize handle */}
+              <div
+                className="zoom-block-handle-left absolute inset-y-0 left-0 w-2 -ml-1 cursor-col-resize z-10"
+                onClick={(e) => e.stopPropagation()}
                 onPointerDown={(e) => {
                   e.stopPropagation();
-                  beginBatch();
-                  const rect = e.currentTarget.parentElement!.getBoundingClientRect();
-                  const onMove = (me: MouseEvent) => {
-                    const x = me.clientX - rect.left;
-                    const t = Math.max(0, Math.min(keyframe.time - 0.1, (x / rect.width) * duration));
-                    const newDuration = keyframe.time - t;
-                    const updatedKeyframes = segmentRef.current.zoomKeyframes.map((kf, i) =>
-                      i === index ? { ...kf, duration: newDuration } : kf
-                    );
-                    callbacksRef.current.onUpdateKeyframes(updatedKeyframes);
-                  };
-                  const onUp = () => {
-                    window.removeEventListener('mousemove', onMove);
-                    window.removeEventListener('mouseup', onUp);
-                    commitBatch();
-                  };
-                  window.addEventListener('mousemove', onMove);
-                  window.addEventListener('mouseup', onUp);
+                  startResizeBlock(index, 'start', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
                 }}
               >
-                <div
-                  className={`range-handle-bar absolute inset-y-1 w-0.5 transition-colors left-1/2 -translate-x-1/2 ${
-                    hoveredRangeIdx === index
-                      ? 'bg-[var(--timeline-zoom-color)]'
-                      : 'bg-[var(--timeline-zoom-color)]/40 group-hover/handle:bg-[var(--timeline-zoom-color)]'
-                  }`}
-                />
+                <div className={`absolute inset-y-1 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
+                  hoveredBlockIdx === index ? 'bg-[var(--timeline-zoom-color)]' : 'bg-[var(--timeline-zoom-color)]/50'
+                }`} />
               </div>
-              )}
-              {/* Gradient range background (visual only — pointer-events-none to not block green curve) */}
+              {/* Right resize handle */}
               <div
-                className={`zoom-range-bg absolute inset-y-0 pointer-events-none ${
-                  active ? 'opacity-100' : 'opacity-60'
-                }`}
-                style={{
-                  left: `${(rangeStart / duration) * 100}%`,
-                  width: `${((rangeEnd - rangeStart) / duration) * 100}%`,
-                  background: `linear-gradient(90deg, rgba(59, 130, 246, 0.02) 0%, rgba(59, 130, 246, ${peakOpacity}) ${peakPct}%, rgba(59, 130, 246, 0.02) 100%)`,
-                }}
-              />
-              {/* Diamond marker + zoom pill */}
-              <div
-                className="zoom-keyframe-marker absolute pointer-events-auto cursor-pointer group z-40"
-                style={{
-                  left: `${(keyframe.time / duration) * 100}%`,
-                  transform: 'translateX(-50%)',
-                  top: '0',
-                  height: '100%',
-                }}
-                onClick={(e) => { e.stopPropagation(); onKeyframeClick(keyframe.time, index); }}
-                onPointerDown={(e) => { e.stopPropagation(); onKeyframeDragStart(index); }}
-                onDoubleClick={(e) => {
+                className="zoom-block-handle-right absolute inset-y-0 right-0 w-2 -mr-1 cursor-col-resize z-10"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => {
                   e.stopPropagation();
-                  handleDuplicateKeyframe(index);
+                  startResizeBlock(index, 'end', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
                 }}
               >
-                <div className="keyframe-marker-content relative flex flex-col items-center h-full justify-center">
-                  {/* Zoom % pill */}
-                  <div
-                    className="zoom-percentage-pill timeline-chip px-1.5 py-0.5 text-[9px] font-medium whitespace-nowrap mb-0.5"
-                    data-tone="accent"
-                    data-active={active ? "true" : "false"}
-                  >
-                    {Math.round((keyframe.zoomFactor - 1) * 100)}%
-                  </div>
-                  {/* Diamond marker */}
-                  <div
-                    className={`keyframe-diamond bg-[var(--primary-color)] ${
-                      active
-                        ? 'ring-1 ring-white shadow-[0_0_8px_rgba(59,130,246,0.5),0_0_16px_rgba(59,130,246,0.2)]'
-                        : 'shadow-sm group-hover:shadow-[0_0_8px_rgba(59,130,246,0.35)]'
-                    }`}
-                  />
-                </div>
+                <div className={`absolute inset-y-1 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
+                  hoveredBlockIdx === index ? 'bg-[var(--timeline-zoom-color)]' : 'bg-[var(--timeline-zoom-color)]/50'
+                }`} />
               </div>
-            </React.Fragment>
+            </div>
           );
         })}
       </div>

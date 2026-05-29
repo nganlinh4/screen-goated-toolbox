@@ -1,7 +1,7 @@
 // Rust port of videoRenderer.ts camera path generation.
 // Mirrors generateBakedPath + calculateCurrentZoomStateInternal + blendZoomStates.
 
-use super::config::{BakedCameraFrame, VideoSegment, ZoomKeyframe};
+use super::config::{BakedCameraFrame, VideoSegment, ZoomBlock};
 
 // Internal zoom state in [0,1] anchor space.
 #[derive(Clone)]
@@ -57,13 +57,33 @@ fn blend_zoom(a: &ZoomState, b: &ZoomState, t: f64) -> ZoomState {
     }
 }
 
-// Adaptive blending window: larger for bigger movements.
-fn dynamic_window(az: f64, ax: f64, ay: f64, bz: f64, bx: f64, by: f64) -> f64 {
-    let dx = (ax - bx).abs();
-    let dy = (ay - by).abs();
-    let dz = (az - bz).abs();
-    let score = (dx * dx + dy * dy).sqrt() + dz * 0.5;
-    (score * 3.0).clamp(1.5, 4.0)
+// Manual-zoom block envelope: 0 outside the block, ramps up over ease_in,
+// holds at 1 across the body, ramps down over ease_out. Mirrors the TS
+// zoomBlockEnvelope exactly (WYSIWYG export parity).
+fn zoom_block_envelope(b: &ZoomBlock, t: f64) -> f64 {
+    if t <= b.start_time || t >= b.end_time {
+        return 0.0;
+    }
+    let dur = b.end_time - b.start_time;
+    if dur <= 1e-6 {
+        return 0.0;
+    }
+    let mut ease_in = b.ease_in.max(0.0);
+    let mut ease_out = b.ease_out.max(0.0);
+    if ease_in + ease_out > dur {
+        let s = dur / (ease_in + ease_out);
+        ease_in *= s;
+        ease_out *= s;
+    }
+    let t_in = b.start_time + ease_in;
+    let t_out = b.end_time - ease_out;
+    if t < t_in && ease_in > 1e-6 {
+        return ease_camera_move((t - b.start_time) / ease_in);
+    }
+    if t > t_out && ease_out > 1e-6 {
+        return ease_camera_move((b.end_time - t) / ease_out);
+    }
+    1.0
 }
 
 // Port of calculateCurrentZoomStateInternal for the export case
@@ -160,106 +180,42 @@ fn calculate_zoom_state(
         None
     };
 
-    let has_auto = auto_state.is_some();
-
-    // --- 2. MANUAL KEYFRAME STATE ---
-    let mut sorted_kfs: Vec<&ZoomKeyframe> = segment.zoom_keyframes.iter().collect();
-    sorted_kfs.sort_by(|a, b| {
-        a.time
-            .partial_cmp(&b.time)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let (manual_state, manual_influence): (Option<ZoomState>, f64) = if sorted_kfs.is_empty() {
-        (None, 0.0)
-    } else {
-        let next_idx = sorted_kfs.partition_point(|k| k.time <= current_time);
-        // prev_kf = last keyframe with time <= current_time
-        let prev_kf = if next_idx > 0 {
-            Some(sorted_kfs[next_idx - 1])
-        } else {
-            None
-        };
-        // next_kf = first keyframe with time > current_time
-        let next_kf = sorted_kfs.get(next_idx).copied();
-
-        if let (Some(prev), Some(next)) = (prev_kf, next_kf) {
-            // BETWEEN two keyframes — full influence, smoothly interpolate
-            let span = next.time - prev.time;
-            let raw_t = if span > 1e-10 {
-                (current_time - prev.time) / span
-            } else {
-                1.0
-            };
-            let eased_t = ease_camera_move(raw_t.clamp(0.0, 1.0));
-            let prev_z = ZoomState {
-                zoom_factor: prev.zoom_factor,
-                position_x: prev.position_x,
-                position_y: prev.position_y,
-            };
-            let next_z = ZoomState {
-                zoom_factor: next.zoom_factor,
-                position_x: next.position_x,
-                position_y: next.position_y,
-            };
-            (Some(blend_zoom(&prev_z, &next_z, eased_t)), 1.0)
-        } else if let Some(prev) = prev_kf {
-            // AFTER LAST KEYFRAME — decay back to auto
-            let prev_z = ZoomState {
-                zoom_factor: prev.zoom_factor,
-                position_x: prev.position_x,
-                position_y: prev.position_y,
-            };
-            if has_auto {
-                let target = auto_state.as_ref().unwrap();
-                let window = dynamic_window(
-                    prev.zoom_factor,
-                    prev.position_x,
-                    prev.position_y,
-                    target.zoom_factor,
-                    target.position_x,
-                    target.position_y,
-                );
-                let elapsed = current_time - prev.time;
-                let influence = if elapsed < window {
-                    1.0 - ease_camera_move(elapsed / window)
-                } else {
-                    0.0
-                };
-                (Some(prev_z), influence)
-            } else {
-                // No auto path — hold keyframe forever
-                (Some(prev_z), 1.0)
+    // --- 2. MANUAL ZOOM BLOCK STATE ---
+    // Pick the enabled block with the strongest envelope at current_time. Gaps
+    // between blocks yield 0 → the auto path / default shows through.
+    let (manual_state, manual_influence): (Option<ZoomState>, f64) = {
+        let mut best_env = 0.0_f64;
+        let mut best: Option<&ZoomBlock> = None;
+        for b in &segment.zoom_blocks {
+            if !b.enabled {
+                continue;
             }
-        } else if let Some(next) = next_kf {
-            // BEFORE FIRST KEYFRAME — ramp up to keyframe
-            let next_z = ZoomState {
-                zoom_factor: next.zoom_factor,
-                position_x: next.position_x,
-                position_y: next.position_y,
-            };
-            let target = auto_state.as_ref().unwrap_or(&DEFAULT_STATE);
-            let window = if next.duration > 0.0 {
-                next.duration
-            } else {
-                dynamic_window(
-                    next.zoom_factor,
-                    next.position_x,
-                    next.position_y,
-                    target.zoom_factor,
-                    target.position_x,
-                    target.position_y,
+            let env = zoom_block_envelope(b, current_time);
+            if env > best_env {
+                best_env = env;
+                best = Some(b);
+            }
+        }
+        match best {
+            Some(b) if best_env > 0.0 => {
+                let (px, py) = if b.follow_cursor {
+                    match &auto_state {
+                        Some(a) => (a.position_x, a.position_y),
+                        None => (b.position_x, b.position_y),
+                    }
+                } else {
+                    (b.position_x, b.position_y)
+                };
+                (
+                    Some(ZoomState {
+                        zoom_factor: b.zoom_factor,
+                        position_x: px,
+                        position_y: py,
+                    }),
+                    best_env,
                 )
-            };
-            let time_to_next = next.time - current_time;
-            let influence = if time_to_next <= window {
-                ease_camera_move(1.0 - time_to_next / window)
-            } else {
-                0.0
-            };
-            (Some(next_z), influence)
-        } else {
-            (None, 0.0)
+            }
+            _ => (None, 0.0),
         }
     };
 

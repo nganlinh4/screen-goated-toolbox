@@ -621,7 +621,7 @@ fn generate_camera_path_if_needed(
 ) -> Vec<config::BakedCameraFrame> {
     if baked_path.is_empty()
         && (!config.segment.smooth_motion_path.is_empty()
-            || !config.segment.zoom_keyframes.is_empty())
+            || !config.segment.zoom_blocks.is_empty())
     {
         let t0 = Instant::now();
         let generated =

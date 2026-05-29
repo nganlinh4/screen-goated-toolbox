@@ -864,8 +864,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                         if (points.length === 0) nextSegment.smoothMotionPath = [];
                         setSegment(nextSegment);
                       }}
-                      onUpdateKeyframes={(keyframes) => {
-                        setSegment({ ...segment, zoomKeyframes: keyframes });
+                      onUpdateBlocks={(zoomBlocks) => {
+                        setSegment({ ...segment, zoomBlocks });
                       }}
                       beginBatch={beginBatch}
                       commitBatch={commitBatch}

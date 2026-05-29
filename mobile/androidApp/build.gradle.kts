@@ -258,6 +258,8 @@ android {
         versionName = canonicalAppVersion
         buildConfigField("String", "CANONICAL_APP_VERSION", "\"$canonicalAppVersion\"")
         buildConfigField("String", "PARITY_PROFILE", "\"windows-live-translate-v2\"")
+        // Overlay (float-over-other-apps) shipped on every distribution, including Play.
+        buildConfigField("boolean", "OVERLAY_SUPPORTED", "true")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -273,12 +275,10 @@ android {
         create("full") {
             dimension = "distribution"
             versionNameSuffix = "-full"
-            buildConfigField("boolean", "OVERLAY_SUPPORTED", "true")
         }
         create("play") {
             dimension = "distribution"
             versionNameSuffix = "-play"
-            buildConfigField("boolean", "OVERLAY_SUPPORTED", "false")
         }
     }
 

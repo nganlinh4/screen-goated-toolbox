@@ -168,17 +168,26 @@ fn default_audio_download_format() -> AudioDownloadFormat {
     AudioDownloadFormat::Mp3
 }
 
+/// A bounded zoom region (Screen Studio-style). Mirrors the TS `ZoomBlock`.
+/// Outside the block the camera reverts to the auto path / default.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ZoomKeyframe {
-    pub time: f64,
+pub struct ZoomBlock {
+    pub start_time: f64,
+    pub end_time: f64,
     #[serde(default)]
-    pub duration: f64,
+    pub ease_in: f64,
+    #[serde(default)]
+    pub ease_out: f64,
     pub zoom_factor: f64,
     #[serde(default = "default_half")]
     pub position_x: f64,
     #[serde(default = "default_half")]
     pub position_y: f64,
+    #[serde(default)]
+    pub follow_cursor: bool,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -320,7 +329,7 @@ pub struct VideoSegment {
     #[serde(default, rename = "textSegments")]
     pub _text_segments: Vec<TextSegment>,
     #[serde(default)]
-    pub zoom_keyframes: Vec<ZoomKeyframe>,
+    pub zoom_blocks: Vec<ZoomBlock>,
     #[serde(default)]
     pub zoom_influence_points: Vec<ZoomInfluencePoint>,
     #[serde(default)]

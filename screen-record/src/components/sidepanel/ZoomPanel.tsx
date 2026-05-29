@@ -29,7 +29,7 @@ export function ZoomPanel({
 }: ZoomPanelProps) {
   const { t } = useSettings();
   if (editingKeyframeId !== null && segment) {
-    const keyframe = segment.zoomKeyframes[editingKeyframeId];
+    const keyframe = segment.zoomBlocks?.[editingKeyframeId];
     if (!keyframe) return null;
 
     return (

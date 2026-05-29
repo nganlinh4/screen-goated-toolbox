@@ -57,13 +57,16 @@ export function buildSegmentContentStamp(segment: VideoSegment): string {
       start: Math.round(trim.startTime * 1000) / 1000,
       end: Math.round(trim.endTime * 1000) / 1000,
     })),
-    zoomKeyframes: (segment.zoomKeyframes ?? []).map((frame) => ({
-      time: Math.round(frame.time * 1000) / 1000,
-      duration: Math.round(frame.duration * 1000) / 1000,
-      zoomFactor: Math.round(frame.zoomFactor * 10000) / 10000,
-      positionX: Math.round(frame.positionX * 10000) / 10000,
-      positionY: Math.round(frame.positionY * 10000) / 10000,
-      easingType: frame.easingType,
+    zoomBlocks: (segment.zoomBlocks ?? []).map((block) => ({
+      start: Math.round(block.startTime * 1000) / 1000,
+      end: Math.round(block.endTime * 1000) / 1000,
+      easeIn: Math.round(block.easeIn * 1000) / 1000,
+      easeOut: Math.round(block.easeOut * 1000) / 1000,
+      zoomFactor: Math.round(block.zoomFactor * 10000) / 10000,
+      positionX: Math.round(block.positionX * 10000) / 10000,
+      positionY: Math.round(block.positionY * 10000) / 10000,
+      followCursor: Boolean(block.followCursor),
+      enabled: block.enabled !== false,
     })),
     speedPoints: (segment.speedPoints ?? []).map((point) => ({
       time: Math.round(point.time * 1000) / 1000,

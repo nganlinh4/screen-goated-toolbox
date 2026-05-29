@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { TrimSegment, ZoomKeyframe } from '@/types/video';
+import { TrimSegment, ZoomBlock } from '@/types/video';
 import { getTrimBounds, getTrimSegments, mergeTrimSegments } from '@/lib/trimSegments';
 import { TimelineDragState, UseTimelineDragOptions, ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC } from './useTimelineDragTypes';
 import { useTrackSegmentDrag } from './useTrackSegmentDrag';
@@ -34,7 +34,7 @@ export function useTimelineDrag({
   const [draggingZoomIdx, setDraggingZoomIdx] = useState<number | null>(null);
   const draggingZoomIdxRef = useRef<number | null>(null);
   const draggingZoomTokenRef = useRef<string | null>(null);
-  const zoomDragTokenMapRef = useRef<WeakMap<ZoomKeyframe, string>>(new WeakMap());
+  const zoomDragTokenMapRef = useRef<WeakMap<ZoomBlock, string>>(new WeakMap());
   const trimDraggingIdRef = useRef<string | null>(null);
   const trimDragOriginalsRef = useRef<TrimSegment[] | null>(null);
 
@@ -75,16 +75,16 @@ export function useTimelineDrag({
     }
   }, [getTimeFromClientX, segment, onSeek, videoRef, setCurrentTime]);
 
-  // Zoom keyframe drag
+  // Zoom block body drag — moves the whole block in time, preserving its width.
   const handleZoomDragStart = useCallback((index: number) => {
     beginBatch();
     setIsDraggingZoom(true);
     setDraggingZoomIdx(index);
     draggingZoomIdxRef.current = index;
-    const draggedKeyframe = segment?.zoomKeyframes[index];
-    if (draggedKeyframe) {
+    const draggedBlock = segment?.zoomBlocks?.[index];
+    if (draggedBlock) {
       const token = crypto.randomUUID();
-      zoomDragTokenMapRef.current.set(draggedKeyframe, token);
+      zoomDragTokenMapRef.current.set(draggedBlock, token);
       draggingZoomTokenRef.current = token;
     } else {
       draggingZoomTokenRef.current = null;
@@ -96,47 +96,35 @@ export function useTimelineDrag({
 
   const handleZoomDrag = useCallback((clientX: number) => {
     if (!isDraggingZoom || draggingZoomIdxRef.current === null || !segment) return;
+    const blocks = segment.zoomBlocks ?? [];
     const newTime = getTimeFromClientX(clientX);
     if (newTime === null) return;
 
     const dragToken = draggingZoomTokenRef.current;
     let currentIdx = dragToken
-      ? segment.zoomKeyframes.findIndex((kf) => zoomDragTokenMapRef.current.get(kf) === dragToken)
+      ? blocks.findIndex((b) => zoomDragTokenMapRef.current.get(b) === dragToken)
       : -1;
     if (currentIdx < 0 && draggingZoomIdxRef.current !== null) currentIdx = draggingZoomIdxRef.current;
-    if (currentIdx < 0 || currentIdx >= segment.zoomKeyframes.length) return;
-    const prevKeyframe = currentIdx > 0 ? segment.zoomKeyframes[currentIdx - 1] : null;
-    const nextKeyframe = currentIdx < segment.zoomKeyframes.length - 1 ? segment.zoomKeyframes[currentIdx + 1] : null;
+    if (currentIdx < 0 || currentIdx >= blocks.length) return;
 
-    let finalTime = newTime;
+    const block = blocks[currentIdx];
+    const width = block.endTime - block.startTime;
+    const prev = currentIdx > 0 ? blocks[currentIdx - 1] : null;
+    const next = currentIdx < blocks.length - 1 ? blocks[currentIdx + 1] : null;
 
-    // Sticky walls near neighbors: stop at the configured gap boundary but allow deliberate crossover.
-    if (
-      prevKeyframe &&
-      finalTime > prevKeyframe.time - ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC &&
-      finalTime < prevKeyframe.time + ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC
-    ) {
-      finalTime = prevKeyframe.time + ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC;
-    }
-    if (
-      nextKeyframe &&
-      finalTime > nextKeyframe.time - ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC &&
-      finalTime < nextKeyframe.time + ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC
-    ) {
-      finalTime = nextKeyframe.time - ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC;
-    }
+    // Move so the block center follows the cursor, clamped to keep a sliver gap.
+    const lower = prev ? prev.endTime + ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC : 0;
+    const upper = (next ? next.startTime - ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC : duration) - width;
+    if (upper < lower) return; // no room to move
+    const newStart = Math.max(lower, Math.min(upper, newTime - width / 2));
+    const newEnd = newStart + width;
 
-    finalTime = Math.max(0, Math.min(duration, finalTime));
-
-    const draggedKf = segment.zoomKeyframes[currentIdx];
-    const newKf = { ...draggedKf, time: finalTime };
-    if (dragToken) zoomDragTokenMapRef.current.set(newKf, dragToken);
-    const nextKeyframes = segment.zoomKeyframes.map((kf, i) =>
-      i === currentIdx ? newKf : kf
-    );
-
-    nextKeyframes.sort((a, b) => a.time - b.time);
-    const newIdx = nextKeyframes.indexOf(newKf);
+    const movedBlock = { ...block, startTime: newStart, endTime: newEnd };
+    if (dragToken) zoomDragTokenMapRef.current.set(movedBlock, dragToken);
+    const nextBlocks = blocks
+      .map((b, i) => (i === currentIdx ? movedBlock : b))
+      .sort((a, b) => a.startTime - b.startTime);
+    const newIdx = nextBlocks.indexOf(movedBlock);
 
     draggingZoomIdxRef.current = newIdx;
     if (newIdx !== draggingZoomIdx) {
@@ -144,16 +132,14 @@ export function useTimelineDrag({
       setEditingKeyframeId(newIdx);
     }
 
-    setSegment({
-      ...segment,
-      zoomKeyframes: nextKeyframes,
-    });
+    setSegment({ ...segment, zoomBlocks: nextBlocks });
 
+    const center = (newStart + newEnd) / 2;
     if (onSeek) {
-      onSeek(finalTime);
+      onSeek(center);
     } else if (videoRef.current) {
-      videoRef.current.currentTime = finalTime;
-      setCurrentTime(finalTime);
+      videoRef.current.currentTime = center;
+      setCurrentTime(center);
     }
   }, [isDraggingZoom, draggingZoomIdx, segment, getTimeFromClientX, setSegment, onSeek, videoRef, setCurrentTime, duration, setEditingKeyframeId]);
 

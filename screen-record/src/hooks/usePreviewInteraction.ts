@@ -71,17 +71,17 @@ export function usePreviewInteraction({
       const lastState = videoRenderer.getLastCalculatedState();
       if (!lastState) return;
 
-      // Use the existing manual keyframe values if one exists near the current
-      // time, so we don't bake auto-zoom's composite values into the keyframe
-      // (which would cause a visual jump when the blend re-applies auto-zoom).
-      const nearbyKf = segment?.zoomKeyframes.find(
-        (k) => Math.abs(k.time - currentTime) < 0.2,
+      // Use the existing manual block values if one covers the current time, so
+      // we don't bake auto-zoom's composite values into the block (which would
+      // cause a visual jump when the blend re-applies auto-zoom).
+      const activeBlock = segment?.zoomBlocks?.find(
+        (b) => b.enabled !== false && currentTime >= b.startTime && currentTime <= b.endTime,
       );
       const {
         positionX: startPosX,
         positionY: startPosY,
         zoomFactor: z,
-      } = nearbyKf ?? lastState;
+      } = activeBlock ?? lastState;
       const rect = e.currentTarget.getBoundingClientRect();
       beginBatch();
       setIsPreviewDragging(true);
@@ -177,12 +177,13 @@ export function usePreviewInteraction({
         wheelBatchTimerRef.current = null;
       }, 400);
 
-      // Use the existing manual keyframe if nearby, to avoid baking auto-zoom
-      // composite values that cause a jump when the blend re-applies.
-      const nearbyKf = segment?.zoomKeyframes.find(
-        (k) => Math.abs(k.time - currentTime) < 0.2,
+      // Use the existing manual block if one covers the playhead, to avoid
+      // baking auto-zoom composite values that cause a jump when the blend
+      // re-applies.
+      const activeBlock = segment?.zoomBlocks?.find(
+        (b) => b.enabled !== false && currentTime >= b.startTime && currentTime <= b.endTime,
       );
-      const base = nearbyKf ?? lastState;
+      const base = activeBlock ?? lastState;
       const newZoom = Math.max(
         1.0,
         Math.min(

@@ -1,4 +1,4 @@
-import { VideoSegment, MousePosition, ZoomKeyframe, AutoZoomConfig, DEFAULT_AUTO_ZOOM_CONFIG } from '@/types/video';
+import { VideoSegment, MousePosition, AutoZoomConfig, DEFAULT_AUTO_ZOOM_CONFIG } from '@/types/video';
 
 // Default physics — derived from DEFAULT_AUTO_ZOOM_CONFIG (followTightness=0.5, zoomLevel=2.0, speedSensitivity=0.5)
 const FIXED_MASS = 2.0;
@@ -104,7 +104,6 @@ export class AutoZoomGenerator {
     let lastPosX = data[0].x, lastPosY = data[0].y;
     let smoothedZoomTarget = P.BASE_ZOOM;
     const zoomLerp = 0.06 + 0.14 * (config?.followTightness ?? 0.5);
-    const hasKeyframes = segment.zoomKeyframes && segment.zoomKeyframes.length > 0;
 
     // Run Simulation
     let frameIdx = 0;
@@ -147,18 +146,10 @@ export class AutoZoomGenerator {
       if (hoverTime > 2.0) rawTargetZoom = P.MAX_ZOOM;
       smoothedZoomTarget += (rawTargetZoom - smoothedZoomTarget) * zoomLerp;
 
-      // C. Target Position
-      let targetX = future.x;
-      let targetY = future.y;
-
-      if (hasKeyframes) {
-        const kf = nearestKeyframe(segment.zoomKeyframes!, t);
-        if (kf.weight > 0) {
-          targetX = targetX * (1 - kf.weight) + kf.x * videoWidth * kf.weight;
-          targetY = targetY * (1 - kf.weight) + kf.y * videoHeight * kf.weight;
-          smoothedZoomTarget = smoothedZoomTarget * (1 - kf.weight) + kf.zoom * kf.weight;
-        }
-      }
+      // C. Target Position — clean cursor-follow. Manual zoom blocks are applied
+      // independently by the resolver, so the auto path must NOT warp toward them.
+      const targetX = future.x;
+      const targetY = future.y;
 
       // D. Physics
       const ax = (-P.TENSION * (sx - targetX) - P.FRICTION * svx) / P.MASS;
@@ -194,28 +185,6 @@ function lowerBoundNum(arr: number[], val: number): number {
     else hi = mid;
   }
   return lo;
-}
-
-// Find nearest keyframe within 1.5s (keyframes are few, simple scan is fine)
-function nearestKeyframe(
-  keyframes: ZoomKeyframe[],
-  t: number
-): { x: number; y: number; zoom: number; weight: number } {
-  const WINDOW = 1.5;
-  let bestDist = WINDOW;
-  let bestKf: ZoomKeyframe | null = null;
-  for (const kf of keyframes) {
-    const d = Math.abs(kf.time - t);
-    if (d < bestDist) { bestDist = d; bestKf = kf; }
-  }
-  if (!bestKf) return { x: 0.5, y: 0.5, zoom: 1, weight: 0 };
-  const ratio = bestDist / WINDOW;
-  return {
-    x: bestKf.positionX,
-    y: bestKf.positionY,
-    zoom: bestKf.zoomFactor,
-    weight: (1 + Math.cos(ratio * Math.PI)) / 2,
-  };
 }
 
 export const autoZoomGenerator = new AutoZoomGenerator();

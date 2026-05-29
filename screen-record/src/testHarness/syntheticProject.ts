@@ -26,6 +26,7 @@ function makeSegment(durationSec: number, subtitles: SubtitleSegment[]): VideoSe
     trimStart: 0,
     trimEnd: durationSec,
     zoomKeyframes: [],
+    zoomBlocks: [],
     textSegments: [],
     subtitleTracks: [
       {
