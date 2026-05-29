@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.service
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import dev.screengoated.toolbox.mobile.AppToastBus
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
@@ -14,6 +15,7 @@ import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.live.TranscriptionMethod
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
+import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +35,7 @@ class LiveSessionRuntime(
     private val s2sClient: GeminiS2sClient,
     private val translationClient: RealtimeTranslationClient,
     ttsRuntimeService: TtsRuntimeService,
+    private val toastBus: AppToastBus,
     overlaySupported: Boolean,
     stopRequested: () -> Unit,
     sourceModeChanged: (SourceMode) -> Unit,
@@ -99,6 +102,8 @@ class LiveSessionRuntime(
         val config = repository.currentConfig()
         val apiKey = repository.currentApiKey()
         if (apiKey.isBlank()) {
+            apiKeyErrorToastText("NO_API_KEY:google", repository.currentUiPreferences().uiLanguage)
+                ?.let(toastBus::show)
             repository.fail("Add your Gemini API key before starting live translate.")
             return
         }
