@@ -2,7 +2,7 @@
 
 ## Canonical Source
 - Windows preset editor and field visibility logic: [src/gui/settings_ui/preset.rs](../../src/gui/settings_ui/preset.rs)
-- Windows preset collection management: [src/gui/settings_ui/sidebar.rs](../../src/gui/settings_ui/sidebar.rs)
+- Windows preset collection management: [src/gui/settings_ui/sidebar/mod.rs](../../src/gui/settings_ui/sidebar/mod.rs)
 - Windows preset data model: [src/config/preset/preset.rs](../../src/config/preset/preset.rs)
 - Windows chain execution entrypoint: [src/overlay/process/chain/mod.rs](../../src/overlay/process/chain/mod.rs)
 - Windows text-input overlay runtime: [src/overlay/text_input/mod.rs](../../src/overlay/text_input/mod.rs)
@@ -15,7 +15,7 @@
 - Windows shared Grid.js helpers: [src/overlay/html_components/grid_js.rs](../../src/overlay/html_components/grid_js.rs)
 - Windows shared font manager: [src/overlay/html_components/font_manager.rs](../../src/overlay/html_components/font_manager.rs)
 - Windows model catalog: [src/model_config.rs](../../src/model_config.rs)
-- Windows text provider pipeline: [src/api/text/translate.rs](../../src/api/text/translate.rs)
+- Windows text provider pipeline: [src/api/text/translate/mod.rs](../../src/api/text/translate/mod.rs)
 
 ## Behavior Contract
 - Android treats the Windows built-in preset catalog as canonical seed data.
