@@ -3,6 +3,11 @@
 package dev.screengoated.toolbox.mobile.ui
 
 import android.content.res.Configuration
+import android.content.Intent
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,6 +37,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.helpassistant.helpPlaceholder
 import dev.screengoated.toolbox.mobile.service.helpassistant.HelpAssistantOverlayService
@@ -135,7 +141,31 @@ private fun HelpAssistantDialog(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE || windowWidth > windowHeight
     val compactLandscape = isLandscape && windowHeight <= 430.dp
     var question by rememberSaveable { mutableStateOf("") }
+    var pendingOverlayQuestion by rememberSaveable { mutableStateOf<String?>(null) }
     val trimmedQuestion = question.trim()
+    fun startHelpOverlay(questionText: String) {
+        HelpAssistantOverlayService.start(
+            context = context,
+            question = questionText,
+            uiLanguage = uiLanguage,
+        )
+        onDismiss()
+    }
+    val overlayPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val pendingQuestion = pendingOverlayQuestion
+        pendingOverlayQuestion = null
+        if (pendingQuestion != null && Settings.canDrawOverlays(context)) {
+            startHelpOverlay(pendingQuestion)
+        } else if (pendingQuestion != null) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.help_assistant_overlay_permission_required),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
 
     ExpressiveDialogSurface(
         title = locale.helpAssistantTitle,
@@ -184,12 +214,17 @@ private fun HelpAssistantDialog(
                             if (trimmedQuestion.isEmpty()) {
                                 return@ExpressiveSettingsButton
                             }
-                            HelpAssistantOverlayService.start(
-                                context = context,
-                                question = trimmedQuestion,
-                                uiLanguage = uiLanguage,
-                            )
-                            onDismiss()
+                            if (Settings.canDrawOverlays(context)) {
+                                startHelpOverlay(trimmedQuestion)
+                            } else {
+                                pendingOverlayQuestion = trimmedQuestion
+                                overlayPermissionLauncher.launch(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        "package:${context.packageName}".toUri(),
+                                    ),
+                                )
+                            }
                         },
                         accent = MaterialTheme.colorScheme.primary,
                     )
