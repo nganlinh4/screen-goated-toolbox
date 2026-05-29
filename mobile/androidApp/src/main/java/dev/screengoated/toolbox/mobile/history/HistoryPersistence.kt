@@ -76,6 +76,14 @@ internal class HistoryPersistence internal constructor(
 
     fun mediaFile(fileName: String): File = File(paths.mediaDir, fileName)
 
+    fun deleteAllMediaFiles() {
+        runCatching {
+            paths.mediaDir.listFiles()?.forEach { file ->
+                file.deleteRecursively()
+            }
+        }
+    }
+
     private fun ensureDirs() {
         paths.rootDir.mkdirs()
         paths.mediaDir.mkdirs()

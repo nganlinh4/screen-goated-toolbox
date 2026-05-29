@@ -218,6 +218,28 @@ class HistoryModelsTest {
         )
     }
 
+    @Test
+    fun clearAllRemovesOrphanMediaFilesFromFixture() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = createRepository(dispatcher)
+        val case = fixtureCase("clear_all_removes_orphan_media_files")
+        val mediaDir = repository.mediaDirectory()
+
+        case.getValue("orphanMediaFiles").jsonArray.forEach { fileName ->
+            val file = mediaDir.resolve(fileName.jsonPrimitive.content)
+            file.parentFile?.mkdirs()
+            file.writeText("orphan")
+        }
+
+        repository.clearAll()
+        advanceUntilIdle()
+
+        assertEquals(
+            case.getValue("expectedRemainingMediaFiles").jsonArray.map { it.jsonPrimitive.content },
+            mediaDir.listFiles()?.map { it.name }?.sorted().orEmpty(),
+        )
+    }
+
     private fun createRepository(
         dispatcher: CoroutineDispatcher,
     ): HistoryRepository {

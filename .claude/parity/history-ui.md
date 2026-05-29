@@ -27,7 +27,7 @@
 - Transition rules:
   - Save inserts at the front.
   - Delete removes the card and its backing file.
-  - Clear-all removes all cards and backing files.
+  - Clear-all removes all cards and all files in the history media directory, including orphaned files left behind by partial or legacy states.
   - Prune removes oldest items and backing files until the limit is satisfied.
   - Search filters only on `item.text` and `timestamp`.
   - Mobile settings reset restores the History max-items setting to the Windows default `50`.
