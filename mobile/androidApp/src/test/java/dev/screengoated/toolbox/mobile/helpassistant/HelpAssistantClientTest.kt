@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.helpassistant
 
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
@@ -121,6 +122,20 @@ class HelpAssistantClientTest {
 
         assertTrue(markdown.contains("## ❌ Error"))
         assertTrue(markdown.contains("Missing key"))
+    }
+
+    @Test
+    fun missingKeyUsesSharedApiKeyNoticeMarker() = runTest {
+        val result = HelpAssistantClient(okhttp3.OkHttpClient()).ask(
+            HelpAssistantRequest(
+                question = "How do I use it?",
+                uiLanguage = "en",
+                geminiApiKey = "",
+            ),
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals("NO_API_KEY:gemini", result.exceptionOrNull()?.message)
     }
 
     private fun fixturePath(): Path {

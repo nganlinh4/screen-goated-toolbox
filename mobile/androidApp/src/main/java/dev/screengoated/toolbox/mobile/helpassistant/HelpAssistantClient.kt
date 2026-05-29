@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.helpassistant
 
+import dev.screengoated.toolbox.mobile.preset.invalidApiKeyMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -19,7 +20,7 @@ class HelpAssistantClient(
         runCatching {
             val apiKey = request.geminiApiKey.trim()
             if (apiKey.isEmpty()) {
-                throw IOException("Gemini API key not configured. Please set it in Global Settings.")
+                throw IOException("NO_API_KEY:gemini")
             }
 
             val index = fetchHelpIndex()
@@ -94,6 +95,9 @@ class HelpAssistantClient(
 
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
+                if (response.code == 401 || response.code == 403) {
+                    throw IOException(invalidApiKeyMessage("google"))
+                }
                 throw IOException("API request failed: HTTP ${response.code}")
             }
             val body = response.body?.string()
