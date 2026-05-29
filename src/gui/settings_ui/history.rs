@@ -10,20 +10,14 @@ pub fn render_history_panel(
     history_manager: &HistoryManager,
     search_query: &mut String,
     text: &LocaleText,
+    content_bottom: f32,
 ) -> bool {
     let mut changed = false;
 
     let is_dark = ui.visuals().dark_mode;
-    let card_bg = if is_dark {
-        egui::Color32::from_rgba_unmultiplied(28, 32, 42, 250) // Darker for better text contrast
-    } else {
-        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 255)
-    };
-    let card_stroke = if is_dark {
-        egui::Stroke::new(1.0, egui::Color32::from_gray(50))
-    } else {
-        egui::Stroke::new(1.0, egui::Color32::from_gray(210))
-    };
+    let theme = crate::gui::theme::AppTheme::from_dark(is_dark);
+    let card_bg = theme.card_bg();
+    let card_stroke = theme.card_stroke();
 
     // Set max width for entire panel (outside frame so it properly constrains the card)
     ui.set_max_width(510.0);
@@ -136,9 +130,12 @@ pub fn render_history_panel(
             ui.label(text.history_empty);
         });
     } else {
-        // History items in scroll area
+        // History items in scroll area — fill the remaining height down to the
+        // footer. Measure from the panel's true bottom (`content_bottom`); the
+        // column's `available_height()` reports a capped value here.
+        let list_h = (content_bottom - ui.cursor().top() - 16.0).max(300.0);
         egui::Frame::new().show(ui, |ui| {
-            ui.set_height(460.0);
+            ui.set_height(list_h);
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.set_max_width(510.0);

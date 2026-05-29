@@ -5,6 +5,7 @@ pub mod locale;
 pub mod resize_subclass;
 pub mod settings_ui;
 pub mod splash;
+pub mod theme;
 pub mod utils;
 
 pub use app::{SettingsApp, SettingsAppInit};

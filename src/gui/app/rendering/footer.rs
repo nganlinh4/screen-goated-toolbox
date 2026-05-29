@@ -8,14 +8,12 @@ use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
 
 impl SettingsApp {
-    pub(crate) fn render_footer_and_tips_modal(&mut self, ctx: &egui::Context) {
+    pub(crate) fn render_footer_and_tips_modal(&mut self, root_ui: &mut egui::Ui) {
         let text = LocaleText::get(&self.config.ui_language);
-        let visuals = ctx.style().visuals.clone();
-        let footer_bg = if visuals.dark_mode {
-            egui::Color32::from_gray(20)
-        } else {
-            egui::Color32::from_gray(240)
-        };
+        let ctx = root_ui.ctx().clone();
+        let ctx = &ctx;
+        let visuals = root_ui.visuals().clone();
+        let footer_bg = crate::gui::theme::AppTheme::from_dark(visuals.dark_mode).bar_bg();
 
         // Determine current tip text for footer
         let current_tip = text
@@ -24,7 +22,7 @@ impl SettingsApp {
             .unwrap_or(&"")
             .to_string();
 
-        egui::TopBottomPanel::bottom("footer_panel")
+        egui::Panel::bottom("footer_panel")
             .resizable(false)
             .show_separator_line(false)
             .frame(
@@ -47,7 +45,7 @@ impl SettingsApp {
                     })
                     .stroke(egui::Stroke::NONE),
             )
-            .show(ctx, |ui| {
+            .show_inside(root_ui, |ui| {
                 render_footer(
                     ui,
                     &text,
@@ -130,7 +128,7 @@ impl SettingsApp {
                                 .auto_shrink([false; 2])
                                 .show(ui, |ui| {
                                     for (i, tip) in tips_list_copy.iter().enumerate() {
-                                        let is_dark_mode = ctx.style().visuals.dark_mode;
+                                        let is_dark_mode = ctx.global_style().visuals.dark_mode;
                                         let layout_job =
                                             format_tip_with_bold(i + 1, tip, is_dark_mode);
                                         ui.label(layout_job);

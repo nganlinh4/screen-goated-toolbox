@@ -79,7 +79,7 @@ pub enum SplashStatus {
 
 impl SplashScreen {
     pub fn new(ctx: &egui::Context) -> Self {
-        let is_dark = ctx.style().visuals.dark_mode;
+        let is_dark = ctx.global_style().visuals.dark_mode;
         let audio_container = Arc::new(Mutex::new(None));
         let audio_container_clone = audio_container.clone();
 

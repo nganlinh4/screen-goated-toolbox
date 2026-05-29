@@ -71,22 +71,10 @@ pub fn render_sidebar(
         .spacing([8.0, 4.0])
         .min_col_width(67.0)
         .show(ui, |ui| {
-            let is_dark = ui.visuals().dark_mode;
-            let img_bg = if is_dark {
-                egui::Color32::from_rgb(45, 85, 140)
-            } else {
-                egui::Color32::from_rgb(100, 150, 220)
-            };
-            let txt_bg = if is_dark {
-                egui::Color32::from_rgb(45, 120, 80)
-            } else {
-                egui::Color32::from_rgb(90, 180, 120)
-            };
-            let aud_bg = if is_dark {
-                egui::Color32::from_rgb(150, 95, 40)
-            } else {
-                egui::Color32::from_rgb(220, 160, 80)
-            };
+            let theme = crate::gui::theme::AppTheme::from_ui(ui);
+            let img_bg = theme.modality_image();
+            let txt_bg = theme.modality_text();
+            let aud_bg = theme.modality_audio();
 
             // Preset items, with each add button at the end of its modality list.
             let max_len = image_indices

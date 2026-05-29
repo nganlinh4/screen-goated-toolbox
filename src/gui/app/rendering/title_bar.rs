@@ -17,20 +17,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::w;
 
 impl SettingsApp {
-    pub(crate) fn render_title_bar(&mut self, ctx: &egui::Context) {
+    pub(crate) fn render_title_bar(&mut self, root_ui: &mut egui::Ui) {
         let text = LocaleText::get(&self.config.ui_language);
-        let is_dark = ctx.style().visuals.dark_mode;
-        let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        let is_dark = root_ui.visuals().dark_mode;
+        let is_maximized = root_ui.input(|i| i.viewport().maximized.unwrap_or(false));
 
         // Match Footer Color
-        let bar_bg = if is_dark {
-            egui::Color32::from_gray(20)
-        } else {
-            egui::Color32::from_gray(240)
-        };
+        let bar_bg = crate::gui::theme::AppTheme::from_dark(is_dark).bar_bg();
 
-        egui::TopBottomPanel::top("title_bar")
-            .exact_height(40.0)
+        egui::Panel::top("title_bar")
+            .exact_size(40.0)
             .frame(
                 egui::Frame::default()
                     .inner_margin(if is_maximized {
@@ -58,7 +54,8 @@ impl SettingsApp {
                     .stroke(egui::Stroke::NONE),
             )
             .show_separator_line(false)
-            .show(ctx, |ui| {
+            .show_inside(root_ui, |ui| {
+                let ctx = ui.ctx().clone();
                 // --- DRAG HANDLE (Middle Gap Only) ---
                 // Registered FIRST so buttons rendered later always take priority.
                 // Uses last frame's measured gap rect — the drag zone never overlaps buttons.
@@ -83,7 +80,7 @@ impl SettingsApp {
 
                     // --- RIGHT SIDE: Window Controls & Branding ---
                     let right_start_x =
-                        self.render_title_bar_right_side(ui, ctx, is_dark, is_maximized);
+                        self.render_title_bar_right_side(ui, &ctx, is_dark, is_maximized);
 
                     // Update drag zone for next frame: the empty gap between the two sides.
                     let bar_rect = ui.max_rect();
@@ -98,7 +95,7 @@ impl SettingsApp {
     }
 
     fn render_title_bar_left_side(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
-        let is_dark = ui.ctx().style().visuals.dark_mode;
+        let is_dark = ui.visuals().dark_mode;
         // Launcher buttons use bright accent fills; in dark mode those fills are
         // light enough that near-black label text reads better than white.
         let btn_text = if is_dark {

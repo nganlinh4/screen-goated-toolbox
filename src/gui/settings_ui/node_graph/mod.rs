@@ -11,11 +11,16 @@ pub use viewer::ChainViewer;
 
 use crate::gui::locale::LocaleText;
 use eframe::egui;
-use egui_snarl::ui::SnarlStyle;
+use egui_snarl::ui::{SnarlStyle, SnarlWidget};
 use egui_snarl::{InPinId, OutPinId, Snarl};
 use std::collections::HashMap;
 
-/// Render the node graph in the preset editor
+/// Render the node graph in the preset editor.
+///
+/// `min_height` forces the canvas to at least that many points tall. snarl
+/// sizes its canvas from `available_size_before_wrap().max(min_size)`, so this
+/// is the only reliable way to make the graph fill the remaining space —
+/// `ui.set_min_height` grows the min rect, which snarl's sizing ignores.
 #[expect(
     clippy::too_many_arguments,
     reason = "node graph rendering depends on multiple independent capability flags and editing handles"
@@ -30,6 +35,7 @@ pub fn render_node_graph(
     use_ollama: bool,
     preset_type: &str,
     text: &LocaleText,
+    min_height: f32,
 ) -> bool {
     let mut viewer = ChainViewer::new(
         text,
@@ -42,7 +48,11 @@ pub fn render_node_graph(
     );
     let style = SnarlStyle::default();
 
-    snarl.show(&mut viewer, &style, egui::Id::new("chain_graph"), ui);
+    SnarlWidget::new()
+        .id(ui.make_persistent_id("chain_graph"))
+        .style(style)
+        .min_size(egui::vec2(0.0, min_height))
+        .show(snarl, &mut viewer, ui);
 
     // Constraint Enforcement: Post-update cleanup
     // 1. No self-loops

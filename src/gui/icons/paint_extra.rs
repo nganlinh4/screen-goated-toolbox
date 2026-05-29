@@ -191,7 +191,7 @@ pub(super) fn paint_extra_icons(
             painter.rect_filled(
                 front_rect,
                 1.0 * scale,
-                painter.ctx().style().visuals.panel_fill,
+                painter.ctx().global_style().visuals.panel_fill,
             );
             painter.rect_stroke(front_rect, 1.0 * scale, stroke, egui::StrokeKind::Middle);
 
@@ -407,7 +407,7 @@ pub(super) fn paint_extra_icons(
             painter.circle_filled(
                 center + egui::vec2(offset, -offset * 0.8),
                 r * 0.85,
-                painter.ctx().style().visuals.panel_fill,
+                painter.ctx().global_style().visuals.panel_fill,
             );
         }
 
@@ -497,7 +497,7 @@ pub(super) fn paint_extra_icons(
             painter.circle_filled(
                 eye_pos,
                 2.0 * scale,
-                painter.ctx().style().visuals.panel_fill,
+                painter.ctx().global_style().visuals.panel_fill,
             );
 
             // Beak (Triangle on right)
@@ -572,7 +572,7 @@ pub(super) fn paint_extra_icons(
             painter.rect_filled(
                 rect_front.expand(stroke.width / 2.0),
                 0.0,
-                painter.ctx().style().visuals.panel_fill,
+                painter.ctx().global_style().visuals.panel_fill,
             );
             painter.rect_stroke(rect_front, 0.0, stroke, egui::StrokeKind::Middle);
         }

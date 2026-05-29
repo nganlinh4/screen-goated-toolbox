@@ -180,7 +180,7 @@ impl SettingsApp {
 
         // --- RENDER ---
         let text = LocaleText::get(&self.config.ui_language);
-        let screen_rect = ctx.available_rect();
+        let screen_rect = ctx.content_rect();
 
         // Overlay layer (Debug order to stay on top)
         let overlay_layer = egui::LayerId::new(egui::Order::Debug, egui::Id::new("drop_overlay"));
