@@ -71,7 +71,7 @@
 ## Deviations
 - Android uses `AudioTrack` instead of Windows WASAPI for playback output.
 - Android uses system language identification APIs plus script fallbacks instead of `whatlang`, but keeps the same ISO-639-3 / ISO-639-1 matching semantics at the settings and provider layers.
-- Open-weights leaderboard TTS providers are feature-excluded on Android until a real mobile runtime exists. Kokoro and Supertonic run on Windows via sherpa-onnx, while VieNeu/Step/Magpie use managed local runtimes that are not viable to expose as normal Android phone/tablet options. Android may keep enum/settings fields for backward-compatible deserialization, but the selector must not show those methods and stale values must normalize to `Gemini Live`.
+- Open-weights leaderboard TTS providers are feature-excluded on Android until a real mobile runtime exists. Kokoro and Supertonic run on Windows via sherpa-onnx, while VieNeu/Step/Magpie use managed local runtimes that are not viable to expose as normal Android phone/tablet options. Android may keep enum values only for backward-compatible deserialization and normalization; it must not serialize Android settings/runtime fields, selector rows, labels, fake workers, or unavailable runtime branches for those methods.
 
 ## Open-Weights Catalog
 - Authoritative entries live in [catalog/model_catalog.json](../../catalog/model_catalog.json) under `tts_open_models`.
