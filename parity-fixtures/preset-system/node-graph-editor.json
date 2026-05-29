@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "inline_node_editor_chrome_comes_from_language",
+      "locales": [
+        {
+          "lang": "en",
+          "expected_model_label": "Model:",
+          "expected_prompt_label": "Prompt:",
+          "expected_add_language": "+ Language",
+          "expected_prompt_placeholder": "Prompt…",
+          "expected_language_search": "Search...",
+          "expected_stream_on": "Stream",
+          "expected_stream_off": "No Stream"
+        },
+        {
+          "lang": "vi",
+          "expected_model_label": "Mô hình:",
+          "expected_prompt_label": "Lệnh:",
+          "expected_add_language": "+ Ngôn ngữ",
+          "expected_prompt_placeholder": "Lệnh…",
+          "expected_language_search": "Tìm kiếm...",
+          "expected_stream_on": "Stream",
+          "expected_stream_off": "Không stream"
+        },
+        {
+          "lang": "ko",
+          "expected_model_label": "모델:",
+          "expected_prompt_label": "프롬프트:",
+          "expected_add_language": "+ 언어",
+          "expected_prompt_placeholder": "프롬프트…",
+          "expected_language_search": "검색...",
+          "expected_stream_on": "스트림",
+          "expected_stream_off": "스트림 없음"
+        }
+      ]
+    }
+  ]
+}
