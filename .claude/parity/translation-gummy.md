@@ -77,5 +77,6 @@
 
 ## Fixtures
 - Prompt fixture: [parity-fixtures/translation-gummy/prompt-contract.json](../../parity-fixtures/translation-gummy/prompt-contract.json)
+- Socket protocol fixture: [parity-fixtures/translation-gummy/socket-protocol.json](../../parity-fixtures/translation-gummy/socket-protocol.json)
 - Onboarding fixture: [parity-fixtures/translation-gummy/onboarding-contract.json](../../parity-fixtures/translation-gummy/onboarding-contract.json)
 - Volume fixture: [parity-fixtures/translation-gummy/volume-control.json](../../parity-fixtures/translation-gummy/volume-control.json)

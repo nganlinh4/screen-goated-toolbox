@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "setupComplete": {
+    "payload": {
+      "setupComplete": {}
+    },
+    "expected": {
+      "setupComplete": true,
+      "error": null
+    }
+  },
+  "errorContainingSetupCompleteText": {
+    "payload": {
+      "error": {
+        "message": "setupComplete failed before session start"
+      }
+    },
+    "expected": {
+      "setupComplete": false,
+      "error": "setupComplete failed before session start"
+    }
+  },
+  "audioStreamEnd": {
+    "expectedRoot": "realtimeInput",
+    "expectedFlag": "audioStreamEnd"
+  }
+}
