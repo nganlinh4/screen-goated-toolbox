@@ -400,19 +400,45 @@ private fun nodeTypeLabel(
     BlockType.INPUT_ADAPTER -> {
         val inputSuffix = when (presetType) {
             dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE ->
-                when (lang) { "vi" -> "Hình ảnh"; "ko" -> "이미지"; else -> "Image" }
+                nodeGraphLocalized(lang, "Image", "Hình ảnh", "이미지")
             dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC,
             dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO ->
-                when (lang) { "vi" -> "Âm thanh"; "ko" -> "오디오"; else -> "Audio" }
+                nodeGraphLocalized(lang, "Audio", "Âm thanh", "오디오")
             else ->
-                when (lang) { "vi" -> "Văn bản"; "ko" -> "텍스트"; else -> "Text" }
+                nodeGraphLocalized(lang, "Text", "Văn bản", "텍스트")
         }
-        val prefix = when (lang) { "vi" -> "Đầu vào"; "ko" -> "입력"; else -> "Input" }
+        val prefix = nodeGraphLocalized(lang, "Input", "Đầu vào", "입력")
         "$prefix: $inputSuffix"
     }
-    BlockType.TEXT -> when (lang) { "vi" -> "Text -> Text"; "ko" -> "텍스트 -> 텍스트"; else -> "Text -> Text" }
-    BlockType.IMAGE -> when (lang) { "vi" -> "Ảnh -> Text"; "ko" -> "이미지 -> 텍스트"; else -> "Image -> Text" }
-    BlockType.AUDIO -> when (lang) { "vi" -> "Audio -> Text"; "ko" -> "오디오 -> 텍스트"; else -> "Audio -> Text" }
+    BlockType.TEXT -> nodeGraphLocalized(lang, "Text -> Text", "Text -> Text", "텍스트 -> 텍스트")
+    BlockType.IMAGE -> nodeGraphLocalized(lang, "Image -> Text", "Ảnh -> Text", "이미지 -> 텍스트")
+    BlockType.AUDIO -> nodeGraphLocalized(lang, "Audio -> Text", "Audio -> Text", "오디오 -> 텍스트")
+}
+
+internal fun nodeGraphLocalized(lang: String, en: String, vi: String, ko: String): String = when (lang) {
+    "vi" -> vi
+    "ko" -> ko
+    else -> en
+}
+
+internal fun nodeGraphModelLabel(lang: String): String =
+    nodeGraphLocalized(lang, "Model:", "Mô hình:", "모델:")
+
+internal fun nodeGraphPromptLabel(lang: String): String =
+    nodeGraphLocalized(lang, "Prompt:", "Lệnh:", "프롬프트:")
+
+internal fun nodeGraphAddLanguageLabel(lang: String): String =
+    nodeGraphLocalized(lang, "+ Language", "+ Ngôn ngữ", "+ 언어")
+
+internal fun nodeGraphPromptPlaceholder(lang: String): String =
+    nodeGraphLocalized(lang, "Prompt…", "Lệnh…", "프롬프트…")
+
+internal fun nodeGraphLanguageSearchPlaceholder(lang: String): String =
+    nodeGraphLocalized(lang, "Search...", "Tìm kiếm...", "검색...")
+
+internal fun nodeGraphStreamLabel(lang: String, isStreaming: Boolean): String = when {
+    isStreaming -> nodeGraphLocalized(lang, "Stream", "Stream", "스트림")
+    else -> nodeGraphLocalized(lang, "No Stream", "Không stream", "스트림 없음")
 }
 
 // ---------------------------------------------------------------------------
@@ -594,7 +620,7 @@ private fun NodeCard(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = when (lang) { "vi" -> "Mô hình:"; "ko" -> "모델:"; else -> "Model:" },
+                            text = nodeGraphModelLabel(lang),
                             style = MaterialTheme.typography.labelSmall,
                             color = contentCol.copy(alpha = 0.6f),
                         )
@@ -695,7 +721,7 @@ private fun NodeCard(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = when (lang) { "vi" -> "Lệnh:"; "ko" -> "프롬프트:"; else -> "Prompt:" },
+                                text = nodeGraphPromptLabel(lang),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = contentCol.copy(alpha = 0.6f),
                             )
@@ -720,7 +746,7 @@ private fun NodeCard(
                                 color = Color(0xFF5A8A90).copy(alpha = 0.8f),
                             ) {
                                 Text(
-                                    text = when (lang) { "vi" -> "+ Ngôn ngữ"; "ko" -> "+ 언어"; else -> "+ Language" },
+                                    text = nodeGraphAddLanguageLabel(lang),
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color.White,
@@ -741,7 +767,7 @@ private fun NodeCard(
                         color = pillBg,
                     ) {
                         Text(
-                            text = block.prompt.ifBlank { "Prompt…" },
+                            text = block.prompt.ifBlank { nodeGraphPromptPlaceholder(lang) },
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = if (block.prompt.isBlank())
@@ -813,7 +839,7 @@ private fun NodeCard(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(horizontal = 8.dp, vertical = 4.dp),
-                                            placeholder = { Text("Search...", style = MaterialTheme.typography.bodySmall) },
+                                            placeholder = { Text(nodeGraphLanguageSearchPlaceholder(lang), style = MaterialTheme.typography.bodySmall) },
                                             singleLine = true,
                                             textStyle = MaterialTheme.typography.bodySmall,
                                         )
@@ -877,11 +903,7 @@ private fun NodeCard(
                         // Stream mode toggle pill (mobile always uses markdown)
                         if (block.showOverlay) {
                             val isStreaming = block.streamingEnabled
-                            val streamLabel = when (lang) {
-                                "vi" -> if (isStreaming) "Stream" else "Không stream"
-                                "ko" -> if (isStreaming) "스트림" else "스트림 없음"
-                                else -> if (isStreaming) "Stream" else "No Stream"
-                            }
+                            val streamLabel = nodeGraphStreamLabel(lang, isStreaming)
                             Box {
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
@@ -901,11 +923,9 @@ private fun NodeCard(
                                     expanded = showRenderModeMenu,
                                     onDismissRequest = { showRenderModeMenu = false },
                                 ) {
-                                    val streamOff = when (lang) { "vi" -> "Không stream"; "ko" -> "스트림 없음"; else -> "No Stream" }
-                                    val streamOn = "Stream"
                                     listOf(
-                                        streamOff to false,
-                                        streamOn to true,
+                                        nodeGraphStreamLabel(lang, false) to false,
+                                        nodeGraphStreamLabel(lang, true) to true,
                                     ).forEach { (label, streaming) ->
                                         androidx.compose.material3.DropdownMenuItem(
                                             text = { Text(label, style = MaterialTheme.typography.bodySmall) },
@@ -972,11 +992,7 @@ private fun NodeCard(
                         // Stream mode pill for input node
                         if (block.showOverlay) {
                             val isStreaming = block.streamingEnabled || block.renderMode == "markdown_stream"
-                            val streamLabel = when (lang) {
-                                "vi" -> if (isStreaming) "Stream" else "Không stream"
-                                "ko" -> if (isStreaming) "스트림" else "스트림 없음"
-                                else -> if (isStreaming) "Stream" else "No Stream"
-                            }
+                            val streamLabel = nodeGraphStreamLabel(lang, isStreaming)
                             Box {
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
@@ -996,10 +1012,9 @@ private fun NodeCard(
                                     expanded = showInputRenderMenu,
                                     onDismissRequest = { showInputRenderMenu = false },
                                 ) {
-                                    val streamOff = when (lang) { "vi" -> "Không stream"; "ko" -> "스트림 없음"; else -> "No Stream" }
                                     listOf(
-                                        streamOff to false,
-                                        "Stream" to true,
+                                        nodeGraphStreamLabel(lang, false) to false,
+                                        nodeGraphStreamLabel(lang, true) to true,
                                     ).forEach { (label, streaming) ->
                                         androidx.compose.material3.DropdownMenuItem(
                                             text = { Text(label, style = MaterialTheme.typography.bodySmall) },
