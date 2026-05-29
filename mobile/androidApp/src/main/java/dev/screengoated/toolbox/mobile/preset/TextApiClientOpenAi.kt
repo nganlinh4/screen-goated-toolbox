@@ -50,7 +50,7 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
             throw IOException("$providerName request failed with $code")
         }
 
@@ -133,7 +133,7 @@ internal suspend fun TextApiClient.streamCerebras(
                 "TextApiClient",
                 "Cerebras request failed code=$code model=${model.fullName} body=$errorBody",
             )
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("cerebras"))
             throw IOException("Cerebras request failed with $code")
         }
 
@@ -236,7 +236,7 @@ internal fun TextApiClient.runGroqCompound(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("groq"))
             throw IOException("Groq request failed with $code")
         }
 
@@ -286,7 +286,7 @@ private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
             throw IOException("$providerName request failed with $code")
         }
 
@@ -336,7 +336,7 @@ private suspend fun TextApiClient.generateCerebrasBlocking(
                 "TextApiClient",
                 "Cerebras request failed code=$code model=${model.fullName} body=$errorBody",
             )
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("cerebras"))
             throw IOException("Cerebras request failed with $code")
         }
 

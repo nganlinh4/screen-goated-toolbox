@@ -40,7 +40,7 @@ internal suspend fun VisionApiClient.streamGeminiVision(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
             throw IOException("Gemini vision request failed with $code")
         }
 
@@ -80,7 +80,7 @@ private fun VisionApiClient.generateGeminiVisionBlocking(request: Request): Stri
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
             throw IOException("Gemini vision request failed with $code")
         }
 

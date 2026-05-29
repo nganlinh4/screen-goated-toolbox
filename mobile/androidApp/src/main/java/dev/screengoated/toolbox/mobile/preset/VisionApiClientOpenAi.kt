@@ -44,7 +44,7 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
             throw IOException("$providerName vision request failed with $code")
         }
 
@@ -104,7 +104,7 @@ private fun VisionApiClient.generateOpenAiVisionBlocking(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
             throw IOException("$providerName vision request failed with $code")
         }
 
