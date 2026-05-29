@@ -133,7 +133,7 @@ class HistoryRepository internal constructor(
     fun clearAll() {
         scope.launch {
             mutex.withLock {
-                _state.value.items.forEach(::deleteBackingFile)
+                persistence.deleteAllMediaFiles()
                 persistItems(emptyList())
             }
         }

@@ -164,6 +164,17 @@
         }
       ],
       "expectedCount": 0
+    },
+    {
+      "name": "clear_all_removes_orphan_media_files",
+      "orphanMediaFiles": [
+        "orphan_text.txt",
+        "orphan_image.png"
+      ],
+      "operation": {
+        "type": "clear_all"
+      },
+      "expectedRemainingMediaFiles": []
     }
   ]
 }
