@@ -94,6 +94,8 @@ internal fun RenderGlobalTtsSettingsDialog(
         MobileTtsMethod.STEP_AUDIO_EDITX,
         MobileTtsMethod.MAGPIE_MULTILINGUAL,
         MobileTtsMethod.KOKORO,
+        MobileTtsMethod.SUPERTONIC,
+        MobileTtsMethod.VIENEU_TTS,
         MobileTtsMethod.VOXTRAL_TTS -> MaterialTheme.colorScheme.primary
     }
 
@@ -106,6 +108,8 @@ internal fun RenderGlobalTtsSettingsDialog(
             MobileTtsMethod.STEP_AUDIO_EDITX,
             MobileTtsMethod.MAGPIE_MULTILINGUAL,
             MobileTtsMethod.KOKORO,
+            MobileTtsMethod.SUPERTONIC,
+            MobileTtsMethod.VIENEU_TTS,
             MobileTtsMethod.VOXTRAL_TTS -> R.drawable.ms_graphic_eq
         },
         accent = accent,
@@ -118,6 +122,8 @@ internal fun RenderGlobalTtsSettingsDialog(
             MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
             MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
             MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.SUPERTONIC -> "Supertonic 3"
+            MobileTtsMethod.VIENEU_TTS -> "VieNeu-TTS v2"
             MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         },
         headerTrailing = if (isLandscape && !geminiOnly) {
@@ -204,6 +210,8 @@ internal fun RenderGlobalTtsSettingsDialog(
                         MobileTtsMethod.STEP_AUDIO_EDITX,
                         MobileTtsMethod.MAGPIE_MULTILINGUAL,
                         MobileTtsMethod.KOKORO,
+                        MobileTtsMethod.SUPERTONIC,
+                        MobileTtsMethod.VIENEU_TTS,
                         MobileTtsMethod.VOXTRAL_TTS -> OpenWeightsSection(
                             settings = settings,
                             method = settings.method,
@@ -224,11 +232,8 @@ private fun MethodToggleRow(
     compact: Boolean = false,
     centered: Boolean = false,
 ) {
-    val methods = listOf(
-        MobileTtsMethod.GEMINI_LIVE to compactMethodLabel(locale, MobileTtsMethod.GEMINI_LIVE, compact),
-        MobileTtsMethod.EDGE_TTS to compactMethodLabel(locale, MobileTtsMethod.EDGE_TTS, compact),
-        MobileTtsMethod.GOOGLE_TRANSLATE to compactMethodLabel(locale, MobileTtsMethod.GOOGLE_TRANSLATE, compact),
-    )
+    val methods = globalTtsMethodOptions()
+        .map { method -> method to compactMethodLabel(locale, method, compact) }
     val activeBg = MaterialTheme.colorScheme.primaryContainer
     val inactiveBg = Color.Transparent
     val activeContent = MaterialTheme.colorScheme.onPrimaryContainer
@@ -238,10 +243,9 @@ private fun MethodToggleRow(
         horizontalArrangement = if (centered) Arrangement.Center else Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.wrapContentWidth(),
+        FlowRow(
+            modifier = if (centered) Modifier.fillMaxWidth() else Modifier.wrapContentWidth(),
             horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
             methods.forEach { (method, label) ->
                 val selected = currentMethod == method
@@ -352,6 +356,8 @@ private fun compactMethodLabel(
             MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
             MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
             MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.SUPERTONIC -> "Supertonic 3"
+            MobileTtsMethod.VIENEU_TTS -> "VieNeu-TTS v2"
             MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         }
     }
@@ -363,6 +369,8 @@ private fun compactMethodLabel(
             MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
             MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
             MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.SUPERTONIC -> "Supertonic 3"
+            MobileTtsMethod.VIENEU_TTS -> "VieNeu-TTS v2"
             MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         }
         locale.ttsMethodFast.contains("빠름") -> when (method) {
@@ -372,6 +380,8 @@ private fun compactMethodLabel(
             MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
             MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
             MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.SUPERTONIC -> "Supertonic 3"
+            MobileTtsMethod.VIENEU_TTS -> "VieNeu-TTS v2"
             MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         }
         else -> when (method) {
@@ -381,10 +391,23 @@ private fun compactMethodLabel(
             MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
             MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
             MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.SUPERTONIC -> "Supertonic 3"
+            MobileTtsMethod.VIENEU_TTS -> "VieNeu-TTS v2"
             MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         }
     }
 }
+
+internal fun globalTtsMethodOptions(): List<MobileTtsMethod> = listOf(
+    MobileTtsMethod.GEMINI_LIVE,
+    MobileTtsMethod.EDGE_TTS,
+    MobileTtsMethod.GOOGLE_TRANSLATE,
+    MobileTtsMethod.STEP_AUDIO_EDITX,
+    MobileTtsMethod.MAGPIE_MULTILINGUAL,
+    MobileTtsMethod.KOKORO,
+    MobileTtsMethod.SUPERTONIC,
+    MobileTtsMethod.VIENEU_TTS,
+)
 
 @Composable
 private fun GoogleTranslateSection(

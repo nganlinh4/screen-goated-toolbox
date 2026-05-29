@@ -77,6 +77,8 @@ internal fun methodLabel(
         MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
         MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
         MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+        MobileTtsMethod.SUPERTONIC -> "Supertonic 3"
+        MobileTtsMethod.VIENEU_TTS -> "VieNeu-TTS v2"
         MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
     }
 }

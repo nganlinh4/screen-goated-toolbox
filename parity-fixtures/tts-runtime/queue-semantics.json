@@ -72,6 +72,34 @@
         "ssml_volume_percent": 40,
         "playback_volume_percent": 100
       }
+    },
+    {
+      "name": "android_visible_tts_methods_follow_windows_selector",
+      "windows_selector_methods": [
+        "GEMINI_LIVE",
+        "EDGE_TTS",
+        "GOOGLE_TRANSLATE",
+        "STEP_AUDIO_EDITX",
+        "MAGPIE_MULTILINGUAL",
+        "KOKORO",
+        "SUPERTONIC",
+        "VIENEU_TTS"
+      ],
+      "legacy_hidden_methods": [
+        "VOXTRAL_TTS"
+      ]
+    },
+    {
+      "name": "android_open_weight_methods_are_explicitly_unavailable",
+      "methods": [
+        "STEP_AUDIO_EDITX",
+        "MAGPIE_MULTILINGUAL",
+        "KOKORO",
+        "SUPERTONIC",
+        "VIENEU_TTS",
+        "VOXTRAL_TTS"
+      ],
+      "expected_error_suffix": "offline pipeline not yet available on Android."
     }
   ]
 }

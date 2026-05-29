@@ -20,7 +20,7 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
 
 /**
- * Settings section for the five offline leaderboard TTS providers.
+ * Settings section for Windows-parity open-weight TTS providers.
  */
 @Composable
 internal fun OpenWeightsSection(
@@ -44,6 +44,14 @@ internal fun OpenWeightsSection(
                 MobileTtsMethod.MAGPIE_MULTILINGUAL -> DeferredNotice(
                     title = "NVIDIA Magpie-Multilingual 357M",
                     detail = "Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese.",
+                )
+                MobileTtsMethod.SUPERTONIC -> DeferredNotice(
+                    title = "Supertonic 3",
+                    detail = "Supports English, Spanish, French, German, Italian, Portuguese, Polish, Turkish, Russian, Dutch, Czech, Arabic, Mandarin Chinese, Japanese, Hungarian, Korean, and Hindi.",
+                )
+                MobileTtsMethod.VIENEU_TTS -> DeferredNotice(
+                    title = "VieNeu-TTS v2",
+                    detail = "Vietnamese-first local TTS with English/Vietnamese code-switching and zero-shot voice cloning.",
                 )
                 MobileTtsMethod.VOXTRAL_TTS -> DeferredNotice(
                     title = "Mistral Voxtral 4B TTS",

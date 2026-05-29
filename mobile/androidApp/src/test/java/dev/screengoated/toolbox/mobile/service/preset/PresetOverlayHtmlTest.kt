@@ -77,11 +77,13 @@ class PresetOverlayHtmlTest {
     @Test
     fun textInputBuilderKeepsWindowsOverlayHooks() {
         val fixture = fixture("parity-fixtures/preset-system/text-input-overlay.json")
+        val canonicalWindowsFiles = fixture["canonical_windows_files"]!!.jsonArray.map { it.jsonPrimitive.content }
         val contract = fixture["android_contract"]!!.jsonObject
         val requiredMessages = contract["required_messages"]!!.jsonArray.map { it.jsonPrimitive.content }
         val requiredHooks = contract["required_js_hooks"]!!.jsonArray.map { it.jsonPrimitive.content }
         val acceptedMobileShims = contract["accepted_mobile_shims"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
         val documentedDeferred = fixture["documented_deferred_behavior"]!!.jsonArray.map { it.jsonPrimitive.content }
+        val androidBuilder = File(repoRoot(), "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetTextInputHtmlSupport.kt").readText()
         val html = PresetTextInputHtmlBuilder().build(
             PresetTextInputHtmlSettings(
                 lang = "en",
@@ -91,6 +93,13 @@ class PresetOverlayHtmlTest {
             ),
         )
 
+        canonicalWindowsFiles.forEach { relativePath ->
+            assertTrue("missing canonical Windows text-input source $relativePath", File(repoRoot(), relativePath).exists())
+        }
+        assertTrue(androidBuilder.contains("""<div class="editor-container">"""))
+        assertTrue(androidBuilder.contains("""window.playEntry"""))
+        assertTrue(androidBuilder.contains("""window.playExit"""))
+        assertTrue(androidBuilder.contains("""window.updateTheme"""))
         assertTrue(html.contains("""<div class="editor-container">"""))
         requiredMessages.forEach { message ->
             assertTrue("missing required text-input message $message", html.contains(messageContractSnippet(message)))

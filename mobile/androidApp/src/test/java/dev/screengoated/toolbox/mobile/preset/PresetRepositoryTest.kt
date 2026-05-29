@@ -19,6 +19,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -240,6 +241,113 @@ class PresetRepositoryTest {
     }
 
     @Test
+    fun audioRuntimeFixtureContractsAreBackedByAndroidSources() {
+        val fixture = audioRuntimeFixture()
+        assertEquals(
+            setOf(
+                "canonical_windows_files",
+                "recording_toggle_contract",
+                "auto_stop_thresholds",
+                "default_auto_stop_presets",
+                "recording_shell_contract",
+                "shared_mic_button_contract",
+                "streaming_capture_contract",
+                "android_explicit_unsupported_presets",
+                "realtime_contract",
+                "bubble_capture_host_contract",
+                "auto_speak_contract",
+            ),
+            fixture.keys,
+        )
+
+        val audioSession = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetAudioCaptureSession.kt")
+        val overlayController = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetOverlayController.kt")
+        val buildGradle = repoFile("mobile/androidApp/build.gradle.kts")
+        val recordingUi = repoFile("src/overlay/recording/ui.rs")
+        val audioBlockExecutor = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetAudioBlockExecutor.kt")
+        val graphExecutor = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetGraphExecutor.kt")
+        val autoSpeak = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetAutoSpeakCoordinator.kt")
+        val foregroundSupport = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/BubbleForegroundSupport.kt")
+
+        val toggleContract = fixture.getValue("recording_toggle_contract").jsonObject
+        assertEquals("start_recording", toggleContract.getValue("first_launch").jsonPrimitive.content)
+        assertEquals("stop_and_submit", toggleContract.getValue("second_launch_same_preset").jsonPrimitive.content)
+        assertEquals("abort_and_close", toggleContract.getValue("third_launch_while_processing").jsonPrimitive.content)
+        assertTrue(audioSession.contains("fun toggleOrAbortIfMatching(presetId: String): Boolean"))
+        assertTrue(audioSession.contains("""if (state == "processing")"""))
+        assertTrue(audioSession.contains("cancel()"))
+        assertTrue(audioSession.contains("stopAndSubmit()"))
+        assertTrue(overlayController.contains("if (audioCaptureSession.toggleOrAbortIfMatching(presetId))"))
+
+        val shellContract = fixture.getValue("recording_shell_contract").jsonObject
+        assertEquals("windows_webview_template", shellContract.getValue("source").jsonPrimitive.content)
+        assertTrue(buildGradle.contains("""repoRoot.resolve("src/overlay/recording/ui.rs")"""))
+        assertTrue(buildGradle.contains("windows_recording_template.html"))
+        assertTrue(buildGradle.contains("{{BRIDGE_PRELUDE}}"))
+        assertTrue(buildGradle.contains("{{MOBILE_SHIM}}"))
+        shellContract.getValue("bridge_methods").jsonArray
+            .map { it.jsonPrimitive.content }
+            .forEach { method ->
+                assertTrue("Windows recording bridge method missing: $method", recordingUi.contains(method))
+            }
+        shellContract.getValue("ipc_messages").jsonArray
+            .map { it.jsonPrimitive.content }
+            .forEach { message ->
+                assertTrue("Windows recording IPC missing: $message", recordingUi.contains(message))
+            }
+
+        val streamingContract = fixture.getValue("streaming_capture_contract").jsonObject
+        assertEquals(
+            "partial_transcript_during_capture",
+            streamingContract.getValue("gemini-live-audio").jsonPrimitive.content,
+        )
+        assertEquals(
+            "first_audio_block_uses_precomputed_transcript",
+            streamingContract.getValue("final_transcript_handoff").jsonPrimitive.content,
+        )
+        assertEquals(
+            "inject_deltas_during_capture_and_skip_final_paste_when_already_written",
+            streamingContract.getValue("streaming_auto_paste").jsonPrimitive.content,
+        )
+        assertTrue(audioSession.contains("PresetModelProvider.GEMINI_LIVE"))
+        assertTrue(audioSession.contains("openStreamingSession"))
+        assertTrue(audioSession.contains("onStreamingTextChunk(chunk)"))
+        assertTrue(audioSession.contains("precomputedTranscript = streamingTranscript?.transcript"))
+        assertTrue(audioSession.contains("isStreamingResult = streamingTranscript?.producedRealtimePaste == true"))
+        assertTrue(audioBlockExecutor.contains("input.precomputedTranscript"))
+        assertTrue(graphExecutor.contains("shouldSkipFinalAutoPaste"))
+        assertTrue(graphExecutor.contains("(input as? PresetInput.Audio)?.isStreamingResult == true"))
+
+        val realtimeContract = fixture.getValue("realtime_contract").jsonObject
+        assertEquals("transient_live_service_override", realtimeContract.getValue("launch_path").jsonPrimitive.content)
+        assertTrue(realtimeContract.getValue("restore_saved_config_on_stop").jsonPrimitive.boolean)
+        assertTrue(overlayController.contains("launchRealtimeAudioPreset"))
+        assertTrue(overlayController.contains("isTransientSessionConfigActive()"))
+        assertTrue(overlayController.contains("setActiveRealtimePresetId"))
+        assertTrue(overlayController.contains("LiveTranslateService.stop(context)"))
+        assertTrue(overlayController.contains("MainActivity.EXTRA_RESUME_PENDING_AUDIO_PRESET"))
+
+        val foregroundContract = fixture.getValue("bubble_capture_host_contract").jsonObject
+        assertEquals("specialUse", foregroundContract.getValue("default_foreground_mode").jsonPrimitive.content)
+        assertEquals("promote_to_microphone_then_restore", foregroundContract.getValue("mic_presets").jsonPrimitive.content)
+        assertEquals("promote_to_mediaProjection_then_restore", foregroundContract.getValue("device_audio_presets").jsonPrimitive.content)
+        assertTrue(foregroundSupport.contains("PresetAudioForegroundMode.NONE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE"))
+        assertTrue(foregroundSupport.contains("PresetAudioForegroundMode.MICROPHONE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE"))
+        assertTrue(foregroundSupport.contains("PresetAudioForegroundMode.MEDIA_PROJECTION -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION"))
+        assertTrue(overlayController.contains("PresetAudioForegroundMode.MICROPHONE"))
+        assertTrue(overlayController.contains("PresetAudioForegroundMode.MEDIA_PROJECTION"))
+        assertTrue(overlayController.contains("onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)"))
+
+        val autoSpeakContract = fixture.getValue("auto_speak_contract").jsonObject
+        assertEquals("AUTO_SPEAK", autoSpeakContract.getValue("consumer").jsonPrimitive.content)
+        assertEquals("single_retry_then_surface_error", autoSpeakContract.getValue("first_failure_recovery").jsonPrimitive.content)
+        assertTrue(autoSpeak.contains("consumer = TtsConsumer.AUTO_SPEAK"))
+        assertTrue(autoSpeak.contains("MAX_AUTO_SPEAK_RETRIES = 1"))
+        assertTrue(autoSpeak.contains("pending.retryCount + 1"))
+        assertTrue(autoSpeak.contains("Could not speak the preset result."))
+    }
+
+    @Test
     fun presetModelCatalogIncludesGemma4FamilyAcrossModalities() {
         val textModel = requireNotNull(PresetModelCatalog.getById("gemma-4-26b-a4b"))
         val visionModel = requireNotNull(PresetModelCatalog.getById("gemma-4-26b-a4b-vision"))
@@ -325,6 +433,17 @@ class PresetRepositoryTest {
         )
         return candidates.firstOrNull(Files::exists)
             ?: error("Could not locate audio-runtime parity fixture.")
+    }
+
+    private fun repoFile(path: String): String = File(repoRoot(), path).readText()
+
+    private fun repoRoot(): File {
+        val workingDirectory = requireNotNull(System.getProperty("user.dir"))
+        return generateSequence(File(workingDirectory).absoluteFile) { current ->
+            current.parentFile
+        }.first { root ->
+            File(root, "parity-fixtures/preset-system/audio-runtime.json").exists()
+        }
     }
 
     private data class FixtureCase(
