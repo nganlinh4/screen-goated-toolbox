@@ -485,28 +485,6 @@
             color: {{PLACEHOLDER_COLOR}};
             font-style: italic;
         }
-        /* Resize handle - visible grip in corner */
-         #resize-hint {
-             position: absolute;
-             bottom: 0;
-             right: 0;
-             width: 16px;
-             height: 16px;
-             cursor: se-resize;
-             opacity: 0.25;
-             display: flex;
-             align-items: flex-end;
-             justify-content: flex-end;
-             padding: 2px;
-             font-size: 10px;
-             color: {{RESIZE_HINT_COLOR}};
-             user-select: none;
-             transition: all 0.25s cubic-bezier(0.2, 0.0, 0, 1.0);
-         }
-        #resize-hint:hover {
-             opacity: 1;
-             color: {{PRIMARY}};
-         }
         .audio-icon {
             font-size: 22px;
             padding: 0;

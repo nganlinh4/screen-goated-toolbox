@@ -309,6 +309,7 @@ private fun overlayLocaleJson(uiLanguage: String): String {
         put("geminiLiveTitle", overlay.geminiLiveTitle)
         put("geminiLive25Title", overlay.geminiLiveTitle)
         put("geminiS2sTitle", overlay.geminiS2sTitle)
+        put("unavailableSuffix", overlay.unavailableSuffix)
         put("llmLabel", overlay.llmLabel)
         put("gtxLabel", overlay.gtxLabel)
         put("transcriptionModelTitle", overlay.transcriptionModelTitle)

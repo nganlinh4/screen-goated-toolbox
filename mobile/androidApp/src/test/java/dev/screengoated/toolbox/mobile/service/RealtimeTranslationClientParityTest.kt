@@ -59,6 +59,19 @@ class RealtimeTranslationClientParityTest {
     }
 
     @Test
+    fun `hidden translation pane skips provider requests and realtime tts`() {
+        val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
+        val controllerSource = loadSourceFile(OVERLAY_CONTROLLER_SOURCE_PATH).readText()
+
+        assertTrue(controllerSource.contains("fun isTranslationVisible(): Boolean = translationVisible"))
+        assertTrue(runtimeSource.contains("if (!overlayController.isTranslationVisible())"))
+        assertTrue(runtimeSource.contains("lastTranslationAttemptAtMs = nowMs"))
+        assertTrue(runtimeSource.contains("val request = repository.claimTranslationRequest()"))
+        assertTrue(runtimeSource.indexOf("if (!overlayController.isTranslationVisible())") < runtimeSource.indexOf("val request = repository.claimTranslationRequest()"))
+        assertTrue(runtimeSource.contains("realtimeTtsCoordinator.stop()"))
+    }
+
+    @Test
     fun `translation success requires accepted state apply`() {
         val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
         val repositorySource = loadSourceFile(REPOSITORY_SOURCE_PATH).readText()
@@ -90,23 +103,47 @@ class RealtimeTranslationClientParityTest {
         val overlaySource = loadSourceFile(OVERLAY_JS_SOURCE_PATH).readText()
         val webViewSource = loadSourceFile(OVERLAY_WEBVIEW_SOURCE_PATH).readText()
         val builderSource = loadSourceFile(OVERLAY_HTML_BUILDER_SOURCE_PATH).readText()
-        val htmlSupportSource = loadSourceFile(OVERLAY_HTML_SUPPORT_SOURCE_PATH).readText()
+        val htmlTemplateSource = loadSourceFile(OVERLAY_BASE_HTML_SOURCE_PATH).readText()
+        val overlayStyleSource = loadSourceFile(OVERLAY_STYLE_SOURCE_PATH).readText()
 
         assertTrue(webViewSource.contains("put(\"s2sTranslationModelTitle\", overlay.s2sTranslationModelTitle)"))
         assertTrue(webViewSource.contains("put(\"s2sTargetLanguageTitle\", overlay.s2sTargetLanguageTitle)"))
         assertTrue(webViewSource.contains("put(\"directSpeechTitle\", overlay.directSpeechTitle)"))
         assertTrue(webViewSource.contains("put(\"ttsS2sLockedTitle\", overlay.ttsS2sLockedTitle)"))
+        assertTrue(webViewSource.contains("put(\"unavailableSuffix\", overlay.unavailableSuffix)"))
+        assertTrue(builderSource.contains("private val baseHtml by lazy { asset(\"base.html\") }"))
         assertTrue(builderSource.contains("val locale = MobileLocaleText.forLanguage(DEFAULT_TEMPLATE_LANGUAGE)"))
         assertTrue(!builderSource.contains("val uiLanguage: String"))
-        assertTrue(htmlSupportSource.contains("id=\"tts-modal-title-text\""))
-        assertTrue(htmlSupportSource.contains("id=\"tts-speed-label\""))
-        assertTrue(htmlSupportSource.contains("id=\"tts-volume-label\""))
-        assertTrue(htmlSupportSource.contains("id=\"download-cancel-text\""))
+        assertTrue(htmlTemplateSource.contains("title=\"{{COPY_TEXT_TITLE}}\""))
+        assertTrue(htmlTemplateSource.contains("title=\"{{TOGGLE_HEADER_TITLE}}\""))
+        assertTrue(htmlTemplateSource.contains("id=\"auto-speed-toggle\" title=\"{{TTS_AUTO}}\""))
+        assertTrue(!htmlTemplateSource.contains("Auto-adjust speed to catch up"))
+        assertTrue(!htmlTemplateSource.contains("id=\"resize-hint\""))
+        assertTrue(!overlayStyleSource.contains("#resize-hint"))
+        assertTrue(htmlTemplateSource.contains("id=\"tts-modal-title-text\""))
+        assertTrue(htmlTemplateSource.contains("id=\"tts-speed-label\""))
+        assertTrue(htmlTemplateSource.contains("id=\"tts-volume-label\""))
+        assertTrue(htmlTemplateSource.contains("id=\"download-cancel-text\""))
         assertTrue(overlaySource.contains("overlayLocale.s2sTranslationModelTitle"))
         assertTrue(overlaySource.contains("overlayLocale.s2sTargetLanguageTitle"))
         assertTrue(overlaySource.contains("overlayLocale.directSpeechTitle"))
         assertTrue(overlaySource.contains("overlayLocale.ttsS2sLockedTitle"))
+        assertTrue(overlaySource.contains("overlayLocale.unavailableSuffix"))
         assertTrue(overlaySource.contains("applyS2sMode(s2sMode);"))
+    }
+
+    @Test
+    fun `android parakeet remains visibly unavailable and cannot run as fake active transcription`() {
+        val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
+        val overlaySource = loadSourceFile(OVERLAY_JS_SOURCE_PATH).readText()
+        val modelOptionsSource = loadSourceFile(OVERLAY_MODEL_OPTIONS_SOURCE_PATH).readText()
+
+        assertTrue(modelOptionsSource.contains("RealtimeModelIds.TRANSCRIPTION_PARAKEET"))
+        assertTrue(modelOptionsSource.contains("parakeetLabel(unavailableSuffix)"))
+        assertTrue(overlaySource.contains("modelName === 'parakeet'"))
+        assertTrue(overlaySource.contains("'Parakeet (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')'"))
+        assertTrue(runtimeSource.contains("config.transcriptionProvider.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET"))
+        assertTrue(runtimeSource.contains("Parakeet is visible for Windows parity but is not available on Android yet."))
     }
 
     @Test
@@ -148,8 +185,12 @@ class RealtimeTranslationClientParityTest {
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/OverlayLanguagePicker.kt"
         private const val OVERLAY_HTML_BUILDER_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/RealtimeOverlayHtmlBuilder.kt"
-        private const val OVERLAY_HTML_SUPPORT_SOURCE_PATH =
-            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/RealtimeOverlayHtmlSupport.kt"
+        private const val OVERLAY_BASE_HTML_SOURCE_PATH =
+            "mobile/androidApp/src/main/assets/realtime_overlay/base.html"
+        private const val OVERLAY_STYLE_SOURCE_PATH =
+            "mobile/androidApp/src/main/assets/realtime_overlay/style.css"
+        private const val OVERLAY_MODEL_OPTIONS_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/RealtimeOverlayModelOptions.kt"
         private const val GEMINI_S2S_CLIENT_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sClient.kt"
         private const val MOBILE_LOCALE_SOURCE_PATH =

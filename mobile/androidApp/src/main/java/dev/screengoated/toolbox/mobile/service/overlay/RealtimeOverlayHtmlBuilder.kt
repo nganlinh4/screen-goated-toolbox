@@ -11,7 +11,7 @@ internal data class RealtimeOverlayPaneSettings(
 internal class RealtimeOverlayHtmlBuilder(
     private val context: Context,
 ) {
-    private val baseHtml by lazy { overlayBaseHtmlTemplate() }
+    private val baseHtml by lazy { asset("base.html") }
     private val baseCss by lazy { asset("style.css") }
     private val baseMainJs by lazy { asset("main.js") }
     private val baseLogicJs by lazy { asset("logic.js") }

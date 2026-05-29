@@ -18,6 +18,7 @@ import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayPaneWindow
+import dev.screengoated.toolbox.mobile.service.overlay.RealtimeOverlayModelOptions
 import dev.screengoated.toolbox.mobile.service.overlay.RealtimeOverlayHtmlBuilder
 import dev.screengoated.toolbox.mobile.service.overlay.RealtimeOverlayPaneSettings
 import dev.screengoated.toolbox.mobile.service.tts.TtsConsumer
@@ -498,23 +499,13 @@ class OverlayController(
     private fun showTranscriptionModelPicker() {
         val anchor = transcriptionWindow?.currentBounds() ?: return
         val overlayLocale = currentOverlayLocale()
-        val geminiS2sLabel = overlayLocale.geminiS2sTitle
-        val parakeetLabel = parakeetUnavailableLabel(overlayLocale.unavailableSuffix)
-        val models = listOf(
-            "Gemini Live | 100+ languages",
-            geminiS2sLabel,
-            parakeetLabel,
-            "Moonshine Tiny | 1 language",
-            "Moonshine Small | 1 language",
-            "Moonshine Medium | 1 language",
-            "Zipformer | 8 languages",
+        val options = RealtimeOverlayModelOptions.transcriptionOptions(
+            geminiS2sLabel = overlayLocale.geminiS2sTitle,
+            unavailableSuffix = overlayLocale.unavailableSuffix,
         )
+        val models = options.map { it.label }
         val currentId = repository.transcriptionModelId()
-        val currentLabel = when (currentId) {
-            RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S -> geminiS2sLabel
-            RealtimeModelIds.TRANSCRIPTION_PARAKEET -> parakeetLabel
-            else -> TRANSCRIPTION_MODEL_LABELS[currentId] ?: "Gemini Live | 100+ languages"
-        }
+        val currentLabel = options.firstOrNull { it.id == currentId }?.label ?: options.first().label
         transcriptionModelPicker.show(
             anchorBounds = anchor,
             selectedLanguage = currentLabel,
@@ -527,11 +518,10 @@ class OverlayController(
 
     private fun onTranscriptionModelSelected(label: String) {
         val overlayLocale = currentOverlayLocale()
-        val modelId = when (label) {
-            overlayLocale.geminiS2sTitle -> RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S
-            parakeetUnavailableLabel(overlayLocale.unavailableSuffix) -> RealtimeModelIds.TRANSCRIPTION_PARAKEET
-            else -> TRANSCRIPTION_MODEL_IDS[label] ?: return
-        }
+        val modelId = RealtimeOverlayModelOptions.transcriptionOptions(
+            geminiS2sLabel = overlayLocale.geminiS2sTitle,
+            unavailableSuffix = overlayLocale.unavailableSuffix,
+        ).firstOrNull { it.label == label }?.id ?: return
         updateTranscriptionModel(modelId)
     }
 
@@ -541,12 +531,13 @@ class OverlayController(
         }
         val anchor = translationWindow?.currentBounds() ?: return
         val overlayLocale = currentOverlayLocale()
-        val models = listOf(overlayLocale.llmLabel, overlayLocale.gtxLabel)
+        val options = RealtimeOverlayModelOptions.translationOptions(
+            llmLabel = overlayLocale.llmLabel,
+            gtxLabel = overlayLocale.gtxLabel,
+        )
+        val models = options.map { it.label }
         val currentId = repository.currentConfig().translationProvider.id
-        val currentLabel = when (currentId) {
-            RealtimeModelIds.TRANSLATION_GTX -> overlayLocale.gtxLabel
-            else -> overlayLocale.llmLabel
-        }
+        val currentLabel = options.firstOrNull { it.id == currentId }?.label ?: options.first().label
         translationModelPicker.show(
             anchorBounds = anchor,
             selectedLanguage = currentLabel,
@@ -559,11 +550,10 @@ class OverlayController(
 
     private fun onTranslationModelSelected(label: String) {
         val overlayLocale = currentOverlayLocale()
-        val modelId = when (label) {
-            overlayLocale.gtxLabel -> RealtimeModelIds.TRANSLATION_GTX
-            overlayLocale.llmLabel -> RealtimeModelIds.TRANSLATION_LLM
-            else -> return
-        }
+        val modelId = RealtimeOverlayModelOptions.translationOptions(
+            llmLabel = overlayLocale.llmLabel,
+            gtxLabel = overlayLocale.gtxLabel,
+        ).firstOrNull { it.label == label }?.id ?: return
         repository.updateTranslationModel(modelId)
     }
 
@@ -848,19 +838,6 @@ class OverlayController(
         private const val DISMISS_ZONE_PX = 120
         private const val PERF_TAG = "SGTOverlayPerf"
 
-        // Label ↔ model ID mappings for native pickers
-        private val TRANSCRIPTION_MODEL_IDS = mapOf(
-            "Gemini Live | 100+ languages" to "gemini-live-audio",
-            "Moonshine Tiny | 1 language" to "moonshine-tiny-streaming",
-            "Moonshine Small | 1 language" to "moonshine-small-streaming",
-            "Moonshine Medium | 1 language" to "moonshine-medium-streaming",
-            "Zipformer | 8 languages" to "zipformer",
-        )
-        private val TRANSCRIPTION_MODEL_LABELS = TRANSCRIPTION_MODEL_IDS.entries.associate { (k, v) -> v to k }
-
-        private fun parakeetUnavailableLabel(unavailableSuffix: String): String {
-            return "Parakeet ($unavailableSuffix)"
-        }
     }
 }
 

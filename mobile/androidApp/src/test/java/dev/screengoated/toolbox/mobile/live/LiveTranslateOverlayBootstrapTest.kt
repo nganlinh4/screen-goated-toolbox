@@ -4,6 +4,7 @@ import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.service.overlay.RealtimeOverlayModelOptions
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import java.io.File
@@ -41,19 +42,8 @@ class LiveTranslateOverlayBootstrapTest {
         val fixture = loadFixture()
         val controls = fixture.requiredControls
         val requiredModels = fixture.requiredModels
-        val translation = listOf(
-            RealtimeModelIds.TRANSLATION_LLM,
-            RealtimeModelIds.TRANSLATION_GTX,
-        )
-        val transcription = listOf(
-            RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5,
-            RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S,
-            RealtimeModelIds.TRANSCRIPTION_PARAKEET,
-            "moonshine-tiny-streaming",
-            "moonshine-small-streaming",
-            "moonshine-medium-streaming",
-            "zipformer",
-        )
+        val translation = RealtimeOverlayModelOptions.translationProviderIds
+        val transcription = RealtimeOverlayModelOptions.transcriptionProviderIds
 
         assertEquals(requiredModels.translationProviders, translation)
         assertEquals(requiredModels.androidTranscriptionProviders, transcription)
@@ -75,11 +65,30 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(fixture.requiredVisuals.androidRejectedTranslationApplyIsFailure)
         assertTrue(fixture.requiredVisuals.androidRejectedPrimaryApplyCanTryFallback)
         assertTrue(fixture.requiredVisuals.androidForceCommitPrimesTranslationInterval)
+        assertTrue(fixture.requiredVisuals.androidSkipsTranslationWhenPaneHidden)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.ttsModalLocaleRefresh)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.downloadModalLocaleRefresh)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.s2sTooltipLocaleRefresh)
         assertEquals("active-ui-language-bundle", fixture.requiredVisuals.nativePickerLocaleSource)
         assertTrue(fixture.requiredVisuals.targetLanguageChangeRestartsS2s)
+    }
+
+    @Test
+    fun `active Android overlay sources expose fixture-required controls`() {
+        val fixture = loadFixture()
+        val baseHtml = loadRepoFile(OVERLAY_BASE_HTML_PATH).readText()
+        val builderSource = loadRepoFile(OVERLAY_HTML_BUILDER_PATH).readText()
+        val styleSource = loadRepoFile(OVERLAY_STYLE_PATH).readText()
+
+        fixture.requiredControls.transcriptionPane.forEach { control ->
+            assertTrue("Missing transcription control: $control", activeControlSource(control, baseHtml, builderSource))
+        }
+        fixture.requiredControls.translationPane.forEach { control ->
+            assertTrue("Missing translation control: $control", activeControlSource(control, baseHtml, builderSource))
+        }
+        assertEquals("pinch", fixture.requiredVisuals.mobileResizeGesture)
+        assertTrue(!baseHtml.contains("id=\"resize-hint\""))
+        assertTrue(!styleSource.contains("#resize-hint"))
     }
 
     private fun defaultTranslationProviderId(): String = LiveSessionConfig().translationProvider.id
@@ -102,18 +111,47 @@ class LiveTranslateOverlayBootstrapTest {
     }
 
     private fun loadFixture(): OverlayFixture {
-        val workingDirectory = requireNotNull(System.getProperty("user.dir"))
-        val repoRoot = generateSequence(File(workingDirectory).absoluteFile) { current ->
-            current.parentFile ?: return@generateSequence null
-        }.firstOrNull { root ->
-            File(root, FIXTURE_PATH).exists()
-        } ?: error("Could not locate $FIXTURE_PATH from $workingDirectory")
+        return json.decodeFromString(loadRepoFile(FIXTURE_PATH).readText())
+    }
 
-        return json.decodeFromString(File(repoRoot, FIXTURE_PATH).readText())
+    private fun loadRepoFile(path: String): File {
+        val workingDirectory = requireNotNull(System.getProperty("user.dir"))
+        return generateSequence(File(workingDirectory).absoluteFile) { current ->
+            current.parentFile ?: return@generateSequence null
+        }.map { root -> File(root, path) }
+            .firstOrNull(File::exists)
+            ?: error("Could not locate $path from $workingDirectory")
+    }
+
+    private fun activeControlSource(
+        control: String,
+        baseHtml: String,
+        builderSource: String,
+    ): Boolean {
+        val source = "$baseHtml\n$builderSource"
+        return when (control) {
+            "waveform-canvas" -> source.contains("id=\"volume-canvas\"")
+            "audio-source-toggle" -> source.contains("id=\"mic-btn\"") && source.contains("id=\"device-btn\"")
+            "transcription-model-toggle" -> source.contains("id=\"transcription-model-btn\"")
+            "tts-read" -> source.contains("id=\"speak-btn\"")
+            "translation-model-toggle" -> source.contains("id=\"translation-model-btn\"")
+            "language-select" -> source.contains("id=\"language-select\"")
+            "copy" -> source.contains("id=\"copy-btn\"")
+            "font-minus" -> source.contains("id=\"font-decrease\"")
+            "font-plus" -> source.contains("id=\"font-increase\"")
+            "toggle-transcription" -> source.contains("id=\"toggle-mic\"")
+            "toggle-translation" -> source.contains("id=\"toggle-trans\"")
+            "collapse-chevron" -> source.contains("id=\"header-toggle\"")
+            else -> false
+        }
     }
 
     private companion object {
         private const val FIXTURE_PATH = "parity-fixtures/live-translate/overlay-bootstrap.json"
+        private const val OVERLAY_BASE_HTML_PATH = "mobile/androidApp/src/main/assets/realtime_overlay/base.html"
+        private const val OVERLAY_STYLE_PATH = "mobile/androidApp/src/main/assets/realtime_overlay/style.css"
+        private const val OVERLAY_HTML_BUILDER_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/RealtimeOverlayHtmlBuilder.kt"
     }
 }
 
@@ -156,6 +194,7 @@ private data class RequiredControls(
 
 @Serializable
 private data class RequiredVisuals(
+    val mobileResizeGesture: String,
     val androidS2sAdaptiveVad: Boolean,
     val androidS2sScaledTimeouts: Boolean,
     val androidS2sStaleOrderedSkip: Boolean,
@@ -166,6 +205,7 @@ private data class RequiredVisuals(
     val androidRejectedTranslationApplyIsFailure: Boolean,
     val androidRejectedPrimaryApplyCanTryFallback: Boolean,
     val androidForceCommitPrimesTranslationInterval: Boolean,
+    val androidSkipsTranslationWhenPaneHidden: Boolean,
     val ttsModalLocaleRefresh: String,
     val downloadModalLocaleRefresh: String,
     val s2sTooltipLocaleRefresh: String,

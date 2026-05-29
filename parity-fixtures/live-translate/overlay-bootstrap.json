@@ -281,6 +281,7 @@
     "androidRejectedTranslationApplyIsFailure": true,
     "androidRejectedPrimaryApplyCanTryFallback": true,
     "androidForceCommitPrimesTranslationInterval": true,
+    "androidSkipsTranslationWhenPaneHidden": true,
     "targetLanguageChangeRestartsS2s": true,
     "ttsDisplayedSpeedSource": "runtime-effective-while-speaking",
     "localeUpdatePath": "discrete-js-no-html-reload",
