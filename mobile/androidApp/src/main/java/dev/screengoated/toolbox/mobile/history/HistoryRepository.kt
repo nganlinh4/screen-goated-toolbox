@@ -38,7 +38,8 @@ class HistoryRepository internal constructor(
         scope.launch {
             mutex.withLock {
                 val now = LocalDateTime.now()
-                val fileName = "text_${filenameFormatter.format(now)}.txt"
+                val id = nextId.incrementAndGet()
+                val fileName = "text_${filenameFormatter.format(now)}_$id.txt"
                 val file = persistence.mediaFile(fileName)
                 runCatching {
                     file.parentFile?.mkdirs()
@@ -46,7 +47,7 @@ class HistoryRepository internal constructor(
                 }.onSuccess {
                     upsertItem(
                         HistoryItem(
-                            id = nextId.incrementAndGet(),
+                            id = id,
                             timestamp = timestampFormatter.format(now),
                             itemType = HistoryType.TEXT,
                             text = resultText,
@@ -68,7 +69,8 @@ class HistoryRepository internal constructor(
         scope.launch {
             mutex.withLock {
                 val now = LocalDateTime.now()
-                val fileName = "img_${filenameFormatter.format(now)}.png"
+                val id = nextId.incrementAndGet()
+                val fileName = "img_${filenameFormatter.format(now)}_$id.png"
                 val file = persistence.mediaFile(fileName)
                 runCatching {
                     file.parentFile?.mkdirs()
@@ -76,7 +78,7 @@ class HistoryRepository internal constructor(
                 }.onSuccess {
                     upsertItem(
                         HistoryItem(
-                            id = nextId.incrementAndGet(),
+                            id = id,
                             timestamp = timestampFormatter.format(now),
                             itemType = HistoryType.IMAGE,
                             text = resultText,
@@ -98,7 +100,8 @@ class HistoryRepository internal constructor(
         scope.launch {
             mutex.withLock {
                 val now = LocalDateTime.now()
-                val fileName = "audio_${filenameFormatter.format(now)}.wav"
+                val id = nextId.incrementAndGet()
+                val fileName = "audio_${filenameFormatter.format(now)}_$id.wav"
                 val file = persistence.mediaFile(fileName)
                 runCatching {
                     file.parentFile?.mkdirs()
@@ -106,7 +109,7 @@ class HistoryRepository internal constructor(
                 }.onSuccess {
                     upsertItem(
                         HistoryItem(
-                            id = nextId.incrementAndGet(),
+                            id = id,
                             timestamp = timestampFormatter.format(now),
                             itemType = HistoryType.AUDIO,
                             text = resultText,

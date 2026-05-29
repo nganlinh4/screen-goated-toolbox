@@ -38,6 +38,32 @@
       "expectedBackingText": "Hello"
     },
     {
+      "name": "rapid_saves_keep_unique_backing_files",
+      "operations": [
+        {
+          "type": "save_text",
+          "resultText": "First result",
+          "sourceText": "First source"
+        },
+        {
+          "type": "save_text",
+          "resultText": "Second result",
+          "sourceText": "Second source"
+        },
+        {
+          "type": "save_text",
+          "resultText": "Third result",
+          "sourceText": "Third source"
+        }
+      ],
+      "expectedUniqueMediaPaths": true,
+      "expectedBackingTextsByResult": {
+        "First result": "First source",
+        "Second result": "Second source",
+        "Third result": "Third source"
+      }
+    },
+    {
       "name": "search_matches_text_and_timestamp_only",
       "query": "2026-03-21 10:00:00",
       "items": [

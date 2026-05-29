@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -147,6 +148,37 @@ class HistoryModelsTest {
             backingCase.getValue("expectedBackingText").jsonPrimitive.content,
             requireNotNull(backingRepository.mediaFileFor(item)).readText(),
         )
+    }
+
+    @Test
+    fun rapidSavesKeepUniqueBackingFilesFromFixture() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = createRepository(dispatcher)
+        val case = fixtureCase("rapid_saves_keep_unique_backing_files")
+
+        case.getValue("operations").jsonArray.forEach { operation ->
+            val obj = operation.jsonObject
+            repository.saveText(
+                resultText = obj.getValue("resultText").jsonPrimitive.content,
+                inputText = obj.getValue("sourceText").jsonPrimitive.content,
+            )
+        }
+        advanceUntilIdle()
+
+        val items = repository.state.value.items
+        if (case.getValue("expectedUniqueMediaPaths").jsonPrimitive.content.toBoolean()) {
+            assertEquals(items.size, items.map { it.mediaPath }.toSet().size)
+        }
+
+        val expectedByResult = case.getValue("expectedBackingTextsByResult").jsonObject
+        expectedByResult.forEach { (resultText, expectedBackingText) ->
+            val item = requireNotNull(items.firstOrNull { it.text == resultText })
+            assertTrue(requireNotNull(repository.mediaFileFor(item)).exists())
+            assertEquals(
+                expectedBackingText.jsonPrimitive.content,
+                requireNotNull(repository.mediaFileFor(item)).readText(),
+            )
+        }
     }
 
     @Test

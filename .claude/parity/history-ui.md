@@ -29,6 +29,7 @@
   - Delete removes the card and its backing file.
   - Clear-all removes all cards and all files in the history media directory, including orphaned files left behind by partial or legacy states.
   - Prune removes oldest items and backing files until the limit is satisfied.
+  - Rapid saves must create unique backing filenames so one card can never overwrite another card's media/source file.
   - Search filters only on `item.text` and `timestamp`.
   - Mobile settings reset restores the History max-items setting to the Windows default `50`.
   - Legacy Android settings snapshots that still carry the old implicit `200` max-items default must normalize back to the Windows default `50` unless the user explicitly changed the limit.
