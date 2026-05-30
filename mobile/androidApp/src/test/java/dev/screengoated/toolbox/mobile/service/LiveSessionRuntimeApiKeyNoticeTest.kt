@@ -20,11 +20,14 @@ class LiveSessionRuntimeApiKeyNoticeTest {
 
         val runtimeSource = File(repoRoot(), RUNTIME_SOURCE).readText()
         val serviceSource = File(repoRoot(), SERVICE_SOURCE).readText()
+        val activitySource = File(repoRoot(), MAIN_ACTIVITY_SOURCE).readText()
 
         assertTrue(runtimeSource.contains("private val toastBus: AppToastBus"))
         assertTrue(runtimeSource.contains("apiKeyErrorToastText(\"NO_API_KEY:google\", repository.currentUiPreferences().uiLanguage)"))
         assertTrue(runtimeSource.contains("?.let(toastBus::show)"))
         assertTrue(serviceSource.contains("toastBus = container.toastBus"))
+        assertTrue(activitySource.contains("apiKeyErrorToastText(\"NO_API_KEY:google\", appContainer.repository.currentUiPreferences().uiLanguage)"))
+        assertTrue(activitySource.contains("?.let(appContainer.toastBus::show)"))
     }
 
     private fun loadFixtureCase(name: String) =
@@ -51,5 +54,7 @@ class LiveSessionRuntimeApiKeyNoticeTest {
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/LiveSessionRuntime.kt"
         private const val SERVICE_SOURCE =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/LiveTranslateService.kt"
+        private const val MAIN_ACTIVITY_SOURCE =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/MainActivity.kt"
     }
 }

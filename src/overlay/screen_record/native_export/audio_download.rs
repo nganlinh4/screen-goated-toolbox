@@ -298,7 +298,7 @@ fn encode_mp3(input_wav: &Path, output_mp3: &Path) -> Result<(), String> {
 }
 
 pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let _active_export_guard = super::ExportActiveGuard::activate();
+    let _active_export_guard = super::ExportActiveGuard::activate()?;
     super::EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     let started = Instant::now();

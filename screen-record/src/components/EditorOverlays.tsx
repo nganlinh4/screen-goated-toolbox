@@ -6,6 +6,7 @@ import {
   WindowSelectDialog,
   RawVideoDialog,
   ExportSuccessDialog,
+  ExportErrorDialog,
   AudioDownloadDialog,
   AudioDownloadSuccessDialog,
   HotkeyDialog,
@@ -37,6 +38,8 @@ export interface EditorOverlaysExportHook {
   setExportAutoCopyEnabled: (v: boolean) => void;
   showExportSuccessDialog: boolean;
   setShowExportSuccessDialog: (show: boolean) => void;
+  exportErrorMessage: string;
+  setExportErrorMessage: (message: string) => void;
   lastExportedPath: string;
   lastExportArtifacts: ExportArtifact[];
 }
@@ -248,6 +251,11 @@ export function EditorOverlays({
         onFilePathChange={onExportSuccessPathChange}
         autoCopyEnabled={exportHook.exportAutoCopyEnabled}
         onToggleAutoCopy={exportHook.setExportAutoCopyEnabled}
+      />
+      <ExportErrorDialog
+        show={Boolean(exportHook.exportErrorMessage)}
+        message={exportHook.exportErrorMessage}
+        onClose={() => exportHook.setExportErrorMessage("")}
       />
       {audioDownloadHook && (
         <>

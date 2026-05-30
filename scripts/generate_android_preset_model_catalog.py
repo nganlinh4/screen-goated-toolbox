@@ -46,6 +46,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
     provider_defaults = manifest["provider_defaults"]
     priority_chains = manifest["priority_chains"]
     non_llm_ids = set(manifest["non_llm_ids"])
+    search_disabled_full_names = manifest["search_disabled_full_names"]
 
     lines: list[str] = [
         "package dev.screengoated.toolbox.mobile.preset",
@@ -85,6 +86,10 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
 
     lines.extend(
         [
+            "    )",
+            "",
+            "    val searchDisabledFullNames: Set<String> = setOf(",
+            *[f"        {kotlin_string(item)}," for item in search_disabled_full_names],
             "    )",
             "",
             "    val providerSettings = PresetProviderSettings(",

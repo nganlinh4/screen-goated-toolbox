@@ -229,7 +229,6 @@ class AndroidTtsRuntimeService(
                         request = job.request,
                         sink = job.audioEvents,
                     )
-                    else -> error("Unsupported Android TTS method was not normalized: $method")
                 }
             }.also {
                 // Pre-connect next warm socket after each Gemini request

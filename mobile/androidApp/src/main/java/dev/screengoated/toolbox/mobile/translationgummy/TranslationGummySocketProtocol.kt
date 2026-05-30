@@ -1,11 +1,22 @@
 package dev.screengoated.toolbox.mobile.translationgummy
 
 import android.util.Base64
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 internal const val TRANSLATION_GUMMY_LIVE_WS_ENDPOINT =
     "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+
+private val translationGummyJson = Json { ignoreUnknownKeys = true }
 
 internal data class TranslationGummySocketUpdate(
     val setupComplete: Boolean = false,
@@ -23,52 +34,69 @@ internal fun buildTranslationGummySetupPayload(
     instruction: String,
     voiceName: String,
 ): String {
-    val realtimeInputConfig = JSONObject()
-        .put(
-            "automaticActivityDetection",
-            JSONObject()
-                .put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
-                .put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
-                .put("prefixPaddingMs", 80)
-                .put("silenceDurationMs", 320),
-        )
-        .put("activityHandling", "START_OF_ACTIVITY_INTERRUPTS")
-        .put("turnCoverage", "TURN_INCLUDES_ONLY_ACTIVITY")
-
-    val generationConfig = JSONObject()
-        .put("responseModalities", JSONArray().put("AUDIO"))
-        .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
-        .put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
-        .put(
-            "speechConfig",
-            JSONObject().put(
-                "voiceConfig",
-                JSONObject().put(
-                    "prebuiltVoiceConfig",
-                    JSONObject().put("voiceName", voiceName),
-                ),
-            ),
-        )
-
-    return JSONObject()
-        .put(
+    return buildJsonObject {
+        put(
             "setup",
-            JSONObject()
-                .put("model", "models/$model")
-                .put("generationConfig", generationConfig)
-                .put(
-                    "systemInstruction",
-                    JSONObject().put(
-                        "parts",
-                        JSONArray().put(JSONObject().put("text", instruction)),
-                    ),
+            buildJsonObject {
+                put("model", "models/$model")
+                put(
+                    "generationConfig",
+                    buildJsonObject {
+                        put("responseModalities", buildJsonArray { add(JsonPrimitive("AUDIO")) })
+                        put("mediaResolution", "MEDIA_RESOLUTION_LOW")
+                        put("thinkingConfig", buildJsonObject { put("thinkingBudget", 0) })
+                        put(
+                            "speechConfig",
+                            buildJsonObject {
+                                put(
+                                    "voiceConfig",
+                                    buildJsonObject {
+                                        put(
+                                            "prebuiltVoiceConfig",
+                                            buildJsonObject { put("voiceName", voiceName) },
+                                        )
+                                    },
+                                )
+                            },
+                        )
+                    },
                 )
-                .put("realtimeInputConfig", realtimeInputConfig)
-                .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
-                .put("inputAudioTranscription", JSONObject())
-                .put("outputAudioTranscription", JSONObject()),
+                put(
+                    "systemInstruction",
+                    buildJsonObject {
+                        put(
+                            "parts",
+                            buildJsonArray {
+                                add(buildJsonObject { put("text", instruction) })
+                            },
+                        )
+                    },
+                )
+                put(
+                    "realtimeInputConfig",
+                    buildJsonObject {
+                        put(
+                            "automaticActivityDetection",
+                            buildJsonObject {
+                                put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
+                                put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
+                                put("prefixPaddingMs", 80)
+                                put("silenceDurationMs", 320)
+                            },
+                        )
+                        put("activityHandling", "START_OF_ACTIVITY_INTERRUPTS")
+                        put("turnCoverage", "TURN_INCLUDES_ONLY_ACTIVITY")
+                    },
+                )
+                put(
+                    "contextWindowCompression",
+                    buildJsonObject { put("slidingWindow", buildJsonObject {}) },
+                )
+                put("inputAudioTranscription", buildJsonObject {})
+                put("outputAudioTranscription", buildJsonObject {})
+            },
         )
-        .toString()
+    }.toString()
 }
 
 internal fun buildTranslationGummyAudioPayload(pcmData: ShortArray): String {
@@ -78,66 +106,69 @@ internal fun buildTranslationGummyAudioPayload(pcmData: ShortArray): String {
         bytes[byteIndex] = (sample.toInt() and 0xFF).toByte()
         bytes[byteIndex + 1] = ((sample.toInt() shr 8) and 0xFF).toByte()
     }
-    return JSONObject()
-        .put(
+    return buildJsonObject {
+        put(
             "realtimeInput",
-            JSONObject().put(
-                "audio",
-                JSONObject()
-                    .put("mimeType", "audio/pcm;rate=16000")
-                    .put("data", Base64.encodeToString(bytes, Base64.NO_WRAP)),
-            ),
+            buildJsonObject {
+                put(
+                    "audio",
+                    buildJsonObject {
+                        put("mimeType", "audio/pcm;rate=16000")
+                        put("data", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                    },
+                )
+            },
         )
-        .toString()
+    }.toString()
 }
 
 internal fun buildTranslationGummyAudioStreamEndPayload(): String {
-    return JSONObject()
-        .put("realtimeInput", JSONObject().put("audioStreamEnd", true))
-        .toString()
+    return buildJsonObject {
+        put("realtimeInput", buildJsonObject { put("audioStreamEnd", true) })
+    }.toString()
 }
 
 internal fun parseTranslationGummySocketUpdate(message: String): TranslationGummySocketUpdate {
     return runCatching {
-        val root = JSONObject(message)
-        if (root.has("setupComplete")) {
+        val root = translationGummyJson.parseToJsonElement(message).jsonObject
+        if (root.containsKey("setupComplete")) {
             return@runCatching TranslationGummySocketUpdate(setupComplete = true)
         }
 
         // GoAway: server signals imminent termination
-        if (root.has("goAway")) {
+        if (root.containsKey("goAway")) {
             return@runCatching TranslationGummySocketUpdate(goAway = true)
         }
 
-        val errorMessage = root.optJSONObject("error")
-            ?.optString("message")
+        val errorMessage = root.objectOrNull("error")
+            ?.stringOrNull("message")
             ?.takeIf(String::isNotBlank)
         if (errorMessage != null) {
             return@runCatching TranslationGummySocketUpdate(error = errorMessage)
         }
 
-        val serverContent = root.optJSONObject("serverContent")
+        val serverContent = root.objectOrNull("serverContent")
         val inputTranscript = serverContent
-            ?.optJSONObject("inputTranscription")
-            ?.optString("text")
+            ?.objectOrNull("inputTranscription")
+            ?.stringOrNull("text")
             ?.takeIf(String::isNotBlank)
         val outputTranscript = serverContent
-            ?.optJSONObject("outputTranscription")
-            ?.optString("text")
+            ?.objectOrNull("outputTranscription")
+            ?.stringOrNull("text")
             ?.takeIf(String::isNotBlank)
-        val interrupted = serverContent?.optBoolean("interrupted") == true
-        val turnComplete = serverContent?.optBoolean("turnComplete") == true ||
-            serverContent?.optBoolean("generationComplete") == true
+        val interrupted = serverContent?.booleanOrFalse("interrupted") == true
+        val turnComplete = serverContent?.booleanOrFalse("turnComplete") == true ||
+            serverContent?.booleanOrFalse("generationComplete") == true
 
         var audioChunk: ByteArray? = null
         val parts = serverContent
-            ?.optJSONObject("modelTurn")
-            ?.optJSONArray("parts")
+            ?.objectOrNull("modelTurn")
+            ?.arrayOrNull("parts")
         if (parts != null) {
-            for (index in 0 until parts.length()) {
-                val part = parts.optJSONObject(index) ?: continue
-                val base64 = part.optJSONObject("inlineData")
-                    ?.optString("data")
+            for (partElement in parts) {
+                val part = partElement as? JsonObject ?: continue
+                val base64 = part.objectOrNull("inlineData")
+                    ?.stringOrNull("data")
                     ?.takeIf(String::isNotBlank)
                     ?: continue
                 audioChunk = Base64.decode(base64, Base64.DEFAULT)
@@ -154,3 +185,15 @@ internal fun parseTranslationGummySocketUpdate(message: String): TranslationGumm
         )
     }.getOrDefault(TranslationGummySocketUpdate())
 }
+
+private fun JsonObject.objectOrNull(key: String): JsonObject? =
+    get(key) as? JsonObject
+
+private fun JsonObject.arrayOrNull(key: String): JsonArray? =
+    get(key) as? JsonArray
+
+private fun JsonObject.stringOrNull(key: String): String? =
+    get(key)?.jsonPrimitive?.contentOrNull
+
+private fun JsonObject.booleanOrFalse(key: String): Boolean =
+    get(key)?.jsonPrimitive?.booleanOrNull == true

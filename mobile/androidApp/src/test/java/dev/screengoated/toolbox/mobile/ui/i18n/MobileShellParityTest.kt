@@ -2,10 +2,13 @@ package dev.screengoated.toolbox.mobile.ui.i18n
 
 import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
+import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.next
 import dev.screengoated.toolbox.mobile.ui.MobileShellSection
+import dev.screengoated.toolbox.mobile.ui.compactMethodLabel
 import dev.screengoated.toolbox.mobile.ui.credentialsProviderOrder
 import dev.screengoated.toolbox.mobile.ui.layoutBehavior
+import dev.screengoated.toolbox.mobile.ui.methodLabel
 import dev.screengoated.toolbox.mobile.ui.shouldLockPagerForCarouselTouch
 import java.io.File
 import kotlinx.serialization.json.Json
@@ -70,6 +73,27 @@ class MobileShellParityTest {
             assertEquals(
                 localeObject.getValue("expected_reset_done").jsonPrimitive.content,
                 locale.resetDefaultsDoneMessage(),
+            )
+        }
+    }
+
+    @Test
+    fun ttsMethodLabelsComeFromUiLocaleBundle() {
+        val case = mobileShellFixtureCase("tts_method_labels_come_from_ui_language_bundle")
+        case.getValue("locales").jsonArray.forEach { localeCase ->
+            val localeObject = localeCase.jsonObject
+            val locale = MobileLocaleText.forLanguage(
+                localeObject.getValue("ui_language").jsonPrimitive.content,
+            )
+            val method = MobileTtsMethod.valueOf(localeObject.getValue("method").jsonPrimitive.content)
+
+            assertEquals(
+                localeObject.getValue("expected_label").jsonPrimitive.content,
+                methodLabel(locale, method),
+            )
+            assertEquals(
+                localeObject.getValue("expected_compact").jsonPrimitive.content,
+                compactMethodLabel(locale, method),
             )
         }
     }
@@ -145,6 +169,15 @@ class MobileShellParityTest {
         val case = mobileShellFixtureCase("mobile_branding_uses_windows_app_icon_pair")
         assertEquals(case.getValue("expected_dark_asset").jsonPrimitive.content, MobileBrandAssets.WINDOWS_DARK_ICON_SOURCE)
         assertEquals(case.getValue("expected_light_asset").jsonPrimitive.content, MobileBrandAssets.WINDOWS_LIGHT_ICON_SOURCE)
+
+        assertEquals(
+            File(repoRoot(), MobileBrandAssets.WINDOWS_DARK_ICON_SOURCE).readBytes().toList(),
+            File(repoRoot(), "mobile/androidApp/src/main/res/drawable-nodpi/sgt_brand_dark.png").readBytes().toList(),
+        )
+        assertEquals(
+            File(repoRoot(), MobileBrandAssets.WINDOWS_LIGHT_ICON_SOURCE).readBytes().toList(),
+            File(repoRoot(), "mobile/androidApp/src/main/res/drawable-nodpi/sgt_brand_light.png").readBytes().toList(),
+        )
     }
 
     @Test

@@ -28,6 +28,8 @@
 - Android may keep a preset details/inspector screen before a full editor, but it must not pretend node-graph editing, hotkeys, or controller mode work if they do not.
 - Android bubble execution now covers text, image, selected-text, and audio presets whose block/provider families have real Android runtimes. Unsupported graph/provider paths must still surface explicit reasons instead of guessing.
 - Android preset execution must run from the floating bubble service, not from the main app inspector UI.
+- Android audio presets whose primary launch contract includes auto-paste must gate before capture when the Accessibility service is unavailable, explain the missing permission, and open Accessibility settings instead of running a degraded hidden workflow.
+- Android image presets must gate before suppressing overlays or starting screenshot capture when Accessibility screenshot support is unavailable, and image auto-copy must use the app clipboard context rather than depending on the Accessibility service singleton.
 - Android bubble runtime is `favorites only` in wave 1.
 - The bubble panel honors the Windows keep-open toggle:
   - default launch path closes the panel when a preset is launched
@@ -73,6 +75,7 @@
   - Cerebras, Groq, and OpenRouter use the OpenAI-compatible chat completions contract with the resolved Windows `full_name`
   - Groq compound models use the Windows non-streaming `compound_custom.tools` request shape instead of the standard streaming chat payload
   - Google GTX uses the translation endpoint as a non-LLM provider, keeps prompt editing hidden, and takes its target language from `language_vars["language1"]` / `languageVars["language1"]` with `Vietnamese` as the editor default
+  - Gemini Live text models are real Android preset text runtimes: they resolve through the shared Windows model catalog and use the Gemini Live websocket text path with the same `full_name` API model instead of being surfaced as placeholders
   - Android must emit the same wipe-on-first-content behavior after thinking placeholders that Windows uses for Gemini/Cerebras/Ollama-style streams
 - Android preset overlay sessions must follow the Windows chain/runtime ownership model:
   - launching a new preset input window must not destroy result windows from earlier completed sessions
@@ -157,8 +160,6 @@
   - panel `trigger_continuous` does not yet enter the Windows continuous-mode runtime; Android still routes that path through the normal preset launch flow
 - Android preset audio runtime has a documented parity gap versus Windows:
   - non-realtime streamed providers still begin partial transcription after stop on Android rather than during the active recording session
-- Android preset text provider runtime still has a known parity gap versus Windows:
-  - `gemini-live-text` is not yet wired into the preset bubble runtime; Android must surface that as an explicit unsupported provider/runtime path instead of guessing
 - On Android/touch, the text-input footer row may be omitted and the action buttons may be compacted inward so the overlay remains truthful and usable within the smaller mobile window. This is an accepted mobile interaction adaptation, not a parity bug.
 - On Android/touch, the keep-open row may remain visible instead of hover-revealed; this is an accepted mobile interaction adaptation, not a parity bug.
 - Android bubble opacity should stay fully active while the panel is expanded or within roughly one second of the last bubble/panel interaction, then return to the Windows inactive-opacity baseline.

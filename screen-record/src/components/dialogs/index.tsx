@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Keyboard } from 'lucide-react';
+import { AlertTriangle, Keyboard } from 'lucide-react';
 import { MonitorInfo, Hotkey, WindowInfo } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
 import { formatMonitorDialogSummary } from '@/utils/helpers';
@@ -20,6 +20,39 @@ export { ExportDialog } from './ExportDialog';
 export { WindowSelectDialog } from './WindowSelectDialog';
 export { MediaResultDialog, RawVideoDialog, ExportSuccessDialog, AudioDownloadSuccessDialog } from './MediaResultDialog';
 export { AudioDownloadDialog } from './AudioDownloadDialog';
+
+interface ExportErrorDialogProps {
+  show: boolean;
+  message: string;
+  onClose: () => void;
+}
+
+export function ExportErrorDialog({ show, message, onClose }: ExportErrorDialogProps) {
+  const { t } = useSettings();
+
+  return (
+    <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent size="max-w-sm">
+        <DialogHeader>
+          <div className="export-error-dialog-title flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-[hsl(var(--destructive))]" />
+            <DialogTitle>{t.exportFailed}</DialogTitle>
+          </div>
+        </DialogHeader>
+        <DialogBody>
+          <p className="export-error-dialog-message whitespace-pre-wrap break-words text-xs leading-5 text-[var(--on-surface-variant)]">
+            {message}
+          </p>
+          <div className="export-error-dialog-actions mt-5 flex justify-end">
+            <Button onClick={onClose} size="sm" className="export-error-close-btn">
+              {t.ok}
+            </Button>
+          </div>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // ============================================================================
 // ProcessingOverlay

@@ -55,6 +55,11 @@
     "launch_path": "transient_live_service_override",
     "restore_saved_config_on_stop": true
   },
+  "android_launch_contract": {
+    "audio_autopaste_without_accessibility": "gate_before_capture_and_open_accessibility_settings",
+    "image_capture_without_accessibility": "gate_before_surface_suppression_and_open_accessibility_settings",
+    "image_autocopy": "copy_from_app_context_not_accessibility_service"
+  },
   "bubble_capture_host_contract": {
     "default_foreground_mode": "specialUse",
     "mic_presets": "promote_to_microphone_then_restore",

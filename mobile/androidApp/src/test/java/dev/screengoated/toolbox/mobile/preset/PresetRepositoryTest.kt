@@ -254,6 +254,7 @@ class PresetRepositoryTest {
                 "streaming_capture_contract",
                 "android_explicit_unsupported_presets",
                 "realtime_contract",
+                "android_launch_contract",
                 "bubble_capture_host_contract",
                 "auto_speak_contract",
             ),
@@ -275,6 +276,8 @@ class PresetRepositoryTest {
         assertEquals("abort_and_close", toggleContract.getValue("third_launch_while_processing").jsonPrimitive.content)
         assertTrue(audioSession.contains("fun toggleOrAbortIfMatching(presetId: String): Boolean"))
         assertTrue(audioSession.contains("""if (state == "processing")"""))
+        assertTrue(audioSession.contains("val onCancelled = onCancelledCallback"))
+        assertTrue(audioSession.contains("onCancelled?.invoke()"))
         assertTrue(audioSession.contains("cancel()"))
         assertTrue(audioSession.contains("stopAndSubmit()"))
         assertTrue(overlayController.contains("if (audioCaptureSession.toggleOrAbortIfMatching(presetId))"))
@@ -326,6 +329,24 @@ class PresetRepositoryTest {
         assertTrue(overlayController.contains("setActiveRealtimePresetId"))
         assertTrue(overlayController.contains("LiveTranslateService.stop(context)"))
         assertTrue(overlayController.contains("MainActivity.EXTRA_RESUME_PENDING_AUDIO_PRESET"))
+
+        val launchContract = fixture.getValue("android_launch_contract").jsonObject
+        assertEquals(
+            "gate_before_capture_and_open_accessibility_settings",
+            launchContract.getValue("audio_autopaste_without_accessibility").jsonPrimitive.content,
+        )
+        assertEquals(
+            "gate_before_surface_suppression_and_open_accessibility_settings",
+            launchContract.getValue("image_capture_without_accessibility").jsonPrimitive.content,
+        )
+        assertEquals(
+            "copy_from_app_context_not_accessibility_service",
+            launchContract.getValue("image_autocopy").jsonPrimitive.content,
+        )
+        assertTrue(overlayController.contains("requiresAccessibilityForAudioAutoPaste"))
+        assertTrue(overlayController.contains("openAccessibilitySettings()"))
+        assertTrue(overlayController.contains("currentScreenshotSupport().failureReason"))
+        assertTrue(overlayController.contains("copyImageToClipboard(pngBytes)"))
 
         val foregroundContract = fixture.getValue("bubble_capture_host_contract").jsonObject
         assertEquals("specialUse", foregroundContract.getValue("default_foreground_mode").jsonPrimitive.content)

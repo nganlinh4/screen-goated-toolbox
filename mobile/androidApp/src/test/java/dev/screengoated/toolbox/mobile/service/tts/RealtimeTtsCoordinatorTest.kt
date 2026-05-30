@@ -8,6 +8,7 @@ import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.model.normalizedForWindowsParity
 import dev.screengoated.toolbox.mobile.model.withMethod
 import dev.screengoated.toolbox.mobile.ui.ttssettings.globalTtsMethodOptions
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
@@ -139,6 +140,7 @@ class RealtimeTtsCoordinatorTest {
             .jsonArray
             .map { it.jsonPrimitive.content }
 
+        assertEquals(expectedMethods, MobileTtsMethod.values().map { it.name })
         assertEquals(expectedMethods, globalTtsMethodOptions().map { it.name })
         hiddenMethods.forEach { hidden ->
             assertTrue(hidden !in globalTtsMethodOptions().map { it.name })
@@ -159,8 +161,8 @@ class RealtimeTtsCoordinatorTest {
             .jsonPrimitive
             .content
 
-        val normalized = MobileGlobalTtsSettings(
-            method = MobileTtsMethod.valueOf(initialMethod),
+        val normalized = json.decodeFromString<MobileGlobalTtsSettings>(
+            """{"method":"$initialMethod"}""",
         ).normalizedForWindowsParity()
 
         assertEquals(MobileTtsMethod.valueOf(expectedMethod), normalized.method)
@@ -177,12 +179,17 @@ class RealtimeTtsCoordinatorTest {
         )
 
         methods.forEach { method ->
-            val parsedMethod = MobileTtsMethod.valueOf(method)
-            assertTrue("$method should not be selectable", parsedMethod !in globalTtsMethodOptions())
+            assertTrue(
+                "$method should not be an Android enum constant",
+                method !in MobileTtsMethod.values().map { it.name },
+            )
+            val parsed = json.decodeFromString<MobileGlobalTtsSettings>(
+                """{"method":"$method"}""",
+            )
             assertEquals(
                 "$method should normalize to a supported Android runtime",
                 expectedMethod,
-                MobileGlobalTtsSettings(method = parsedMethod).normalizedForWindowsParity().method,
+                parsed.normalizedForWindowsParity().method,
             )
         }
     }

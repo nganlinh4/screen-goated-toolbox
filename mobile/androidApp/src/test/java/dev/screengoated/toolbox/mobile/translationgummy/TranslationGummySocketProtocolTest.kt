@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertFalse
@@ -39,25 +41,62 @@ class TranslationGummySocketProtocolTest {
 
     @Test
     fun `setup payload builder keeps canonical Windows Gemini Live contract fields`() {
-        val source = loadSourceFile().readText()
+        val fixture = loadPromptFixture()
+        val payload = json.parseToJsonElement(
+            buildTranslationGummySetupPayload(
+                model = fixture.model,
+                instruction = fixture.systemInstructionExample,
+                voiceName = "Aoede",
+            ),
+        ).jsonObject
+        val setup = payload.getValue("setup").jsonObject
+        val generation = setup.getValue("generationConfig").jsonObject
+        val realtime = setup.getValue("realtimeInputConfig").jsonObject
+        val activityDetection = realtime.getValue("automaticActivityDetection").jsonObject
 
-        assertTrue(source.contains(".put(\"responseModalities\", JSONArray().put(\"AUDIO\"))"))
-        assertTrue(source.contains(".put(\"thinkingConfig\", JSONObject().put(\"thinkingBudget\", 0))"))
-        assertFalse(source.contains("thinkingLevel"))
-        assertTrue(source.contains(".put(\"startOfSpeechSensitivity\", \"START_SENSITIVITY_HIGH\")"))
-        assertTrue(source.contains(".put(\"endOfSpeechSensitivity\", \"END_SENSITIVITY_HIGH\")"))
-        assertTrue(source.contains(".put(\"prefixPaddingMs\", 80)"))
-        assertTrue(source.contains(".put(\"silenceDurationMs\", 320)"))
-        assertTrue(source.contains(".put(\"activityHandling\", \"START_OF_ACTIVITY_INTERRUPTS\")"))
-        assertTrue(source.contains(".put(\"turnCoverage\", \"TURN_INCLUDES_ONLY_ACTIVITY\")"))
-        assertTrue(source.contains(".put(\"inputAudioTranscription\", JSONObject())"))
-        assertTrue(source.contains(".put(\"outputAudioTranscription\", JSONObject())"))
+        assertEquals("models/${fixture.model}", setup.getValue("model").jsonPrimitive.content)
+        assertEquals("AUDIO", generation.getValue("responseModalities").jsonArray[0].jsonPrimitive.content)
+        assertEquals(1, generation.getValue("responseModalities").jsonArray.size)
+        assertEquals(0, generation.getValue("thinkingConfig").jsonObject.getValue("thinkingBudget").jsonPrimitive.int)
+        assertFalse(generation.containsKey("thinkingLevel"))
+        assertEquals(
+            "Aoede",
+            generation
+                .getValue("speechConfig")
+                .jsonObject
+                .getValue("voiceConfig")
+                .jsonObject
+                .getValue("prebuiltVoiceConfig")
+                .jsonObject
+                .getValue("voiceName")
+                .jsonPrimitive
+                .content,
+        )
+        assertEquals(
+            fixture.systemInstructionExample,
+            setup
+                .getValue("systemInstruction")
+                .jsonObject
+                .getValue("parts")
+                .jsonArray[0]
+                .jsonObject
+                .getValue("text")
+                .jsonPrimitive
+                .content,
+        )
+        assertEquals("START_SENSITIVITY_HIGH", activityDetection.getValue("startOfSpeechSensitivity").jsonPrimitive.content)
+        assertEquals("END_SENSITIVITY_HIGH", activityDetection.getValue("endOfSpeechSensitivity").jsonPrimitive.content)
+        assertEquals(80, activityDetection.getValue("prefixPaddingMs").jsonPrimitive.int)
+        assertEquals(320, activityDetection.getValue("silenceDurationMs").jsonPrimitive.int)
+        assertEquals("START_OF_ACTIVITY_INTERRUPTS", realtime.getValue("activityHandling").jsonPrimitive.content)
+        assertEquals("TURN_INCLUDES_ONLY_ACTIVITY", realtime.getValue("turnCoverage").jsonPrimitive.content)
+        assertTrue(setup.containsKey("inputAudioTranscription"))
+        assertTrue(setup.containsKey("outputAudioTranscription"))
     }
 
     @Test
     fun `socket parser treats setup complete as structural event only`() {
         val fixture = loadSocketFixture()
-        val source = loadSourceFile().readText()
         val setupCase = fixture.getValue("setupComplete").jsonObject
         assertEquals(
             true,
@@ -70,9 +109,17 @@ class TranslationGummySocketProtocolTest {
             errorCase.getValue("expected").jsonObject.getValue("setupComplete").jsonPrimitive.boolean,
         )
         assertTrue(errorCase.getValue("expected").jsonObject.getValue("error").jsonPrimitive.content.contains("setupComplete"))
-        assertFalse(source.contains("message.contains(\"setupComplete\")"))
-        assertTrue(source.contains("val root = JSONObject(message)"))
-        assertTrue(source.contains("if (root.has(\"setupComplete\"))"))
+
+        val parsedSetup = parseTranslationGummySocketUpdate(
+            """{"setupComplete":{}}""",
+        )
+        val parsedError = parseTranslationGummySocketUpdate(
+            """{"error":{"message":"setupComplete failed before session start"}}""",
+        )
+
+        assertTrue(parsedSetup.setupComplete)
+        assertFalse(parsedError.setupComplete)
+        assertEquals("setupComplete failed before session start", parsedError.error)
     }
 
     @Test
@@ -80,18 +127,9 @@ class TranslationGummySocketProtocolTest {
         val fixture = loadSocketFixture().getValue("audioStreamEnd").jsonObject
         val root = fixture.getValue("expectedRoot").jsonPrimitive.content
         val flag = fixture.getValue("expectedFlag").jsonPrimitive.content
-        val source = loadSourceFile().readText()
+        val payload = json.parseToJsonElement(buildTranslationGummyAudioStreamEndPayload()).jsonObject
 
-        assertTrue(source.contains(".put(\"$root\", JSONObject().put(\"$flag\", true))"))
-    }
-
-    private fun loadSourceFile(): File {
-        val workingDirectory = requireNotNull(System.getProperty("user.dir"))
-        return generateSequence(File(workingDirectory).absoluteFile) { current ->
-            current.parentFile ?: return@generateSequence null
-        }.map { root -> File(root, SOURCE_PATH) }
-            .firstOrNull(File::exists)
-            ?: error("Could not locate $SOURCE_PATH from $workingDirectory")
+        assertTrue(payload.getValue(root).jsonObject.getValue(flag).jsonPrimitive.boolean)
     }
 
     private fun loadPromptFixture(): PromptFixture {
@@ -119,8 +157,6 @@ class TranslationGummySocketProtocolTest {
     private companion object {
         private const val PROMPT_FIXTURE_PATH = "parity-fixtures/translation-gummy/prompt-contract.json"
         private const val SOCKET_FIXTURE_PATH = "parity-fixtures/translation-gummy/socket-protocol.json"
-        private const val SOURCE_PATH =
-            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummySocketProtocol.kt"
     }
 }
 

@@ -157,9 +157,15 @@ class SgtAccessibilityService : AccessibilityService() {
     /**
      * Copy text to clipboard. Called from post-processing (autoCopy).
      */
-    fun copyToClipboard(text: String) {
-        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
-        cm.setPrimaryClip(ClipData.newPlainText("SGT Result", text))
+    fun copyToClipboard(text: String): Boolean {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
+        return runCatching {
+            cm.setPrimaryClip(ClipData.newPlainText("SGT Result", text))
+            true
+        }.getOrElse { error ->
+            Log.e(TAG, "copyToClipboard failed", error)
+            false
+        }
     }
 
     fun copyImageToClipboard(pngBytes: ByteArray): Boolean {

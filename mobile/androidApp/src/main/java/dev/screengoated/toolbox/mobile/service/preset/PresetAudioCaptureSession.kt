@@ -90,7 +90,9 @@ internal class PresetAudioCaptureSession(
             return false
         }
         if (state == "processing") {
+            val onCancelled = onCancelledCallback
             cancel()
+            onCancelled?.invoke()
         } else {
             stopAndSubmit()
         }

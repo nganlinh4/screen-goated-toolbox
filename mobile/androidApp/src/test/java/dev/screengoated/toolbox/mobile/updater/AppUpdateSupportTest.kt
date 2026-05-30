@@ -83,17 +83,36 @@ class AppUpdateSupportTest {
         assertEquals(latest.getValue("html_url").jsonPrimitive.content, state.actionUrl)
     }
 
+    @Test
+    fun startupAutoCheckRunsOncePerAppLaunch() {
+        val repositorySource = File(repoRoot(), APP_UPDATE_REPOSITORY_SOURCE).readText()
+        val viewModelSource = File(repoRoot(), MAIN_VIEW_MODEL_SOURCE).readText()
+
+        assertTrue(repositorySource.contains("private var autoCheckStarted = false"))
+        assertTrue(repositorySource.contains("fun autoCheckForUpdates()"))
+        assertTrue(repositorySource.contains("if (autoCheckStarted)"))
+        assertTrue(repositorySource.contains("autoCheckStarted = true"))
+        assertTrue(viewModelSource.contains("appUpdateRepository.autoCheckForUpdates()"))
+    }
+
     private fun loadFixture(): JsonObject {
+        return json.parseToJsonElement(File(repoRoot(), FIXTURE_PATH).readText()).jsonObject
+    }
+
+    private fun repoRoot(): File {
         val workingDirectory = requireNotNull(System.getProperty("user.dir"))
-        val repoRoot = generateSequence(File(workingDirectory).absoluteFile) { current ->
+        return generateSequence(File(workingDirectory).absoluteFile) { current ->
             current.parentFile ?: return@generateSequence null
         }.firstOrNull { root ->
             File(root, FIXTURE_PATH).exists()
         } ?: error("Could not locate $FIXTURE_PATH from $workingDirectory")
-        return json.parseToJsonElement(File(repoRoot, FIXTURE_PATH).readText()).jsonObject
     }
 
     private companion object {
         private const val FIXTURE_PATH = "parity-fixtures/app-update/latest-release.json"
+        private const val APP_UPDATE_REPOSITORY_SOURCE =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/updater/AppUpdateRepository.kt"
+        private const val MAIN_VIEW_MODEL_SOURCE =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/MainViewModel.kt"
     }
 }

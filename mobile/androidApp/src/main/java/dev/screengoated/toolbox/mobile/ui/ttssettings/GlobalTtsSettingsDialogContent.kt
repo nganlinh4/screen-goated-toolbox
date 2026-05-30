@@ -56,6 +56,8 @@ import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSurface
 import dev.screengoated.toolbox.mobile.ui.ExpressiveMorphPair
 import dev.screengoated.toolbox.mobile.ui.UtilityActionButton
+import dev.screengoated.toolbox.mobile.ui.compactMethodLabel as compactShellMethodLabel
+import dev.screengoated.toolbox.mobile.ui.methodLabel
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
@@ -93,7 +95,6 @@ internal fun RenderGlobalTtsSettingsDialog(
         MobileTtsMethod.GEMINI_LIVE -> MaterialTheme.colorScheme.primary
         MobileTtsMethod.EDGE_TTS -> MaterialTheme.colorScheme.tertiary
         MobileTtsMethod.GOOGLE_TRANSLATE -> MaterialTheme.colorScheme.secondary
-        else -> MaterialTheme.colorScheme.primary
     }
 
     ExpressiveDialogSurface(
@@ -102,7 +103,6 @@ internal fun RenderGlobalTtsSettingsDialog(
             MobileTtsMethod.GEMINI_LIVE -> R.drawable.ms_auto_awesome
             MobileTtsMethod.EDGE_TTS -> R.drawable.ms_graphic_eq
             MobileTtsMethod.GOOGLE_TRANSLATE -> R.drawable.ms_language
-            else -> R.drawable.ms_auto_awesome
         },
         accent = accent,
         morphPair = ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Cookie6Sided),
@@ -111,7 +111,6 @@ internal fun RenderGlobalTtsSettingsDialog(
             MobileTtsMethod.GEMINI_LIVE -> locale.ttsMethodStandard
             MobileTtsMethod.EDGE_TTS -> locale.ttsMethodEdge
             MobileTtsMethod.GOOGLE_TRANSLATE -> locale.ttsMethodFast
-            else -> locale.ttsMethodStandard
         },
         headerTrailing = if (isLandscape && !geminiOnly) {
             {
@@ -192,16 +191,6 @@ internal fun RenderGlobalTtsSettingsDialog(
                             onChanged = onEdgeSettingsChanged,
                             onRetryCatalog = onRetryEdgeVoiceCatalog,
                             onPreviewVoice = onPreviewEdgeVoice,
-                        )
-
-                        else -> GeminiLiveSection(
-                            settings = settings.copy(method = MobileTtsMethod.GEMINI_LIVE),
-                            locale = locale,
-                            onModelChanged = onGeminiModelChanged,
-                            onSpeedPresetChanged = onSpeedPresetChanged,
-                            onConditionsChanged = onConditionsChanged,
-                            onVoiceChanged = onVoiceChanged,
-                            onPreviewVoice = onPreviewGeminiVoice,
                         )
                     }
                 }
@@ -335,33 +324,9 @@ private fun compactMethodLabel(
     compact: Boolean,
 ): String {
     if (!compact) {
-        return when (method) {
-            MobileTtsMethod.GEMINI_LIVE -> locale.ttsMethodStandard
-            MobileTtsMethod.EDGE_TTS -> locale.ttsMethodEdge
-            MobileTtsMethod.GOOGLE_TRANSLATE -> locale.ttsMethodFast
-            else -> locale.ttsMethodStandard
-        }
+        return methodLabel(locale, method)
     }
-    return when {
-        locale.ttsMethodFast.contains("Nhanh") -> when (method) {
-            MobileTtsMethod.GEMINI_LIVE -> "Xịn"
-            MobileTtsMethod.EDGE_TTS -> "Tốt"
-            MobileTtsMethod.GOOGLE_TRANSLATE -> "Nhanh"
-            else -> "Xịn"
-        }
-        locale.ttsMethodFast.contains("빠름") -> when (method) {
-            MobileTtsMethod.GEMINI_LIVE -> "표준"
-            MobileTtsMethod.EDGE_TTS -> "좋음"
-            MobileTtsMethod.GOOGLE_TRANSLATE -> "빠름"
-            else -> "표준"
-        }
-        else -> when (method) {
-            MobileTtsMethod.GEMINI_LIVE -> "Standard"
-            MobileTtsMethod.EDGE_TTS -> "Edge"
-            MobileTtsMethod.GOOGLE_TRANSLATE -> "Google Trans."
-            else -> "Standard"
-        }
-    }
+    return compactShellMethodLabel(locale, method)
 }
 
 internal fun globalTtsMethodOptions(): List<MobileTtsMethod> = listOf(

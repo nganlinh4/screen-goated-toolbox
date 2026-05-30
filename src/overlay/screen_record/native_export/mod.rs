@@ -50,9 +50,11 @@ static EXPORT_ACTIVE: AtomicBool = AtomicBool::new(false);
 struct ExportActiveGuard;
 
 impl ExportActiveGuard {
-    fn activate() -> Self {
-        EXPORT_ACTIVE.store(true, Ordering::SeqCst);
-        Self
+    fn activate() -> Result<Self, String> {
+        EXPORT_ACTIVE
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map(|_| Self)
+            .map_err(|_| "Export already in progress".to_string())
     }
 }
 
