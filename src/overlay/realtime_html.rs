@@ -161,6 +161,11 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             } else {
                 "disabled"
             };
+            let trans_lang_hidden = if transcription_model == "zipformer" {
+                ""
+            } else {
+                "hidden"
+            };
 
             format!(
                 r#"
@@ -171,7 +176,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 <select class="model-dropdown" id="transcription-model-select" title="{model_title}">
                     {options_html}
                 </select>
-                <select class="model-dropdown" id="transcription-lang-select" title="{language_title}" {trans_lang_disabled}>
+                <select class="model-dropdown" id="transcription-lang-select" title="{language_title}" {trans_lang_disabled} {trans_lang_hidden}>
                     {trans_lang_html}
                 </select>
             "#,
@@ -186,6 +191,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 options_html = options_html,
                 trans_lang_html = trans_lang_html,
                 trans_lang_disabled = trans_lang_disabled,
+                trans_lang_hidden = trans_lang_hidden,
             )
         }
     } else {
@@ -211,7 +217,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             format!(
                 r#"
                 <span class="ctrl-btn speak-btn {speak_active}" id="speak-btn" title="{speak_title}"><span class="material-symbols-rounded">{volume_up_svg}</span></span>
-                <select class="model-dropdown" id="translation-model-select" title="{translation_model_title}" {translation_model_disabled}>
+                <select class="model-dropdown" id="translation-model-select" title="{translation_model_title}" {translation_model_disabled} {translation_model_hidden}>
                     {model_options_html}
                 </select>
                 <select id="language-select" title="{language_title}" {language_disabled}>
@@ -226,6 +232,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                     text.realtime_tooltip_translation_model
                 },
                 translation_model_disabled = if is_s2s { "disabled" } else { "" },
+                translation_model_hidden = if is_s2s { "hidden" } else { "" },
                 speak_active = if is_s2s { "active locked" } else { "" },
                 speak_title = if is_s2s {
                     text.realtime_tooltip_direct_speech

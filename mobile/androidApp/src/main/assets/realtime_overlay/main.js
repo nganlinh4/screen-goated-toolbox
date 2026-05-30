@@ -158,6 +158,7 @@
             const translationBtn = document.getElementById('translation-model-btn');
             if (translationBtn) {
                 translationBtn.disabled = s2sMode;
+                translationBtn.hidden = s2sMode;
                 translationBtn.classList.toggle('disabled', s2sMode);
                 translationBtn.title = s2sMode
                     ? (overlayLocale.s2sTranslationModelTitle || overlayLocale.translationModelTitle)
@@ -229,14 +230,17 @@
                 transLangBadge.textContent = 'ALL';
                 transLangBadge.dataset.code = 'ALL';
                 transLangBadge.classList.add('greyed');
+                transLangBadge.hidden = true;
             } else if (modelName && modelName.includes('moonshine')) {
                 transLangBadge.textContent = 'EN';
                 transLangBadge.dataset.code = 'EN';
                 transLangBadge.classList.add('greyed');
+                transLangBadge.hidden = true;
             } else if (modelName === 'zipformer') {
                 // Zipformer — show current language, pressable
                 transLangBadge.textContent = currentTransLangCode.toUpperCase();
                 transLangBadge.classList.remove('greyed');
+                transLangBadge.hidden = false;
             }
         }
 

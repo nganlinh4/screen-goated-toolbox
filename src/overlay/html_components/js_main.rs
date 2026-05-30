@@ -82,6 +82,7 @@ pub fn get(font_size: u32) -> String {
             const translationModelSelect = document.getElementById('translation-model-select');
             if (translationModelSelect) {{
                 translationModelSelect.disabled = isS2s;
+                translationModelSelect.hidden = isS2s;
                 translationModelSelect.title = isS2s
                     ? window.REALTIME_L10N.s2sTranslationModel
                     : window.REALTIME_L10N.translationModel;
@@ -439,13 +440,16 @@ pub fn get(font_size: u32) -> String {
             if (!transLangSelect) return;
             if (modelName === 'zipformer') {{
                 transLangSelect.disabled = false;
+                transLangSelect.hidden = false;
                 if (transLangSelect.value === 'all') transLangSelect.value = 'en';
             }} else if (modelName === 'parakeet') {{
                 transLangSelect.disabled = true;
+                transLangSelect.hidden = true;
                 transLangSelect.value = 'en';
             }} else {{
                 // Gemini, Qwen, or any language-agnostic model
                 transLangSelect.disabled = true;
+                transLangSelect.hidden = true;
                 transLangSelect.value = 'all';
             }}
         }}

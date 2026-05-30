@@ -265,6 +265,7 @@
     "ttsModalLocaleRefresh": "live-on-ui-language-change",
     "downloadModalLocaleRefresh": "live-on-ui-language-change",
     "s2sTooltipLocaleRefresh": "live-on-ui-language-change",
+    "irrelevantDisabledControls": "hidden-not-greyed",
     "roundedWindowMask": true,
     "languagePicker": "native-overlay",
     "nativePickerLocaleSource": "active-ui-language-bundle",
