@@ -71,6 +71,7 @@ class LiveTranslateOverlayBootstrapTest {
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.ttsModalLocaleRefresh)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.downloadModalLocaleRefresh)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.s2sTooltipLocaleRefresh)
+        assertEquals("hidden-not-greyed", fixture.requiredVisuals.irrelevantDisabledControls)
         assertEquals("active-ui-language-bundle", fixture.requiredVisuals.nativePickerLocaleSource)
         assertTrue(fixture.requiredVisuals.targetLanguageChangeRestartsS2s)
     }
@@ -164,6 +165,9 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(webViewSource.contains("if(window.setTargetLanguage) window.setTargetLanguage("))
         assertTrue(webViewSource.contains("if(window.setTranslationModel) window.setTranslationModel("))
         assertTrue(webViewSource.contains("if(window.setTranscriptionModel) window.setTranscriptionModel("))
+        assertTrue(mainJsSource.contains("translationBtn.hidden = s2sMode"))
+        assertTrue(mainJsSource.contains("transLangBadge.hidden = true"))
+        assertTrue(mainJsSource.contains("transLangBadge.hidden = false"))
         assertEquals("windows-fulltext-previousFullText-commitAdvance", fixture.requiredVisuals.textRendererContract)
         assertTrue(builderSource.contains(".replace(\"{{ENABLE_INLINE_DIFF}}\", isTranslation.toString())"))
         assertTrue(logicSource.contains("const fullText = oldText + newText;"))
@@ -241,6 +245,7 @@ class LiveTranslateOverlayBootstrapTest {
                 "ttsModalLocaleRefresh",
                 "downloadModalLocaleRefresh",
                 "s2sTooltipLocaleRefresh",
+                "irrelevantDisabledControls",
                 "roundedWindowMask",
                 "languagePicker",
                 "nativePickerLocaleSource",
@@ -413,6 +418,7 @@ private data class RequiredVisuals(
     val ttsModalLocaleRefresh: String,
     val downloadModalLocaleRefresh: String,
     val s2sTooltipLocaleRefresh: String,
+    val irrelevantDisabledControls: String,
     val roundedWindowMask: Boolean,
     val languagePicker: String,
     val nativePickerLocaleSource: String,
