@@ -490,6 +490,12 @@ pub(super) fn handle_export_result(
             }
 
             println!("[Export][Summary] status=error error={}", e);
+            crate::overlay::auto_copy_badge::show_timed_detailed_notification(
+                "Export failed",
+                &e,
+                crate::overlay::auto_copy_badge::NotificationType::Error,
+                5200,
+            );
             Err(e)
         }
     }

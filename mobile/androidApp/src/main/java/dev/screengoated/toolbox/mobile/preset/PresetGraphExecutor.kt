@@ -150,7 +150,12 @@ internal class PresetGraphExecutor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e // Don't swallow coroutine cancellation
             } catch (e: Exception) {
-                apiKeyErrorToastText(e.message ?: e.toString(), uiLanguage())?.let(toastBus::show)
+                val rawError = e.message ?: e.toString()
+                val apiKeyNotice = apiKeyErrorToastText(rawError, uiLanguage())
+                val visibleError = apiKeyNotice ?: hiddenBlockErrorText(rawError, uiLanguage())
+                if (!shouldSurfaceOverlay || apiKeyNotice != null) {
+                    toastBus.show(visibleError)
+                }
                 // Emit per-window error state; other overlays continue unaffected
                 outputs[index] = ""
                 if (shouldSurfaceOverlay) {
@@ -615,5 +620,11 @@ internal class PresetGraphExecutor(
         "vi" -> "(Đang thử lại $modelName...)"
         "ko" -> "($modelName 재시도 중...)"
         else -> "(Retrying $modelName...)"
+    }
+
+    private fun hiddenBlockErrorText(raw: String, lang: String): String = when (lang) {
+        "vi" -> "Không thể chạy tác vụ ẩn: $raw"
+        "ko" -> "숨겨진 작업을 실행할 수 없습니다: $raw"
+        else -> "Hidden preset step failed: $raw"
     }
 }

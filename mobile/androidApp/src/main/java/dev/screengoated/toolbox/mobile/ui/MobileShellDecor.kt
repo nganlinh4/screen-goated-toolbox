@@ -72,9 +72,16 @@ internal fun methodLabel(
     method: MobileTtsMethod,
 ): String {
     return when (method.androidSupportedMethod()) {
-        MobileTtsMethod.GEMINI_LIVE -> "Gemini Live"
-        MobileTtsMethod.EDGE_TTS -> "Edge TTS"
-        MobileTtsMethod.GOOGLE_TRANSLATE -> "Google Trans."
-        else -> "Gemini Live"
+        MobileTtsMethod.GEMINI_LIVE -> locale.ttsMethodStandard
+        MobileTtsMethod.EDGE_TTS -> locale.ttsMethodEdge
+        MobileTtsMethod.GOOGLE_TRANSLATE -> locale.ttsMethodFast
     }
 }
+
+internal fun compactMethodLabel(
+    locale: MobileLocaleText,
+    method: MobileTtsMethod,
+): String = methodLabel(locale, method)
+    .substringBefore('(')
+    .trim()
+    .ifBlank { methodLabel(locale, method) }

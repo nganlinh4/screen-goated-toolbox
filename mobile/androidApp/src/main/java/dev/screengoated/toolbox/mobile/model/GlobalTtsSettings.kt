@@ -2,20 +2,37 @@ package dev.screengoated.toolbox.mobile.model
 
 import dev.screengoated.toolbox.mobile.shared.live.GeneratedGeminiLiveModelOption
 import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import java.util.Locale
 
-@Serializable
+@Serializable(with = MobileTtsMethodSerializer::class)
 enum class MobileTtsMethod {
     GEMINI_LIVE,
     EDGE_TTS,
     GOOGLE_TRANSLATE,
-    STEP_AUDIO_EDITX,
-    MAGPIE_MULTILINGUAL,
-    KOKORO,
-    SUPERTONIC,
-    VIENEU_TTS,
-    VOXTRAL_TTS,
+}
+
+object MobileTtsMethodSerializer : KSerializer<MobileTtsMethod> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("MobileTtsMethod", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): MobileTtsMethod {
+        return when (decoder.decodeString()) {
+            MobileTtsMethod.EDGE_TTS.name -> MobileTtsMethod.EDGE_TTS
+            MobileTtsMethod.GOOGLE_TRANSLATE.name -> MobileTtsMethod.GOOGLE_TRANSLATE
+            else -> MobileTtsMethod.GEMINI_LIVE
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: MobileTtsMethod) {
+        encoder.encodeString(value.name)
+    }
 }
 
 @Serializable
@@ -72,21 +89,11 @@ fun MobileGlobalTtsSettings.normalizedForWindowsParity(): MobileGlobalTtsSetting
 }
 
 fun MobileTtsMethod.androidSupportedMethod(): MobileTtsMethod {
-    return when (this) {
-        MobileTtsMethod.GEMINI_LIVE,
-        MobileTtsMethod.EDGE_TTS,
-        MobileTtsMethod.GOOGLE_TRANSLATE -> this
-        MobileTtsMethod.STEP_AUDIO_EDITX,
-        MobileTtsMethod.MAGPIE_MULTILINGUAL,
-        MobileTtsMethod.KOKORO,
-        MobileTtsMethod.SUPERTONIC,
-        MobileTtsMethod.VIENEU_TTS,
-        MobileTtsMethod.VOXTRAL_TTS -> MobileTtsMethod.GEMINI_LIVE
-    }
+    return this
 }
 
 fun MobileTtsMethod.isAndroidSupported(): Boolean {
-    return this == androidSupportedMethod()
+    return true
 }
 
 data class GeminiVoiceOption(

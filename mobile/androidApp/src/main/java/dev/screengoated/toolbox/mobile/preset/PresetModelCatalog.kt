@@ -75,7 +75,7 @@ object PresetModelCatalog {
     fun supportsSearchById(id: String): Boolean = getById(id)?.let { supportsSearchByName(it.fullName) } ?: false
 
     fun supportsSearchByName(fullName: String): Boolean {
-        if (fullName.contains("gemini-3-flash-preview") || fullName.contains("gemini-3.1-flash-lite-preview")) {
+        if (fullName in GeneratedPresetModelCatalogData.searchDisabledFullNames) {
             return false
         }
         if (fullName.contains("gemini")) {

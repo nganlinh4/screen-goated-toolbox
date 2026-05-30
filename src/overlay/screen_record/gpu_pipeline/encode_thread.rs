@@ -187,8 +187,10 @@ pub(super) fn run_encode_thread(
                                 audio_output_100ns,
                                 dur_100ns,
                             ) {
-                                eprintln!("[Audio] Native mixed audio write error: {}", e);
-                                audio_eof = true;
+                                let message = format!("Native mixed audio write error: {e}");
+                                eprintln!("[Audio] {message}");
+                                cancel_flag.store(true, Ordering::Relaxed);
+                                return Err(message);
                             } else {
                                 total_audio_samples_written = next_total;
                                 audio_output_100ns = next_100ns as i64;
@@ -274,8 +276,10 @@ pub(super) fn run_encode_thread(
                                 audio_output_100ns,
                                 dur_100ns,
                             ) {
-                                eprintln!("[Audio] Native audio write error: {}", e);
-                                audio_eof = true;
+                                let message = format!("Native audio write error: {e}");
+                                eprintln!("[Audio] {message}");
+                                cancel_flag.store(true, Ordering::Relaxed);
+                                return Err(message);
                             } else {
                                 total_audio_samples_written = next_total;
                                 audio_output_100ns = next_100ns as i64;
@@ -375,6 +379,10 @@ pub(super) fn run_encode_thread(
             };
             cb(pct, eta);
         }
+    }
+
+    if cancel_flag.load(Ordering::Relaxed) {
+        return Err("Export cancelled".to_string());
     }
 
     encoder.finalize()?;

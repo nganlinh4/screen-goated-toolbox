@@ -22,7 +22,7 @@ use crate::overlay::screen_record::engine::VIDEO_PATH;
 use super::{EXPORT_CANCELLED, ExportActiveGuard};
 
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let _active_export_guard = ExportActiveGuard::activate();
+    let _active_export_guard = ExportActiveGuard::activate()?;
     EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     super::progress::persist_replay_args(&args);

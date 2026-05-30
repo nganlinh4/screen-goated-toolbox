@@ -7,6 +7,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -247,6 +248,63 @@ class HistoryModelsTest {
         assertEquals(
             deleteCase.getValue("expectedCount").jsonPrimitive.int,
             deleteRepository.state.value.items.size,
+        )
+    }
+
+    @Test
+    fun loadPrunesOverLimitDatabaseAndBackingFilesFromFixture() {
+        val case = fixtureCase("load_prunes_over_limit_database_and_backing_files")
+        val root = Files.createTempDirectory("sgt-history-load-prune-test").toFile()
+        val paths = HistoryPaths(
+            rootDir = root,
+            databaseFile = File(root, "history.json"),
+            settingsFile = File(root, "history_settings.json"),
+            mediaDir = File(root, "history_media"),
+            supportsFolderOpen = true,
+        )
+        paths.mediaDir.mkdirs()
+        val storedItems = case.getValue("storedItems").jsonArray.map { element ->
+            val obj = element.jsonObject
+            HistoryItem(
+                id = obj.getValue("id").jsonPrimitive.content.toLong(),
+                timestamp = obj.getValue("timestamp").jsonPrimitive.content,
+                itemType = HistoryType.valueOf(obj.getValue("itemType").jsonPrimitive.content),
+                text = obj.getValue("text").jsonPrimitive.content,
+                mediaPath = obj.getValue("mediaPath").jsonPrimitive.content,
+            )
+        }
+        storedItems.forEach { item ->
+            File(paths.mediaDir, item.mediaPath).writeText(item.text)
+        }
+        val settings = case.getValue("storedSettings").jsonObject
+        paths.databaseFile.parentFile?.mkdirs()
+        paths.databaseFile.writeText(json.encodeToString(StoredHistoryDatabase(items = storedItems)))
+        paths.settingsFile.writeText(
+            json.encodeToString(
+                HistorySettings(
+                    maxItems = settings.getValue("maxItems").jsonPrimitive.int,
+                    hasExplicitMaxItems = settings.getValue("hasExplicitMaxItems").jsonPrimitive.content.toBoolean(),
+                ),
+            ),
+        )
+
+        val repository = HistoryRepository(
+            persistence = HistoryPersistence(paths = paths, json = json),
+        )
+
+        assertEquals(
+            case.getValue("expectedOrder").jsonArray.map { it.jsonPrimitive.content },
+            repository.state.value.items.map { it.text },
+        )
+        case.getValue("expectedDeletedMediaPaths").jsonArray.forEach { path ->
+            assertTrue(
+                "${path.jsonPrimitive.content} should be deleted on load-time prune",
+                !File(paths.mediaDir, path.jsonPrimitive.content).exists(),
+            )
+        }
+        assertEquals(
+            case.getValue("expectedOrder").jsonArray.size,
+            json.decodeFromString<StoredHistoryDatabase>(paths.databaseFile.readText()).items.size,
         )
     }
 

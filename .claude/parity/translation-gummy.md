@@ -45,6 +45,7 @@
   - the popup body uses the localized `translation_gummy_guide` text
   - dismissing the popup persists `guide_seen = true` and suppresses future auto-show, matching Windows `dismiss_guide`
 - `Apply` always commits the current draft and forces a fresh session restart when the draft is valid.
+- Applying a draft must preserve the existing transcript history and insert the same session separator behavior Windows uses before the restarted session; it must not clear the rolling transcript.
 - The secondary control is a real `Start` / `Stop` toggle:
   - `Stop` ends the current session immediately
   - `Start` restarts the last applied valid config without requiring a new edit
@@ -80,3 +81,4 @@
 - Socket protocol fixture: [parity-fixtures/translation-gummy/socket-protocol.json](../../parity-fixtures/translation-gummy/socket-protocol.json)
 - Onboarding fixture: [parity-fixtures/translation-gummy/onboarding-contract.json](../../parity-fixtures/translation-gummy/onboarding-contract.json)
 - Volume fixture: [parity-fixtures/translation-gummy/volume-control.json](../../parity-fixtures/translation-gummy/volume-control.json)
+- State fixture: [parity-fixtures/translation-gummy/state-contract.json](../../parity-fixtures/translation-gummy/state-contract.json)

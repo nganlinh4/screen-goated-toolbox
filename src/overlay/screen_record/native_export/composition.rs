@@ -192,7 +192,7 @@ fn cleanup_file(path: &Path) {
 }
 
 pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let _active_export_guard = super::ExportActiveGuard::activate();
+    let _active_export_guard = super::ExportActiveGuard::activate()?;
     super::EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     let export: CompositionExportConfig = parse_json_with_path(args)?;

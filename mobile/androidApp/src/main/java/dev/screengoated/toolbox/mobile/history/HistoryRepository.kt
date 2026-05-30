@@ -184,9 +184,14 @@ class HistoryRepository internal constructor(
     private fun loadInitialState(): HistoryUiState {
         val database = persistence.loadDatabase()
         val settings = persistence.loadSettings()
+        val maxItems = clampHistoryLimit(settings.maxItems)
+        val prunedItems = pruneItems(database.items, maxItems, deletePrunedFiles = true)
+        if (prunedItems.size != database.items.size) {
+            persistence.saveDatabase(StoredHistoryDatabase(items = prunedItems))
+        }
         return HistoryUiState(
-            items = pruneItems(database.items, clampHistoryLimit(settings.maxItems), deletePrunedFiles = false),
-            maxItems = clampHistoryLimit(settings.maxItems),
+            items = prunedItems,
+            maxItems = maxItems,
             mediaDirectoryPath = persistence.paths().mediaDir.absolutePath,
             supportsFolderOpen = persistence.paths().supportsFolderOpen,
         )
@@ -221,6 +226,9 @@ class HistoryRepository internal constructor(
     }
 
     private fun deleteBackingFile(item: HistoryItem) {
+        if (item.mediaPath.isBlank()) {
+            return
+        }
         runCatching {
             persistence.mediaFile(item.mediaPath).delete()
         }

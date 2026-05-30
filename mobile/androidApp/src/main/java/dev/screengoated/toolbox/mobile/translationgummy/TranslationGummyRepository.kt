@@ -39,17 +39,17 @@ class TranslationGummyRepository(
     }
 
     fun applyDraft(): TranslationGummyConfig {
-        val applied = mutableState.value.draftConfig.normalized()
-            .copy(guideSeen = mutableState.value.guideSeen)
+        val previousState = mutableState.value
+        val applied = previousState.draftConfig.normalized()
+            .copy(guideSeen = previousState.guideSeen)
         settingsStore.saveTranslationGummyConfig(applied)
-        mutableState.value = mutableState.value.copy(
-            appliedConfig = applied,
-            draftConfig = applied,
-            guideSeen = applied.guideSeen,
-            dirty = false,
-            lastError = null,
-            transcripts = emptyList(),
+        mutableState.value = previousState.afterApplyingDraftForWindowsParity(
+            applied = applied,
+            nextSeparatorId = transcriptIdCounter.getAndIncrement(),
+            separatorText = currentSessionSeparatorText(),
+            nowMs = android.os.SystemClock.elapsedRealtime(),
         ).normalize()
+        persistTranscripts()
         return applied
     }
 
@@ -108,12 +108,10 @@ class TranslationGummyRepository(
         val transcripts = mutableState.value.transcripts
         if (transcripts.isEmpty()) return
         if (transcripts.last().role == TranslationGummyTranscriptRole.SEPARATOR) return
-        val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-        val timeText = formatter.format(java.util.Date())
         val updated = transcripts + TranslationGummyTranscriptItem(
             id = transcriptIdCounter.getAndIncrement(),
             role = TranslationGummyTranscriptRole.SEPARATOR,
-            text = timeText,
+            text = currentSessionSeparatorText(),
             isFinal = true,
             updatedAtMs = android.os.SystemClock.elapsedRealtime(),
             lang = "",
@@ -272,6 +270,11 @@ class TranslationGummyRepository(
     private companion object {
         private const val MAX_TRANSCRIPTS = 200
 
+        private fun currentSessionSeparatorText(): String {
+            val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            return formatter.format(java.util.Date())
+        }
+
         private fun mergeTranscriptText(existing: String, incoming: String): String {
             val current = existing.trim()
             val next = incoming.trim()
@@ -285,4 +288,35 @@ class TranslationGummyRepository(
             return "$current $next"
         }
     }
+}
+
+internal fun TranslationGummyState.afterApplyingDraftForWindowsParity(
+    applied: TranslationGummyConfig,
+    nextSeparatorId: Long,
+    separatorText: String,
+    nowMs: Long,
+): TranslationGummyState {
+    val shouldInsertSeparator = transcripts.isNotEmpty() &&
+        transcripts.last().role != TranslationGummyTranscriptRole.SEPARATOR
+    val nextTranscripts = if (shouldInsertSeparator) {
+        transcripts + TranslationGummyTranscriptItem(
+            id = nextSeparatorId,
+            role = TranslationGummyTranscriptRole.SEPARATOR,
+            text = separatorText,
+            isFinal = true,
+            updatedAtMs = nowMs,
+            lang = "",
+        )
+    } else {
+        transcripts
+    }
+    return copy(
+        appliedConfig = applied,
+        draftConfig = applied,
+        guideSeen = applied.guideSeen,
+        dirty = false,
+        lastError = null,
+        visualizerLevel = 0f,
+        transcripts = nextTranscripts.takeLast(200),
+    )
 }

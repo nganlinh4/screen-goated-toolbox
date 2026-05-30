@@ -14,6 +14,7 @@ import androidx.core.net.toUri
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantRequest
+import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantPendingLaunchStore
 import dev.screengoated.toolbox.mobile.helpassistant.helpErrorMarkdown
 import dev.screengoated.toolbox.mobile.helpassistant.helpLoadingMessage
 import dev.screengoated.toolbox.mobile.helpassistant.helpResultMarkdown
@@ -38,7 +39,7 @@ import kotlinx.coroutines.launch
 class HelpAssistantOverlayService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var windowManager: WindowManager
-    private lateinit var resultModule: PresetOverlayResultModule
+    private var resultModule: PresetOverlayResultModule? = null
 
     private var uiPreferencesJob: Job? = null
     private var requestJob: Job? = null
@@ -47,17 +48,6 @@ class HelpAssistantOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, getString(R.string.help_assistant_overlay_permission_required), Toast.LENGTH_SHORT).show()
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                "package:$packageName".toUri(),
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
-            stopSelf()
-            return
-        }
-
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         val appContainer = (application as SgtMobileApplication).appContainer
         resultModule = PresetOverlayResultModule(
@@ -84,8 +74,8 @@ class HelpAssistantOverlayService : Service() {
 
         uiPreferencesJob = serviceScope.launch {
             appContainer.repository.uiPreferences.collectLatest {
-                resultModule.refreshResultWindowsForTheme()
-                resultModule.refreshCanvasWindowForPreferences()
+                resultModule?.refreshResultWindowsForTheme()
+                resultModule?.refreshCanvasWindowForPreferences()
             }
         }
     }
@@ -95,6 +85,17 @@ class HelpAssistantOverlayService : Service() {
         val question = startIntent.getStringExtra(EXTRA_QUESTION)?.trim().orEmpty()
         if (question.isBlank()) return START_NOT_STICKY
         val uiLanguage = startIntent.getStringExtra(EXTRA_UI_LANGUAGE).orEmpty().ifBlank { uiLanguage() }
+        if (!Settings.canDrawOverlays(this)) {
+            HelpAssistantPendingLaunchStore.set(question, uiLanguage)
+            Toast.makeText(this, getString(R.string.help_assistant_overlay_permission_required), Toast.LENGTH_SHORT).show()
+            val permissionIntent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                "package:$packageName".toUri(),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(permissionIntent)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         renderLoading(uiLanguage)
         launchRequest(question, uiLanguage)
         return START_NOT_STICKY
@@ -104,7 +105,7 @@ class HelpAssistantOverlayService : Service() {
         super.onDestroy()
         requestJob?.cancel()
         uiPreferencesJob?.cancel()
-        resultModule.destroy()
+        resultModule?.destroy()
         serviceScope.cancel()
     }
 
@@ -141,14 +142,14 @@ class HelpAssistantOverlayService : Service() {
                 renderMode = "markdown",
                 overlayOrder = 0,
             )
-            resultModule.showStandaloneMarkdownWindow(windowState)
+            resultModule?.showStandaloneMarkdownWindow(windowState)
         }
     }
 
     private fun renderLoading(uiLanguage: String) {
         val locale = MobileLocaleText.forLanguage(uiLanguage)
         val msg = helpLoadingMessage(locale)
-        resultModule.showStandaloneMarkdownWindow(
+        resultModule?.showStandaloneMarkdownWindow(
             PresetResultWindowState(
                 id = WINDOW_ID,
                 blockIdx = 0,

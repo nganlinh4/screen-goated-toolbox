@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "apply_preserves_transcripts_and_inserts_separator",
+      "initial": {
+        "transcripts": [
+          {
+            "id": 1,
+            "role": "INPUT",
+            "text": "안녕하세요",
+            "isFinal": true,
+            "updatedAtMs": 1000,
+            "lang": ""
+          },
+          {
+            "id": 2,
+            "role": "OUTPUT",
+            "text": "Hello",
+            "isFinal": true,
+            "updatedAtMs": 1200,
+            "lang": "eng"
+          }
+        ]
+      },
+      "apply": {
+        "nextSeparatorId": 3,
+        "separatorText": "12:34",
+        "nowMs": 2000
+      },
+      "expected": {
+        "transcripts": [
+          {
+            "id": 1,
+            "role": "INPUT",
+            "text": "안녕하세요",
+            "isFinal": true,
+            "updatedAtMs": 1000,
+            "lang": ""
+          },
+          {
+            "id": 2,
+            "role": "OUTPUT",
+            "text": "Hello",
+            "isFinal": true,
+            "updatedAtMs": 1200,
+            "lang": "eng"
+          },
+          {
+            "id": 3,
+            "role": "SEPARATOR",
+            "text": "12:34",
+            "isFinal": true,
+            "updatedAtMs": 2000,
+            "lang": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "apply_does_not_duplicate_existing_separator",
+      "initial": {
+        "transcripts": [
+          {
+            "id": 7,
+            "role": "SEPARATOR",
+            "text": "09:10",
+            "isFinal": true,
+            "updatedAtMs": 3000,
+            "lang": ""
+          }
+        ]
+      },
+      "apply": {
+        "nextSeparatorId": 8,
+        "separatorText": "09:11",
+        "nowMs": 3500
+      },
+      "expected": {
+        "transcripts": [
+          {
+            "id": 7,
+            "role": "SEPARATOR",
+            "text": "09:10",
+            "isFinal": true,
+            "updatedAtMs": 3000,
+            "lang": ""
+          }
+        ]
+      }
+    }
+  ]
+}

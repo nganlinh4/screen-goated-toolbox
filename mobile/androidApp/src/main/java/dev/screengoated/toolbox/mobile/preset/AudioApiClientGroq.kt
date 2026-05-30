@@ -39,7 +39,11 @@ internal fun AudioApiClient.transcribeWithGroq(
                 throw IOException("Groq audio request failed with $code")
             }
             val body = response.body?.string().orEmpty()
-            return org.json.JSONObject(body).optString("text")
+            val text = org.json.JSONObject(body).optString("text").trim()
+            if (text.isBlank()) {
+                throw IOException("Audio transcription returned no text.")
+            }
+            return text
         }
     } finally {
         tempFile.delete()

@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.preset
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.io.IOException
 
 internal class PresetAudioBlockExecutor(
     private val audioApiClient: AudioApiClient,
@@ -76,6 +77,9 @@ internal class PresetAudioBlockExecutor(
                 },
             ).getOrThrow()
 
+        if (result.isBlank()) {
+            throw IOException("Audio transcription returned no text.")
+        }
         outputs[index] = result
         historyRecorder.recordAudioResult(
             block = block,

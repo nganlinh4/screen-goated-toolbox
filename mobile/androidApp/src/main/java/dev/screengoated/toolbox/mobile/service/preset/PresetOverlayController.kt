@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
@@ -25,12 +26,14 @@ import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import dev.screengoated.toolbox.mobile.service.LiveTranslateService
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
+import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.io.File
 import kotlin.math.roundToInt
 
 internal class PresetOverlayController(
@@ -169,8 +172,24 @@ internal class PresetOverlayController(
         presetRepository.postProcessActions = object : dev.screengoated.toolbox.mobile.preset.PresetPostProcessActions {
             override fun handleAutoCopy(block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock, resultText: String) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    val svc = SgtAccessibilityService.instance
-                    svc?.copyToClipboard(resultText)
+                    val copied = copyTextToClipboard(resultText)
+                    Toast.makeText(
+                        context,
+                        if (copied) {
+                            localized(
+                                "Transcript copied.",
+                                "Đã sao chép bản chép lời.",
+                                "받아쓴 내용을 복사했습니다.",
+                            )
+                        } else {
+                            localized(
+                                "Could not copy transcript.",
+                                "Không thể sao chép bản chép lời.",
+                                "받아쓴 내용을 복사할 수 없습니다.",
+                            )
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             }
 
@@ -179,7 +198,7 @@ internal class PresetOverlayController(
                 pngBytes: ByteArray,
             ) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    val copied = SgtAccessibilityService.instance?.copyImageToClipboard(pngBytes) == true
+                    val copied = copyImageToClipboard(pngBytes)
                     Toast.makeText(
                         context,
                         if (copied) {
@@ -207,7 +226,26 @@ internal class PresetOverlayController(
             override fun handleAutoPaste() {
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     val svc = SgtAccessibilityService.instance
-                    svc?.pasteIntoFocusedField()
+                    val pasted = svc?.pasteIntoFocusedField() == true
+                    if (!pasted) {
+                        Toast.makeText(
+                            context,
+                            if (svc == null) {
+                                localized(
+                                    "Copied, but auto-paste needs Accessibility enabled.",
+                                    "Đã sao chép, nhưng tự dán cần bật Trợ năng.",
+                                    "복사했지만 자동 붙여넣기에는 접근성 권한이 필요합니다.",
+                                )
+                            } else {
+                                localized(
+                                    "Copied, but could not auto-paste. Place the cursor in a text field.",
+                                    "Đã sao chép, nhưng không thể tự dán. Hãy đặt con trỏ vào ô nhập văn bản.",
+                                    "복사했지만 자동 붙여넣기를 할 수 없습니다. 텍스트 입력칸에 커서를 두세요.",
+                                )
+                            },
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                 }, 200)
             }
         }
@@ -332,6 +370,19 @@ internal class PresetOverlayController(
                 ),
                 Toast.LENGTH_SHORT,
             ).show()
+            return
+        }
+        if (requiresAccessibilityForAudioAutoPaste(resolved) && !SgtAccessibilityService.isAvailable) {
+            Toast.makeText(
+                context,
+                localized(
+                    "Turn on Accessibility to use this preset. Opening Settings...",
+                    "Bật Trợ năng để dùng preset này. Đang mở Cài đặt...",
+                    "이 프리셋을 사용하려면 접근성을 켜세요. 설정을 여는 중...",
+                ),
+                Toast.LENGTH_LONG,
+            ).show()
+            openAccessibilitySettings()
             return
         }
 
@@ -462,6 +513,10 @@ internal class PresetOverlayController(
                             inputModule.injectText(text)
                             inputModule.bringToFront()
                         }
+                        result.exceptionOrNull()?.let { error ->
+                            apiKeyErrorToastText(error.message ?: error.toString(), uiLanguage())
+                                ?.let(appContainer.toastBus::show)
+                        }
                     }
                 }
             },
@@ -577,6 +632,14 @@ internal class PresetOverlayController(
         }
     }
 
+    private fun requiresAccessibilityForAudioAutoPaste(resolved: ResolvedPreset): Boolean {
+        if (!resolved.preset.autoPaste) {
+            return false
+        }
+        return resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC ||
+            resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO
+    }
+
     private fun appendStreamingTextChunk(chunk: String): Boolean {
         if (chunk.isBlank()) {
             return false
@@ -634,6 +697,10 @@ internal class PresetOverlayController(
         logImageCaptureTrace(trace, "preset_pressed")
         if (continuousMode && imageContinuousPresetId == resolved.preset.id) {
             stopImageContinuousMode(showToast = true)
+            return
+        }
+        SgtAccessibilityService.currentScreenshotSupport().failureReason?.let { reason ->
+            handleImageCaptureFailure(reason, continuousMode = false)
             return
         }
 
@@ -979,6 +1046,32 @@ internal class PresetOverlayController(
         ).show()
     }
 
+    private fun copyTextToClipboard(text: String): Boolean {
+        return runCatching {
+            val manager = clipboardManager ?: return false
+            manager.setPrimaryClip(ClipData.newPlainText("SGT Result", text))
+            true
+        }.getOrElse { error ->
+            Log.e(TAG, "copyTextToClipboard failed", error)
+            false
+        }
+    }
+
+    private fun copyImageToClipboard(pngBytes: ByteArray): Boolean {
+        return runCatching {
+            val manager = clipboardManager ?: return false
+            val dir = File(context.cacheDir, IMAGE_CLIPBOARD_DIR).apply { mkdirs() }
+            val file = File(dir, IMAGE_CLIPBOARD_FILE)
+            file.writeBytes(pngBytes)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            manager.setPrimaryClip(ClipData.newUri(context.contentResolver, "SGT Image", uri))
+            true
+        }.getOrElse { error ->
+            Log.e(TAG, "copyImageToClipboard failed", error)
+            false
+        }
+    }
+
     private fun setOverlayChromeSuppressed(suppressed: Boolean) {
         panelModule.setSuppressed(suppressed)
         inputModule.setSuppressed(suppressed)
@@ -1030,5 +1123,11 @@ internal class PresetOverlayController(
             continuousMode = continuousMode,
             source = source,
         )
+    }
+
+    private companion object {
+        private const val TAG = "PresetOverlayController"
+        private const val IMAGE_CLIPBOARD_DIR = "clipboard-images"
+        private const val IMAGE_CLIPBOARD_FILE = "latest-screenshot.png"
     }
 }

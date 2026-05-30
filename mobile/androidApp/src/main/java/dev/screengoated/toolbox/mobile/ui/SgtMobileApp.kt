@@ -453,12 +453,7 @@ fun SgtMobileApp(
                     onNavigateToTtsSettings = {
                         ttsGeminiOnly = true
                         showTtsSettings = true
-                        val hint = when (uiPreferences.uiLanguage) {
-                            "vi" -> "Đổi model Gemini Live, giọng nói và âm lượng theo ý bạn!"
-                            "ko" -> "Gemini Live 모델, 음성, 볼륨을 원하는 대로 변경하세요!"
-                            else -> "Change Gemini Live model, voice, and volume to your liking!"
-                        }
-                        Toast.makeText(appContext, hint, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(appContext, locale.ttsSettingsTitle, Toast.LENGTH_SHORT).show()
                     },
                 )
             }

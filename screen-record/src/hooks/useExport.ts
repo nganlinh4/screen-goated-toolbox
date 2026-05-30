@@ -69,12 +69,29 @@ interface NativeVideoMetadataProbe {
   fpsDen: number;
 }
 
+function getExportFailureMessage(error: unknown): string {
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : String(error ?? "");
+  if (raw.includes("0x80070070") || /not enough space on the disk/i.test(raw)) {
+    return "Export failed because the output drive is full. Free up disk space or choose another export folder, then export again.";
+  }
+  if (/Export already in progress/i.test(raw)) {
+    return "An export is still finishing or cleaning up. Wait a moment, or restart the app if it stays stuck.";
+  }
+  return raw || "Export failed for an unknown reason.";
+}
+
 export function useExport(props: UseExportProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const exportInFlightRef = useRef(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showExportSuccessDialog, setShowExportSuccessDialog] = useState(false);
+  const [exportErrorMessage, setExportErrorMessage] = useState("");
   const [lastExportedPath, setLastExportedPath] = useState("");
   const [lastExportArtifacts, setLastExportArtifacts] = useState<
     ExportArtifact[]
@@ -513,6 +530,7 @@ export function useExport(props: UseExportProps) {
       exportInFlightRef.current = true;
       setShowExportDialog(false);
       setIsProcessing(true);
+      setExportErrorMessage("");
       setLastExportArtifacts([]);
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => resolve()),
@@ -555,6 +573,7 @@ export function useExport(props: UseExportProps) {
       }
     } catch (error) {
       console.error("[Export] Error:", error);
+      setExportErrorMessage(getExportFailureMessage(error));
     } finally {
       exportInFlightRef.current = false;
       setIsProcessing(false);
@@ -616,6 +635,8 @@ export function useExport(props: UseExportProps) {
     hasAudio,
     showExportSuccessDialog,
     setShowExportSuccessDialog,
+    exportErrorMessage,
+    setExportErrorMessage,
     lastExportedPath,
     setLastExportedPath,
     lastExportArtifacts,

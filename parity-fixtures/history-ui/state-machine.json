@@ -154,6 +154,107 @@
       ]
     },
     {
+      "name": "load_prunes_over_limit_database_and_backing_files",
+      "storedSettings": {
+        "maxItems": 10,
+        "hasExplicitMaxItems": true
+      },
+      "storedItems": [
+        {
+          "id": 1,
+          "timestamp": "2026-03-21 10:00:01",
+          "itemType": "TEXT",
+          "text": "newest",
+          "mediaPath": "text_newest.txt"
+        },
+        {
+          "id": 2,
+          "timestamp": "2026-03-21 10:00:02",
+          "itemType": "TEXT",
+          "text": "old-1",
+          "mediaPath": "text_old_1.txt"
+        },
+        {
+          "id": 3,
+          "timestamp": "2026-03-21 10:00:03",
+          "itemType": "TEXT",
+          "text": "old-2",
+          "mediaPath": "text_old_2.txt"
+        },
+        {
+          "id": 4,
+          "timestamp": "2026-03-21 10:00:04",
+          "itemType": "TEXT",
+          "text": "old-3",
+          "mediaPath": "text_old_3.txt"
+        },
+        {
+          "id": 5,
+          "timestamp": "2026-03-21 10:00:05",
+          "itemType": "TEXT",
+          "text": "old-4",
+          "mediaPath": "text_old_4.txt"
+        },
+        {
+          "id": 6,
+          "timestamp": "2026-03-21 10:00:06",
+          "itemType": "TEXT",
+          "text": "old-5",
+          "mediaPath": "text_old_5.txt"
+        },
+        {
+          "id": 7,
+          "timestamp": "2026-03-21 10:00:07",
+          "itemType": "TEXT",
+          "text": "old-6",
+          "mediaPath": "text_old_6.txt"
+        },
+        {
+          "id": 8,
+          "timestamp": "2026-03-21 10:00:08",
+          "itemType": "TEXT",
+          "text": "old-7",
+          "mediaPath": "text_old_7.txt"
+        },
+        {
+          "id": 9,
+          "timestamp": "2026-03-21 10:00:09",
+          "itemType": "TEXT",
+          "text": "old-8",
+          "mediaPath": "text_old_8.txt"
+        },
+        {
+          "id": 10,
+          "timestamp": "2026-03-21 10:00:10",
+          "itemType": "TEXT",
+          "text": "old-9",
+          "mediaPath": "text_old_9.txt"
+        },
+        {
+          "id": 11,
+          "timestamp": "2026-03-21 10:00:11",
+          "itemType": "TEXT",
+          "text": "pruned",
+          "mediaPath": "text_pruned.txt"
+        }
+      ],
+      "expectedOrder": [
+        "newest",
+        "old-1",
+        "old-2",
+        "old-3",
+        "old-4",
+        "old-5",
+        "old-6",
+        "old-7",
+        "old-8",
+        "old-9"
+      ],
+      "expectedDeletedMediaPaths": [
+        "text_pruned.txt"
+      ]
+    },
+    {
       "name": "legacy_android_default_200_migrates_to_windows_default_50",
       "storedSettings": {
         "maxItems": 200,

@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.collect
+import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantPendingLaunchStore
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchKind
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
@@ -27,8 +28,10 @@ import dev.screengoated.toolbox.mobile.shared.live.ProviderDescriptor
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.service.BubbleService
+import dev.screengoated.toolbox.mobile.service.helpassistant.HelpAssistantOverlayService
 import dev.screengoated.toolbox.mobile.ui.SgtMobileApp
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 import dev.screengoated.toolbox.mobile.ui.theme.SgtMobileTheme
 
 class MainActivity : ComponentActivity() {
@@ -181,6 +184,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.refreshPermissions()
+        maybeRunPendingHelpAssistant()
         maybeRunDeferredStartFlow(source = "onResume")
     }
 
@@ -202,6 +206,8 @@ class MainActivity : ComponentActivity() {
         val requiresGeminiApiKey = pendingAudioPreset?.kind == AudioPresetLaunchKind.REALTIME || pendingAudioPreset == null
         if (requiresGeminiApiKey && !viewModel.hasApiKey()) {
             pendingStart = false
+            apiKeyErrorToastText("NO_API_KEY:google", appContainer.repository.currentUiPreferences().uiLanguage)
+                ?.let(appContainer.toastBus::show)
             viewModel.fail("Enter your Gemini BYOK key before starting live translate.")
             return
         }
@@ -288,6 +294,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun maybeRunPendingHelpAssistant() {
+        if (!Settings.canDrawOverlays(this)) {
+            return
+        }
+        val pending = HelpAssistantPendingLaunchStore.take() ?: return
+        HelpAssistantOverlayService.start(
+            context = this,
+            question = pending.question,
+            uiLanguage = pending.uiLanguage,
+        )
     }
 
     private fun handleIntent(intent: Intent?) {

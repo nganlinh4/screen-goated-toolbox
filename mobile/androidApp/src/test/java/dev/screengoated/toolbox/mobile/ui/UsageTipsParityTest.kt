@@ -22,6 +22,7 @@ class UsageTipsParityTest {
         val case = fixtureCase("windows_rotation_contract")
         assertEquals(500, case.getValue("fade_duration_ms").jsonPrimitive.int)
         assertEquals("2000 + tip.length * 60", case.getValue("display_duration_formula").jsonPrimitive.content)
+        assertEquals(case.getValue("fade_duration_ms").jsonPrimitive.int.toLong(), USAGE_TIP_FADE_DURATION_MS)
         assertEquals(2000L, usageTipDisplayDurationMillis(""))
         assertEquals(2240L, usageTipDisplayDurationMillis("1234"))
     }
@@ -36,6 +37,16 @@ class UsageTipsParityTest {
 
         assertTrue(next in 0..2)
         assertFalse(next == 1)
+        repeat(20) { current ->
+            val currentIndex = current % 5
+            val candidate = selectNextUsageTipIndex(
+                currentIndex = currentIndex,
+                tipCount = 5,
+                random = Random(current),
+            )
+            assertTrue(candidate in 0..4)
+            assertFalse("current=$currentIndex", candidate == currentIndex)
+        }
     }
 
     @Test
@@ -45,6 +56,14 @@ class UsageTipsParityTest {
             selectNextUsageTipIndex(
                 currentIndex = 0,
                 tipCount = 1,
+                random = Random(0),
+            ),
+        )
+        assertEquals(
+            -1,
+            selectNextUsageTipIndex(
+                currentIndex = -1,
+                tipCount = 0,
                 random = Random(0),
             ),
         )

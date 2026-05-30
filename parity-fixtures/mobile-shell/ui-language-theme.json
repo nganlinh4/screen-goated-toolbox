@@ -58,6 +58,29 @@
       ]
     },
     {
+      "name": "tts_method_labels_come_from_ui_language_bundle",
+      "locales": [
+        {
+          "ui_language": "en",
+          "method": "GEMINI_LIVE",
+          "expected_label": "Standard (Gemini Live)",
+          "expected_compact": "Standard"
+        },
+        {
+          "ui_language": "vi",
+          "method": "GEMINI_LIVE",
+          "expected_label": "Xịn (Gemini Live)",
+          "expected_compact": "Xịn"
+        },
+        {
+          "ui_language": "ko",
+          "method": "GEMINI_LIVE",
+          "expected_label": "표준 (Gemini Live)",
+          "expected_compact": "표준"
+        }
+      ]
+    },
+    {
       "name": "tools_help_copy_comes_from_ui_language_bundle",
       "locales": [
         {
