@@ -78,8 +78,6 @@ class VideoRenderer {
 
   // --- Zoom state ---
   private lastCalculatedState: ZoomKeyframe | null = null;
-  private cachedBakedPath: BakedCameraFrame[] | null = null;
-  private lastBakeSignature: string = '';
 
   // --- Squish animation constants ---
   private readonly CLICK_FUSE_THRESHOLD = 0.15;
@@ -448,67 +446,6 @@ class VideoRenderer {
     srcCropH?: number,
     videoScale?: number
   ): ZoomKeyframe {
-    const isPaused = this.activeRenderContext?.video?.paused ?? true;
-
-    // Compute lightweight signature of zoom-relevant fields only.
-    // smoothMotionPath uses a hash (length + bounds) instead of mapping all 49k entries.
-    // cursorVisibilitySegments, keystroke*, etc. are excluded — they don't affect the camera path.
-    const pathLen = segment.smoothMotionPath?.length ?? 0;
-    const pathHash = pathLen > 0
-      ? `${pathLen}:${segment.smoothMotionPath![0].time}:${segment.smoothMotionPath![pathLen - 1].time}:${segment.smoothMotionPath![pathLen - 1].zoom}`
-      : '0';
-    const signature = JSON.stringify({
-      trim: [segment.trimStart, segment.trimEnd],
-      trimSegments: segment.trimSegments?.map(s => ({ s: s.startTime, e: s.endTime })),
-      crop: segment.crop,
-      smoothMotionPath: pathHash,
-      zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, d: k.duration, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
-      zoomInfluence: segment.zoomInfluencePoints?.map(p => ({ t: p.time, v: p.value })),
-      vidDims: [viewW, viewH],
-      videoScale: videoScale ?? 1,
-    });
-
-    if (this.lastBakeSignature !== signature) {
-      this.cachedBakedPath = this.generateBakedPath(segment, viewW / (segment.crop?.width || 1), viewH / (segment.crop?.height || 1), 60, srcCropW, srcCropH, videoScale);
-      this.lastBakeSignature = signature;
-    }
-
-    if (!isPaused && this.cachedBakedPath && this.cachedBakedPath.length > 0) {
-      // Index directly by source time — the baked path spans the full source
-      // range (including hidden parts) so the camera moves naturally through gaps.
-      const bakedStart = this.cachedBakedPath[0].time;
-      const step = 1 / 60;
-      const relTime = currentTime - bakedStart;
-      const idx = Math.floor(relTime / step);
-
-      if (idx >= 0 && idx < this.cachedBakedPath.length) {
-        const p1 = this.cachedBakedPath[idx];
-        const p2 = this.cachedBakedPath[idx + 1] || p1;
-        const t = (relTime % step) / step;
-
-        const globalX = p1.x + (p2.x - p1.x) * t;
-        const globalY = p1.y + (p2.y - p1.y) * t;
-        const zoom = p1.zoom + (p2.zoom - p1.zoom) * t;
-
-        const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-        const fullW = viewW / crop.width;
-        const fullH = viewH / crop.height;
-        const cropOffsetX = fullW * crop.x;
-        const cropOffsetY = fullH * crop.y;
-
-        const state: ZoomKeyframe = {
-          time: currentTime,
-          duration: 0,
-          zoomFactor: zoom,
-          positionX: Math.max(0, Math.min(1, (globalX - cropOffsetX) / viewW)),
-          positionY: Math.max(0, Math.min(1, (globalY - cropOffsetY) / viewH)),
-          easingType: 'linear'
-        };
-        this.lastCalculatedState = state;
-        return state;
-      }
-    }
-
     const state = calculateCurrentZoomStateInternal(currentTime, segment, viewW, viewH, srcCropW, srcCropH, videoScale);
     this.lastCalculatedState = state;
     return state;

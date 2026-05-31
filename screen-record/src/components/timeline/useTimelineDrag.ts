@@ -6,6 +6,8 @@ import { useTrackSegmentDrag } from './useTrackSegmentDrag';
 
 export type { TimelineDragState } from './useTimelineDragTypes';
 
+const ZOOM_BLOCK_DRAG_COMMIT_INTERVAL_MS = 32;
+
 export function useTimelineDrag({
   duration,
   segment,
@@ -35,8 +37,60 @@ export function useTimelineDrag({
   const draggingZoomIdxRef = useRef<number | null>(null);
   const draggingZoomTokenRef = useRef<string | null>(null);
   const zoomDragTokenMapRef = useRef<WeakMap<ZoomBlock, string>>(new WeakMap());
+  const segmentRef = useRef(segment);
+  segmentRef.current = segment;
+  const zoomDragDraftBlocksRef = useRef<ZoomBlock[] | null>(null);
+  const pendingZoomDragBlocksRef = useRef<ZoomBlock[] | null>(null);
+  const zoomDragUpdateFrameRef = useRef<number | null>(null);
+  const lastZoomDragUpdateAtRef = useRef(0);
   const trimDraggingIdRef = useRef<string | null>(null);
   const trimDragOriginalsRef = useRef<TrimSegment[] | null>(null);
+
+  const flushPendingZoomDragUpdate = useCallback(() => {
+    const pendingBlocks = pendingZoomDragBlocksRef.current;
+    pendingZoomDragBlocksRef.current = null;
+    if (zoomDragUpdateFrameRef.current !== null) {
+      cancelAnimationFrame(zoomDragUpdateFrameRef.current);
+      zoomDragUpdateFrameRef.current = null;
+    }
+    if (!pendingBlocks || !segmentRef.current) return;
+    lastZoomDragUpdateAtRef.current = performance.now();
+    const nextSegment = { ...segmentRef.current, zoomBlocks: pendingBlocks };
+    segmentRef.current = nextSegment;
+    setSegment(nextSegment);
+  }, [setSegment]);
+
+  const scheduleZoomDragUpdate = useCallback((nextBlocks: ZoomBlock[]) => {
+    pendingZoomDragBlocksRef.current = nextBlocks;
+    if (zoomDragUpdateFrameRef.current !== null) return;
+
+    const pump = () => {
+      const now = performance.now();
+      if (now - lastZoomDragUpdateAtRef.current < ZOOM_BLOCK_DRAG_COMMIT_INTERVAL_MS) {
+        zoomDragUpdateFrameRef.current = requestAnimationFrame(pump);
+        return;
+      }
+
+      zoomDragUpdateFrameRef.current = null;
+      const pendingBlocks = pendingZoomDragBlocksRef.current;
+      pendingZoomDragBlocksRef.current = null;
+      if (!pendingBlocks || !segmentRef.current) return;
+      lastZoomDragUpdateAtRef.current = now;
+      const nextSegment = { ...segmentRef.current, zoomBlocks: pendingBlocks };
+      segmentRef.current = nextSegment;
+      setSegment(nextSegment);
+    };
+
+    zoomDragUpdateFrameRef.current = requestAnimationFrame(pump);
+  }, [setSegment]);
+
+  useEffect(() => () => {
+    if (zoomDragUpdateFrameRef.current !== null) {
+      cancelAnimationFrame(zoomDragUpdateFrameRef.current);
+      zoomDragUpdateFrameRef.current = null;
+    }
+    pendingZoomDragBlocksRef.current = null;
+  }, []);
 
   const getTimeFromClientX = useCallback((clientX: number): number | null => {
     const timeline = timelineRef.current;
@@ -82,6 +136,7 @@ export function useTimelineDrag({
     setDraggingZoomIdx(index);
     draggingZoomIdxRef.current = index;
     const draggedBlock = segment?.zoomBlocks?.[index];
+    zoomDragDraftBlocksRef.current = segment?.zoomBlocks ?? [];
     if (draggedBlock) {
       const token = crypto.randomUUID();
       zoomDragTokenMapRef.current.set(draggedBlock, token);
@@ -96,7 +151,7 @@ export function useTimelineDrag({
 
   const handleZoomDrag = useCallback((clientX: number) => {
     if (!isDraggingZoom || draggingZoomIdxRef.current === null || !segment) return;
-    const blocks = segment.zoomBlocks ?? [];
+    const blocks = zoomDragDraftBlocksRef.current ?? segment.zoomBlocks ?? [];
     const newTime = getTimeFromClientX(clientX);
     if (newTime === null) return;
 
@@ -125,6 +180,7 @@ export function useTimelineDrag({
       .map((b, i) => (i === currentIdx ? movedBlock : b))
       .sort((a, b) => a.startTime - b.startTime);
     const newIdx = nextBlocks.indexOf(movedBlock);
+    zoomDragDraftBlocksRef.current = nextBlocks;
 
     draggingZoomIdxRef.current = newIdx;
     if (newIdx !== draggingZoomIdx) {
@@ -132,16 +188,25 @@ export function useTimelineDrag({
       setEditingKeyframeId(newIdx);
     }
 
-    setSegment({ ...segment, zoomBlocks: nextBlocks });
+    scheduleZoomDragUpdate(nextBlocks);
 
-    const center = (newStart + newEnd) / 2;
+    // Seek to the center of the solid hold range (between the eased ramps),
+    // matching where the badge sits and where a click lands.
+    let ei = Math.max(0, movedBlock.easeIn);
+    let eo = Math.max(0, movedBlock.easeOut);
+    if (ei + eo > width && width > 0) {
+      const s = width / (ei + eo);
+      ei *= s;
+      eo *= s;
+    }
+    const center = newStart + ei + (width - ei - eo) / 2;
     if (onSeek) {
       onSeek(center);
     } else if (videoRef.current) {
       videoRef.current.currentTime = center;
       setCurrentTime(center);
     }
-  }, [isDraggingZoom, draggingZoomIdx, segment, getTimeFromClientX, setSegment, onSeek, videoRef, setCurrentTime, duration, setEditingKeyframeId]);
+  }, [isDraggingZoom, draggingZoomIdx, segment, getTimeFromClientX, scheduleZoomDragUpdate, onSeek, videoRef, setCurrentTime, duration, setEditingKeyframeId]);
 
   // Trim drag
   const handleTrimDragStart = useCallback((id: string, type: 'start' | 'end') => {
@@ -299,6 +364,7 @@ export function useTimelineDrag({
   const handleMouseUp = useCallback(() => {
     // Commit batch if any drag operation was active (not seek -- seek doesn't modify segment)
     if (isDraggingTrimStart || isDraggingTrimEnd || trackDrag.isDraggingTextStart || trackDrag.isDraggingTextEnd || trackDrag.isDraggingTextBody || trackDrag.isDraggingSubtitleStart || trackDrag.isDraggingSubtitleEnd || trackDrag.isDraggingSubtitleBody || trackDrag.isDraggingKeystrokeStart || trackDrag.isDraggingKeystrokeEnd || trackDrag.isDraggingKeystrokeBody || trackDrag.isDraggingPointerStart || trackDrag.isDraggingPointerEnd || trackDrag.isDraggingPointerBody || trackDrag.isDraggingWebcamStart || trackDrag.isDraggingWebcamEnd || trackDrag.isDraggingWebcamBody || isDraggingZoom) {
+      if (isDraggingZoom) flushPendingZoomDragUpdate();
       commitBatch();
     }
     // Flush any pending throttled seek so the final position is applied
@@ -312,8 +378,9 @@ export function useTimelineDrag({
     setDraggingZoomIdx(null);
     draggingZoomIdxRef.current = null;
     draggingZoomTokenRef.current = null;
+    zoomDragDraftBlocksRef.current = null;
     setIsDraggingSeek(false);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, trackDrag.isDraggingTextStart, trackDrag.isDraggingTextEnd, trackDrag.isDraggingTextBody, trackDrag.isDraggingSubtitleStart, trackDrag.isDraggingSubtitleEnd, trackDrag.isDraggingSubtitleBody, trackDrag.isDraggingKeystrokeStart, trackDrag.isDraggingKeystrokeEnd, trackDrag.isDraggingKeystrokeBody, trackDrag.isDraggingPointerStart, trackDrag.isDraggingPointerEnd, trackDrag.isDraggingPointerBody, trackDrag.isDraggingWebcamStart, trackDrag.isDraggingWebcamEnd, trackDrag.isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, commitBatch, onSeekEnd, trackDrag.resetTrackDragState]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, trackDrag.isDraggingTextStart, trackDrag.isDraggingTextEnd, trackDrag.isDraggingTextBody, trackDrag.isDraggingSubtitleStart, trackDrag.isDraggingSubtitleEnd, trackDrag.isDraggingSubtitleBody, trackDrag.isDraggingKeystrokeStart, trackDrag.isDraggingKeystrokeEnd, trackDrag.isDraggingKeystrokeBody, trackDrag.isDraggingPointerStart, trackDrag.isDraggingPointerEnd, trackDrag.isDraggingPointerBody, trackDrag.isDraggingWebcamStart, trackDrag.isDraggingWebcamEnd, trackDrag.isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, flushPendingZoomDragUpdate, commitBatch, onSeekEnd, trackDrag.resetTrackDragState]);
 
   // Attach window-level listeners during any drag so cursor can leave the timeline
   useEffect(() => {
