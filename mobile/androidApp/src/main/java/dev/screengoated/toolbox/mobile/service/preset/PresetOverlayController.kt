@@ -62,6 +62,7 @@ internal class PresetOverlayController(
     private val clipboardManager = context.getSystemService(ClipboardManager::class.java)
 
     private val processingIndicator = PresetProcessingIndicator(context, windowManager)
+    private val accessibilityDisclosure = AccessibilityDisclosureOverlay(context, windowManager)
     private val imageCaptureSession = PresetImageCaptureSession(
         context = context,
         windowManager = windowManager,
@@ -312,6 +313,7 @@ internal class PresetOverlayController(
         inputModule.destroy()
         resultModule.destroy()
         dismissTarget.hide()
+        accessibilityDisclosure.dismiss()
         autoSpeakCoordinator?.clear()
         activePreset = null
         imageContinuousPresetId = null
@@ -373,16 +375,7 @@ internal class PresetOverlayController(
             return
         }
         if (requiresAccessibilityForAudioAutoPaste(resolved) && !SgtAccessibilityService.isAvailable) {
-            Toast.makeText(
-                context,
-                localized(
-                    "Turn on Accessibility to use this preset. Opening Settings...",
-                    "Bật Trợ năng để dùng preset này. Đang mở Cài đặt...",
-                    "이 프리셋을 사용하려면 접근성을 켜세요. 설정을 여는 중...",
-                ),
-                Toast.LENGTH_LONG,
-            ).show()
-            openAccessibilitySettings()
+            promptAccessibilityDisclosure()
             return
         }
 
@@ -400,20 +393,10 @@ internal class PresetOverlayController(
         activePreset = resolved
 
         if (resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT) {
-            // Gate: require accessibility service enabled
+            // Gate: require accessibility service enabled. Show the prominent
+            // disclosure first (Google Play requirement), then open Settings on consent.
             if (!SgtAccessibilityService.isAvailable) {
-                val lang = uiLanguage()
-                val msg = when (lang) {
-                    "vi" -> "Cần bật Dịch vụ trợ năng để dùng preset này. Đang mở Cài đặt..."
-                    "ko" -> "이 프리셋을 사용하려면 접근성 서비스를 활성화해야 합니다. 설정을 여는 중..."
-                    else -> "Accessibility service required for this preset. Opening Settings..."
-                }
-                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                try {
-                    val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
-                } catch (_: Exception) {}
+                promptAccessibilityDisclosure()
                 return
             }
 
@@ -1102,6 +1085,55 @@ internal class PresetOverlayController(
             context.startActivity(intent)
         } catch (_: Exception) {
         }
+    }
+
+    /**
+     * Prominent disclosure shown before sending the user to Accessibility
+     * settings. Explains why the app uses the AccessibilityService API and
+     * what data it reads, then opens Settings only after the user agrees.
+     */
+    private fun promptAccessibilityDisclosure() {
+        accessibilityDisclosure.show(
+            themeMode = uiPreferencesProvider().themeMode,
+            strings = AccessibilityDisclosureStrings(
+                title = localized(
+                    "Enable Accessibility access",
+                    "Bật quyền Trợ năng",
+                    "접근성 권한 사용",
+                ),
+                body = localized(
+                    "Screen Goated Toolbox uses Android's Accessibility service to run " +
+                        "Text-Select presets and auto-paste. It reads the text you select in " +
+                        "other apps, can capture the screen, and pastes processed results back " +
+                        "into the active field. This content is sent only to the AI provider you " +
+                        "configure, to fulfil your request — it is not collected on our own " +
+                        "servers. Enable the service to continue?",
+                    "Screen Goated Toolbox dùng dịch vụ Trợ năng của Android để chạy " +
+                        "preset Chọn văn bản và tự động dán. Ứng dụng đọc văn bản bạn " +
+                        "bôi đen trong app khác, có thể chụp màn hình, và dán kết quả đã " +
+                        "xử lý vào ô đang chọn. Nội dung này chỉ được gửi tới nhà cung " +
+                        "cấp AI bạn đã cấu hình để thực hiện yêu cầu — không thu thập trên " +
+                        "máy chủ của chúng tôi. Bật dịch vụ để tiếp tục?",
+                    "Screen Goated Toolbox는 텍스트 선택 프리셋과 자동 붙여넣기를 " +
+                        "실행하기 위해 Android 접근성 서비스를 사용합니다. 다른 앱에서 " +
+                        "선택한 텍스트를 읽고, 화면을 캡처할 수 있으며, 처리된 결과를 " +
+                        "활성 입력란에 붙여넣습니다. 이 콘텐츠는 요청을 처리하기 위해 " +
+                        "설정한 AI 제공자에게만 전송되며, 당사 서버에는 수집하지 " +
+                        "않습니다. 계속하려면 서비스를 사용 설정하시겠어요?",
+                ),
+                agree = localized(
+                    "Agree & open settings",
+                    "Đồng ý & mở Cài đặt",
+                    "동의하고 설정 열기",
+                ),
+                cancel = localized(
+                    "Not now",
+                    "Để sau",
+                    "나중에",
+                ),
+            ),
+            onAgree = { openAccessibilitySettings() },
+        )
     }
 
     private fun ScreenshotCaptureFailureReason.opensAccessibilitySettings(): Boolean {

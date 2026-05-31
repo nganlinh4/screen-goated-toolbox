@@ -254,7 +254,10 @@ android {
         applicationId = "dev.screengoated.toolbox.mobile"
         minSdk = 29
         targetSdk = 36
-        versionCode = canonicalVersionCode
+        // versionCode follows Cargo.toml semver, but can be bumped for store
+        // re-uploads at the same version via -PversionCodeOverride=<int>.
+        versionCode = (project.findProperty("versionCodeOverride") as String?)?.toIntOrNull()
+            ?: canonicalVersionCode
         versionName = canonicalAppVersion
         buildConfigField("String", "CANONICAL_APP_VERSION", "\"$canonicalAppVersion\"")
         buildConfigField("String", "PARITY_PROFILE", "\"windows-live-translate-v2\"")
