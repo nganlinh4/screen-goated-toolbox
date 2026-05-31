@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { VideoSegment, ZoomBlock } from '@/types/video';
 import {
   type AdjacentSegmentIndices,
@@ -16,6 +17,7 @@ import {
 const ZOOM_TRACK_TOP_PX = 4;
 const ZOOM_TRACK_RANGE_PX = 32;
 const ZOOM_TRACK_VIEWBOX_HEIGHT = 40;
+const ZOOM_BLOCK_DRAG_COMMIT_INTERVAL_MS = 32;
 
 function valueToTrackY(value: number) {
   return ZOOM_TRACK_TOP_PX + (1 - value) * ZOOM_TRACK_RANGE_PX;
@@ -63,6 +65,8 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   callbacksRef.current = { onUpdateBlocks };
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [hoveredBlockIdx, setHoveredBlockIdx] = useState<number | null>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [trackWidth, setTrackWidth] = useState(0);
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
   const [activeDragIdx, setActiveDragIdx] = useState<number | null>(null);
   const [axisLockMode, setAxisLockMode] = useState<'armed' | 'horizontal' | 'vertical' | null>(null);
@@ -77,6 +81,43 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     );
   const dragVisualModeRef = useRef<AdjustableLineDragVisualMode | null>(null);
   const pointAxisLockRef = useRef<'horizontal' | 'vertical' | null>(null);
+  const pendingBlockRangeUpdateRef = useRef<ZoomBlock[] | null>(null);
+  const blockRangeUpdateFrameRef = useRef<number | null>(null);
+  const lastBlockRangeUpdateAtRef = useRef(0);
+
+  const flushPendingBlockRangeUpdate = () => {
+    const pending = pendingBlockRangeUpdateRef.current;
+    pendingBlockRangeUpdateRef.current = null;
+    if (blockRangeUpdateFrameRef.current !== null) {
+      cancelAnimationFrame(blockRangeUpdateFrameRef.current);
+      blockRangeUpdateFrameRef.current = null;
+    }
+    if (!pending) return;
+    lastBlockRangeUpdateAtRef.current = performance.now();
+    callbacksRef.current.onUpdateBlocks(pending);
+  };
+
+  const scheduleBlockRangeUpdate = (nextBlocks: ZoomBlock[]) => {
+    pendingBlockRangeUpdateRef.current = nextBlocks;
+    if (blockRangeUpdateFrameRef.current !== null) return;
+
+    const pump = () => {
+      const now = performance.now();
+      if (now - lastBlockRangeUpdateAtRef.current < ZOOM_BLOCK_DRAG_COMMIT_INTERVAL_MS) {
+        blockRangeUpdateFrameRef.current = requestAnimationFrame(pump);
+        return;
+      }
+
+      blockRangeUpdateFrameRef.current = null;
+      const pending = pendingBlockRangeUpdateRef.current;
+      pendingBlockRangeUpdateRef.current = null;
+      if (!pending) return;
+      lastBlockRangeUpdateAtRef.current = now;
+      callbacksRef.current.onUpdateBlocks(pending);
+    };
+
+    blockRangeUpdateFrameRef.current = requestAnimationFrame(pump);
+  };
 
   const applyDragVisualMode = (mode: AdjustableLineDragVisualMode | null) => {
     if (dragVisualModeRef.current === mode) return;
@@ -94,12 +135,32 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     return subscribeToAdjustableLineDragVisualMode(setGlobalDragVisualMode);
   }, []);
 
+  React.useEffect(() => () => {
+    if (blockRangeUpdateFrameRef.current !== null) {
+      cancelAnimationFrame(blockRangeUpdateFrameRef.current);
+      blockRangeUpdateFrameRef.current = null;
+    }
+    pendingBlockRangeUpdateRef.current = null;
+  }, []);
+
   React.useEffect(() => {
     if (globalDragVisualMode === null) return;
     setHoveredIdx(null);
     setHoveredBlockIdx(null);
     setHoveredSegmentIndices(null);
   }, [globalDragVisualMode]);
+
+  // Track the lane's pixel width so we can hide the inline badge on blocks that
+  // are too narrow to fit it (then it floats above on hover instead).
+  React.useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const update = () => setTrackWidth(el.getBoundingClientRect().width);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const getHighlightedSegmentPath = (
     segmentIndices: AdjacentSegmentIndices | null,
@@ -305,8 +366,9 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     rect: DOMRect,
   ) => {
     beginBatch();
+    let draftBlocks = segmentRef.current.zoomBlocks ?? [];
     const onMove = (me: MouseEvent) => {
-      const current = segmentRef.current.zoomBlocks ?? [];
+      const current = draftBlocks;
       const block = current[index];
       if (!block || rect.width <= 0 || duration <= 0) return;
       const t = Math.max(0, Math.min(duration, ((me.clientX - rect.left) / rect.width) * duration));
@@ -325,11 +387,22 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
         const span = newEnd - block.startTime;
         updated = { ...block, endTime: newEnd, easeOut: Math.min(block.easeOut, span) };
       }
-      callbacksRef.current.onUpdateBlocks(current.map((b, i) => (i === index ? updated : b)));
+      if (
+        updated.startTime === block.startTime &&
+        updated.endTime === block.endTime &&
+        updated.easeIn === block.easeIn &&
+        updated.easeOut === block.easeOut
+      ) {
+        return;
+      }
+      const nextBlocks = current.map((b, i) => (i === index ? updated : b));
+      draftBlocks = nextBlocks;
+      scheduleBlockRangeUpdate(nextBlocks);
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      flushPendingBlockRangeUpdate();
       commitBatch();
     };
     window.addEventListener('mousemove', onMove);
@@ -344,8 +417,9 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     rect: DOMRect,
   ) => {
     beginBatch();
+    let draftBlocks = segmentRef.current.zoomBlocks ?? [];
     const onMove = (me: MouseEvent) => {
-      const current = segmentRef.current.zoomBlocks ?? [];
+      const current = draftBlocks;
       const block = current[index];
       if (!block || rect.width <= 0 || duration <= 0) return;
       const t = Math.max(0, Math.min(duration, ((me.clientX - rect.left) / rect.width) * duration));
@@ -354,11 +428,15 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
         side === 'in'
           ? { ...block, easeIn: Math.max(0, Math.min(span - block.easeOut, t - block.startTime)) }
           : { ...block, easeOut: Math.max(0, Math.min(span - block.easeIn, block.endTime - t)) };
-      callbacksRef.current.onUpdateBlocks(current.map((b, i) => (i === index ? updated : b)));
+      if (updated.easeIn === block.easeIn && updated.easeOut === block.easeOut) return;
+      const nextBlocks = current.map((b, i) => (i === index ? updated : b));
+      draftBlocks = nextBlocks;
+      scheduleBlockRangeUpdate(nextBlocks);
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      flushPendingBlockRangeUpdate();
       commitBatch();
     };
     window.addEventListener('mousemove', onMove);
@@ -595,6 +673,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
 
   return (
     <div
+      ref={trackRef}
       className="zoom-track timeline-lane timeline-lane-strong relative h-7"
       onMouseLeave={() => setHoveredBlockIdx(null)}
     >
@@ -697,7 +776,6 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
           const span = Math.max(0, block.endTime - block.startTime);
           const widthPct = (span / duration) * 100;
           const fillOpacity = Math.min(0.5, 0.16 + (block.zoomFactor - 1) * 0.18);
-          const center = (block.startTime + block.endTime) / 2;
 
           // Clamp the ramp pair to the span, then express as % of the block.
           let easeIn = Math.max(0, block.easeIn);
@@ -709,10 +787,19 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
           }
           const holdStart = span > 0 ? (easeIn / span) * 100 : 0; // ramp-in/hold boundary
           const holdEnd = span > 0 ? 100 - (easeOut / span) * 100 : 100; // hold/ramp-out boundary
+          const solidCenterPct = (holdStart + holdEnd) / 2; // center of the solid hold range
+          const solidCenterTime = block.startTime + easeIn + (span - easeIn - easeOut) / 2;
           // Background ramps up across easeIn, holds, then ramps down across easeOut.
           const rampFill = disabled
             ? 'repeating-linear-gradient(45deg, rgba(59,130,246,0.10) 0px, rgba(59,130,246,0.10) 4px, transparent 4px, transparent 8px)'
             : `linear-gradient(90deg, rgba(59,130,246,${fillOpacity * 0.18}) 0%, rgba(59,130,246,${fillOpacity}) ${holdStart}%, rgba(59,130,246,${fillOpacity}) ${holdEnd}%, rgba(59,130,246,${fillOpacity * 0.18}) 100%)`;
+          // Does the badge fit inside the solid hold range? If not, it floats
+          // above the block on hover instead of rendering inline.
+          const blockPx = (widthPct / 100) * trackWidth;
+          const solidPx = blockPx * ((holdEnd - holdStart) / 100);
+          const badgeLabel = `${Math.round((block.zoomFactor - 1) * 100)}%`;
+          const badgeFits = solidPx >= 30 + badgeLabel.length * 2;
+          const showFloatBadge = !badgeFits && showHandles;
 
           return (
             <div
@@ -730,19 +817,49 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
               }}
               onMouseEnter={() => { if (globalDragVisualMode === null) setHoveredBlockIdx(index); }}
               onMouseLeave={() => setHoveredBlockIdx(null)}
-              onClick={(e) => { e.stopPropagation(); onKeyframeClick(center, index); }}
+              onClick={(e) => { e.stopPropagation(); onKeyframeClick(solidCenterTime, index); }}
               onPointerDown={(e) => { e.stopPropagation(); onKeyframeDragStart(index); }}
             >
-              {/* Zoom % label */}
-              <div
-                className="zoom-block-label timeline-chip absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[9px] font-medium whitespace-nowrap pointer-events-none"
-                data-tone="accent"
-                data-active={active ? 'true' : 'false'}
-              >
-                {Math.round((block.zoomFactor - 1) * 100)}%
-              </div>
+              {/* Zoom % label — centered on the solid hold range when it fits,
+                  otherwise floated above the block on hover. */}
+              {badgeFits && (
+                <div
+                  className="zoom-block-label timeline-chip absolute -translate-x-1/2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[9px] font-medium whitespace-nowrap pointer-events-none"
+                  style={{ left: `${solidCenterPct}%` }}
+                  data-tone="accent"
+                  data-active={active ? 'true' : 'false'}
+                >
+                  {badgeLabel}
+                </div>
+              )}
+              {showFloatBadge && (() => {
+                // Render above the block via a portal so it escapes the lane's
+                // clipping/stacking and sits on top without covering the bar.
+                const r = trackRef.current?.getBoundingClientRect();
+                if (!r) return null;
+                const x = r.left + (solidCenterTime / duration) * r.width;
+                return createPortal(
+                  <div
+                    className="zoom-block-label-float timeline-chip px-1.5 py-0.5 text-[9px] font-medium whitespace-nowrap shadow-md"
+                    style={{
+                      position: 'fixed',
+                      left: x,
+                      top: r.top - 4,
+                      transform: 'translate(-50%, -100%)',
+                      zIndex: 9999,
+                      pointerEvents: 'none',
+                    }}
+                    data-tone="accent"
+                    data-active={active ? 'true' : 'false'}
+                  >
+                    {badgeLabel}
+                  </div>,
+                  document.body,
+                );
+              })()}
 
-              {/* Outer edge handles — resize the block bounds (start / end) */}
+              {/* Outer edge handles — resize the block bounds (start / end).
+                  Invisible grab strips; the block's border shows the edges. */}
               <div
                 className="zoom-block-handle-left absolute inset-y-0 left-0 w-2 -ml-1 cursor-col-resize z-10"
                 onClick={(e) => e.stopPropagation()}
@@ -750,11 +867,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   e.stopPropagation();
                   startResizeBlock(index, 'start', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
                 }}
-              >
-                <div className={`absolute inset-y-0.5 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
-                  showHandles ? 'bg-[var(--timeline-zoom-color)]' : 'bg-[var(--timeline-zoom-color)]/50'
-                }`} />
-              </div>
+              />
               <div
                 className="zoom-block-handle-right absolute inset-y-0 right-0 w-2 -mr-1 cursor-col-resize z-10"
                 onClick={(e) => e.stopPropagation()}
@@ -762,11 +875,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   e.stopPropagation();
                   startResizeBlock(index, 'end', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
                 }}
-              >
-                <div className={`absolute inset-y-0.5 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
-                  showHandles ? 'bg-[var(--timeline-zoom-color)]' : 'bg-[var(--timeline-zoom-color)]/50'
-                }`} />
-              </div>
+              />
 
               {/* Transition handles — drag the ramp/hold boundary to resize the
                   ease-in / ease-out fade (shown when active or hovered). */}
@@ -782,8 +891,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                       startResizeTransition(index, 'in', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
                     }}
                   >
-                    <div className="absolute inset-y-1 left-1/2 -translate-x-1/2 w-px border-l border-dashed border-white/80" />
-                    <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white/90" />
+                    <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-white/80" />
                   </div>
                   <div
                     className="zoom-block-transition-out absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize z-20"
@@ -795,8 +903,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                       startResizeTransition(index, 'out', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
                     }}
                   >
-                    <div className="absolute inset-y-1 left-1/2 -translate-x-1/2 w-px border-l border-dashed border-white/80" />
-                    <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white/90" />
+                    <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-white/80" />
                   </div>
                 </>
               )}
