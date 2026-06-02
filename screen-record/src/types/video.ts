@@ -1,5 +1,20 @@
 import type { CursorPack } from "@/lib/renderer/cursorModel";
 
+export type {
+  BakedCameraFrame,
+  BakedCursorFrame,
+  BakedKeystrokeOverlay,
+  BakedOverlayPayload,
+  BakedTextOverlay,
+  BakedWebcamFrame,
+  ExportArtifact,
+  ExportArtifactFormat,
+  ExportOptions,
+  OverlayFrame,
+  OverlayQuad,
+  VideoMetadata,
+} from "./videoExportTypes";
+
 // Resolution/FPS options are computed dynamically from canvas dimensions
 
 export interface ZoomKeyframe {
@@ -540,139 +555,6 @@ export interface MousePosition {
   cursor_rotation?: number; // radians, tip-anchored tail lag rotation
   captureWidth?: number;
   captureHeight?: number;
-}
-
-export interface VideoMetadata {
-  total_chunks: number;
-  duration: number;
-  width: number;
-  height: number;
-}
-
-// Baked camera path
-export interface BakedCameraFrame {
-  time: number;
-  x: number; // Global pixel X
-  y: number; // Global pixel Y
-  zoom: number;
-}
-
-// NEW: Baked cursor path
-export interface BakedCursorFrame {
-  time: number;
-  x: number;
-  y: number;
-  scale: number; // For click squish effect
-  isClicked: boolean;
-  type: string;
-  opacity: number; // Cursor visibility (0-1)
-  rotation?: number; // radians, tip-anchored tail lag rotation
-}
-
-export interface BakedTextOverlay {
-  startTime: number;
-  endTime: number;
-  x: number; // pixel x of bitmap top-left in output canvas
-  y: number; // pixel y of bitmap top-left in output canvas
-  width: number; // bitmap width
-  height: number; // bitmap height
-  data: number[] | string; // raw RGBA bytes or base64-encoded RGBA
-}
-
-export interface BakedKeystrokeOverlay {
-  startTime: number;
-  endTime: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  data: number[] | string;
-}
-
-export interface OverlayQuad {
-  x: number;
-  y: number;
-  w: number;
-  h: number; // screen coords (pixels)
-  u: number;
-  v: number;
-  uw: number;
-  vh: number; // atlas UVs (0..1)
-  alpha: number;
-}
-
-export interface OverlayFrame {
-  time?: number;
-  frameIndex?: number;
-  quads: OverlayQuad[];
-}
-
-export interface BakedOverlayPayload {
-  atlasBase64: string;
-  atlasRgba?: Uint8Array;
-  atlasWidth: number;
-  atlasHeight: number;
-  frames: OverlayFrame[];
-  totalFrameCount?: number;
-  // Compact atlas metadata for Rust-side frame quad generation.
-  // When present, Rust generates overlay frames instead of JS.
-  atlasMetadata?: Record<string, unknown> | null;
-}
-
-export interface BakedWebcamFrame {
-  time: number;
-  visible: boolean;
-  opacity: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  roundnessPx: number;
-  shadowPx: number;
-  mirror: boolean;
-}
-
-export interface ExportOptions {
-  width: number; // 0 = use original canvas dimensions
-  height: number; // 0 = use original canvas dimensions
-  fps: number; // export framerate (common presets + source framerate)
-  targetVideoBitrateKbps: number;
-  speed?: number; // Deprecated, kept for backward compatibility if needed
-  exportProfile?: "balanced" | "max_speed" | "quality_strict" | "turbo_nv";
-  preferNvTurbo?: boolean;
-  qualityGatePercent?: number;
-  turboCodec?: "hevc" | "h264";
-  preRenderPolicy?: "off" | "idle_only" | "aggressive";
-  exportDiagnostics?: boolean;
-  outputDir?: string;
-  format?: "mp4" | "gif" | "both";
-  video?: HTMLVideoElement;
-  canvas?: HTMLCanvasElement;
-  tempCanvas?: HTMLCanvasElement;
-  segment?: VideoSegment;
-  backgroundConfig?: BackgroundConfig;
-  mousePositions?: MousePosition[];
-  onProgress?: (progress: number) => void;
-  audio?: HTMLAudioElement;
-  webcamVideo?: HTMLVideoElement;
-  webcamConfig?: WebcamConfig;
-  bakedPath?: BakedCameraFrame[];
-  bakedCursorPath?: BakedCursorFrame[];
-  bakedKeystrokeOverlays?: BakedKeystrokeOverlay[];
-  bakedWebcamFrames?: BakedWebcamFrame[];
-  /** User-supplied audio files placed on the project-wide Audio track. */
-  audioSegments?: ImportedAudioSegment[];
-  /** TTS-generated clips placed on the project-wide Narration track. */
-  narrationSegments?: NarrationSegment[];
-}
-
-export type ExportArtifactFormat = "mp4" | "gif";
-
-export interface ExportArtifact {
-  format: ExportArtifactFormat;
-  path: string;
-  bytes?: number;
-  primary?: boolean;
 }
 
 export interface Project {

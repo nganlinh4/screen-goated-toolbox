@@ -210,19 +210,18 @@ pub(super) fn stop_reference_mic() {
         }
     };
     let path_str = path.display().to_string();
-    if let Ok(mut app) = crate::APP.lock() {
-        if let Some(reference) = app
+    if let Ok(mut app) = crate::APP.lock()
+        && let Some(reference) = app
             .config
             .step_audio_reference_voices
             .iter_mut()
             .find(|reference| reference.id == target_id)
-        {
-            reference.audio_path = path_str.clone();
-            if reference.label.trim().is_empty() || reference.label.starts_with("Reference ") {
-                reference.label = "Reference mic".to_string();
-            }
-            crate::config::save_config(&app.config);
+    {
+        reference.audio_path = path_str.clone();
+        if reference.label.trim().is_empty() || reference.label.starts_with("Reference ") {
+            reference.label = "Reference mic".to_string();
         }
+        crate::config::save_config(&app.config);
     }
     state::with_state(|s| {
         s.is_mic_recording = false;
@@ -326,21 +325,20 @@ pub(super) fn update_reference(id: &str, label: Option<&str>, transcript: Option
     if id.trim().is_empty() {
         return;
     }
-    if let Ok(mut app) = crate::APP.lock() {
-        if let Some(reference) = app
+    if let Ok(mut app) = crate::APP.lock()
+        && let Some(reference) = app
             .config
             .step_audio_reference_voices
             .iter_mut()
             .find(|reference| reference.id == id)
-        {
-            if let Some(label) = label {
-                reference.label = label.to_string();
-            }
-            if let Some(transcript) = transcript {
-                reference.transcript = transcript.to_string();
-            }
-            crate::config::save_config(&app.config);
+    {
+        if let Some(label) = label {
+            reference.label = label.to_string();
         }
+        if let Some(transcript) = transcript {
+            reference.transcript = transcript.to_string();
+        }
+        crate::config::save_config(&app.config);
     }
     state::sync_to_webview();
 }
@@ -386,23 +384,22 @@ pub(super) fn pick_reference_audio(id: &str) -> Result<Option<String>, String> {
         return Ok(None);
     };
     let path_str = path.display().to_string();
-    if let Ok(mut app) = crate::APP.lock() {
-        if let Some(reference) = app
+    if let Ok(mut app) = crate::APP.lock()
+        && let Some(reference) = app
             .config
             .step_audio_reference_voices
             .iter_mut()
             .find(|reference| reference.id == id)
-        {
-            reference.audio_path = path_str.clone();
-            if reference.label.trim().is_empty() || reference.label.starts_with("Reference ") {
-                reference.label = path
-                    .file_stem()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("Reference voice")
-                    .to_string();
-            }
-            crate::config::save_config(&app.config);
+    {
+        reference.audio_path = path_str.clone();
+        if reference.label.trim().is_empty() || reference.label.starts_with("Reference ") {
+            reference.label = path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or("Reference voice")
+                .to_string();
         }
+        crate::config::save_config(&app.config);
     }
     state::sync_to_webview();
     recognize_reference(id);
@@ -448,16 +445,15 @@ pub(super) fn recognize_reference(id: &str) {
             .map(|text| text.trim().to_string());
         match result {
             Ok(transcript) => {
-                if let Ok(mut app) = crate::APP.lock() {
-                    if let Some(reference) = app
+                if let Ok(mut app) = crate::APP.lock()
+                    && let Some(reference) = app
                         .config
                         .step_audio_reference_voices
                         .iter_mut()
                         .find(|reference| reference.id == reference_id)
-                    {
-                        reference.transcript = transcript;
-                        crate::config::save_config(&app.config);
-                    }
+                {
+                    reference.transcript = transcript;
+                    crate::config::save_config(&app.config);
                 }
                 state::with_state(|s| {
                     s.error = None;

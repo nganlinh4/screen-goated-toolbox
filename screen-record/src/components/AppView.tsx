@@ -1,0 +1,457 @@
+import { Header } from "@/components/Header";
+import { SequencePillChain } from "@/components/SequencePillChain";
+import { DragDropOverlay } from "@/components/DragDropOverlay";
+import { EditorMain } from "@/components/EditorMain";
+import { EditorOverlays } from "@/components/EditorOverlays";
+import { ResizeBorders } from "@/components/layout/ResizeBorders";
+
+type AppViewProps = Record<string, any>;
+
+export function AppView(props: AppViewProps) {
+  const {
+    activeClipId,
+    activePanel,
+    applyNarrationAudioSegments,
+    armProjectInteractionShieldRelease,
+    audioDownloadHook,
+    audioRef,
+    autoSplitMaxUnits,
+    autoSplitSubtitles,
+    autoZoomConfig,
+    backgroundConfig,
+    beginBatch,
+    beginProjectInteractionShield,
+    canUseSelectedSubtitleMethod,
+    canvasRef,
+    captureFps,
+    captureSource,
+    closeHotkeyDialog,
+    commitBatch,
+    composition,
+    currentProjectData,
+    currentRawMicAudioPath,
+    currentRawVideoPath,
+    currentRecordingMode,
+    currentTime,
+    currentVideo,
+    customCanvasBaseDimensions,
+    duration,
+    editingKeystrokeSegmentId,
+    editingKeyframeId,
+    editingSubtitleId,
+    editingTextId,
+    error,
+    exportHook,
+    finalizeNarrationAudioSegments,
+    flushSeek,
+    getAutoCanvasSelectionConfig,
+    handleActivateCustomCanvas,
+    handleAddKeystrokeSegment,
+    handleAddPointerSegment,
+    handleAddText,
+    handleApplyCanvasRatioPreset,
+    handleApplyCrop,
+    handleAutoZoom,
+    handleAutoZoomConfigChange,
+    handleBackgroundUpload,
+    handleCancelCrop,
+    handleCancelSubtitleGeneration,
+    handleCloseProject,
+    handleCommitAudioSegments,
+    handleCommitNarrationSegments,
+    handleDeleteAudioSegments,
+    handleDeleteKeyframe,
+    handleDeleteNarrationSegments,
+    handleGenerateSubtitles,
+    handleKeystrokeDelayChange,
+    handleLoadProjectFromGrid,
+    handleOpenInsertProjectPicker,
+    handleOpenRawVideoDialog,
+    handlePickProjectForSequence,
+    handlePreviewMouseDown,
+    handleRemoveHotkey,
+    handleRemoveRecentUpload,
+    handleRemoveSequenceClip,
+    handleSelectMonitorCapture,
+    handleSelectSequenceClip,
+    handleSelectWindowCapture,
+    handleSelectWindowForRecording,
+    handleSelectedSubtitleIdsChange,
+    handleSelectedTextIdsChange,
+    handleSequenceModeChange,
+    handleSmartPointerHiding,
+    handleToggleCrop,
+    handleToggleKeystrokeMode,
+    handleTogglePlayPause,
+    handleToggleProjects,
+    handleToggleRawAutoCopy,
+    handleToggleRecordingDeviceAudio,
+    handleToggleRecordingMicAudio,
+    handleUpdateAudioSegment,
+    handleUpdateAudioTrackVolumePoints,
+    handleUpdateNarrationSegment,
+    handleUpdateNarrationTrackVolumePoints,
+    hasAppliedCrop,
+    hotkeys,
+    importAudio,
+    importAudios,
+    importSubtitleFile,
+    importVideo,
+    isBackgroundUploadProcessing,
+    isBuffering,
+    isCropping,
+    isDraggingKeystrokeOverlayRef,
+    isGeneratingSubtitles,
+    isImporting,
+    isImportingAudio,
+    isImportingSubtitle,
+    isKeystrokeOverlaySelected,
+    isLoadingVideo,
+    isOverlayMode,
+    isPlaceholderBackedProject,
+    isPlaying,
+    isPreviewOnlyProject,
+    isProjectInteractionShieldVisible,
+    isRawActionBusy,
+    isRecording,
+    isRecordingAudioAppSelectionActive,
+    isResizingKeystrokeOverlayRef,
+    isTimelineOnlyProject,
+    isVideoReady,
+    keystrokeOverlayEditFrame,
+    lastRawSavedPath,
+    loadingProgress,
+    micAudioRef,
+    monitors,
+    mousePositions,
+    nextPreloadAudioRef,
+    nextPreloadVideoRef,
+    openHotkeyDialog,
+    previewAudioResetKey,
+    previewContainerRef,
+    previewCursorClass,
+    previousPreloadAudioRef,
+    previousPreloadVideoRef,
+    projectPickerMode,
+    projects,
+    projectsPreviewTargetSnapshotRef,
+    rawAutoCopyEnabled,
+    rawButtonSavedFlash,
+    recentUploads,
+    recordingAudioSelection,
+    recordingDuration,
+    restoreImageRef,
+    seek,
+    seekIndicatorDir,
+    seekIndicatorKey,
+    segment,
+    selectedRecordingMode,
+    setActivePanel,
+    setAutoSplitMaxUnits,
+    setAutoSplitSubtitles,
+    setBackgroundConfig,
+    setComposition,
+    setCurrentTime,
+    setEditingKeystrokeSegmentId,
+    setEditingKeyframeId,
+    setEditingPointerId,
+    setEditingSubtitleId,
+    setEditingTextId,
+    setIsCanvasResizeDragging,
+    setLastRawSavedPath,
+    setProjectPickerMode,
+    setSegment,
+    setSegmentSilently,
+    setSelectedRecordingMode,
+    setShowRawVideoDialog,
+    setShowWindowSelect,
+    setSubtitleGeminiPrompt,
+    setSubtitleGroqVocabulary,
+    setSubtitleLanguageHint,
+    setSubtitleMethod,
+    setSubtitleSource,
+    setTimelineCanvasWidthPx,
+    setWebcamConfig,
+    setZoomFactor,
+    settings,
+    showHotkeyDialog,
+    showRawVideoDialog,
+    showWindowSelect,
+    spreadFromClipId,
+    subtitleGeminiPrompt,
+    subtitleGenerationIndicator,
+    subtitleGroqVocabulary,
+    subtitleLanguageHint,
+    subtitleMethod,
+    subtitleMethodCapabilities,
+    subtitleSource,
+    subtitleStatusMessage,
+    tempCanvasRef,
+    throttledUpdateZoom,
+    thumbnails,
+    timelineRef,
+    updatePlaceholderProjectDuration,
+    videoRef,
+    webcamConfig,
+    webcamVideoRef,
+    windows,
+    zoomFactor,
+  } = props;
+
+  const isSelectingRecordingAudioApp =
+    isRecordingAudioAppSelectionActive ?? props.isSelectingRecordingAudioApp;
+  const isTimelinePreviewOnly = isPreviewOnlyProject ?? isTimelineOnlyProject;
+
+  return (
+    <div className="app-container min-h-screen bg-[var(--surface)]">
+      <DragDropOverlay
+        disabled={isRecording || isImporting || isImportingAudio || isImportingSubtitle}
+        onDropVideo={importVideo}
+        onDropAudio={importAudio}
+        onDropAudios={importAudios}
+        onDropSubtitle={importSubtitleFile}
+      />
+      <ResizeBorders />
+      <Header
+        isRecording={isRecording}
+        recordingDuration={recordingDuration}
+        currentVideo={currentVideo}
+        isProcessing={exportHook.isProcessing}
+        hotkeys={hotkeys}
+        onRemoveHotkey={handleRemoveHotkey}
+        onOpenHotkeyDialog={openHotkeyDialog}
+        recordingMode={selectedRecordingMode}
+        onRecordingModeChange={setSelectedRecordingMode}
+        recordingAudioSelection={recordingAudioSelection}
+        isSelectingRecordingAudioApp={isSelectingRecordingAudioApp}
+        onToggleRecordingDeviceAudio={handleToggleRecordingDeviceAudio}
+        onToggleRecordingMicAudio={handleToggleRecordingMicAudio}
+        onSelectAllRecordingDeviceAudio={props.handleSelectAllRecordingDeviceAudio}
+        onRequestRecordingAudioAppSelection={props.handleRequestRecordingAudioAppSelection}
+        rawButtonLabel={rawButtonSavedFlash ? settings.t.rawVideoSavedButton : settings.t.saveRawVideo}
+        rawButtonPulse={currentRecordingMode === "withCursor"}
+        rawButtonDisabled={!currentRawVideoPath && !lastRawSavedPath}
+        onOpenRawVideoDialog={handleOpenRawVideoDialog}
+        onExport={exportHook.handleExport}
+        onOpenProjects={handleToggleProjects}
+        projectsButtonDisabled={isProjectInteractionShieldVisible}
+        onOpenCursorLab={() => { window.location.hash = "cursor-lab"; }}
+        hideExport={isOverlayMode}
+        hideRawVideo={projects.showProjectsDialog}
+        captureSource={captureSource}
+        captureFps={captureFps}
+        monitors={monitors}
+        onSelectMonitorCapture={handleSelectMonitorCapture}
+        onSelectWindowCapture={handleSelectWindowCapture}
+        showProjectsDialog={projects.showProjectsDialog}
+        sequenceBreadcrumb={
+          !isCropping && composition ? (
+            <SequencePillChain
+              composition={composition}
+              activeClipId={activeClipId}
+              spreadFromClipId={spreadFromClipId}
+              onSelectClip={(clipId) => { void handleSelectSequenceClip(clipId); }}
+              onInsertClip={handleOpenInsertProjectPicker}
+              onRemoveClip={(clipId) => { void handleRemoveSequenceClip(clipId); }}
+              onModeChange={(mode) => { void handleSequenceModeChange(mode); }}
+              onCloseProject={handleCloseProject}
+            />
+          ) : undefined
+        }
+      />
+
+      <EditorMain
+        error={error}
+        isOverlayMode={isOverlayMode}
+        previewContainerRef={previewContainerRef}
+        previewCursorClass={previewCursorClass}
+        handlePreviewMouseDown={handlePreviewMouseDown}
+        canvasRef={canvasRef}
+        tempCanvasRef={tempCanvasRef}
+        videoRef={videoRef}
+        webcamVideoRef={webcamVideoRef}
+        audioRef={audioRef}
+        micAudioRef={micAudioRef}
+        previousPreloadVideoRef={previousPreloadVideoRef}
+        previousPreloadAudioRef={previousPreloadAudioRef}
+        nextPreloadVideoRef={nextPreloadVideoRef}
+        nextPreloadAudioRef={nextPreloadAudioRef}
+        keystrokeOverlayEditFrame={keystrokeOverlayEditFrame}
+        isKeystrokeOverlaySelected={isKeystrokeOverlaySelected}
+        isDraggingKeystrokeOverlayRef={isDraggingKeystrokeOverlayRef}
+        isResizingKeystrokeOverlayRef={isResizingKeystrokeOverlayRef}
+        isBuffering={isBuffering}
+        isPreviewPlaying={isPlaying}
+        currentVideo={currentVideo}
+        isTimelineOnly={isTimelinePreviewOnly}
+        isLoadingVideo={isLoadingVideo}
+        loadingProgress={loadingProgress}
+        isRecording={isRecording}
+        recordingDuration={recordingDuration}
+        isCropping={isCropping}
+        backgroundConfig={backgroundConfig}
+        setBackgroundConfig={setBackgroundConfig}
+        beginBatch={beginBatch}
+        commitBatch={commitBatch}
+        setIsCanvasResizeDragging={setIsCanvasResizeDragging}
+        seekIndicatorDir={seekIndicatorDir}
+        seekIndicatorKey={seekIndicatorKey}
+        audioResetKey={previewAudioResetKey}
+        isPlaying={isPlaying}
+        isProcessing={exportHook.isProcessing}
+        isVideoReady={isVideoReady}
+        hasAppliedCrop={hasAppliedCrop}
+        currentTime={currentTime}
+        duration={duration}
+        handleTogglePlayPause={handleTogglePlayPause}
+        handleToggleCrop={handleToggleCrop}
+        onSetProjectDuration={
+          isPlaceholderBackedProject
+            ? (nextDuration) =>
+                void updatePlaceholderProjectDuration(
+                  nextDuration,
+                  "edit-project-duration",
+                )
+            : undefined
+        }
+        customCanvasBaseDimensions={customCanvasBaseDimensions}
+        getAutoCanvasSelectionConfig={getAutoCanvasSelectionConfig}
+        handleActivateCustomCanvas={handleActivateCustomCanvas}
+        handleApplyCanvasRatioPreset={handleApplyCanvasRatioPreset}
+        isAutoCanvasDisabled={
+          !!(composition && composition.clips.length > 1 && activeClipId &&
+            composition.globalCanvasConfig?.canvasMode === 'auto' &&
+            composition.globalCanvasConfig?.autoSourceClipId !== activeClipId)
+        }
+        segment={segment}
+        setSegment={setSegment}
+        setSegmentSilently={setSegmentSilently}
+        composition={composition}
+        setComposition={setComposition}
+        handleToggleKeystrokeMode={handleToggleKeystrokeMode}
+        handleKeystrokeDelayChange={handleKeystrokeDelayChange}
+        mousePositionsLength={mousePositions.length}
+        handleAutoZoom={handleAutoZoom}
+        autoZoomConfig={autoZoomConfig}
+        handleAutoZoomConfigChange={handleAutoZoomConfigChange}
+        handleSmartPointerHiding={handleSmartPointerHiding}
+        activePanel={activePanel}
+        setActivePanel={setActivePanel}
+        editingKeyframeId={editingKeyframeId}
+        zoomFactor={zoomFactor}
+        setZoomFactor={setZoomFactor}
+        handleDeleteKeyframe={handleDeleteKeyframe}
+        throttledUpdateZoom={throttledUpdateZoom}
+        webcamConfig={webcamConfig}
+        setWebcamConfig={setWebcamConfig}
+        recentUploads={recentUploads}
+        handleRemoveRecentUpload={handleRemoveRecentUpload}
+        handleBackgroundUpload={handleBackgroundUpload}
+        isBackgroundUploadProcessing={isBackgroundUploadProcessing}
+        editingTextId={editingTextId}
+        editingSubtitleId={editingSubtitleId}
+        subtitleSource={subtitleSource}
+        onSubtitleSourceChange={setSubtitleSource}
+        subtitleMethod={subtitleMethod}
+        onSubtitleMethodChange={setSubtitleMethod}
+        subtitleMethodCapabilities={subtitleMethodCapabilities}
+        canUseSelectedSubtitleMethod={canUseSelectedSubtitleMethod}
+        selectedSubtitleMethodReason={props.selectedSubtitleMethodReason}
+        subtitleLanguageHint={subtitleLanguageHint}
+        onSubtitleLanguageHintChange={setSubtitleLanguageHint}
+        subtitleGeminiPrompt={subtitleGeminiPrompt}
+        onSubtitleGeminiPromptChange={setSubtitleGeminiPrompt}
+        subtitleGroqVocabulary={subtitleGroqVocabulary}
+        onSubtitleGroqVocabularyChange={setSubtitleGroqVocabulary}
+        autoSplitSubtitles={autoSplitSubtitles}
+        onAutoSplitSubtitlesChange={setAutoSplitSubtitles}
+        autoSplitSubtitleMaxUnits={autoSplitMaxUnits}
+        onAutoSplitSubtitleMaxUnitsChange={setAutoSplitMaxUnits}
+        isGeneratingSubtitles={isGeneratingSubtitles}
+        subtitleStatusMessage={subtitleStatusMessage}
+        subtitleGenerationIndicator={subtitleGenerationIndicator}
+        handleGenerateSubtitles={handleGenerateSubtitles}
+        handleCancelSubtitleGeneration={handleCancelSubtitleGeneration}
+        onApplyNarrationSegments={applyNarrationAudioSegments}
+        onFinalizeNarrationSegments={finalizeNarrationAudioSegments}
+        onSelectedTextIdsChange={handleSelectedTextIdsChange}
+        onSelectedSubtitleIdsChange={handleSelectedSubtitleIdsChange}
+        projectResetKey={currentProjectData?.id ?? null}
+        currentRawVideoPath={currentRawVideoPath}
+        currentRawMicAudioPath={currentRawMicAudioPath}
+        currentProjectName={currentProjectData?.name ?? null}
+        thumbnails={thumbnails}
+        timelineRef={timelineRef}
+        editingKeystrokeSegmentId={editingKeystrokeSegmentId}
+        setCurrentTime={setCurrentTime}
+        setEditingKeyframeId={setEditingKeyframeId}
+        setEditingTextId={setEditingTextId}
+        setEditingSubtitleId={setEditingSubtitleId}
+        setEditingKeystrokeSegmentId={setEditingKeystrokeSegmentId}
+        setEditingPointerId={setEditingPointerId}
+        seek={seek}
+        flushSeek={flushSeek}
+        handleAddText={handleAddText}
+        handleAddKeystrokeSegment={handleAddKeystrokeSegment}
+        handleAddPointerSegment={handleAddPointerSegment}
+        setTimelineCanvasWidthPx={setTimelineCanvasWidthPx}
+        onPickImportedAudioFile={importAudio}
+        onUpdateAudioSegment={handleUpdateAudioSegment}
+        onDeleteAudioSegments={handleDeleteAudioSegments}
+        onCommitAudioSegments={handleCommitAudioSegments}
+        audioTrackVolumePoints={composition?.audioTrackVolumePoints}
+        onUpdateAudioTrackVolumePoints={handleUpdateAudioTrackVolumePoints}
+        narrationSegments={composition?.narrationSegments}
+        onUpdateNarrationSegment={handleUpdateNarrationSegment}
+        onDeleteNarrationSegments={handleDeleteNarrationSegments}
+        onCommitNarrationSegments={handleCommitNarrationSegments}
+        narrationTrackVolumePoints={composition?.narrationTrackVolumePoints}
+        onUpdateNarrationTrackVolumePoints={handleUpdateNarrationTrackVolumePoints}
+        onAudioTrackDownload={audioDownloadHook.openAudioDownloadDialog}
+      />
+
+      <EditorOverlays
+        showProjectsDialog={projects.showProjectsDialog}
+        projects={projects.projects}
+        onBeginProjectOpen={beginProjectInteractionShield}
+        onLoadProject={handleLoadProjectFromGrid}
+        onProjectsChange={projects.loadProjects}
+        currentProjectId={projects.currentProjectId}
+        restoreImageRef={restoreImageRef}
+        previewTargetSnapshotRef={projectsPreviewTargetSnapshotRef}
+        projectPickerMode={projectPickerMode}
+        setProjectPickerMode={setProjectPickerMode}
+        setShowProjectsDialog={projects.setShowProjectsDialog}
+        armProjectInteractionShieldRelease={armProjectInteractionShieldRelease}
+        onPickProject={handlePickProjectForSequence}
+        onImportVideo={importVideo}
+        onImportAudio={importAudio}
+        isProjectInteractionShieldVisible={isProjectInteractionShieldVisible}
+        isCropping={isCropping}
+        currentVideo={currentVideo}
+        segment={segment}
+        currentTime={currentTime}
+        onCancelCrop={handleCancelCrop}
+        onApplyCrop={handleApplyCrop}
+        exportHook={exportHook}
+        audioDownloadHook={audioDownloadHook}
+        videoRef={videoRef}
+        showWindowSelect={showWindowSelect}
+        onCloseWindowSelect={() => setShowWindowSelect(false)}
+        windows={windows}
+        onSelectWindowForRecording={handleSelectWindowForRecording}
+        isVideoReady={isVideoReady}
+        showRawVideoDialog={showRawVideoDialog}
+        onCloseRawVideoDialog={() => setShowRawVideoDialog(false)}
+        lastRawSavedPath={lastRawSavedPath}
+        rawAutoCopyEnabled={rawAutoCopyEnabled}
+        isRawActionBusy={isRawActionBusy}
+        onChangeRawSavedPath={setLastRawSavedPath}
+        onToggleRawAutoCopy={handleToggleRawAutoCopy}
+        onExportSuccessPathChange={async (newPath) => exportHook.setLastExportedPath(newPath)}
+        showHotkeyDialog={showHotkeyDialog}
+        onCloseHotkeyDialog={closeHotkeyDialog}
+      />
+    </div>
+  );
+}

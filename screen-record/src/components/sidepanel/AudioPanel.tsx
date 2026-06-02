@@ -3,12 +3,16 @@ import { useEffect, useRef, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { useSettings } from '@/hooks/useSettings';
 import type { ImportedAudioSegment, NarrationSegment, SubtitleSegment } from '@/types/video';
-
-type AudioPanelSegment =
-  | (ImportedAudioSegment & { kind: 'imported' })
-  | (NarrationSegment & { kind: 'narration' });
-
-type AudioPanelDraft = Partial<Pick<ImportedAudioSegment, 'playbackRate' | 'inPoint' | 'outPoint'>>;
+import {
+  RATE_MAX,
+  RATE_MIN,
+  clampRate,
+  formatSec,
+  getTimelineDuration,
+  readFiniteNumber,
+  type AudioPanelDraft,
+  type AudioPanelSegment,
+} from './audioPanelUtils';
 
 interface AudioPanelProps {
   importedSegments: ImportedAudioSegment[];
@@ -23,27 +27,6 @@ interface AudioPanelProps {
   commitBatch?: () => void;
   onCommitImportedSegments?: () => void;
   onCommitNarrationSegments?: () => void;
-}
-
-const RATE_MIN = 0.25;
-const RATE_MAX = 4;
-
-function clampRate(rate: number) {
-  if (!Number.isFinite(rate)) return 1;
-  return Math.min(RATE_MAX, Math.max(RATE_MIN, rate));
-}
-
-function formatSec(value: number) {
-  return value.toFixed(2);
-}
-
-function getTimelineDuration(segment: AudioPanelSegment) {
-  return Math.max(0.05, (segment.outPoint - segment.inPoint) / clampRate(segment.playbackRate ?? 1));
-}
-
-function readFiniteNumber(value: string | undefined, fallback: number) {
-  const parsed = Number.parseFloat(value ?? '');
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export function AudioPanel({

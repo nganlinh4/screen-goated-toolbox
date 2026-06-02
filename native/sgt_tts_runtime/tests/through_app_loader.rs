@@ -15,8 +15,7 @@ use std::path::PathBuf;
 const EXPECTED_ABI: u32 = 1;
 
 type FnVersion = unsafe extern "C" fn() -> u32;
-type FnCreate =
-    unsafe extern "C" fn(*const c_char, usize, *mut *mut c_void) -> c_int;
+type FnCreate = unsafe extern "C" fn(*const c_char, usize, *mut *mut c_void) -> c_int;
 type FnDestroy = unsafe extern "C" fn(*mut c_void) -> c_int;
 #[allow(clippy::type_complexity)]
 type FnSynth = unsafe extern "C" fn(
@@ -35,12 +34,35 @@ type FnSynth = unsafe extern "C" fn(
 type FnFreeAudio = unsafe extern "C" fn(*mut c_void, *const i16) -> c_int;
 type FnLastError = unsafe extern "C" fn(*mut c_void, *mut *const c_char, *mut usize) -> c_int;
 
-fn dll_path_for(model_alias: &str) -> PathBuf {
-    PathBuf::from(std::env::var("LOCALAPPDATA").expect("LOCALAPPDATA"))
-        .join("screen-goated-toolbox")
-        .join("bin")
-        .join("x64")
-        .join(format!("sgt_{model_alias}_runtime.dll"))
+fn dll_path_for(model_alias: &str) -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("SGT_TTS_RUNTIME_DLL") {
+        return Some(PathBuf::from(path));
+    }
+
+    std::env::var_os("LOCALAPPDATA").map(|local_app_data| {
+        PathBuf::from(local_app_data)
+            .join("screen-goated-toolbox")
+            .join("bin")
+            .join("x64")
+            .join(format!("sgt_{model_alias}_runtime.dll"))
+    })
+}
+
+fn installed_dll_path_for(model_alias: &str) -> Option<PathBuf> {
+    let Some(path) = dll_path_for(model_alias) else {
+        eprintln!(
+            "skipping {model_alias} loader test: LOCALAPPDATA/SGT_TTS_RUNTIME_DLL is not set"
+        );
+        return None;
+    };
+    if !path.exists() {
+        eprintln!(
+            "skipping {model_alias} loader test: DLL is not installed at {}",
+            path.display()
+        );
+        return None;
+    }
+    Some(path)
 }
 
 fn resolve_all_symbols(path: &std::path::Path) {
@@ -49,18 +71,16 @@ fn resolve_all_symbols(path: &std::path::Path) {
 
     // Each .get() returns Result — collecting them lets us report which symbol
     // is missing if any.
-    let _: FnVersion = *unsafe { lib.get(b"sgt_tts_runtime_version") }
-        .expect("sgt_tts_runtime_version missing");
-    let _: FnCreate = *unsafe { lib.get(b"sgt_tts_create") }
-        .expect("sgt_tts_create missing");
-    let _: FnDestroy = *unsafe { lib.get(b"sgt_tts_destroy") }
-        .expect("sgt_tts_destroy missing");
-    let _: FnSynth = *unsafe { lib.get(b"sgt_tts_synthesize") }
-        .expect("sgt_tts_synthesize missing");
-    let _: FnFreeAudio = *unsafe { lib.get(b"sgt_tts_free_audio") }
-        .expect("sgt_tts_free_audio missing");
-    let _: FnLastError = *unsafe { lib.get(b"sgt_tts_last_error") }
-        .expect("sgt_tts_last_error missing");
+    let _: FnVersion =
+        *unsafe { lib.get(b"sgt_tts_runtime_version") }.expect("sgt_tts_runtime_version missing");
+    let _: FnCreate = *unsafe { lib.get(b"sgt_tts_create") }.expect("sgt_tts_create missing");
+    let _: FnDestroy = *unsafe { lib.get(b"sgt_tts_destroy") }.expect("sgt_tts_destroy missing");
+    let _: FnSynth =
+        *unsafe { lib.get(b"sgt_tts_synthesize") }.expect("sgt_tts_synthesize missing");
+    let _: FnFreeAudio =
+        *unsafe { lib.get(b"sgt_tts_free_audio") }.expect("sgt_tts_free_audio missing");
+    let _: FnLastError =
+        *unsafe { lib.get(b"sgt_tts_last_error") }.expect("sgt_tts_last_error missing");
 
     // ABI handshake
     let v: FnVersion = *unsafe { lib.get(b"sgt_tts_runtime_version") }.unwrap();
@@ -70,7 +90,10 @@ fn resolve_all_symbols(path: &std::path::Path) {
 
 #[test]
 fn voxtral_dll_passes_symbol_resolution() {
-    resolve_all_symbols(&dll_path_for("voxtral"));
+    let Some(path) = installed_dll_path_for("voxtral") else {
+        return;
+    };
+    resolve_all_symbols(&path);
 }
 
 #[test]
@@ -80,7 +103,10 @@ fn model_dispatch_is_correct() {
     let cases = &[("voxtral", "C:\\fake\\voxtral_tts_2603", "voxtral")];
 
     for (alias, model_dir, expected_python_alias) in cases {
-        let lib = unsafe { libloading::Library::new(dll_path_for(alias)) }.unwrap();
+        let Some(path) = installed_dll_path_for(alias) else {
+            continue;
+        };
+        let lib = unsafe { libloading::Library::new(path) }.unwrap();
         let create: FnCreate = *unsafe { lib.get(b"sgt_tts_create") }.unwrap();
         let destroy: FnDestroy = *unsafe { lib.get(b"sgt_tts_destroy") }.unwrap();
         let synth: FnSynth = *unsafe { lib.get(b"sgt_tts_synthesize") }.unwrap();
@@ -137,8 +163,12 @@ fn model_dispatch_is_correct() {
         };
         // The Python script names the model in its error output; check the
         // alias the DLL passed through is the one we expected.
-        let alias_in_msg = err.to_ascii_lowercase().contains(&expected_python_alias.replace('_', "-"))
-            || err.to_ascii_lowercase().contains(&expected_python_alias.replace('_', " "))
+        let alias_in_msg = err
+            .to_ascii_lowercase()
+            .contains(&expected_python_alias.replace('_', "-"))
+            || err
+                .to_ascii_lowercase()
+                .contains(&expected_python_alias.replace('_', " "))
             || err.to_ascii_lowercase().contains(*expected_python_alias);
         assert!(
             alias_in_msg || matches_via_known_keywords(expected_python_alias, err),

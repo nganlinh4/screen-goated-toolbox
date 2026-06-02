@@ -1,26 +1,11 @@
 import { useState, useCallback, useRef } from 'react';
-import { VideoSegment, CursorVisibilitySegment, SubtitleSegment } from '@/types/video';
+import type { CursorVisibilitySegment, SubtitleSegment } from '@/types/video';
 import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/cursorHiding';
 import { getKeystrokeVisibilitySegmentsForMode, withKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
 import { updateSubtitleTimingAcrossTracks, updateSubtitleTimingsAcrossTracks } from '@/lib/subtitleTrackMutations';
 import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
 import { computeGroupDragDelta, snapshotSegmentBounds, type DragOriginalBounds } from './trackDragUtils';
-
-interface UseTrackSegmentDragOptions {
-  duration: number;
-  segment: VideoSegment | null;
-  setSegment: (segment: VideoSegment | null) => void;
-  setEditingTextId: (id: string | null) => void;
-  setEditingSubtitleId?: (id: string | null) => void;
-  setEditingKeystrokeId?: (id: string | null) => void;
-  setEditingPointerId?: (id: string | null) => void;
-  setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text' | 'subtitles') => void;
-  selectedTextIds: readonly string[];
-  selectedSubtitleIds: readonly string[];
-  getTimeFromClientX: (clientX: number) => number | null;
-  beginBatch: () => void;
-  commitBatch: () => void;
-}
+import type { UseTrackSegmentDragOptions } from './useTrackSegmentDragTypes';
 
 export function useTrackSegmentDrag({
   duration,

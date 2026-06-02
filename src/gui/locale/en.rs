@@ -1,5 +1,4 @@
-use super::LocaleText;
-
+use super::{LocaleText, tips};
 pub fn get() -> LocaleText {
     LocaleText {
         history_btn: "History",
@@ -10,10 +9,8 @@ pub fn get() -> LocaleText {
         view_image_btn: "View Image",
         listen_audio_btn: "Listen Audio",
         view_text_btn: "View Text",
-
         prompt_mode_fixed: "Predefined Prompt",
         prompt_mode_dynamic: "Write on the spot",
-
         get_key_link: "Get API Key at console.groq.com",
         gemini_api_key_label: "Gemini API Key:",
         gemini_get_key_link: "Get API Key at aistudio.google.com",
@@ -27,9 +24,7 @@ pub fn get() -> LocaleText {
         use_cerebras_checkbox: "Cerebras",
         global_settings: "Global Settings",
         preset_name_label: "Preset Name:",
-
         search_placeholder: "Search...",
-
         auto_paste_label: "Auto-paste",
         auto_paste_newline_label: "Auto add newline after copy",
         startup_label: "Run at Windows Startup",
@@ -38,13 +33,11 @@ pub fn get() -> LocaleText {
         cancel_label: "Cancel",
         reset_defaults_btn: "Reset to Defaults",
         force_quit: "Force Quit",
-
         preset_type_label: "Type:",
         preset_type_image: "Image Understanding",
         preset_type_audio: "Audio Understanding",
         preset_type_video: "Video Understanding (upcoming)",
         preset_type_text: "Text Understanding", // NEW
-
         audio_source_label: "Audio Source:",
         audio_src_mic: "Microphone",
         audio_src_device: "Device Audio",
@@ -64,7 +57,6 @@ pub fn get() -> LocaleText {
         usage_model_column: "Model",
         usage_remaining_column: "Remaining / Total",
         usage_check_link: "Check Usage ↗",
-
         footer_admin_text: "Run with admin to translate games",
         footer_version: "Version",
         check_for_updates_btn: "Check for Updates",
@@ -82,7 +74,6 @@ pub fn get() -> LocaleText {
         update_success: "Update Success!",
         restart_to_use_new_version: "Restart to use the new version.",
         restart_app_btn: "Restart App",
-        // --- NEW TEXT INPUT FIELDS EN ---
         text_input_mode_label: "Mode:",
         text_mode_select: "Hotkey then Select Text",
         text_mode_type: "Hotkey then Type",
@@ -100,7 +91,6 @@ pub fn get() -> LocaleText {
         add_text_preset_btn: "+ Text",
         add_image_preset_btn: "+ Image",
         add_audio_preset_btn: "+ Audio",
-        // --- PROCESSING CHAIN UI EN ---
         node_input_prefix: "Input:",
         node_input_audio: "Audio",
         node_input_image: "Image",
@@ -115,45 +105,11 @@ pub fn get() -> LocaleText {
         node_menu_add_special_audio: "⭐ Add Audio -> Text Node",
         input_auto_copy_tooltip: "Auto-copy (Source)",
         input_auto_speak_tooltip: "Speak Source",
-
         tips_title: "Usage Tips",
         tips_click_hint: "Click text to view tip list",
-        tips_list: vec![
-            "**Middle-click** any overlay window to instantly close ALL overlays!",
-            "**Right-click** an overlay to quickly copy its text content!",
-            "While drawing the box (dimmed screen), press **ESC** or Hotkey again to cancel.",
-            "If you like **SGT**, please give us a Star on Github and share it!",
-            "Did you know? **Hotkeys** can be assigned to Middle Mouse, Button 4, and 5!",
-            "If the overlay **crashes/lags**, try switching Graphics Mode to 'Minimal'!",
-            "You cannot rename default presets, but **custom presets** can be renamed freely!",
-            "The **History library** automatically cleans up old items when the limit is reached.",
-            "In the action chain, only **one step** can have Auto copy enabled, or no steps at all.",
-            "Even if **Auto-paste** is enabled, it requires a text cursor (blinking) at the paste location to work.",
-            "The **Auto add newline** control only appears when Auto copy is enabled (on at least one step).",
-            "Preset names with a **green/lime background** indicate they have a hotkey assigned and are ready to use.",
-            "Left-click drag moves only the **current overlay**, but right-click drag moves all overlays in the same group.",
-            "On **canvas**: scroll: zoom, drag: pan, double-click: reset view, right-click: add node. On node: drag: move, right-click: delete.",
-            "Text-select mode special feature: If **text is already highlighted**, pressing the hotkey will process it instantly!",
-            "**Audio recording** also has a smart stop mode, remember to try it!",
-            "When browsing the **web** directly in the overlay, use only the mouse - keyboard input won't work, sorry!",
-            "Assign a hotkey to **'Image MASTER'** or **'Selection MASTER'** to open the Wheel selector, giving you quick access to multiple tools with just one key!",
-            "Click the **Edit button** not only to fix text, but you can also type commands for AI to rewrite your content (e.g., 'Translate to Japanese').",
-            "You can **drag and drop** or paste image files or text files directly into the settings window for instant processing!",
-            "Enable the **Favorite Bubble** in the system tray menu to quickly access your configurations without needing to remember hotkeys.",
-            "In Voice Settings, try the **Standard voice** option and adjust the regional accent to see what works best for you!",
-            "The **Realtime Translation** mode can automatically adjust the reading speed (TTS) to keep up with the speaker's pace.",
-            "Click the **display mode button** (next to the eye icon) to switch between plain text and beautifully formatted Markdown/HTML views.",
-            "Models with a **magnifying glass icon** can access the internet to find citations and the latest information.",
-            "When **Auto-copy** is activated, a small green notification will appear at the bottom of your screen to confirm your content has been copied to the clipboard.",
-            "Not sure how to use SGT? Open **'How to use'** and let the AI assistant guide you through it!",
-            "Feeling stressed? Visit **'Be a DJ'** to create a relaxing background music experience while you work.",
-            "Need to download video? The built-in **'Download Video'** supports YouTube, Facebook, and more, including 4K and subtitles!",
-            "**Hold down the Hotkey** or the Preset in the bubble to enter **Continuous Mode**, allowing you to process multiple regions or texts in succession.",
-            "Got a MIDI keyboard? Plug it in when opening **Be a DJ** to adjust the music using physical knobs!",
-        ],
+        tips_list: tips::en(),
         restore_preset_btn: "Restore",
         restore_preset_tooltip: "Reset preset to default settings",
-        // --- COMPOUND SEARCH UI EN ---
         search_doing: "Running",
         search_searching: "searching",
         search_query_label: "📝 Search queries:",
@@ -163,17 +119,13 @@ pub fn get() -> LocaleText {
         search_synthesizing: "⚡ SYNTHESIZING INFO...",
         search_analyzed_sources: "📊 Analyzed {} sources",
         search_processing: "🧠 Processing and summarizing results...",
-        // --- MASTER PRESET UI EN ---
         controller_checkbox_label: "Controller",
-
-        // --- GLOBAL SETTINGS UI HEADERS EN ---
         api_keys_header: "🔑 API Keys",
         groq_label: "Groq API Key:",
         software_update_header: "⬆ Software Update",
         startup_display_header: "⚙ Startup & Display",
         favorite_overlay_opacity_label: "Favorite overlay opacity",
         model_thinking: "💭 Thinking...",
-        // --- REALTIME OVERLAY EN ---
         realtime_listening: "Listening...",
         realtime_device: "Device",
         realtime_waiting: "Waiting for speech...",
@@ -301,12 +253,10 @@ pub fn get() -> LocaleText {
         tts_vieneu_desc: "Vietnamese-first local TTS with English/Vietnamese code-switching and zero-shot voice cloning.",
         tts_vieneu_control_desc: "Uses the verified VieNeu-TTS-v2 Turbo GPU path. Reference voice is the only supported user control.",
         remove_label: "Remove",
-        // Realtime TTS modal
         realtime_tts_title: "Read translation",
         realtime_tts_speed: "Speed",
         realtime_tts_auto: "AUTO",
         realtime_tts_volume: "Volume",
-        // App selection modal
         app_select_title: "Select App to Capture",
         app_select_hint: "Choose the app to capture (required so TTS audio is not captured back into system audio)",
         app_select_count: "{} apps",
@@ -331,17 +281,14 @@ pub fn get() -> LocaleText {
         realtime_tts_s2s_locked_tooltip: "Direct speech output is always on for Gemini S2S",
         realtime_tts_enable_tooltip: "Enable text-to-speech",
         realtime_app_loading: "Loading...",
-        // --- TRAY MENU EN ---
         tray_settings: "⚙️ Settings",
         tray_quit: "Quit",
         tray_favorite_bubble: "Show favorite bubble",
         tray_favorite_bubble_disabled: "Show favorite bubble (No favorites set yet)",
-        // --- FAVORITE BUBBLE EN ---
         favorites_empty: "Please favorite some presets using the star button",
         favorites_keep_open: "Keep Open",
         recording_subtext: "Press ESC/Hotkey to stop",
         recording_paused: "Paused",
-        // --- AUTO COPY BADGE EN ---
         auto_copied_badge: "Auto-copied",
         auto_copied_image_badge: "🖼️ Image copied",
         live_translate_loading: "⏳ Loading Live Translate...",
@@ -353,13 +300,11 @@ pub fn get() -> LocaleText {
         tray_popup_loading: "⏳ Loading menu...",
         update_available_notification: "🎉 New update available!",
         cannot_type_no_caret: "Auto paste/write active but no text input selected!",
-        // --- DROP OVERLAY EN ---
         drop_overlay_text: "Drop here to process",
         video_drop_work_record: "Work with SGT Record",
         video_drop_generate_subtitles: "Generate subtitles now",
         audio_drop_add_to_record: "Add to SGT Record",
         audio_drop_use_preset: "Use audio preset",
-        // --- REALTIME EGUI SPECIFIC EN ---
         device_mode_warning: "⚠ Device audio selected but no app chosen",
         select_app_btn: "Select App",
         toggle_translation_tooltip: "Toggle Translation",
@@ -371,7 +316,6 @@ pub fn get() -> LocaleText {
         opacity_label: "Opacity",
         downloaded_successfully: "Downloaded!",
         download_recording_tooltip: "Download Recording",
-        // --- HELP ASSISTANT EN ---
         help_assistant_btn: "How to use",
         help_assistant_title: "Ask about SGT",
         help_assistant_question_label: "Your question:",
@@ -421,7 +365,6 @@ pub fn get() -> LocaleText {
         screen_record_btn: "Record Screen",
         screen_record_title: "Screen Record",
         pointer_gallery_btn: "Pointer Gallery",
-        // --- PARAKEET DOWNLOAD MODAL EN ---
         parakeet_downloading_title: "Downloading Parakeet (0.6 GB)",
         parakeet_tdt_downloading_title: "Downloading Parakeet TDT 0.6B v3",
         parakeet_downloading_message: "Please wait...",
@@ -499,7 +442,6 @@ pub fn get() -> LocaleText {
         history_delete_tooltip: "Delete",
         history_copy_text_tooltip: "Copy Text",
         download_new_tab_tooltip: "New tab",
-
         download_feature_btn: "Download Video",
         download_feature_title: "Download Video",
         download_delete_deps_btn: "Delete yt-dlp ({}), ffmpeg ({}) and Deno ({})",
@@ -521,7 +463,6 @@ pub fn get() -> LocaleText {
         download_file_label: "File:",
         download_size_label: "Size:",
         download_change_folder_btn: "Change Folder...",
-
         download_progress_info_fmt: "{}% of {}, at {}, ETA {}",
         download_advanced_header: "Advanced Features",
         download_opt_metadata: "Full Metadata (Thumbnail, Chapters, Info)",
@@ -548,7 +489,6 @@ pub fn get() -> LocaleText {
         download_deno_failed_fmt: "Deno download failed: {}",
         download_deno_yes_btn: "Yes, Download Deno",
         download_deno_no_btn: "No, Use No Cookies",
-
         downloaded_tools_button: "Downloaded Tools",
         downloaded_tools_title: "Downloaded Tools Manager",
         downloaded_tools_clean_all: "Clean All Downloaded Tools",

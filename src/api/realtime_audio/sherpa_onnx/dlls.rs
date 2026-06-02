@@ -369,12 +369,12 @@ fn copy_dlls_from_tree(src_root: &std::path::Path, dest: &std::path::Path) -> Re
         let path = entry.path();
         if path.is_dir() {
             copy_dlls_from_tree(&path, dest)?;
-        } else if path.is_file() {
-            if let Some(name) = path.file_name() {
-                let name_str = name.to_string_lossy();
-                if REQUIRED_DLLS.iter().any(|req| *req == name_str.as_ref()) {
-                    std::fs::copy(&path, dest.join(name))?;
-                }
+        } else if path.is_file()
+            && let Some(name) = path.file_name()
+        {
+            let name_str = name.to_string_lossy();
+            if REQUIRED_DLLS.iter().any(|req| *req == name_str.as_ref()) {
+                std::fs::copy(&path, dest.join(name))?;
             }
         }
     }

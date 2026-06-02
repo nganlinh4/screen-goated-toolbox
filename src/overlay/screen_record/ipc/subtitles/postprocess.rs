@@ -80,27 +80,30 @@ fn cap_implausibly_long_segment(mut segment: SubtitleSegmentResult) -> SubtitleS
         return segment;
     }
     let estimated_duration = (word_count(text) as f64 * LONG_SEGMENT_SEC_PER_WORD)
-        .max(MIN_LONG_SEGMENT_TEXT_SEC)
-        .min(MAX_MERGED_SEGMENT_SEC);
+        .clamp(MIN_LONG_SEGMENT_TEXT_SEC, MAX_MERGED_SEGMENT_SEC);
     segment.start_time = (segment.end_time - estimated_duration).max(segment.start_time);
     segment
 }
 
 fn normalize_fragment_chains(segments: Vec<SubtitleSegmentResult>) -> Vec<SubtitleSegmentResult> {
-    let mut merged: Vec<SubtitleSegmentResult> = Vec::with_capacity(segments.len());
+    // Track whether each entry actually absorbed a fragment chain, so only
+    // genuinely merged fragments get their timing reshaped (a pristine
+    // standalone segment must keep its original timestamps).
+    let mut merged: Vec<(SubtitleSegmentResult, bool)> = Vec::with_capacity(segments.len());
     for segment in segments {
-        if let Some(previous) = merged.last_mut()
+        if let Some((previous, was_merged)) = merged.last_mut()
             && should_merge_fragment_chain(previous, &segment)
         {
             previous.text = join_text(&previous.text, &segment.text);
             previous.end_time = previous.end_time.max(segment.end_time);
+            *was_merged = true;
             continue;
         }
-        merged.push(segment);
+        merged.push((segment, false));
     }
 
     let mut normalized: Vec<SubtitleSegmentResult> = Vec::with_capacity(merged.len());
-    for segment in merged {
+    for (segment, was_merged) in merged {
         if let Some(previous) = normalized.last_mut()
             && segment.start_time < previous.end_time
         {
@@ -117,7 +120,11 @@ fn normalize_fragment_chains(segments: Vec<SubtitleSegmentResult>) -> Vec<Subtit
             }
             continue;
         }
-        normalized.push(cap_low_word_fragment_duration(segment));
+        if was_merged {
+            normalized.push(cap_low_word_fragment_duration(segment));
+        } else {
+            normalized.push(segment);
+        }
     }
     normalized
 }
@@ -138,9 +145,9 @@ fn should_merge_fragment_chain(
     if combined_duration > MAX_FRAGMENT_CHAIN_DURATION_SEC {
         return false;
     }
-    is_low_word_stretched(previous)
-        || is_low_word_stretched(segment)
-        || segment.start_time < previous.end_time
+    segment.start_time < previous.end_time
+        || (!ends_sentence(&previous.text)
+            && (is_low_word_stretched(previous) || is_low_word_stretched(segment)))
 }
 
 fn is_low_word_stretched(segment: &SubtitleSegmentResult) -> bool {
@@ -199,8 +206,9 @@ fn should_merge_short_tail_into_previous(
 ) -> bool {
     is_short_merge_candidate(segment)
         && (starts_with_continuation(&segment.text)
-            || word_count(segment.text.trim()) <= 4
-            || visible_char_count(segment.text.trim()) <= 24)
+            || ((word_count(segment.text.trim()) <= 4
+                || visible_char_count(segment.text.trim()) <= 24)
+                && !ends_sentence(&segment.text)))
         && can_merge_pair(previous, segment, MAX_SHORT_JOIN_GAP_SEC)
 }
 
@@ -208,8 +216,8 @@ fn is_short_merge_candidate(segment: &SubtitleSegmentResult) -> bool {
     let text = segment.text.trim();
     !text.is_empty()
         && duration(segment) <= MAX_SHORT_FRAGMENT_SEC
-        && (word_count(text) <= MAX_SHORT_FRAGMENT_WORDS
-            || visible_char_count(text) <= MAX_SHORT_FRAGMENT_CHARS
+        && ((word_count(text) <= MAX_SHORT_FRAGMENT_WORDS
+            && visible_char_count(text) <= MAX_SHORT_FRAGMENT_CHARS)
             || starts_with_continuation(text))
 }
 
@@ -275,6 +283,13 @@ fn starts_with_inline_punctuation(text: &str) -> bool {
     text.chars()
         .next()
         .is_some_and(|ch| matches!(ch, ',' | '.' | ';' | ':' | '\'' | '"' | ')' | ']' | '}'))
+}
+
+fn ends_sentence(text: &str) -> bool {
+    matches!(
+        text.trim_end().chars().last(),
+        Some('.') | Some('!') | Some('?')
+    )
 }
 
 fn is_punctuation_only(text: &str) -> bool {

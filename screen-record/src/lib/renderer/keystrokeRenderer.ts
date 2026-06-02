@@ -86,10 +86,12 @@ export {
   getKeystrokeSlotWidthHints,
   getKeystrokeSlotAdvancePx,
   layoutKeystrokeLane,
+} from './keystrokeLayout';
+export {
   getKeystrokeOverlayBoundsFromPlacements,
   getKeystrokeOverlayEditBounds,
   buildActiveKeystrokeFrameLayout,
-} from './keystrokeLayout';
+} from './keystrokeFrameLayout';
 
 // --- DRAWING ---
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
 import {
-  Keyboard, X, Minus, Square, Copy, Download, FolderOpen,
+  Keyboard, X, Download, FolderOpen,
   ChevronDown, ChevronLeft, ChevronRight, Monitor, AppWindow,
   Loader2, CircleCheck,
 } from 'lucide-react';
@@ -21,27 +21,9 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/DropdownMenu';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { getCombinedFpsOptions, getPerfectFpsOptions } from '@/components/header/captureFpsOptions';
+import { HeaderWindowControls } from '@/components/header/HeaderWindowControls';
 import { RecordingAudioSourceDropdown } from '@/components/header/RecordingAudioSourceDropdown';
-
-/** Returns exact integer divisors of Hz that are ≥ 30 (Hz/n for n ∈ {1,2,3,4}). */
-function getPerfectFpsOptions(hz: number): number[] {
-  if (hz <= 0) return [];
-  const options: number[] = [];
-  for (let n = 1; n <= 4; n++) {
-    const fps = hz / n;
-    if (Number.isInteger(fps) && fps >= 30) options.push(fps);
-  }
-  return options;
-}
-
-/** All unique perfect-pacing options across every monitor, sorted ascending. */
-function getCombinedFpsOptions(monitors: MonitorInfo[]): number[] {
-  const set = new Set<number>();
-  for (const m of monitors) {
-    for (const fps of getPerfectFpsOptions(m.hz)) set.add(fps);
-  }
-  return Array.from(set).sort((a, b) => a - b);
-}
 
 type CaptureMenuStep = 'root' | 'display-monitors' | 'display-fps' | 'window-fps';
 type HeaderDropdown = 'recordingAudio' | 'recordingMode' | 'captureSource' | null;
@@ -222,8 +204,6 @@ export function Header({
 
   useEffect(() => () => clearPendingHandoff(), []);
 
-  // Click-outside handled by Radix DropdownMenu
-
   return (
     <header
       className="app-header bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default relative z-[20]"
@@ -393,7 +373,6 @@ export function Header({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          {/* ── Capture-source dropdown (multi-step) ── */}
           <div className="capture-source-dropdown relative flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
             <DropdownMenu open={isCaptureSourceMenuOpen} onOpenChange={(open) => {
               logHeaderDropdown('capture-source-open-change', { open });
@@ -422,7 +401,6 @@ export function Header({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[220px]" onCloseAutoFocus={(e) => e.preventDefault()}>
-                {/* ── Step: root ── */}
                 {menuStep === 'root' && (
                   <>
                     <DropdownMenuItem
@@ -446,7 +424,6 @@ export function Header({
                   </>
                 )}
 
-                {/* ── Step: display → pick monitor ── */}
                 {menuStep === 'display-monitors' && (
                   <>
                     <button
@@ -489,7 +466,6 @@ export function Header({
                   </>
                 )}
 
-                {/* ── Step: display → picked monitor → pick FPS ── */}
                 {menuStep === 'display-fps' && pickedMonitor && (
                   <>
                     <button
@@ -523,7 +499,6 @@ export function Header({
                   </>
                 )}
 
-                {/* ── Step: window → pick FPS ── */}
                 {menuStep === 'window-fps' && (
                   <>
                     <button
@@ -576,17 +551,6 @@ export function Header({
               {rawButtonLabel}
             </Button>
           )}
-          {/*
-          <Button
-            variant="ghost"
-            size="sm"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={onOpenCursorLab}
-            className="cursor-lab-button ui-toolbar-button h-7 text-[11px]"
-          >
-            Cursor Lab
-          </Button>
-          */}
           {currentVideo && !hideExport && (
             <Tooltip content={t.export} side="bottom">
               <Button
@@ -619,45 +583,11 @@ export function Header({
           </Button>
         </div>
 
-        <div className={`window-controls flex items-center h-full ${isWindowMaximized ? '' : 'ml-4'}`}>
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              (window as any).ipc.postMessage('minimize_window');
-            }}
-            className="window-btn-minimize ui-icon-button px-3 h-full text-[var(--on-surface)] flex items-center rounded-none"
-            title={t.minimize}
-          >
-            <Minus className="w-4 h-4" />
-          </button>
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={async (e) => {
-              e.stopPropagation();
-              (window as any).ipc.postMessage('toggle_maximize');
-              setTimeout(async () => {
-                const maximized = await invoke<boolean>('is_maximized');
-                setIsWindowMaximized(maximized);
-              }, 50);
-            }}
-            className="window-btn-maximize ui-icon-button px-3 h-full text-[var(--on-surface)] flex items-center rounded-none"
-            title={isWindowMaximized ? t.restore : t.maximize}
-          >
-            {isWindowMaximized ? <Copy className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-          </button>
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              (window as any).ipc.postMessage('close_window');
-            }}
-            className={`window-btn-close px-3 h-full text-[var(--on-surface)] hover:bg-[var(--tertiary-color)] hover:text-white transition-colors flex items-center ${isWindowMaximized ? 'pr-5' : ''}`}
-            title={t.close}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        <HeaderWindowControls
+          isWindowMaximized={isWindowMaximized}
+          setIsWindowMaximized={setIsWindowMaximized}
+          t={t}
+        />
       </div>
     </header>
   );

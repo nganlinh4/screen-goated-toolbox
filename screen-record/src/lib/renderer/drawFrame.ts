@@ -22,7 +22,7 @@ import {
 } from './keystrokeRenderer';
 import {
   drawTextOverlay,
-} from './overlayBaker';
+} from './overlayTextRenderer';
 import type { RenderContext, RenderOptions } from './index';
 import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
 import {

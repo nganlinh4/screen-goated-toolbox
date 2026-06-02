@@ -132,13 +132,13 @@ pub(super) fn tick_position() {
             return;
         }
         s.position_sec = pos;
-        if let Some(current) = &s.current {
-            if pos >= current.duration_sec {
-                s.position_sec = current.duration_sec;
-                s.is_playing = false;
-                s.paused = false;
-                should_finish = true;
-            }
+        if let Some(current) = &s.current
+            && pos >= current.duration_sec
+        {
+            s.position_sec = current.duration_sec;
+            s.is_playing = false;
+            s.paused = false;
+            should_finish = true;
         }
     });
     if should_finish {

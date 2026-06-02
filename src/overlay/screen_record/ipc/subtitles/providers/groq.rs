@@ -126,9 +126,8 @@ fn transcribe_with_groq_auto_split(
     }
 
     let duration_sec = wav.duration_sec();
-    let mut split_parts = ((duration_sec / GROQ_TARGET_CHUNK_SEC).ceil() as usize)
-        .max(1)
-        .min(MAX_GROQ_SPLIT_PARTS);
+    let mut split_parts =
+        ((duration_sec / GROQ_TARGET_CHUNK_SEC).ceil() as usize).clamp(1, MAX_GROQ_SPLIT_PARTS);
     loop {
         if cancel_token.load(Ordering::SeqCst) {
             return Err("Groq subtitle generation cancelled".to_string());
@@ -141,13 +140,15 @@ fn transcribe_with_groq_auto_split(
         );
 
         match transcribe_groq_split_attempt(
-            api_key,
-            model_name,
-            &wav,
+            GroqSplitAttempt {
+                api_key,
+                model_name,
+                wav: &wav,
+                language_hint,
+                vocabulary,
+                cancel_token,
+            },
             split_parts,
-            language_hint,
-            vocabulary,
-            cancel_token,
             on_progress,
         ) {
             Ok(segments) => return Ok(segments),
@@ -169,16 +170,28 @@ fn transcribe_with_groq_auto_split(
     }
 }
 
+struct GroqSplitAttempt<'a> {
+    api_key: &'a str,
+    model_name: &'a str,
+    wav: &'a GroqWavAudio,
+    language_hint: Option<&'a str>,
+    vocabulary: &'a [String],
+    cancel_token: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
 fn transcribe_groq_split_attempt(
-    api_key: &str,
-    model_name: &str,
-    wav: &GroqWavAudio,
+    request: GroqSplitAttempt<'_>,
     split_parts: usize,
-    language_hint: Option<&str>,
-    vocabulary: &[String],
-    cancel_token: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     on_progress: &mut dyn FnMut(SubtitleBackendProgress) -> Result<(), String>,
 ) -> Result<Vec<CompactSubtitleSegment>, GroqRequestError> {
+    let GroqSplitAttempt {
+        api_key,
+        model_name,
+        wav,
+        language_hint,
+        vocabulary,
+        cancel_token,
+    } = request;
     let chunk_ranges = build_silence_aware_split_frames(
         &wav.samples,
         wav.channels as usize,

@@ -1,7 +1,5 @@
 use std::fmt;
 
-use ort::session::builder::SessionBuilder;
-
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -38,12 +36,6 @@ impl From<std::io::Error> for Error {
 impl From<ort::Error> for Error {
     fn from(e: ort::Error) -> Self {
         Error::Ort(e)
-    }
-}
-
-impl From<ort::Error<SessionBuilder>> for Error {
-    fn from(e: ort::Error<SessionBuilder>) -> Self {
-        Error::Ort(e.into())
     }
 }
 

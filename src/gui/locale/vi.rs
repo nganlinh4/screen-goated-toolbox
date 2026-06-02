@@ -1,5 +1,4 @@
-use super::LocaleText;
-
+use super::{LocaleText, tips};
 pub fn get() -> LocaleText {
     LocaleText {
         history_btn: "Lịch sử",
@@ -10,10 +9,8 @@ pub fn get() -> LocaleText {
         view_image_btn: "Xem ảnh",
         listen_audio_btn: "Nghe audio",
         view_text_btn: "Xem text",
-
         prompt_mode_fixed: "Làm theo lệnh sẵn",
         prompt_mode_dynamic: "Viết lệnh tại chỗ",
-
         get_key_link: "Lấy tại console.groq.com",
         gemini_api_key_label: "Mã API Gemini:",
         gemini_get_key_link: "Lấy mã tại aistudio.google.com",
@@ -25,12 +22,9 @@ pub fn get() -> LocaleText {
         cerebras_api_key_label: "Mã API Cerebras:",
         cerebras_get_key_link: "Lấy mã tại cloud.cerebras.ai",
         use_cerebras_checkbox: "Cerebras",
-
         global_settings: "Cài Đặt Chung",
         preset_name_label: "Tên Cấu Hình:",
-
         search_placeholder: "Tìm...",
-
         auto_paste_label: "Tự động dán",
         auto_paste_newline_label: "Tự thêm ký tự xuống dòng sau khi copy",
         startup_label: "Khởi động cùng Windows",
@@ -39,13 +33,11 @@ pub fn get() -> LocaleText {
         cancel_label: "Hủy",
         reset_defaults_btn: "Khôi phục mặc định",
         force_quit: "Buộc thoát",
-
         preset_type_label: "Loại hình:",
         preset_type_image: "Hiểu hình ảnh",
         preset_type_audio: "Hiểu âm thanh",
         preset_type_video: "Hiểu video (upcoming)",
         preset_type_text: "Hiểu văn bản", // NEW
-
         audio_source_label: "Nguồn:",
         audio_src_mic: "Microphone",
         audio_src_device: "Âm thanh máy tính",
@@ -65,7 +57,6 @@ pub fn get() -> LocaleText {
         usage_model_column: "Mô hình",
         usage_remaining_column: "Còn lại / Tổng",
         usage_check_link: "Xem lượng dùng ↗",
-
         footer_admin_text: "chạy bằng admin để dịch game",
         footer_version: "phiên bản",
         check_for_updates_btn: "Kiểm Tra Cập Nhật",
@@ -83,7 +74,6 @@ pub fn get() -> LocaleText {
         update_success: "Cập Nhật Thành Công!",
         restart_to_use_new_version: "Khởi động lại để sử dụng phiên bản mới.",
         restart_app_btn: "Khởi Động Lại Ứng Dụng",
-        // --- NEW TEXT INPUT FIELDS VI ---
         text_input_mode_label: "Phương thức:",
         text_mode_select: "Hotkey rồi bôi text",
         text_mode_type: "Hotkey rồi gõ",
@@ -101,7 +91,6 @@ pub fn get() -> LocaleText {
         add_text_preset_btn: "+ Text",
         add_image_preset_btn: "+ Ảnh",
         add_audio_preset_btn: "+ Âm thanh",
-        // --- PROCESSING CHAIN UI VI ---
         node_input_prefix: "Đầu vào:",
         node_input_audio: "Âm thanh",
         node_input_image: "Hình ảnh",
@@ -116,45 +105,11 @@ pub fn get() -> LocaleText {
         node_menu_add_special_audio: "⭐ Thêm node Audio -> Text",
         input_auto_copy_tooltip: "Tự động copy (Nguồn)",
         input_auto_speak_tooltip: "Đọc to nguồn",
-
         tips_title: "Mẹo sử dụng",
         tips_click_hint: "Click vào dòng chữ này để xem danh sách mẹo",
-        tips_list: vec![
-            "Nhấp **chuột giữa** một overlay bất kỳ giúp xoá tất cả overlay trên màn hình!",
-            "**Chuột phải** lên một overlay giúp copy nhanh nội dung của overlay đó!",
-            "Khi đang vẽ hộp trên màn hình tối (chưa thả chuột), có thể bấm **ESC** hoặc Phím tắt một lần nữa để hủy.",
-            "Nếu thích ứng dụng **SGT** hãy bấm Star cho Github và chia sẻ cho mọi người biết nha!",
-            "Bạn có biết? Phím tắt có thể gán cho **chuột giữa, chuột 4, chuột 5** nữa nha, không chỉ cho bàn phím.",
-            "Nếu bị **crash** trong lúc hiện overlay thì bạn hãy thử đổi Đồ hoạ sang Tối giản thử xem!",
-            "Bạn không thể đổi tên các Cấu hình có sẵn nhưng **Cấu hình mới** thì đổi được bình thường nha!",
-            "**Thư viện lịch sử** kết quả có cơ chế tự dọn kết quả cũ khi vượt Giới hạn lưu nên bạn khỏi lo nha!",
-            "Trong chuỗi hành động, chỉ **một bước** trong đó được phép bật Tự động copy, hoặc không bước nào.",
-            "Dù **Tự động dán** có được bật, nó cần nó nơi dán text được (con trỏ text nhấp nháy) thì mới dán được.",
-            "Điều khiển **Tự thêm xuống dòng** sau khi copy chỉ xuất hiện khi Tự động copy bật (tại 1 bước nào đó).",
-            "Những tên Cấu hình có nền **xanh lá** nghĩa là nó đã được gán phím tắt để sẵn sàng sử dụng.",
-            "Kéo bằng **chuột trái** chỉ dịch chuyển overlay hiện tại nhưng chuột phải sẽ dịch chuyển hết các overlay cùng nhóm.",
-            "Trên **canvas**: cuộn: zoom, kéo: pan, click đúp: reset view, chuột phải: thêm node. Trên node: kéo: dời, chuột phải: xoá node.",
-            "Cơ chế đặc biệt của **chế độ bôi đen** text: Nếu text đã bôi đen sẵn, bấm phím tắt sẽ xử lý ngay và luôn!",
-            "**Thu âm** có chế độ dừng thông minh nữa đó, nhớ dùng thử nha",
-            "Khi lướt **web** ngay bên trong overlay, chỉ dùng chuột chứ không dùng bàn phím được, thông cảm nha",
-            "Gán phím tắt cho **'Ảnh MASTER'** hoặc **'Bôi MASTER'**,... để gọi vòng tròn chọn (Wheel), giúp truy cập nhiều công cụ chỉ với 1 phím.",
-            "Bấm nút **Chỉnh sửa** không chỉ để sửa text, bạn có thể nhập lệnh để AI viết lại nội dung (VD: 'Dịch sang tiếng Nhật').",
-            "Bạn có thể **kéo thả/dán** file ảnh hoặc file text trực tiếp vào cửa sổ cài đặt để xử lý ngay lập tức!",
-            "Bật **'Bong bóng yêu thích'** (Favorite Bubble) trong menu khay hệ thống để truy cập nhanh các cấu hình mà không cần nhớ phím tắt.",
-            "Trong Cài đặt giọng đọc, hãy thử **tuỳ chọn giọng Xịn** và điều chỉnh giọng vùng miền xem sao!",
-            "Chế độ **'Dịch cabin'** (Thời gian thực) có thể tự động điều chỉnh tốc độ đọc (TTS) để đuổi kịp tốc độ nói của người phát.",
-            "Bấm vào **nút chế độ hiển thị** (bên cạnh biểu tượng con mắt) để chuyển đổi giữa dạng văn bản thô và dạng Markdown/HTML đẹp mắt.",
-            "Các **mô hình** có biểu tượng kính lúp có khả năng truy cập internet để tìm dẫn chứng và thông tin mới nhất.",
-            "Khi **'Tự động copy'** kích hoạt, một thông báo nhỏ màu xanh sẽ hiện ra ở góc dưới màn hình để bạn biết nội dung đã vào Clipboard.",
-            "Không biết cách dùng? Mở **'Hỏi cách dùng'** để trợ lý AI hướng dẫn bạn tận tình nhé!",
-            "Căng thẳng quá thì ghé **'Làm DJ'** để tạo nhạc nền thư giãn vừa làm vừa chill.",
-            "Cần tải video? **'Tải video'** tích hợp sẵn hỗ trợ YouTube, Facebook và nhiều trang khác, hỗ trợ cả 4K và phụ đề!",
-            "**Giữ chặt Phím tắt** hoặc Cấu hình trong bong bóng để vào **Chế độ Liên tục**, giúp bạn xử lý nhiều vùng hoặc nhiều đoạn văn liên tiếp.",
-            "Bạn có bàn phím MIDI? Cắm vào máy khi mở **Làm DJ** để điều chỉnh nhạc bằng núm vặn vật lý nhé!",
-        ],
+        tips_list: tips::vi(),
         restore_preset_btn: "Khôi phục",
         restore_preset_tooltip: "Đặt lại cài đặt về mặc định",
-        // --- COMPOUND SEARCH UI VI ---
         search_doing: "Đang thực thi",
         search_searching: "tìm kiếm",
         search_query_label: "📝 Truy vấn tìm kiếm:",
@@ -164,17 +119,13 @@ pub fn get() -> LocaleText {
         search_synthesizing: "⚡ ĐANG TỔNG HỢP THÔNG TIN...",
         search_analyzed_sources: "📊 Đã phân tích {} nguồn",
         search_processing: "🧠 Đang xử lý và tóm tắt kết quả...",
-        // --- MASTER PRESET UI VI ---
         controller_checkbox_label: "Bộ điều khiển",
-
-        // --- GLOBAL SETTINGS UI HEADERS VI ---
         api_keys_header: "🔑 Mã API",
         groq_label: "Mã API Groq:",
         software_update_header: "⬆ Cập Nhật Phần Mềm",
         startup_display_header: "⚙ Khởi Động & Hiển Thị",
         favorite_overlay_opacity_label: "Độ mờ mặc định cửa sổ kết quả",
         model_thinking: "💭 Đang suy nghĩ...",
-        // --- REALTIME OVERLAY VI ---
         realtime_listening: "Đang nghe...",
         realtime_device: "Thiết bị",
         realtime_waiting: "Đang chờ nói...",
@@ -302,12 +253,10 @@ pub fn get() -> LocaleText {
         tts_vieneu_desc: "TTS local ưu tiên tiếng Việt, hỗ trợ chuyển mã Anh/Việt và clone giọng zero-shot.",
         tts_vieneu_control_desc: "Dùng đường chạy VieNeu-TTS-v2 Turbo GPU đã xác minh. Giọng tham chiếu là điều khiển người dùng duy nhất được hỗ trợ.",
         remove_label: "Xóa",
-        // Realtime TTS modal
         realtime_tts_title: "Đọc phần Dịch",
         realtime_tts_speed: "Tốc độ",
         realtime_tts_auto: "Tự động",
         realtime_tts_volume: "Âm lượng",
-        // App selection modal
         app_select_title: "Chọn Ứng Dụng",
         app_select_hint: "Chọn ứng dụng cần ghi âm (bước này giúp âm thanh TTS không bị thu ngược vào âm thanh máy tính)",
         app_select_count: "{} ứng dụng",
@@ -332,17 +281,14 @@ pub fn get() -> LocaleText {
         realtime_tts_s2s_locked_tooltip: "Đọc trực tiếp luôn bật khi dùng Gemini S2S",
         realtime_tts_enable_tooltip: "Bật đọc văn bản",
         realtime_app_loading: "Đang tải...",
-        // --- TRAY MENU VI ---
         tray_settings: "⚙️ Cài đặt",
         tray_quit: "Thoát",
         tray_favorite_bubble: "Hiện bong bóng yêu thích",
         tray_favorite_bubble_disabled: "Hiện bong bóng yêu thích (Chưa có mục yêu thích)",
-        // --- FAVORITE BUBBLE VI ---
         favorites_empty: "Vui lòng đưa vài cấu hình vào ưa thích bằng nút ngôi sao",
         favorites_keep_open: "Giữ mở",
         recording_subtext: "Nhấn ESC/Hotkey để dừng",
         recording_paused: "Đã tạm dừng",
-        // --- AUTO COPY BADGE VI ---
         auto_copied_badge: "Đã tự động copy",
         auto_copied_image_badge: "🖼️ Ảnh đã được sao chép",
         live_translate_loading: "⏳ Đang khởi động Live Translate...",
@@ -354,13 +300,11 @@ pub fn get() -> LocaleText {
         tray_popup_loading: "⏳ Đang khởi động menu...",
         update_available_notification: "🎉 Có bản cập nhật mới!",
         cannot_type_no_caret: "Dùng tự động dán/ghi nhưng chưa chọn chỗ để ghi!",
-        // --- DROP OVERLAY VI ---
         drop_overlay_text: "Thả vào đây để xử lý",
         video_drop_work_record: "Làm việc với SGT Record",
         video_drop_generate_subtitles: "Tạo phụ đề ngay",
         audio_drop_add_to_record: "Thêm vào SGT Record",
         audio_drop_use_preset: "Dùng cấu hình âm thanh",
-        // --- REALTIME EGUI SPECIFIC VI ---
         device_mode_warning: "⚠ Đã chọn âm thanh thiết bị nhưng chưa chọn ứng dụng",
         select_app_btn: "Chọn ứng dụng",
         toggle_translation_tooltip: "Tắt/Mở dịch",
@@ -372,7 +316,6 @@ pub fn get() -> LocaleText {
         opacity_label: "Độ mờ",
         downloaded_successfully: "Đã tải về!",
         download_recording_tooltip: "Tải bản ghi âm",
-        // --- HELP ASSISTANT VI ---
         help_assistant_btn: "Hỏi cách dùng",
         help_assistant_title: "Hỏi về SGT",
         help_assistant_question_label: "Câu hỏi của bạn:",
@@ -422,7 +365,6 @@ pub fn get() -> LocaleText {
         screen_record_btn: "Quay MH",
         screen_record_title: "Screen Record - Quay MH",
         pointer_gallery_btn: "Kho trỏ chuột",
-        // --- PARAKEET DOWNLOAD MODAL VI ---
         parakeet_downloading_title: "Đang tải mô hình Parakeet (0.6 GB)",
         parakeet_tdt_downloading_title: "Đang tải Parakeet TDT 0.6B v3",
         parakeet_downloading_message: "Vui lòng đợi...",
@@ -500,7 +442,6 @@ pub fn get() -> LocaleText {
         history_delete_tooltip: "Xóa",
         history_copy_text_tooltip: "Sao chép văn bản",
         download_new_tab_tooltip: "Tab mới",
-
         download_feature_btn: "Tải video",
         download_feature_title: "Tải video",
         download_delete_deps_btn: "Xoá yt-dlp ({}), ffmpeg ({}) và Deno ({})",
@@ -522,7 +463,6 @@ pub fn get() -> LocaleText {
         download_file_label: "Tập tin:",
         download_size_label: "Kích thước:",
         download_change_folder_btn: "Thay đổi nơi lưu...",
-
         download_progress_info_fmt: "{}% của {}, tốc độ {}, còn {}",
         download_advanced_header: "Tính năng nâng cao",
         download_opt_metadata: "Full Metadata (Ảnh bìa, Chapter, Info)",
@@ -549,7 +489,6 @@ pub fn get() -> LocaleText {
         download_deno_failed_fmt: "Tải Deno thất bại: {}",
         download_deno_yes_btn: "Có, tải Deno",
         download_deno_no_btn: "Không, dùng không cookie",
-
         downloaded_tools_button: "Công cụ đã tải",
         downloaded_tools_title: "Quản lý công cụ đã tải",
         downloaded_tools_clean_all: "Dọn tất cả công cụ đã tải",

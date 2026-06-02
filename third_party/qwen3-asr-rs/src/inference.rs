@@ -338,7 +338,7 @@ impl AsrInference {
         let mut cache = self.rope_cache.lock().expect("rope cache mutex poisoned");
         let needs_refresh = cache
             .as_ref()
-            .map_or(true, |rope| rope.len() < max_total_positions);
+            .is_none_or(|rope| rope.len() < max_total_positions);
         if needs_refresh {
             *cache = Some(self.build_rope_cache(max_total_positions));
         }

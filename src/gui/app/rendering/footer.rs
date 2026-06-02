@@ -3,7 +3,7 @@
 
 use super::super::types::SettingsApp;
 use crate::gui::locale::LocaleText;
-use crate::gui::settings_ui::render_footer;
+use crate::gui::settings_ui::{FooterToggles, render_footer};
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
 
@@ -51,10 +51,12 @@ impl SettingsApp {
                     &text,
                     current_tip.clone(),
                     self.tip_fade_state,
-                    &mut self.show_tips_modal,
-                    &mut self.show_translation_gummy,
-                    &mut self.show_tts_playground,
-                    &mut self.pointer_gallery.show_window,
+                    FooterToggles {
+                        show_modal: &mut self.show_tips_modal,
+                        show_translation_gummy: &mut self.show_translation_gummy,
+                        show_tts_playground: &mut self.show_tts_playground,
+                        show_pointer_gallery: &mut self.pointer_gallery.show_window,
+                    },
                 );
             });
 

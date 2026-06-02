@@ -190,11 +190,11 @@ pub fn clear_all_app_data() {
     ];
     for name in local_children {
         let path = sgt_local.join(name);
-        if path.exists() {
-            if let Err(e) = std::fs::remove_dir_all(&path) {
-                eprintln!("[reset] failed to remove {:?}: {}", path, e);
-                delete_directory_contents_recursive(&path);
-            }
+        if path.exists()
+            && let Err(e) = std::fs::remove_dir_all(&path)
+        {
+            eprintln!("[reset] failed to remove {:?}: {}", path, e);
+            delete_directory_contents_recursive(&path);
         }
     }
 
@@ -203,23 +203,23 @@ pub fn clear_all_app_data() {
     // Config/history JSONs are reset by the caller via Config::default().
     for name in ["history_media", "fonts"] {
         let path = sgt_roaming.join(name);
-        if path.exists() {
-            if let Err(e) = std::fs::remove_dir_all(&path) {
-                eprintln!("[reset] failed to remove {:?}: {}", path, e);
-                delete_directory_contents_recursive(&path);
-            }
+        if path.exists()
+            && let Err(e) = std::fs::remove_dir_all(&path)
+        {
+            eprintln!("[reset] failed to remove {:?}: {}", path, e);
+            delete_directory_contents_recursive(&path);
         }
     }
 
     // Legacy Roaming\SGT (orphaned from an old code version — pure garbage).
-    if legacy_sgt_roaming.exists() {
-        if let Err(e) = std::fs::remove_dir_all(&legacy_sgt_roaming) {
-            eprintln!(
-                "[reset] failed to remove legacy {:?}: {}",
-                legacy_sgt_roaming, e
-            );
-            delete_directory_contents_recursive(&legacy_sgt_roaming);
-        }
+    if legacy_sgt_roaming.exists()
+        && let Err(e) = std::fs::remove_dir_all(&legacy_sgt_roaming)
+    {
+        eprintln!(
+            "[reset] failed to remove legacy {:?}: {}",
+            legacy_sgt_roaming, e
+        );
+        delete_directory_contents_recursive(&legacy_sgt_roaming);
     }
 
     // Local\SGT\logs — debug session logs (debug_log.rs).
@@ -230,11 +230,11 @@ pub fn clear_all_app_data() {
     let sgt_local_root = local.join("SGT");
     for name in ["logs", "bin"] {
         let path = sgt_local_root.join(name);
-        if path.exists() {
-            if let Err(e) = std::fs::remove_dir_all(&path) {
-                eprintln!("[reset] failed to remove {:?}: {}", path, e);
-                delete_directory_contents_recursive(&path);
-            }
+        if path.exists()
+            && let Err(e) = std::fs::remove_dir_all(&path)
+        {
+            eprintln!("[reset] failed to remove {:?}: {}", path, e);
+            delete_directory_contents_recursive(&path);
         }
     }
 }

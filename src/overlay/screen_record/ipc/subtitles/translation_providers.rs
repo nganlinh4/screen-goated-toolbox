@@ -1,5 +1,5 @@
 use crate::api::client::UREQ_AGENT;
-use crate::api::gemini_live::gemini_live_generate;
+use crate::api::gemini_live::{GeminiLiveGenerateRequest, gemini_live_generate};
 use crate::api::ollama::ollama_generate_text;
 use crate::config::Config;
 use crate::model_config::ModelConfig;
@@ -516,13 +516,15 @@ fn translate_with_gemini_live(
         format!("{history_block}\n\nCurrent chunk request:\n{user_payload}")
     };
     gemini_live_generate(
-        model.full_name.clone(),
-        prompt,
-        build_system_instruction(target_language, instructions),
-        None,
-        None,
-        false,
-        &config.ui_language,
+        GeminiLiveGenerateRequest {
+            model: model.full_name.clone(),
+            text: prompt,
+            instruction: build_system_instruction(target_language, instructions),
+            image_data: None,
+            audio_data: None,
+            streaming_enabled: false,
+            ui_language: &config.ui_language,
+        },
         |_| {},
     )
     .map_err(|error| format!("Gemini Live subtitle translation failed: {error}"))

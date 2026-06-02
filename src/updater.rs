@@ -1,9 +1,9 @@
 use std::sync::mpsc::Sender;
 use std::thread;
 
-fn select_release_asset<'a>(
-    assets: &'a [self_update::update::ReleaseAsset],
-) -> Option<&'a self_update::update::ReleaseAsset> {
+fn select_release_asset(
+    assets: &[self_update::update::ReleaseAsset],
+) -> Option<&self_update::update::ReleaseAsset> {
     let release_assets = assets
         .iter()
         .filter(|asset| {
@@ -250,9 +250,9 @@ impl Updater {
             let asset = match select_release_asset(&release.assets) {
                 Some(a) => a,
                 None => {
-                    let _ = tx.send(UpdateStatus::Error(format!(
-                        "No compatible installer asset found in release assets"
-                    )));
+                    let _ = tx.send(UpdateStatus::Error(
+                        "No compatible installer asset found in release assets".to_string(),
+                    ));
                     return;
                 }
             };

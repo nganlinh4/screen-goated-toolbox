@@ -34,6 +34,16 @@ pub fn init_gemini_live() {
     }
 }
 
+pub struct GeminiLiveGenerateRequest<'a> {
+    pub model: String,
+    pub text: String,
+    pub instruction: String,
+    pub image_data: Option<(Vec<u8>, String)>,
+    pub audio_data: Option<Vec<u8>>,
+    pub streaming_enabled: bool,
+    pub ui_language: &'a str,
+}
+
 /// Streaming text generation using Gemini Live API
 /// This is the main entry point for using Gemini Live as an LLM
 ///
@@ -48,18 +58,22 @@ pub fn init_gemini_live() {
 ///
 /// Returns: Complete response text or error
 pub fn gemini_live_generate<F>(
-    model: String,
-    text: String,
-    instruction: String,
-    image_data: Option<(Vec<u8>, String)>,
-    audio_data: Option<Vec<u8>>,
-    streaming_enabled: bool,
-    ui_language: &str,
+    request: GeminiLiveGenerateRequest<'_>,
     mut on_chunk: F,
 ) -> anyhow::Result<String>
 where
     F: FnMut(&str),
 {
+    let GeminiLiveGenerateRequest {
+        model,
+        text,
+        instruction,
+        image_data,
+        audio_data,
+        streaming_enabled,
+        ui_language,
+    } = request;
+
     // Log what we're sending
     let content_type = match (&image_data, &audio_data) {
         (Some((img, mime)), _) => format!("TextWithImage ({}bytes, {})", img.len(), mime),

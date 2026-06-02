@@ -11,60 +11,22 @@ import type { VideoSegment } from "@/types/video";
 import { clampToTrimSegments } from "@/lib/trimSegments";
 import { SpringSolver } from "@/lib/spring";
 import type { TimelineVisibleRange } from "./SegmentBlocksCanvas";
-
-const MIN_TIMELINE_ZOOM = 1;
-const MAX_TIMELINE_ZOOM = 12;
-const WHEEL_ZOOM_SENSITIVITY = 0.002;
-const FOLLOW_SUPPRESS_MS = 900;
-const FOLLOW_SAFE_LEFT_RATIO = 0.2;
-const FOLLOW_SAFE_RIGHT_RATIO = 0.8;
-const FOLLOW_TARGET_RATIO = 0.6;
-const VIEWPORT_BLEED_PX = 16;
-const MIN_SCROLLBAR_THUMB_PX = 36;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
-
-function getVisibleContentWidth(viewport: HTMLDivElement): number {
-  return Math.max(viewport.clientWidth - VIEWPORT_BLEED_PX * 2, 1);
-}
-
-function getContentWidth(
-  viewport: HTMLDivElement,
-  timeline: HTMLDivElement | null,
-  zoom: number,
-): number {
-  const measuredWidth = timeline?.getBoundingClientRect().width ?? 0;
-  if (measuredWidth > 0) return measuredWidth;
-  return getVisibleContentWidth(viewport) * zoom;
-}
-
-function getMaxScroll(viewport: HTMLDivElement, contentWidth: number): number {
-  return Math.max(0, contentWidth - getVisibleContentWidth(viewport));
-}
-
-function buildVisibleTimeRange(
-  scrollLeft: number,
-  visibleWidth: number,
-  contentWidth: number,
-  duration: number,
-): TimelineVisibleRange {
-  const visibleDuration = duration * (visibleWidth / Math.max(contentWidth, 1));
-  const buffer = Math.max(1, visibleDuration * 0.65);
-  return {
-    startTime: clamp(
-      (scrollLeft / Math.max(contentWidth, 1)) * duration - buffer,
-      0,
-      duration,
-    ),
-    endTime: clamp(
-      ((scrollLeft + visibleWidth) / Math.max(contentWidth, 1)) * duration + buffer,
-      0,
-      duration,
-    ),
-  };
-}
+import { useTimelineScrollbarDrag } from "./useTimelineScrollbarDrag";
+import { useTimelineWheelZoom } from "./useTimelineWheelZoom";
+import {
+  buildVisibleTimeRange,
+  clamp,
+  FOLLOW_SAFE_LEFT_RATIO,
+  FOLLOW_SAFE_RIGHT_RATIO,
+  FOLLOW_SUPPRESS_MS,
+  FOLLOW_TARGET_RATIO,
+  getContentWidth,
+  getMaxScroll,
+  getVisibleContentWidth,
+  MIN_SCROLLBAR_THUMB_PX,
+  MIN_TIMELINE_ZOOM,
+  type TimelineWheelAnchor,
+} from "./timelineViewportMath";
 
 interface UseTimelineViewportOptions {
   duration: number;
@@ -116,10 +78,7 @@ export function useTimelineViewport({
   const animationFrameRef = useRef<number | null>(null);
   const releaseProgrammaticScrollRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
-  const pendingWheelAnchorRef = useRef<{
-    anchorTime: number;
-    pointerContentX: number;
-  } | null>(null);
+  const pendingWheelAnchorRef = useRef<TimelineWheelAnchor | null>(null);
   const durationRef = useRef(duration);
   const currentTimeRef = useRef(currentTime);
   const segmentRef = useRef(segment);
@@ -337,6 +296,38 @@ export function useTimelineViewport({
     },
     [setProgrammaticScrollLeft, timelineRef],
   );
+
+  useTimelineWheelZoom({
+    viewportRef,
+    timelineRef,
+    durationRef,
+    segmentRef,
+    isInteractingRef,
+    zoomRef,
+    pendingWheelAnchorRef,
+    programmaticScrollRef,
+    releaseProgrammaticScrollRef,
+    followSpringRef,
+    setVisibleTimeRange,
+    setZoom,
+    scheduleScrollbarThumbSync,
+    suppressFollow,
+  });
+
+  const {
+    handleScrollbarTrackPointerDown,
+    handleScrollbarThumbPointerDown,
+  } = useTimelineScrollbarDrag({
+    viewportRef,
+    timelineRef,
+    scrollbarTrackRef,
+    showScrollbarRef,
+    zoomRef,
+    followSpringRef,
+    setProgrammaticScrollLeft,
+    scrollFromTrackClientX,
+    suppressFollow,
+  });
 
   frameHandlerRef.current = (now: number) => {
     const viewport = viewportRef.current;
@@ -558,9 +549,6 @@ export function useTimelineViewport({
       if (releaseProgrammaticScrollRef.current !== null) {
         cancelAnimationFrame(releaseProgrammaticScrollRef.current);
       }
-      if (pendingZoomRafRef.current !== null) {
-        cancelAnimationFrame(pendingZoomRafRef.current);
-      }
       if (pendingScrollbarRafRef.current !== null) {
         cancelAnimationFrame(pendingScrollbarRafRef.current);
       }
@@ -569,196 +557,6 @@ export function useTimelineViewport({
       }
     };
   }, []);
-
-  // Wheel zoom handler — registered natively with { passive: false } so
-  // preventDefault() works without triggering "passive event listener" warnings.
-  // setZoom is RAF-throttled so the timeline responds on the next paint without
-  // rendering more often than the browser can display.
-  const pendingZoomRafRef = useRef<number | null>(null);
-  const commitPendingWheelZoom = useCallback(() => {
-    pendingZoomRafRef.current = null;
-    const activeViewport = viewportRef.current;
-    const activeDurationForRange = durationRef.current;
-    const activeZoomForRange = zoomRef.current;
-    const pendingAnchor = pendingWheelAnchorRef.current;
-    if (activeViewport && segmentRef.current && activeDurationForRange > 0) {
-      const visibleWidthForRange = getVisibleContentWidth(activeViewport);
-      const contentWidthForRange = visibleWidthForRange * Math.max(activeZoomForRange, MIN_TIMELINE_ZOOM);
-      const scrollLeftForRange = pendingAnchor
-        ? clamp(
-            (pendingAnchor.anchorTime / activeDurationForRange) * contentWidthForRange -
-              pendingAnchor.pointerContentX,
-            0,
-            getMaxScroll(activeViewport, contentWidthForRange),
-          )
-        : activeViewport.scrollLeft;
-      setVisibleTimeRange(
-        activeZoomForRange <= MIN_TIMELINE_ZOOM + 0.001
-          ? null
-          : buildVisibleTimeRange(
-              scrollLeftForRange,
-              visibleWidthForRange,
-              contentWidthForRange,
-              activeDurationForRange,
-            ),
-      );
-    }
-    setZoom(zoomRef.current);
-  }, []);
-  const wheelHandlerRef = useRef<(event: globalThis.WheelEvent) => void>(() => {});
-  wheelHandlerRef.current = (event: globalThis.WheelEvent) => {
-    const viewport = viewportRef.current;
-    const activeSegment = segmentRef.current;
-    const activeDuration = durationRef.current;
-    const activeZoom = zoomRef.current;
-
-    if (
-      !viewport ||
-      !activeSegment ||
-      activeDuration <= 0 ||
-      isInteractingRef.current
-    ) {
-      return;
-    }
-
-    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
-      return;
-    }
-
-    event.preventDefault();
-
-    const visibleWidth = getVisibleContentWidth(viewport);
-    const viewportRect = viewport.getBoundingClientRect();
-    const pointerContentX = clamp(
-      event.clientX - viewportRect.left - VIEWPORT_BLEED_PX,
-      0,
-      visibleWidth,
-    );
-    const contentWidth = getContentWidth(viewport, timelineRef.current, activeZoom);
-    const anchorTime = clamp(
-      ((viewport.scrollLeft + pointerContentX) / Math.max(contentWidth, 1)) *
-        activeDuration,
-      0,
-      activeDuration,
-    );
-    const nextZoom = clamp(
-      activeZoom - event.deltaY * WHEEL_ZOOM_SENSITIVITY * activeZoom,
-      MIN_TIMELINE_ZOOM,
-      MAX_TIMELINE_ZOOM,
-    );
-
-    if (Math.abs(nextZoom - activeZoom) < 0.001) return;
-
-    pendingWheelAnchorRef.current = {
-      anchorTime,
-      pointerContentX,
-    };
-    suppressFollow();
-    zoomRef.current = nextZoom;
-    const canvas = timelineRef.current?.parentElement;
-    const nextContentWidth = visibleWidth * Math.max(nextZoom, MIN_TIMELINE_ZOOM);
-    const nextScrollLeft = clamp(
-      (anchorTime / activeDuration) * nextContentWidth - pointerContentX,
-      0,
-      getMaxScroll(viewport, nextContentWidth),
-    );
-    if (canvas instanceof HTMLElement) {
-      canvas.style.width = `${Math.max(nextZoom, MIN_TIMELINE_ZOOM) * 100}%`;
-    }
-    programmaticScrollRef.current = true;
-    viewport.scrollLeft = nextScrollLeft;
-    followSpringRef.current.set(nextScrollLeft);
-    scheduleScrollbarThumbSync();
-    if (releaseProgrammaticScrollRef.current !== null) {
-      cancelAnimationFrame(releaseProgrammaticScrollRef.current);
-    }
-    releaseProgrammaticScrollRef.current = requestAnimationFrame(() => {
-      programmaticScrollRef.current = false;
-      releaseProgrammaticScrollRef.current = null;
-    });
-    if (pendingZoomRafRef.current === null) {
-      pendingZoomRafRef.current = requestAnimationFrame(commitPendingWheelZoom);
-    }
-  };
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-
-    const handler = (event: globalThis.WheelEvent) => {
-      wheelHandlerRef.current(event);
-    };
-    viewport.addEventListener("wheel", handler, { passive: false });
-    return () => viewport.removeEventListener("wheel", handler);
-  }, []);
-
-  const handleScrollbarTrackPointerDown = useCallback(
-    (event: PointerEvent<HTMLDivElement>) => {
-      if (!showScrollbarRef.current) return;
-      event.preventDefault();
-      suppressFollow();
-      scrollFromTrackClientX(event.clientX);
-
-      const handleMove = (moveEvent: globalThis.PointerEvent) => {
-        scrollFromTrackClientX(moveEvent.clientX);
-      };
-      const handleUp = () => {
-        window.removeEventListener("pointermove", handleMove);
-        window.removeEventListener("pointerup", handleUp);
-        window.removeEventListener("pointercancel", handleUp);
-      };
-
-      window.addEventListener("pointermove", handleMove);
-      window.addEventListener("pointerup", handleUp);
-      window.addEventListener("pointercancel", handleUp);
-    },
-    [scrollFromTrackClientX, suppressFollow],
-  );
-
-  const handleScrollbarThumbPointerDown = useCallback(
-    (event: PointerEvent<HTMLDivElement>) => {
-      const viewport = viewportRef.current;
-      const timeline = timelineRef.current;
-      const track = scrollbarTrackRef.current;
-      if (!viewport || !timeline || !track || !showScrollbarRef.current) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      suppressFollow();
-
-      const startClientX = event.clientX;
-      const startScrollLeft = viewport.scrollLeft;
-      const contentWidth = getContentWidth(viewport, timeline, zoomRef.current);
-      const visibleWidth = getVisibleContentWidth(viewport);
-      const maxScroll = getMaxScroll(viewport, contentWidth);
-      const trackWidth = track.clientWidth;
-      const thumbWidth = Math.max(
-        MIN_SCROLLBAR_THUMB_PX,
-        (visibleWidth / contentWidth) * trackWidth,
-      );
-      const maxThumbTravel = Math.max(trackWidth - thumbWidth, 0);
-
-      const handleMove = (moveEvent: globalThis.PointerEvent) => {
-        const deltaX = moveEvent.clientX - startClientX;
-        const nextScrollLeft =
-          maxThumbTravel > 0
-            ? startScrollLeft + (deltaX / maxThumbTravel) * maxScroll
-            : startScrollLeft;
-        setProgrammaticScrollLeft(nextScrollLeft);
-        followSpringRef.current.set(clamp(nextScrollLeft, 0, maxScroll));
-      };
-      const handleUp = () => {
-        window.removeEventListener("pointermove", handleMove);
-        window.removeEventListener("pointerup", handleUp);
-        window.removeEventListener("pointercancel", handleUp);
-      };
-
-      window.addEventListener("pointermove", handleMove);
-      window.addEventListener("pointerup", handleUp);
-      window.addEventListener("pointercancel", handleUp);
-    },
-    [setProgrammaticScrollLeft, suppressFollow, timelineRef],
-  );
 
   return {
     viewportRef,

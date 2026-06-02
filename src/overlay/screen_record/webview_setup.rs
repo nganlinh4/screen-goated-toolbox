@@ -321,15 +321,14 @@ unsafe fn build_webview(
             })
             .with_url("screenrecord://localhost/index.html");
 
-        if let Ok(extra_args) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
-            if !extra_args.trim().is_empty() {
+        if let Ok(extra_args) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")
+            && !extra_args.trim().is_empty() {
                 let args = format!(
                     "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required {extra_args}",
                 );
                 crate::log_info!("[ScreenRecord] WebView2 additional args: {args}");
                 builder = builder.with_additional_browser_args(args);
             }
-        }
 
         builder = crate::overlay::html_components::font_manager::configure_webview(builder);
         builder.build_as_child(wrapper)

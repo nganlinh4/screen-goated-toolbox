@@ -19,7 +19,12 @@ import {
 import { getTotalTrimDuration } from "@/lib/trimSegments";
 import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { cloneWebcamConfig } from "@/lib/webcam";
-import { getSavedExportFpsPref } from "./videoStatePreferences";
+import {
+  createInitialExportOptions,
+  getExportFailureMessage,
+  NativeVideoMetadataProbe,
+  normalizeExportArtifacts,
+} from "./exportHookUtils";
 
 // ============================================================================
 // useExport
@@ -61,30 +66,6 @@ interface UseExportProps {
   ) => Promise<string>;
 }
 
-interface NativeVideoMetadataProbe {
-  width: number;
-  height: number;
-  fps: number;
-  fpsNum: number;
-  fpsDen: number;
-}
-
-function getExportFailureMessage(error: unknown): string {
-  const raw =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : String(error ?? "");
-  if (raw.includes("0x80070070") || /not enough space on the disk/i.test(raw)) {
-    return "Export failed because the output drive is full. Free up disk space or choose another export folder, then export again.";
-  }
-  if (/Export already in progress/i.test(raw)) {
-    return "An export is still finishing or cleaning up. Wait a moment, or restart the app if it stays stuck.";
-  }
-  return raw || "Export failed for an unknown reason.";
-}
-
 export function useExport(props: UseExportProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const exportInFlightRef = useRef(false);
@@ -111,24 +92,9 @@ export function useExport(props: UseExportProps) {
       return false;
     }
   });
-  const [exportOptions, setExportOptions] = useState<ExportOptions>(() => {
-    return {
-      width: 0,
-      height: 0,
-      // Preserve user-selected source-matched FPS (for example 50fps recordings),
-      // instead of restricting to a fixed preset list.
-      fps: getSavedExportFpsPref(),
-      targetVideoBitrateKbps: 0,
-      speed: 1,
-      exportProfile: "turbo_nv",
-      preferNvTurbo: true,
-      qualityGatePercent: 3,
-      turboCodec: "hevc",
-      preRenderPolicy: "aggressive",
-      outputDir: "",
-      format: "mp4",
-    };
-  });
+  const [exportOptions, setExportOptions] = useState<ExportOptions>(
+    createInitialExportOptions,
+  );
   const [hasCheckedExportCapabilities, setHasCheckedExportCapabilities] =
     useState(false);
 
@@ -481,33 +447,6 @@ export function useExport(props: UseExportProps) {
     resolveSourceVideoPath,
   ]);
 
-  const resolveExportArtifacts = useCallback(
-    (
-      result:
-        | {
-            status?: string;
-            path?: string;
-            artifacts?: ExportArtifact[];
-          }
-        | undefined,
-    ): ExportArtifact[] => {
-      if (Array.isArray(result?.artifacts) && result.artifacts.length > 0) {
-        return result.artifacts;
-      }
-      if (typeof result?.path === "string" && result.path) {
-        return [
-          {
-            format: result.path.toLowerCase().endsWith(".gif") ? "gif" : "mp4",
-            path: result.path,
-            primary: true,
-          },
-        ];
-      }
-      return [];
-    },
-    [],
-  );
-
   const startExport = useCallback(async () => {
     if (exportInFlightRef.current || isProcessing) {
       return;
@@ -555,7 +494,7 @@ export function useExport(props: UseExportProps) {
             format: exportOptions.format || "mp4",
             onProgress: setExportProgress,
           });
-      const artifacts = resolveExportArtifacts(res);
+      const artifacts = normalizeExportArtifacts(res);
       const primaryArtifact =
         artifacts.find((artifact) => artifact.primary) ?? artifacts[0];
       if (
@@ -585,7 +524,6 @@ export function useExport(props: UseExportProps) {
     isCompositionExport,
     isProcessing,
     props,
-    resolveExportArtifacts,
     resolveSourceVideoPath,
   ]);
 

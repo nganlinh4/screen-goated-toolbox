@@ -164,8 +164,8 @@ pub fn snap_split_frames_to_silence(
         let mut best_index = ideal_window;
         let mut best_rms = f32::INFINITY;
         let mut best_distance = usize::MAX;
-        for window_index in lo..=hi {
-            let rms_value = window_rms[window_index];
+        for (window_index, rms_value) in window_rms.iter().enumerate().take(hi + 1).skip(lo) {
+            let rms_value = *rms_value;
             let distance = window_index.abs_diff(ideal_window);
             let is_better = rms_value < best_rms - 1e-6
                 || (rms_value <= best_rms + 1e-6 && distance < best_distance);

@@ -250,15 +250,15 @@ pub fn load() -> Result<&'static SherpaLib> {
                 Ok(SherpaLib {
                     _lib: lib,
                     _dep_libs: dep_libs,
-                    create: std::mem::transmute(create),
-                    destroy: std::mem::transmute(destroy),
-                    create_stream: std::mem::transmute(create_stream),
-                    destroy_stream: std::mem::transmute(destroy_stream),
-                    accept_waveform: std::mem::transmute(accept_waveform),
-                    is_ready: std::mem::transmute(is_ready),
-                    decode: std::mem::transmute(decode),
-                    get_result_json: std::mem::transmute(get_result_json),
-                    destroy_result_json: std::mem::transmute(destroy_result_json),
+                    create,
+                    destroy,
+                    create_stream,
+                    destroy_stream,
+                    accept_waveform,
+                    is_ready,
+                    decode,
+                    get_result_json,
+                    destroy_result_json,
                 })
             }
         })

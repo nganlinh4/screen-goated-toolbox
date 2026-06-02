@@ -1,11 +1,7 @@
-use crate::tensor::{DType, Device, Tensor};
-use llmem_quant::{QuantizedProdVector, QuantizedVector, TurboQuantMse, TurboQuantProd};
-use rayon::prelude::*;
-use std::sync::Arc;
+use crate::tensor::{DType, Tensor};
 
-const TURBOQUANT_KEY_BITS: u8 = 4;
-const TURBOQUANT_VALUE_BITS: u8 = 4;
-const TURBOQUANT_SEED: u64 = 42;
+const TURBOQUANT_KEY_BITS: usize = 4;
+const TURBOQUANT_VALUE_BITS: usize = 4;
 
 #[derive(Clone)]
 pub(crate) struct TurboQuantKvPrefix {
@@ -15,28 +11,24 @@ pub(crate) struct TurboQuantKvPrefix {
 
 #[derive(Clone)]
 struct TurboQuantCompressedKeyTensor {
-    codec: Arc<TurboQuantProd>,
-    vectors: Vec<QuantizedProdVector>,
-    materialized_dense: Option<Tensor>,
+    compressed_bytes: usize,
+    materialized_dense: Tensor,
     batch: i64,
     heads: i64,
     head_dim: i64,
     len: i64,
     dtype: DType,
-    device: Device,
 }
 
 #[derive(Clone)]
 struct TurboQuantCompressedValueTensor {
-    codec: Arc<TurboQuantMse>,
-    vectors: Vec<QuantizedVector>,
-    materialized_dense: Option<Tensor>,
+    compressed_bytes: usize,
+    materialized_dense: Tensor,
     batch: i64,
     heads: i64,
     head_dim: i64,
     len: i64,
     dtype: DType,
-    device: Device,
 }
 
 impl TurboQuantKvPrefix {
@@ -109,28 +101,14 @@ impl TurboQuantKvPrefix {
 impl TurboQuantCompressedKeyTensor {
     fn from_tensor(tensor: &Tensor) -> Self {
         let shape = tensor.size();
-        let codec = Arc::new(
-            TurboQuantProd::new(
-                shape[3] as usize,
-                TURBOQUANT_KEY_BITS,
-                TURBOQUANT_SEED,
-                TURBOQUANT_SEED + 1,
-            )
-            .expect("TurboQuant key codec must initialize"),
-        );
-        let values = flatten_tensor_f32(tensor);
-        let vectors = quantize_key_vectors(&codec, &values, shape[3] as usize);
-        let materialized_dense = Some(tensor.contiguous());
         Self {
-            codec,
-            vectors,
-            materialized_dense,
+            compressed_bytes: compressed_key_bytes(&shape),
+            materialized_dense: tensor.contiguous(),
             batch: shape[0],
             heads: shape[1],
             len: shape[2],
             head_dim: shape[3],
             dtype: tensor.kind(),
-            device: tensor.device(),
         }
     }
 
@@ -139,49 +117,35 @@ impl TurboQuantCompressedKeyTensor {
         debug_assert_eq!(shape[0], self.batch);
         debug_assert_eq!(shape[1], self.heads);
         debug_assert_eq!(shape[3], self.head_dim);
-        let values = flatten_tensor_f32(tensor);
-        let added_vectors = quantize_key_vectors(&self.codec, &values, self.head_dim as usize);
-        self.vectors.reserve(added_vectors.len());
-        self.vectors.extend(added_vectors);
-        if let Some(materialized_dense) = &mut self.materialized_dense {
-            *materialized_dense = Tensor::cat(
-                &[materialized_dense.shallow_clone(), tensor.shallow_clone()],
-                2,
-            );
-        }
+        self.compressed_bytes += compressed_key_bytes(&shape);
+        self.materialized_dense = Tensor::cat(
+            &[
+                self.materialized_dense.shallow_clone(),
+                tensor.shallow_clone(),
+            ],
+            2,
+        );
         self.len += shape[2];
     }
 
     fn materialize(&self) -> Tensor {
-        self.materialized_dense
-            .as_ref()
-            .expect("TurboQuant key cache must have materialized dense tensor")
-            .shallow_clone()
+        self.materialized_dense.shallow_clone()
     }
 
     fn storage_clone(&self) -> Self {
         Self {
-            codec: Arc::clone(&self.codec),
-            vectors: self.vectors.clone(),
+            compressed_bytes: self.compressed_bytes,
             materialized_dense: self.materialized_dense.clone(),
             batch: self.batch,
             heads: self.heads,
             head_dim: self.head_dim,
             len: self.len,
             dtype: self.dtype,
-            device: self.device,
         }
     }
 
     fn compressed_bytes(&self) -> usize {
-        self.vectors
-            .iter()
-            .map(|vector| {
-                vector.mse_part.packed_indices.len()
-                    + vector.qjl_part.packed_signs.len()
-                    + std::mem::size_of::<f32>()
-            })
-            .sum()
+        self.compressed_bytes
     }
 
     fn dense_equivalent_bytes(&self) -> usize {
@@ -192,27 +156,14 @@ impl TurboQuantCompressedKeyTensor {
 impl TurboQuantCompressedValueTensor {
     fn from_tensor(tensor: &Tensor) -> Self {
         let shape = tensor.size();
-        let codec = Arc::new(
-            TurboQuantMse::new(
-                shape[3] as usize,
-                TURBOQUANT_VALUE_BITS,
-                TURBOQUANT_SEED + 2,
-            )
-            .expect("TurboQuant value codec must initialize"),
-        );
-        let values = flatten_tensor_f32(tensor);
-        let vectors = quantize_value_vectors(&codec, &values, shape[3] as usize);
-        let materialized_dense = Some(tensor.contiguous());
         Self {
-            codec,
-            vectors,
-            materialized_dense,
+            compressed_bytes: compressed_value_bytes(&shape),
+            materialized_dense: tensor.contiguous(),
             batch: shape[0],
             heads: shape[1],
             len: shape[2],
             head_dim: shape[3],
             dtype: tensor.kind(),
-            device: tensor.device(),
         }
     }
 
@@ -221,45 +172,35 @@ impl TurboQuantCompressedValueTensor {
         debug_assert_eq!(shape[0], self.batch);
         debug_assert_eq!(shape[1], self.heads);
         debug_assert_eq!(shape[3], self.head_dim);
-        let values = flatten_tensor_f32(tensor);
-        let added_vectors = quantize_value_vectors(&self.codec, &values, self.head_dim as usize);
-        self.vectors.reserve(added_vectors.len());
-        self.vectors.extend(added_vectors);
-        if let Some(materialized_dense) = &mut self.materialized_dense {
-            *materialized_dense = Tensor::cat(
-                &[materialized_dense.shallow_clone(), tensor.shallow_clone()],
-                2,
-            );
-        }
+        self.compressed_bytes += compressed_value_bytes(&shape);
+        self.materialized_dense = Tensor::cat(
+            &[
+                self.materialized_dense.shallow_clone(),
+                tensor.shallow_clone(),
+            ],
+            2,
+        );
         self.len += shape[2];
     }
 
     fn materialize(&self) -> Tensor {
-        self.materialized_dense
-            .as_ref()
-            .expect("TurboQuant value cache must have materialized dense tensor")
-            .shallow_clone()
+        self.materialized_dense.shallow_clone()
     }
 
     fn storage_clone(&self) -> Self {
         Self {
-            codec: Arc::clone(&self.codec),
-            vectors: self.vectors.clone(),
+            compressed_bytes: self.compressed_bytes,
             materialized_dense: self.materialized_dense.clone(),
             batch: self.batch,
             heads: self.heads,
             head_dim: self.head_dim,
             len: self.len,
             dtype: self.dtype,
-            device: self.device,
         }
     }
 
     fn compressed_bytes(&self) -> usize {
-        self.vectors
-            .iter()
-            .map(|vector| vector.packed_indices.len() + std::mem::size_of::<f32>())
-            .sum()
+        self.compressed_bytes
     }
 
     fn dense_equivalent_bytes(&self) -> usize {
@@ -267,38 +208,28 @@ impl TurboQuantCompressedValueTensor {
     }
 }
 
-fn flatten_tensor_f32(tensor: &Tensor) -> Vec<f32> {
-    tensor.contiguous().to_vec_f32()
+fn compressed_key_bytes(shape: &[i64]) -> usize {
+    compressed_tensor_bytes(shape, TURBOQUANT_KEY_BITS, true)
 }
 
-fn quantize_key_vectors(
-    codec: &Arc<TurboQuantProd>,
-    values: &[f32],
-    head_dim: usize,
-) -> Vec<QuantizedProdVector> {
-    values
-        .par_chunks_exact(head_dim)
-        .map(|vector| {
-            codec
-                .quantize(vector)
-                .expect("TurboQuant key vector quantization must succeed")
-        })
-        .collect()
+fn compressed_value_bytes(shape: &[i64]) -> usize {
+    compressed_tensor_bytes(shape, TURBOQUANT_VALUE_BITS, false)
 }
 
-fn quantize_value_vectors(
-    codec: &Arc<TurboQuantMse>,
-    values: &[f32],
-    head_dim: usize,
-) -> Vec<QuantizedVector> {
-    values
-        .par_chunks_exact(head_dim)
-        .map(|vector| {
-            codec
-                .quantize(vector)
-                .expect("TurboQuant value vector quantization must succeed")
-        })
-        .collect()
+fn compressed_tensor_bytes(shape: &[i64], bits_per_value: usize, include_signs: bool) -> usize {
+    debug_assert_eq!(shape.len(), 4);
+    let batch = shape[0].max(0) as usize;
+    let heads = shape[1].max(0) as usize;
+    let len = shape[2].max(0) as usize;
+    let head_dim = shape[3].max(0) as usize;
+    let vector_count = batch * heads * len;
+    let packed_indices = (head_dim * bits_per_value).div_ceil(8);
+    let packed_signs = if include_signs {
+        head_dim.div_ceil(8)
+    } else {
+        0
+    };
+    vector_count * (packed_indices + packed_signs + std::mem::size_of::<f32>())
 }
 
 fn dtype_bytes(dtype: DType) -> usize {

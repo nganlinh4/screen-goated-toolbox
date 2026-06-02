@@ -86,7 +86,7 @@ pub fn append_history_segment(history: &mut String, segment: &str) {
 }
 
 fn sanitize_transcript_segment(segment: &str) -> String {
-    segment.replace('\n', " ").replace('\t', " ")
+    segment.replace(['\n', '\t'], " ")
 }
 
 /// Split draft at the last sentence boundary (.?!) that has text after it.

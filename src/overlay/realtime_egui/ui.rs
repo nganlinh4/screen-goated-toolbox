@@ -98,18 +98,20 @@ fn render_content_area(
     if state.show_transcription && state.show_translation {
         render_dual_content(
             ui,
-            state,
-            theme,
-            locale,
-            is_device_mode,
-            tts_enabled,
-            available_height,
-            &full_transcript,
-            transcript_committed_pos,
-            &committed_translation,
-            &uncommitted_translation,
-            &font,
-            should_scroll_trans,
+            DualContent {
+                state,
+                theme,
+                locale,
+                is_device_mode,
+                tts_enabled,
+                available_height,
+                full_transcript: &full_transcript,
+                transcript_committed_pos,
+                committed_translation: &committed_translation,
+                uncommitted_translation: &uncommitted_translation,
+                font: &font,
+                should_scroll_trans,
+            },
         );
     } else if state.show_transcription {
         split_panel_frame(
@@ -150,21 +152,36 @@ fn render_content_area(
     }
 }
 
-fn render_dual_content(
-    ui: &mut egui::Ui,
-    state: &mut RealtimeUiState,
-    theme: &RealtimeEguiTheme,
-    locale: &crate::gui::locale::LocaleText,
+struct DualContent<'a> {
+    state: &'a mut RealtimeUiState,
+    theme: &'a RealtimeEguiTheme,
+    locale: &'a crate::gui::locale::LocaleText,
     is_device_mode: bool,
     tts_enabled: bool,
     available_height: f32,
-    full_transcript: &str,
+    full_transcript: &'a str,
     transcript_committed_pos: usize,
-    committed_translation: &str,
-    uncommitted_translation: &str,
-    font: &egui::FontId,
+    committed_translation: &'a str,
+    uncommitted_translation: &'a str,
+    font: &'a egui::FontId,
     should_scroll_trans: bool,
-) {
+}
+
+fn render_dual_content(ui: &mut egui::Ui, content: DualContent<'_>) {
+    let DualContent {
+        state,
+        theme,
+        locale,
+        is_device_mode,
+        tts_enabled,
+        available_height,
+        full_transcript,
+        transcript_committed_pos,
+        committed_translation,
+        uncommitted_translation,
+        font,
+        should_scroll_trans,
+    } = content;
     let available_width = ui.available_width();
     let col_width = ((available_width - 16.0) / 2.0).max(1.0);
     let panel_height = available_height.max(96.0);

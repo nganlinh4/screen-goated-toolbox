@@ -235,21 +235,20 @@ fn resample_envelope(
         return Vec::new();
     }
 
-    let source_bin_duration = 1.0 / SOURCE_BINS_PER_SECOND as f64;
-    let target_bin_duration = envelope.source_duration_sec / target_bins as f64;
+    let source_len = envelope.bins.len();
     let mut output = Vec::with_capacity(target_bins);
 
     for target_index in 0..target_bins {
-        let target_start = target_index as f64 * target_bin_duration;
-        let target_end = if target_index + 1 >= target_bins {
-            envelope.source_duration_sec
+        // Map each target bin to a proportional span of source bins. The source
+        // envelope is a fixed-density series (SOURCE_BINS_PER_SECOND), so a span
+        // proportional to the bin count matches a time-based span while avoiding
+        // floating-point edge cases and staying correct for any envelope density.
+        let source_start = target_index * source_len / target_bins;
+        let source_end = if target_index + 1 >= target_bins {
+            source_len
         } else {
-            (target_index + 1) as f64 * target_bin_duration
+            ((target_index + 1) * source_len / target_bins).max(source_start + 1)
         };
-
-        let source_start = (target_start / source_bin_duration).floor() as usize;
-        let source_end =
-            ((target_end / source_bin_duration).ceil() as usize).min(envelope.bins.len());
 
         let mut min = i16::MAX;
         let mut max = i16::MIN;

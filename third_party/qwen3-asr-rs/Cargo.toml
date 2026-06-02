@@ -6,6 +6,9 @@ description = "Pure Rust implementation of Qwen3 ASR (Automatic Speech Recogniti
 license = "Apache-2.0"
 repository = "https://github.com/second-state/qwen3_asr_rs"
 exclude = ["mlx-c/", "test_audio/", "skills/", "Qwen3-ASR-*"]
+# Binaries are declared explicitly; helper modules live in src/bin/ (e.g.
+# server_segmentation.rs, server_types.rs) and must not be auto-discovered as bins.
+autobins = false
 
 [[bin]]
 name = "asr"
@@ -14,6 +17,10 @@ path = "src/main.rs"
 [[bin]]
 name = "asr-server"
 path = "src/bin/server.rs"
+
+[[bin]]
+name = "kv_parity"
+path = "src/bin/kv_parity/main.rs"
 
 [dependencies]
 tch = { version = "0.20", optional = true }
@@ -33,8 +40,6 @@ axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 tempfile = "3"
-llmem-quant = "0.1.0"
-rayon = "1.11"
 
 [build-dependencies]
 cmake = "0.1"

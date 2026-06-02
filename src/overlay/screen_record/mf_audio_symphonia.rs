@@ -365,7 +365,7 @@ fn remap_channels(samples: &[f32], source_channels: usize, target_channels: usiz
                 remapped.push(mono);
             }
             (1, dst) => {
-                remapped.extend(std::iter::repeat(frame[0]).take(dst));
+                remapped.extend(std::iter::repeat_n(frame[0], dst));
             }
             (src, dst) if src >= dst => {
                 remapped.extend_from_slice(&frame[..dst]);
@@ -373,7 +373,7 @@ fn remap_channels(samples: &[f32], source_channels: usize, target_channels: usiz
             _ => {
                 remapped.extend_from_slice(frame);
                 let fill = *frame.last().unwrap_or(&0.0);
-                remapped.extend(std::iter::repeat(fill).take(target_channels - source_channels));
+                remapped.extend(std::iter::repeat_n(fill, target_channels - source_channels));
             }
         }
     }
@@ -395,10 +395,8 @@ fn resample_interleaved_f32(
         return samples.to_vec();
     }
 
-    let target_frames = (((source_frames as u128) * (target_sample_rate as u128)
-        + (source_sample_rate as u128)
-        - 1)
-        / source_sample_rate as u128) as usize;
+    let target_frames = ((source_frames as u128) * (target_sample_rate as u128))
+        .div_ceil(source_sample_rate as u128) as usize;
     let mut output = Vec::with_capacity(target_frames * channels);
     let ratio = source_sample_rate as f64 / target_sample_rate as f64;
 

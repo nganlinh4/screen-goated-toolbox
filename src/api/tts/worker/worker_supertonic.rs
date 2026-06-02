@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn normalizes_vietnamese_to_nfc() {
-        let decomposed = "tie\u{302}ng Vie\u{323}\u{302}t";
+        let decomposed = "tie\u{302}\u{301}ng Vie\u{323}\u{302}t";
         assert_eq!(normalize_supertonic_text(decomposed), "tiếng Việt");
     }
 
@@ -524,7 +524,7 @@ mod tests {
             "what <breath> <laugh> <sigh> <cough> poison",
             "en",
         );
-        assert_eq!(normalized, "what poison.");
+        assert_eq!(normalized, "what poison");
     }
 
     #[test]

@@ -30,6 +30,8 @@ import {
   handleMouseDown as textMouseDown,
   handleMouseMove as textMouseMove,
   handleMouseUp as textMouseUp,
+} from './overlayDragHandlers';
+import {
   bakeOverlayAtlasAndPaths,
 } from './overlayBaker';
 import { calculateCurrentZoomStateInternal } from './cameraZoom';

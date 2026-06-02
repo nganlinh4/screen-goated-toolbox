@@ -67,7 +67,7 @@ impl AsrInference {
             self.text_decoder.config().num_hidden_layers,
             self.kv_cache_mode,
         );
-        let base_hidden = self.embed_text_tokens(&base_ids);
+        let base_hidden = self.embed_text_tokens(base_ids);
         let (cos, sin) = rope.slice(0, base_ids.len());
         self.text_decoder
             .prefill_with_offload(&base_hidden, &cos, &sin, &mut state, false)

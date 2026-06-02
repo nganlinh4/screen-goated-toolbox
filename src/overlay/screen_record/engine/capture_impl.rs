@@ -1,3 +1,5 @@
+mod recording_paths;
+
 use crate::overlay::screen_record::audio_engine;
 use crate::overlay::screen_record::d3d_interop::{VideoProcessor, create_direct3d_surface};
 use parking_lot::Mutex;
@@ -16,6 +18,7 @@ use windows_capture::{
     graphics_capture_api::InternalCaptureControl,
 };
 
+use self::recording_paths::{RecordingPaths, initialize_recording_paths, prepare_recording_paths};
 use super::CaptureHandler;
 use super::cursor_sampler::{CaptureFlags, compute_cursor_sample_interval, spawn_cursor_sampler};
 use super::encoder_utils::{
@@ -28,12 +31,12 @@ use super::pump_thread::{
     resolve_monitor_capture_size, resolve_window_capture_size, spawn_frame_pump,
 };
 use super::types::{
-    ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, AUDIO_PATH, ENCODER_ACTIVE,
-    ENCODER_MAX_PENDING_FRAMES, ENCODING_FINISHED, LAST_CAPTURE_FRAME_HEIGHT,
-    LAST_CAPTURE_FRAME_WIDTH, LAST_RECORDING_FPS, MAX_CATCHUP_SUBMITS_PER_CALLBACK,
-    MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH, MIC_AUDIO_START_OFFSET_MS, NO_READY_VRAM_FRAME,
-    SHOULD_STOP, SHOULD_STOP_AUDIO, TIMESTAMP_RESYNC_THRESHOLD_100NS, VIDEO_PATH, VramFrame,
-    WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH, WEBCAM_VIDEO_START_OFFSET_MS,
+    ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, ENCODER_ACTIVE, ENCODER_MAX_PENDING_FRAMES,
+    ENCODING_FINISHED, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH, LAST_RECORDING_FPS,
+    MAX_CATCHUP_SUBMITS_PER_CALLBACK, MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH,
+    MIC_AUDIO_START_OFFSET_MS, NO_READY_VRAM_FRAME, SHOULD_STOP, SHOULD_STOP_AUDIO,
+    TIMESTAMP_RESYNC_THRESHOLD_100NS, VramFrame, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
+    WEBCAM_VIDEO_START_OFFSET_MS,
 };
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
@@ -75,41 +78,13 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // accept 16-aligned canvases, so we retry with that fallback on init failure.
         let preferred_canvas = exact_encoder_canvas(width, height);
 
-        let app_data_dir = dirs::data_local_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("screen-goated-toolbox")
-            .join("recordings");
-
-        std::fs::create_dir_all(&app_data_dir)?;
-
-        let video_path = app_data_dir.join(format!(
-            "recording_{}.mp4",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-        ));
-        let mic_audio_path = video_path.with_file_name(format!(
-            "{}_mic.wav",
-            video_path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("recording")
-        ));
-        let webcam_video_path = video_path.with_file_name(format!(
-            "{}_webcam.mp4",
-            video_path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("recording")
-        ));
-
-        *VIDEO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
-        *AUDIO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
-        *MIC_AUDIO_PATH.lock().unwrap() = None;
-        *WEBCAM_VIDEO_PATH.lock().unwrap() = None;
-        MIC_AUDIO_START_OFFSET_MS.store(u64::MAX, Ordering::SeqCst);
-        WEBCAM_VIDEO_START_OFFSET_MS.store(u64::MAX, Ordering::SeqCst);
+        let paths = prepare_recording_paths()?;
+        initialize_recording_paths(&paths);
+        let RecordingPaths {
+            video_path,
+            mic_audio_path,
+            webcam_video_path,
+        } = paths;
 
         let target_fps = flags.fps.unwrap_or_else(|| select_target_fps(monitor_hz));
         *LAST_RECORDING_FPS.lock().unwrap() = Some(target_fps);

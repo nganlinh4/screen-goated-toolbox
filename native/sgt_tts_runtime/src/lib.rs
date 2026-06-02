@@ -75,6 +75,12 @@ pub extern "C" fn sgt_tts_runtime_version() -> u32 {
     ABI_VERSION
 }
 
+/// Create a TTS runtime handle for a supported model directory.
+///
+/// # Safety
+/// `model_dir_utf8` must point to `model_dir_len` readable UTF-8 bytes, and
+/// `out_runtime` must be a valid writable pointer. The returned handle must be
+/// released exactly once with `sgt_tts_destroy`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sgt_tts_create(
     model_dir_utf8: *const c_char,
@@ -105,6 +111,11 @@ pub unsafe extern "C" fn sgt_tts_create(
     0
 }
 
+/// Destroy a runtime handle created by `sgt_tts_create`.
+///
+/// # Safety
+/// `runtime` must be a live handle returned by `sgt_tts_create`, and no other
+/// exported function may be using the same handle concurrently.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sgt_tts_destroy(runtime: *mut std::ffi::c_void) -> c_int {
     if runtime.is_null() {
@@ -116,6 +127,13 @@ pub unsafe extern "C" fn sgt_tts_destroy(runtime: *mut std::ffi::c_void) -> c_in
     0
 }
 
+/// Synthesize speech and return a runtime-owned PCM buffer.
+///
+/// # Safety
+/// `runtime` must be a live handle. Non-null string pointers must be readable
+/// for their matching lengths. Output pointers must be valid for writes. On
+/// success, the returned PCM pointer remains owned by the runtime and must be
+/// returned with `sgt_tts_free_audio`.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn sgt_tts_synthesize(
@@ -163,6 +181,11 @@ pub unsafe extern "C" fn sgt_tts_synthesize(
     }
 }
 
+/// Release a PCM buffer previously returned by `sgt_tts_synthesize`.
+///
+/// # Safety
+/// `runtime` must be a live handle, and `pcm16` must be a pointer returned by a
+/// successful `sgt_tts_synthesize` call on the same handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sgt_tts_free_audio(
     runtime: *mut std::ffi::c_void,
@@ -180,6 +203,12 @@ pub unsafe extern "C" fn sgt_tts_free_audio(
     -2
 }
 
+/// Return the last error message for a runtime handle.
+///
+/// # Safety
+/// `runtime` must be a live handle. `out_message` and `out_len` must be valid
+/// writable pointers. The returned string pointer is borrowed and remains valid
+/// only until the runtime's next mutating call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sgt_tts_last_error(
     runtime: *mut std::ffi::c_void,
@@ -225,8 +254,9 @@ fn synthesize_via_python(
     lang: &str,
     speed: f32,
 ) -> Result<(Vec<i16>, u32), String> {
-    let script_path = locate_python_script()
-        .ok_or_else(|| "Could not locate synthesize.py — expected under native/sgt_tts_runtime_py/".to_string())?;
+    let script_path = locate_python_script().ok_or_else(|| {
+        "Could not locate synthesize.py — expected under native/sgt_tts_runtime_py/".to_string()
+    })?;
 
     let request = format!(
         "{{\"model\":\"{}\",\"model_dir\":{:?},\"text\":{:?},\"voice\":{:?},\"lang\":{:?},\"speed\":{}}}",
@@ -259,8 +289,7 @@ fn synthesize_via_python(
 
     // stdout is a single WAV file; parse it.
     let cursor = Cursor::new(output.stdout);
-    let mut reader = hound::WavReader::new(cursor)
-        .map_err(|e| format!("WAV parse: {e}"))?;
+    let mut reader = hound::WavReader::new(cursor).map_err(|e| format!("WAV parse: {e}"))?;
     let spec = reader.spec();
     let sr = spec.sample_rate;
     let mut samples: Vec<i16> = Vec::new();

@@ -294,10 +294,10 @@ fn normalize_key_name(key: &str, code: &str) -> Option<String> {
     if let Some(digit) = code.strip_prefix("Digit") {
         return Some(digit.to_string());
     }
-    if let Some(function) = code.strip_prefix('F') {
-        if function.parse::<u8>().is_ok() {
-            return Some(code.to_string());
-        }
+    if let Some(function) = code.strip_prefix('F')
+        && function.parse::<u8>().is_ok()
+    {
+        return Some(code.to_string());
     }
 
     match code {
