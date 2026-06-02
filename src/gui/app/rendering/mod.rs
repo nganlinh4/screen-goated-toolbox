@@ -83,13 +83,7 @@ impl SettingsApp {
                         egui::vec2((right_width - 20.0).max(0.0), ui.available_height()),
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
-                            self.render_detail_view(
-                                ui,
-                                ctx,
-                                &text,
-                                content_bottom,
-                                content_right,
-                            );
+                            self.render_detail_view(ui, ctx, &text, content_bottom, content_right);
                         },
                     );
                 });

@@ -33,9 +33,7 @@ pub fn detect_language(text: &str) -> Option<String> {
 
     let raw = crate::api::taalas::generate(&prompt)?;
     let code = parse_iso639_3(&raw)?;
-    if isolang::Language::from_639_3(&code).is_none() {
-        return None;
-    }
+    isolang::Language::from_639_3(&code)?;
 
     if let Ok(mut guard) = CACHE.lock() {
         let cache = guard.get_or_insert_with(Vec::new);

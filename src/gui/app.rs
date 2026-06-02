@@ -1,3 +1,4 @@
+mod hotkeys;
 mod init;
 pub mod input_handler;
 mod logic;

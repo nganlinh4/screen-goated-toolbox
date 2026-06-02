@@ -227,7 +227,6 @@ impl CatalogsView {
             ],
             step_audio_references: reference_voices.clone(),
             vieneu_references: reference_voices,
-            ..Default::default()
         }
     }
 }

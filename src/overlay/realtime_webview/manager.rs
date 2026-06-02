@@ -97,9 +97,9 @@ pub fn show_realtime_overlay(preset_idx: usize) {
     unsafe {
         if REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
             let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
-            if crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst) {
-                return;
-            } else if IS_ACTIVE && !hwnd.is_invalid() && IsWindow(Some(hwnd)).as_bool() {
+            if crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst)
+                || (IS_ACTIVE && !hwnd.is_invalid() && IsWindow(Some(hwnd)).as_bool())
+            {
                 return;
             } else {
                 REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);

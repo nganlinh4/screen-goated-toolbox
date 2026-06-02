@@ -137,13 +137,15 @@ where
             } else if target_provider == "gemini-live" {
                 let mime = "image/jpeg".to_string();
                 crate::api::gemini_live::gemini_live_generate(
-                    target_id_or_name.clone(),
-                    final_prompt,
-                    String::new(),
-                    Some((img_bytes.clone(), mime)),
-                    None,
-                    streaming_enabled,
-                    ui_language,
+                    crate::api::gemini_live::GeminiLiveGenerateRequest {
+                        model: target_id_or_name.clone(),
+                        text: final_prompt,
+                        instruction: String::new(),
+                        image_data: Some((img_bytes.clone(), mime)),
+                        audio_data: None,
+                        streaming_enabled,
+                        ui_language,
+                    },
                     &mut on_chunk,
                 )
             } else {
@@ -218,13 +220,15 @@ where
         )
     } else if provider == "gemini-live" {
         crate::api::gemini_live::gemini_live_generate(
-            model,
-            final_prompt.to_string(),
-            String::new(),
-            None,
-            None,
-            streaming_enabled,
-            ui_language,
+            crate::api::gemini_live::GeminiLiveGenerateRequest {
+                model,
+                text: final_prompt.to_string(),
+                instruction: String::new(),
+                image_data: None,
+                audio_data: None,
+                streaming_enabled,
+                ui_language,
+            },
             on_chunk,
         )
     } else if provider == "taalas" {

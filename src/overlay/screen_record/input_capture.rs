@@ -18,6 +18,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
+mod key_names;
+
+use key_names::vk_to_name;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct InputModifiers {
     pub ctrl: bool,
@@ -477,130 +481,5 @@ fn clear_key_down(vk: u32) {
 fn clear_key_state_bits() {
     for word in &KEY_DOWN_BITS {
         word.store(0, Ordering::Relaxed);
-    }
-}
-
-fn vk_to_name(vk: u32) -> Option<&'static str> {
-    match vk {
-        8 => Some("Backspace"),
-        9 => Some("Tab"),
-        13 => Some("Enter"),
-        20 => Some("CapsLock"),
-        27 => Some("Esc"),
-        32 => Some("Space"),
-        33 => Some("PageUp"),
-        34 => Some("PageDown"),
-        35 => Some("End"),
-        36 => Some("Home"),
-        37 => Some("Left"),
-        38 => Some("Up"),
-        39 => Some("Right"),
-        40 => Some("Down"),
-        21 => Some("한/영"), // VK_HANGUL (Korean IME toggle) / VK_KANA (Japanese)
-        23 => Some("전자"),  // VK_JUNJA
-        25 => Some("한자"),  // VK_HANJA (Korean) / VK_KANJI (Japanese)
-        28 => Some("変換"),  // VK_CONVERT (Japanese)
-        29 => Some("無変換"), // VK_NONCONVERT (Japanese)
-        44 => Some("PrintScreen"),
-        45 => Some("Insert"),
-        46 => Some("Delete"),
-        91 | 92 => Some("Win"),
-        93 => Some("Menu"),
-        144 => Some("NumLock"),
-        145 => Some("ScrollLock"),
-        19 => Some("Pause"),
-        // Media keys
-        173 => Some("Mute"),
-        174 => Some("Vol-"),
-        175 => Some("Vol+"),
-        176 => Some("Next"),
-        177 => Some("Prev"),
-        178 => Some("Stop"),
-        179 => Some("Play"),
-        // Browser keys
-        166 => Some("BrBack"),
-        167 => Some("BrFwd"),
-        168 => Some("Refresh"),
-        // Japanese IME toggle keys
-        243 => Some("英数"),
-        244 => Some("ひらがな"),
-        160 | 161 => Some("Shift"),
-        162 | 163 => Some("Ctrl"),
-        164 | 165 => Some("Alt"),
-        48 => Some("0"),
-        49 => Some("1"),
-        50 => Some("2"),
-        51 => Some("3"),
-        52 => Some("4"),
-        53 => Some("5"),
-        54 => Some("6"),
-        55 => Some("7"),
-        56 => Some("8"),
-        57 => Some("9"),
-        65 => Some("A"),
-        66 => Some("B"),
-        67 => Some("C"),
-        68 => Some("D"),
-        69 => Some("E"),
-        70 => Some("F"),
-        71 => Some("G"),
-        72 => Some("H"),
-        73 => Some("I"),
-        74 => Some("J"),
-        75 => Some("K"),
-        76 => Some("L"),
-        77 => Some("M"),
-        78 => Some("N"),
-        79 => Some("O"),
-        80 => Some("P"),
-        81 => Some("Q"),
-        82 => Some("R"),
-        83 => Some("S"),
-        84 => Some("T"),
-        85 => Some("U"),
-        86 => Some("V"),
-        87 => Some("W"),
-        88 => Some("X"),
-        89 => Some("Y"),
-        90 => Some("Z"),
-        96 => Some("Num0"),
-        97 => Some("Num1"),
-        98 => Some("Num2"),
-        99 => Some("Num3"),
-        100 => Some("Num4"),
-        101 => Some("Num5"),
-        102 => Some("Num6"),
-        103 => Some("Num7"),
-        104 => Some("Num8"),
-        105 => Some("Num9"),
-        106 => Some("*"),
-        107 => Some("+"),
-        109 => Some("-"),
-        110 => Some("."),
-        111 => Some("/"),
-        112 => Some("F1"),
-        113 => Some("F2"),
-        114 => Some("F3"),
-        115 => Some("F4"),
-        116 => Some("F5"),
-        117 => Some("F6"),
-        118 => Some("F7"),
-        119 => Some("F8"),
-        120 => Some("F9"),
-        121 => Some("F10"),
-        122 => Some("F11"),
-        123 => Some("F12"),
-        186 => Some(";"),
-        187 => Some("="),
-        188 => Some(","),
-        189 => Some("-"),
-        190 => Some("."),
-        191 => Some("/"),
-        192 => Some("`"),
-        219 => Some("["),
-        220 => Some("\\"),
-        221 => Some("]"),
-        222 => Some("'"),
-        _ => None,
     }
 }

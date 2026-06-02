@@ -142,7 +142,7 @@ fn show_tray_popup_internal(reuse_pending_anchor: bool) {
         let is_warming_up = IS_WARMING_UP.load(Ordering::SeqCst);
         let has_pending_anchor = HAS_PENDING_SHOW_ANCHOR.load(Ordering::SeqCst);
 
-        if !reuse_pending_anchor && !(is_warming_up && has_pending_anchor) {
+        if !(reuse_pending_anchor || is_warming_up && has_pending_anchor) {
             let mut pt = POINT::default();
             if GetCursorPos(&mut pt).is_ok() {
                 PENDING_SHOW_ANCHOR_X.store(pt.x as isize, Ordering::SeqCst);

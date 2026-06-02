@@ -68,7 +68,7 @@ pub fn get_language_instruction_for_code(
 ) -> Option<String> {
     // Find matching condition
     for condition in conditions {
-        if condition.language_code.eq_ignore_ascii_case(&detected_code) {
+        if condition.language_code.eq_ignore_ascii_case(detected_code) {
             return Some(condition.instruction.clone());
         }
     }

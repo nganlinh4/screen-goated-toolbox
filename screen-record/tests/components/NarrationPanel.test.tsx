@@ -12,6 +12,9 @@ vi.mock("@/hooks/useSettings", () => ({
 }));
 
 vi.mock("@/hooks/useSubtitleNarration", () => ({
+  DEFAULT_NARRATION_GROUP_TEXT_BUDGET: 25,
+  MIN_NARRATION_GROUP_TEXT_BUDGET: 5,
+  MAX_NARRATION_GROUP_TEXT_BUDGET: 120,
   useSubtitleNarration: () => ({
     narrationStatus: null,
     narrationTargetCount: 0,
@@ -72,14 +75,37 @@ describe("NarrationPanel Step Audio controls", () => {
     mocks.update.mockClear();
   });
 
-  it("renders reference selector for Step Audio EditX", () => {
-    render(
+  function renderPanel() {
+    return render(
       <NarrationPanel
-        visibleSubtitles={[]}
+        segment={null}
+        composition={null}
+        currentRawVideoPath=""
+        currentRawMicAudioPath=""
+        duration={0}
+        visibleSubtitles={[
+          {
+            id: "subtitle-1",
+            startTime: 0,
+            endTime: 1,
+            text: "Hello",
+            style: { fontSize: 48, color: "#ffffff", x: 50, y: 80 },
+          },
+        ]}
         onApplyNarrationSegments={() => {}}
         onFinalizeNarrationSegments={() => {}}
+        selectedSource="video"
+        onSourceChange={() => {}}
+        canUseVideoSource
+        canUseMicSource={false}
+        canUseAudioSource={false}
+        onUpdateSegment={() => {}}
       />,
     );
+  }
+
+  it("renders reference selector for Step Audio EditX", () => {
+    renderPanel();
 
     expect(screen.getByText("Step Audio EditX")).toBeInTheDocument();
     expect(screen.getByText("Reference voice")).toBeInTheDocument();
@@ -89,13 +115,7 @@ describe("NarrationPanel Step Audio controls", () => {
   });
 
   it("selects a reference voice", () => {
-    render(
-      <NarrationPanel
-        visibleSubtitles={[]}
-        onApplyNarrationSegments={() => {}}
-        onFinalizeNarrationSegments={() => {}}
-      />,
-    );
+    renderPanel();
 
     fireEvent.click(screen.getByText("Bundled default reference"));
     fireEvent.click(screen.getByRole("button", { name: /demo reference/i }));

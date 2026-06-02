@@ -18,28 +18,29 @@ import {
   subscribeToAdjustableLineDragVisualMode,
 } from "./adjustableLineUtils";
 import { AudioWaveformLayer } from "./AudioWaveformLayer";
+import {
+  generateVolumeTrackFillPath,
+  generateVolumeTrackPath,
+  getHighlightedVolumeSegmentFillPath,
+  getHighlightedVolumeSegmentPath,
+  type VolumeTrackGeometry,
+  volumeToTrackYPercent,
+  volumeToY,
+  yToVolume,
+} from "./audioVolumeTrackGeometry";
 import { SoftAudioSegmentBlock } from "./SoftAudioSegmentBlock";
 
 const MIC_TRACK_TOP_PX = 5;
 const MIC_TRACK_BOTTOM_PX = 35;
 const MIC_TRACK_RANGE_PX = MIC_TRACK_BOTTOM_PX - MIC_TRACK_TOP_PX;
 const MIC_TRACK_VIEWBOX_HEIGHT = 40;
-
-function volumeToY(volume: number) {
-  return 1 - clampMicAudioVolume(volume);
-}
-
-function yToVolume(y: number) {
-  return clampMicAudioVolume(1 - y);
-}
-
-function volumeToTrackY(volume: number) {
-  return MIC_TRACK_TOP_PX + volumeToY(volume) * MIC_TRACK_RANGE_PX;
-}
-
-function volumeToTrackYPercent(volume: number) {
-  return `${(volumeToTrackY(volume) / MIC_TRACK_VIEWBOX_HEIGHT) * 100}%`;
-}
+const MIC_TRACK_GEOMETRY = {
+  topPx: MIC_TRACK_TOP_PX,
+  bottomPx: MIC_TRACK_BOTTOM_PX,
+  viewBoxHeight: MIC_TRACK_VIEWBOX_HEIGHT,
+  emptyPathY: MIC_TRACK_BOTTOM_PX,
+  clampVolume: clampMicAudioVolume,
+} satisfies VolumeTrackGeometry;
 
 interface MicTrackProps {
   segment: VideoSegment;
@@ -143,102 +144,6 @@ export const MicTrack: React.FC<MicTrackProps> = ({
     };
   }, []);
 
-  const generatePath = () => {
-    if (points.length === 0) {
-      return `M 0 ${MIC_TRACK_BOTTOM_PX} L 100 ${MIC_TRACK_BOTTOM_PX}`;
-    }
-    const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (volume: number) => volumeToTrackY(volume);
-    const x0 = toX(sorted[0].time);
-    const y0 = toY(sorted[0].volume);
-    let d = `M 0 ${y0} `;
-    if (x0 > 0) d += `L ${x0} ${y0} `;
-
-    for (let i = 1; i < sorted.length; i++) {
-      const left = sorted[i - 1];
-      const right = sorted[i];
-      const x1 = toX(left.time);
-      const y1 = toY(left.volume);
-      const x2 = toX(right.time);
-      const y2 = toY(right.volume);
-      const dx = x2 - x1;
-      d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
-    }
-
-    const xLast = toX(sorted[sorted.length - 1].time);
-    const yLast = toY(sorted[sorted.length - 1].volume);
-    if (xLast < 100) d += `L 100 ${yLast} `;
-    return d;
-  };
-
-  const generateFillPath = () => {
-    if (points.length === 0) return "";
-    const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (volume: number) => volumeToTrackY(volume);
-    const x0 = toX(sorted[0].time);
-    const y0 = toY(sorted[0].volume);
-    let d = `M 0 40 L ${x0} 40 L ${x0} ${y0} `;
-
-    for (let i = 1; i < sorted.length; i++) {
-      const left = sorted[i - 1];
-      const right = sorted[i];
-      const x1 = toX(left.time);
-      const y1 = toY(left.volume);
-      const x2 = toX(right.time);
-      const y2 = toY(right.volume);
-      const dx = x2 - x1;
-      d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
-    }
-
-    const xLast = toX(sorted[sorted.length - 1].time);
-    d += `L ${xLast} 40 L 100 40 Z`;
-    return d;
-  };
-
-  const getHighlightedSegmentPath = (
-    segmentIndices: AdjacentSegmentIndices | null,
-  ) => {
-    if (!segmentIndices) return "";
-
-    const sorted = sortPointsByTime(points);
-    const [leftIdx, rightIdx] = segmentIndices;
-    const left = sorted[leftIdx];
-    const right = sorted[rightIdx];
-    if (!left || !right || right.time <= left.time) return "";
-
-    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (volume: number) => volumeToTrackY(volume);
-    const x1 = toX(left.time);
-    const y1 = toY(left.volume);
-    const x2 = toX(right.time);
-    const y2 = toY(right.volume);
-    const dx = x2 - x1;
-    return `M ${x1} ${y1} C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2}`;
-  };
-
-  const getHighlightedSegmentFillPath = (
-    segmentIndices: AdjacentSegmentIndices | null,
-  ) => {
-    if (!segmentIndices) return "";
-
-    const sorted = sortPointsByTime(points);
-    const [leftIdx, rightIdx] = segmentIndices;
-    const left = sorted[leftIdx];
-    const right = sorted[rightIdx];
-    if (!left || !right || right.time <= left.time) return "";
-
-    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (volume: number) => volumeToTrackY(volume);
-    const x1 = toX(left.time);
-    const y1 = toY(left.volume);
-    const x2 = toX(right.time);
-    const y2 = toY(right.volume);
-    const dx = x2 - x1;
-    return `M ${x1} 40 L ${x1} ${y1} C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} L ${x2} 40 Z`;
-  };
-
   const startDraggingPoint = (
     activeIdx: number,
     startClientX: number,
@@ -251,7 +156,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
     const activePoint = initialPoints[activeIdx];
     if (!activePoint) return;
     const startTime = activePoint.time;
-    const startVolumeY = volumeToY(activePoint.volume);
+    const startVolumeY = volumeToY(activePoint.volume, MIC_TRACK_GEOMETRY);
     const startVolume = activePoint.volume;
     const valueRangePx = Math.max(1, MIC_TRACK_RANGE_PX);
     setActiveSegmentIndices(null);
@@ -285,7 +190,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
       let newY = startVolumeY + dy / valueRangePx;
       newY = Math.max(0, Math.min(1, newY));
 
-      let volume = yToVolume(newY);
+      let volume = yToVolume(newY, MIC_TRACK_GEOMETRY);
       if (lockMode === "horizontal") volume = startVolume;
       if (lockMode === "vertical") t = startTime;
 
@@ -347,7 +252,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
   ) => {
     pointsRef.current = initialPoints;
     const valueRangePx = Math.max(1, MIC_TRACK_RANGE_PX);
-    const startVolumeY = volumeToY(startVolume);
+    const startVolumeY = volumeToY(startVolume, MIC_TRACK_GEOMETRY);
     setIsSegmentDragActive(true);
     setActiveSegmentIndices([
       activeIndices[0],
@@ -359,7 +264,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
       const dy = me.clientY - startClientY;
       let newY = startVolumeY + dy / valueRangePx;
       newY = Math.max(0, Math.min(1, newY));
-      const volume = yToVolume(newY);
+      const volume = yToVolume(newY, MIC_TRACK_GEOMETRY);
 
       const next = [...pointsRef.current];
       activeIndices.forEach((index, activeIndex) => {
@@ -481,12 +386,18 @@ export const MicTrack: React.FC<MicTrackProps> = ({
     (globalDragVisualMode === null && isCtrlPressed
       ? hoveredSegmentIndices
       : null);
-  const highlightedSegmentPath = getHighlightedSegmentPath(
-    highlightedSegmentIndices,
-  );
-  const highlightedSegmentFillPath = getHighlightedSegmentFillPath(
-    highlightedSegmentIndices,
-  );
+  const highlightedSegmentPath = getHighlightedVolumeSegmentPath({
+    points,
+    duration,
+    geometry: MIC_TRACK_GEOMETRY,
+    segmentIndices: highlightedSegmentIndices,
+  });
+  const highlightedSegmentFillPath = getHighlightedVolumeSegmentFillPath({
+    points,
+    duration,
+    geometry: MIC_TRACK_GEOMETRY,
+    segmentIndices: highlightedSegmentIndices,
+  });
 
   if (viewMode === "compact") {
     return (
@@ -550,12 +461,20 @@ export const MicTrack: React.FC<MicTrackProps> = ({
             />
             <path
               className="mic-audio-track-fill-path"
-              d={generateFillPath()}
+              d={generateVolumeTrackFillPath({
+                points,
+                duration,
+                geometry: MIC_TRACK_GEOMETRY,
+              })}
               fill="color-mix(in srgb, var(--timeline-mic-audio-color) 12%, transparent)"
             />
             <path
               className="mic-audio-track-main-path"
-              d={generatePath()}
+              d={generateVolumeTrackPath({
+                points,
+                duration,
+                geometry: MIC_TRACK_GEOMETRY,
+              })}
               fill="none"
               stroke="var(--timeline-mic-audio-color)"
               strokeWidth="1.5"
@@ -611,7 +530,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
               }
               style={{
                 left: `${(point.time / duration) * 100}%`,
-                top: volumeToTrackYPercent(point.volume),
+                top: volumeToTrackYPercent(point.volume, MIC_TRACK_GEOMETRY),
                 color: "var(--timeline-mic-audio-color)",
               }}
               onMouseEnter={() => {

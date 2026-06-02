@@ -1,4 +1,4 @@
-use crate::tensor::{DType, Device, Tensor};
+use crate::tensor::{DType, Device, StftConfig, Tensor};
 use anyhow::Result;
 
 /// Whisper-style mel spectrogram feature extractor.
@@ -53,8 +53,7 @@ impl WhisperFeatureExtractor {
     /// Output: (num_mel_bins, num_frames) tensor
     pub fn extract(&self, samples: &[f32], device: Device) -> Result<Tensor> {
         // Pad samples to the next multiple of hop_length to ensure clean frame count.
-        let padded_len =
-            ((samples.len() + self.hop_length - 1) / self.hop_length) * self.hop_length;
+        let padded_len = samples.len().div_ceil(self.hop_length) * self.hop_length;
         let mut padded_samples = samples.to_vec();
         padded_samples.resize(padded_len, 0.0);
 
@@ -74,15 +73,15 @@ impl WhisperFeatureExtractor {
             .squeeze_dim(0);
 
         // Compute STFT (no center, since we already padded manually)
-        let stft = waveform.stft(
-            self.n_fft as i64,      // n_fft
-            self.hop_length as i64, // hop_length
-            self.n_fft as i64,      // win_length (defaults to n_fft)
-            &window,                // window
-            false,                  // normalized
-            true,                   // onesided
-            true,                   // return_complex
-        );
+        let stft = waveform.stft(StftConfig {
+            n_fft: self.n_fft as i64,
+            hop_length: self.hop_length as i64,
+            win_length: self.n_fft as i64,
+            window: &window,
+            normalized: false,
+            onesided: true,
+            return_complex: true,
+        });
 
         // Compute power spectrogram: |STFT|^2
         // stft shape: (n_fft/2+1, num_frames)

@@ -46,6 +46,7 @@ impl MonotonicTranscriptState {
         let accepted_fixed_text = self.accept_fixed_text(&fixed_text);
         let draft_text = derive_draft_text(
             &accepted_fixed_text,
+            &fixed_text,
             &raw_local_text,
             &sanitize_transcript_segment(&result.draft_text),
         );
@@ -86,7 +87,7 @@ impl MonotonicTranscriptState {
 }
 
 fn sanitize_transcript_segment(segment: &str) -> String {
-    segment.replace('\n', " ").replace('\t', " ")
+    segment.replace(['\n', '\t'], " ")
 }
 
 fn join_transcript_segments(left: &str, right: &str) -> String {
@@ -108,6 +109,7 @@ fn join_transcript_segments(left: &str, right: &str) -> String {
 
 fn derive_draft_text(
     accepted_fixed_text: &str,
+    candidate_fixed_text: &str,
     raw_local_text: &str,
     draft_fallback: &str,
 ) -> String {
@@ -119,6 +121,12 @@ fn derive_draft_text(
     }
     if let Some(rest) = raw_local_text.strip_prefix(accepted_fixed_text) {
         return rest.to_string();
+    }
+    // No local hypothesis this frame, but the candidate fixed text was accepted
+    // verbatim, so the explicit draft is fresh and should be shown. (When the
+    // candidate was rejected/retracted, fall through and drop the stale draft.)
+    if raw_local_text.is_empty() && accepted_fixed_text == candidate_fixed_text {
+        return draft_fallback.to_string();
     }
     if raw_local_text.is_empty() || accepted_fixed_text.starts_with(raw_local_text) {
         return String::new();

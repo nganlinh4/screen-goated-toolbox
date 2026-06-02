@@ -1,11 +1,10 @@
 pub mod dlls;
 pub mod ffi;
 pub mod ffi_tts;
+mod streaming;
 
-use super::capture::{start_device_loopback_capture, start_mic_capture, start_per_app_capture};
 use super::state::SharedRealtimeState;
 use super::utils::update_overlay_text;
-use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 use crate::config::Preset;
 use anyhow::{Result, anyhow};
 use std::ffi::CString;
@@ -13,11 +12,10 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW};
+use std::time::Duration;
+use windows::Win32::Foundation::HWND;
 
-const BATCH_SAMPLES: usize = 16000 / 2; // 500ms worth at 16kHz
+use self::streaming::{SherpaStreamingLoop, run_streaming_loop, start_audio_capture};
 
 /// Zipformer language variant for Windows.
 /// Mirrors `ZipformerLanguage` from Android.
@@ -482,17 +480,17 @@ pub fn run_sherpa_transcription(
     let audio_stream =
         start_audio_capture(audio_buffer.clone(), stop_signal.clone(), pause_signal)?;
 
-    let result = run_streaming_loop(
+    let result = run_streaming_loop(SherpaStreamingLoop {
         lib,
         recognizer,
         stream,
         audio_buffer,
-        &stop_signal,
+        stop_signal: &stop_signal,
         overlay_hwnd,
-        &state,
-        lang.has_native_punctuation(),
+        state: &state,
+        has_native_punctuation: lang.has_native_punctuation(),
         session_id,
-    );
+    });
 
     drop(audio_stream);
 
@@ -503,228 +501,4 @@ pub fn run_sherpa_transcription(
     crate::log_info!("[Sherpa] Session ended");
 
     result
-}
-
-fn run_streaming_loop(
-    lib: &ffi::SherpaLib,
-    recognizer: *const ffi::SherpaOnnxOnlineRecognizer,
-    stream: *const ffi::SherpaOnnxOnlineStream,
-    audio_buffer: Arc<Mutex<Vec<i16>>>,
-    stop_signal: &AtomicBool,
-    overlay_hwnd: HWND,
-    state: &SharedRealtimeState,
-    has_native_punctuation: bool,
-    session_id: u64,
-) -> Result<()> {
-    let mut committed_history = String::new();
-    // Portion of current stream output already committed — advance but never reset mid-speech
-    let mut stream_committed_prefix = String::new();
-    let mut last_draft_text = String::new();
-    let mut last_draft_change = Instant::now();
-    let mut pending_f32: Vec<f32> = Vec::new();
-
-    while !stop_signal.load(Ordering::Relaxed) && !is_stale_session(session_id) {
-        if !overlay_hwnd.is_invalid() && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
-            break;
-        }
-        if super::DEVICE_RECONNECT_REQUESTED.load(Ordering::SeqCst) {
-            break;
-        }
-        if crate::overlay::realtime_webview::AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
-            || crate::overlay::realtime_webview::TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
-        {
-            break;
-        }
-
-        let new_samples: Vec<i16> = {
-            let mut buf = audio_buffer.lock().unwrap();
-            if buf.is_empty() {
-                Vec::new()
-            } else {
-                buf.drain(..).collect()
-            }
-        };
-
-        if !new_samples.is_empty() {
-            let rms = compute_rms(&new_samples);
-            REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
-            crate::overlay::recording::update_audio_viz(rms);
-            if rms > 0.001 {
-                crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
-            }
-            if !overlay_hwnd.is_invalid() {
-                unsafe {
-                    let _ =
-                        PostMessageW(Some(overlay_hwnd), WM_VOLUME_UPDATE, WPARAM(0), LPARAM(0));
-                }
-            }
-            for &s in &new_samples {
-                pending_f32.push(s as f32 / 32768.0);
-            }
-        }
-
-        if pending_f32.len() >= BATCH_SAMPLES {
-            let max_buffer = 16000 * 10;
-            if pending_f32.len() > max_buffer {
-                let drop = pending_f32.len() - max_buffer;
-                pending_f32.drain(..drop);
-            }
-
-            let batch: Vec<f32> = pending_f32.drain(..).collect();
-            unsafe {
-                if stop_signal.load(Ordering::Relaxed) || is_stale_session(session_id) {
-                    break;
-                }
-                (lib.accept_waveform)(stream, 16000, batch.as_ptr(), batch.len() as i32);
-            }
-            while unsafe { (lib.is_ready)(recognizer, stream) } != 0 {
-                if stop_signal.load(Ordering::Relaxed) || is_stale_session(session_id) {
-                    break;
-                }
-                unsafe { (lib.decode)(recognizer, stream) };
-            }
-
-            let result_ptr = unsafe { (lib.get_result_json)(recognizer, stream) };
-            if !result_ptr.is_null() {
-                let result_cstr = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
-                let result_str = result_cstr.to_string_lossy();
-                let text = parse_result_text(&result_str);
-                unsafe { (lib.destroy_result_json)(result_ptr) };
-
-                // Draft = everything the stream has output after our committed prefix
-                let draft = if text.starts_with(&stream_committed_prefix) {
-                    text[stream_committed_prefix.len()..]
-                        .trim_start()
-                        .to_string()
-                } else {
-                    text.clone()
-                };
-
-                // Track draft staleness for period-terminated sentences
-                if draft != last_draft_text {
-                    last_draft_text = draft.clone();
-                    last_draft_change = Instant::now();
-                }
-
-                // Case 1 & 2: only for models that emit native punctuation
-                // Case 1: period followed by next word → split immediately
-                if has_native_punctuation
-                    && let Some((before, after)) = super::utils::split_at_sentence_boundary(&draft)
-                {
-                    super::utils::append_history_segment(&mut committed_history, &before);
-                    stream_committed_prefix =
-                        text[..text.len() - after.len()].trim_end().to_string();
-                    last_draft_text.clear();
-                    last_draft_change = Instant::now();
-                    publish_transcript(state, overlay_hwnd, &committed_history, after.trim_start());
-                // Case 2: draft ends with period, stable 600ms → done speaking sentence
-                } else if has_native_punctuation
-                    && draft.trim_end().ends_with(['.', '?', '!'])
-                    && last_draft_change.elapsed().as_millis() >= 600
-                {
-                    super::utils::append_history_segment(&mut committed_history, &draft);
-                    stream_committed_prefix = text.trim_end().to_string();
-                    last_draft_text.clear();
-                    last_draft_change = Instant::now();
-                    publish_transcript(state, overlay_hwnd, &committed_history, "");
-                // Case 3: fallback only for models without native punctuation.
-                // Native-punctuation models (EN/KO/ZH/FR/DE/ES) rely solely on Cases 1 & 2 —
-                // running Case 3 on them causes mid-word commits between audio batch gaps.
-                } else if !has_native_punctuation {
-                    let silence_ms = last_draft_change.elapsed().as_millis() as u64;
-                    if let Some(committed) = super::state::check_draft_commit(&draft, silence_ms) {
-                        let committed = format!("{}.", committed);
-                        super::utils::append_history_segment(&mut committed_history, &committed);
-                        stream_committed_prefix = text.trim_end().to_string();
-                        last_draft_text.clear();
-                        last_draft_change = Instant::now();
-                        publish_transcript(state, overlay_hwnd, &committed_history, "");
-                    } else {
-                        publish_transcript(state, overlay_hwnd, &committed_history, &draft);
-                    }
-                } else {
-                    publish_transcript(state, overlay_hwnd, &committed_history, &draft);
-                }
-            }
-        } else {
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
-
-    Ok(())
-}
-
-fn is_stale_session(session_id: u64) -> bool {
-    crate::overlay::realtime_webview::state::REALTIME_SESSION_ID.load(Ordering::SeqCst)
-        != session_id
-}
-
-/// Parse text from sherpa-onnx result JSON: {"text": "hello world", ...}
-fn parse_result_text(json_str: &str) -> String {
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
-        v.get("text")
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string()
-    } else {
-        String::new()
-    }
-}
-
-fn publish_transcript(
-    state: &SharedRealtimeState,
-    overlay_hwnd: HWND,
-    committed: &str,
-    draft: &str,
-) {
-    if let Ok(mut s) = state.lock() {
-        s.set_transcription_method(super::state::TranscriptionMethod::SherpaZipformer);
-        s.set_transcript_segments(committed, draft);
-        let display = s.display_transcript.clone();
-        update_overlay_text(overlay_hwnd, &display);
-    }
-}
-
-fn start_audio_capture(
-    audio_buffer: Arc<Mutex<Vec<i16>>>,
-    stop_signal: Arc<AtomicBool>,
-    pause_signal: Arc<AtomicBool>,
-) -> Result<Option<cpal::Stream>> {
-    let audio_source = {
-        let app = crate::APP.lock().unwrap();
-        app.config.realtime_audio_source.clone()
-    };
-
-    use crate::overlay::realtime_webview::{REALTIME_TTS_ENABLED, SELECTED_APP_PID};
-    let tts_enabled = REALTIME_TTS_ENABLED.load(Ordering::SeqCst);
-    let selected_pid = SELECTED_APP_PID.load(Ordering::SeqCst);
-    let using_per_app = audio_source == "device" && tts_enabled && selected_pid > 0;
-
-    if using_per_app {
-        start_per_app_capture(selected_pid, audio_buffer, stop_signal, pause_signal)?;
-        Ok(None)
-    } else if audio_source == "mic" {
-        Ok(Some(start_mic_capture(
-            audio_buffer,
-            stop_signal,
-            pause_signal,
-        )?))
-    } else if audio_source == "device" && tts_enabled && selected_pid == 0 {
-        Ok(None)
-    } else {
-        Ok(Some(start_device_loopback_capture(
-            audio_buffer,
-            stop_signal,
-            pause_signal,
-        )?))
-    }
-}
-
-fn compute_rms(samples: &[i16]) -> f32 {
-    if samples.is_empty() {
-        return 0.0;
-    }
-    let sum_sq: f64 = samples.iter().map(|&s| (s as f64 / 32768.0).powi(2)).sum();
-    (sum_sq / samples.len() as f64).sqrt() as f32
 }

@@ -2,10 +2,15 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { videoRenderer } from "@/lib/videoRenderer";
 import { createVideoController } from "@/lib/videoController";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
-import { getVisibleSubtitleSegments, normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
+import { normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 import { thumbnailGenerator } from "@/lib/thumbnailGenerator";
 import { getBaseTimelineThumbnailCount } from "@/lib/timelineThumbnailCount";
 import { getSpeedAtTime } from "@/lib/videoExporter";
+import {
+  buildPlaybackStructureSignature,
+  getPlaybackRenderBackground,
+  getPlaybackRenderSegment,
+} from "./videoPlaybackRenderState";
 import {
   BackgroundConfig,
   VideoSegment,
@@ -77,59 +82,6 @@ export function useVideoPlayback({
     [segment],
   );
 
-  const getPlaybackStructureSignature = useCallback((nextSegment: VideoSegment) => JSON.stringify({
-    trimStart: nextSegment.trimStart,
-    trimEnd: nextSegment.trimEnd,
-    trimSegments: (nextSegment.trimSegments ?? []).map((trimSegment) => [
-      trimSegment.startTime,
-      trimSegment.endTime,
-    ]),
-    crop: nextSegment.crop ?? null,
-    zoomBlocks: (nextSegment.zoomBlocks ?? []).map((block) => [
-      block.startTime,
-      block.endTime,
-      block.easeIn,
-      block.easeOut,
-      block.zoomFactor,
-      block.positionX,
-      block.positionY,
-      block.followCursor ? 1 : 0,
-      block.enabled === false ? 0 : 1,
-    ]),
-    speedPoints: (nextSegment.speedPoints ?? []).map((point) => [
-      point.time,
-      point.speed,
-    ]),
-    deviceAudioPoints: (nextSegment.deviceAudioPoints ?? []).map((point) => [
-      point.time,
-      point.volume,
-    ]),
-    micAudioPoints: (nextSegment.micAudioPoints ?? []).map((point) => [
-      point.time,
-      point.volume,
-    ]),
-    textSegments: (nextSegment.textSegments ?? []).map((textSegment) => [
-      textSegment.id,
-      textSegment.startTime,
-      textSegment.endTime,
-      textSegment.text,
-    ]),
-    activeSubtitleView: nextSegment.activeSubtitleView ?? null,
-    subtitleCustomChain: nextSegment.subtitleCustomChain ?? [],
-    subtitleSegments: getVisibleSubtitleSegments(nextSegment).map((subtitleSegment) => [
-      subtitleSegment.id,
-      subtitleSegment.startTime,
-      subtitleSegment.endTime,
-      subtitleSegment.text,
-      subtitleSegment.style,
-    ]),
-    keystrokeOverlay: nextSegment.keystrokeOverlay ?? null,
-    cursorVisibilitySegments: nextSegment.cursorVisibilitySegments ?? [],
-    useCustomCursor: nextSegment.useCustomCursor,
-    micAudioOffsetSec: nextSegment.micAudioOffsetSec,
-    webcamOffsetSec: nextSegment.webcamOffsetSec,
-  }), []);
-
   const getRequestedThumbnailCount = useCallback(
     (thumbnailSegment: VideoSegment | null | undefined) => {
       return getBaseTimelineThumbnailCount(thumbnailSegment);
@@ -198,35 +150,13 @@ export function useVideoPlayback({
     }
     if (!videoRef.current.paused) return;
 
-    const renderSegment = isCropping
-      ? {
-          ...normalizedSegment,
-          crop: undefined,
-          // Disable manual zoom while cropping so the crop UI shows the full frame.
-          zoomBlocks: [],
-        }
-      : normalizedSegment;
-
-    const renderBackground = isCropping
-      ? {
-          ...backgroundConfig,
-          scale: 100,
-          borderRadius: 0,
-          shadow: 0,
-          backgroundType: "solid" as const,
-          customBackground: undefined,
-          cropBottom: 0,
-          canvasMode: "auto" as const,
-        }
-      : cloneBackgroundConfig(backgroundConfig);
-
     videoRenderer.drawFrame({
       video: videoRef.current,
       webcamVideo: webcamVideoRef.current,
       canvas: canvasRef.current,
       tempCanvas: tempCanvasRef.current,
-      segment: renderSegment,
-      backgroundConfig: renderBackground,
+      segment: getPlaybackRenderSegment(normalizedSegment, isCropping),
+      backgroundConfig: getPlaybackRenderBackground(backgroundConfig, isCropping),
       webcamConfig,
       mousePositions: mousePositionsRef.current,
       currentTime: videoRef.current.currentTime,
@@ -500,7 +430,7 @@ export function useVideoPlayback({
     }
     if (!normalizedSegment || !videoControllerRef.current) return;
     const video = videoRef.current;
-    const nextStructureSignature = getPlaybackStructureSignature(normalizedSegment);
+    const nextStructureSignature = buildPlaybackStructureSignature(normalizedSegment);
     const isSubtitleOnlyChange =
       lastPlaybackStructureSignatureRef.current !== "" &&
       lastPlaybackStructureSignatureRef.current === nextStructureSignature;
@@ -510,31 +440,9 @@ export function useVideoPlayback({
       return;
     }
 
-    const renderSegment = isCropping
-      ? {
-          ...normalizedSegment,
-          crop: undefined,
-          // Disable manual zoom while cropping so the crop UI shows the full frame.
-          zoomBlocks: [],
-        }
-      : normalizedSegment;
-
-    const renderBackground = isCropping
-      ? {
-          ...backgroundConfig,
-          scale: 100,
-          borderRadius: 0,
-          shadow: 0,
-          backgroundType: "solid" as const,
-          customBackground: undefined,
-          cropBottom: 0,
-          canvasMode: "auto" as const,
-        }
-      : cloneBackgroundConfig(backgroundConfig);
-
     videoControllerRef.current.updateRenderOptions({
-      segment: renderSegment,
-      backgroundConfig: renderBackground,
+      segment: getPlaybackRenderSegment(normalizedSegment, isCropping),
+      backgroundConfig: getPlaybackRenderBackground(backgroundConfig, isCropping),
       webcamConfig,
       mousePositions: mousePositionsRef.current,
       interactiveBackgroundPreview,
@@ -545,7 +453,6 @@ export function useVideoPlayback({
     webcamConfig,
     interactiveBackgroundPreview,
     isCropping,
-    getPlaybackStructureSignature,
     isTimelineOnly,
     renderFrame,
   ]);
@@ -561,7 +468,7 @@ export function useVideoPlayback({
     }
     const video = videoRef.current;
     if (!video || !normalizedSegment) return;
-    const nextStructureSignature = getPlaybackStructureSignature(normalizedSegment);
+    const nextStructureSignature = buildPlaybackStructureSignature(normalizedSegment);
     const isSubtitleOnlyChange =
       lastLoopStructureSignatureRef.current !== "" &&
       lastLoopStructureSignatureRef.current === nextStructureSignature;
@@ -575,36 +482,14 @@ export function useVideoPlayback({
       lastSubtitleRenderSyncAtRef.current = now;
     }
 
-    const loopSegment = isCropping
-      ? {
-          ...normalizedSegment,
-          crop: undefined,
-          // Disable manual zoom while cropping so the crop UI shows the full frame.
-          zoomBlocks: [],
-        }
-      : normalizedSegment;
-
-    const loopBackground = isCropping
-      ? {
-          ...backgroundConfig,
-          scale: 100,
-          borderRadius: 0,
-          shadow: 0,
-          backgroundType: "solid" as const,
-          customBackground: undefined,
-          cropBottom: 0,
-          canvasMode: "auto" as const,
-        }
-      : cloneBackgroundConfig(backgroundConfig);
-
     // Update context for the animation loop (picked up on next RAF tick)
     videoRenderer.updateRenderContext({
       video,
       webcamVideo: webcamVideoRef.current,
       canvas: canvasRef.current!,
       tempCanvas: tempCanvasRef.current,
-      segment: loopSegment,
-      backgroundConfig: loopBackground,
+      segment: getPlaybackRenderSegment(normalizedSegment, isCropping),
+      backgroundConfig: getPlaybackRenderBackground(backgroundConfig, isCropping),
       webcamConfig,
       mousePositions: mousePositionsRef.current,
       currentTime: video.currentTime,
@@ -620,7 +505,6 @@ export function useVideoPlayback({
     webcamConfig,
     interactiveBackgroundPreview,
     isCropping,
-    getPlaybackStructureSignature,
     renderFrame,
     isTimelineOnly,
   ]);

@@ -2,6 +2,8 @@ import { BackgroundConfig, CursorVisibilitySegment, MousePosition, VideoSegment 
 import { logSmartPointerGeneration } from '@/lib/cursorDebug';
 import { processCursorPositions } from '@/lib/renderer/cursorDynamics';
 
+export { getCursorVisibility } from './cursorVisibilityState';
+
 // --- Configuration ---
 const IDLE_DURATION_THRESHOLD = 0.45; // seconds of low velocity to trigger idle
 const CENTER_LOCK_DURATION = 0.9;     // seconds to confirm sustained center-lock gameplay
@@ -15,37 +17,6 @@ const CLICK_ACTIVE_DURATION = 0.35;   // seconds — keep cursor active briefly 
 const MARGIN_BEFORE = 0.04;           // seconds — tiny preroll so fades mostly overlap real movement
 const MARGIN_AFTER = 0.08;            // seconds — tiny tail so fades can complete naturally
 const MIN_GAP_TO_MERGE = 0.18;        // seconds — merge visible segments only when pauses are tiny
-
-// --- Animation ---
-const FADE_IN_DURATION = 0.2;         // seconds — entrance animation
-const FADE_OUT_DURATION = 0.25;       // seconds — dismissal animation
-const MIN_FULLY_VISIBLE_DURATION = 0.06; // seconds — keep a tiny fully-visible core when possible
-const SCALE_HIDDEN = 0.5;             // scale when fully hidden
-const SCALE_VISIBLE = 1.0;            // scale when fully visible
-
-// Easing functions
-function easeOutCubic(t: number): number {
-  return 1 - Math.pow(1 - t, 3);
-}
-
-function easeInCubic(t: number): number {
-  return t * t * t;
-}
-
-function getSegmentFadeDurations(startTime: number, endTime: number): { fadeIn: number; fadeOut: number } {
-  const duration = Math.max(0, endTime - startTime);
-  const preferredTotal = FADE_IN_DURATION + FADE_OUT_DURATION;
-  const maxFadeTotal = Math.max(0, duration - MIN_FULLY_VISIBLE_DURATION);
-
-  if (duration <= 0 || maxFadeTotal <= 0 || preferredTotal <= 0) {
-    return { fadeIn: 0, fadeOut: 0 };
-  }
-
-  const actualTotal = Math.min(preferredTotal, maxFadeTotal);
-  const fadeIn = actualTotal * (FADE_IN_DURATION / preferredTotal);
-  const fadeOut = actualTotal - fadeIn;
-  return { fadeIn, fadeOut };
-}
 
 function withBoundaryMotionSamples(
   rawPositions: MousePosition[],
@@ -588,66 +559,4 @@ export function generateCursorVisibility(
   });
 
   return visibleSegments;
-}
-
-/**
- * Pure, deterministic function to compute cursor visibility at a given time.
- * Used identically for preview AND export baking (WYSIWYG).
- *
- * @param time - Current playback time
- * @param segments - Cursor visibility segments (visible periods), or undefined if feature is off
- * @returns { opacity, scale } for the cursor at this time
- */
-export function getCursorVisibility(
-  time: number,
-  segments: CursorVisibilitySegment[] | undefined
-): { opacity: number; scale: number } {
-  // Feature off — cursor always visible
-  if (!segments) {
-    return { opacity: 1.0, scale: 1.0 };
-  }
-
-  // Feature active but no segments — cursor always hidden
-  if (segments.length === 0) {
-    return { opacity: 0.0, scale: SCALE_HIDDEN };
-  }
-
-  // Binary search: find last segment where startTime <= time (O(log n))
-  let lo = 0, hi = segments.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (segments[mid].startTime <= time) lo = mid + 1;
-    else hi = mid;
-  }
-  const idx = lo - 1;
-
-  // Check if time falls within the found segment
-  if (idx < 0 || time > segments[idx].endTime) {
-    return { opacity: 0.0, scale: SCALE_HIDDEN };
-  }
-
-  const seg = segments[idx];
-  const { fadeIn, fadeOut } = getSegmentFadeDurations(seg.startTime, seg.endTime);
-  const fadeInEnd = seg.startTime + fadeIn;
-  const fadeOutStart = seg.endTime - fadeOut;
-
-  if (fadeIn > 0 && time < fadeInEnd) {
-    const t = (time - seg.startTime) / fadeIn;
-    const eased = easeOutCubic(Math.max(0, Math.min(1, t)));
-    return {
-      opacity: eased,
-      scale: SCALE_HIDDEN + (SCALE_VISIBLE - SCALE_HIDDEN) * eased,
-    };
-  }
-
-  if (fadeOut > 0 && time > fadeOutStart) {
-    const t = (time - fadeOutStart) / fadeOut;
-    const eased = 1 - easeInCubic(Math.max(0, Math.min(1, t)));
-    return {
-      opacity: eased,
-      scale: SCALE_HIDDEN + (SCALE_VISIBLE - SCALE_HIDDEN) * eased,
-    };
-  }
-
-  return { opacity: 1.0, scale: 1.0 };
 }

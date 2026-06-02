@@ -223,9 +223,7 @@ impl StreamingState {
             || trimmed_draft.ends_with('?')
             || trimmed_draft.ends_with('!')
         {
-            draft_text = trimmed_draft
-                .trim_end_matches(|c| c == '.' || c == '?' || c == '!')
-                .to_string();
+            draft_text = trimmed_draft.trim_end_matches(['.', '?', '!']).to_string();
         }
 
         let backend_log = format!(
@@ -324,10 +322,16 @@ impl StreamingState {
             };
         }
 
+        let draft_text = if self.fixed_text.is_empty() && self.draft_text.is_empty() {
+            self.text.clone()
+        } else {
+            self.draft_text.clone()
+        };
+
         StreamingTranscript {
             language: self.language.clone(),
             fixed_text: self.fixed_text.clone(),
-            draft_text: self.draft_text.clone(),
+            draft_text,
             text: self.text.clone(),
         }
     }

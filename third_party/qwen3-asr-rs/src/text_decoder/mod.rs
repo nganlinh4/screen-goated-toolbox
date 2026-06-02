@@ -1,4 +1,5 @@
 mod cache;
+mod cache_helpers;
 
 use crate::config::TextDecoderConfig;
 use crate::layers::{RmsNorm, TextDecoderLayer};
@@ -39,7 +40,7 @@ impl TextDecoder {
         }
 
         let norm = RmsNorm::load(weights, &format!("{}.norm", prefix), config.rms_norm_eps)?;
-        let lm_head_key = format!("{}", prefix.replace(".model", ".lm_head"));
+        let lm_head_key = prefix.replace(".model", ".lm_head");
         let lm_head_weight = if config.tie_word_embeddings {
             embed_tokens.shallow_clone()
         } else {

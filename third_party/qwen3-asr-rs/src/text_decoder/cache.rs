@@ -1,6 +1,12 @@
 use crate::tensor::{DType, Device, Tensor};
 use crate::turboquant_kv::TurboQuantKvPrefix;
 
+use super::cache_helpers::{
+    copy_append_into_reserved_buffer, copy_prefix_into_reserved_buffer, dense_tail_scores,
+    dense_tail_weighted_value_sum, dtype_bytes, quantized_tokens_to_move,
+    APPEND_OFFLOAD_TRIGGER_TOKENS, RECENT_DENSE_TAIL_TOKENS,
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KvCacheMode {
     DenseAppend,
@@ -39,6 +45,9 @@ impl KvCacheEntry {
     pub fn len(&self) -> i64 {
         self.prefix_len() + self.dense_len
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub(crate) fn dense_key_view(&self) -> Tensor {
         self.key.narrow(2, 0, self.dense_len)
     }
@@ -75,7 +84,7 @@ impl KvCacheEntry {
             prefix_logits
         };
         if let Some(mask) = mask {
-            logits = logits + mask;
+            logits += mask;
         }
 
         let weights = logits.softmax(-1);
@@ -162,6 +171,10 @@ impl KvCacheEntry {
         self.prefix_len()
     }
     #[cfg(test)]
+    pub(crate) fn dense_len(&self) -> i64 {
+        self.dense_len
+    }
+    #[cfg(test)]
     pub(crate) fn dense_capacity(&self) -> i64 {
         self.dense_capacity
     }
@@ -221,21 +234,21 @@ impl KvCacheEntry {
         copy_append_into_reserved_buffer(&mut self.key, key, self.dense_len);
         copy_append_into_reserved_buffer(&mut self.value, value, self.dense_len);
         self.dense_len = required;
-        if self.mode == KvCacheMode::ExperimentalTurboQuant
-            && (appended_tokens > 1 || self.quantized_prefix.is_none())
-        {
+
+        if self.mode != KvCacheMode::ExperimentalTurboQuant {
             return;
         }
-        if self.mode == KvCacheMode::ExperimentalTurboQuant
-            && self.dense_len <= APPEND_OFFLOAD_TRIGGER_TOKENS
-        {
+        if appended_tokens > 1 {
+            self.offload_quantized_prefix(0);
             return;
         }
-        self.offload_quantized_prefix();
+        if self.dense_len > APPEND_OFFLOAD_TRIGGER_TOKENS {
+            self.offload_quantized_prefix(RECENT_DENSE_TAIL_TOKENS);
+        }
     }
 
     pub fn finalize_prefill_offload(&mut self) {
-        self.offload_quantized_prefix();
+        self.offload_quantized_prefix(0);
     }
 
     fn deep_copy_with_capacity(&self, required_capacity: i64) -> Self {
@@ -261,15 +274,17 @@ impl KvCacheEntry {
     }
 
     fn deep_copy_generation_ready(&self, additional_dense_tokens: i64) -> Self {
-        // Deferred quantization: don't quantize at handoff time.
-        // Incremental offload during generation will handle compression.
-        self.deep_copy_with_dense_reserve(additional_dense_tokens)
+        let mut copy = self.deep_copy_with_dense_reserve(additional_dense_tokens);
+        copy.finalize_prefill_offload();
+        copy.ensure_capacity(copy.dense_len + additional_dense_tokens);
+        copy
     }
 
-    fn into_generation_ready(self, additional_dense_tokens: i64) -> Self {
-        // Deferred quantization: don't quantize at handoff time.
-        // Incremental offload during generation will handle compression.
-        self.into_with_dense_reserve(additional_dense_tokens)
+    fn into_generation_ready(mut self, additional_dense_tokens: i64) -> Self {
+        self.ensure_capacity(self.dense_len + additional_dense_tokens);
+        self.finalize_prefill_offload();
+        self.ensure_capacity(self.dense_len + additional_dense_tokens);
+        self
     }
 
     fn prefix_len(&self) -> i64 {
@@ -343,12 +358,12 @@ impl KvCacheEntry {
         }
     }
 
-    fn offload_quantized_prefix(&mut self) {
+    fn offload_quantized_prefix(&mut self, retained_dense_tail_tokens: i64) {
         if self.mode != KvCacheMode::ExperimentalTurboQuant {
             return;
         }
 
-        let tokens_to_move = quantized_tokens_to_move(self.dense_len);
+        let tokens_to_move = quantized_tokens_to_move(self.dense_len, retained_dense_tail_tokens);
         let remaining_len = self.dense_len - tokens_to_move;
         if tokens_to_move <= 0 {
             return;
@@ -574,85 +589,4 @@ pub fn create_causal_mask(seq_len: i64, past_len: i64, device: Device) -> Tensor
     .triu(past_len + 1)
     .unsqueeze(0)
     .unsqueeze(0)
-}
-
-const RECENT_DENSE_TAIL_TOKENS: i64 = 32;
-const APPEND_OFFLOAD_TRIGGER_TOKENS: i64 = RECENT_DENSE_TAIL_TOKENS * 2;
-
-fn quantized_tokens_to_move(dense_len: i64) -> i64 {
-    let dense_len = dense_len.max(0);
-    dense_len.saturating_sub(dense_len.min(RECENT_DENSE_TAIL_TOKENS))
-}
-
-fn copy_prefix_into_reserved_buffer(buffer: &mut Tensor, src: &Tensor, len: i64) {
-    #[cfg(feature = "tch-backend")]
-    {
-        let mut dst = buffer.narrow(2, 0, len);
-        dst.inner.copy_(&src.inner);
-    }
-    #[cfg(feature = "mlx")]
-    {
-        *buffer = buffer.slice_scatter(src, 2, 0, len, 1)
-    }
-}
-
-fn copy_append_into_reserved_buffer(buffer: &mut Tensor, src: &Tensor, start: i64) {
-    #[cfg(feature = "tch-backend")]
-    {
-        let mut dst = buffer.narrow(2, start, src.size()[2]);
-        dst.inner.copy_(&src.inner);
-    }
-    #[cfg(feature = "mlx")]
-    {
-        *buffer = buffer.slice_scatter(src, 2, start, start + src.size()[2], 1)
-    }
-}
-
-fn dense_tail_scores(q: &Tensor, key: &Tensor, scale: f64) -> Tensor {
-    let q_heads = q.size()[1];
-    let kv_heads = key.size()[1];
-    if q_heads == kv_heads {
-        return q.matmul(&key.transpose(-2, -1)) * scale;
-    }
-
-    let n_rep = q_heads / kv_heads;
-    let mut grouped_scores = Vec::with_capacity(kv_heads as usize);
-    for kv_head_idx in 0..kv_heads {
-        let q_group = q.narrow(1, kv_head_idx * n_rep, n_rep);
-        let key_group = key.narrow(1, kv_head_idx, 1).transpose(-2, -1);
-        grouped_scores.push(q_group.matmul(&key_group) * scale);
-    }
-    Tensor::cat(&grouped_scores, 1)
-}
-
-fn dense_tail_weighted_value_sum(weights: &Tensor, value: &Tensor) -> Tensor {
-    let q_heads = weights.size()[1];
-    let kv_heads = value.size()[1];
-    if q_heads == kv_heads {
-        return weights.matmul(value);
-    }
-
-    let n_rep = q_heads / kv_heads;
-    let mut grouped_outputs = Vec::with_capacity(kv_heads as usize);
-    for kv_head_idx in 0..kv_heads {
-        let weight_group = weights.narrow(1, kv_head_idx * n_rep, n_rep);
-        let value_group = value.narrow(1, kv_head_idx, 1);
-        let value_group = if value_group.kind() == weights.kind() {
-            value_group
-        } else {
-            value_group.to_dtype(weights.kind())
-        };
-        grouped_outputs.push(weight_group.matmul(&value_group));
-    }
-    Tensor::cat(&grouped_outputs, 1)
-}
-
-fn dtype_bytes(dtype: DType) -> usize {
-    match dtype {
-        DType::Float32 => 4,
-        DType::Float16 | DType::BFloat16 => 2,
-        DType::Int8 | DType::Bool => 1,
-        DType::Int32 => 4,
-        DType::Int64 => 8,
-    }
 }

@@ -31,10 +31,10 @@ pub fn signal_restore_window() {
 pub fn request_open_downloaded_tools() {
     REQUEST_OPEN_DOWNLOADED_TOOLS.store(true, Ordering::SeqCst);
     signal_restore_window();
-    if let Ok(ctx) = crate::gui::GUI_CONTEXT.lock() {
-        if let Some(ctx) = ctx.as_ref() {
-            ctx.request_repaint();
-        }
+    if let Ok(ctx) = crate::gui::GUI_CONTEXT.lock()
+        && let Some(ctx) = ctx.as_ref()
+    {
+        ctx.request_repaint();
     }
 }
 

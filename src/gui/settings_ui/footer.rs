@@ -59,11 +59,14 @@ pub fn render_footer(
     text: &LocaleText,
     current_tip: String,
     tip_alpha: f32,
-    show_modal: &mut bool,
-    show_translation_gummy: &mut bool,
-    show_tts_playground: &mut bool,
-    show_pointer_gallery: &mut bool,
+    toggles: FooterToggles<'_>,
 ) {
+    let FooterToggles {
+        show_modal,
+        show_translation_gummy,
+        show_tts_playground,
+        show_pointer_gallery,
+    } = toggles;
     ui.horizontal(|ui| {
         // 1. Left Side: Quick launch buttons
         let is_dark = ui.visuals().dark_mode;
@@ -206,6 +209,13 @@ pub fn render_footer(
             ui.label(footer_text);
         });
     });
+}
+
+pub struct FooterToggles<'a> {
+    pub show_modal: &'a mut bool,
+    pub show_translation_gummy: &'a mut bool,
+    pub show_tts_playground: &'a mut bool,
+    pub show_pointer_gallery: &'a mut bool,
 }
 
 // Helper function to format footer tip with bold text

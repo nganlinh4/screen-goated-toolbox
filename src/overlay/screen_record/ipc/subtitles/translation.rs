@@ -1,17 +1,23 @@
-use std::collections::{HashMap, HashSet};
+mod chunking;
+mod diagnostics;
+mod models;
+
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
 
-use crate::APP;
 use crate::config::Config;
-use crate::model_config::{
-    ModelConfig, ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
-};
-use crate::retry_model_chain::{
-    RetryChainKind, preflight_skip_reason, provider_is_available, resolve_next_retry_model,
-};
+use crate::model_config::ModelConfig;
 
+use self::chunking::{
+    initial_translation_chunk_count, sleep_cancelable, split_translation_items,
+    translation_retry_delay,
+};
+use self::diagnostics::{TranslationDiagnostics, TranslationStartLog};
+use self::models::{
+    collect_prioritized_translation_models, collect_translation_models, current_config,
+    localized_model_label,
+};
 use super::translation_providers::{
     TranslationConversationTurn, translate_subtitle_chunk, translate_subtitle_chunk_with_gtx,
 };
@@ -214,18 +220,18 @@ fn run_subtitle_translation_inner(
     );
     let chunks = split_translation_items(&request.items, initial_chunk_count);
     let mut diagnostics = TranslationDiagnostics::new(job_id);
-    diagnostics.log_start(
-        request.items.len(),
-        chunks.len(),
-        request.chunk_mode.as_deref(),
-        &request.target_language,
-        request.instructions.as_deref(),
+    diagnostics.log_start(TranslationStartLog {
+        item_count: request.items.len(),
+        chunk_count: chunks.len(),
+        chunk_mode: request.chunk_mode.as_deref(),
+        target_language: &request.target_language,
+        instructions: request.instructions.as_deref(),
         selected_model_id,
-        gtx_selected,
-        request.smart_fallback,
-        &candidate_models,
-        &config.ui_language,
-    );
+        gtx_prioritized: gtx_selected,
+        smart_fallback: request.smart_fallback,
+        candidate_models: &candidate_models,
+        ui_language: &config.ui_language,
+    });
     let mut history: Vec<TranslationConversationTurn> = Vec::new();
     let mut previous_source_group_id: Option<String> = None;
     let mut translated_results: Vec<SubtitleTranslationResultItem> = Vec::new();
@@ -565,422 +571,6 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
     }
 
     Err(last_error)
-}
-
-struct TranslationDiagnostics {
-    job_id: String,
-    started_at: std::time::Instant,
-    attempt_count: usize,
-    success_count: usize,
-    retry_success_count: usize,
-    split_count: usize,
-    failure_counts: HashMap<String, usize>,
-    model_attempt_counts: HashMap<String, usize>,
-}
-
-impl TranslationDiagnostics {
-    fn new(job_id: &str) -> Self {
-        Self {
-            job_id: job_id.to_string(),
-            started_at: std::time::Instant::now(),
-            attempt_count: 0,
-            success_count: 0,
-            retry_success_count: 0,
-            split_count: 0,
-            failure_counts: HashMap::new(),
-            model_attempt_counts: HashMap::new(),
-        }
-    }
-
-    fn log_start(
-        &self,
-        item_count: usize,
-        chunk_count: usize,
-        chunk_mode: Option<&str>,
-        target_language: &str,
-        instructions: Option<&str>,
-        selected_model_id: &str,
-        gtx_prioritized: bool,
-        smart_fallback: bool,
-        candidate_models: &[ModelConfig],
-        ui_language: &str,
-    ) {
-        let model_chain = candidate_models
-            .iter()
-            .map(|model| {
-                format!(
-                    "{}:{}",
-                    model.provider,
-                    localized_model_label(model, ui_language)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" > ");
-        eprintln!(
-            "[SubtitleTranslation][job={}] start items={} initial_chunks={} chunk_mode={} target=\"{}\" instructions={} prioritized_model=\"{}\" gtx_prioritized={} smart_fallback={} fallback_chain=\"{}\"",
-            self.job_id,
-            item_count,
-            chunk_count,
-            chunk_mode.unwrap_or("auto"),
-            target_language,
-            instructions
-                .map(str::trim)
-                .is_some_and(|value| !value.is_empty()),
-            selected_model_id,
-            gtx_prioritized,
-            smart_fallback,
-            if model_chain.is_empty() {
-                "none"
-            } else {
-                &model_chain
-            }
-        );
-    }
-
-    fn record_success(&mut self, model_id: &str, chunk_items: usize, attempts: usize) {
-        self.success_count += 1;
-        if attempts > 1 {
-            self.retry_success_count += 1;
-            eprintln!(
-                "[SubtitleTranslation][job={}] retry-success model={} chunk_items={} attempts={}",
-                self.job_id, model_id, chunk_items, attempts
-            );
-        }
-    }
-
-    fn record_failure(
-        &mut self,
-        model_id: &str,
-        model_label: &str,
-        attempt: usize,
-        chunk_items: usize,
-        history_turns: usize,
-        error: &str,
-    ) {
-        self.attempt_count += 1;
-        *self
-            .model_attempt_counts
-            .entry(model_id.to_string())
-            .or_default() += 1;
-        let category = classify_translation_error(error);
-        let key = format!("{model_id}:{category}");
-        let category_count = self.failure_counts.entry(key).or_default();
-        *category_count += 1;
-
-        // Log the first occurrence and then sparse repeats. This keeps long
-        // translation jobs readable while still showing persistent failure modes.
-        if *category_count == 1 || *category_count == 5 || *category_count % 20 == 0 {
-            eprintln!(
-                "[SubtitleTranslation][job={}] failure model=\"{}\" category={} count={} attempt={} chunk_items={} history_turns={} detail=\"{}\"",
-                self.job_id,
-                model_label,
-                category,
-                category_count,
-                attempt,
-                chunk_items,
-                history_turns,
-                truncate_log_detail(error, 220)
-            );
-        }
-    }
-
-    fn record_split(&mut self, left_items: usize, right_items: usize, last_error: &str) {
-        self.split_count += 1;
-        eprintln!(
-            "[SubtitleTranslation][job={}] split #{} left_items={} right_items={} reason_category={} reason=\"{}\"",
-            self.job_id,
-            self.split_count,
-            left_items,
-            right_items,
-            classify_translation_error(last_error),
-            truncate_log_detail(last_error, 180)
-        );
-    }
-
-    fn log_finish(
-        &self,
-        state: &str,
-        translated_items: usize,
-        requested_items: usize,
-        completed_groups: usize,
-        total_groups: usize,
-    ) {
-        let failures = summarize_count_map(&self.failure_counts);
-        let model_attempts = summarize_count_map(&self.model_attempt_counts);
-        eprintln!(
-            "[SubtitleTranslation][job={}] finish state={} translated_items={}/{} groups={}/{} attempts={} successes={} retry_successes={} splits={} elapsed_ms={} failures=\"{}\" model_attempts=\"{}\"",
-            self.job_id,
-            state,
-            translated_items,
-            requested_items,
-            completed_groups,
-            total_groups,
-            self.attempt_count,
-            self.success_count,
-            self.retry_success_count,
-            self.split_count,
-            self.started_at.elapsed().as_millis(),
-            failures,
-            model_attempts
-        );
-    }
-}
-
-fn classify_translation_error(error: &str) -> &'static str {
-    let lower = error.to_lowercase();
-    if lower.contains("gtx") {
-        "gtx"
-    } else if lower.contains("parse structured translation json") || lower.contains("json") {
-        "json"
-    } else if lower.contains("returned")
-        && (lower.contains("item") || lower.contains("id") || lower.contains("empty text"))
-    {
-        "schema"
-    } else if lower.contains("timed out") || lower.contains("timeout") {
-        "timeout"
-    } else if lower.contains("rate limit") || lower.contains("429") {
-        "rate-limit"
-    } else if lower.contains("401") || lower.contains("403") || lower.contains("api key") {
-        "auth"
-    } else if lower.contains("network")
-        || lower.contains("connection")
-        || lower.contains("dns")
-        || lower.contains("http")
-        || lower.contains("request")
-    {
-        "transport"
-    } else if lower.contains("no content") || lower.contains("empty") {
-        "empty"
-    } else {
-        "other"
-    }
-}
-
-fn truncate_log_detail(value: &str, max_chars: usize) -> String {
-    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    if compact.chars().count() <= max_chars {
-        return compact;
-    }
-    let mut truncated = compact.chars().take(max_chars).collect::<String>();
-    truncated.push('…');
-    truncated
-}
-
-fn summarize_count_map(counts: &HashMap<String, usize>) -> String {
-    if counts.is_empty() {
-        return "none".to_string();
-    }
-    let mut entries = counts
-        .iter()
-        .map(|(key, count)| (key.as_str(), *count))
-        .collect::<Vec<_>>();
-    entries.sort_by(|left, right| left.0.cmp(right.0));
-    entries
-        .into_iter()
-        .map(|(key, count)| format!("{key}={count}"))
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
-fn translation_retry_delay(attempt_index: usize) -> Duration {
-    let multiplier = 1u64 << attempt_index.saturating_sub(1).min(4);
-    Duration::from_millis(TRANSLATION_RETRY_BASE_DELAY_MS * multiplier)
-}
-
-fn sleep_cancelable(cancelled: &AtomicBool, duration: Duration) {
-    let step = Duration::from_millis(100);
-    let mut slept = Duration::ZERO;
-    while slept < duration && !cancelled.load(Ordering::SeqCst) {
-        let remaining = duration.saturating_sub(slept);
-        let next = remaining.min(step);
-        std::thread::sleep(next);
-        slept += next;
-    }
-}
-
-fn initial_translation_chunk_count(
-    chunk_count: Option<usize>,
-    chunk_mode: &Option<String>,
-    item_count: usize,
-) -> usize {
-    if item_count <= 1 {
-        return 1;
-    }
-    if let Some(chunk_count) = chunk_count {
-        return chunk_count.max(1).min(item_count);
-    }
-
-    let items_per_chunk = match chunk_mode.as_deref() {
-        Some("small") => 25,
-        Some("tiny") => 10,
-        _ => item_count,
-    };
-    ((item_count + items_per_chunk - 1) / items_per_chunk)
-        .max(1)
-        .min(item_count)
-}
-
-fn split_translation_items(
-    items: &[SubtitleTranslationItemRequest],
-    chunk_count: usize,
-) -> Vec<Vec<SubtitleTranslationItemRequest>> {
-    let mut grouped: Vec<(Option<String>, Vec<SubtitleTranslationItemRequest>)> = Vec::new();
-    for item in items {
-        let group_id = item.source_group_id.clone();
-        if let Some((last_group_id, last_items)) = grouped.last_mut() {
-            if *last_group_id == group_id {
-                last_items.push(item.clone());
-                continue;
-            }
-        }
-        grouped.push((group_id, vec![item.clone()]));
-    }
-
-    let total_items = items.len().max(1);
-    let safe_chunk_count = chunk_count.max(1).min(total_items);
-    let mut chunks = Vec::with_capacity(safe_chunk_count);
-    for (_group_id, group_items) in grouped {
-        let group_chunk_count = ((safe_chunk_count * group_items.len() + total_items - 1)
-            / total_items)
-            .max(1)
-            .min(group_items.len().max(1));
-        for chunk_index in 0..group_chunk_count {
-            let start = chunk_index * group_items.len() / group_chunk_count;
-            let end = (chunk_index + 1) * group_items.len() / group_chunk_count;
-            if start < end {
-                chunks.push(group_items[start..end].to_vec());
-            }
-        }
-    }
-    chunks
-}
-
-fn current_config() -> Result<Config, String> {
-    APP.lock()
-        .map(|app| app.config.clone())
-        .map_err(|_| "App lock poisoned".to_string())
-}
-
-fn localized_model_label(model: &ModelConfig, ui_language: &str) -> String {
-    match ui_language {
-        "vi" => model.name_vi.clone(),
-        "ko" => model.name_ko.clone(),
-        _ => model.name_en.clone(),
-    }
-}
-
-fn collect_translation_models(config: &Config) -> Vec<ModelConfig> {
-    let blocked_providers = HashSet::new();
-    let mut models = Vec::new();
-    let mut seen_model_ids = HashSet::new();
-
-    if let Some(initial_model) = resolve_initial_translation_model(config, &blocked_providers) {
-        seen_model_ids.insert(initial_model.id.clone());
-        models.push(initial_model.clone());
-        let mut failed_model_ids = vec![initial_model.id.clone()];
-        let mut current_model = initial_model;
-        while let Some(next_model) = resolve_next_retry_model(
-            &current_model.id,
-            &failed_model_ids,
-            &blocked_providers,
-            RetryChainKind::TextToText,
-            config,
-        ) {
-            if failed_model_ids
-                .iter()
-                .any(|failed| failed == &next_model.id)
-            {
-                break;
-            }
-            failed_model_ids.push(next_model.id.clone());
-            current_model = next_model.clone();
-            if seen_model_ids.insert(next_model.id.clone()) {
-                models.push(next_model);
-            }
-        }
-    }
-
-    for model in get_all_models_with_ollama()
-        .into_iter()
-        .filter(|model| is_compatible_translation_model(model, config, &blocked_providers))
-    {
-        if seen_model_ids.insert(model.id.clone()) {
-            models.push(model);
-        }
-    }
-
-    models
-}
-
-fn collect_prioritized_translation_models(
-    config: &Config,
-    model_id: &str,
-    smart_fallback: bool,
-) -> Result<Vec<ModelConfig>, String> {
-    if model_id == GTX_TRANSLATION_MODEL_ID {
-        return Ok(if smart_fallback {
-            collect_translation_models(config)
-        } else {
-            Vec::new()
-        });
-    }
-    let blocked_providers = HashSet::new();
-    let Some(model) = get_model_by_id(model_id).or_else(|| {
-        get_all_models_with_ollama()
-            .into_iter()
-            .find(|model| model.id == model_id)
-    }) else {
-        return Err(format!("Unknown subtitle translation model: {model_id}"));
-    };
-    if !is_compatible_translation_model(&model, config, &blocked_providers) {
-        return Err(format!(
-            "Subtitle translation model '{}' is not currently available.",
-            localized_model_label(&model, &config.ui_language)
-        ));
-    }
-    let mut models = Vec::new();
-    let mut seen_model_ids = HashSet::new();
-    seen_model_ids.insert(model.id.clone());
-    models.push(model);
-    if smart_fallback {
-        for fallback in collect_translation_models(config) {
-            if seen_model_ids.insert(fallback.id.clone()) {
-                models.push(fallback);
-            }
-        }
-    }
-    Ok(models)
-}
-
-fn resolve_initial_translation_model(
-    config: &Config,
-    blocked_providers: &HashSet<String>,
-) -> Option<ModelConfig> {
-    for candidate_id in RetryChainKind::TextToText.configured_chain(config) {
-        let Some(model) = get_model_by_id(candidate_id) else {
-            continue;
-        };
-        if is_compatible_translation_model(&model, config, blocked_providers) {
-            return Some(model);
-        }
-    }
-
-    get_all_models_with_ollama()
-        .into_iter()
-        .find(|model| is_compatible_translation_model(model, config, blocked_providers))
-}
-
-fn is_compatible_translation_model(
-    model: &ModelConfig,
-    config: &Config,
-    blocked_providers: &HashSet<String>,
-) -> bool {
-    model.enabled
-        && model.model_type == ModelType::Text
-        && !model_is_non_llm(&model.id)
-        && !blocked_providers.contains(&model.provider)
-        && provider_is_available(&model.provider, config)
-        && preflight_skip_reason(&model.id, &model.provider, config, blocked_providers).is_none()
 }
 
 fn update_translation_snapshot(

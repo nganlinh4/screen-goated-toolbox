@@ -105,7 +105,6 @@ fn kill_process_tree(pid: u32, logs: &Arc<Mutex<Vec<String>>>) {
         match status {
             Ok(status) if status.success() => {
                 log(logs, format!("Killed yt-dlp process tree (pid={pid})."));
-                return;
             }
             Ok(status) => {
                 log(
@@ -286,10 +285,10 @@ fn capture_final_path_from_line(line: &str, final_filename: &Arc<Mutex<Option<Pa
             if !is_subtitle_path(path) {
                 *final_filename.lock().unwrap() = Some(PathBuf::from(path));
             }
-        } else if let Some(path) = already_downloaded_path(line) {
-            if !is_subtitle_path(path) {
-                *final_filename.lock().unwrap() = Some(PathBuf::from(path));
-            }
+        } else if let Some(path) = already_downloaded_path(line)
+            && !is_subtitle_path(path)
+        {
+            *final_filename.lock().unwrap() = Some(PathBuf::from(path));
         }
     }
 

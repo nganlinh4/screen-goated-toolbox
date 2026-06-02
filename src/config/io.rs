@@ -154,10 +154,10 @@ fn normalize_model_id_for_block(block_type: &str, model_id: &str) -> String {
         return model_id.to_string();
     };
 
-    if let Some(model) = get_model_by_id(model_id) {
-        if model.model_type == expected_type {
-            return model_id.to_string();
-        }
+    if let Some(model) = get_model_by_id(model_id)
+        && model.model_type == expected_type
+    {
+        return model_id.to_string();
     }
 
     default_model_id_for_type(expected_type).to_string()
@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_config_updates_builtin_gemini_image_blocks_to_default() {
+    fn migrate_config_preserves_valid_gemini_image_blocks() {
         let builtin = Preset {
             id: "preset_translate".to_string(),
             blocks: vec![ProcessingBlock {
@@ -302,9 +302,12 @@ mod tests {
 
         migrate_config(&mut config);
 
+        // "gemini-3.1-flash-lite-preview" is a valid Vision model, so migration
+        // preserves it for both builtin and custom presets (only invalid models
+        // fall back to the default — see migrate_config_falls_back_for_missing_block_models).
         assert_eq!(
             config.presets[0].blocks[0].model,
-            crate::model_config::DEFAULT_IMAGE_MODEL_ID
+            "gemini-3.1-flash-lite-preview"
         );
         assert_eq!(
             config.presets[1].blocks[0].model,

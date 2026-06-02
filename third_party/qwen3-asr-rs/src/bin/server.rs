@@ -11,8 +11,6 @@ use clap::Parser;
 use qwen3_asr_rs::cuda_runtime::{
     force_cuda_requested, maybe_reexec_with_cuda_preload, preload_cuda_runtime,
 };
-use serde::Deserialize;
-use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -48,7 +46,13 @@ fn resolve_kv_cache_mode() -> (KvCacheMode, Option<String>) {
 use qwen3_asr_rs::streaming::{StreamingConfig, StreamingState, StreamingTranscript};
 use qwen3_asr_rs::tensor::Device;
 mod server_segmentation;
-use server_segmentation::{transcribe_with_segments, TimedTranscriptSegment};
+mod server_types;
+use server_segmentation::transcribe_with_segments;
+use server_types::{
+    AppError, CreateStreamingSessionRequest, HealthResponse, ModelObject, ModelsResponse,
+    StreamingSessionResponse, StreamingTranscriptResponse, StreamingTranscriptionRequest,
+    TranscriptionResponse, VerboseTranscriptionResponse,
+};
 
 // ---------------------------------------------------------------------------
 // CLI arguments
@@ -91,98 +95,6 @@ struct AppState {
     default_language: Option<String>,
     sessions: Arc<Mutex<HashMap<u64, Arc<Mutex<StreamingState>>>>>,
     next_session_id: Arc<AtomicU64>,
-}
-
-// ---------------------------------------------------------------------------
-// Response types
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize)]
-struct TranscriptionResponse {
-    text: String,
-}
-
-#[derive(Serialize)]
-struct VerboseTranscriptionResponse {
-    task: String,
-    language: String,
-    duration: f64,
-    text: String,
-    segments: Vec<TimedTranscriptSegment>,
-}
-
-#[derive(Serialize)]
-struct ModelObject {
-    id: String,
-    object: String,
-    owned_by: String,
-}
-
-#[derive(Serialize)]
-struct ModelsResponse {
-    object: String,
-    data: Vec<ModelObject>,
-}
-
-#[derive(Serialize)]
-struct HealthResponse {
-    status: String,
-}
-
-#[derive(Serialize)]
-struct StreamingSessionResponse {
-    session_id: u64,
-}
-
-#[derive(Deserialize, Default)]
-struct StreamingTranscriptionRequest {
-    language: Option<String>,
-    finalize: bool,
-}
-
-#[derive(Deserialize, Default)]
-struct CreateStreamingSessionRequest {
-    chunk_size_ms: Option<u32>,
-    unfixed_chunk_num: Option<usize>,
-    unfixed_token_num: Option<usize>,
-}
-
-#[derive(Serialize)]
-struct StreamingTranscriptResponse {
-    language: String,
-    fixed_text: String,
-    draft_text: String,
-    text: String,
-    kv_cache_bytes: usize,
-    kv_cache_dense_bytes: usize,
-}
-
-// ---------------------------------------------------------------------------
-// Error handling
-// ---------------------------------------------------------------------------
-
-struct AppError(anyhow::Error);
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        tracing::error!("Request error: {:?}", self.0);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": {
-                    "message": self.0.to_string(),
-                    "type": "server_error",
-                }
-            })),
-        )
-            .into_response()
-    }
-}
-
-impl From<anyhow::Error> for AppError {
-    fn from(err: anyhow::Error) -> Self {
-        Self(err)
-    }
 }
 
 // ---------------------------------------------------------------------------

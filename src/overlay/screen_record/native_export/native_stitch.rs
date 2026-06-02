@@ -138,15 +138,17 @@ pub(crate) fn stitch_clips_to_mp4(
             let video_timestamp_100ns = frames_written as i64 * frame_duration_100ns;
             if let Some(decoder) = audio_decoder.as_mut() {
                 drain_audio_until(
-                    &audio_stream,
-                    &encoder,
-                    decoder,
-                    &mut pending_audio,
-                    clip.trim_start_sec,
-                    clip.duration_sec,
-                    timeline_cursor_100ns,
+                    StitchAudioDrain {
+                        stream: &audio_stream,
+                        encoder: &encoder,
+                        decoder,
+                        pending_audio: &mut pending_audio,
+                        clip_trim_start_sec: clip.trim_start_sec,
+                        clip_duration_sec: clip.duration_sec,
+                        clip_timeline_start_100ns: timeline_cursor_100ns,
+                        audio_cursor_100ns: &mut audio_cursor_100ns,
+                    },
                     video_timestamp_100ns,
-                    &mut audio_cursor_100ns,
                 )?;
             } else {
                 write_silence_until(
@@ -171,15 +173,17 @@ pub(crate) fn stitch_clips_to_mp4(
         let clip_end_100ns = timeline_cursor_100ns + target_frames as i64 * frame_duration_100ns;
         if let Some(decoder) = audio_decoder.as_mut() {
             drain_audio_until(
-                &audio_stream,
-                &encoder,
-                decoder,
-                &mut pending_audio,
-                clip.trim_start_sec,
-                clip.duration_sec,
-                timeline_cursor_100ns,
+                StitchAudioDrain {
+                    stream: &audio_stream,
+                    encoder: &encoder,
+                    decoder,
+                    pending_audio: &mut pending_audio,
+                    clip_trim_start_sec: clip.trim_start_sec,
+                    clip_duration_sec: clip.duration_sec,
+                    clip_timeline_start_100ns: timeline_cursor_100ns,
+                    audio_cursor_100ns: &mut audio_cursor_100ns,
+                },
                 clip_end_100ns,
-                &mut audio_cursor_100ns,
             )?;
         }
         write_silence_until(
@@ -302,17 +306,28 @@ fn copy_frame_to_private_texture(
     Ok(texture)
 }
 
-fn drain_audio_until(
-    stream: &AudioStream,
-    encoder: &MfEncoder,
-    decoder: &mut MfAudioDecoder,
-    pending_audio: &mut Option<(Vec<u8>, i64)>,
+struct StitchAudioDrain<'a> {
+    stream: &'a AudioStream,
+    encoder: &'a MfEncoder,
+    decoder: &'a mut MfAudioDecoder,
+    pending_audio: &'a mut Option<(Vec<u8>, i64)>,
     clip_trim_start_sec: f64,
     clip_duration_sec: f64,
     clip_timeline_start_100ns: i64,
-    target_100ns: i64,
-    audio_cursor_100ns: &mut i64,
-) -> Result<(), String> {
+    audio_cursor_100ns: &'a mut i64,
+}
+
+fn drain_audio_until(context: StitchAudioDrain<'_>, target_100ns: i64) -> Result<(), String> {
+    let StitchAudioDrain {
+        stream,
+        encoder,
+        decoder,
+        pending_audio,
+        clip_trim_start_sec,
+        clip_duration_sec,
+        clip_timeline_start_100ns,
+        audio_cursor_100ns,
+    } = context;
     loop {
         let Some((pcm, timestamp_100ns)) = pending_audio.take() else {
             break;

@@ -1,12 +1,13 @@
 use super::node_graph::request_node_graph_view_reset;
 use crate::config::Config;
-use crate::gui::icons::{Icon, icon_button, paint_icon};
+use crate::gui::icons::{Icon, paint_icon};
 use crate::gui::locale::LocaleText;
 use crate::updater::{UpdateStatus, Updater};
 use auto_launch::AutoLaunch;
 use eframe::egui;
 use std::collections::HashMap;
 
+mod api_keys;
 mod downloaded_tools;
 mod model_priority;
 mod tts_settings;
@@ -14,13 +15,12 @@ mod update_section;
 mod usage_stats;
 
 use crate::gui::settings_ui::download_manager::DownloadManager;
+use api_keys::{ApiKeyCardStyle, ApiKeyVisibility, render_api_keys_card};
 use downloaded_tools::render_downloaded_tools_modal;
 use model_priority::render_model_priority_modal;
 use tts_settings::render_tts_settings_modal;
 use update_section::render_update_section_content;
 use usage_stats::render_usage_modal;
-
-const API_KEY_FIELD_WIDTH: f32 = 400.0;
 
 #[expect(
     clippy::too_many_arguments,
@@ -58,205 +58,23 @@ pub fn render_global_settings(
 
     ui.add_space(5.0);
 
-    // === API KEYS CARD ===
-    egui::Frame::new()
-        .fill(card_bg)
-        .stroke(card_stroke)
-        .inner_margin(12.0)
-        .corner_radius(10.0)
-        .show(ui, |ui| {
-            // Header row with title and provider checkboxes
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(text.api_keys_header)
-                        .strong()
-                        .size(14.0),
-                );
-                ui.add_space(16.0);
-
-                if ui
-                    .checkbox(&mut config.use_groq, text.use_groq_checkbox)
-                    .changed()
-                {
-                    changed = true;
-                }
-                if ui
-                    .checkbox(&mut config.use_cerebras, text.use_cerebras_checkbox)
-                    .changed()
-                {
-                    changed = true;
-                }
-                if ui
-                    .checkbox(&mut config.use_gemini, text.use_gemini_checkbox)
-                    .changed()
-                {
-                    changed = true;
-                }
-                if ui
-                    .checkbox(&mut config.use_openrouter, text.use_openrouter_checkbox)
-                    .changed()
-                {
-                    changed = true;
-                }
-                if ui.checkbox(&mut config.use_ollama, "Ollama").changed() {
-                    changed = true;
-                }
-            });
-            ui.add_space(6.0);
-
-            // Groq API Key (only show if enabled)
-            if config.use_groq {
-                ui.horizontal(|ui| {
-                    ui.label(text.groq_label);
-                    if ui.link(text.get_key_link).clicked() {
-                        let _ = open::that("https://console.groq.com/keys");
-                    }
-                });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.api_key)
-                                .id(egui::Id::new("settings_api_key_groq"))
-                                .password(!*show_api_key)
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    let eye_icon = if *show_api_key {
-                        Icon::EyeOpen
-                    } else {
-                        Icon::EyeClosed
-                    };
-                    if icon_button(ui, eye_icon).clicked() {
-                        *show_api_key = !*show_api_key;
-                    }
-                });
-            }
-
-            // Cerebras API Key (only show if enabled)
-            if config.use_cerebras {
-                ui.horizontal(|ui| {
-                    ui.label(text.cerebras_api_key_label);
-                    if ui.link(text.cerebras_get_key_link).clicked() {
-                        let _ = open::that("https://cloud.cerebras.ai/");
-                    }
-                });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.cerebras_api_key)
-                                .id(egui::Id::new("settings_api_key_cerebras"))
-                                .password(!*show_cerebras_api_key)
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    let eye_icon = if *show_cerebras_api_key {
-                        Icon::EyeOpen
-                    } else {
-                        Icon::EyeClosed
-                    };
-                    if icon_button(ui, eye_icon).clicked() {
-                        *show_cerebras_api_key = !*show_cerebras_api_key;
-                    }
-                });
-            }
-
-            // Gemini API Key (only show if enabled)
-            if config.use_gemini {
-                ui.horizontal(|ui| {
-                    ui.label(text.gemini_api_key_label);
-                    if ui.link(text.gemini_get_key_link).clicked() {
-                        let _ = open::that("https://aistudio.google.com/app/apikey");
-                    }
-                });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.gemini_api_key)
-                                .id(egui::Id::new("settings_api_key_gemini"))
-                                .password(!*show_gemini_api_key)
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    let eye_icon = if *show_gemini_api_key {
-                        Icon::EyeOpen
-                    } else {
-                        Icon::EyeClosed
-                    };
-                    if icon_button(ui, eye_icon).clicked() {
-                        *show_gemini_api_key = !*show_gemini_api_key;
-                    }
-                });
-            }
-
-            // OpenRouter API Key (only show if enabled)
-            if config.use_openrouter {
-                ui.horizontal(|ui| {
-                    ui.label(text.openrouter_api_key_label);
-                    if ui.link(text.openrouter_get_key_link).clicked() {
-                        let _ = open::that("https://openrouter.ai/settings/keys");
-                    }
-                });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.openrouter_api_key)
-                                .id(egui::Id::new("settings_api_key_openrouter"))
-                                .password(!*show_openrouter_api_key)
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    let eye_icon = if *show_openrouter_api_key {
-                        Icon::EyeOpen
-                    } else {
-                        Icon::EyeClosed
-                    };
-                    if icon_button(ui, eye_icon).clicked() {
-                        *show_openrouter_api_key = !*show_openrouter_api_key;
-                    }
-                });
-            }
-
-            // Ollama (Local AI) - only show URL field if enabled
-            if config.use_ollama {
-                ui.horizontal(|ui| {
-                    ui.label("Ollama URL:");
-                    if ui.link(text.ollama_url_guide).clicked() {
-                        let _ = open::that("https://docs.ollama.com/api/introduction#base-url");
-                    }
-                });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.ollama_base_url)
-                                .id(egui::Id::new("settings_api_key_ollama_url"))
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    // Show status if available
-                    if let Some(status) = ui
-                        .ctx()
-                        .memory(|mem| mem.data.get_temp::<String>(egui::Id::new("ollama_status")))
-                    {
-                        ui.label(egui::RichText::new(&status).size(11.0));
-                    }
-                });
-            }
-        });
+    if render_api_keys_card(
+        ui,
+        config,
+        ApiKeyVisibility {
+            groq: show_api_key,
+            gemini: show_gemini_api_key,
+            openrouter: show_openrouter_api_key,
+            cerebras: show_cerebras_api_key,
+        },
+        text,
+        ApiKeyCardStyle {
+            background: card_bg,
+            stroke: card_stroke,
+        },
+    ) {
+        changed = true;
+    }
 
     ui.add_space(10.0);
 

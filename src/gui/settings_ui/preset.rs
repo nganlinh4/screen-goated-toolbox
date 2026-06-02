@@ -1,11 +1,19 @@
 use super::get_localized_preset_name;
 use super::node_graph::{
-    ChainNode, blocks_to_snarl, render_node_graph, request_node_graph_view_reset, snarl_to_graph,
+    ChainNode, blocks_to_snarl, render_node_graph, request_node_graph_view_reset,
 };
-use crate::config::{Config, ProcessingBlock};
+use crate::config::Config;
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 use egui_snarl::Snarl;
+
+mod controller_description;
+mod graph_helpers;
+mod hotkeys;
+
+use controller_description::render_controller_mode_description;
+use graph_helpers::{create_default_block_for_type, sync_graph_type};
+use hotkeys::render_hotkeys;
 
 #[expect(
     clippy::too_many_arguments,
@@ -516,92 +524,15 @@ pub fn render_preset_editor(
     ui.add_space(10.0);
 
     // Hotkeys - always visible, even when controller UI is enabled
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.hotkeys_section).strong());
-
-        let is_dark = ui.visuals().dark_mode;
-
-        if *recording_hotkey_for_preset == Some(preset_idx) {
-            let text_color = if is_dark {
-                egui::Color32::from_rgb(255, 200, 60) // Warm orange-yellow for dark mode
-            } else {
-                egui::Color32::from_rgb(200, 130, 0) // Dark orange for light mode
-            };
-            ui.colored_label(text_color, text.press_keys);
-            // Cancel button - subtle red pill
-            let cancel_bg = if is_dark {
-                egui::Color32::from_rgb(120, 60, 60)
-            } else {
-                egui::Color32::from_rgb(220, 150, 150)
-            };
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(text.cancel_label).color(egui::Color32::WHITE),
-                    )
-                    .fill(cancel_bg)
-                    .corner_radius(10.0),
-                )
-                .clicked()
-            {
-                *recording_hotkey_for_preset = None;
-            }
-        } else {
-            // Add hotkey button - teal pill
-            let add_bg = if is_dark {
-                egui::Color32::from_rgb(50, 110, 120)
-            } else {
-                egui::Color32::from_rgb(100, 170, 180)
-            };
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(text.add_hotkey_button).color(egui::Color32::WHITE),
-                    )
-                    .fill(add_bg)
-                    .corner_radius(10.0),
-                )
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .clicked()
-            {
-                *recording_hotkey_for_preset = Some(preset_idx);
-            }
-        }
-
-        // Hotkey badges - purple/violet tint pills
-        let hotkey_bg = if is_dark {
-            egui::Color32::from_rgb(90, 70, 130)
-        } else {
-            egui::Color32::from_rgb(170, 150, 200)
-        };
-
-        let mut hotkey_to_remove = None;
-        for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(format!("{} ×", hotkey.name))
-                            .color(egui::Color32::WHITE)
-                            .small(),
-                    )
-                    .fill(hotkey_bg)
-                    .corner_radius(10.0),
-                )
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .clicked()
-            {
-                hotkey_to_remove = Some(h_idx);
-            }
-        }
-        if let Some(h) = hotkey_to_remove {
-            preset.hotkeys.remove(h);
-            changed = true;
-        }
-    });
-    if let Some(msg) = hotkey_conflict_msg
-        && *recording_hotkey_for_preset == Some(preset_idx)
-    {
-        ui.colored_label(egui::Color32::RED, msg);
+    if render_hotkeys(
+        ui,
+        preset_idx,
+        &mut preset.hotkeys,
+        recording_hotkey_for_preset,
+        hotkey_conflict_msg,
+        text,
+    ) {
+        changed = true;
     }
 
     // --- PROCESSING CHAIN UI ---
@@ -651,72 +582,12 @@ pub fn render_preset_editor(
                 });
         });
     } else {
-        // Controller UI mode - show elegant, minimal description
-        ui.add_space(20.0);
-
-        // Use a subtle background that works in both light and dark modes
-        let is_dark = ui.visuals().dark_mode;
-        let bg_color = if is_dark {
-            egui::Color32::from_rgba_unmultiplied(60, 70, 85, 180) // Subtle dark blue-gray
-        } else {
-            egui::Color32::from_rgba_unmultiplied(230, 235, 245, 255) // Soft light gray-blue
-        };
-
-        let text_color = if is_dark {
-            egui::Color32::from_gray(200)
-        } else {
-            egui::Color32::from_gray(60)
-        };
-
-        let accent_color = if is_dark {
-            egui::Color32::from_rgb(130, 180, 230) // Soft blue
-        } else {
-            egui::Color32::from_rgb(70, 120, 180) // Deeper blue for light mode
-        };
-
-        egui::Frame::new()
-            .fill(bg_color)
-            .inner_margin(24.0)
-            .corner_radius(12.0)
-            .show(ui, |ui| {
-                ui.set_min_height(260.0);
-
-                // Title - clean, no emoji overload
-                let is_realtime = preset.preset_type == "audio" && preset.audio_processing_mode == "realtime";
-
-                let title = if is_realtime {
-                    match config.ui_language.as_str() {
-                        "vi" => "Xử lý âm thanh (Thời gian thực)",
-                        "ko" => "오디오 처리 (실시간)",
-                        _ => "Audio Processing (Realtime)",
-                    }
-                } else {
-                    match config.ui_language.as_str() {
-                        "vi" => "Chế độ Bộ điều khiển",
-                        "ko" => "컨트롤러 모드",
-                        _ => "Controller Mode",
-                    }
-                };
-                ui.label(egui::RichText::new(title).heading().color(accent_color));
-
-                ui.add_space(16.0);
-
-                // Main Description - combined into one clear paragraph
-                let desc = if is_realtime {
-                    match config.ui_language.as_str() {
-                        "vi" => "Chế độ này cung cấp phụ đề và dịch thuật trực tiếp theo thời gian thực.\nMã API của Gemini là bắt buộc, tính năng chỉ hoạt động tốt trên âm thanh có lời nói to rõ như podcast!\n\nBạn có thể điều chỉnh cỡ chữ, nguồn âm thanh và ngôn ngữ dịch ngay trong cửa sổ kết quả.",
-                        "ko" => "이 모드는 실시간 자막 및 번역을 제공합니다.\nGemini API 키가 필수이며, 명확한 음성이 있는 팟캐스트 같은 오디오에서 잘 작동합니다!\n\n결과 창에서 글꼴 크기, 오디오 소스, 번역 언어를 직접 조정할 수 있습니다.",
-                        _ => "This mode provides real-time transcription and translation.\nGemini API key is required, works best on audio with clear speech like podcasts!\n\nYou can adjust font size, audio source, and translation language directly in the result window.",
-                    }
-                } else {
-                    match config.ui_language.as_str() {
-                        "vi" => "Đây là cấu hình MASTER. Khi kích hoạt, một bánh xe chọn sẽ xuất hiện để bạn chọn cấu hình muốn sử dụng.\n\nChỉ cần gán một phím tắt để truy cập nhanh nhiều cấu hình khác nhau.",
-                        "ko" => "이것은 MASTER 프리셋입니다. 활성화하면 프리셋 휠이 나타나 사용할 프리셋을 선택할 수 있습니다.\n\n하나의 단축키로 여러 프리셋에 빠르게 접근하세요.",
-                        _ => "This is a MASTER preset. When activated, a selection wheel will appear letting you choose which preset to use.\n\nAssign a single hotkey for quick access to multiple presets.",
-                    }
-                };
-                ui.label(egui::RichText::new(desc).color(text_color));
-            });
+        render_controller_mode_description(
+            ui,
+            &config.ui_language,
+            &preset.preset_type,
+            &preset.audio_processing_mode,
+        );
     }
 
     // Apply Logic Updates (Radio Button Sync & Auto Paste)
@@ -725,60 +596,4 @@ pub fn render_preset_editor(
     }
 
     changed
-}
-
-/// Creates a default processing block based on preset type
-fn create_default_block_for_type(preset_type: &str) -> ProcessingBlock {
-    match preset_type {
-        "audio" => ProcessingBlock {
-            block_type: "audio".to_string(),
-            model: "whisper-accurate".to_string(),
-            prompt: "Transcribe this audio.".to_string(),
-            selected_language: "Vietnamese".to_string(),
-            auto_copy: true,
-            ..Default::default()
-        },
-        "text" => ProcessingBlock {
-            block_type: "text".to_string(),
-            model: "gemma-4-26b-a4b".to_string(),
-            prompt: "Process this text.".to_string(),
-            selected_language: "Vietnamese".to_string(),
-            auto_copy: true,
-            ..Default::default()
-        },
-        _ => ProcessingBlock {
-            block_type: "image".to_string(),
-            model: crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string(),
-            prompt: "Extract text from this image.".to_string(),
-            selected_language: "Vietnamese".to_string(),
-            show_overlay: true,
-            auto_copy: true,
-            ..Default::default()
-        },
-    }
-}
-
-fn sync_graph_type(snarl: &mut Snarl<ChainNode>, preset_type: &str) {
-    let (mut blocks, mut connections) = snarl_to_graph(snarl);
-    let default_block = create_default_block_for_type(preset_type);
-
-    if let Some(first_process) = blocks
-        .iter_mut()
-        .find(|block| block.block_type != "input_adapter")
-    {
-        first_process.block_type = default_block.block_type;
-        first_process.model = default_block.model;
-    } else {
-        let new_idx = blocks.len();
-        let input_idx = blocks
-            .iter()
-            .position(|block| block.block_type == "input_adapter");
-        blocks.push(default_block);
-
-        if let Some(input_idx) = input_idx {
-            connections.push((input_idx, new_idx));
-        }
-    }
-
-    *snarl = blocks_to_snarl(&blocks, &connections, preset_type);
 }

@@ -90,10 +90,10 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             super::REQUEST_DISMISS_SPLASH.store(true, std::sync::atomic::Ordering::SeqCst);
             super::REQUEST_OPEN_TTS_SETTINGS.store(true, std::sync::atomic::Ordering::SeqCst);
             crate::gui::signal_restore_window();
-            if let Ok(ctx) = crate::gui::GUI_CONTEXT.lock() {
-                if let Some(ctx) = ctx.as_ref() {
-                    ctx.request_repaint();
-                }
+            if let Ok(ctx) = crate::gui::GUI_CONTEXT.lock()
+                && let Some(ctx) = ctx.as_ref()
+            {
+                ctx.request_repaint();
             }
             Ok(Value::Null)
         }

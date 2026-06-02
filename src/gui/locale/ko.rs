@@ -1,5 +1,4 @@
-use super::LocaleText;
-
+use super::{LocaleText, tips};
 pub fn get() -> LocaleText {
     LocaleText {
         history_btn: "히스토리",
@@ -10,10 +9,8 @@ pub fn get() -> LocaleText {
         view_image_btn: "이미지 보기",
         listen_audio_btn: "오디오 듣기",
         view_text_btn: "텍스트 보기",
-
         prompt_mode_fixed: "사전 정의된 프롬프트",
         prompt_mode_dynamic: "즉석에서 작성",
-
         get_key_link: "console.groq.com에서 API 키 받기",
         gemini_api_key_label: "Gemini API 키:",
         gemini_get_key_link: "aistudio.google.com에서 API 키 받기",
@@ -25,12 +22,9 @@ pub fn get() -> LocaleText {
         cerebras_api_key_label: "Cerebras API 키:",
         cerebras_get_key_link: "cloud.cerebras.ai에서 API 키 받기",
         use_cerebras_checkbox: "Cerebras",
-
         global_settings: "전역 설정",
         preset_name_label: "프리셋 이름:",
-
         search_placeholder: "검색...",
-
         auto_paste_label: "자동 붙여넣기",
         auto_paste_newline_label: "복사 후 자동 줄바꿈 추가",
         startup_label: "Windows 시작 시 실행",
@@ -39,13 +33,11 @@ pub fn get() -> LocaleText {
         cancel_label: "취소",
         reset_defaults_btn: "기본값으로 재설정",
         force_quit: "강제 종료",
-
         preset_type_label: "유형:",
         preset_type_image: "이미지 이해",
         preset_type_audio: "오디오 이해",
         preset_type_video: "비디오 이해 (upcoming)",
         preset_type_text: "텍스트 이해", // NEW
-
         audio_source_label: "오디오 소스:",
         audio_src_mic: "마이크",
         audio_src_device: "컴퓨터 오디오",
@@ -65,7 +57,6 @@ pub fn get() -> LocaleText {
         usage_model_column: "모델",
         usage_remaining_column: "남은 / 전체",
         usage_check_link: "사용량 확인 ↗",
-
         footer_admin_text: "게임을 번역하려면 관리자로 실행하세요",
         footer_version: "버전",
         check_for_updates_btn: "업데이트 확인",
@@ -83,7 +74,6 @@ pub fn get() -> LocaleText {
         update_success: "업데이트 성공!",
         restart_to_use_new_version: "새 버전을 사용하려면 다시 시작하세요.",
         restart_app_btn: "앱 다시 시작",
-        // --- NEW TEXT INPUT FIELDS KO ---
         text_input_mode_label: "작동 방식:",
         text_mode_select: "단축키 후 텍스트 선택",
         text_mode_type: "단축키 후 입력",
@@ -101,7 +91,6 @@ pub fn get() -> LocaleText {
         add_text_preset_btn: "+ 텍스트",
         add_image_preset_btn: "+ 이미지",
         add_audio_preset_btn: "+ 오디오",
-        // --- PROCESSING CHAIN UI KO ---
         node_input_prefix: "입력:",
         node_input_audio: "오디오",
         node_input_image: "이미지",
@@ -116,45 +105,11 @@ pub fn get() -> LocaleText {
         node_menu_add_special_audio: "⭐ 오디오 -> 텍스트 노드 추가",
         input_auto_copy_tooltip: "자동 복사 (소스)",
         input_auto_speak_tooltip: "소스 읽기",
-
         tips_title: "사용 팁",
         tips_click_hint: "이 텍스트를 클릭하여 팁 목록 보기",
-        tips_list: vec![
-            "오버레이를 **마우스 가운데 버튼(휠)**으로 클릭하면 모든 오버레이가 닫힙니다!",
-            "오버레이를 **마우스 오른쪽 버튼**으로 클릭하면 내용이 빠르게 복사됩니다!",
-            "화면이 어두워진 상태(캡처 중)에서 **ESC**나 단축키를 다시 누르면 취소됩니다.",
-            "**SGT** 앱이 마음에 드신다면 Github에서 Star를 눌러주시고 공유해주세요!",
-            "알고 계셨나요? **단축키**는 키보드뿐만 아니라 마우스 휠, 버튼 4, 5에도 지정 가능합니다!",
-            "오버레이 표시 중 렉이 걸린다면 **그래픽 설정**을 '최소'로 변경해보세요!",
-            "기본 프리셋 이름은 변경할 수 없지만, **새로 만든 프리셋**은 변경 가능합니다!",
-            "**히스토리**는 저장 한도를 초과하면 오래된 항목부터 자동으로 삭제됩니다.",
-            "작업 체인에서는 **한 단계만** 자동 복사를 활성화할 수 있으며, 또는 어떤 단계도 활성화할 수 없습니다.",
-            "자동 붙여넣기가 활성화되어 있어도 **텍스트 입력 위치(깜박이는 커서)**가 있어야만 작동합니다.",
-            "자동 줄바꿈 추가 컨트롤은 **자동 복사**가 활성화되어 있을 때(한 단계 이상에서)만 나타납니다.",
-            "녹색 배경의 **프리셋 이름**은 단축키가 이미 할당되어 사용할 준비가 된 것을 의미합니다.",
-            "왼쪽 마우스로 드래그하면 **현재 오버레이**만 이동하지만, 오른쪽 마우스로 드래그하면 같은 그룹의 모든 오버레이가 이동합니다.",
-            "캔버스에서: 스크롤: 확대/축소, 드래그: 이동, 더블 클릭: 보기 초기화, 오른쪽 클릭: 노드 추가. **노드**에서: 드래그: 이동, 오른쪽 클릭: 노드 삭제.",
-            "텍스트 선택 모드의 특별한 기능: 이미 **텍스트가 선택**되어 있으면 단축키를 누르면 즉시 처리됩니다!",
-            "**오디오 녹음**에는 스마트 중지 모드도 있으니 꼭 써보세요!",
-            "오버레이 내에서 **웹**을 탐색할 때는 마우스만 사용하세요 - 키보드는 작동하지 않습니다, 양해 부탁드립니다!",
-            "'**이미지 MASTER**' 또는 '**선택 MASTER**'에 단축키를 지정하면 휠 선택기가 열려 여러 도구에 한 번에 액세스할 수 있습니다!",
-            "편집 버튼을 클릭하여 **텍스트를 수정**할 뿐만 아니라, AI에게 콘텐츠를 다시 작성하도록 명령을 입력할 수 있습니다(예: '일본어로 번역').",
-            "이미지 파일이나 **텍스트 파일**을 설정 창으로 직접 드래그하여 놓거나 붙여넣어 즉시 처리할 수 있습니다!",
-            "시스템 트레이 메뉴에서 **즐겨찾기 버블**을 활성화하여 단축키를 기억하지 않고도 구성에 빠르게 액세스할 수 있습니다.",
-            "음성 설정에서 **표준 음성 옵션**을 시도하고 지역 억양을 조정하여 최적의 설정을 찾아보세요!",
-            "**실시간 번역** 모드는 읽기 속도(TTS)를 자동으로 조정하여 말하는 사람의 속도에 맞출 수 있습니다.",
-            "디스플레이 모드 **버튼**(눈 아이콘 옆)을 클릭하여 일반 텍스트와 아름답게 포맷된 Markdown/HTML 보기 사이를 전환합니다.",
-            "돋보기 아이콘이 있는 **모델**은 인터넷에 액세스하여 인용문과 최신 정보를 찾을 수 있습니다.",
-            "자동 복사가 활성화되면 **화면 하단**에 작은 녹색 알림이 나타나 콘텐츠가 클립보드에 복사되었음을 확인할 수 있습니다.",
-            "사용 방법을 모르신다면? **'사용법 문의'**를 열어서 AI 어시스턴트에게 친절한 안내를 받으세요!",
-            "스트레스를 받을 땐 **'DJ 되기'**에 가서 편안한 배경음악을 만들어 업무 중에 힐링하세요.",
-            "비디오 다운로드가 필요하신가요? 내장된 **'비디오 다운로드'**는 YouTube, Facebook 등 다양한 사이트의 4K 및 자막을 지원합니다!",
-            "**단축키** 또는 버블의 프리셋을 **길게 누르면** **연속 모드**로 진입하여, 여러 영역이나 텍스트를 연속으로 처리할 수 있습니다.",
-            "MIDI 키보드가 있나요? **DJ 되기**를 열 때 연결하면 물리 노브로 음악을 조절할 수 있습니다!",
-        ],
+        tips_list: tips::ko(),
         restore_preset_btn: "복원",
         restore_preset_tooltip: "기본 설정으로 초기화",
-        // --- COMPOUND SEARCH UI KO ---
         search_doing: "진행 중:",
         search_searching: "검색",
         search_query_label: "📝 검색 쿼리:",
@@ -164,17 +119,13 @@ pub fn get() -> LocaleText {
         search_synthesizing: "⚡ 정보 종합 중...",
         search_analyzed_sources: "📊 {} 소스 분석 완료",
         search_processing: "🧠 결과 처리 및 요약 중...",
-        // --- MASTER PRESET UI KO ---
         controller_checkbox_label: "컨트롤러",
-
-        // --- GLOBAL SETTINGS UI HEADERS KO ---
         api_keys_header: "🔑 API 키",
         groq_label: "Groq API 키:",
         software_update_header: "⬆ 소프트웨어 업데이트",
         startup_display_header: "⚙ 시작 및 표시",
         favorite_overlay_opacity_label: "결과 오버레이 기본 불투명도",
         model_thinking: "💭 생각 중...",
-        // --- REALTIME OVERLAY KO ---
         realtime_listening: "듣고 있는 중...",
         realtime_device: "장치 오디오",
         realtime_waiting: "말하기 대기 중...",
@@ -302,12 +253,10 @@ pub fn get() -> LocaleText {
         tts_vieneu_desc: "베트남어 우선 로컬 TTS로 영어/베트남어 코드 전환과 zero-shot 음성 복제를 지원합니다.",
         tts_vieneu_control_desc: "검증된 VieNeu-TTS-v2 Turbo GPU 경로를 사용합니다. 참조 음성만 사용자 설정으로 지원됩니다.",
         remove_label: "삭제",
-        // Realtime TTS modal
         realtime_tts_title: "번역 읽기",
         realtime_tts_speed: "속도",
         realtime_tts_auto: "자동",
         realtime_tts_volume: "볼륨",
-        // App selection modal
         app_select_title: "앱 선택",
         app_select_hint: "녹음할 앱을 선택하세요 (이 단계가 있어야 TTS 소리가 컴퓨터 오디오로 다시 캡처되지 않습니다)",
         app_select_count: "앱 {}개",
@@ -332,17 +281,14 @@ pub fn get() -> LocaleText {
         realtime_tts_s2s_locked_tooltip: "Gemini S2S에서는 직접 음성 출력이 항상 켜져 있습니다",
         realtime_tts_enable_tooltip: "텍스트 음성 변환 켜기",
         realtime_app_loading: "로딩 중...",
-        // --- TRAY MENU KO ---
         tray_settings: "⚙️ 설정",
         tray_quit: "종료",
         tray_favorite_bubble: "즐겨찾기 버블 표시",
         tray_favorite_bubble_disabled: "즐겨찾기 버블 표시 (즐겨찾기 없음)",
-        // --- FAVORITE BUBBLE KO ---
         favorites_empty: "별 버튼으로 프리셋을 즐겨찾기에 추가해 주세요",
         favorites_keep_open: "열린 상태 유지",
         recording_subtext: "ESC/Hotkey를 눌러 중지",
         recording_paused: "일시 중지됨",
-        // --- AUTO COPY BADGE KO ---
         auto_copied_badge: "자동으로 복사됨",
         auto_copied_image_badge: "🖼️ 이미지가 복사됨",
         live_translate_loading: "⏳ 실시간 번역 로딩 중...",
@@ -354,13 +300,11 @@ pub fn get() -> LocaleText {
         tray_popup_loading: "⏳ 메뉴 로딩 중...",
         update_available_notification: "🎉 새 업데이트 이용 가능!",
         cannot_type_no_caret: "자동 붙여넣기/쓰기가 활성화되었지만 텍스트 입력이 선택되지 않았습니다!",
-        // --- DROP OVERLAY KO ---
         drop_overlay_text: "여기에 드롭하여 처리",
         video_drop_work_record: "SGT Record에서 작업",
         video_drop_generate_subtitles: "지금 자막 생성",
         audio_drop_add_to_record: "SGT Record에 추가",
         audio_drop_use_preset: "오디오 프리셋 사용",
-        // --- REALTIME EGUI SPECIFIC KO ---
         device_mode_warning: "⚠ 장치 오디오가 선택되었지만 앱이 선택되지 않았습니다",
         select_app_btn: "앱 선택",
         toggle_translation_tooltip: "번역 켜기/끄기",
@@ -372,7 +316,6 @@ pub fn get() -> LocaleText {
         opacity_label: "불투명도",
         downloaded_successfully: "다운로드 완료!",
         download_recording_tooltip: "녹음 다운로드",
-
         download_feature_btn: "비디오 다운로드",
         download_feature_title: "비디오 다운로드",
         download_delete_deps_btn: "yt-dlp ({}), ffmpeg ({}) 및 Deno ({}) 삭제",
@@ -416,7 +359,6 @@ pub fn get() -> LocaleText {
         download_deno_failed_fmt: "Deno 다운로드 실패: {}",
         download_deno_yes_btn: "예, Deno 다운로드",
         download_deno_no_btn: "아니요, 쿠키 사용 안 함",
-
         downloaded_tools_button: "다운로드된 도구",
         downloaded_tools_title: "다운로드된 도구 관리",
         downloaded_tools_clean_all: "다운로드된 도구 모두 정리",
@@ -505,7 +447,6 @@ pub fn get() -> LocaleText {
         tool_zipformer_desc_nopunct: "스트리밍 ASR · 구두점 없음",
         tool_zipformer_desc_compact: "경량 스트리밍 모델",
         tool_zipformer_desc_multilingual: "8개 언어: AR, EN, ID, JA, RU, TH, VI, ZH",
-        // --- HELP ASSISTANT KO ---
         help_assistant_btn: "사용법 문의",
         help_assistant_title: "SGT에 대해 물어보기",
         help_assistant_question_label: "질문:",
@@ -555,7 +496,6 @@ pub fn get() -> LocaleText {
         screen_record_btn: "화면 녹화",
         screen_record_title: "Screen Record - 화면 녹화",
         pointer_gallery_btn: "포인터 갤러리",
-        // --- PARAKEET DOWNLOAD MODAL KO ---
         parakeet_downloading_title: "Parakeet 모델 다운로드 중 (0.6 GB)",
         parakeet_tdt_downloading_title: "Parakeet TDT 0.6B v3 다운로드 중",
         parakeet_downloading_message: "잠시만 기다려주세요...",

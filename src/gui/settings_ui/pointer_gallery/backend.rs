@@ -7,16 +7,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant};
 mod catalog;
 mod scaled;
 mod sources;
+mod summary;
 mod system;
 pub(super) use catalog::CursorCollectionSpec;
 use catalog::collections as catalog_collections;
 use catalog::{CollectionSource, REGISTRY_FILE_MAP, REQUIRED_FILES, SCHEME_FILE_ORDER};
 use scaled::scaled_cursor_file_map_for_size;
 use sources::{preload_missing_from_github, preload_missing_from_rar, preload_missing_from_zip};
+use summary::invalidate_summary_cache;
 #[cfg(target_os = "windows")]
 use system::{refresh_cursor_settings, write_accessibility_cursor_size};
 
@@ -35,20 +36,6 @@ struct CursorBackup {
     cursor_base_size: Option<u32>,
 }
 
-#[derive(Clone, Copy)]
-struct PointerSummaryDiskSnapshot {
-    downloaded_count: usize,
-    total_count: usize,
-    downloaded_bytes: u64,
-}
-
-struct PointerSummaryCache {
-    last_scan: Option<Instant>,
-    snapshot: PointerSummaryDiskSnapshot,
-    scanning: bool,
-}
-
-const SUMMARY_CACHE_TTL: Duration = Duration::from_millis(1500);
 const CURSOR_BASE_SIZE_MIN: u32 = 16;
 const CURSOR_BASE_SIZE_MAX: u32 = 128;
 const CURSOR_BASE_SIZE_DEFAULT: u32 = 32;
@@ -69,28 +56,6 @@ fn backup_path() -> PathBuf {
 fn downloading_ids() -> &'static Mutex<HashSet<String>> {
     static IDS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     IDS.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
-fn summary_cache() -> &'static Mutex<PointerSummaryCache> {
-    static CACHE: OnceLock<Mutex<PointerSummaryCache>> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        Mutex::new(PointerSummaryCache {
-            last_scan: None,
-            snapshot: PointerSummaryDiskSnapshot {
-                downloaded_count: 0,
-                total_count: catalog_collections().len(),
-                downloaded_bytes: 0,
-            },
-            scanning: false,
-        })
-    })
-}
-
-fn invalidate_summary_cache() {
-    if let Ok(mut cache) = summary_cache().lock() {
-        cache.last_scan = None;
-        cache.scanning = false;
-    }
 }
 
 fn set_downloading(id: &str, downloading: bool) {
@@ -119,46 +84,6 @@ fn is_collection_complete(spec: CursorCollectionSpec, cache_root: &Path) -> bool
     REQUIRED_FILES.iter().all(|name| dir.join(name).exists())
 }
 
-fn collection_downloaded_size(spec: CursorCollectionSpec, cache_root: &Path) -> u64 {
-    dir_size_bytes(&spec.local_dir(cache_root))
-}
-
-fn dir_size_bytes(path: &Path) -> u64 {
-    let Ok(entries) = fs::read_dir(path) else {
-        return 0;
-    };
-
-    let mut total = 0u64;
-    for entry in entries.flatten() {
-        if let Ok(meta) = entry.metadata() {
-            if meta.is_dir() {
-                total += dir_size_bytes(&entry.path());
-            } else {
-                total += meta.len();
-            }
-        }
-    }
-
-    total
-}
-
-fn compute_pointer_summary_disk(root: &Path) -> PointerSummaryDiskSnapshot {
-    let mut downloaded_count = 0usize;
-    let mut downloaded_bytes = 0u64;
-    for spec in catalog_collections().iter().copied() {
-        downloaded_bytes += collection_downloaded_size(spec, root);
-        if is_collection_complete(spec, root) {
-            downloaded_count += 1;
-        }
-    }
-
-    PointerSummaryDiskSnapshot {
-        downloaded_count,
-        total_count: catalog_collections().len(),
-        downloaded_bytes,
-    }
-}
-
 fn clamp_cursor_base_size(size: u32) -> u32 {
     size.clamp(CURSOR_BASE_SIZE_MIN, CURSOR_BASE_SIZE_MAX)
 }
@@ -179,35 +104,7 @@ fn accessibility_cursor_size_from_base(base_size: u32) -> u32 {
 }
 
 pub(crate) fn pointer_collection_summary() -> PointerCollectionSummary {
-    let downloading_count = downloading_ids().lock().unwrap().len();
-    let now = Instant::now();
-    let root = cache_root();
-    let snapshot = {
-        let mut cache = summary_cache().lock().unwrap();
-        let needs_refresh = cache
-            .last_scan
-            .is_none_or(|last| now.duration_since(last) >= SUMMARY_CACHE_TTL);
-        if needs_refresh && !cache.scanning {
-            cache.scanning = true;
-            let root_for_thread = root.clone();
-            thread::spawn(move || {
-                let snapshot = compute_pointer_summary_disk(&root_for_thread);
-                if let Ok(mut cache) = summary_cache().lock() {
-                    cache.snapshot = snapshot;
-                    cache.last_scan = Some(Instant::now());
-                    cache.scanning = false;
-                }
-            });
-        }
-        cache.snapshot
-    };
-
-    PointerCollectionSummary {
-        downloaded_count: snapshot.downloaded_count,
-        total_count: snapshot.total_count,
-        downloading_count,
-        downloaded_bytes: snapshot.downloaded_bytes,
-    }
+    summary::pointer_collection_summary()
 }
 
 pub(crate) fn start_download_all_missing() -> usize {

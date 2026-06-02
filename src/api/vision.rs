@@ -3,13 +3,15 @@ use super::types::{ChatCompletionResponse, StreamChunk};
 use crate::APP;
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose};
 use image::{ImageBuffer, Rgba};
-use std::io::{BufRead, BufReader, Cursor};
+use std::io::{BufRead, BufReader};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+
+mod image_payload;
+use image_payload::prepare_image_payload;
 
 pub struct TranslateImageRequest<'a> {
     pub groq_api_key: &'a str,
@@ -57,95 +59,11 @@ where
         })
         .unwrap_or_default();
 
-    let b64_image: String;
-    let mut image_data = Vec::new();
-    let mut mime_type = "image/png".to_string();
-
-    // Check for "Zero-Copy" path (Google provider + Original Bytes available)
-    if provider == "google" {
-        if let Some(bytes) = original_bytes.as_ref() {
-            println!("DEBUG: Zero-Copy optimization active for Google provider");
-            // Use original bytes directly (e.g. JPEG) - no resize, no conversion
-            b64_image = general_purpose::STANDARD.encode(bytes);
-
-            // Sniff mime type
-            if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-                mime_type = "image/jpeg".to_string();
-            } else if bytes.starts_with(&[0x89, 0x50, 0x4e, 0x47]) {
-                mime_type = "image/png".to_string();
-            } else if bytes.starts_with(&[0x52, 0x49, 0x46, 0x46])
-                && bytes[8..12] == [0x57, 0x45, 0x42, 0x50]
-            {
-                mime_type = "image/webp".to_string();
-            }
-            println!("DEBUG: Detected MIME type: {}", mime_type);
-        } else {
-            // Standard Processing Path (Resize + Convert to PNG)
-            let mut final_image = image;
-            let max_dim = 2048;
-
-            // Resize if too large (Skip for Google as they handle large images well if we fall back to this path)
-            if provider != "google"
-                && (final_image.width() > max_dim || final_image.height() > max_dim)
-            {
-                println!("DEBUG: Image exceeds {}px, resizing...", max_dim);
-                let (n_w, n_h) = if final_image.width() > final_image.height() {
-                    let ratio = max_dim as f32 / final_image.width() as f32;
-                    (max_dim, (final_image.height() as f32 * ratio) as u32)
-                } else {
-                    let ratio = max_dim as f32 / final_image.height() as f32;
-                    ((final_image.width() as f32 * ratio) as u32, max_dim)
-                };
-                final_image = image::imageops::resize(
-                    &final_image,
-                    n_w,
-                    n_h,
-                    image::imageops::FilterType::Lanczos3,
-                );
-                println!(
-                    "DEBUG: Resized to: {}x{}",
-                    final_image.width(),
-                    final_image.height()
-                );
-            }
-
-            final_image.write_to(&mut Cursor::new(&mut image_data), image::ImageFormat::Png)?;
-            b64_image = general_purpose::STANDARD.encode(&image_data);
-            mime_type = "image/png".to_string();
-        }
-    } else {
-        // Standard Processing Path (Resize + Convert to PNG)
-        let mut final_image = image;
-        let max_dim = 2048;
-
-        // Resize if too large (Skip for Google as they handle large images well if we fall back to this path)
-        if provider != "google" && (final_image.width() > max_dim || final_image.height() > max_dim)
-        {
-            println!("DEBUG: Image exceeds {}px, resizing...", max_dim);
-            let (n_w, n_h) = if final_image.width() > final_image.height() {
-                let ratio = max_dim as f32 / final_image.width() as f32;
-                (max_dim, (final_image.height() as f32 * ratio) as u32)
-            } else {
-                let ratio = max_dim as f32 / final_image.height() as f32;
-                ((final_image.width() as f32 * ratio) as u32, max_dim)
-            };
-            final_image = image::imageops::resize(
-                &final_image,
-                n_w,
-                n_h,
-                image::imageops::FilterType::Lanczos3,
-            );
-            println!(
-                "DEBUG: Resized to: {}x{}",
-                final_image.width(),
-                final_image.height()
-            );
-        }
-
-        final_image.write_to(&mut Cursor::new(&mut image_data), image::ImageFormat::Png)?;
-        b64_image = general_purpose::STANDARD.encode(&image_data);
-        mime_type = "image/png".to_string();
-    }
+    let prepared_image = prepare_image_payload(provider.as_str(), image, original_bytes)?;
+    let b64_image = prepared_image.b64_image;
+    let image_data = prepared_image.image_data;
+    let mime_type = prepared_image.mime_type;
+    let original_bytes = prepared_image.original_bytes;
 
     let mut full_content = String::new();
 
@@ -197,13 +115,15 @@ where
         let live_image_bytes = original_bytes.unwrap_or(image_data);
 
         return crate::api::gemini_live::gemini_live_generate(
-            model,
-            prompt,
-            String::new(),
-            Some((live_image_bytes, mime_type)),
-            None,
-            streaming_enabled,
-            &ui_language,
+            crate::api::gemini_live::GeminiLiveGenerateRequest {
+                model,
+                text: prompt,
+                instruction: String::new(),
+                image_data: Some((live_image_bytes, mime_type)),
+                audio_data: None,
+                streaming_enabled,
+                ui_language: &ui_language,
+            },
             on_chunk,
         );
     } else if provider == "qrserver" {

@@ -1,5 +1,8 @@
-use std::collections::VecDeque;
-use std::fs::{self, File};
+mod mix_buffer;
+mod time_map;
+mod wav_fast;
+
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -7,12 +10,18 @@ use std::time::Instant;
 use super::super::mf_audio::MfAudioDecoder;
 use super::config::{DeviceAudioPoint, SpeedPoint, TrimSegment};
 
+use self::mix_buffer::FloatMixBuffer;
+pub use self::time_map::calculate_mix_output_duration;
+use self::time_map::{
+    OutputTimeMapper, average_output_tempo, curve_has_audible_points, get_audio_volume, get_speed,
+    implicit_edge_fade_multiplier, normalized_trim_segments, source_project_end_time,
+};
+use self::wav_fast::{DecodedAudioChunk, fast_retime_f32le, read_wav_fast_chunks};
+
 pub const MIX_OUTPUT_SAMPLE_RATE: u32 = 48_000;
 pub const MIX_OUTPUT_CHANNELS: u32 = 2;
 
-const MIXER_INTEGRATION_STEP_SEC: f64 = 0.005;
 pub const IMPLICIT_AUDIO_EDGE_FADE_SEC: f64 = 0.12;
-const WAV_FAST_CHUNK_FRAMES: usize = 8192;
 
 #[derive(Debug, Clone)]
 pub struct ExportAudioSource {
@@ -28,85 +37,6 @@ pub struct ExportAudioSource {
     /// shrink the timeline footprint; <1 plays slower and stretches it.
     pub playback_rate: f64,
     pub implicit_edge_fade_sec: f64,
-}
-
-fn normalized_trim_segments(
-    trim_start: f64,
-    duration: f64,
-    trim_segments: &[TrimSegment],
-) -> Vec<TrimSegment> {
-    if trim_segments.is_empty() {
-        return vec![TrimSegment {
-            start_time: trim_start,
-            end_time: trim_start + duration.max(0.0),
-        }];
-    }
-    trim_segments.to_vec()
-}
-
-fn get_speed(time: f64, points: &[SpeedPoint]) -> f64 {
-    if points.is_empty() {
-        return 1.0;
-    }
-
-    let idx = points.partition_point(|point| point.time < time);
-    if idx == 0 {
-        return points[0].speed;
-    }
-    if idx >= points.len() {
-        return points.last().unwrap().speed;
-    }
-
-    let left = &points[idx - 1];
-    let right = &points[idx];
-    let t = (time - left.time) / (right.time - left.time).max(1e-9);
-    let cos_t = (1.0 - (t * std::f64::consts::PI).cos()) / 2.0;
-    left.speed + (right.speed - left.speed) * cos_t
-}
-
-fn get_audio_volume(time: f64, points: &[DeviceAudioPoint]) -> f64 {
-    if points.is_empty() {
-        return 1.0;
-    }
-
-    let idx = points.partition_point(|point| point.time < time);
-    if idx == 0 {
-        return points[0].volume.clamp(0.0, 1.0);
-    }
-    if idx >= points.len() {
-        return points.last().unwrap().volume.clamp(0.0, 1.0);
-    }
-
-    let left = &points[idx - 1];
-    let right = &points[idx];
-    let t = (time - left.time) / (right.time - left.time).max(1e-9);
-    let cos_t = (1.0 - (t * std::f64::consts::PI).cos()) / 2.0;
-    (left.volume + (right.volume - left.volume) * cos_t).clamp(0.0, 1.0)
-}
-
-fn implicit_edge_fade_multiplier(time: f64, start_time: f64, end_time: f64, fade_sec: f64) -> f64 {
-    if fade_sec <= 0.0 || end_time <= start_time {
-        return 1.0;
-    }
-    let duration = end_time - start_time;
-    let fade = fade_sec.min(duration / 2.0).max(0.0);
-    if fade <= 0.0 {
-        return 1.0;
-    }
-    if time <= start_time || time >= end_time {
-        return 0.0;
-    }
-    let fade_in = if time - start_time < fade {
-        (1.0 - (((time - start_time) / fade) * std::f64::consts::PI).cos()) / 2.0
-    } else {
-        1.0
-    };
-    let fade_out = if end_time - time < fade {
-        (1.0 - (((end_time - time) / fade) * std::f64::consts::PI).cos()) / 2.0
-    } else {
-        1.0
-    };
-    (fade_in * fade_out).clamp(0.0, 1.0)
 }
 
 fn apply_audio_volume_envelope(
@@ -205,336 +135,6 @@ fn trim_pcm_to_source_window(
     Some((next_pcm, next_time, next_duration))
 }
 
-fn curve_has_audible_points(points: &[DeviceAudioPoint]) -> bool {
-    if points.is_empty() {
-        return true;
-    }
-    points.iter().any(|point| point.volume > 0.0001)
-}
-
-struct OutputTimeMapper {
-    trim_segments: Vec<TrimSegment>,
-    speed_points: Vec<SpeedPoint>,
-    segment_idx: usize,
-    cursor_source_time: f64,
-    cursor_output_time: f64,
-}
-
-impl OutputTimeMapper {
-    fn new(trim_segments: Vec<TrimSegment>, speed_points: Vec<SpeedPoint>) -> Self {
-        let cursor_source_time = trim_segments
-            .first()
-            .map(|segment| segment.start_time)
-            .unwrap_or(0.0);
-        Self {
-            trim_segments,
-            speed_points,
-            segment_idx: 0,
-            cursor_source_time,
-            cursor_output_time: 0.0,
-        }
-    }
-
-    fn map_source_time(&mut self, target_time: f64) -> Option<f64> {
-        if self.trim_segments.is_empty() {
-            return Some(0.0);
-        }
-
-        while self.segment_idx < self.trim_segments.len() {
-            let segment = &self.trim_segments[self.segment_idx];
-            if target_time < segment.start_time {
-                return Some(self.cursor_output_time);
-            }
-            if self.cursor_source_time < segment.start_time {
-                self.cursor_source_time = segment.start_time;
-            }
-            if target_time <= self.cursor_source_time {
-                return Some(self.cursor_output_time);
-            }
-            if target_time <= segment.end_time {
-                self.integrate_to(target_time);
-                return Some(self.cursor_output_time);
-            }
-            self.integrate_to(segment.end_time);
-            self.segment_idx += 1;
-            if self.segment_idx < self.trim_segments.len() {
-                self.cursor_source_time = self.trim_segments[self.segment_idx].start_time;
-            }
-        }
-
-        None
-    }
-
-    fn integrate_to(&mut self, target_time: f64) {
-        while self.cursor_source_time < target_time - 1e-9 {
-            let step_end = (self.cursor_source_time + MIXER_INTEGRATION_STEP_SEC).min(target_time);
-            let mid_time = (self.cursor_source_time + step_end) * 0.5;
-            let speed = get_speed(mid_time, &self.speed_points).clamp(0.1, 16.0);
-            self.cursor_output_time += (step_end - self.cursor_source_time) / speed;
-            self.cursor_source_time = step_end;
-        }
-    }
-}
-
-fn create_wav_writer(
-    wav_path: &Path,
-) -> Result<hound::WavWriter<std::io::BufWriter<File>>, String> {
-    let spec = hound::WavSpec {
-        channels: MIX_OUTPUT_CHANNELS as u16,
-        sample_rate: MIX_OUTPUT_SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    hound::WavWriter::create(wav_path, spec).map_err(|e| format!("Create mixed WAV: {e}"))
-}
-
-struct FloatMixBuffer {
-    samples: Vec<f32>,
-    channels: usize,
-}
-
-impl FloatMixBuffer {
-    fn new(channels: usize, duration_sec: f64) -> Self {
-        let frames = (duration_sec.max(0.0) * MIX_OUTPUT_SAMPLE_RATE as f64).ceil() as usize;
-        Self {
-            samples: vec![0.0; frames.saturating_mul(channels)],
-            channels,
-        }
-    }
-
-    fn mix_f32le(
-        &mut self,
-        output_start_time: f64,
-        pcm: &[u8],
-        channels: usize,
-    ) -> Result<(), String> {
-        if pcm.is_empty() || channels == 0 {
-            return Ok(());
-        }
-        if channels != self.channels {
-            return Err(format!(
-                "Audio mix channel mismatch: source={channels}, output={}",
-                self.channels
-            ));
-        }
-        let start_frame = (output_start_time * MIX_OUTPUT_SAMPLE_RATE as f64)
-            .round()
-            .max(0.0) as usize;
-        let start_sample = start_frame.saturating_mul(self.channels);
-        let source_samples = pcm.len() / 4;
-        let required = start_sample.saturating_add(source_samples);
-        if required > self.samples.len() {
-            self.samples.resize(required, 0.0);
-        }
-        for (index, chunk) in pcm.chunks_exact(4).enumerate() {
-            let sample = f32::from_le_bytes(chunk.try_into().unwrap());
-            self.samples[start_sample + index] += sample;
-        }
-        Ok(())
-    }
-
-    fn has_audio(&self) -> bool {
-        self.samples.iter().any(|sample| sample.abs() > 0.000_001)
-    }
-
-    fn write_wav(&self, wav_path: &Path) -> Result<(), String> {
-        let mut writer = create_wav_writer(wav_path)?;
-        for sample in &self.samples {
-            let pcm_i16 = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
-            writer
-                .write_sample(pcm_i16)
-                .map_err(|e| format!("Write mixed WAV sample: {e}"))?;
-        }
-        writer
-            .finalize()
-            .map_err(|e| format!("Finalize mixed WAV: {e}"))?;
-        Ok(())
-    }
-}
-
-struct DecodedAudioChunk {
-    pcm: Vec<u8>,
-    decoded_time: f64,
-    channels: usize,
-}
-
-fn f32_samples_to_le_bytes(samples: &[f32]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(samples.len() * 4);
-    for sample in samples {
-        bytes.extend_from_slice(&sample.to_le_bytes());
-    }
-    bytes
-}
-
-fn push_wav_frame(
-    frames: &mut Vec<[f32; 2]>,
-    pending: &mut Option<f32>,
-    sample: f32,
-    channels: u16,
-) {
-    match channels {
-        1 => frames.push([sample, sample]),
-        2 => {
-            if let Some(left) = pending.take() {
-                frames.push([left, sample]);
-            } else {
-                *pending = Some(sample);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn wav_frames_to_output_chunks(
-    source_frames: &[[f32; 2]],
-    source_sample_rate: u32,
-) -> VecDeque<DecodedAudioChunk> {
-    let mut chunks = VecDeque::new();
-    if source_frames.is_empty() || source_sample_rate == 0 {
-        return chunks;
-    }
-
-    let output_frames = ((source_frames.len() as u64 * MIX_OUTPUT_SAMPLE_RATE as u64)
-        .saturating_add(source_sample_rate as u64 - 1)
-        / source_sample_rate as u64) as usize;
-    let mut chunk_samples =
-        Vec::with_capacity(WAV_FAST_CHUNK_FRAMES * MIX_OUTPUT_CHANNELS as usize);
-    let mut chunk_start_frame = 0usize;
-
-    let flush_chunk =
-        |samples: &mut Vec<f32>, start_frame: usize, chunks: &mut VecDeque<DecodedAudioChunk>| {
-            if samples.is_empty() {
-                return;
-            }
-            chunks.push_back(DecodedAudioChunk {
-                pcm: f32_samples_to_le_bytes(samples),
-                decoded_time: start_frame as f64 / MIX_OUTPUT_SAMPLE_RATE as f64,
-                channels: MIX_OUTPUT_CHANNELS as usize,
-            });
-            samples.clear();
-        };
-
-    for output_frame_idx in 0..output_frames {
-        let source_pos =
-            output_frame_idx as f64 * source_sample_rate as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
-        let left_idx = source_pos.floor() as usize;
-        let right_idx = (left_idx + 1).min(source_frames.len() - 1);
-        let t = (source_pos - left_idx as f64) as f32;
-        let left = source_frames[left_idx];
-        let right = source_frames[right_idx];
-        chunk_samples.push(left[0] + (right[0] - left[0]) * t);
-        chunk_samples.push(left[1] + (right[1] - left[1]) * t);
-
-        if (output_frame_idx + 1).is_multiple_of(WAV_FAST_CHUNK_FRAMES) {
-            flush_chunk(&mut chunk_samples, chunk_start_frame, &mut chunks);
-            chunk_start_frame = output_frame_idx + 1;
-        }
-    }
-    flush_chunk(&mut chunk_samples, chunk_start_frame, &mut chunks);
-    chunks
-}
-
-fn read_wav_fast_chunks(path: &str) -> Result<Option<VecDeque<DecodedAudioChunk>>, String> {
-    if !path.to_ascii_lowercase().ends_with(".wav") {
-        return Ok(None);
-    }
-    let mut reader =
-        hound::WavReader::open(path).map_err(|e| format!("Open WAV fast path: {e}"))?;
-    let spec = reader.spec();
-    if spec.sample_rate == 0 || !(spec.channels == 1 || spec.channels == 2) {
-        return Ok(None);
-    }
-
-    let estimated_frames = reader.duration() as usize / spec.channels as usize;
-    let mut source_frames = Vec::with_capacity(estimated_frames);
-    let mut pending_stereo_sample = None;
-
-    match (spec.sample_format, spec.bits_per_sample) {
-        (hound::SampleFormat::Float, 32) => {
-            for sample in reader.samples::<f32>() {
-                let sample = sample.map_err(|e| format!("Read WAV float sample: {e}"))?;
-                push_wav_frame(
-                    &mut source_frames,
-                    &mut pending_stereo_sample,
-                    sample.clamp(-1.0, 1.0),
-                    spec.channels,
-                );
-            }
-        }
-        (hound::SampleFormat::Int, 16) => {
-            for sample in reader.samples::<i16>() {
-                let sample = sample.map_err(|e| format!("Read WAV i16 sample: {e}"))?;
-                push_wav_frame(
-                    &mut source_frames,
-                    &mut pending_stereo_sample,
-                    sample as f32 / 32768.0,
-                    spec.channels,
-                );
-            }
-        }
-        (hound::SampleFormat::Int, 24 | 32) => {
-            let denom = if spec.bits_per_sample == 24 {
-                8_388_608.0
-            } else {
-                2_147_483_648.0
-            };
-            for sample in reader.samples::<i32>() {
-                let sample = sample.map_err(|e| format!("Read WAV i32 sample: {e}"))?;
-                push_wav_frame(
-                    &mut source_frames,
-                    &mut pending_stereo_sample,
-                    (sample as f32 / denom).clamp(-1.0, 1.0),
-                    spec.channels,
-                );
-            }
-        }
-        _ => return Ok(None),
-    }
-    Ok(Some(wav_frames_to_output_chunks(
-        &source_frames,
-        spec.sample_rate,
-    )))
-}
-
-fn fast_retime_f32le(pcm: &[u8], channels: usize, speed: f64) -> Vec<u8> {
-    if pcm.is_empty() || channels == 0 {
-        return Vec::new();
-    }
-    let input_frames = pcm.len() / (channels * 4);
-    if input_frames == 0 {
-        return Vec::new();
-    }
-    let speed = speed.clamp(0.05, 64.0);
-    if (speed - 1.0).abs() <= 0.0001 {
-        return pcm.to_vec();
-    }
-
-    let output_frames = ((input_frames as f64) / speed).ceil().max(1.0) as usize;
-    let mut out = Vec::with_capacity(output_frames * channels * 4);
-    for output_frame_idx in 0..output_frames {
-        let source_pos = output_frame_idx as f64 * speed;
-        let left_frame = source_pos.floor().min((input_frames - 1) as f64) as usize;
-        let right_frame = (left_frame + 1).min(input_frames - 1);
-        let t = (source_pos - left_frame as f64) as f32;
-        for channel_idx in 0..channels {
-            let left_sample_idx = ((left_frame * channels) + channel_idx) * 4;
-            let right_sample_idx = ((right_frame * channels) + channel_idx) * 4;
-            let left = f32::from_le_bytes(
-                pcm[left_sample_idx..left_sample_idx + 4]
-                    .try_into()
-                    .unwrap(),
-            );
-            let right = f32::from_le_bytes(
-                pcm[right_sample_idx..right_sample_idx + 4]
-                    .try_into()
-                    .unwrap(),
-            );
-            out.extend_from_slice(&(left + (right - left) * t).to_le_bytes());
-        }
-    }
-    out
-}
-
 fn atempo_chain(tempo: f64) -> String {
     let mut remaining = tempo.clamp(0.05, 64.0);
     let mut filters = Vec::new();
@@ -561,77 +161,29 @@ fn audio_ffmpeg_download_message() -> String {
         .to_string()
 }
 
-fn source_project_start_time(source: &ExportAudioSource) -> f64 {
-    source.start_offset_sec
-        + source
-            .source_in_sec
-            .filter(|value| value.is_finite())
-            .unwrap_or(0.0)
-            / source.playback_rate.max(0.0001)
-}
-
-fn source_project_end_time(source: &ExportAudioSource, fallback_duration: f64) -> f64 {
-    let source_out = source
-        .source_out_sec
-        .filter(|value| value.is_finite())
-        .unwrap_or(fallback_duration.max(0.0));
-    source.start_offset_sec + source_out / source.playback_rate.max(0.0001)
-}
-
-fn output_time_for_project_time(
-    project_time: f64,
-    trim_segments: &[TrimSegment],
-    speed_points: &[SpeedPoint],
-) -> Option<f64> {
-    OutputTimeMapper::new(trim_segments.to_vec(), speed_points.to_vec())
-        .map_source_time(project_time)
-}
-
-pub fn calculate_mix_output_duration(
-    trim_start: f64,
-    duration: f64,
-    trim_segments: &[TrimSegment],
-    speed_points: &[SpeedPoint],
-) -> f64 {
-    let normalized = normalized_trim_segments(trim_start, duration, trim_segments);
-    let Some(last_end) = normalized.last().map(|segment| segment.end_time) else {
-        return 0.0;
-    };
-    output_time_for_project_time(last_end, &normalized, speed_points).unwrap_or(duration.max(0.0))
-}
-
-fn average_output_tempo(
-    source: &ExportAudioSource,
-    trim_segments: &[TrimSegment],
-    speed_points: &[SpeedPoint],
+struct AudioRetimeContext<'a> {
+    trim_segments: &'a [TrimSegment],
+    speed_points: &'a [SpeedPoint],
+    temp_dir: &'a Path,
+    file_stem: &'a str,
+    source_index: usize,
     fallback_duration: f64,
-) -> Option<(f64, f64)> {
-    let project_start = source_project_start_time(source);
-    let project_end = source_project_end_time(source, fallback_duration);
-    if project_end <= project_start {
-        return None;
-    }
-    let output_start = output_time_for_project_time(project_start, trim_segments, speed_points)?;
-    let output_end = output_time_for_project_time(project_end, trim_segments, speed_points)?;
-    if output_end <= output_start {
-        return None;
-    }
-    Some((
-        (project_end - project_start) / (output_end - output_start),
-        output_start,
-    ))
+    ffmpeg_path_cache: &'a mut Option<PathBuf>,
 }
 
 fn render_pitch_preserved_source_with_ffmpeg(
     source: &ExportAudioSource,
-    trim_segments: &[TrimSegment],
-    speed_points: &[SpeedPoint],
-    temp_dir: &Path,
-    file_stem: &str,
-    source_index: usize,
-    fallback_duration: f64,
-    ffmpeg_path_cache: &mut Option<PathBuf>,
+    context: AudioRetimeContext<'_>,
 ) -> Result<Option<ExportAudioSource>, String> {
+    let AudioRetimeContext {
+        trim_segments,
+        speed_points,
+        temp_dir,
+        file_stem,
+        source_index,
+        fallback_duration,
+        ffmpeg_path_cache,
+    } = context;
     let Some((tempo, output_start)) =
         average_output_tempo(source, trim_segments, speed_points, fallback_duration)
     else {
@@ -661,10 +213,10 @@ fn render_pitch_preserved_source_with_ffmpeg(
         .max(0.0);
     let source_out = source.source_out_sec.filter(|value| value.is_finite());
     let mut atrim = format!("atrim=start={source_in:.6}");
-    if let Some(out) = source_out {
-        if out > source_in {
-            atrim.push_str(&format!(":end={out:.6}"));
-        }
+    if let Some(out) = source_out
+        && out > source_in
+    {
+        atrim.push_str(&format!(":end={out:.6}"));
     }
     let filter = format!(
         "{atrim},asetpts=PTS-STARTPTS,{},aresample={},aformat=sample_fmts=s16:channel_layouts=stereo",
@@ -712,16 +264,28 @@ fn render_pitch_preserved_source_with_ffmpeg(
     }))
 }
 
+struct DecodedChunkContext<'a> {
+    source: &'a ExportAudioSource,
+    trim_segments: &'a [TrimSegment],
+    speed_points: &'a [SpeedPoint],
+    mapper: &'a mut OutputTimeMapper,
+    segment_idx: &'a mut usize,
+    source_out_sec: Option<f64>,
+}
+
 fn process_decoded_chunk(
     mixer: &mut FloatMixBuffer,
-    source: &ExportAudioSource,
-    trim_segments: &[TrimSegment],
-    speed_points: &[SpeedPoint],
-    mapper: &mut OutputTimeMapper,
-    segment_idx: &mut usize,
     chunk: DecodedAudioChunk,
-    source_out_sec: Option<f64>,
+    context: DecodedChunkContext<'_>,
 ) -> Result<bool, String> {
+    let DecodedChunkContext {
+        source,
+        trim_segments,
+        speed_points,
+        mapper,
+        segment_idx,
+        source_out_sec,
+    } = context;
     let Some((pcm, decoded_time, source_duration_sec)) = trim_pcm_to_source_window(
         chunk.pcm,
         chunk.decoded_time,
@@ -808,13 +372,15 @@ fn mix_mf_source_into_buffer(
         };
         if !process_decoded_chunk(
             mixer,
-            source,
-            trim_segments,
-            speed_points,
-            &mut mapper,
-            &mut segment_idx,
             chunk,
-            source_out_sec,
+            DecodedChunkContext {
+                source,
+                trim_segments,
+                speed_points,
+                mapper: &mut mapper,
+                segment_idx: &mut segment_idx,
+                source_out_sec,
+            },
         )? {
             if let Some(next_segment) = trim_segments.get(segment_idx) {
                 let _ = decoder.seek((next_segment.start_time * 10_000_000.0) as i64);
@@ -844,13 +410,15 @@ fn mix_wav_fast_source_into_buffer(
     while let Some(chunk) = chunks.pop_front() {
         if !process_decoded_chunk(
             mixer,
-            source,
-            trim_segments,
-            speed_points,
-            &mut mapper,
-            &mut segment_idx,
             chunk,
-            source_out_sec,
+            DecodedChunkContext {
+                source,
+                trim_segments,
+                speed_points,
+                mapper: &mut mapper,
+                segment_idx: &mut segment_idx,
+                source_out_sec,
+            },
         )? {
             break;
         }
@@ -859,27 +427,43 @@ fn mix_wav_fast_source_into_buffer(
     Ok(true)
 }
 
-fn mix_source_into_buffer(
-    mixer: &mut FloatMixBuffer,
-    source: &ExportAudioSource,
-    trim_segments: &[TrimSegment],
-    speed_points: &[SpeedPoint],
-    temp_dir: &Path,
-    file_stem: &str,
+struct MixSourceContext<'a> {
+    trim_segments: &'a [TrimSegment],
+    speed_points: &'a [SpeedPoint],
+    temp_dir: &'a Path,
+    file_stem: &'a str,
     source_index: usize,
     fallback_duration: f64,
     output_duration: f64,
-    ffmpeg_path_cache: &mut Option<PathBuf>,
+    ffmpeg_path_cache: &'a mut Option<PathBuf>,
+}
+
+fn mix_source_into_buffer(
+    mixer: &mut FloatMixBuffer,
+    source: &ExportAudioSource,
+    context: MixSourceContext<'_>,
 ) -> Result<&'static str, String> {
-    if let Some(retimed_source) = render_pitch_preserved_source_with_ffmpeg(
-        source,
+    let MixSourceContext {
         trim_segments,
         speed_points,
         temp_dir,
         file_stem,
         source_index,
         fallback_duration,
+        output_duration,
         ffmpeg_path_cache,
+    } = context;
+    if let Some(retimed_source) = render_pitch_preserved_source_with_ffmpeg(
+        source,
+        AudioRetimeContext {
+            trim_segments,
+            speed_points,
+            temp_dir,
+            file_stem,
+            source_index,
+            fallback_duration,
+            ffmpeg_path_cache,
+        },
     )? {
         let identity_segments = vec![TrimSegment {
             start_time: 0.0,
@@ -940,14 +524,16 @@ pub fn build_preprocessed_audio_mix(
             let path_kind = mix_source_into_buffer(
                 &mut mixer,
                 source,
-                &trim_segments,
-                speed_points,
-                temp_dir,
-                file_stem,
-                source_index,
-                duration,
-                output_duration,
-                &mut ffmpeg_path_cache,
+                MixSourceContext {
+                    trim_segments: &trim_segments,
+                    speed_points,
+                    temp_dir,
+                    file_stem,
+                    source_index,
+                    fallback_duration: duration,
+                    output_duration,
+                    ffmpeg_path_cache: &mut ffmpeg_path_cache,
+                },
             )?;
             if path_kind == "wav_fast_path" {
                 wav_fast_sources += 1;

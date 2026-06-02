@@ -64,9 +64,7 @@ fn default_overlay_scale() -> f64 {
 
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct TextAtlasEntry {
-    pub id: String,
     pub start_time: f64,
     pub end_time: f64,
     pub rect_x: f32,
@@ -75,8 +73,6 @@ pub struct TextAtlasEntry {
     pub rect_h: f32,
     pub hit_x: f32,
     pub hit_y: f32,
-    pub hit_w: f32,
-    pub hit_h: f32,
     pub pivot_x: f32,
     pub pivot_y: f32,
     pub pad: f32,
@@ -107,9 +103,7 @@ pub struct KeystrokeAtlasEntry {
 
 #[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct KeystrokeExportEvent {
-    pub id: String,
     pub unique_key: String,
     #[serde(rename = "type")]
     pub event_type: String,

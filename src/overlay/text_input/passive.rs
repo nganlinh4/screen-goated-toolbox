@@ -259,7 +259,7 @@ fn translate_vk(vk_code: u32) -> Option<String> {
     }
 
     let layout = unsafe { GetKeyboardLayout(0) };
-    let scan_code = unsafe { MapVirtualKeyW(vk_code, MAPVK_VK_TO_VSC) as u32 };
+    let scan_code = unsafe { MapVirtualKeyW(vk_code, MAPVK_VK_TO_VSC) };
     let mut utf16 = [0u16; 8];
     let translated = unsafe {
         ToUnicodeEx(

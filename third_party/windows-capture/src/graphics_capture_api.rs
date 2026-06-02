@@ -19,78 +19,19 @@ use windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
 use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
 
 use crate::capture::GraphicsCaptureApiHandler;
-use crate::d3d11::{self, create_direct3d_device, SendDirectX};
+use crate::d3d11::{create_direct3d_device, SendDirectX};
 use crate::frame::{Frame, FrameParams};
 use crate::settings::{
     CaptureItemTypes, ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
     MinimumUpdateIntervalSettings, SecondaryWindowSettings,
 };
 
+mod types;
+
+pub use types::{Error, InternalCaptureControl};
+
 // Extra frame-pool headroom prevents WGC starvation when the encoder has brief stalls.
 const FRAME_POOL_BUFFER_COUNT: i32 = 8;
-
-#[derive(thiserror::Error, Eq, PartialEq, Clone, Debug)]
-pub enum Error {
-    #[error("The Graphics Capture API is not supported on this platform.")]
-    Unsupported,
-    #[error(
-        "Toggling cursor capture is not supported by the Graphics Capture API on this platform."
-    )]
-    CursorConfigUnsupported,
-    #[error(
-        "Toggling the capture border is not supported by the Graphics Capture API on this platform."
-    )]
-    BorderConfigUnsupported,
-    #[error(
-        "Capturing secondary windows is not supported by the Graphics Capture API on this platform."
-    )]
-    SecondaryWindowsUnsupported,
-    #[error(
-        "Setting a minimum update interval is not supported by the Graphics Capture API on this platform."
-    )]
-    MinimumUpdateIntervalUnsupported,
-    #[error(
-        "Dirty region tracking is not supported by the Graphics Capture API on this platform."
-    )]
-    DirtyRegionUnsupported,
-    #[error("The capture has already been started.")]
-    AlreadyStarted,
-    #[error("DirectX error: {0}")]
-    DirectXError(#[from] d3d11::Error),
-    #[error("Window error: {0}")]
-    WindowError(#[from] crate::window::Error),
-    #[error("Windows API error: {0}")]
-    WindowsError(#[from] windows::core::Error),
-}
-
-/// Provides a way to gracefully stop the capture session thread.
-#[derive(Clone)]
-pub struct InternalCaptureControl {
-    stop: Arc<AtomicBool>,
-}
-
-impl InternalCaptureControl {
-    /// Creates a new `InternalCaptureControl` struct.
-    ///
-    /// # Arguments
-    ///
-    /// * `stop` - An `Arc<AtomicBool>` used to signal the capture thread to stop.
-    ///
-    /// # Returns
-    ///
-    /// Returns a new `InternalCaptureControl` instance.
-    #[must_use]
-    #[inline]
-    pub const fn new(stop: Arc<AtomicBool>) -> Self {
-        Self { stop }
-    }
-
-    /// Signals the capture thread to stop.
-    #[inline]
-    pub fn stop(self) {
-        self.stop.store(true, atomic::Ordering::Relaxed);
-    }
-}
 
 /// Manages a graphics capture session using the Windows Graphics Capture API.
 pub struct GraphicsCaptureApi {

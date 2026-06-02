@@ -173,7 +173,7 @@ impl<'a> GenerationSession<'a> {
 }
 
 fn should_log_generation_step(step: usize) -> bool {
-    step <= 8 || step.is_power_of_two() || step % 32 == 0
+    step <= 8 || step.is_power_of_two() || step.is_multiple_of(32)
 }
 
 pub(crate) fn parse_language_prefix(raw: &str) -> String {

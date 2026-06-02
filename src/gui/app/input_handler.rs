@@ -5,6 +5,8 @@
 // 2. Shows the appropriate preset wheel
 // 3. Triggers the processing pipeline with the selected preset
 
+mod paste;
+
 use crate::APP;
 use crate::overlay::preset_wheel::{
     show_custom_wheel, show_preset_wheel, show_preset_wheel_with_extra,
@@ -12,7 +14,6 @@ use crate::overlay::preset_wheel::{
 use crate::overlay::process::pipeline::{
     start_processing_pipeline, start_processing_pipeline_parallel, start_text_processing,
 };
-use crate::overlay::utils::get_clipboard_image_bytes;
 use eframe::egui;
 use image::{ImageBuffer, Rgba};
 use std::io::Cursor;
@@ -20,6 +21,8 @@ use std::path::Path;
 use std::sync::mpsc;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+pub use paste::handle_paste;
 
 type CapturedImagePayload = (ImageBuffer<Rgba<u8>, Vec<u8>>, Vec<u8>);
 
@@ -552,125 +555,4 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
 /// Check if files are currently being dragged over the window (not yet dropped)
 pub fn is_files_hovered(ctx: &egui::Context) -> bool {
     ctx.input(|i| !i.raw.hovered_files.is_empty())
-}
-
-/// Get text from Windows clipboard
-fn get_clipboard_text() -> Option<String> {
-    use windows::Win32::Foundation::HGLOBAL;
-    use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
-    use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
-
-    unsafe {
-        // Try to open clipboard
-        for _attempt in 0..5 {
-            if OpenClipboard(None).is_ok() {
-                // CF_UNICODETEXT = 13
-                if let Ok(h_data) = GetClipboardData(13) {
-                    let ptr = GlobalLock(HGLOBAL(h_data.0));
-                    if !ptr.is_null() {
-                        // Read as wide string
-                        let wide_ptr = ptr as *const u16;
-                        let mut len = 0;
-                        while *wide_ptr.add(len) != 0 {
-                            len += 1;
-                        }
-                        let slice = std::slice::from_raw_parts(wide_ptr, len);
-                        let text = String::from_utf16_lossy(slice);
-
-                        let _ = GlobalUnlock(HGLOBAL(h_data.0));
-                        let _ = CloseClipboard();
-
-                        if !text.is_empty() {
-                            return Some(text);
-                        }
-                        return None;
-                    }
-                }
-                let _ = CloseClipboard();
-                return None;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        None
-    }
-}
-
-/// Handle Ctrl+V paste - uses Windows API for keyboard detection
-pub fn handle_paste(ctx: &egui::Context) -> bool {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_V};
-
-    // Skip paste handling if help assistant modal is open
-    // This allows normal Ctrl+V paste into the text input field
-    if crate::gui::settings_ui::help_assistant::is_modal_open() {
-        return false;
-    }
-
-    // Only process if our window has focus
-    let has_focus = ctx.input(|i| i.focused);
-    if !has_focus {
-        return false;
-    }
-
-    // skip paste handling if any of the api key fields are focused
-    // this prevents the wheel from appearing when the user paste their api key
-    let focused_id = ctx.memory(|mem| mem.focused());
-    if let Some(id) = focused_id {
-        let api_key_ids = [
-            egui::Id::new("settings_api_key_groq"),
-            egui::Id::new("settings_api_key_cerebras"),
-            egui::Id::new("settings_api_key_gemini"),
-            egui::Id::new("settings_api_key_openrouter"),
-            egui::Id::new("settings_api_key_ollama_url"),
-        ];
-        if api_key_ids.contains(&id) {
-            return false;
-        }
-    }
-
-    // Debounce: prevent multiple triggers per key press
-    static LAST_V_STATE: AtomicBool = AtomicBool::new(false);
-
-    // Check keyboard state using Windows API
-    let ctrl_down = unsafe { (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 };
-    let v_down = unsafe { (GetAsyncKeyState(VK_V.0 as i32) as u16 & 0x8000) != 0 };
-    let v_was_down = LAST_V_STATE.swap(v_down, Ordering::SeqCst);
-
-    // Trigger on V key press (not release)
-    let ctrl_v_just_pressed = ctrl_down && v_down && !v_was_down;
-
-    // Also check egui events as fallback
-    let paste_event = ctx.input(|i| {
-        i.raw
-            .events
-            .iter()
-            .any(|e| matches!(e, egui::Event::Paste(_)))
-    });
-
-    if !ctrl_v_just_pressed && !paste_event {
-        return false;
-    }
-
-    // First try to get image from clipboard (images take priority)
-    if let Some(img_bytes) = get_clipboard_image_bytes()
-        && let Ok(img) = image::load_from_memory(&img_bytes)
-    {
-        let rgba = img.to_rgba8();
-        std::thread::spawn(move || {
-            process_image_content(rgba);
-        });
-        return true;
-    }
-
-    // Try to get text from clipboard via Windows API
-    if let Some(text) = get_clipboard_text()
-        && !text.is_empty()
-    {
-        std::thread::spawn(move || {
-            process_text_content(text);
-        });
-        return true;
-    }
-
-    false
 }

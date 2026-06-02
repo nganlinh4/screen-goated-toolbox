@@ -8,7 +8,7 @@ pub mod pointer_gallery;
 mod preset;
 mod sidebar;
 
-pub use footer::render_footer;
+pub use footer::{FooterToggles, render_footer};
 pub use global::render_global_settings;
 pub use history::render_history_panel;
 pub use preset::render_preset_editor;

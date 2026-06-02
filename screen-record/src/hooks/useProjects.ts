@@ -72,6 +72,15 @@ interface UseProjectsProps {
   currentWebcamVideo?: string | null;
 }
 
+function revokePreviousBlobUrl(
+  previousUrl: string | null | undefined,
+  nextUrl?: string,
+) {
+  if (previousUrl?.startsWith("blob:") && previousUrl !== nextUrl) {
+    URL.revokeObjectURL(previousUrl);
+  }
+}
+
 export function useProjects(props: UseProjectsProps) {
   const [projects, setProjects] = useState<
     Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob">[]
@@ -510,59 +519,31 @@ export function useProjects(props: UseProjectsProps) {
       props.setThumbnails([]);
       if (videoObjectUrl) {
         props.setCurrentVideo(videoObjectUrl);
-        if (
-          previousVideoUrl?.startsWith("blob:") &&
-          previousVideoUrl !== videoObjectUrl
-        ) {
-          URL.revokeObjectURL(previousVideoUrl);
-        }
+        revokePreviousBlobUrl(previousVideoUrl, videoObjectUrl);
       } else {
         props.setCurrentVideo(null);
-        if (previousVideoUrl?.startsWith("blob:")) {
-          URL.revokeObjectURL(previousVideoUrl);
-        }
+        revokePreviousBlobUrl(previousVideoUrl);
       }
       if (audioObjectUrl) {
         props.setCurrentAudio(audioObjectUrl);
-        if (
-          previousAudioUrl?.startsWith("blob:") &&
-          previousAudioUrl !== audioObjectUrl
-        ) {
-          URL.revokeObjectURL(previousAudioUrl);
-        }
+        revokePreviousBlobUrl(previousAudioUrl, audioObjectUrl);
       } else {
         props.setCurrentAudio(null);
-        if (previousAudioUrl?.startsWith("blob:")) {
-          URL.revokeObjectURL(previousAudioUrl);
-        }
+        revokePreviousBlobUrl(previousAudioUrl);
       }
       if (micAudioObjectUrl) {
         props.setCurrentMicAudio(micAudioObjectUrl);
-        if (
-          previousMicAudioUrl?.startsWith("blob:") &&
-          previousMicAudioUrl !== micAudioObjectUrl
-        ) {
-          URL.revokeObjectURL(previousMicAudioUrl);
-        }
+        revokePreviousBlobUrl(previousMicAudioUrl, micAudioObjectUrl);
       } else {
         props.setCurrentMicAudio(null);
-        if (previousMicAudioUrl?.startsWith("blob:")) {
-          URL.revokeObjectURL(previousMicAudioUrl);
-        }
+        revokePreviousBlobUrl(previousMicAudioUrl);
       }
       if (webcamVideoObjectUrl) {
         props.setCurrentWebcamVideo(webcamVideoObjectUrl);
-        if (
-          previousWebcamVideoUrl?.startsWith("blob:") &&
-          previousWebcamVideoUrl !== webcamVideoObjectUrl
-        ) {
-          URL.revokeObjectURL(previousWebcamVideoUrl);
-        }
+        revokePreviousBlobUrl(previousWebcamVideoUrl, webcamVideoObjectUrl);
       } else {
         props.setCurrentWebcamVideo(null);
-        if (previousWebcamVideoUrl?.startsWith("blob:")) {
-          URL.revokeObjectURL(previousWebcamVideoUrl);
-        }
+        revokePreviousBlobUrl(previousWebcamVideoUrl);
       }
       props.setSegment(correctedSegment);
       const loadedBackground = cloneBackgroundConfig(project.backgroundConfig);

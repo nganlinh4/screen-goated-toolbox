@@ -183,8 +183,8 @@ fn download_magpie_model_inner(stop: Arc<AtomicBool>, use_badge: bool) -> Result
     post_state();
     if use_badge {
         crate::overlay::auto_copy_badge::show_progress_notification(
-            &loc.magpie_downloading_title,
-            &loc.magpie_downloading_message,
+            loc.magpie_downloading_title,
+            loc.magpie_downloading_message,
             0.0,
         );
     }
@@ -211,7 +211,7 @@ fn download_magpie_model_inner(stop: Arc<AtomicBool>, use_badge: bool) -> Result
                     0.0
                 };
                 crate::overlay::auto_copy_badge::show_progress_notification(
-                    &loc.magpie_downloading_title,
+                    loc.magpie_downloading_title,
                     &loc.magpie_downloading_file.replace("{}", asset.filename),
                     progress,
                 );
@@ -236,7 +236,7 @@ fn download_magpie_model_inner(stop: Arc<AtomicBool>, use_badge: bool) -> Result
                     100.0
                 };
                 crate::overlay::auto_copy_badge::show_progress_notification(
-                    &loc.magpie_downloading_title,
+                    loc.magpie_downloading_title,
                     &loc.magpie_downloading_file.replace("{}", asset.filename),
                     progress,
                 );

@@ -144,6 +144,10 @@ strip = "symbols"
 debug = 1
 panic = "unwind"
 
+[profile.dev]
+# Keep panic backtraces (file:line) but drop bulky symbol data to shrink target/.
+debug = "line-tables-only"
+
 [patch.crates-io]
 windows-capture = { path = "third_party/windows-capture" }
 
