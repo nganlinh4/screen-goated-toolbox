@@ -38,49 +38,49 @@ import org.json.JSONObject
 import kotlin.math.roundToInt
 
 class OverlayController(
-    private val context: Context,
-    private val repository: AndroidLiveSessionRepository,
-    private val overlaySupported: Boolean,
-    private val stopRequested: () -> Unit,
-    private val cancelDownloadRequested: () -> Unit,
-    private val restartRequested: () -> Unit,
-    private val sourceModeChanged: (SourceMode) -> Unit,
-    private val stopTextToSpeech: () -> Unit,
-    private val ttsRuntimeService: TtsRuntimeService,
+    internal val context: Context,
+    internal val repository: AndroidLiveSessionRepository,
+    internal val overlaySupported: Boolean,
+    internal val stopRequested: () -> Unit,
+    internal val cancelDownloadRequested: () -> Unit,
+    internal val restartRequested: () -> Unit,
+    internal val sourceModeChanged: (SourceMode) -> Unit,
+    internal val stopTextToSpeech: () -> Unit,
+    internal val ttsRuntimeService: TtsRuntimeService,
 ) {
-    private val windowManager = context.getSystemService(android.view.WindowManager::class.java)
-    private val clipboardManager = context.getSystemService(ClipboardManager::class.java)
-    private val prefs = context.getSharedPreferences("sgt_overlay_window", Context.MODE_PRIVATE)
-    private val htmlBuilder = RealtimeOverlayHtmlBuilder(context)
-    private val languagePicker = OverlayLanguagePicker(
+    internal val windowManager = context.getSystemService(android.view.WindowManager::class.java)
+    internal val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+    internal val prefs = context.getSharedPreferences("sgt_overlay_window", Context.MODE_PRIVATE)
+    internal val htmlBuilder = RealtimeOverlayHtmlBuilder(context)
+    internal val languagePicker = OverlayLanguagePicker(
         context = context,
         windowManager = windowManager,
-        screenBoundsProvider = ::screenBounds,
+        screenBoundsProvider = this::screenBounds,
         onSelected = ::updateTargetLanguage,
     )
-    private val transcriptionLanguagePicker = OverlayLanguagePicker(
+    internal val transcriptionLanguagePicker = OverlayLanguagePicker(
         context = context,
         windowManager = windowManager,
-        screenBoundsProvider = ::screenBounds,
-        onSelected = ::onTranscriptionLanguageSelected,
+        screenBoundsProvider = this::screenBounds,
+        onSelected = this::onTranscriptionLanguageSelected,
     )
 
-    private var transcriptionWindow: OverlayPaneWindow? = null
-    private var translationWindow: OverlayPaneWindow? = null
-    private var updateJob: Job? = null
-    private var ttsRuntimeJob: Job? = null
-    private var listeningVisible = true
-    private var translationVisible = true
-    private var lastSnapshot: OverlaySnapshot? = null
-    private var lastRenderAtMs: Long = 0L
-    private var renderBurstCount = 0
-    private var lastSyncedVisibility: Pair<Boolean, Boolean>? = null
-    private var lastTtsState: OverlayTtsState? = null
-    private var lastRuntimeTtsState: TtsRuntimeState = TtsRuntimeState()
-    private val dismissTargets = MorphDismissZone.singleDismiss()
-    private var dismissZone: MorphDismissZone? = null
-    private val lastDismissDistanceSq = FloatArray(dismissTargets.size) { Float.POSITIVE_INFINITY }
-    private val boundsPersistenceSuspended = mutableSetOf<OverlayPaneId>()
+    internal var transcriptionWindow: OverlayPaneWindow? = null
+    internal var translationWindow: OverlayPaneWindow? = null
+    internal var updateJob: Job? = null
+    internal var ttsRuntimeJob: Job? = null
+    internal var listeningVisible = true
+    internal var translationVisible = true
+    internal var lastSnapshot: OverlaySnapshot? = null
+    internal var lastRenderAtMs: Long = 0L
+    internal var renderBurstCount = 0
+    internal var lastSyncedVisibility: Pair<Boolean, Boolean>? = null
+    internal var lastTtsState: OverlayTtsState? = null
+    internal var lastRuntimeTtsState: TtsRuntimeState = TtsRuntimeState()
+    internal val dismissTargets = MorphDismissZone.singleDismiss()
+    internal var dismissZone: MorphDismissZone? = null
+    internal val lastDismissDistanceSq = FloatArray(dismissTargets.size) { Float.POSITIVE_INFINITY }
+    internal val boundsPersistenceSuspended = mutableSetOf<OverlayPaneId>()
 
     fun show(scope: CoroutineScope): Boolean {
         if (!overlaySupported || !Settings.canDrawOverlays(context) || transcriptionWindow != null || translationWindow != null) {
@@ -144,7 +144,7 @@ class OverlayController(
 
     fun isTranslationVisible(): Boolean = translationVisible
 
-    private var downloadModalSubject = ""
+    internal var downloadModalSubject = ""
 
     fun showDownloadModal(title: String = "Model") {
         downloadModalSubject = title
@@ -184,7 +184,7 @@ class OverlayController(
         )
     }
 
-    private fun createPaneWindow(paneId: OverlayPaneId): OverlayPaneWindow {
+    internal fun createPaneWindow(paneId: OverlayPaneId): OverlayPaneWindow {
         return OverlayPaneWindow(
             context = context,
             windowManager = windowManager,
@@ -192,7 +192,7 @@ class OverlayController(
             initialBounds = loadBounds(paneId),
             minWidthPx = OVERLAY_MIN_WIDTH_PX,
             minHeightPx = OVERLAY_MIN_HEIGHT_PX,
-            screenBoundsProvider = ::screenBounds,
+            screenBoundsProvider = this::screenBounds,
             onBoundsChanged = { id, bounds ->
                 if (id !in boundsPersistenceSuspended) {
                     saveBounds(id, bounds)
@@ -202,7 +202,7 @@ class OverlayController(
         )
     }
 
-    private fun render(snapshot: OverlaySnapshot) {
+    internal fun render(snapshot: OverlaySnapshot) {
         val now = android.os.SystemClock.elapsedRealtime()
         if (lastRenderAtMs != 0L && now - lastRenderAtMs <= 20L) {
             renderBurstCount += 1
@@ -254,7 +254,7 @@ class OverlayController(
         syncTranslationControls(snapshot, force = translationReloaded)
     }
 
-    private fun handleBridgeMessage(
+    internal fun handleBridgeMessage(
         paneId: OverlayPaneId,
         message: String,
     ) {
@@ -339,7 +339,7 @@ class OverlayController(
         }
     }
 
-    private fun toggleListening(visible: Boolean) {
+    internal fun toggleListening(visible: Boolean) {
         listeningVisible = visible
         if (!listeningVisible && !translationVisible) {
             stopTextToSpeech()
@@ -350,7 +350,7 @@ class OverlayController(
         syncVisibility(force = true)
     }
 
-    private fun toggleTranslation(visible: Boolean) {
+    internal fun toggleTranslation(visible: Boolean) {
         translationVisible = visible
         if (!translationVisible) {
             stopTextToSpeech()
@@ -367,7 +367,7 @@ class OverlayController(
         syncVisibility(force = true)
     }
 
-    private fun syncVisibility(force: Boolean = false) {
+    internal fun syncVisibility(force: Boolean = false) {
         val next = listeningVisible to translationVisible
         if (!force && lastSyncedVisibility == next) {
             return
@@ -377,7 +377,7 @@ class OverlayController(
         translationWindow?.evaluate("if(window.setVisibility) window.setVisibility($listeningVisible, $translationVisible);")
     }
 
-    private fun updatePaneVisibility() {
+    internal fun updatePaneVisibility() {
         if (listeningVisible) {
             transcriptionWindow?.show()
         } else {
@@ -391,7 +391,7 @@ class OverlayController(
         repository.setOverlayVisible(listeningVisible || translationVisible)
     }
 
-    private fun syncTranslationControls(
+    internal fun syncTranslationControls(
         snapshot: OverlaySnapshot,
         force: Boolean,
     ) {
@@ -408,7 +408,7 @@ class OverlayController(
         }
     }
 
-    private fun updatePaneFont(
+    internal fun updatePaneFont(
         paneId: OverlayPaneId,
         rawValue: String,
     ) {
@@ -421,7 +421,7 @@ class OverlayController(
         repository.updatePaneFontSizes(next)
     }
 
-    private fun updateAudioSource(rawValue: String) {
+    internal fun updateAudioSource(rawValue: String) {
         val sourceMode = if (rawValue == "device") SourceMode.DEVICE else SourceMode.MIC
         val previous = repository.currentConfig().sourceMode
         repository.updateConfig(LiveSessionPatch(sourceMode = sourceMode))
@@ -439,11 +439,11 @@ class OverlayController(
         }
     }
 
-    private fun launchActivityStartFlow() {
+    internal fun launchActivityStartFlow() {
         context.startActivity(ProjectionConsentProxyActivity.startSessionIntent(context))
     }
 
-    private fun updateTargetLanguage(language: String) {
+    internal fun updateTargetLanguage(language: String) {
         if (language.isBlank()) {
             return
         }
@@ -464,165 +464,20 @@ class OverlayController(
         }
     }
 
-    private fun showLanguagePicker() {
-        val anchor = translationWindow?.currentBounds() ?: return
-        val locale = dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText.forLanguage(
-            repository.currentUiPreferences().uiLanguage,
-        )
-        languagePicker.show(
-            anchorBounds = anchor,
-            selectedLanguage = repository.currentConfig().targetLanguage,
-            languages = repository.supportedLanguages,
-            isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
-            title = locale.overlay.targetLanguageTitle,
-            searchHint = locale.overlay.pickerSearchHint,
-        )
-    }
-
-    private fun currentOverlayLocale() =
-        dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText.forLanguage(
-            repository.currentUiPreferences().uiLanguage,
-        ).overlay
-
-    private val transcriptionModelPicker = dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker(
+    internal val transcriptionModelPicker = dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker(
         context = context,
         windowManager = windowManager,
-        screenBoundsProvider = ::screenBounds,
-        onSelected = ::onTranscriptionModelSelected,
+        screenBoundsProvider = this::screenBounds,
+        onSelected = this::onTranscriptionModelSelected,
     )
-    private val translationModelPicker = dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker(
+    internal val translationModelPicker = dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker(
         context = context,
         windowManager = windowManager,
-        screenBoundsProvider = ::screenBounds,
-        onSelected = ::onTranslationModelSelected,
+        screenBoundsProvider = this::screenBounds,
+        onSelected = this::onTranslationModelSelected,
     )
 
-    private fun showTranscriptionModelPicker() {
-        val anchor = transcriptionWindow?.currentBounds() ?: return
-        val overlayLocale = currentOverlayLocale()
-        val options = RealtimeOverlayModelOptions.transcriptionOptions(
-            geminiS2sLabel = overlayLocale.geminiS2sTitle,
-            unavailableSuffix = overlayLocale.unavailableSuffix,
-        )
-        val currentId = repository.transcriptionModelId()
-        val currentLabel = options.firstOrNull { it.id == currentId }?.label ?: options.first().label
-        transcriptionModelPicker.showOptions(
-            anchorBounds = anchor,
-            selectedLanguage = currentLabel,
-            options = options.map {
-                OverlayPickerOption(
-                    label = it.label,
-                    enabled = it.enabled,
-                )
-            },
-            isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
-            title = overlayLocale.transcriptionModelTitle,
-            searchHint = overlayLocale.pickerSearchHint,
-        )
-    }
-
-    private fun onTranscriptionModelSelected(label: String) {
-        val overlayLocale = currentOverlayLocale()
-        val modelId = RealtimeOverlayModelOptions.transcriptionOptions(
-            geminiS2sLabel = overlayLocale.geminiS2sTitle,
-            unavailableSuffix = overlayLocale.unavailableSuffix,
-        ).firstOrNull { it.label == label }?.id ?: return
-        updateTranscriptionModel(modelId)
-    }
-
-    private fun showTranslationModelPicker() {
-        if (repository.transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
-            return
-        }
-        val anchor = translationWindow?.currentBounds() ?: return
-        val overlayLocale = currentOverlayLocale()
-        val options = RealtimeOverlayModelOptions.translationOptions(
-            llmLabel = overlayLocale.llmLabel,
-            gtxLabel = overlayLocale.gtxLabel,
-        )
-        val models = options.map { it.label }
-        val currentId = repository.currentConfig().translationProvider.id
-        val currentLabel = options.firstOrNull { it.id == currentId }?.label ?: options.first().label
-        translationModelPicker.show(
-            anchorBounds = anchor,
-            selectedLanguage = currentLabel,
-            languages = models,
-            isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
-            title = overlayLocale.translationModelTitle,
-            searchHint = overlayLocale.pickerSearchHint,
-        )
-    }
-
-    private fun onTranslationModelSelected(label: String) {
-        val overlayLocale = currentOverlayLocale()
-        val modelId = RealtimeOverlayModelOptions.translationOptions(
-            llmLabel = overlayLocale.llmLabel,
-            gtxLabel = overlayLocale.gtxLabel,
-        ).firstOrNull { it.label == label }?.id ?: return
-        repository.updateTranslationModel(modelId)
-    }
-
-    private fun showTranscriptionLanguagePicker() {
-        val anchor = transcriptionWindow?.currentBounds() ?: return
-        val modelId = repository.transcriptionModelId()
-        val currentCode = repository.currentConfig().transcriptionLanguage
-
-        // Zipformer has its own language list (8 options)
-        if (modelId == "zipformer") {
-            val zipLangs = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage.entries
-                .map { it.displayName }
-            val currentName = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
-                .fromCode(currentCode)?.displayName ?: "English"
-            transcriptionLanguagePicker.show(
-                anchorBounds = anchor,
-                selectedLanguage = currentName,
-                languages = zipLangs,
-                isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
-                title = currentOverlayLocale().transcriptionLanguageTitle,
-                searchHint = currentOverlayLocale().pickerSearchHint,
-            )
-        }
-    }
-
-    private fun onTranscriptionLanguageSelected(selectedName: String) {
-        val modelId = repository.transcriptionModelId()
-        if (modelId == "zipformer") {
-            val lang = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage.entries
-                .find { it.displayName == selectedName }
-            if (lang != null) {
-                repository.updateTranscriptionLanguage(lang.code)
-                // Delay restart to let config propagate before new session reads it
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    restartRequested()
-                }, 300)
-            }
-        }
-    }
-
-    private fun updateTranscriptionModel(modelId: String) {
-        if (repository.transcriptionModelId() != modelId) {
-            repository.updateTranscriptionModel(modelId)
-            // Reset language to a valid baseline for the newly selected model
-            // before the restarted session reads config.
-            repository.updateTranscriptionLanguage(defaultTranscriptionLanguageFor(modelId))
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                restartRequested()
-            }, 300)
-        }
-    }
-
-    private fun defaultTranscriptionLanguageFor(modelId: String): String {
-        return if (
-            modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S ||
-            modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5
-        ) {
-            "all"
-        } else {
-            "en"
-        }
-    }
-
-    private fun updateTtsEnabled(enabled: Boolean) {
+    internal fun updateTtsEnabled(enabled: Boolean) {
         if (repository.transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
             val current = repository.currentRealtimeTtsSettings()
             repository.updateRealtimeTtsSettings(current.copy(enabled = true))
@@ -636,27 +491,27 @@ class OverlayController(
         }
     }
 
-    private fun updateTtsSpeed(rawValue: String) {
+    internal fun updateTtsSpeed(rawValue: String) {
         val speed = rawValue.toIntOrNull() ?: return
         repository.updateRealtimeTtsSettings(
             repository.currentRealtimeTtsSettings().copy(speedPercent = speed, autoSpeed = false),
         )
     }
 
-    private fun updateTtsAutoSpeed(enabled: Boolean) {
+    internal fun updateTtsAutoSpeed(enabled: Boolean) {
         repository.updateRealtimeTtsSettings(
             repository.currentRealtimeTtsSettings().copy(autoSpeed = enabled),
         )
     }
 
-    private fun updateTtsVolume(rawValue: String) {
+    internal fun updateTtsVolume(rawValue: String) {
         val volume = rawValue.toIntOrNull() ?: return
         repository.updateRealtimeTtsSettings(
             repository.currentRealtimeTtsSettings().copy(volumePercent = volume),
         )
     }
 
-    private fun parseDelta(
+    internal fun parseDelta(
         payload: String,
         handler: (Int, Int) -> Unit,
     ) {
@@ -664,7 +519,7 @@ class OverlayController(
         handler(dx.toIntOrNull() ?: return, dy.toIntOrNull() ?: return)
     }
 
-    private fun copyText(
+    internal fun copyText(
         label: String,
         text: String,
     ) {
@@ -675,175 +530,6 @@ class OverlayController(
         clipboardManager?.setPrimaryClip(ClipData.newPlainText(label, payload))
     }
 
-    private fun windowFor(paneId: OverlayPaneId): OverlayPaneWindow? {
-        return when (paneId) {
-            OverlayPaneId.TRANSCRIPTION -> transcriptionWindow
-            OverlayPaneId.TRANSLATION -> translationWindow
-        }
-    }
-
-    private fun loadBounds(paneId: OverlayPaneId): OverlayBounds {
-        val defaults = defaultBounds(paneId)
-        val screen = screenBounds()
-        val width = prefs.getInt(keyFor(paneId, "width"), defaults.width).coerceIn(OVERLAY_MIN_WIDTH_PX, screen.width())
-        val height = prefs.getInt(keyFor(paneId, "height"), defaults.height).coerceIn(OVERLAY_MIN_HEIGHT_PX, screen.height())
-        val x = prefs.getInt(keyFor(paneId, "x"), defaults.x).coerceIn(0, (screen.width() - width).coerceAtLeast(0))
-        val y = prefs.getInt(keyFor(paneId, "y"), defaults.y).coerceIn(0, (screen.height() - height).coerceAtLeast(0))
-        val loaded = OverlayBounds(x = x, y = y, width = width, height = height)
-        return if (isNearDismissArea(loaded)) defaults else loaded
-    }
-
-    private fun saveBounds(
-        paneId: OverlayPaneId,
-        bounds: OverlayBounds,
-    ) {
-        prefs.edit {
-            putInt(keyFor(paneId, "x"), bounds.x)
-            putInt(keyFor(paneId, "y"), bounds.y)
-            putInt(keyFor(paneId, "width"), bounds.width)
-            putInt(keyFor(paneId, "height"), bounds.height)
-        }
-    }
-
-    private fun defaultBounds(paneId: OverlayPaneId): OverlayBounds {
-        val screen = screenBounds()
-        val portrait = screen.height() > screen.width()
-        val gap = dp(14)
-        val width = if (portrait) {
-            (screen.width() * 0.92f).toInt()
-        } else {
-            (screen.width() * 0.46f).toInt()
-        }.coerceAtLeast(OVERLAY_MIN_WIDTH_PX)
-        val height = if (portrait) {
-            (screen.height() * 0.22f).toInt()
-        } else {
-            (screen.height() * 0.34f).toInt()
-        }.coerceAtLeast(OVERLAY_MIN_HEIGHT_PX)
-        return if (portrait) {
-            val top = dp(68)
-            val x = ((screen.width() - width) / 2).coerceAtLeast(0)
-            val y = when (paneId) {
-                OverlayPaneId.TRANSCRIPTION -> top
-                OverlayPaneId.TRANSLATION -> (top + height + gap).coerceAtMost(screen.height() - height)
-            }
-            OverlayBounds(x = x, y = y, width = width.coerceAtMost(screen.width()), height = height.coerceAtMost(screen.height()))
-        } else {
-            val margin = dp(22)
-            val x = when (paneId) {
-                OverlayPaneId.TRANSCRIPTION -> margin
-                OverlayPaneId.TRANSLATION -> (screen.width() - width - margin).coerceAtLeast(margin)
-            }
-            OverlayBounds(
-                x = x.coerceIn(0, (screen.width() - width).coerceAtLeast(0)),
-                y = dp(42).coerceIn(0, (screen.height() - height).coerceAtLeast(0)),
-                width = width.coerceAtMost(screen.width()),
-                height = height.coerceAtMost(screen.height()),
-            )
-        }
-    }
-
-    private fun keyFor(
-        paneId: OverlayPaneId,
-        suffix: String,
-    ): String {
-        val prefix = when (paneId) {
-            OverlayPaneId.TRANSCRIPTION -> "transcription_overlay"
-            OverlayPaneId.TRANSLATION -> "translation_overlay"
-        }
-        return "${prefix}_$suffix"
-    }
-
-    private fun screenBounds(): Rect {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            windowManager.currentWindowMetrics.bounds
-        } else {
-            val metrics = context.resources.displayMetrics
-            Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
-        }
-    }
-
-    private fun isDarkTheme(themeMode: MobileThemeMode): Boolean {
-        return when (themeMode) {
-            MobileThemeMode.DARK -> true
-            MobileThemeMode.LIGHT -> false
-            MobileThemeMode.SYSTEM -> {
-                val nightModeFlags = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-                nightModeFlags == Configuration.UI_MODE_NIGHT_YES
-            }
-        }
-    }
-
-    private fun ensureDismissBubble() {
-        if (dismissZone != null) return
-        dismissZone = MorphDismissZone(
-            context = context,
-            windowManager = windowManager,
-            targets = dismissTargets,
-        ).also { it.show() }
-    }
-
-    private fun updateDismissZone(rawXY: String) {
-        ensureDismissBubble()
-        dismissZone?.update(floatArrayOf(dismissZoneProximity(rawXY)))
-    }
-
-    private fun hideDismissZone() {
-        dismissZone?.hide()
-        dismissZone = null
-        resetDismissTracking()
-    }
-
-    private fun dismissZoneProximity(rawXY: String): Float {
-        val parts = rawXY.split(",")
-        if (parts.size != 2) return 0f
-        val fingerCssX = parts[0].toFloatOrNull() ?: return 0f
-        val fingerCssY = parts[1].toFloatOrNull() ?: return 0f
-        val density = context.resources.displayMetrics.density
-        val hit = MorphDismissZone.hitTest(
-            rawX = fingerCssX,
-            rawY = fingerCssY,
-            screenBounds = screenBounds(),
-            density = density,
-            coordinateScale = density,
-            targets = dismissTargets,
-            previousDistanceSq = lastDismissDistanceSq,
-            layoutDirection = context.resources.configuration.layoutDirection,
-        )
-        hit.distanceSq.copyInto(lastDismissDistanceSq)
-        return hit.proximities.firstOrNull() ?: 0f
-    }
-
-    private fun isNearDismissArea(bounds: OverlayBounds): Boolean {
-        val screen = screenBounds()
-        val dismissTop = (screen.height() - dp(DISMISS_ZONE_PX)).coerceAtLeast(0)
-        return bounds.y + bounds.height >= dismissTop
-    }
-
-    private fun resetDismissTracking() {
-        lastDismissDistanceSq.fill(Float.POSITIVE_INFINITY)
-    }
-
-    private fun dismissOverlay(paneId: OverlayPaneId) {
-        hideDismissZone()
-        when (paneId) {
-            OverlayPaneId.TRANSCRIPTION -> toggleListening(false)
-            OverlayPaneId.TRANSLATION -> toggleTranslation(false)
-        }
-    }
-
-    private fun dp(value: Int): Int {
-        return (value * context.resources.displayMetrics.density).toInt()
-    }
-
-    private companion object {
-        private const val OVERLAY_MIN_WIDTH_PX = 420
-        private const val OVERLAY_MIN_HEIGHT_PX = 180
-        private const val DRAG_WINDOW_GAIN = 1f
-        private const val DISMISS_THRESHOLD = 0.8f
-        private const val DISMISS_ZONE_PX = 120
-        private const val PERF_TAG = "SGTOverlayPerf"
-
-    }
 }
 
 internal data class OverlayTtsState(
@@ -874,3 +560,11 @@ internal fun overlayTtsState(
         volumePercent = settings.volumePercent,
     )
 }
+
+// Shared overlay layout constants (promoted from the former companion object).
+internal const val OVERLAY_MIN_WIDTH_PX = 420
+internal const val OVERLAY_MIN_HEIGHT_PX = 180
+internal const val DRAG_WINDOW_GAIN = 1f
+internal const val DISMISS_THRESHOLD = 0.8f
+internal const val DISMISS_ZONE_PX = 120
+internal const val PERF_TAG = "SGTOverlayPerf"

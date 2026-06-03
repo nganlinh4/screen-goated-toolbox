@@ -23,7 +23,7 @@ internal class PresetResultHtmlBuilder(
         val libFile = dir.resolve("m3e_loading_indicator.js")
         val initFile = dir.resolve("m3e_loading_init.js")
         if (!libFile.exists() || libFile.length() == 0L) {
-            libFile.writeText(asset("m3e_loading_indicator.js") + "\nwindow.RoundedPolygon=RoundedPolygon;window.Morph=Morph;\n")
+            libFile.writeText(asset("m3e_loading_indicator_1.js") + asset("m3e_loading_indicator_2.js") + "\nwindow.RoundedPolygon=RoundedPolygon;window.Morph=Morph;\n")
         }
         if (!initFile.exists() || initFile.length() == 0L) {
             initFile.writeText(asset("m3e_loading_init.js"))
