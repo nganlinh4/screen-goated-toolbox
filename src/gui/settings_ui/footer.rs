@@ -1,53 +1,55 @@
 use crate::gui::icons::{Icon, paint_icon};
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
+use crate::gui::widgets::filled_button_sized;
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
 
+/// Footer quick-launch button: a Material `filled_button` (token fill + state
+/// layers) with the original leading vector icon painted over a reserved label
+/// column. Uses the global button padding so its height matches the title-bar
+/// and settings buttons, plus the custom PointingHand hover cursor.
 fn render_launch_button(
     ui: &mut egui::Ui,
     label: &str,
     icon: Icon,
     btn_color: egui::Color32,
     btn_bg: egui::Color32,
-    btn_bg_hover: egui::Color32,
 ) -> egui::Response {
-    let btn_galley = ui.painter().layout_no_wrap(
-        label.to_string(),
-        egui::FontId::proportional(12.0),
-        btn_color,
-    );
     let icon_sz = 12.0;
     let icon_gap = 4.0;
-    let h_pad = 6.0;
-    let v_pad = 1.0;
-    let btn_w = h_pad + icon_sz + icon_gap + btn_galley.rect.width() + h_pad;
-    let btn_h = btn_galley.rect.height() + v_pad * 2.0;
+    // Inherit the global button padding so footer buttons match the title-bar /
+    // settings buttons (~21px tall) instead of the old cramped 1px height.
+    let h_pad = ui.spacing().button_padding.x;
 
-    let (btn_rect, btn_response) =
-        ui.allocate_exact_size(egui::vec2(btn_w, btn_h), egui::Sense::click());
-    let painter = ui.painter();
-    painter.rect_filled(
-        btn_rect,
-        6.0,
-        if btn_response.hovered() {
-            btn_bg_hover
-        } else {
-            btn_bg
-        },
-    );
+    // Reserve a leading column for the vector icon by prefixing the label with
+    // spaces whose advance width matches `icon_sz + icon_gap`; the icon is then
+    // painted over that gap. This keeps the original [h_pad | icon | gap |
+    // label | h_pad] geometry while letting `filled_button` own the surface.
+    // Measure with the button's own body font so the reserve tracks the label.
+    let label_font = egui::TextStyle::Button.resolve(ui.style());
+    let space_w = ui
+        .painter()
+        .layout_no_wrap(" ".to_string(), label_font, btn_color)
+        .rect
+        .width()
+        .max(0.1);
+    let lead_spaces = ((icon_sz + icon_gap) / space_w).ceil() as usize;
+    let padded_label = format!("{}{}", " ".repeat(lead_spaces), label);
+
+    // Render through the shared filled_button so the fill comes from the theme
+    // token and hover/press gain Material state layers. Force the original
+    // h_pad / v_pad button padding so width and height match the prior look.
+    let btn_response =
+        filled_button_sized(ui, &padded_label, btn_bg, btn_color, 6, egui::Vec2::ZERO);
+
+    let btn_rect = btn_response.rect;
     let icon_rect = egui::Rect::from_min_size(
         egui::pos2(btn_rect.left() + h_pad, btn_rect.center().y - icon_sz / 2.0),
         egui::vec2(icon_sz, icon_sz),
     );
-    paint_icon(painter, icon_rect, icon, btn_color);
-    painter.galley(
-        egui::pos2(
-            icon_rect.right() + icon_gap,
-            btn_rect.center().y - btn_galley.rect.height() / 2.0,
-        ),
-        btn_galley,
-        btn_color,
-    );
+    paint_icon(ui.painter(), icon_rect, icon, btn_color);
+
     if btn_response.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -69,58 +71,37 @@ pub fn render_footer(
     } = toggles;
     ui.horizontal(|ui| {
         // 1. Left Side: Quick launch buttons
+        let theme = AppTheme::from_ui(ui);
         let is_dark = ui.visuals().dark_mode;
         // Launcher fills are light in dark mode, so near-black label text reads
-        // better there; white in light mode where the fills are deeper.
+        // better there; white in light mode where the fills are deeper. This is
+        // also the on-color used by `filled_button` for its hover/press layers.
         let btn_text = if is_dark {
             egui::Color32::from_rgb(22, 22, 26)
         } else {
             egui::Color32::WHITE
         };
-        // Pointer gallery — green (distinct from Screen Record's blue).
-        let btn_color = btn_text;
-        let btn_bg = if is_dark {
-            egui::Color32::from_rgb(56, 168, 112)
-        } else {
-            egui::Color32::from_rgb(34, 150, 94)
-        };
-        let btn_bg_hover = if is_dark {
-            egui::Color32::from_rgb(70, 182, 126)
-        } else {
-            egui::Color32::from_rgb(44, 164, 106)
-        };
 
+        // Pointer gallery — green (distinct from Screen Record's blue).
         if render_launch_button(
             ui,
             text.pointer_gallery_btn,
             Icon::Pointer,
-            btn_color,
-            btn_bg,
-            btn_bg_hover,
+            btn_text,
+            theme.launch_pointer(),
         )
         .clicked()
         {
             *show_pointer_gallery = true;
         }
 
-        let relay_color = btn_text;
-        let relay_bg = if is_dark {
-            egui::Color32::from_rgb(200, 85, 110)
-        } else {
-            egui::Color32::from_rgb(235, 120, 145)
-        };
-        let relay_bg_hover = if is_dark {
-            egui::Color32::from_rgb(215, 100, 125)
-        } else {
-            egui::Color32::from_rgb(245, 135, 158)
-        };
+        // Translation Gummy — rose accent.
         if render_launch_button(
             ui,
             text.translation_gummy_btn,
             Icon::Speaker,
-            relay_color,
-            relay_bg,
-            relay_bg_hover,
+            btn_text,
+            theme.launch_translation(),
         )
         .clicked()
         {
@@ -129,24 +110,12 @@ pub fn render_footer(
 
         // Matches the TTS Playground mini-app accent: warm amber (dark) /
         // terracotta (light).
-        let playground_color = btn_text;
-        let playground_bg = if is_dark {
-            egui::Color32::from_rgb(237, 137, 54)
-        } else {
-            egui::Color32::from_rgb(194, 65, 12)
-        };
-        let playground_bg_hover = if is_dark {
-            egui::Color32::from_rgb(245, 152, 76)
-        } else {
-            egui::Color32::from_rgb(214, 84, 30)
-        };
         if render_launch_button(
             ui,
             text.tts_playground_btn,
             Icon::Speaker,
-            playground_color,
-            playground_bg,
-            playground_bg_hover,
+            btn_text,
+            theme.launch_tts(),
         )
         .clicked()
         {
@@ -198,13 +167,15 @@ pub fn render_footer(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_admin = cfg!(target_os = "windows") && crate::gui::utils::is_running_as_admin();
             let footer_text = if is_admin {
+                // Running-as-admin is a healthy/success status.
                 egui::RichText::new(text.footer_admin_running)
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(34, 139, 34))
+                    .color(theme.success())
             } else {
+                // Idle / non-admin is low-emphasis supporting copy.
                 egui::RichText::new(text.footer_admin_text)
                     .size(11.0)
-                    .color(ui.visuals().weak_text_color())
+                    .color(theme.on_surface_variant())
             };
             ui.label(footer_text);
         });

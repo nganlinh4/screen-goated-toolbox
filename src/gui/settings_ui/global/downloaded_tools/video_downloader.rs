@@ -1,17 +1,18 @@
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::download_manager::utils::has_nonempty_file;
 use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus, UpdateStatus};
+use crate::gui::theme::AppTheme;
 use eframe::egui;
 use std::fs;
 
-use super::utils::format_size;
+use super::utils::{format_size, tool_card};
 
 pub(super) fn render_video_downloader_card(
     ui: &mut egui::Ui,
     download_manager: &mut DownloadManager,
     text: &LocaleText,
 ) {
-    ui.group(|ui| {
+    tool_card(ui, |ui| {
         ui.heading(text.tool_video_downloader_card);
         ui.add_space(4.0);
 
@@ -28,6 +29,7 @@ fn render_ytdlp_content(
     download_manager: &mut DownloadManager,
     text: &LocaleText,
 ) {
+    let theme = AppTheme::from_ui(ui);
     let status = download_manager.ytdlp_status.lock().unwrap().clone();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_ytdlp).strong());
@@ -38,7 +40,8 @@ fn render_ytdlp_content(
                     let path = download_manager.bin_dir.join("yt-dlp.exe");
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -52,7 +55,7 @@ fn render_ytdlp_content(
                         egui::RichText::new(
                             text.tool_status_installed.replace("{}", &format_size(size)),
                         )
-                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                        .color(theme.success()),
                     );
                 }
                 InstallStatus::Downloading(p) => {
@@ -137,6 +140,7 @@ fn render_ffmpeg_content(
         }
     }
 
+    let theme = AppTheme::from_ui(ui);
     let status = download_manager.ffmpeg_status.lock().unwrap().clone();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_ffmpeg).strong());
@@ -146,7 +150,8 @@ fn render_ffmpeg_content(
                 InstallStatus::Installed => {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -169,7 +174,7 @@ fn render_ffmpeg_content(
                         egui::RichText::new(
                             text.tool_status_installed.replace("{}", &format_size(size)),
                         )
-                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                        .color(theme.success()),
                     );
                 }
                 InstallStatus::Downloading(p) => {
@@ -251,6 +256,7 @@ fn render_deno_content(
         }
     }
 
+    let theme = AppTheme::from_ui(ui);
     let status = download_manager.deno_status.lock().unwrap().clone();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_deno).strong());
@@ -261,7 +267,8 @@ fn render_deno_content(
                     let path = download_manager.bin_dir.join("deno.exe");
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -275,7 +282,7 @@ fn render_deno_content(
                         egui::RichText::new(
                             text.tool_status_installed.replace("{}", &format_size(size)),
                         )
-                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                        .color(theme.success()),
                     );
                 }
                 InstallStatus::Downloading(p) => {
@@ -340,12 +347,13 @@ fn render_update_status(
     on_download: impl FnOnce(),
     on_check: impl FnOnce(),
 ) {
+    let theme = AppTheme::from_ui(ui);
     match status {
         UpdateStatus::UpdateAvailable(ver) => {
             if ui
                 .button(
                     egui::RichText::new(text.tool_update_available.replace("{}", &ver))
-                        .color(egui::Color32::from_rgb(255, 165, 0)),
+                        .color(theme.warning()),
                 )
                 .clicked()
             {
@@ -361,15 +369,14 @@ fn render_update_status(
                 on_check();
             }
             ui.label(
-                egui::RichText::new(text.tool_update_latest)
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                egui::RichText::new(text.tool_update_latest).color(theme.success()),
             );
         }
         UpdateStatus::Error(e) => {
             if ui.small_button(text.tool_update_retry).clicked() {
                 on_check();
             }
-            ui.label(egui::RichText::new(text.tool_update_error).color(egui::Color32::RED))
+            ui.label(egui::RichText::new(text.tool_update_error).color(theme.danger_text()))
                 .on_hover_text(e);
         }
         UpdateStatus::Idle => {

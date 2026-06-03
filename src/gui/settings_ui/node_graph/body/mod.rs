@@ -3,6 +3,8 @@ mod model_selector;
 use super::node::ChainNode;
 use super::viewer::ChainViewer;
 use crate::gui::icons::{Icon, icon_button};
+use crate::gui::theme::AppTheme;
+use crate::gui::widgets::filled_button;
 use crate::model_config::ModelType;
 use eframe::egui;
 use egui_snarl::{NodeId, Snarl};
@@ -98,15 +100,13 @@ pub fn show_body(
                                     "input_render_mode_popup_{:?}",
                                     node_id
                                 ));
-                                let btn_bg = if ui.visuals().dark_mode {
-                                    egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)
-                                } else {
-                                    egui::Color32::from_rgba_unmultiplied(220, 220, 220, 200)
-                                };
-                                let btn = ui.add(
-                                    egui::Button::new(current_mode_label)
-                                        .fill(btn_bg)
-                                        .corner_radius(4.0),
+                                let btn_bg = AppTheme::from_ui(ui).node_button_fill();
+                                let btn = filled_button(
+                                    ui,
+                                    current_mode_label,
+                                    btn_bg,
+                                    egui::Color32::WHITE,
+                                    8,
                                 );
                                 if btn.clicked() {
                                     ui.memory_mut(|mem| mem.toggle_popup(popup_id));

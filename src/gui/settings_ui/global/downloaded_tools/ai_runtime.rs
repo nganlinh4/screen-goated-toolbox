@@ -1,10 +1,12 @@
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use crate::unpack_dlls::{self, AiRuntimeStatus};
 use eframe::egui;
 
 use super::utils::format_size;
 
 pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     let status = unpack_dlls::current_ai_runtime_status();
     let version_label = unpack_dlls::ai_runtime_version_label();
     let notice = unpack_dlls::current_ai_runtime_notice();
@@ -17,7 +19,8 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                 AiRuntimeStatus::Installed { bytes } => {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -29,7 +32,7 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                             text.tool_status_installed
                                 .replace("{}", &format_size(*bytes)),
                         )
-                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                        .color(theme.success()),
                     );
                 }
                 AiRuntimeStatus::Installing { label, progress } => {
@@ -43,7 +46,7 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                     }
                     ui.label(
                         egui::RichText::new(text.tool_status_install_failed)
-                            .color(egui::Color32::RED),
+                            .color(theme.danger_text()),
                     )
                     .on_hover_text(message);
                 }
@@ -70,6 +73,6 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
 
     if let Some(message) = notice {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }

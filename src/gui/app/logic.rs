@@ -54,12 +54,8 @@ impl SettingsApp {
         if effective_dark != self.last_effective_theme_dark {
             self.last_effective_theme_dark = effective_dark;
 
-            // A. Update Visuals (egui)
-            if effective_dark {
-                ctx.set_visuals(egui::Visuals::dark());
-            } else {
-                ctx.set_visuals(egui::Visuals::light());
-            }
+            // A. Update Visuals (egui) — Material-style global style for all widgets
+            crate::gui::theme::AppTheme::apply_global_style(ctx, effective_dark);
 
             // B. Update Native Icons (Tray & Window) based on Effective Theme
             if let Some(tray) = &mut self.tray_icon {

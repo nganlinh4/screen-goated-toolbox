@@ -8,6 +8,8 @@ use super::super::utils::{
 };
 use super::super::viewer::ChainViewer;
 use crate::gui::icons::{Icon, icon_button};
+use crate::gui::theme::AppTheme;
+use crate::gui::widgets::filled_button;
 use crate::model_config::{
     ModelType, get_all_models_with_ollama, get_model_by_id, is_ollama_scan_in_progress,
     model_is_non_llm, trigger_ollama_model_scan,
@@ -156,24 +158,15 @@ pub fn show_model_and_settings(
                 "ko" => "+ 언어",
                 _ => "+ Language",
             };
-            let is_dark = ui.visuals().dark_mode;
-            let lang_btn_bg = if is_dark {
-                egui::Color32::from_rgb(50, 100, 110)
-            } else {
-                egui::Color32::from_rgb(100, 160, 170)
-            };
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(btn_label)
-                            .small()
-                            .color(egui::Color32::WHITE),
-                    )
-                    .fill(lang_btn_bg)
-                    .corner_radius(8.0),
-                )
-                .clicked()
-            {
+            let lang_btn_bg = AppTheme::from_ui(ui).node_button_fill();
+            let clicked = ui
+                .scope(|ui| {
+                    ui.style_mut().override_text_style = Some(egui::TextStyle::Small);
+                    filled_button(ui, btn_label, lang_btn_bg, egui::Color32::WHITE, 8)
+                })
+                .inner
+                .clicked();
+            if clicked {
                 insert_next_language_tag(prompt, language_vars);
                 viewer.changed = true;
             }
@@ -287,16 +280,8 @@ fn show_render_mode_popup(
         },
     };
 
-    let btn_bg = if ui.visuals().dark_mode {
-        egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)
-    } else {
-        egui::Color32::from_rgba_unmultiplied(220, 220, 220, 200)
-    };
-    let btn = ui.add(
-        egui::Button::new(current_mode_label)
-            .fill(btn_bg)
-            .corner_radius(4.0),
-    );
+    let btn_bg = AppTheme::from_ui(ui).node_button_fill();
+    let btn = filled_button(ui, current_mode_label, btn_bg, egui::Color32::WHITE, 8);
     let popup_id = btn.id;
     if btn.clicked() {
         egui::Popup::toggle_id(ui.ctx(), popup_id);

@@ -92,23 +92,16 @@ pub fn render_history_panel(
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Clear All button - styled
-                    let clear_bg = if is_dark {
-                        egui::Color32::from_rgb(120, 60, 60)
-                    } else {
-                        egui::Color32::from_rgb(220, 140, 140)
-                    };
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new(text.clear_all_history_btn)
-                                    .color(egui::Color32::WHITE)
-                                    .small(),
-                            )
-                            .fill(clear_bg)
-                            .corner_radius(8.0),
-                        )
-                        .clicked()
+                    // Clear All button — destructive action via the shared Material
+                    // filled-button helper (keeps hover/press state layers).
+                    if crate::gui::widgets::filled_button(
+                        ui,
+                        text.clear_all_history_btn,
+                        theme.danger_fill(),
+                        theme.on_accent(),
+                        8,
+                    )
+                    .clicked()
                     {
                         history_manager.clear_all();
                     }

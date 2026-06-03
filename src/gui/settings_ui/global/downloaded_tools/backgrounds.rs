@@ -1,11 +1,15 @@
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use crate::overlay::screen_record::bg_download;
 use eframe::egui;
 
+use super::utils::tool_card;
+
 pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &LocaleText) {
     let summary = bg_download::downloadable_background_summary();
+    let theme = AppTheme::from_ui(ui);
 
-    ui.group(|ui| {
+    tool_card(ui, |ui| {
         ui.heading(text.tool_downloadable_backgrounds);
         ui.add_space(4.0);
 
@@ -39,7 +43,7 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                     if ui
                         .button(
                             egui::RichText::new(text.tool_bg_action_delete_downloaded)
-                                .color(egui::Color32::RED),
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -48,7 +52,7 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                 } else if ui
                     .button(
                         egui::RichText::new(text.tool_bg_action_delete_all)
-                            .color(egui::Color32::RED),
+                            .color(theme.danger_text()),
                     )
                     .clicked()
                 {
@@ -67,9 +71,9 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                     format!("{} ({})", count_text, format_size(summary.downloaded_bytes));
                 let color =
                     if summary.total_count > 0 && summary.downloaded_count == summary.total_count {
-                        egui::Color32::from_rgb(34, 139, 34)
+                        theme.success()
                     } else if summary.downloaded_count > 0 {
-                        egui::Color32::from_rgb(255, 165, 0)
+                        theme.warning()
                     } else {
                         egui::Color32::GRAY
                     };

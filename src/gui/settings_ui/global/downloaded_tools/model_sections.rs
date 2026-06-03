@@ -24,6 +24,7 @@ use crate::api::realtime_audio::supertonic_assets::{
     is_supertonic_model_downloaded, remove_supertonic_model,
 };
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
 use std::sync::Arc;
@@ -33,7 +34,7 @@ use std::thread;
 use super::ai_runtime::render_ai_runtime_content;
 use super::utils::{
     cached_probe, cached_u64, format_size, get_dir_size, get_path_size, invalidate_probe_cache,
-    invalidate_size_cache, invalidate_u64_cache,
+    invalidate_size_cache, invalidate_u64_cache, tool_card,
 };
 
 const PROBE_PARAKEET_EOU: &str = "downloaded-tools:parakeet-eou";
@@ -51,7 +52,7 @@ const VALUE_QWEN3_SERVER_ACTIVE_SIZE: &str = "downloaded-tools:qwen3-server-acti
 const VALUE_QWEN3_RUNTIME_ACTIVE_SIZE: &str = "downloaded-tools:qwen3-runtime-active-size";
 
 pub(super) fn render_parakeet_card(ui: &mut egui::Ui, text: &LocaleText) {
-    ui.group(|ui| {
+    tool_card(ui, |ui| {
         ui.heading(text.tool_parakeet_card);
         ui.add_space(4.0);
         render_ai_runtime_content(ui, text);
@@ -63,7 +64,7 @@ pub(super) fn render_parakeet_card(ui: &mut egui::Ui, text: &LocaleText) {
 }
 
 pub(super) fn render_kokoro_card(ui: &mut egui::Ui, text: &LocaleText) {
-    ui.group(|ui| {
+    tool_card(ui, |ui| {
         ui.heading(text.tool_kokoro_card);
         ui.add_space(4.0);
         render_kokoro_content(ui, text);
@@ -71,7 +72,7 @@ pub(super) fn render_kokoro_card(ui: &mut egui::Ui, text: &LocaleText) {
 }
 
 pub(super) fn render_supertonic_card(ui: &mut egui::Ui, _text: &LocaleText) {
-    ui.group(|ui| {
+    tool_card(ui, |ui| {
         ui.heading("Supertonic 3");
         ui.add_space(4.0);
         render_supertonic_content(ui);
@@ -79,6 +80,7 @@ pub(super) fn render_supertonic_card(ui: &mut egui::Ui, _text: &LocaleText) {
 }
 
 fn render_supertonic_content(ui: &mut egui::Ui) {
+    let theme = AppTheme::from_ui(ui);
     let notice = current_supertonic_model_notice();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Supertonic 3 model").strong());
@@ -103,7 +105,7 @@ fn render_supertonic_content(ui: &mut egui::Ui) {
                 ui.spinner();
             } else if cached_probe(PROBE_SUPERTONIC_3, is_supertonic_model_downloaded) {
                 if ui
-                    .button(egui::RichText::new("Delete").color(egui::Color32::RED))
+                    .button(egui::RichText::new("Delete").color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_size_cache(&get_supertonic_model_dir());
@@ -113,7 +115,7 @@ fn render_supertonic_content(ui: &mut egui::Ui) {
                 let size = get_dir_size(&get_supertonic_model_dir());
                 ui.label(
                     egui::RichText::new(format!("Installed ({})", format_size(size)))
-                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                        .color(theme.success()),
                 );
             } else {
                 if ui.button("Download").clicked() {
@@ -129,11 +131,12 @@ fn render_supertonic_content(ui: &mut egui::Ui) {
     ui.label("Local Supertonic 3 ONNX TTS model. Supports English, Korean, Japanese, Arabic, Bulgarian, Czech, Danish, German, Greek, Spanish, Estonian, Finnish, French, Hindi, Croatian, Hungarian, Indonesian, Italian, Lithuanian, Latvian, Dutch, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Swedish, Turkish, Ukrainian, and Vietnamese.");
     if let Some(message) = notice {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }
 
 fn render_kokoro_content(ui: &mut egui::Ui, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     let notice = current_kokoro_model_notice();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_kokoro).strong());
@@ -158,7 +161,7 @@ fn render_kokoro_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_KOKORO_V1, is_kokoro_model_downloaded) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_size_cache(&get_kokoro_model_dir());
@@ -170,7 +173,7 @@ fn render_kokoro_content(ui: &mut egui::Ui, text: &LocaleText) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else {
                 if ui.button(text.tool_action_download).clicked() {
@@ -186,12 +189,12 @@ fn render_kokoro_content(ui: &mut egui::Ui, text: &LocaleText) {
     ui.label(text.tool_desc_kokoro);
     if let Some(message) = notice {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }
 
 pub(super) fn render_qwen3_card(ui: &mut egui::Ui, text: &LocaleText) {
-    ui.group(|ui| {
+    tool_card(ui, |ui| {
         ui.heading(text.tool_qwen3_card);
         ui.add_space(4.0);
         render_qwen3_runtime_content(ui, text);
@@ -205,6 +208,7 @@ pub(super) fn render_qwen3_card(ui: &mut egui::Ui, text: &LocaleText) {
 }
 
 fn render_parakeet_content(ui: &mut egui::Ui, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     let parakeet_notice = current_parakeet_model_notice();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_parakeet).strong());
@@ -229,7 +233,7 @@ fn render_parakeet_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_PARAKEET_EOU, is_model_downloaded) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_size_cache(&get_parakeet_model_dir());
@@ -241,7 +245,7 @@ fn render_parakeet_content(ui: &mut egui::Ui, text: &LocaleText) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else {
                 if ui.button(text.tool_action_download).clicked() {
@@ -257,11 +261,12 @@ fn render_parakeet_content(ui: &mut egui::Ui, text: &LocaleText) {
     ui.label(text.tool_desc_parakeet);
     if let Some(message) = parakeet_notice {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }
 
 fn render_parakeet_tdt_content(ui: &mut egui::Ui, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     let parakeet_notice = current_parakeet_tdt_model_notice();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_parakeet_tdt).strong());
@@ -287,7 +292,7 @@ fn render_parakeet_tdt_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_PARAKEET_TDT, is_parakeet_tdt_model_downloaded) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_size_cache(&get_parakeet_tdt_model_dir());
@@ -299,7 +304,7 @@ fn render_parakeet_tdt_content(ui: &mut egui::Ui, text: &LocaleText) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else {
                 if ui.button(text.tool_action_download).clicked() {
@@ -315,11 +320,12 @@ fn render_parakeet_tdt_content(ui: &mut egui::Ui, text: &LocaleText) {
     ui.label(text.tool_desc_parakeet_tdt);
     if let Some(message) = parakeet_notice {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }
 
 fn render_qwen3_content(ui: &mut egui::Ui, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     let qwen_notice = current_qwen3_model_notice();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Qwen3-ASR 0.6B").strong());
@@ -344,7 +350,7 @@ fn render_qwen3_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_QWEN3_SMALL, is_qwen3_model_downloaded) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_size_cache(&get_qwen3_model_dir());
@@ -356,7 +362,7 @@ fn render_qwen3_content(ui: &mut egui::Ui, text: &LocaleText) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else {
                 if ui.button(text.tool_action_download).clicked() {
@@ -372,11 +378,12 @@ fn render_qwen3_content(ui: &mut egui::Ui, text: &LocaleText) {
     ui.label(text.tool_desc_qwen3);
     if let Some(message) = qwen_notice {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }
 
 fn render_qwen3_1_7b_content(ui: &mut egui::Ui, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Qwen3-ASR 1.7B").strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -401,7 +408,7 @@ fn render_qwen3_1_7b_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_QWEN3_LARGE, is_qwen3_1_7b_model_downloaded) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_size_cache(&get_qwen3_1_7b_model_dir());
@@ -413,7 +420,7 @@ fn render_qwen3_1_7b_content(ui: &mut egui::Ui, text: &LocaleText) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else {
                 if ui.button(text.tool_action_download).clicked() {
@@ -430,6 +437,7 @@ fn render_qwen3_1_7b_content(ui: &mut egui::Ui, text: &LocaleText) {
 }
 
 fn render_qwen3_server_content(ui: &mut egui::Ui, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     let server_notice = current_qwen3_server_notice();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_qwen3_server).strong());
@@ -455,7 +463,7 @@ fn render_qwen3_server_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_QWEN3_SERVER_MANAGED, is_qwen3_server_managed) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_size_cache(&get_qwen3_server_path());
@@ -468,7 +476,7 @@ fn render_qwen3_server_content(ui: &mut egui::Ui, text: &LocaleText) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else if cached_probe(PROBE_QWEN3_SERVER_ACTIVE, || {
                 get_active_qwen3_server_path().is_some()
@@ -505,7 +513,7 @@ fn render_qwen3_server_content(ui: &mut egui::Ui, text: &LocaleText) {
     ui.label(text.tool_desc_qwen3_server);
     if let Some(message) = server_notice {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }
 
@@ -516,6 +524,7 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
         qwen3_runtime_installed_size, remove_qwen3_runtime,
     };
 
+    let theme = AppTheme::from_ui(ui);
     let runtime_notice = current_qwen3_runtime_notice();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_qwen3_runtime).strong());
@@ -541,7 +550,7 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_QWEN3_RUNTIME, is_qwen3_runtime_managed_installed) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_probe_cache(PROBE_QWEN3_RUNTIME);
@@ -554,7 +563,7 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else if cached_probe(PROBE_QWEN3_RUNTIME_ACTIVE, || {
                 active_qwen3_runtime_dir().is_some()
@@ -591,6 +600,6 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
     ui.label(text.tool_desc_qwen3_runtime);
     if let Some(message) = runtime_notice {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }

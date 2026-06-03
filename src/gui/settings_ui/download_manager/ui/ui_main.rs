@@ -2,6 +2,7 @@
 
 use super::super::types::{DownloadType, InstallStatus};
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -11,6 +12,7 @@ use super::super::DownloadManager;
 impl DownloadManager {
     /// Render the dependency check section when ffmpeg/yt-dlp are missing.
     pub(super) fn render_deps_check(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
+        let theme = AppTheme::from_ui(ui);
         ui.label(text.download_deps_missing);
 
         // yt-dlp section
@@ -27,7 +29,7 @@ impl DownloadManager {
                             self.start_download_ytdlp();
                         }
                         if let InstallStatus::Error(e) = status {
-                            ui.colored_label(egui::Color32::RED, e);
+                            ui.colored_label(theme.danger_text(), e);
                         }
                     }
                     InstallStatus::Downloading(p) => {
@@ -65,7 +67,7 @@ impl DownloadManager {
                             self.start_download_ffmpeg();
                         }
                         if let InstallStatus::Error(e) = status {
-                            ui.colored_label(egui::Color32::RED, e);
+                            ui.colored_label(theme.danger_text(), e);
                         }
                     }
                     InstallStatus::Downloading(p) => {
@@ -103,11 +105,6 @@ impl DownloadManager {
             ui.separator();
 
             let idx = self.active_idx();
-
-            // --- FOLDER & SETTINGS ---
-            self.render_folder_settings(ui, ctx, text);
-
-            ui.add_space(8.0);
 
             // --- URL INPUT ---
             self.render_url_input(ui, ctx, text, idx);
@@ -162,55 +159,56 @@ impl DownloadManager {
         });
     }
 
-    fn render_folder_settings(
+    /// Render the destination-folder path label + settings (⚙) menu.
+    ///
+    /// Rendered inline (left-to-right) inside the dialog header's `actions`
+    /// row, between the modal title and the × close button.
+    pub(super) fn render_folder_settings(
         &mut self,
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         text: &LocaleText,
     ) {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("\u{1f4c2}").size(14.0));
+        let theme = AppTheme::from_ui(ui);
+        ui.label(egui::RichText::new("\u{1f4c2}").size(14.0));
 
-            let current_path = self
-                .custom_download_path
-                .clone()
-                .unwrap_or_else(|| dirs::download_dir().unwrap_or(PathBuf::from(".")));
-            let path_str = current_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("...");
+        let current_path = self
+            .custom_download_path
+            .clone()
+            .unwrap_or_else(|| dirs::download_dir().unwrap_or(PathBuf::from(".")));
+        let path_str = current_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("...");
 
-            ui.label(
-                egui::RichText::new(format!("...\\{}", path_str))
-                    .strong()
-                    .color(ctx.global_style().visuals.weak_text_color()),
-            );
+        ui.label(
+            egui::RichText::new(format!("...\\{}", path_str))
+                .strong()
+                .color(ctx.global_style().visuals.weak_text_color()),
+        );
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.menu_button("\u{2699}", |ui| {
-                    if ui.button(text.download_change_folder_btn).clicked() {
-                        self.change_download_folder();
-                        ui.close();
-                    }
+        ui.menu_button("\u{2699}", |ui| {
+            if ui.button(text.download_change_folder_btn).clicked() {
+                self.change_download_folder();
+                ui.close();
+            }
 
-                    ui.separator();
+            ui.separator();
 
-                    let (ytdlp_size, ffmpeg_size, deno_size) = self.get_dependency_sizes();
-                    let del_btn_text = text
-                        .download_delete_deps_btn
-                        .replacen("{}", &ytdlp_size, 1)
-                        .replacen("{}", &ffmpeg_size, 1)
-                        .replacen("{}", &deno_size, 1);
+            let (ytdlp_size, ffmpeg_size, deno_size) = self.get_dependency_sizes();
+            let del_btn_text = text
+                .download_delete_deps_btn
+                .replacen("{}", &ytdlp_size, 1)
+                .replacen("{}", &ffmpeg_size, 1)
+                .replacen("{}", &deno_size, 1);
 
-                    if ui
-                        .button(egui::RichText::new(del_btn_text).color(egui::Color32::RED))
-                        .clicked()
-                    {
-                        self.delete_dependencies();
-                        ui.close();
-                    }
-                });
-            });
+            if ui
+                .button(egui::RichText::new(del_btn_text).color(theme.danger_text()))
+                .clicked()
+            {
+                self.delete_dependencies();
+                ui.close();
+            }
         });
     }
 
@@ -287,6 +285,7 @@ impl DownloadManager {
     }
 
     fn render_video_quality(&mut self, ui: &mut egui::Ui, text: &LocaleText, idx: usize) {
+        let theme = AppTheme::from_ui(ui);
         let formats = self.sessions[idx].available_formats.lock().unwrap().clone();
         let error = self.sessions[idx].analysis_error.lock().unwrap().clone();
         let is_analyzing = *self.sessions[idx].is_analyzing.lock().unwrap();
@@ -323,7 +322,7 @@ impl DownloadManager {
             // Subtitle Selection
             self.render_subtitle_selection(ui, text, idx);
         } else if error.is_some() {
-            ui.colored_label(egui::Color32::RED, "\u{274c}");
+            ui.colored_label(theme.danger_text(), "\u{274c}");
         }
     }
 

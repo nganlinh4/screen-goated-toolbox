@@ -79,75 +79,49 @@ pub fn render_global_settings(
     ui.add_space(10.0);
 
     // === USAGE STATISTICS & TTS SETTINGS BUTTONS ===
-    let is_dark = ui.visuals().dark_mode;
-    let stats_bg = if is_dark {
-        egui::Color32::from_rgb(50, 100, 110) // Teal for dark mode
-    } else {
-        egui::Color32::from_rgb(90, 160, 170) // Lighter teal for light mode
-    };
+    let on_btn = theme.on_accent();
 
     ui.horizontal(|ui| {
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(format!("📊 {}", text.usage_statistics_title))
-                        .color(egui::Color32::WHITE)
-                        .strong(),
-                )
-                .fill(stats_bg)
-                .corner_radius(10.0),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text(text.usage_statistics_tooltip)
-            .clicked()
+        if crate::gui::widgets::filled_button(
+            ui,
+            &format!("📊 {}", text.usage_statistics_title),
+            theme.btn_stats(),
+            on_btn,
+            10,
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(text.usage_statistics_tooltip)
+        .clicked()
         {
             *show_usage_modal = true;
         }
 
         ui.add_space(10.0);
 
-        let tts_bg = if is_dark {
-            egui::Color32::from_rgb(100, 80, 120) // Purple for dark mode
-        } else {
-            egui::Color32::from_rgb(180, 140, 200) // Lighter purple for light mode
-        };
-
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(format!("🔊 {}", text.tts_settings_button))
-                        .color(egui::Color32::WHITE)
-                        .strong(),
-                )
-                .fill(tts_bg)
-                .corner_radius(10.0),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .clicked()
+        if crate::gui::widgets::filled_button(
+            ui,
+            &format!("🔊 {}", text.tts_settings_button),
+            theme.btn_tts_settings(),
+            on_btn,
+            10,
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
         {
             *show_tts_modal = true;
         }
 
         ui.add_space(10.0);
 
-        let tools_bg = if is_dark {
-            egui::Color32::from_rgb(60, 90, 140)
-        } else {
-            egui::Color32::from_rgb(100, 140, 200)
-        };
-
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(format!("📦 {}", text.downloaded_tools_button))
-                        .color(egui::Color32::WHITE)
-                        .strong(),
-                )
-                .fill(tools_bg)
-                .corner_radius(10.0),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .clicked()
+        if crate::gui::widgets::filled_button(
+            ui,
+            &format!("📦 {}", text.downloaded_tools_button),
+            theme.btn_tools(),
+            on_btn,
+            10,
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
         {
             *show_tools_modal = true;
         }
@@ -155,14 +129,13 @@ pub fn render_global_settings(
 
     ui.add_space(10.0);
 
-    let priority_bg = if is_dark {
-        egui::Color32::from_rgb(120, 88, 50)
-    } else {
-        egui::Color32::from_rgb(196, 142, 73)
-    };
-
-    if render_labeled_icon_button(ui, Icon::Priority, text.model_priority_button, priority_bg)
-        .clicked()
+    if render_labeled_icon_button(
+        ui,
+        Icon::Priority,
+        text.model_priority_button,
+        theme.btn_priority(),
+    )
+    .clicked()
     {
         *show_model_priority_modal = true;
     }
@@ -189,7 +162,7 @@ pub fn render_global_settings(
         changed = true;
     }
 
-    if render_model_priority_modal(&ctx, config, text, show_model_priority_modal) {
+    if render_model_priority_modal(ui, config, text, show_model_priority_modal) {
         changed = true;
     }
 
@@ -326,7 +299,7 @@ pub fn render_global_settings(
                         ui.label(
                             egui::RichText::new(text.admin_startup_fail)
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(200, 100, 50)),
+                                .color(theme.warning()),
                         );
                     }
 
@@ -334,7 +307,7 @@ pub fn render_global_settings(
                         ui.label(
                             egui::RichText::new(text.admin_startup_success)
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(34, 139, 34)),
+                                .color(theme.success()),
                         );
                     }
                 });
@@ -419,43 +392,31 @@ pub fn render_global_settings(
                 // Big gap to simulate right alignment
                 ui.add_space(40.0);
 
-                // Force Quit button
-                let quite_bg = if is_dark {
-                    egui::Color32::from_rgb(120, 40, 40)
-                } else {
-                    egui::Color32::from_rgb(200, 100, 100)
-                };
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(text.force_quit).color(egui::Color32::WHITE),
-                        )
-                        .fill(quite_bg)
-                        .corner_radius(8.0),
-                    )
-                    .clicked()
+                // Force Quit button — amber (less drastic than the red factory reset).
+                if crate::gui::widgets::filled_button(
+                    ui,
+                    text.force_quit,
+                    theme.warning_fill(),
+                    theme.on_accent(),
+                    8,
+                )
+                .clicked()
                 {
                     crate::gui::app::exit_app();
                 }
 
                 ui.add_space(10.0);
 
-                // Reset button
-                let reset_bg = if is_dark {
-                    egui::Color32::from_rgb(120, 60, 60)
-                } else {
-                    egui::Color32::from_rgb(220, 140, 140)
-                };
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(text.reset_defaults_btn)
-                                .color(egui::Color32::WHITE),
-                        )
-                        .fill(reset_bg)
-                        .corner_radius(8.0),
-                    )
-                    .clicked()
+                // Reset Defaults button — red: a factory reset wipes everything, so
+                // it's the most alarming action (distinct from the amber Force Quit).
+                if crate::gui::widgets::filled_button(
+                    ui,
+                    text.reset_defaults_btn,
+                    theme.danger_fill(),
+                    theme.on_accent(),
+                    8,
+                )
+                .clicked()
                 {
                     let saved_groq_key = config.api_key.clone();
                     let saved_gemini_key = config.gemini_api_key.clone();

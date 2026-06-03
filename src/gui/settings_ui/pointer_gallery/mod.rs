@@ -4,6 +4,7 @@ mod preview;
 mod worker;
 
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use backend::{
     CursorCollectionSpec, PointerCollectionSummary, apply_downloaded_collection, collection_specs,
     cursor_base_size_bounds, delete_all_downloaded_collections, expected_file_count,
@@ -165,91 +166,107 @@ impl PointerGallery {
         let mut pending_apply: Option<String> = None;
         let mut retry_requested = false;
 
+        let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
+
+        // Manual full-viewport scrim behind the (large, resizable) gallery window
+        // so it reads as the clear focus, matching the modal dialog treatment.
+        let screen_rect = ctx.content_rect();
+        ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Background,
+            egui::Id::new("pointer_gallery_scrim"),
+        ))
+        .rect_filled(screen_rect, 0.0, theme.scrim_color());
+
         egui::Window::new(text.pointer_gallery_btn)
-            .open(&mut open)
             .collapsible(false)
             .resizable(true)
-            .default_size(egui::vec2(1180.0, 560.0))
+            .title_bar(false)
+            .frame(theme.dialog_frame())
+            .default_size(egui::vec2(900.0, 560.0))
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    let summary = pointer_collection_summary();
-                    let can_restore = has_original_cursor_backup();
-                    if ui
-                        .add_enabled(
-                            can_restore,
-                            egui::Button::new(text.pointer_restore_original_btn),
-                        )
-                        .clicked()
-                    {
-                        match restore_original_cursor_backup() {
-                            Ok(()) => {
-                                self.pointer_size_loaded = false;
-                                self.ensure_pointer_size_loaded();
-                                self.status_message =
-                                    Some((true, text.pointer_restore_success.to_string()));
-                            }
-                            Err(err) => {
-                                self.status_message = Some((false, err));
+                let description = self
+                    .status_message
+                    .as_ref()
+                    .map(|(_, message)| message.clone());
+                let header_closed = crate::gui::widgets::dialog_header(
+                    ui,
+                    &theme,
+                    text.pointer_gallery_btn,
+                    description.as_deref(),
+                    |ui| {
+                        let summary = pointer_collection_summary();
+                        let can_restore = has_original_cursor_backup();
+                        if ui
+                            .add_enabled(
+                                can_restore,
+                                egui::Button::new(text.pointer_restore_original_btn),
+                            )
+                            .clicked()
+                        {
+                            match restore_original_cursor_backup() {
+                                Ok(()) => {
+                                    self.pointer_size_loaded = false;
+                                    self.ensure_pointer_size_loaded();
+                                    self.status_message =
+                                        Some((true, text.pointer_restore_success.to_string()));
+                                }
+                                Err(err) => {
+                                    self.status_message = Some((false, err));
+                                }
                             }
                         }
-                    }
 
-                    let worker_running = self.event_rx.is_some() && !self.downloads_paused;
-                    if worker_running && ui.button(text.pointer_action_stop).clicked() {
-                        self.stop_signal.store(true, Ordering::Relaxed);
-                        self.downloads_paused = true;
-                        self.status_message =
-                            Some((true, text.pointer_download_paused.to_string()));
-                    }
-
-                    if self.downloads_paused && ui.button(text.pointer_action_resume).clicked() {
-                        self.downloads_paused = false;
-                        self.restart_preload();
-                    }
-
-                    let has_missing = summary.downloaded_count < summary.total_count;
-                    if has_missing
-                        && !worker_running
-                        && !self.downloads_paused
-                        && ui.button(text.pointer_action_start_download).clicked()
-                    {
-                        self.restart_preload();
-                    }
-
-                    let (min_size, max_size) = cursor_base_size_bounds();
-                    ui.separator();
-                    ui.label(text.pointer_size_label);
-                    let mut size_value = self.pointer_size.clamp(min_size, max_size);
-                    let slider_response = ui.add_sized(
-                        [POINTER_SIZE_SLIDER_WIDTH, PREVIEW_ICON_SIZE - 2.0],
-                        egui::Slider::new(&mut size_value, min_size..=max_size).show_value(true),
-                    );
-                    if slider_response.changed() {
-                        self.pointer_size = size_value;
-                        let now = ctx.input(|i| i.time);
-                        let live_preview_only = slider_response.dragged();
-                        self.apply_pointer_size_live(now, live_preview_only, false);
-                        if live_preview_only {
-                            ctx.request_repaint_after(Duration::from_millis(80));
+                        let worker_running = self.event_rx.is_some() && !self.downloads_paused;
+                        if worker_running && ui.button(text.pointer_action_stop).clicked() {
+                            self.stop_signal.store(true, Ordering::Relaxed);
+                            self.downloads_paused = true;
+                            self.status_message =
+                                Some((true, text.pointer_download_paused.to_string()));
                         }
-                    }
-                    if slider_response.drag_stopped() {
-                        let now = ctx.input(|i| i.time);
-                        self.apply_pointer_size_live(now, false, true);
-                    }
-                });
 
-                if let Some((is_ok, message)) = &self.status_message {
-                    let color = if *is_ok {
-                        egui::Color32::from_rgb(34, 139, 34)
-                    } else {
-                        egui::Color32::from_rgb(205, 92, 92)
-                    };
-                    ui.label(egui::RichText::new(message).color(color));
+                        if self.downloads_paused && ui.button(text.pointer_action_resume).clicked() {
+                            self.downloads_paused = false;
+                            self.restart_preload();
+                        }
+
+                        let has_missing = summary.downloaded_count < summary.total_count;
+                        if has_missing
+                            && !worker_running
+                            && !self.downloads_paused
+                            && ui.button(text.pointer_action_start_download).clicked()
+                        {
+                            self.restart_preload();
+                        }
+
+                        let (min_size, max_size) = cursor_base_size_bounds();
+                        // Group the size control away from the action buttons with
+                        // spacing rather than a divider line (clean UI).
+                        ui.add_space(10.0);
+                        ui.label(text.pointer_size_label);
+                        let mut size_value = self.pointer_size.clamp(min_size, max_size);
+                        let slider_response = ui.add_sized(
+                            [POINTER_SIZE_SLIDER_WIDTH, PREVIEW_ICON_SIZE - 2.0],
+                            egui::Slider::new(&mut size_value, min_size..=max_size).show_value(true),
+                        );
+                        if slider_response.changed() {
+                            self.pointer_size = size_value;
+                            let now = ctx.input(|i| i.time);
+                            let live_preview_only = slider_response.dragged();
+                            self.apply_pointer_size_live(now, live_preview_only, false);
+                            if live_preview_only {
+                                ctx.request_repaint_after(Duration::from_millis(80));
+                            }
+                        }
+                        if slider_response.drag_stopped() {
+                            let now = ctx.input(|i| i.time);
+                            self.apply_pointer_size_live(now, false, true);
+                        }
+                    },
+                );
+                if header_closed {
+                    open = false;
                 }
-
-                ui.add_space(8.0);
 
                 let preview_width = preview_strip_width(expected_file_count(), PREVIEW_ICON_SIZE);
                 let row_height = PREVIEW_ICON_SIZE + 18.0;

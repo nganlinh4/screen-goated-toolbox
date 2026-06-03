@@ -59,7 +59,9 @@ impl SettingsApp {
                                 .inner_margin(egui::Margin {
                                     left: 8,
                                     right: 0,
-                                    top: 8,
+                                    // Tighter top margin pulls the profile bar up
+                                    // closer to the title bar (was 8).
+                                    top: 2,
                                     bottom: 0,
                                 })
                                 .show(ui, |ui| {

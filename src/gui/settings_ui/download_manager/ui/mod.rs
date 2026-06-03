@@ -1,5 +1,6 @@
 use super::types::{CookieBrowser, InstallStatus};
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use eframe::egui;
 
 mod ui_action;
@@ -80,15 +81,19 @@ impl DownloadManager {
             self.save_settings();
         }
 
-        let mut open = true;
-        egui::Window::new(text.download_feature_title)
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .default_width(400.0)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.input(|i| i.viewport_rect()).center())
+        let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
+        let mut close_requested = false;
+
+        // Fixed-size dialog -> Material modal with a scrim + dialog frame and a
+        // shared dialog_header (title + inline folder/⚙ actions + close),
+        // replacing the old egui::Window chrome while preserving the
+        // open/close flag semantics.
+        let modal = egui::Modal::new(egui::Id::new("download_manager_modal"))
+            .backdrop_color(theme.scrim_color())
+            .frame(theme.dialog_frame())
             .show(ctx, |ui| {
+                ui.set_width(400.0);
+
                 let ffmpeg_ok = matches!(
                     *self.ffmpeg_status.lock().unwrap(),
                     InstallStatus::Installed
@@ -96,12 +101,34 @@ impl DownloadManager {
                 let ytdlp_ok =
                     matches!(*self.ytdlp_status.lock().unwrap(), InstallStatus::Installed);
 
+                // The destination-folder path + ⚙ settings menu live inline in
+                // the title bar, but only once dependencies are ready (they
+                // were previously part of the main UI body).
+                if crate::gui::widgets::dialog_header(
+                    ui,
+                    &theme,
+                    text.download_feature_title,
+                    None,
+                    |ui| {
+                        if ffmpeg_ok && ytdlp_ok {
+                            self.render_folder_settings(ui, ctx, text);
+                        }
+                    },
+                ) {
+                    close_requested = true;
+                }
+
                 if !ffmpeg_ok || !ytdlp_ok {
                     self.render_deps_check(ui, text);
                 } else {
                     self.render_main_ui(ui, ctx, text);
                 }
             });
+
+        // Backdrop click / Escape also dismiss the dialog.
+        if modal.should_close() {
+            close_requested = true;
+        }
 
         if self.show_cookie_deno_dialog {
             self.apply_pending_cookie_browser_if_ready();
@@ -111,10 +138,13 @@ impl DownloadManager {
             self.render_deno_dialog(ctx, text);
         }
 
-        self.show_window = open;
+        if close_requested {
+            self.show_window = false;
+        }
     }
 
     fn render_deno_dialog(&mut self, ctx: &egui::Context, text: &LocaleText) {
+        let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
         let deno_status = self.deno_status.lock().unwrap().clone();
 
         egui::Window::new(text.download_deno_required_title)
@@ -147,7 +177,7 @@ impl DownloadManager {
                     }
                     InstallStatus::Error(ref err) => {
                         ui.colored_label(
-                            egui::Color32::RED,
+                            theme.danger_text(),
                             text.download_deno_failed_fmt.replace("{}", err),
                         );
                     }

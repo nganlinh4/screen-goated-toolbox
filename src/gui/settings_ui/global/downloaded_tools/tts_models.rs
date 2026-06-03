@@ -20,6 +20,7 @@ use crate::api::realtime_audio::vieneu_runtime::{
     is_vieneu_runtime_installed_for_variant, remove_vieneu_runtime, vieneu_runtime_installed_size,
 };
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
 use std::path::PathBuf;
@@ -29,7 +30,7 @@ use std::thread;
 
 use super::utils::{
     cached_probe, cached_u64, format_size, get_dir_size, invalidate_probe_cache,
-    invalidate_size_cache, invalidate_u64_cache,
+    invalidate_size_cache, invalidate_u64_cache, tool_card,
 };
 
 const PROBE_STEP_AUDIO: &str = "downloaded-tools:step-audio-editx";
@@ -52,7 +53,7 @@ struct TtsCardSpec {
 }
 
 pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
-    ui.group(|ui| {
+    tool_card(ui, |ui| {
         let spec = TtsCardSpec {
             title: "Step Audio EditX",
             model_probe: PROBE_STEP_AUDIO,
@@ -76,7 +77,7 @@ pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
 }
 
 pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
-    ui.group(|ui| {
+    tool_card(ui, |ui| {
         let spec = TtsCardSpec {
             title: "NVIDIA Magpie-Multilingual 357M",
             model_probe: PROBE_MAGPIE,
@@ -100,6 +101,7 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
 }
 
 fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_step_audio_runtime).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -119,7 +121,7 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_STEP_RUNTIME, is_step_audio_runtime_installed) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_probe_cache(PROBE_STEP_RUNTIME);
@@ -134,7 +136,7 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else {
                 if ui.button(text.tool_action_download).clicked() {
@@ -149,12 +151,13 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
     });
     ui.label(text.tool_desc_step_audio_runtime);
     if let Some(message) = current_step_audio_runtime_notice() {
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }
 
 pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
-    ui.group(|ui| {
+    tool_card(ui, |ui| {
+        let theme = AppTheme::from_ui(ui);
         ui.heading("VieNeu-TTS v2");
         ui.add_space(4.0);
         ui.label(text.tool_desc_vieneu);
@@ -183,7 +186,8 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                 }) {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -199,7 +203,7 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                         egui::RichText::new(
                             text.tool_status_installed.replace("{}", &format_size(size)),
                         )
-                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                        .color(theme.success()),
                     );
                 } else {
                     if ui.button(text.tool_action_download).clicked() {
@@ -217,13 +221,14 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
             });
         });
         if let Some(notice) = current_vieneu_runtime_notice() {
-            ui.label(egui::RichText::new(notice).color(egui::Color32::from_rgb(180, 90, 0)));
+            ui.label(egui::RichText::new(notice).color(theme.warning()));
         }
         ui.label(text.tool_desc_vieneu_runtime);
     });
 }
 
 fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &TtsCardSpec) {
+    let theme = AppTheme::from_ui(ui);
     let notice = (spec.model_notice)();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(spec.model_title).strong());
@@ -241,7 +246,7 @@ fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &TtsCardSpec) {
                 ui.spinner();
             } else if cached_probe(spec.model_probe, spec.is_model_downloaded) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_size_cache(&(spec.model_dir)());
@@ -253,7 +258,7 @@ fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &TtsCardSpec) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else {
                 if ui.button(text.tool_action_download).clicked() {
@@ -268,11 +273,12 @@ fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &TtsCardSpec) {
         });
     });
     if let Some(message) = notice {
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }
 
 fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.tool_magpie_runtime).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -290,7 +296,7 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_MAGPIE_RUNTIME, is_magpie_runtime_installed) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
                     .clicked()
                 {
                     invalidate_probe_cache(PROBE_MAGPIE_RUNTIME);
@@ -305,7 +311,7 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                     egui::RichText::new(
                         text.tool_status_installed.replace("{}", &format_size(size)),
                     )
-                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                    .color(theme.success()),
                 );
             } else {
                 if ui.button(text.tool_action_download).clicked() {
@@ -320,6 +326,6 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
     });
     ui.label(text.tool_desc_magpie_runtime);
     if let Some(message) = current_magpie_runtime_notice() {
-        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
 }

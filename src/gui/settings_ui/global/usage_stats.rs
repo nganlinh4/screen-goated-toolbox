@@ -1,5 +1,5 @@
-use crate::gui::icons::{Icon, icon_button};
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use crate::model_config::{get_all_models, get_all_models_with_ollama};
 use eframe::egui;
 use std::collections::HashMap;
@@ -23,24 +23,23 @@ pub fn render_usage_modal(
         return;
     }
 
-    egui::Window::new(format!("📊 {}", text.usage_statistics_title))
-        .collapsible(false)
-        .resizable(false)
-        .title_bar(false)
-        .default_width(400.0)
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+    let theme = AppTheme::from_ui(ui);
+
+    let modal = egui::Modal::new(egui::Id::new("usage_statistics_modal"))
+        .backdrop_color(theme.scrim_color())
+        .frame(theme.dialog_frame())
         .show(ui.ctx(), |ui| {
-            // Header with title and close button
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("📊 {}", text.usage_statistics_title)).strong().size(14.0));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, Icon::Close).clicked() {
-                        *show_modal = false;
-                    }
-                });
-            });
-            ui.separator();
-            ui.add_space(4.0);
+            ui.set_width(400.0);
+
+            if crate::gui::widgets::dialog_header(
+                ui,
+                &theme,
+                &format!("📊 {}", text.usage_statistics_title),
+                None,
+                |_| {},
+            ) {
+                *show_modal = false;
+            }
 
             // Get all models including Ollama models from cache
             let all_models = if use_ollama {
@@ -218,4 +217,8 @@ pub fn render_usage_modal(
                 }
             });
         });
+
+    if modal.should_close() {
+        *show_modal = false;
+    }
 }

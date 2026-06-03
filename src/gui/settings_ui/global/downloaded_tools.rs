@@ -1,5 +1,6 @@
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::download_manager::DownloadManager;
+use crate::gui::theme::AppTheme;
 use eframe::egui;
 use std::time::{Duration, Instant};
 
@@ -71,21 +72,46 @@ pub fn render_downloaded_tools_modal(
 ) {
     if *show_modal {
         let mut open = true;
+        let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
+
+        // Manual full-viewport scrim behind the (large, resizable) tools window
+        // so it reads as the clear focus, matching the modal dialog treatment.
+        let screen_rect = ctx.content_rect();
+        ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Background,
+            egui::Id::new("downloaded_tools_scrim"),
+        ))
+        .rect_filled(screen_rect, 0.0, theme.scrim_color());
+
         egui::Window::new(text.downloaded_tools_title)
-            .open(&mut open)
             .collapsible(false)
             .resizable(true)
+            .title_bar(false)
+            .frame(theme.dialog_frame())
             .default_width(1100.0)
             .default_height(540.0)
             .min_width(900.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
                 ui.set_min_width(900.0);
+
+                if crate::gui::widgets::dialog_header(ui, &theme, text.downloaded_tools_title, None, |ui| {
+                    if ui
+                        .button(
+                            egui::RichText::new(text.downloaded_tools_clean_all)
+                                .color(theme.danger_text()),
+                        )
+                        .clicked()
+                    {
+                        clean_all_downloaded_tools(download_manager);
+                    }
+                }) {
+                    open = false;
+                }
+
                 egui::ScrollArea::vertical()
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
-                        ui.add_space(8.0);
-                        render_clean_all_tools_row(ui, download_manager, text);
                         ui.add_space(8.0);
 
                         ui.columns(2, |columns| {
@@ -142,25 +168,6 @@ pub fn render_downloaded_tools_modal(
 
         *show_modal = open;
     }
-}
-
-fn render_clean_all_tools_row(
-    ui: &mut egui::Ui,
-    download_manager: &mut DownloadManager,
-    text: &LocaleText,
-) {
-    ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .button(
-                    egui::RichText::new(text.downloaded_tools_clean_all).color(egui::Color32::RED),
-                )
-                .clicked()
-            {
-                clean_all_downloaded_tools(download_manager);
-            }
-        });
-    });
 }
 
 fn clean_all_downloaded_tools(download_manager: &mut DownloadManager) {

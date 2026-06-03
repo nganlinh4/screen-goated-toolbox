@@ -1,5 +1,6 @@
 use crate::config::{Config, ModelPriorityChains};
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use crate::model_config::{
     ModelConfig, ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
     model_supports_search_by_id,
@@ -8,7 +9,7 @@ use crate::retry_model_chain::RetryChainKind;
 use eframe::egui;
 
 pub fn render_model_priority_modal(
-    ctx: &egui::Context,
+    ui: &mut egui::Ui,
     config: &mut Config,
     text: &LocaleText,
     show_modal: &mut bool,
@@ -17,18 +18,25 @@ pub fn render_model_priority_modal(
         return false;
     }
 
+    let theme = AppTheme::from_ui(ui);
     let mut changed = false;
-    let mut open = true;
 
-    egui::Window::new(text.model_priority_title)
-        .open(&mut open)
-        .collapsible(false)
-        .resizable(false)
-        .default_width(760.0)
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-        .show(ctx, |ui| {
-            ui.label(egui::RichText::new(text.model_priority_skip_hint).small());
-            ui.add_space(8.0);
+    let modal = egui::Modal::new(egui::Id::new("model_priority_modal"))
+        .backdrop_color(theme.scrim_color())
+        .frame(theme.dialog_frame())
+        .show(ui.ctx(), |ui| {
+            ui.set_width(760.0);
+
+            // Header: title + skip-hint description + close.
+            if crate::gui::widgets::dialog_header(
+                ui,
+                &theme,
+                text.model_priority_title,
+                Some(text.model_priority_skip_hint),
+                |_| {},
+            ) {
+                *show_modal = false;
+            }
 
             ui.columns(2, |columns| {
                 if render_chain_section(
@@ -53,7 +61,7 @@ pub fn render_model_priority_modal(
             });
         });
 
-    if !open {
+    if modal.should_close() {
         *show_modal = false;
     }
 
@@ -84,15 +92,10 @@ fn render_chain_section(
         RetryChainKind::TextToText => "model_priority_text_chain",
     };
     let available_models = compatible_models(chain_kind);
+    let theme = AppTheme::from_ui(ui);
     let section_title_color = match chain_kind {
-        RetryChainKind::ImageToText => {
-            if ui.visuals().dark_mode {
-                egui::Color32::from_rgb(255, 200, 100)
-            } else {
-                egui::Color32::from_rgb(200, 100, 0)
-            }
-        }
-        RetryChainKind::TextToText => ui.visuals().text_color(),
+        RetryChainKind::ImageToText => theme.node_special_title(),
+        RetryChainKind::TextToText => theme.on_surface(),
     };
 
     ui.group(|ui| {
@@ -135,10 +138,10 @@ fn render_chain_section(
             ui.horizontal(|ui| {
                 ui.label(format!("{}.", row_idx + 2));
 
-                let selected_text = model_label(&chain[row_idx], ui_language);
+                let selected_text = model_short_label(&chain[row_idx], ui_language);
                 egui::ComboBox::from_id_salt((section_id, "combo", row_idx))
                     .selected_text(selected_text)
-                    .width(260.0)
+                    .width(240.0)
                     .show_ui(ui, |ui| {
                         for model in &available_models {
                             let label = model_option_label(model, ui_language);
@@ -228,12 +231,6 @@ fn default_insert_model_id(models: &[crate::model_config::ModelConfig]) -> Strin
         .unwrap_or_default()
 }
 
-fn model_label(model_id: &str, ui_language: &str) -> String {
-    get_model_by_id(model_id)
-        .map(|model| model_option_label(&model, ui_language))
-        .unwrap_or_else(|| model_id.to_string())
-}
-
 fn localized_model_name<'a>(model: &'a ModelConfig, ui_language: &str) -> &'a str {
     match ui_language {
         "vi" => &model.name_vi,
@@ -250,8 +247,8 @@ fn localized_quota<'a>(model: &'a ModelConfig, ui_language: &str) -> &'a str {
     }
 }
 
-fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &str) -> String {
-    let provider_icon = match model.provider.as_str() {
+fn provider_icon(provider: &str) -> &'static str {
+    match provider {
         "google" | "gemini-live" => "✨ ",
         "google-gtx" => "🌍 ",
         "groq" => "⚡ ",
@@ -263,7 +260,12 @@ fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &st
         "qwen3" => "● ",
         "taalas" => "🚀 ",
         _ => "⚙️ ",
-    };
+    }
+}
+
+/// Full label shown inside the expanded dropdown list: icon + friendly name +
+/// model id + quota (+ search badge).
+fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &str) -> String {
     let search_suffix = if model_supports_search_by_id(&model.id) {
         " 🔍"
     } else {
@@ -274,6 +276,31 @@ fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &st
 
     format!(
         "{}{} - {} - {}{}",
-        provider_icon, name, model.full_name, quota, search_suffix
+        provider_icon(&model.provider),
+        name,
+        model.full_name,
+        quota,
+        search_suffix
     )
+}
+
+/// Compact label for the collapsed dropdown button: icon + friendly name
+/// (+ search badge) only. Keeps every row the same width so the reorder
+/// controls don't drift — full details stay in the expanded list.
+fn model_short_label(model_id: &str, ui_language: &str) -> String {
+    get_model_by_id(model_id)
+        .map(|model| {
+            let search_suffix = if model_supports_search_by_id(&model.id) {
+                " 🔍"
+            } else {
+                ""
+            };
+            format!(
+                "{}{}{}",
+                provider_icon(&model.provider),
+                localized_model_name(&model, ui_language),
+                search_suffix
+            )
+        })
+        .unwrap_or_else(|| model_id.to_string())
 }

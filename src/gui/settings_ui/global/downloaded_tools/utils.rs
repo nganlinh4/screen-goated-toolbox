@@ -1,7 +1,26 @@
+use crate::gui::theme::AppTheme;
+use eframe::egui::{self, CornerRadius, Frame, Margin};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+/// Themed Material container used for every downloaded-tools card, replacing the
+/// default `ui.group(...)` so cards match the dialog surface (card fill, hairline
+/// stroke, rounded corners, roomy padding).
+pub(super) fn tool_card_frame(theme: &AppTheme) -> Frame {
+    Frame::new()
+        .fill(theme.card_bg())
+        .stroke(theme.card_stroke())
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::same(10))
+}
+
+/// Render a tool card with the themed container, deriving the theme from `ui`.
+pub(super) fn tool_card(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+    let theme = AppTheme::from_ui(ui);
+    tool_card_frame(&theme).show(ui, add_contents);
+}
 
 const SIZE_CACHE_TTL: Duration = Duration::from_secs(30);
 const PROBE_CACHE_TTL: Duration = Duration::from_secs(2);
