@@ -37,40 +37,40 @@ import java.io.File
 import kotlin.math.roundToInt
 
 internal class PresetOverlayController(
-    private val context: Context,
-    private val scope: CoroutineScope,
-    private val windowManager: WindowManager,
-    private val presetRepository: PresetRepository,
-    private val uiPreferencesFlow: StateFlow<MobileUiPreferences>,
-    private val uiPreferencesProvider: () -> MobileUiPreferences,
-    private val keepOpenProvider: () -> Boolean,
-    private val onKeepOpenChanged: (Boolean) -> Unit,
-    private val onIncreaseBubbleSize: () -> Unit,
-    private val onDecreaseBubbleSize: () -> Unit,
-    private val onPanelExpandedChanged: (Boolean) -> Unit = {},
-    private val onBubbleSuppressedChanged: (Boolean) -> Unit = {},
-    private val onRequestBubbleFront: () -> Unit = {},
-    private val onAudioCaptureForegroundModeChanged: (PresetAudioForegroundMode) -> Unit = {},
-    private val ttsRuntimeService: TtsRuntimeService? = null,
-    private val ttsSettingsSnapshotProvider: (() -> dev.screengoated.toolbox.mobile.service.tts.TtsRequestSettingsSnapshot)? = null,
+    internal val context: Context,
+    internal val scope: CoroutineScope,
+    internal val windowManager: WindowManager,
+    internal val presetRepository: PresetRepository,
+    internal val uiPreferencesFlow: StateFlow<MobileUiPreferences>,
+    internal val uiPreferencesProvider: () -> MobileUiPreferences,
+    internal val keepOpenProvider: () -> Boolean,
+    internal val onKeepOpenChanged: (Boolean) -> Unit,
+    internal val onIncreaseBubbleSize: () -> Unit,
+    internal val onDecreaseBubbleSize: () -> Unit,
+    internal val onPanelExpandedChanged: (Boolean) -> Unit = {},
+    internal val onBubbleSuppressedChanged: (Boolean) -> Unit = {},
+    internal val onRequestBubbleFront: () -> Unit = {},
+    internal val onAudioCaptureForegroundModeChanged: (PresetAudioForegroundMode) -> Unit = {},
+    internal val ttsRuntimeService: TtsRuntimeService? = null,
+    internal val ttsSettingsSnapshotProvider: (() -> dev.screengoated.toolbox.mobile.service.tts.TtsRequestSettingsSnapshot)? = null,
 ) {
-    private val appContainer = (context.applicationContext as SgtMobileApplication).appContainer
-    private val favoriteBubbleHtmlBuilder = FavoriteBubbleHtmlBuilder()
-    private val textInputHtmlBuilder = PresetTextInputHtmlBuilder()
-    private val density = context.resources.displayMetrics.density
-    private val dismissTarget = PresetOverlayDismissTarget(context, windowManager, ::uiLanguage)
-    private val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+    internal val appContainer = (context.applicationContext as SgtMobileApplication).appContainer
+    internal val favoriteBubbleHtmlBuilder = FavoriteBubbleHtmlBuilder()
+    internal val textInputHtmlBuilder = PresetTextInputHtmlBuilder()
+    internal val density = context.resources.displayMetrics.density
+    internal val dismissTarget = PresetOverlayDismissTarget(context, windowManager, ::uiLanguage)
+    internal val clipboardManager = context.getSystemService(ClipboardManager::class.java)
 
-    private val processingIndicator = PresetProcessingIndicator(context, windowManager)
-    private val accessibilityDisclosure = AccessibilityDisclosureOverlay(context, windowManager)
-    private val imageCaptureSession = PresetImageCaptureSession(
+    internal val processingIndicator = PresetProcessingIndicator(context, windowManager)
+    internal val accessibilityDisclosure = AccessibilityDisclosureOverlay(context, windowManager)
+    internal val imageCaptureSession = PresetImageCaptureSession(
         context = context,
         windowManager = windowManager,
         uiLanguage = ::uiLanguage,
         onBubbleSuppressedChanged = onBubbleSuppressedChanged,
         onOverlaySuppressedChanged = ::setOverlayChromeSuppressed,
     )
-    private val audioCaptureSession = PresetAudioCaptureSession(
+    internal val audioCaptureSession = PresetAudioCaptureSession(
         context = context,
         windowManager = windowManager,
         projectionConsentStore = appContainer.projectionConsentStore,
@@ -82,7 +82,7 @@ internal class PresetOverlayController(
         toastBus = appContainer.toastBus,
         onStreamingTextChunk = ::appendStreamingTextChunk,
     )
-    private val autoSpeakCoordinator = if (ttsRuntimeService != null && ttsSettingsSnapshotProvider != null) {
+    internal val autoSpeakCoordinator = if (ttsRuntimeService != null && ttsSettingsSnapshotProvider != null) {
         PresetAutoSpeakCoordinator(
             context = context,
             ttsRuntimeService = ttsRuntimeService,
@@ -92,13 +92,13 @@ internal class PresetOverlayController(
     } else {
         null
     }
-    private var activePreset: ResolvedPreset? = null
-    private var bubbleBounds = OverlayBounds(x = 0, y = 0, width = dp(48), height = dp(48))
-    private var imageContinuousPresetId: String? = null
-    private var imageContinuousRearmPending = false
-    private var nextImageCaptureTraceId = 1L
+    internal var activePreset: ResolvedPreset? = null
+    internal var bubbleBounds = OverlayBounds(x = 0, y = 0, width = dp(48), height = dp(48))
+    internal var imageContinuousPresetId: String? = null
+    internal var imageContinuousRearmPending = false
+    internal var nextImageCaptureTraceId = 1L
 
-    private val panelModule = PresetOverlayPanelModule(
+    internal val panelModule = PresetOverlayPanelModule(
         context = context,
         windowManager = windowManager,
         favoriteBubbleHtmlBuilder = favoriteBubbleHtmlBuilder,
@@ -119,14 +119,14 @@ internal class PresetOverlayController(
         resolvedPresetById = { presetId -> presetRepository.getResolvedPreset(presetId) },
         launchPreset = ::launchPreset,
     )
-    private lateinit var inputModule: PresetOverlayInputModule
-    private lateinit var resultModule: PresetOverlayResultModule
+    internal lateinit var inputModule: PresetOverlayInputModule
+    internal lateinit var resultModule: PresetOverlayResultModule
 
-    private var catalogJob: Job? = null
-    private var executionJob: Job? = null
-    private var uiPreferencesJob: Job? = null
-    private var ttsEventsJob: Job? = null
-    private var lastUiPreferences: MobileUiPreferences = uiPreferencesProvider()
+    internal var catalogJob: Job? = null
+    internal var executionJob: Job? = null
+    internal var uiPreferencesJob: Job? = null
+    internal var ttsEventsJob: Job? = null
+    internal var lastUiPreferences: MobileUiPreferences = uiPreferencesProvider()
 
     init {
         resultModule = PresetOverlayResultModule(
@@ -323,7 +323,7 @@ internal class PresetOverlayController(
         presetRepository.resetState()
     }
 
-    private fun refreshOverlayPreferences(
+    internal fun refreshOverlayPreferences(
         previous: MobileUiPreferences,
         current: MobileUiPreferences,
     ) {
@@ -351,7 +351,7 @@ internal class PresetOverlayController(
         }
     }
 
-    private fun launchPreset(
+    internal fun launchPreset(
         presetId: String,
         closePanel: Boolean,
         continuousMode: Boolean,
@@ -454,10 +454,9 @@ internal class PresetOverlayController(
     }
 
     /** Captured image bytes from IMAGE preset, waiting for dynamic prompt input. */
-    private var pendingImageBytes: ByteArray? = null
+    internal var pendingImageBytes: ByteArray? = null
 
-
-    private fun launchDefaultMicPreset() {
+    internal fun launchDefaultMicPreset() {
         val resolved = presetRepository.getResolvedPreset("preset_transcribe") ?: return
         if (!inputModule.hasWindow()) {
             // No input window — normal preset launch
@@ -513,45 +512,6 @@ internal class PresetOverlayController(
         )
     }
 
-    private fun launchAudioPreset(resolved: ResolvedPreset) {
-        if (resolved.preset.audioProcessingMode == "realtime") {
-            onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
-            launchRealtimeAudioPreset(resolved)
-            return
-        }
-        val foregroundMode = if (resolved.preset.audioSource == "device") {
-            PresetAudioForegroundMode.MEDIA_PROJECTION
-        } else {
-            PresetAudioForegroundMode.MICROPHONE
-        }
-        onAudioCaptureForegroundModeChanged(foregroundMode)
-        audioCaptureSession.start(
-            resolvedPreset = resolved,
-            onRecordingComplete = { capture ->
-                onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
-                presetRepository.resetState()
-                presetRepository.executePreset(
-                    resolved.preset,
-                    PresetInput.Audio(
-                        wavBytes = capture.wavBytes,
-                        precomputedTranscript = capture.precomputedTranscript,
-                        isStreamingResult = capture.isStreamingResult,
-                    ),
-                )
-            },
-            onCancelled = {
-                onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
-                if (!resultModule.hasResults()) {
-                    activePreset = null
-                }
-            },
-            onFailure = { failure ->
-                onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
-                handleAudioCaptureFailure(resolved, failure)
-            },
-        )
-    }
-
     fun resumePendingAudioLaunch() {
         val pending = appContainer.audioPresetLaunchStore.take() ?: return
         if (pending.kind != AudioPresetLaunchKind.CAPTURE) {
@@ -565,65 +525,7 @@ internal class PresetOverlayController(
         )
     }
 
-    private fun handleAudioCaptureFailure(
-        resolved: ResolvedPreset,
-        failure: PresetAudioCaptureFailure,
-    ) {
-        when (failure.reason) {
-            PresetAudioCaptureFailureReason.RECORD_PERMISSION_REQUIRED,
-            -> {
-                appContainer.audioPresetLaunchStore.set(
-                    AudioPresetLaunchRequest(
-                        presetId = resolved.preset.id,
-                        kind = AudioPresetLaunchKind.CAPTURE,
-                    ),
-                )
-                context.startActivity(
-                    Intent(context, MainActivity::class.java).apply {
-                        addFlags(
-                            Intent.FLAG_ACTIVITY_NEW_TASK or
-                                Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                                Intent.FLAG_ACTIVITY_CLEAR_TOP,
-                        )
-                        putExtra(MainActivity.EXTRA_RESUME_PENDING_AUDIO_PRESET, true)
-                    },
-                )
-            }
-            PresetAudioCaptureFailureReason.PROJECTION_CONSENT_REQUIRED -> {
-                appContainer.audioPresetLaunchStore.set(
-                    AudioPresetLaunchRequest(
-                        presetId = resolved.preset.id,
-                        kind = AudioPresetLaunchKind.CAPTURE,
-                    ),
-                )
-                context.startActivity(
-                    dev.screengoated.toolbox.mobile.ProjectionConsentProxyActivity.resumeCapturePresetIntent(context),
-                )
-            }
-            PresetAudioCaptureFailureReason.CAPTURE_FAILED -> {
-                Toast.makeText(
-                    context,
-                    localized(
-                        "Audio capture failed.",
-                        "Không thể ghi âm.",
-                        "오디오 캡처에 실패했습니다.",
-                    ),
-                    Toast.LENGTH_SHORT,
-                    ).show()
-                activePreset = null
-            }
-        }
-    }
-
-    private fun requiresAccessibilityForAudioAutoPaste(resolved: ResolvedPreset): Boolean {
-        if (!resolved.preset.autoPaste) {
-            return false
-        }
-        return resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC ||
-            resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO
-    }
-
-    private fun appendStreamingTextChunk(chunk: String): Boolean {
+    internal fun appendStreamingTextChunk(chunk: String): Boolean {
         if (chunk.isBlank()) {
             return false
         }
@@ -634,82 +536,13 @@ internal class PresetOverlayController(
         )
     }
 
-    private fun launchRealtimeAudioPreset(resolved: ResolvedPreset) {
-        val phase = appContainer.repository.state.value.phase
-        val activeRealtimePresetId = appContainer.audioPresetLaunchStore.activeRealtimePresetId()
-        if (
-            activeRealtimePresetId == resolved.preset.id &&
-            appContainer.repository.isTransientSessionConfigActive() &&
-            phase in setOf(
-                dev.screengoated.toolbox.mobile.shared.live.SessionPhase.STARTING,
-                dev.screengoated.toolbox.mobile.shared.live.SessionPhase.LISTENING,
-                dev.screengoated.toolbox.mobile.shared.live.SessionPhase.TRANSLATING,
-            )
-        ) {
-            LiveTranslateService.stop(context)
-            appContainer.audioPresetLaunchStore.setActiveRealtimePresetId(null)
-            return
-        }
-        appContainer.audioPresetLaunchStore.set(
-            AudioPresetLaunchRequest(
-                presetId = resolved.preset.id,
-                kind = AudioPresetLaunchKind.REALTIME,
-            ),
-        )
-        context.startActivity(
-            Intent(context, MainActivity::class.java).apply {
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP,
-                )
-                putExtra(MainActivity.EXTRA_RESUME_PENDING_AUDIO_PRESET, true)
-            },
-        )
-    }
-
-    private fun launchImagePreset(
-        resolved: ResolvedPreset,
-        continuousMode: Boolean,
-    ) {
-        val trace = newImageCaptureTrace(
-            resolved = resolved,
-            continuousMode = continuousMode,
-            source = "preset_press",
-        )
-        logImageCaptureTrace(trace, "preset_pressed")
-        if (continuousMode && imageContinuousPresetId == resolved.preset.id) {
-            stopImageContinuousMode(showToast = true)
-            return
-        }
-        SgtAccessibilityService.currentScreenshotSupport().failureReason?.let { reason ->
-            handleImageCaptureFailure(reason, continuousMode = false)
-            return
-        }
-
-        imageContinuousPresetId = if (continuousMode) resolved.preset.id else null
-        imageContinuousRearmPending = false
-        if (continuousMode) {
-            Toast.makeText(
-                context,
-                localized(
-                    "Image continuous mode armed.",
-                    "Đã bật chế độ chụp ảnh liên tục.",
-                    "이미지 연속 모드가 활성화되었습니다.",
-                ),
-                Toast.LENGTH_SHORT,
-            ).show()
-        }
-        startImageCaptureSession(resolved, continuousMode, trace)
-    }
-
     /**
      * Handle TEXT_SELECT after the selected text has been captured.
      * Fixed prompt → execute immediately.
      * Dynamic prompt → show input window, user types prompt, then execute with modified preset.
      * Matches Windows pipeline.rs:299-358.
      */
-    private fun executeTextSelectWithCapturedText(resolved: ResolvedPreset, capturedText: String) {
+    internal fun executeTextSelectWithCapturedText(resolved: ResolvedPreset, capturedText: String) {
         if (resolved.preset.promptMode == "dynamic") {
             // Dynamic: show input window for user to type the prompt
             // Store captured text for later — will combine with user's prompt on submit
@@ -722,9 +555,9 @@ internal class PresetOverlayController(
     }
 
     /** Captured text from TEXT_SELECT, waiting for dynamic prompt input. */
-    private var pendingTextSelectInput: String? = null
+    internal var pendingTextSelectInput: String? = null
 
-    private fun handleInputClosedWithoutResults() {
+    internal fun handleInputClosedWithoutResults() {
         val hadPendingImage = pendingImageBytes != null
         pendingImageBytes = null
         pendingTextSelectInput = null
@@ -747,7 +580,7 @@ internal class PresetOverlayController(
         activePreset = null
     }
 
-    private fun submitInput(text: String) {
+    internal fun submitInput(text: String) {
         val resolved = activePreset ?: return
         val pendingImage = pendingImageBytes
         if (pendingImage != null) {
@@ -777,7 +610,7 @@ internal class PresetOverlayController(
         }
     }
 
-    private fun renderExecutionState(state: PresetExecutionState) {
+    internal fun renderExecutionState(state: PresetExecutionState) {
         // Show processing indicator ONLY until the first result overlay appears.
         // Once any result window exists (even loading), dismiss the indicator —
         // the result overlay has its own loading animation inside.
@@ -812,27 +645,27 @@ internal class PresetOverlayController(
         }
     }
 
-    private fun favoritePresets(): List<ResolvedPreset> {
+    internal fun favoritePresets(): List<ResolvedPreset> {
         return presetRepository.catalogState.value.presets.filter { it.preset.isFavorite }
     }
 
-    private fun favoritePanelPresets(): List<ResolvedPreset> {
+    internal fun favoritePanelPresets(): List<ResolvedPreset> {
         return favoritePresets().filter { !it.preset.isUpcoming }
     }
 
-    private fun screenBounds(): Rect {
+    internal fun screenBounds(): Rect {
         val metrics = context.resources.displayMetrics
         return Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
     }
 
-    private fun uiLanguage(): String = uiPreferencesProvider().uiLanguage
+    internal fun uiLanguage(): String = uiPreferencesProvider().uiLanguage
 
-    private fun localized(en: String, vi: String, ko: String): String =
+    internal fun localized(en: String, vi: String, ko: String): String =
         overlayLocalized(uiLanguage(), en, vi, ko)
 
-    private fun isDarkTheme(): Boolean = overlayIsDarkTheme(context, uiPreferencesProvider().themeMode)
+    internal fun isDarkTheme(): Boolean = overlayIsDarkTheme(context, uiPreferencesProvider().themeMode)
 
-    private fun buildApiKeys(): dev.screengoated.toolbox.mobile.preset.ApiKeys {
+    internal fun buildApiKeys(): dev.screengoated.toolbox.mobile.preset.ApiKeys {
         val repo = appContainer.repository
         return dev.screengoated.toolbox.mobile.preset.ApiKeys(
             geminiKey = repo.currentApiKey(),
@@ -843,163 +676,13 @@ internal class PresetOverlayController(
         )
     }
 
-    private fun dp(value: Int): Int = (value * density).roundToInt()
+    internal fun dp(value: Int): Int = (value * density).roundToInt()
 
-    private fun cssToPhysical(value: Float): Int = (value * density).roundToInt()
+    internal fun cssToPhysical(value: Float): Int = (value * density).roundToInt()
 
-    private fun cssToPhysical(value: Int): Int = cssToPhysical(value.toFloat())
+    internal fun cssToPhysical(value: Int): Int = cssToPhysical(value.toFloat())
 
-    private fun startImageCaptureSession(
-        resolved: ResolvedPreset,
-        continuousMode: Boolean,
-        trace: ImageCaptureTrace,
-    ) {
-        processingIndicator.dismiss()
-        imageCaptureSession.start(
-            resolvedPreset = resolved,
-            trace = trace,
-            onSelectionConfirmed = { pngBytes ->
-                if (resolved.preset.promptMode == "dynamic") {
-                    pendingImageBytes = pngBytes
-                    inputModule.open(resolved)
-                } else {
-                    presetRepository.executePreset(resolved.preset, PresetInput.Image(pngBytes))
-                    imageContinuousRearmPending = continuousMode
-                }
-            },
-            onColorPicked = { hexColor ->
-                copyColorToClipboard(hexColor)
-                if (continuousMode && imageContinuousPresetId == resolved.preset.id) {
-                    startImageCaptureSession(
-                        resolved = resolved,
-                        continuousMode = true,
-                        trace = newImageCaptureTrace(
-                            resolved = resolved,
-                            continuousMode = true,
-                            source = "color_pick_rearm",
-                        ),
-                    )
-                } else {
-                    activePreset = null
-                }
-            },
-            onCancelled = {
-                pendingImageBytes = null
-                imageContinuousRearmPending = false
-                if (continuousMode) {
-                    stopImageContinuousMode(showToast = false)
-                } else {
-                    activePreset = null
-                }
-            },
-            onCaptureFailure = { reason ->
-                imageContinuousRearmPending = false
-                handleImageCaptureFailure(reason, continuousMode)
-            },
-        )
-    }
-
-    private fun maybeRearmImageContinuous() {
-        val presetId = imageContinuousPresetId ?: return
-        if (!imageContinuousRearmPending || imageCaptureSession.isActive || inputModule.hasWindow()) {
-            return
-        }
-        val resolved = presetRepository.getResolvedPreset(presetId) ?: return
-        imageContinuousRearmPending = false
-        startImageCaptureSession(
-            resolved = resolved,
-            continuousMode = true,
-            trace = newImageCaptureTrace(
-                resolved = resolved,
-                continuousMode = true,
-                source = "continuous_rearm",
-            ),
-        )
-    }
-
-    private fun stopImageContinuousMode(showToast: Boolean) {
-        val wasActive = imageContinuousPresetId != null
-        imageContinuousPresetId = null
-        imageContinuousRearmPending = false
-        pendingImageBytes = null
-        imageCaptureSession.destroy()
-        if (showToast && wasActive) {
-            Toast.makeText(
-                context,
-                localized(
-                    "Image continuous mode exited.",
-                    "Đã thoát chế độ chụp ảnh liên tục.",
-                    "이미지 연속 모드를 종료했습니다.",
-                ),
-                Toast.LENGTH_SHORT,
-            ).show()
-        }
-    }
-
-    private fun handleImageCaptureFailure(
-        reason: ScreenshotCaptureFailureReason,
-        continuousMode: Boolean,
-    ) {
-        if (continuousMode) {
-            stopImageContinuousMode(showToast = false)
-        }
-        val message = when (reason) {
-            ScreenshotCaptureFailureReason.API_TOO_OLD ->
-                localized(
-                    "Image presets require Android 11 or later.",
-                    "Preset ảnh cần Android 11 trở lên.",
-                    "이미지 프리셋은 Android 11 이상이 필요합니다.",
-                )
-
-            ScreenshotCaptureFailureReason.SERVICE_UNAVAILABLE,
-            ScreenshotCaptureFailureReason.CAPABILITY_MISSING,
-            ScreenshotCaptureFailureReason.NO_ACCESSIBILITY_ACCESS,
-            ScreenshotCaptureFailureReason.SECURITY_EXCEPTION,
-            -> localized(
-                "Accessibility screenshot permission is required. Opening Settings...",
-                "Cần quyền chụp màn hình của Dịch vụ trợ năng. Đang mở Cài đặt...",
-                "접근성 스크린샷 권한이 필요합니다. 설정을 여는 중...",
-            )
-
-            ScreenshotCaptureFailureReason.RATE_LIMITED ->
-                localized(
-                    "Screenshot requested too quickly. Try again in a moment.",
-                    "Yêu cầu chụp quá nhanh. Hãy thử lại sau một lát.",
-                    "스크린샷 요청이 너무 빠릅니다. 잠시 후 다시 시도하세요.",
-                )
-
-            ScreenshotCaptureFailureReason.INVALID_TARGET ->
-                localized(
-                    "Could not capture this screen.",
-                    "Không thể chụp màn hình này.",
-                    "이 화면을 캡처할 수 없습니다.",
-                )
-
-            ScreenshotCaptureFailureReason.SECURE_WINDOW ->
-                localized(
-                    "This screen blocks screenshots.",
-                    "Màn hình này chặn chụp màn hình.",
-                    "이 화면은 스크린샷을 차단합니다.",
-                )
-
-            ScreenshotCaptureFailureReason.REQUEST_FAILED ->
-                localized(
-                    "Could not capture screenshot.",
-                    "Không thể chụp màn hình.",
-                    "스크린샷을 캡처할 수 없습니다.",
-                )
-        }
-        Toast.makeText(
-            context,
-            message,
-            if (reason.opensAccessibilitySettings()) Toast.LENGTH_LONG else Toast.LENGTH_SHORT,
-        ).show()
-        if (reason.opensAccessibilitySettings()) {
-            openAccessibilitySettings()
-        }
-    }
-
-    private fun mutateDynamicPromptPreset(
+    internal fun mutateDynamicPromptPreset(
         resolved: ResolvedPreset,
         userText: String,
     ): dev.screengoated.toolbox.mobile.shared.preset.Preset {
@@ -1016,52 +699,13 @@ internal class PresetOverlayController(
         return resolved.preset.copy(blocks = modifiedBlocks)
     }
 
-    private fun copyColorToClipboard(hexColor: String) {
-        clipboardManager?.setPrimaryClip(ClipData.newPlainText("SGT Color", hexColor))
-        Toast.makeText(
-            context,
-            localized(
-                "Copied $hexColor",
-                "Đã sao chép $hexColor",
-                "$hexColor 복사됨",
-            ),
-            Toast.LENGTH_SHORT,
-        ).show()
-    }
-
-    private fun copyTextToClipboard(text: String): Boolean {
-        return runCatching {
-            val manager = clipboardManager ?: return false
-            manager.setPrimaryClip(ClipData.newPlainText("SGT Result", text))
-            true
-        }.getOrElse { error ->
-            Log.e(TAG, "copyTextToClipboard failed", error)
-            false
-        }
-    }
-
-    private fun copyImageToClipboard(pngBytes: ByteArray): Boolean {
-        return runCatching {
-            val manager = clipboardManager ?: return false
-            val dir = File(context.cacheDir, IMAGE_CLIPBOARD_DIR).apply { mkdirs() }
-            val file = File(dir, IMAGE_CLIPBOARD_FILE)
-            file.writeBytes(pngBytes)
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            manager.setPrimaryClip(ClipData.newUri(context.contentResolver, "SGT Image", uri))
-            true
-        }.getOrElse { error ->
-            Log.e(TAG, "copyImageToClipboard failed", error)
-            false
-        }
-    }
-
-    private fun setOverlayChromeSuppressed(suppressed: Boolean) {
+    internal fun setOverlayChromeSuppressed(suppressed: Boolean) {
         panelModule.setSuppressed(suppressed)
         inputModule.setSuppressed(suppressed)
         resultModule.setSuppressed(suppressed)
     }
 
-    private fun dismissAllOverlays() {
+    internal fun dismissAllOverlays() {
         processingIndicator.dismiss()
         dismissTarget.hide()
         panelModule.dismiss()
@@ -1076,90 +720,5 @@ internal class PresetOverlayController(
         pendingTextSelectInput = null
         activePreset = null
         setOverlayChromeSuppressed(false)
-    }
-
-    private fun openAccessibilitySettings() {
-        try {
-            val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-        } catch (_: Exception) {
-        }
-    }
-
-    /**
-     * Prominent disclosure shown before sending the user to Accessibility
-     * settings. Explains why the app uses the AccessibilityService API and
-     * what data it reads, then opens Settings only after the user agrees.
-     */
-    private fun promptAccessibilityDisclosure() {
-        accessibilityDisclosure.show(
-            themeMode = uiPreferencesProvider().themeMode,
-            strings = AccessibilityDisclosureStrings(
-                title = localized(
-                    "Enable Accessibility access",
-                    "Bật quyền Trợ năng",
-                    "접근성 권한 사용",
-                ),
-                body = localized(
-                    "Screen Goated Toolbox uses Android's Accessibility service to run " +
-                        "Text-Select presets and auto-paste. It reads the text you select in " +
-                        "other apps, can capture the screen, and pastes processed results back " +
-                        "into the active field. This content is sent only to the AI provider you " +
-                        "configure, to fulfil your request — it is not collected on our own " +
-                        "servers. Enable the service to continue?",
-                    "Screen Goated Toolbox dùng dịch vụ Trợ năng của Android để chạy " +
-                        "preset Chọn văn bản và tự động dán. Ứng dụng đọc văn bản bạn " +
-                        "bôi đen trong app khác, có thể chụp màn hình, và dán kết quả đã " +
-                        "xử lý vào ô đang chọn. Nội dung này chỉ được gửi tới nhà cung " +
-                        "cấp AI bạn đã cấu hình để thực hiện yêu cầu — không thu thập trên " +
-                        "máy chủ của chúng tôi. Bật dịch vụ để tiếp tục?",
-                    "Screen Goated Toolbox는 텍스트 선택 프리셋과 자동 붙여넣기를 " +
-                        "실행하기 위해 Android 접근성 서비스를 사용합니다. 다른 앱에서 " +
-                        "선택한 텍스트를 읽고, 화면을 캡처할 수 있으며, 처리된 결과를 " +
-                        "활성 입력란에 붙여넣습니다. 이 콘텐츠는 요청을 처리하기 위해 " +
-                        "설정한 AI 제공자에게만 전송되며, 당사 서버에는 수집하지 " +
-                        "않습니다. 계속하려면 서비스를 사용 설정하시겠어요?",
-                ),
-                agree = localized(
-                    "Agree & open settings",
-                    "Đồng ý & mở Cài đặt",
-                    "동의하고 설정 열기",
-                ),
-                cancel = localized(
-                    "Not now",
-                    "Để sau",
-                    "나중에",
-                ),
-            ),
-            onAgree = { openAccessibilitySettings() },
-        )
-    }
-
-    private fun ScreenshotCaptureFailureReason.opensAccessibilitySettings(): Boolean {
-        return this == ScreenshotCaptureFailureReason.SERVICE_UNAVAILABLE ||
-            this == ScreenshotCaptureFailureReason.CAPABILITY_MISSING ||
-            this == ScreenshotCaptureFailureReason.NO_ACCESSIBILITY_ACCESS ||
-            this == ScreenshotCaptureFailureReason.SECURITY_EXCEPTION
-    }
-
-    private fun newImageCaptureTrace(
-        resolved: ResolvedPreset,
-        continuousMode: Boolean,
-        source: String,
-    ): ImageCaptureTrace {
-        return ImageCaptureTrace(
-            id = nextImageCaptureTraceId++,
-            presetId = resolved.preset.id,
-            startedAtMs = SystemClock.elapsedRealtime(),
-            continuousMode = continuousMode,
-            source = source,
-        )
-    }
-
-    private companion object {
-        private const val TAG = "PresetOverlayController"
-        private const val IMAGE_CLIPBOARD_DIR = "clipboard-images"
-        private const val IMAGE_CLIPBOARD_FILE = "latest-screenshot.png"
     }
 }

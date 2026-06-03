@@ -13,7 +13,7 @@ internal class RealtimeOverlayHtmlBuilder(
 ) {
     private val baseHtml by lazy { asset("base.html") }
     private val baseCss by lazy { asset("style.css") }
-    private val baseMainJs by lazy { asset("main.js") }
+    private val baseMainJs by lazy { asset("main.js") + asset("main_part2.js") }
     private val baseLogicJs by lazy { asset("logic.js") }
     private val htmlCache = LinkedHashMap<RealtimeOverlayPaneSettings, String>()
 
