@@ -109,24 +109,18 @@ pub fn render_preset_editor(
 
                 if is_default_preset {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Restore button with subtle styling
-                        let restore_bg = if is_dark {
-                            egui::Color32::from_rgb(80, 70, 100)
-                        } else {
-                            egui::Color32::from_rgb(180, 170, 200)
-                        };
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(text.restore_preset_btn)
-                                        .color(egui::Color32::WHITE)
-                                        .small(),
-                                )
-                                .fill(restore_bg)
-                                .corner_radius(8.0),
-                            )
-                            .on_hover_text(text.restore_preset_tooltip)
-                            .clicked()
+                        // Restore button with subtle styling (violet), rendered via the
+                        // shared filled-button helper so it keeps Material hover/press
+                        // state layers.
+                        if crate::gui::widgets::filled_button(
+                            ui,
+                            text.restore_preset_btn,
+                            theme.restore_fill(),
+                            theme.on_accent(),
+                            8,
+                        )
+                        .on_hover_text(text.restore_preset_tooltip)
+                        .clicked()
                         {
                             let default_config = Config::default();
                             if let Some(default_p) =

@@ -8,6 +8,7 @@ use crate::config::tts_catalog::{
 use crate::config::{Config, KokoroVoiceConfig, MagpieVoiceConfig, SupertonicVoiceConfig};
 use crate::gui::icons::{Icon, icon_button};
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use eframe::egui;
 
 use super::speak_settings_preview;
@@ -103,6 +104,7 @@ fn render_magpie_voice_config_rows(
     config: &mut Config,
     text: &LocaleText,
 ) -> bool {
+    let theme = AppTheme::from_ui(ui);
     let mut changed = false;
     ui.add_space(15.0);
     ui.separator();
@@ -119,7 +121,7 @@ fn render_magpie_voice_config_rows(
                     ui.label(
                         egui::RichText::new(&voice_config.language_name)
                             .strong()
-                            .color(egui::Color32::from_rgb(100, 180, 100)),
+                            .color(theme.success()),
                     );
                     ui.label("→");
                     egui::ComboBox::from_id_salt(format!("magpie_voice_{}", idx))
@@ -217,6 +219,7 @@ fn render_kokoro_voice_config_rows(
     config: &mut Config,
     text: &LocaleText,
 ) -> bool {
+    let theme = AppTheme::from_ui(ui);
     let mut changed = false;
     ui.add_space(15.0);
     ui.separator();
@@ -233,7 +236,7 @@ fn render_kokoro_voice_config_rows(
                     ui.label(
                         egui::RichText::new(&voice_config.language_name)
                             .strong()
-                            .color(egui::Color32::from_rgb(100, 180, 100)),
+                            .color(theme.success()),
                     );
                     ui.label("→");
 
@@ -356,6 +359,7 @@ fn render_supertonic_voice_config_rows(
     config: &mut Config,
     text: &LocaleText,
 ) -> bool {
+    let theme = AppTheme::from_ui(ui);
     let mut changed = false;
     ui.add_space(15.0);
     ui.separator();
@@ -376,7 +380,7 @@ fn render_supertonic_voice_config_rows(
                     ui.label(
                         egui::RichText::new(&voice_config.language_name)
                             .strong()
-                            .color(egui::Color32::from_rgb(100, 180, 100)),
+                            .color(theme.success()),
                     );
                     ui.label("→");
                     egui::ComboBox::from_id_salt(format!("supertonic_voice_{idx}"))
@@ -455,12 +459,13 @@ pub(super) fn render_vieneu_settings(
     config: &mut Config,
     text: &LocaleText,
 ) -> bool {
+    let theme = AppTheme::from_ui(ui);
     let mut changed = false;
     render_open_weights_header(ui, "VieNeu-TTS v2", text.tts_vieneu_desc);
     ui.label(
         egui::RichText::new(text.tts_vieneu_control_desc)
             .small()
-            .color(egui::Color32::from_rgb(96, 125, 139)),
+            .color(theme.on_surface_variant()),
     );
     changed |= render_vieneu_reference_controls(ui, config, text);
     changed

@@ -71,7 +71,13 @@ impl SettingsApp {
                     }
                 }
 
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                // Hard-allocate the row as a fixed-height cell at the content top,
+                // then center items within it. A plain with_layout/horizontal here
+                // inherits an over-tall available rect, which egui's row layout snaps
+                // to the TOP — leaving short items (theme icon, combo) high.
+                let title_row_w = ui.available_width();
+                let title_row_h = if is_maximized { 40.0 } else { 28.0 };
+                ui.allocate_ui_with_layout(egui::vec2(title_row_w, title_row_h), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
 
                     // --- LEFT SIDE: Sidebar Controls ---
@@ -96,6 +102,7 @@ impl SettingsApp {
 
     fn render_title_bar_left_side(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
         let is_dark = ui.visuals().dark_mode;
+        let theme = crate::gui::theme::AppTheme::from_dark(is_dark);
         // Launcher buttons use bright accent fills; in dark mode those fills are
         // light enough that near-black label text reads better than white.
         let btn_text = if is_dark {
@@ -103,6 +110,9 @@ impl SettingsApp {
         } else {
             egui::Color32::WHITE
         };
+
+        // Nudge the controls in from the rounded left corner so they breathe.
+        ui.add_space(6.0);
 
         // Theme Switcher
         let (theme_icon, tooltip) = match self.config.theme_mode {
@@ -113,7 +123,7 @@ impl SettingsApp {
             }
         };
 
-        if crate::gui::icons::icon_button_sized(ui, theme_icon, 18.0)
+        if crate::gui::icons::icon_button_sized(ui, theme_icon, 20.0)
             .on_hover_text(tooltip)
             .clicked()
         {
@@ -132,18 +142,37 @@ impl SettingsApp {
             "ko" => "🇰🇷",
             _ => "🇺🇸",
         };
-        egui::ComboBox::from_id_salt("title_lang_switch")
-            .width(30.0)
-            .selected_text(lang_flag)
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.config.ui_language, "en".to_string(), "🇺🇸 English");
-                ui.selectable_value(
+        // A plain menu button instead of egui's ComboBox. The ComboBox frames the
+        // tall flag-emoji galley with its own interact_size minimum and draws the
+        // box ~2px below a button (pixel-measured: 15.5 vs the buttons' 13.5), and
+        // a wrapper cell couldn't reach that internal offset. A regular Button
+        // centers in the title-bar cell exactly like the other buttons.
+        // No unicode arrow glyph here — U+25BE/▾ isn't in the app's font set and
+        // renders as tofu; the flag-only menu button still opens on click.
+        ui.menu_button(lang_flag, |ui| {
+            if ui
+                .selectable_value(&mut self.config.ui_language, "en".to_string(), "🇺🇸 English")
+                .clicked()
+            {
+                ui.close();
+            }
+            if ui
+                .selectable_value(
                     &mut self.config.ui_language,
                     "vi".to_string(),
                     "🇻🇳 Tiếng Việt",
-                );
-                ui.selectable_value(&mut self.config.ui_language, "ko".to_string(), "🇰🇷 한국어");
-            });
+                )
+                .clicked()
+            {
+                ui.close();
+            }
+            if ui
+                .selectable_value(&mut self.config.ui_language, "ko".to_string(), "🇰🇷 한국어")
+                .clicked()
+            {
+                ui.close();
+            }
+        });
         if original_lang != self.config.ui_language {
             self.save_and_sync();
         }
@@ -162,87 +191,55 @@ impl SettingsApp {
         ui.spacing_mut().item_spacing.x = 6.0;
         ui.add_space(2.0);
 
-        // Chill Corner (PromptDJ)
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(format!("🎵 {}", text.prompt_dj_btn))
-                        .color(btn_text)
-                        .size(12.0),
-                )
-                // PromptDJ accent — violet (its on-brand #9900ff family).
-                .fill(if is_dark {
-                    egui::Color32::from_rgb(150, 118, 245)
-                } else {
-                    egui::Color32::from_rgb(124, 58, 237)
-                })
-                .corner_radius(6.0),
-            )
-            .clicked()
+        // Chill Corner (PromptDJ) — violet accent (its on-brand #9900ff family).
+        if crate::gui::widgets::filled_button(
+            ui,
+            &format!("🎵 {}", text.prompt_dj_btn),
+            theme.accent_prompt_dj(),
+            btn_text,
+            6,
+        )
+        .clicked()
         {
             crate::overlay::prompt_dj::show_prompt_dj();
         }
 
-        // Download Manager
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(format!("⬇ {}", text.download_feature_btn))
-                        .color(btn_text)
-                        .size(12.0),
-                )
-                // Download Manager — red.
-                .fill(if is_dark {
-                    egui::Color32::from_rgb(224, 96, 96)
-                } else {
-                    egui::Color32::from_rgb(216, 62, 62)
-                })
-                .corner_radius(6.0),
-            )
-            .clicked()
+        // Download Manager — red accent.
+        if crate::gui::widgets::filled_button(
+            ui,
+            &format!("⬇ {}", text.download_feature_btn),
+            theme.accent_download(),
+            btn_text,
+            6,
+        )
+        .clicked()
         {
             self.download_manager.show_window = true;
         }
 
-        // Screen Record
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(format!("🎥 {}", text.screen_record_btn))
-                        .color(btn_text)
-                        .size(12.0),
-                )
-                // Screen Record accent — blue (its design-system primary).
-                .fill(if is_dark {
-                    egui::Color32::from_rgb(74, 130, 200)
-                } else {
-                    egui::Color32::from_rgb(37, 99, 235)
-                })
-                .corner_radius(6.0),
-            )
-            .clicked()
+        // Screen Record — blue accent (its design-system primary).
+        if crate::gui::widgets::filled_button(
+            ui,
+            &format!("🎥 {}", text.screen_record_btn),
+            theme.accent_screen_record(),
+            btn_text,
+            6,
+        )
+        .clicked()
         {
             crate::overlay::screen_record::show_screen_record();
         }
 
-        // Help Assistant — teal (distinct from the violet PromptDJ button).
-        let help_bg = if is_dark {
-            egui::Color32::from_rgb(30, 160, 148)
-        } else {
-            egui::Color32::from_rgb(15, 140, 130)
-        };
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(format!("❓ {}", text.help_assistant_btn))
-                        .color(btn_text)
-                        .size(12.0),
-                )
-                .fill(help_bg)
-                .corner_radius(6.0),
-            )
-            .on_hover_text(text.help_assistant_title)
-            .clicked()
+        // Help Assistant — teal accent (distinct from the violet PromptDJ button).
+        if crate::gui::widgets::filled_button(
+            ui,
+            &format!("❓ {}", text.help_assistant_btn),
+            theme.accent_help(),
+            btn_text,
+            6,
+        )
+        .on_hover_text(text.help_assistant_title)
+        .clicked()
         {
             std::thread::spawn(|| {
                 crate::gui::settings_ui::help_assistant::show_help_input();
@@ -271,6 +268,7 @@ impl SettingsApp {
         is_dark: bool,
         is_maximized: bool,
     ) -> f32 {
+        let theme = crate::gui::theme::AppTheme::from_dark(is_dark);
         let resp = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
 
@@ -283,11 +281,8 @@ impl SettingsApp {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             }
             if close_resp.hovered() {
-                ui.painter().rect_filled(
-                    close_resp.rect,
-                    0.0,
-                    egui::Color32::from_rgb(232, 17, 35),
-                );
+                ui.painter()
+                    .rect_filled(close_resp.rect, 0.0, theme.window_control_close_hover());
             }
             crate::gui::icons::paint_icon(
                 ui.painter(),
@@ -309,15 +304,8 @@ impl SettingsApp {
                     .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
             }
             if max_resp.hovered() {
-                ui.painter().rect_filled(
-                    max_resp.rect,
-                    0.0,
-                    if is_dark {
-                        egui::Color32::from_gray(60)
-                    } else {
-                        egui::Color32::from_gray(220)
-                    },
-                );
+                ui.painter()
+                    .rect_filled(max_resp.rect, 0.0, theme.window_control_hover());
             }
             let max_icon = if is_maximized {
                 crate::gui::icons::Icon::Restore
@@ -344,15 +332,8 @@ impl SettingsApp {
                     .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             }
             if min_resp.hovered() {
-                ui.painter().rect_filled(
-                    min_resp.rect,
-                    0.0,
-                    if is_dark {
-                        egui::Color32::from_gray(60)
-                    } else {
-                        egui::Color32::from_gray(220)
-                    },
-                );
+                ui.painter()
+                    .rect_filled(min_resp.rect, 0.0, theme.window_control_hover());
             }
             crate::gui::icons::paint_icon(
                 ui.painter(),

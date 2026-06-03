@@ -1,6 +1,7 @@
 use crate::config::{Config, TtsMethod};
 use crate::gui::icons::{Icon, icon_button};
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use eframe::egui;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
@@ -93,26 +94,48 @@ pub fn render_tts_settings_modal(
     let male_voices: Vec<_> = VOICES.iter().filter(|(_, g)| *g == "Male").collect();
     let female_voices: Vec<_> = VOICES.iter().filter(|(_, g)| *g == "Female").collect();
 
+    let ctx = ui.ctx().clone();
+    let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
+
+    // Manual full-viewport scrim behind the (tall, fixed-size) settings window
+    // so it reads as the clear focus, matching the modal dialog treatment.
+    let screen_rect = ctx.content_rect();
+    ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::new("tts_settings_scrim"),
+    ))
+    .rect_filled(screen_rect, 0.0, theme.scrim_color());
+
     egui::Window::new(format!("🔊 {}", text.tts_settings_title))
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
-        .default_width(650.0)
+        .frame(theme.dialog_frame())
+        .default_width(860.0)
         .default_height(600.0)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-        .show(ui.ctx(), |ui| {
+        .show(&ctx, |ui| {
             ui.set_min_height(500.0); // Force minimum height for the content area
 
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("🔊 {}", text.tts_settings_title)).strong().size(14.0));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, Icon::Close).clicked() {
-                        *show_modal = false;
-                    }
-                });
-            });
-            ui.separator();
-            ui.add_space(8.0);
+            // Split the bundled "Title (feature scope)" locale string so the
+            // parenthetical feature-scope hint renders as the muted dialog
+            // description beneath the title instead of inline in the title.
+            let (title_text, scope_hint) = match text.tts_settings_title.split_once('(') {
+                Some((title, hint)) => (
+                    title.trim_end(),
+                    Some(hint.trim_end_matches(')').trim()),
+                ),
+                None => (text.tts_settings_title, None),
+            };
+            if crate::gui::widgets::dialog_header(
+                ui,
+                &theme,
+                &format!("🔊 {}", title_text),
+                scope_hint,
+                |_| {},
+            ) {
+                *show_modal = false;
+            }
 
             if config.tts_method == TtsMethod::VoxtralTts {
                 config.tts_method = TtsMethod::VieneuTts;
@@ -253,7 +276,7 @@ pub fn render_tts_settings_modal(
                                 .map(|(_, name)| *name)
                                 .unwrap_or(&condition.language_name);
 
-                            ui.label(egui::RichText::new(display_name).strong().color(egui::Color32::from_rgb(100, 180, 100)));
+                            ui.label(egui::RichText::new(display_name).strong().color(theme.success()));
                             ui.label("→");
 
                             // Instruction input
@@ -457,7 +480,7 @@ pub fn render_tts_settings_modal(
                     });
                 } else if let Some(ref error) = cache_status.2 {
                     // Error
-                    ui.colored_label(egui::Color32::RED, format!("{} {}", text.tts_failed_load_voices, error).replace("{}", ""));
+                    ui.colored_label(theme.danger_text(), format!("{} {}", text.tts_failed_load_voices, error).replace("{}", ""));
                     if ui.button(text.tts_retry_label).clicked() {
                         // Reset cache and retry
                         let mut cache = crate::api::tts::edge_voices::EDGE_VOICE_CACHE.lock().unwrap();
@@ -473,7 +496,7 @@ pub fn render_tts_settings_modal(
                         for (idx, voice_config) in config.edge_tts_settings.voice_configs.iter_mut().enumerate() {
                             ui.horizontal(|ui| {
                                 // Language name (read-only)
-                                ui.label(egui::RichText::new(&voice_config.language_name).strong().color(egui::Color32::from_rgb(100, 180, 100)));
+                                ui.label(egui::RichText::new(&voice_config.language_name).strong().color(theme.success()));
                                 ui.label("→");
 
                                 // Voice dropdown for this language

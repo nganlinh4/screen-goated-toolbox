@@ -1,9 +1,10 @@
 use crate::api::realtime_audio::sherpa_onnx::{self, ZipformerLanguage};
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus};
+use crate::gui::theme::AppTheme;
 use eframe::egui;
 
-use super::utils::{cached_probe, format_size, get_dir_size, invalidate_probe_cache};
+use super::utils::{cached_probe, format_size, get_dir_size, invalidate_probe_cache, tool_card};
 
 const PROBE_ZIPFORMER_DLLS: &str = "downloaded-tools:zipformer-dlls";
 
@@ -31,7 +32,8 @@ pub(super) fn render_zipformer_section(
     download_manager: &mut DownloadManager,
     text: &LocaleText,
 ) {
-    ui.group(|ui| {
+    let theme = AppTheme::from_ui(ui);
+    tool_card(ui, |ui| {
         ui.heading(text.tool_zipformer_card);
         ui.add_space(4.0);
 
@@ -69,7 +71,7 @@ pub(super) fn render_zipformer_section(
                         if ui
                             .button(
                                 egui::RichText::new(text.tool_action_delete)
-                                    .color(egui::Color32::RED),
+                                    .color(theme.danger_text()),
                             )
                             .clicked()
                         {
@@ -85,7 +87,7 @@ pub(super) fn render_zipformer_section(
                             egui::RichText::new(
                                 text.tool_status_installed.replace("{}", &format_size(size)),
                             )
-                            .color(egui::Color32::from_rgb(34, 139, 34)),
+                            .color(theme.success()),
                         );
                     }
                     InstallStatus::Downloading(p) => {
@@ -154,7 +156,7 @@ pub(super) fn render_zipformer_section(
                             if ui
                                 .button(
                                     egui::RichText::new(text.tool_action_delete)
-                                        .color(egui::Color32::RED),
+                                        .color(theme.danger_text()),
                                 )
                                 .clicked()
                             {
@@ -169,7 +171,7 @@ pub(super) fn render_zipformer_section(
                                 egui::RichText::new(
                                     text.tool_status_installed.replace("{}", &format_size(size)),
                                 )
-                                .color(egui::Color32::from_rgb(34, 139, 34)),
+                                .color(theme.success()),
                             );
                         }
                         InstallStatus::Downloading(p) => {

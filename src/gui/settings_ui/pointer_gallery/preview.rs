@@ -1,5 +1,6 @@
 use super::{CollectionState, CollectionStatus};
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use eframe::egui;
 use std::collections::HashMap;
 use std::fs;
@@ -74,9 +75,14 @@ pub(super) fn render_collection_previews(
 }
 
 pub(super) fn render_status_label(ui: &mut egui::Ui, status: &CollectionStatus, text: &LocaleText) {
+    let theme = AppTheme::from_ui(ui);
     match status {
         CollectionStatus::Queued => {
-            ui.label(egui::RichText::new(text.pointer_status_queued).strong());
+            ui.label(
+                egui::RichText::new(text.pointer_status_queued)
+                    .color(theme.on_surface_variant())
+                    .strong(),
+            );
         }
         CollectionStatus::Downloading { downloaded, total } => {
             ui.label(
@@ -85,7 +91,7 @@ pub(super) fn render_status_label(ui: &mut egui::Ui, status: &CollectionStatus, 
                         .replacen("{}", &downloaded.to_string(), 1)
                         .replacen("{}", &total.to_string(), 1),
                 )
-                .color(egui::Color32::from_rgb(255, 165, 0))
+                .color(theme.warning())
                 .strong(),
             );
         }
@@ -96,35 +102,35 @@ pub(super) fn render_status_label(ui: &mut egui::Ui, status: &CollectionStatus, 
                         .replacen("{}", &downloaded.to_string(), 1)
                         .replacen("{}", &total.to_string(), 1),
                 )
-                .color(egui::Color32::from_rgb(255, 215, 0))
+                .color(theme.warning())
                 .strong(),
             );
         }
         CollectionStatus::Ready => {
             ui.label(
                 egui::RichText::new(text.pointer_status_ready)
-                    .color(egui::Color32::from_rgb(34, 139, 34))
+                    .color(theme.success())
                     .strong(),
             );
         }
         CollectionStatus::Applying => {
             ui.label(
                 egui::RichText::new(text.pointer_status_applying)
-                    .color(egui::Color32::from_rgb(255, 215, 0))
+                    .color(theme.warning())
                     .strong(),
             );
         }
         CollectionStatus::Applied => {
             ui.label(
                 egui::RichText::new(text.pointer_status_applied)
-                    .color(egui::Color32::from_rgb(34, 139, 34))
+                    .color(theme.success())
                     .strong(),
             );
         }
         CollectionStatus::Error(message) => {
             ui.label(
                 egui::RichText::new(text.pointer_status_error)
-                    .color(egui::Color32::from_rgb(205, 92, 92))
+                    .color(theme.danger_text())
                     .strong(),
             )
             .on_hover_text(message);

@@ -10,6 +10,7 @@ pub fn render_update_section_content(
     status: &UpdateStatus,
     text: &LocaleText,
 ) {
+    let theme = crate::gui::theme::AppTheme::from_ui(ui);
     match status {
         UpdateStatus::Idle => {
             ui.horizontal(|ui| {
@@ -36,7 +37,7 @@ pub fn render_update_section_content(
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(format!("{} (v{})", text.up_to_date, ver))
-                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                        .color(theme.success()),
                 );
                 if ui.button(text.check_again_btn).clicked()
                     && let Some(u) = updater
@@ -46,12 +47,10 @@ pub fn render_update_section_content(
             });
         }
         UpdateStatus::UpdateAvailable { version, body } => {
-            let color = if ui.visuals().dark_mode {
-                egui::Color32::YELLOW
-            } else {
-                egui::Color32::from_rgb(200, 100, 0) // Dark orange for light mode
-            };
-            ui.colored_label(color, format!("{} {}", text.new_version_available, version));
+            ui.colored_label(
+                theme.warning(),
+                format!("{} {}", text.new_version_available, version),
+            );
             ui.collapsing(text.release_notes_label, |ui| {
                 ui.label(body);
             });
@@ -71,7 +70,10 @@ pub fn render_update_section_content(
             });
         }
         UpdateStatus::Error(e) => {
-            ui.colored_label(egui::Color32::RED, format!("{} {}", text.update_failed, e));
+            ui.colored_label(
+                theme.danger_text(),
+                format!("{} {}", text.update_failed, e),
+            );
             ui.label(egui::RichText::new(text.app_folder_writable_hint).size(11.0));
             if ui.button(text.retry_btn).clicked()
                 && let Some(u) = updater
@@ -82,7 +84,7 @@ pub fn render_update_section_content(
         UpdateStatus::UpdatedAndRestartRequired => {
             ui.label(
                 egui::RichText::new(text.update_success)
-                    .color(egui::Color32::GREEN)
+                    .color(theme.success())
                     .heading(),
             );
             ui.label(text.restart_to_use_new_version);

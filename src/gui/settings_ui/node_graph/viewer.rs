@@ -2,6 +2,7 @@ use super::body::show_body;
 use super::node::ChainNode;
 use crate::gui::icons::{Icon, draw_icon_static};
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
 use eframe::egui;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId, OutPin, Snarl};
@@ -133,11 +134,7 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                         "audio" => self.text.node_special_audio_to_text,
                         _ => self.text.node_special_default,
                     };
-                    let header_color = if ui.visuals().dark_mode {
-                        egui::Color32::from_rgb(255, 200, 100)
-                    } else {
-                        egui::Color32::from_rgb(200, 100, 0)
-                    };
+                    let header_color = AppTheme::from_ui(ui).node_special_title();
                     ui.label(egui::RichText::new(title).color(header_color));
                 }
             };
@@ -164,7 +161,7 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
         _snarl: &mut Snarl<ChainNode>,
     ) -> impl egui_snarl::ui::SnarlPin + 'static {
         // Green color for text connections
-        PinInfo::circle().with_fill(egui::Color32::from_rgb(100, 200, 100))
+        PinInfo::circle().with_fill(AppTheme::from_ui(_ui).pin_input())
     }
 
     fn show_output(
@@ -174,7 +171,7 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
         _snarl: &mut Snarl<ChainNode>,
     ) -> impl egui_snarl::ui::SnarlPin + 'static {
         // Blue color for output
-        PinInfo::circle().with_fill(egui::Color32::from_rgb(100, 150, 255))
+        PinInfo::circle().with_fill(AppTheme::from_ui(_ui).pin_output())
     }
 
     fn has_body(&mut self, _node: &ChainNode) -> bool {

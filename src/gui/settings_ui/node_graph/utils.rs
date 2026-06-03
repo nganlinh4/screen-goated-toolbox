@@ -1,4 +1,6 @@
 use crate::config::get_all_languages;
+use crate::gui::theme::AppTheme;
+use crate::gui::widgets::filled_button;
 use crate::model_config::model_supports_search_by_id;
 use eframe::egui;
 use std::collections::HashMap;
@@ -62,17 +64,9 @@ pub fn show_language_selector(
         let search_id = egui::Id::new(format!("lang_search_{}", id_num));
 
         // Styled button to open popup
-        let is_dark = ui.visuals().dark_mode;
-        let lang_var_bg = if is_dark {
-            egui::Color32::from_rgb(70, 60, 100)
-        } else {
-            egui::Color32::from_rgb(150, 140, 180)
-        };
-        let button_response = ui.add(
-            egui::Button::new(egui::RichText::new(&current_val).color(egui::Color32::WHITE))
-                .fill(lang_var_bg)
-                .corner_radius(8.0),
-        );
+        let theme = AppTheme::from_ui(ui);
+        let button_response =
+            filled_button(ui, &current_val, theme.node_button_fill(), theme.on_accent(), 8);
 
         if button_response.clicked() {
             egui::Popup::toggle_id(ui.ctx(), button_response.id);

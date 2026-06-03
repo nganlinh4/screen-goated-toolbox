@@ -7,6 +7,7 @@ pub mod settings_ui;
 pub mod splash;
 pub mod theme;
 pub mod utils;
+pub mod widgets;
 
 pub use app::{SettingsApp, SettingsAppInit};
 pub use app::{request_open_downloaded_tools, signal_restore_window};

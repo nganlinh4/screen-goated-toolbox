@@ -357,12 +357,7 @@ fn render_preset_item_parts(
         ui.spacing_mut().item_spacing.x = 4.0;
         if has_hotkey && !preset.is_upcoming {
             let rect = ui.available_rect_before_wrap();
-            let is_dark = ui.visuals().dark_mode;
-            let bg_color = if is_dark {
-                egui::Color32::from_rgba_unmultiplied(40, 150, 130, 70)
-            } else {
-                egui::Color32::from_rgb(200, 235, 220)
-            };
+            let bg_color = crate::gui::theme::AppTheme::from_ui(ui).hotkey_chip_bg();
             ui.painter().rect_filled(rect, 4.0, bg_color);
         }
         if preset.is_upcoming {

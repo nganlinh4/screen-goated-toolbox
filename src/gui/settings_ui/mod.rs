@@ -1,3 +1,4 @@
+mod confirm_dialog;
 pub mod download_manager;
 mod footer;
 mod global;
@@ -8,6 +9,7 @@ pub mod pointer_gallery;
 mod preset;
 mod sidebar;
 
+pub use confirm_dialog::{ConfirmModal, ConfirmResult};
 pub use footer::{FooterToggles, render_footer};
 pub use global::render_global_settings;
 pub use history::render_history_panel;

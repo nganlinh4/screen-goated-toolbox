@@ -476,12 +476,8 @@ fn main() -> eframe::Result<()> {
             // Store global context for background threads
             *gui::GUI_CONTEXT.lock().unwrap() = Some(cc.egui_ctx.clone());
 
-            // Set initial visuals
-            if effective_dark {
-                cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
-            } else {
-                cc.egui_ctx.set_visuals(eframe::egui::Visuals::light());
-            }
+            // Set initial Material-style global style
+            gui::theme::AppTheme::apply_global_style(&cc.egui_ctx, effective_dark);
 
             // Set native icon
             gui::utils::update_window_icon_native(effective_dark);

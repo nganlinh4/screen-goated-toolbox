@@ -2,6 +2,8 @@
 
 use super::super::types::DownloadState;
 use crate::gui::locale::LocaleText;
+use crate::gui::theme::AppTheme;
+use crate::gui::widgets;
 use eframe::egui;
 
 use super::super::DownloadManager;
@@ -14,30 +16,38 @@ impl DownloadManager {
         text: &LocaleText,
         idx: usize,
     ) {
+        let theme = AppTheme::from_ui(ui);
         let state = self.sessions[idx].download_state.lock().unwrap().clone();
         let is_analyzing = *self.sessions[idx].is_analyzing.lock().unwrap();
 
-        let (btn_text, btn_color) = if is_analyzing {
-            (
-                text.download_scan_ignore_btn,
-                egui::Color32::from_rgb(200, 100, 0),
-            )
+        // Primary download action routes through the accent fill; while the
+        // analyzer is scanning, the same button becomes a "skip scan" warning.
+        let (btn_text, btn_fill) = if is_analyzing {
+            (text.download_scan_ignore_btn, theme.warning())
         } else {
-            (
-                text.download_start_btn,
-                egui::Color32::from_rgb(0, 100, 200),
-            )
+            (text.download_start_btn, theme.accent_fill())
         };
+        let on_btn = theme.on_accent();
 
         let draw_download_btn = |ui: &mut egui::Ui| {
-            let btn = egui::Button::new(
-                egui::RichText::new(btn_text)
-                    .heading()
-                    .color(egui::Color32::WHITE),
-            )
-            .min_size(egui::vec2(ui.available_width(), 36.0))
-            .fill(btn_color);
-            ui.add(btn).clicked()
+            // Preserve the original heading-sized label by promoting the button
+            // text style to the heading font for this button only.
+            ui.scope(|ui| {
+                let heading = egui::TextStyle::Heading.resolve(ui.style());
+                ui.style_mut()
+                    .text_styles
+                    .insert(egui::TextStyle::Button, heading);
+                widgets::filled_button_sized(
+                    ui,
+                    btn_text,
+                    btn_fill,
+                    on_btn,
+                    10,
+                    egui::vec2(ui.available_width(), 36.0),
+                )
+            })
+            .inner
+            .clicked()
         };
 
         match &state {
@@ -52,7 +62,7 @@ impl DownloadManager {
                 }
             }
             DownloadState::Finished(path, _msg) => {
-                self.render_finished_state(ui, ctx, text, path);
+                self.render_finished_state(ui, text, path);
                 if draw_download_btn(ui) && !self.sessions[idx].input_url.is_empty() {
                     self.start_media_download(text.download_progress_info_fmt.to_string());
                 }
@@ -69,12 +79,15 @@ impl DownloadManager {
                     ui.add_space(5.0);
                     ui.add(egui::ProgressBar::new(*progress).animate(true));
                     ui.add_space(5.0);
-                    if ui
-                        .add_sized(
-                            [ui.available_width(), 30.0],
-                            egui::Button::new(text.download_cancel_btn),
-                        )
-                        .clicked()
+                    if widgets::filled_button_sized(
+                        ui,
+                        text.download_cancel_btn,
+                        theme.neutral_fill(),
+                        theme.on_surface(),
+                        10,
+                        egui::vec2(ui.available_width(), 30.0),
+                    )
+                    .clicked()
                     {
                         self.cancel_download();
                     }
@@ -91,10 +104,11 @@ impl DownloadManager {
         idx: usize,
         err: &str,
     ) {
+        let theme = AppTheme::from_ui(ui);
         ui.add_space(5.0);
         ui.label(
             egui::RichText::new(format!("{} {}", text.download_status_error, err))
-                .color(egui::Color32::RED)
+                .color(theme.danger_text())
                 .small(),
         );
 
@@ -140,20 +154,14 @@ impl DownloadManager {
     fn render_finished_state(
         &self,
         ui: &mut egui::Ui,
-        ctx: &egui::Context,
         text: &LocaleText,
         path: &std::path::Path,
     ) {
+        let theme = AppTheme::from_ui(ui);
         ui.vertical_centered(|ui| {
-            let success_color = if ctx.global_style().visuals.dark_mode {
-                egui::Color32::GREEN
-            } else {
-                egui::Color32::from_rgb(0, 128, 0)
-            };
-
             ui.label(
                 egui::RichText::new(text.download_status_finished)
-                    .color(success_color)
+                    .color(theme.success())
                     .heading(),
             );
 
