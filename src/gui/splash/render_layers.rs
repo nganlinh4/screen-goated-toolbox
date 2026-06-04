@@ -12,6 +12,57 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Stroke, Vec2};
 use std::cell::RefCell;
 use std::cmp::Ordering;
 
+/// Soft radial glow with a tight bright core and a long, smooth falloff — a
+/// realistic atmospheric halo, vs. the old stack of hard-edged translucent
+/// circles. Built as a 2-ring gradient mesh (core -> mid -> transparent rim).
+pub(super) fn paint_soft_glow(
+    painter: &egui::Painter,
+    center: Pos2,
+    radius: f32,
+    color: Color32,
+    alpha: f32,
+) {
+    if alpha <= 0.001 || radius <= 1.0 {
+        return;
+    }
+    let segments: usize = 64;
+    let core = color.linear_multiply(alpha);
+    let mid = color.linear_multiply(alpha * 0.22);
+    let mid_r = radius * 0.35;
+
+    let mut mesh = egui::Mesh::default();
+    // v0 = center; then per segment a (mid, rim) vertex pair.
+    mesh.vertices.push(egui::epaint::Vertex {
+        pos: center,
+        uv: Pos2::ZERO,
+        color: core,
+    });
+    for s in 0..=segments {
+        let ang = (s as f32 / segments as f32) * std::f32::consts::TAU;
+        let dir = Vec2::new(ang.cos(), ang.sin());
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: center + dir * mid_r,
+            uv: Pos2::ZERO,
+            color: mid,
+        });
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: center + dir * radius,
+            uv: Pos2::ZERO,
+            color: Color32::TRANSPARENT,
+        });
+    }
+    for s in 0..segments as u32 {
+        let m0 = 1 + s * 2;
+        let r0 = 2 + s * 2;
+        let m1 = 1 + (s + 1) * 2;
+        let r1 = 2 + (s + 1) * 2;
+        mesh.add_triangle(0, m0, m1); // bright core fan
+        mesh.add_triangle(m0, r0, r1); // soft falloff strip
+        mesh.add_triangle(m0, r1, m1);
+    }
+    painter.add(mesh);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn paint_celestial_body(
     painter: &egui::Painter,
@@ -66,16 +117,7 @@ fn paint_moon(
     let moon_bob = (t * 0.5).sin() * 5.0;
     let final_moon_pos = moon_base_pos + Vec2::new(0.0, moon_bob);
 
-    painter.circle_filled(
-        final_moon_pos,
-        moon_rad * 1.6,
-        C_MOON_GLOW.linear_multiply(0.03 * moon_alpha),
-    );
-    painter.circle_filled(
-        final_moon_pos,
-        moon_rad * 1.2,
-        C_MOON_GLOW.linear_multiply(0.08 * moon_alpha),
-    );
+    paint_soft_glow(painter, final_moon_pos, moon_rad * 2.3, C_MOON_GLOW, 0.18 * moon_alpha);
 
     painter.circle_filled(
         final_moon_pos,
@@ -152,16 +194,7 @@ fn paint_sun(
     let sun_bob = (t * 0.5).sin() * 5.0;
     let final_sun_pos = moon_base_pos + Vec2::new(0.0, sun_bob);
 
-    painter.circle_filled(
-        final_sun_pos,
-        moon_rad * 2.0,
-        C_SUN_GLOW.linear_multiply(0.1 * moon_alpha),
-    );
-    painter.circle_filled(
-        final_sun_pos,
-        moon_rad * 1.4,
-        C_SUN_GLOW.linear_multiply(0.2 * moon_alpha),
-    );
+    paint_soft_glow(painter, final_sun_pos, moon_rad * 3.0, C_SUN_GLOW, 0.30 * moon_alpha);
 
     painter.circle_filled(
         final_sun_pos,
@@ -254,6 +287,12 @@ pub(super) fn paint_clouds(
                     C_CLOUD_WHITE.linear_multiply(cloud_alpha * 0.95)
                 };
 
+                // Soft outer fluff for fuzzy edges, then the denser core.
+                cloud_painter.circle_filled(
+                    p_pos + Vec2::new(2.0, 5.0),
+                    radius * 1.35,
+                    core_col.linear_multiply(0.45),
+                );
                 cloud_painter.circle_filled(p_pos + Vec2::new(2.0, 5.0), radius, core_col);
             }
         }
@@ -272,7 +311,8 @@ pub(super) fn paint_retro_grid(
     is_dark: bool,
 ) {
     let render_t = t.min(ANIMATION_DURATION + 5.0);
-    let cam_y = 150.0 + (render_t * 30.0) + (warp_prog * 10000.0);
+    // No warp zoom-through the grid on exit — it just fades gently via local_fade.
+    let cam_y = 150.0 + (render_t * 30.0);
 
     for i in 0..16 {
         let rnd = (i as f32 * 0.9).sin() * 0.5 + 0.5;
@@ -335,8 +375,9 @@ pub(super) fn paint_voxels(
 ) {
     let physics_t = t.min(ANIMATION_DURATION);
     let fov = 800.0;
-    let cam_fly_dist = warp_prog * 2000.0;
-    let cam_dist = (600.0 + smoothstep(0.0, 8.0, physics_t) * 100.0) - cam_fly_dist;
+    // No camera rush toward the viewer on exit — the camera stays put and the
+    // voxels themselves gently drift outward (see update_voxels).
+    let cam_dist = 600.0 + smoothstep(0.0, 8.0, physics_t) * 100.0;
 
     let global_rot = Vec3::new(mouse_influence.y * 0.2, mouse_influence.x * 0.2, 0.0);
 
@@ -515,19 +556,26 @@ pub(super) fn paint_ui_text(
     let title_font = FontId::proportional(30.0);
     let title_pos = center + Vec2::new(0.0, 150.0);
 
-    let shadow_col = if is_dark {
-        C_MAGENTA.linear_multiply(master_alpha * ui_alpha)
+    // Soft neon glow behind the title — a few low-alpha radial offset passes read
+    // as a blur in the brand colour, instead of the old hard 2px drop-shadow.
+    let glow_col = if is_dark {
+        C_MAGENTA.linear_multiply(master_alpha * ui_alpha * 0.5)
     } else {
-        C_WHITE.linear_multiply(master_alpha * ui_alpha)
+        // Warm white glow keeps the day-mode "summer" feel (orange text on a
+        // bright sky); a cool blue glow killed it.
+        C_WHITE.linear_multiply(master_alpha * ui_alpha * 0.5)
     };
-
-    painter.text(
-        title_pos + Vec2::new(2.0, 2.0),
-        Align2::CENTER_TOP,
-        &title_text,
-        title_font.clone(),
-        shadow_col,
-    );
+    for k in 0..8 {
+        let ang = (k as f32 / 8.0) * std::f32::consts::TAU;
+        let off = Vec2::new(ang.cos(), ang.sin()) * 2.5;
+        painter.text(
+            title_pos + off,
+            Align2::CENTER_TOP,
+            &title_text,
+            title_font.clone(),
+            glow_col,
+        );
+    }
     painter.text(
         title_pos,
         Align2::CENTER_TOP,
@@ -543,17 +591,18 @@ pub(super) fn paint_ui_text(
         loading_col,
     );
 
-    let bar_rect = Rect::from_center_size(center + Vec2::new(0.0, 230.0), Vec2::new(200.0, 4.0));
+    let bar_rect = Rect::from_center_size(center + Vec2::new(0.0, 230.0), Vec2::new(200.0, 6.0));
     let bar_bg_col = if is_dark {
         Color32::from_white_alpha((30.0 * ui_alpha) as u8)
     } else {
         Color32::from_black_alpha((30.0 * ui_alpha) as u8)
     };
-    painter.rect_filled(bar_rect, 2.0, bar_bg_col);
+    painter.rect_filled(bar_rect, 3.0, bar_bg_col);
     let prog = (physics_t / (ANIMATION_DURATION - 0.5)).clamp(0.0, 1.0);
     let mut fill = bar_rect;
     fill.set_width(bar_rect.width() * prog);
-    painter.rect_filled(fill, 2.0, magenta_color);
+    // Flat brand-colour fill, fully rounded (pill).
+    painter.rect_filled(fill, 3.0, magenta_color);
 
     if t > ANIMATION_DURATION - 0.5 {
         let pulse = (t * 5.0).sin().abs() * 0.7 + 0.3;
