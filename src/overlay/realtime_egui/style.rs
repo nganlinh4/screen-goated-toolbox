@@ -108,7 +108,7 @@ pub(super) fn render_combo(
     theme: &RealtimeEguiTheme,
     add_contents: impl FnOnce(&mut egui::Ui),
 ) -> egui::Response {
-    let response = egui::ComboBox::from_id_salt(id)
+    let response = crate::gui::widgets::combo(id)
         .selected_text(selected)
         .width(width)
         .height(240.0)

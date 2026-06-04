@@ -152,7 +152,7 @@ pub fn render_preset_editor(
                     _ => text.preset_type_image,
                 };
 
-                egui::ComboBox::from_id_salt("preset_type_combo")
+                crate::gui::widgets::combo("preset_type_combo")
                     .selected_text(selected_text)
                     .show_ui(ui, |ui| {
                         if ui
@@ -203,7 +203,7 @@ pub fn render_preset_editor(
                 if preset.preset_type == "image" {
                     if !preset.show_controller_ui {
                         ui.label(text.command_mode_label);
-                        egui::ComboBox::from_id_salt("prompt_mode_combo")
+                        crate::gui::widgets::combo("prompt_mode_combo")
                             .selected_text(if preset.prompt_mode == "dynamic" {
                                 text.prompt_mode_dynamic
                             } else {
@@ -234,7 +234,7 @@ pub fn render_preset_editor(
                     }
                 } else if preset.preset_type == "text" {
                     ui.label(text.text_input_mode_label);
-                    egui::ComboBox::from_id_salt("text_input_mode_combo")
+                    crate::gui::widgets::combo("text_input_mode_combo")
                         .selected_text(if preset.text_input_mode == "type" {
                             text.text_mode_type
                         } else {
@@ -296,7 +296,7 @@ pub fn render_preset_editor(
                         mode_record
                     };
 
-                    egui::ComboBox::from_id_salt("audio_operation_mode_combo")
+                    crate::gui::widgets::combo("audio_operation_mode_combo")
                         .selected_text(selected_mode_text)
                         .show_ui(ui, |ui| {
                             if ui
@@ -354,7 +354,7 @@ pub fn render_preset_editor(
                         mode_standard
                     };
 
-                    egui::ComboBox::from_id_salt("realtime_window_mode_combo")
+                    crate::gui::widgets::combo("realtime_window_mode_combo")
                         .selected_text(selected_window_mode)
                         .show_ui(ui, |ui| {
                             if ui
@@ -391,7 +391,7 @@ pub fn render_preset_editor(
                     } else {
                         text.audio_src_device
                     };
-                    egui::ComboBox::from_id_salt("audio_source_combo")
+                    crate::gui::widgets::combo("audio_source_combo")
                         .selected_text(selected_text)
                         .show_ui(ui, |ui| {
                             if ui
@@ -445,7 +445,7 @@ pub fn render_preset_editor(
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.label(text.command_mode_label);
-                    egui::ComboBox::from_id_salt("text_prompt_mode_combo")
+                    crate::gui::widgets::combo("text_prompt_mode_combo")
                         .selected_text(if preset.prompt_mode == "dynamic" {
                             text.prompt_mode_dynamic
                         } else {

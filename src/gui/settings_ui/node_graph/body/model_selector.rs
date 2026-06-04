@@ -43,6 +43,13 @@ pub fn show_model_and_settings(
     ui.horizontal(|ui| {
         ui.label(model_label);
         let model_def = get_model_by_id(model);
+        if let Some(m) = model_def.as_ref() {
+            crate::gui::icons::draw_icon_static(
+                ui,
+                crate::gui::icons::provider_icon(&m.provider),
+                Some(crate::gui::icons::ICON_MD),
+            );
+        }
         let display_name = model_def
             .as_ref()
             .map(|m| match viewer.ui_language.as_str() {
@@ -88,35 +95,24 @@ pub fn show_model_and_settings(
                         "ko" => &m.quota_limit_ko,
                         _ => &m.quota_limit_en,
                     };
-                    let provider_icon = match m.provider.as_str() {
-                        "google" | "gemini-live" => "✨ ",
-                        "google-gtx" => "🌍 ",
-                        "groq" => "⚡ ",
-                        "cerebras" => "🔥 ",
-                        "openrouter" => "🌐 ",
-                        "ollama" => "🏠 ",
-                        "qrserver" => "🔳 ",
-                        "parakeet" => "🐦 ",
-                        "qwen3" => "● ",
-                        "taalas" => "🚀 ",
-                        _ => "⚙️ ",
-                    };
-                    let search_suffix = if model_supports_search(&m.id) {
-                        " 🔍"
-                    } else {
-                        ""
-                    };
-                    let label = format!(
-                        "{}{} - {} - {}{}",
-                        provider_icon, name, m.full_name, quota, search_suffix
-                    );
+                    let label = format!("{} - {} - {}", name, m.full_name, quota);
                     let is_selected = *model == m.id;
 
-                    if ui.selectable_label(is_selected, label).clicked() {
-                        *model = m.id.clone();
-                        viewer.changed = true;
-                        egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
-                    }
+                    ui.horizontal(|ui| {
+                        crate::gui::icons::draw_icon_static(
+                            ui,
+                            crate::gui::icons::provider_icon(&m.provider),
+                            Some(crate::gui::icons::ICON_MD),
+                        );
+                        if ui.selectable_label(is_selected, label).clicked() {
+                            *model = m.id.clone();
+                            viewer.changed = true;
+                            egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
+                        }
+                        if model_supports_search(&m.id) {
+                            crate::gui::icons::draw_icon_static(ui, Icon::Search, Some(crate::gui::icons::ICON_XS));
+                        }
+                    });
                 }
             }
         });

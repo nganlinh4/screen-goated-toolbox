@@ -345,7 +345,7 @@ fn render_preset_item_parts(
             if preset.text_input_mode == "select" {
                 Icon::TextSelect
             } else {
-                Icon::Text
+                Icon::Keyboard
             }
         }
         _ => Icon::Image,
@@ -362,11 +362,11 @@ fn render_preset_item_parts(
         }
         if preset.is_upcoming {
             ui.add_enabled_ui(false, |ui| {
-                draw_icon_static(ui, icon_type, Some(14.0));
+                draw_icon_static(ui, icon_type, Some(crate::gui::icons::ICON_LG));
                 let _ = ui.selectable_label(is_selected, &display_name);
             });
         } else {
-            draw_icon_static(ui, icon_type, Some(14.0));
+            draw_icon_static(ui, icon_type, Some(crate::gui::icons::ICON_LG));
             // Make the label draggable.
             // SelectableLabel by default captures clicks. We want to also capture drags.
             let label_response = ui.selectable_label(is_selected, &display_name);
@@ -423,7 +423,7 @@ fn render_preset_item_parts(
         if !preset.is_upcoming {
             // Drag handle removed - label is now draggable
 
-            if icon_button_sized(ui, Icon::CopySmall, 22.0).clicked() {
+            if icon_button_sized(ui, Icon::CopySmall, crate::gui::icons::ICON_SM).clicked() {
                 *preset_idx_to_clone = Some(idx);
             }
             let star_icon = if preset.is_favorite {
@@ -431,10 +431,10 @@ fn render_preset_item_parts(
             } else {
                 Icon::Star
             };
-            if icon_button_sized(ui, star_icon, 22.0).clicked() {
+            if icon_button_sized(ui, star_icon, crate::gui::icons::ICON_LG).clicked() {
                 *preset_idx_to_toggle_favorite = Some(idx);
             }
-            if presets.len() > 1 && icon_button_sized(ui, Icon::Delete, 22.0).clicked() {
+            if presets.len() > 1 && icon_button_sized(ui, Icon::Delete, crate::gui::icons::ICON_SM).clicked() {
                 *preset_idx_to_delete = Some(idx);
             }
         }

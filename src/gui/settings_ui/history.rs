@@ -32,8 +32,9 @@ pub fn render_history_panel(
         .show(ui, |ui| {
             // Row 1: Title + Max items slider
             ui.horizontal(|ui| {
+                draw_icon_static(ui, Icon::History, Some(crate::gui::icons::ICON_SM));
                 ui.label(
-                    egui::RichText::new(format!("📜 {}", text.history_title))
+                    egui::RichText::new(text.history_title)
                         .strong()
                         .size(14.0),
                 );
@@ -176,7 +177,7 @@ pub fn render_history_panel(
                                     HistoryType::Audio => Icon::Microphone,
                                     HistoryType::Text => Icon::Text,
                                 };
-                                draw_icon_static(ui, icon, Some(14.0));
+                                draw_icon_static(ui, icon, Some(crate::gui::icons::ICON_SM));
                                 ui.label(egui::RichText::new(&item.timestamp).size(10.0).weak());
 
                                 ui.with_layout(

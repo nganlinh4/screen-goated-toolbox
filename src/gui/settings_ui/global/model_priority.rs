@@ -138,30 +138,66 @@ fn render_chain_section(
             ui.horizontal(|ui| {
                 ui.label(format!("{}.", row_idx + 2));
 
+                if let Some(model) = get_model_by_id(&chain[row_idx]) {
+                    crate::gui::icons::draw_icon_static(
+                        ui,
+                        crate::gui::icons::provider_icon(&model.provider),
+                        Some(crate::gui::icons::ICON_MD),
+                    );
+                }
+
                 let selected_text = model_short_label(&chain[row_idx], ui_language);
-                egui::ComboBox::from_id_salt((section_id, "combo", row_idx))
+                crate::gui::widgets::combo((section_id, "combo", row_idx))
                     .selected_text(selected_text)
                     .width(240.0)
                     .show_ui(ui, |ui| {
                         for model in &available_models {
                             let label = model_option_label(model, ui_language);
-                            if ui
-                                .selectable_label(chain[row_idx] == model.id, label)
-                                .clicked()
-                            {
-                                chain[row_idx] = model.id.clone();
-                                changed = true;
-                            }
+                            let selected = chain[row_idx] == model.id;
+                            ui.horizontal(|ui| {
+                                crate::gui::icons::draw_icon_static(
+                                    ui,
+                                    crate::gui::icons::provider_icon(&model.provider),
+                                    Some(crate::gui::icons::ICON_MD),
+                                );
+                                if ui.selectable_label(selected, label).clicked() {
+                                    chain[row_idx] = model.id.clone();
+                                    changed = true;
+                                }
+                                if model_supports_search_by_id(&model.id) {
+                                    crate::gui::icons::draw_icon_static(
+                                        ui,
+                                        crate::gui::icons::Icon::Search,
+                                        Some(crate::gui::icons::ICON_XS),
+                                    );
+                                }
+                            });
                         }
                     });
 
-                if ui.small_button("↑").clicked() && row_idx > 0 {
+                if crate::gui::icons::icon_button_sized(
+                    ui,
+                    crate::gui::icons::Icon::ArrowUp,
+                    crate::gui::icons::ICON_LG,
+                )
+                .clicked()
+                    && row_idx > 0
+                {
                     row_action = RowAction::MoveUp;
                 }
-                if ui.small_button("↓").clicked() && row_idx + 1 < chain.len() {
+                if crate::gui::icons::icon_button_sized(
+                    ui,
+                    crate::gui::icons::Icon::ArrowDown,
+                    crate::gui::icons::ICON_LG,
+                )
+                .clicked()
+                    && row_idx + 1 < chain.len()
+                {
                     row_action = RowAction::MoveDown;
                 }
-                if ui.small_button("×").clicked() {
+                if crate::gui::icons::icon_button_sized(ui, crate::gui::icons::Icon::Close, crate::gui::icons::ICON_LG)
+                    .clicked()
+                {
                     row_action = RowAction::Remove;
                 }
             });
@@ -247,60 +283,20 @@ fn localized_quota<'a>(model: &'a ModelConfig, ui_language: &str) -> &'a str {
     }
 }
 
-fn provider_icon(provider: &str) -> &'static str {
-    match provider {
-        "google" | "gemini-live" => "✨ ",
-        "google-gtx" => "🌍 ",
-        "groq" => "⚡ ",
-        "cerebras" => "🔥 ",
-        "openrouter" => "🌐 ",
-        "ollama" => "🏠 ",
-        "qrserver" => "🔳 ",
-        "parakeet" => "🐦 ",
-        "qwen3" => "● ",
-        "taalas" => "🚀 ",
-        _ => "⚙️ ",
-    }
-}
-
-/// Full label shown inside the expanded dropdown list: icon + friendly name +
-/// model id + quota (+ search badge).
+/// Full label shown inside the expanded dropdown list: friendly name +
+/// model id + quota. The provider icon is rendered separately via egui.
 fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &str) -> String {
-    let search_suffix = if model_supports_search_by_id(&model.id) {
-        " 🔍"
-    } else {
-        ""
-    };
     let name = localized_model_name(model, ui_language);
     let quota = localized_quota(model, ui_language);
 
-    format!(
-        "{}{} - {} - {}{}",
-        provider_icon(&model.provider),
-        name,
-        model.full_name,
-        quota,
-        search_suffix
-    )
+    format!("{} - {} - {}", name, model.full_name, quota)
 }
 
-/// Compact label for the collapsed dropdown button: icon + friendly name
-/// (+ search badge) only. Keeps every row the same width so the reorder
-/// controls don't drift — full details stay in the expanded list.
+/// Compact label for the collapsed dropdown button: friendly name only.
+/// Keeps every row the same width so the reorder controls don't drift — full
+/// details stay in the expanded list. The provider icon is rendered separately.
 fn model_short_label(model_id: &str, ui_language: &str) -> String {
     get_model_by_id(model_id)
-        .map(|model| {
-            let search_suffix = if model_supports_search_by_id(&model.id) {
-                " 🔍"
-            } else {
-                ""
-            };
-            format!(
-                "{}{}{}",
-                provider_icon(&model.provider),
-                localized_model_name(&model, ui_language),
-                search_suffix
-            )
-        })
+        .map(|model| localized_model_name(&model, ui_language).to_string())
         .unwrap_or_else(|| model_id.to_string())
 }

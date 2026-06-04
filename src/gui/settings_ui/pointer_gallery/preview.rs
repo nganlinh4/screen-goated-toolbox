@@ -2,9 +2,11 @@ use super::{CollectionState, CollectionStatus};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 use std::time::Duration;
 
 const SLOT_GAP: f32 = 3.0;
@@ -21,16 +23,122 @@ pub(super) struct PreviewTexture {
     pub(super) last_update_secs: f64,
 }
 
+struct PreviewRequest {
+    key: String,
+    path: PathBuf,
+}
+
+struct PreviewResult {
+    key: String,
+    /// Decoded frames; empty means the source failed to decode.
+    frames: Vec<egui::ColorImage>,
+}
+
+/// Decodes cursor previews on a background thread so scrolling / first open of
+/// the gallery never blocks the UI thread on GDI rendering or PNG decoding.
+pub(super) struct PreviewLoader {
+    tx: Sender<PreviewRequest>,
+    rx: Receiver<PreviewResult>,
+    pending: HashSet<String>,
+}
+
+impl PreviewLoader {
+    pub(super) fn new() -> Self {
+        let (req_tx, req_rx) = mpsc::channel::<PreviewRequest>();
+        let (res_tx, res_rx) = mpsc::channel::<PreviewResult>();
+
+        thread::spawn(move || {
+            while let Ok(req) = req_rx.recv() {
+                let frames = decode_preview_frames(&req.path);
+                if res_tx
+                    .send(PreviewResult {
+                        key: req.key,
+                        frames,
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+
+        Self {
+            tx: req_tx,
+            rx: res_rx,
+            pending: HashSet::new(),
+        }
+    }
+
+    /// Queue a decode for `key` unless one is already in flight.
+    fn request(&mut self, key: &str, path: &Path) {
+        if self.pending.contains(key) {
+            return;
+        }
+        self.pending.insert(key.to_string());
+        let _ = self.tx.send(PreviewRequest {
+            key: key.to_string(),
+            path: path.to_path_buf(),
+        });
+    }
+
+    /// Upload any finished decodes into the texture cache. Returns true if the
+    /// loader still has work in flight (so the caller can keep repainting).
+    pub(super) fn drain(
+        &mut self,
+        ctx: &egui::Context,
+        texture_cache: &mut HashMap<String, PreviewTexture>,
+        failed: &mut HashSet<String>,
+        now: f64,
+    ) -> bool {
+        while let Ok(result) = self.rx.try_recv() {
+            self.pending.remove(&result.key);
+
+            if result.frames.is_empty() {
+                failed.insert(result.key);
+                continue;
+            }
+
+            let mut handles = Vec::with_capacity(result.frames.len());
+            for (idx, image) in result.frames.into_iter().enumerate() {
+                handles.push(ctx.load_texture(
+                    format!("pointer_preview_{}_{}", result.key, idx),
+                    image,
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
+
+            texture_cache.insert(
+                result.key.clone(),
+                PreviewTexture {
+                    animated: handles.len() > 1,
+                    frames: handles,
+                    ani_step: 0,
+                    last_update_secs: now,
+                },
+            );
+        }
+
+        !self.pending.is_empty()
+    }
+
+    pub(super) fn forget(&mut self, key: &str) {
+        self.pending.remove(key);
+    }
+}
+
 pub(super) fn preview_strip_width(slot_count: usize, icon_size: f32) -> f32 {
     let gaps = slot_count.saturating_sub(1) as f32 * SLOT_GAP;
     slot_count as f32 * icon_size + gaps
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn render_collection_previews(
     ui: &mut egui::Ui,
     ctx: &egui::Context,
     collection: &CollectionState,
     texture_cache: &mut HashMap<String, PreviewTexture>,
+    loader: &mut PreviewLoader,
+    failed: &HashSet<String>,
     slot_names: &[&str],
     icon_size: f32,
 ) {
@@ -45,10 +153,13 @@ pub(super) fn render_collection_previews(
 
             let key = path.to_string_lossy().to_string();
 
-            if !texture_cache.contains_key(&key)
-                && let Some(texture) = load_cursor_preview_texture(ctx, path, &key, now)
-            {
-                texture_cache.insert(key.clone(), texture);
+            if !texture_cache.contains_key(&key) {
+                // Decode happens off-thread; show a placeholder until it lands.
+                if !failed.contains(&key) {
+                    loader.request(&key, path);
+                }
+                render_preview_placeholder(ui, icon_size, file_name);
+                continue;
             }
 
             if let Some(preview) = texture_cache.get_mut(&key) {
@@ -148,44 +259,26 @@ fn render_preview_placeholder(ui: &mut egui::Ui, icon_size: f32, file_name: &str
 }
 
 #[cfg(target_os = "windows")]
-fn load_cursor_preview_texture(
-    ctx: &egui::Context,
-    path: &Path,
-    cache_key: &str,
-    now: f64,
-) -> Option<PreviewTexture> {
+fn decode_preview_frames(path: &Path) -> Vec<egui::ColorImage> {
     let mut frames = Vec::new();
 
     if let Some(total_steps) = ani_frame_count(path).filter(|steps| *steps > 1) {
-        for (idx, ani_step) in sample_ani_steps(total_steps).iter().copied().enumerate() {
-            let Some(image) =
+        for ani_step in sample_ani_steps(total_steps) {
+            if let Some(image) =
                 load_or_render_cached_preview_image(path, ani_step, PREVIEW_RENDER_SIZE)
-            else {
-                continue;
-            };
-            frames.push(ctx.load_texture(
-                format!("pointer_preview_{}_{}", cache_key, idx),
-                image,
-                egui::TextureOptions::LINEAR,
-            ));
+            {
+                frames.push(image);
+            }
         }
     }
 
-    if frames.is_empty() {
-        let image = load_or_render_cached_preview_image(path, 0, PREVIEW_RENDER_SIZE)?;
-        frames.push(ctx.load_texture(
-            format!("pointer_preview_{}", cache_key),
-            image,
-            egui::TextureOptions::LINEAR,
-        ));
+    if frames.is_empty()
+        && let Some(image) = load_or_render_cached_preview_image(path, 0, PREVIEW_RENDER_SIZE)
+    {
+        frames.push(image);
     }
 
-    Some(PreviewTexture {
-        animated: frames.len() > 1,
-        frames,
-        ani_step: 0,
-        last_update_secs: now,
-    })
+    frames
 }
 
 #[cfg(target_os = "windows")]
@@ -292,13 +385,8 @@ fn write_cached_preview_png(path: &Path, image: &egui::ColorImage) -> Option<()>
 }
 
 #[cfg(not(target_os = "windows"))]
-fn load_cursor_preview_texture(
-    _ctx: &egui::Context,
-    _path: &Path,
-    _cache_key: &str,
-    _now: f64,
-) -> Option<PreviewTexture> {
-    None
+fn decode_preview_frames(_path: &Path) -> Vec<egui::ColorImage> {
+    Vec::new()
 }
 
 #[cfg(target_os = "windows")]

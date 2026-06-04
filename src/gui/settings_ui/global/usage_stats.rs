@@ -34,7 +34,7 @@ pub fn render_usage_modal(
             if crate::gui::widgets::dialog_header(
                 ui,
                 &theme,
-                &format!("📊 {}", text.usage_statistics_title),
+                text.usage_statistics_title,
                 None,
                 |_| {},
             ) {
@@ -56,9 +56,17 @@ pub fn render_usage_modal(
                 .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 if use_groq {
-                    egui::CollapsingHeader::new(egui::RichText::new("⚡ Groq").strong().size(13.0))
-                        .default_open(true)
-                        .show(ui, |ui| {
+                    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                        ui.ctx(),
+                        egui::Id::new("usage_groq_header"),
+                        true,
+                    );
+                    let header = ui.horizontal(|ui| {
+                        state.show_toggle_button(ui, crate::gui::widgets::collapsing_chevron);
+                        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::provider_icon("groq"), Some(crate::gui::icons::ICON_MD));
+                        ui.label(egui::RichText::new("Groq").strong().size(13.0));
+                    });
+                    state.show_body_indented(&header.response, ui, |ui| {
                         egui::Grid::new("groq_grid").striped(true).show(ui, |ui| {
                             ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
                             ui.label(egui::RichText::new(text.usage_remaining_column).strong().size(11.0));
@@ -97,9 +105,17 @@ pub fn render_usage_modal(
                 }
 
                 if use_cerebras {
-                    egui::CollapsingHeader::new(egui::RichText::new("🔥 Cerebras").strong().size(13.0))
-                        .default_open(true)
-                        .show(ui, |ui| {
+                    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                        ui.ctx(),
+                        egui::Id::new("usage_cerebras_header"),
+                        true,
+                    );
+                    let header = ui.horizontal(|ui| {
+                        state.show_toggle_button(ui, crate::gui::widgets::collapsing_chevron);
+                        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::provider_icon("cerebras"), Some(crate::gui::icons::ICON_MD));
+                        ui.label(egui::RichText::new("Cerebras").strong().size(13.0));
+                    });
+                    state.show_body_indented(&header.response, ui, |ui| {
                         egui::Grid::new("cerebras_grid").striped(true).show(ui, |ui| {
                             ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
                             ui.label(egui::RichText::new(text.usage_remaining_column).strong().size(11.0));
@@ -154,9 +170,17 @@ pub fn render_usage_modal(
                 }
 
                 if use_gemini {
-                    egui::CollapsingHeader::new(egui::RichText::new("✨ Google Gemini").strong().size(13.0))
-                        .default_open(true)
-                        .show(ui, |ui| {
+                    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                        ui.ctx(),
+                        egui::Id::new("usage_gemini_header"),
+                        true,
+                    );
+                    let header = ui.horizontal(|ui| {
+                        state.show_toggle_button(ui, crate::gui::widgets::collapsing_chevron);
+                        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::provider_icon("google"), Some(crate::gui::icons::ICON_MD));
+                        ui.label(egui::RichText::new("Google Gemini").strong().size(13.0));
+                    });
+                    state.show_body_indented(&header.response, ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
                             ui.add_space(120.0);
@@ -175,9 +199,17 @@ pub fn render_usage_modal(
                 }
 
                 if use_openrouter {
-                    egui::CollapsingHeader::new(egui::RichText::new("🌐 OpenRouter").strong().size(13.0))
-                        .default_open(true)
-                        .show(ui, |ui| {
+                    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                        ui.ctx(),
+                        egui::Id::new("usage_openrouter_header"),
+                        true,
+                    );
+                    let header = ui.horizontal(|ui| {
+                        state.show_toggle_button(ui, crate::gui::widgets::collapsing_chevron);
+                        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::provider_icon("openrouter"), Some(crate::gui::icons::ICON_MD));
+                        ui.label(egui::RichText::new("OpenRouter").strong().size(13.0));
+                    });
+                    state.show_body_indented(&header.response, ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
                             ui.add_space(120.0);
@@ -196,9 +228,17 @@ pub fn render_usage_modal(
                 }
 
                 if use_ollama {
-                    egui::CollapsingHeader::new(egui::RichText::new("🏠 Ollama (Local)").strong().size(13.0))
-                        .default_open(true)
-                        .show(ui, |ui| {
+                    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                        ui.ctx(),
+                        egui::Id::new("usage_ollama_header"),
+                        true,
+                    );
+                    let header = ui.horizontal(|ui| {
+                        state.show_toggle_button(ui, crate::gui::widgets::collapsing_chevron);
+                        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::provider_icon("ollama"), Some(crate::gui::icons::ICON_MD));
+                        ui.label(egui::RichText::new("Ollama (Local)").strong().size(13.0));
+                    });
+                    state.show_body_indented(&header.response, ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
                             ui.add_space(120.0);

@@ -370,7 +370,7 @@ internal fun ToolsSection(
         data class CreateOption(val type: dev.screengoated.toolbox.mobile.shared.preset.PresetType, @DrawableRes val icon: Int, val label: String, val accentColor: Color)
         val createOptions = listOf(
             CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE, R.drawable.ms_image, locale.toolsCategoryImage, sgtColors.statusProcessing),
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT, R.drawable.ms_text_fields, locale.toolsCategoryTextSelect, sgtColors.statusSuccess),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT, R.drawable.ms_format_italic, locale.toolsCategoryTextSelect, sgtColors.statusSuccess),
             CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT, R.drawable.ms_keyboard, locale.toolsCategoryTextInput, sgtColors.statusSuccess),
             CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC, R.drawable.ms_mic, locale.toolsCategoryMicRecording, sgtColors.statusWarning),
             CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO, R.drawable.ms_speaker_phone, locale.toolsCategoryDeviceAudio, sgtColors.statusWarning),

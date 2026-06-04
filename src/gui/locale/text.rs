@@ -568,7 +568,7 @@ pub struct LocaleText {
     pub tool_zipformer_desc_nopunct: &'static str,
     pub tool_zipformer_desc_compact: &'static str,
     pub tool_zipformer_desc_multilingual: &'static str,
-    pub continuous_mode_activated: &'static str, // "✨ Cấu hình \"{preset}\" sẽ hoạt động liên tục, bấm ESC hay {hotkey} để thoát"
+    pub continuous_mode_activated: &'static str, // "Cấu hình \"{preset}\" sẽ hoạt động liên tục, bấm ESC hay {hotkey} để thoát"
     pub win_select_title: &'static str,
     pub win_select_subtitle: &'static str,
     pub win_select_count: &'static str,

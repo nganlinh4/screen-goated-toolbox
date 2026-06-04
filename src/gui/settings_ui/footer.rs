@@ -16,8 +16,10 @@ fn render_launch_button(
     btn_color: egui::Color32,
     btn_bg: egui::Color32,
 ) -> egui::Response {
-    let icon_sz = 12.0;
-    let icon_gap = 4.0;
+    // Match the title-bar / settings buttons, which paint a 16px icon in a
+    // same-height button (the footer button height already matches via padding).
+    let icon_sz = crate::gui::icons::ICON_MD;
+    let icon_gap = 6.0;
     // Inherit the global button padding so footer buttons match the title-bar /
     // settings buttons (~21px tall) instead of the old cramped 1px height.
     let h_pad = ui.spacing().button_padding.x;
@@ -99,7 +101,7 @@ pub fn render_footer(
         if render_launch_button(
             ui,
             text.translation_gummy_btn,
-            Icon::Speaker,
+            Icon::BreakfastDining,
             btn_text,
             theme.launch_translation(),
         )
@@ -129,7 +131,7 @@ pub fn render_footer(
         let icon_color =
             egui::Color32::from_rgba_unmultiplied(255, 200, 50, (tip_alpha * 255.0) as u8);
 
-        let icon_size = 14.0;
+        let icon_size = crate::gui::icons::ICON_SM;
         let icon_spacing = 4.0;
 
         let is_dark_mode = ui.visuals().dark_mode;

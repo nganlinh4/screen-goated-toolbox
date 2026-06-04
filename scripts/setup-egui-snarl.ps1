@@ -1,10 +1,14 @@
 # Setup script for patched egui-snarl
-# This clones egui-snarl and patches it for scroll-to-zoom support
+# Clones egui-snarl, checks out the pinned revision, and applies the patch
+# (scroll-to-zoom + the Material node-collapse chevron) from
+# egui-snarl-scroll-zoom.patch. All custom snarl changes live in that patch.
 
 $snarlDir = Join-Path $PSScriptRoot "..\libs\egui-snarl"
 $patchFile = Join-Path $PSScriptRoot "egui-snarl-scroll-zoom.patch"
 $uiRsPath = Join-Path $snarlDir "src\ui.rs"
-$snarlRevision = "bbed414980a14f949fe1bc137ced8bc5706a93c2"
+# Latest `main` (egui 0.34). The previous pin (bbed414) was stale and used egui
+# 0.33, which mismatched the app's eframe/egui 0.34 and broke type unification.
+$snarlRevision = "5bdc34e4ebdb9d7a0968f21564dce51a1a027ee8"
 
 # Clone egui-snarl if needed
 if (-not (Test-Path $snarlDir)) {

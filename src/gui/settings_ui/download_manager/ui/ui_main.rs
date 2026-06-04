@@ -1,6 +1,7 @@
 // Main downloader UI panel (tab strip, URL input, format selection, action area).
 
 use super::super::types::{DownloadType, InstallStatus};
+use crate::gui::icons::{Icon, draw_icon_static};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
@@ -47,6 +48,7 @@ impl DownloadManager {
                         }
                     }
                     InstallStatus::Installed => {
+                        draw_icon_static(ui, Icon::CheckCircle, Some(crate::gui::icons::ICON_MD));
                         ui.label(text.download_status_ready);
                     }
                 }
@@ -85,6 +87,7 @@ impl DownloadManager {
                         }
                     }
                     InstallStatus::Installed => {
+                        draw_icon_static(ui, Icon::CheckCircle, Some(crate::gui::icons::ICON_MD));
                         ui.label(text.download_status_ready);
                     }
                 }
@@ -305,7 +308,7 @@ impl DownloadManager {
                 .clone()
                 .unwrap_or_else(|| best_text.clone());
 
-            egui::ComboBox::from_id_salt("quality_combo")
+            crate::gui::widgets::combo("quality_combo")
                 .selected_text(&current_val)
                 .width(100.0)
                 .show_ui(ui, |ui| {
@@ -347,7 +350,7 @@ impl DownloadManager {
                 .clone()
                 .unwrap_or_else(|| auto_text.clone());
 
-            egui::ComboBox::from_id_salt("subtitle_combo")
+            crate::gui::widgets::combo("subtitle_combo")
                 .selected_text(&current_sub)
                 .width(70.0)
                 .show_ui(ui, |ui| {
@@ -394,9 +397,9 @@ impl DownloadManager {
     }
 
     fn render_advanced_options(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
-        ui.collapsing(
-            egui::RichText::new(text.download_advanced_header).strong(),
-            |ui| {
+        egui::CollapsingHeader::new(egui::RichText::new(text.download_advanced_header).strong())
+            .icon(crate::gui::widgets::collapsing_chevron)
+            .show(ui, |ui| {
                 egui::Grid::new("adv_options_grid")
                     .num_columns(2)
                     .spacing([10.0, 4.0])
@@ -443,7 +446,7 @@ impl DownloadManager {
     fn render_cookie_browser_combo(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
         ui.horizontal(|ui| {
             ui.label(text.download_opt_cookies);
-            egui::ComboBox::from_id_salt("cookie_browser_combo")
+            crate::gui::widgets::combo("cookie_browser_combo")
                 .selected_text(match &self.cookie_browser {
                     super::super::types::CookieBrowser::None => {
                         text.download_no_cookie_option.to_string()

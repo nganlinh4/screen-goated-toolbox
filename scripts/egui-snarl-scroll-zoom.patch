@@ -1,17 +1,19 @@
 diff --git a/src/ui.rs b/src/ui.rs
-index 961546d..5f9793c 100644
+index 961546d..e3dad16 100644
 --- a/src/ui.rs
 +++ b/src/ui.rs
-@@ -4,7 +4,7 @@ use std::{collections::HashMap, hash::Hash};
+@@ -4,9 +4,8 @@ use std::{collections::HashMap, hash::Hash};
  
  use egui::{
      Align, Color32, CornerRadius, Frame, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
 -    Pos2, Rect, Scene, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
 +    Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
      Vec2,
-     collapsing_header::paint_default_icon,
+-    collapsing_header::paint_default_icon,
      emath::{GuiRounding, TSTransform},
-@@ -989,9 +989,57 @@ where
+     epaint::Shadow,
+     pos2,
+@@ -989,9 +988,57 @@ where
      clamp_scale(&mut to_global, min_scale, max_scale, ui_rect);
  
      let mut snarl_resp = ui.response();
@@ -72,3 +74,34 @@ index 961546d..5f9793c 100644
  
      if snarl_resp.changed() {
          ui.ctx().request_repaint();
+@@ -2410,7 +2457,29 @@ where
+                         vec2(ui.spacing().icon_width, ui.spacing().icon_width),
+                         Sense::click(),
+                     );
+-                    paint_default_icon(ui, openness, &r);
++                    // Material-style chevron: points right when closed, rotating
++                    // to point down when open (replaces egui's default triangle).
++                    {
++                        let stroke_color = ui.style().interact(&r).fg_stroke.color;
++                        let cr = Rect::from_center_size(
++                            r.rect.center(),
++                            Vec2::splat(r.rect.size().min_elem() * 0.5),
++                        );
++                        let mut pts = [
++                            pos2(cr.left(), cr.top() + cr.height() * 0.25),
++                            pos2(cr.center().x, cr.bottom() - cr.height() * 0.25),
++                            pos2(cr.right(), cr.top() + cr.height() * 0.25),
++                        ];
++                        let angle =
++                            openness * std::f32::consts::FRAC_PI_2 - std::f32::consts::FRAC_PI_2;
++                        let rot = egui::emath::Rot2::from_angle(angle);
++                        for p in &mut pts {
++                            *p = cr.center() + rot * (*p - cr.center());
++                        }
++                        let stroke = Stroke::new(1.6, stroke_color);
++                        ui.painter().line_segment([pts[0], pts[1]], stroke);
++                        ui.painter().line_segment([pts[1], pts[2]], stroke);
++                    }
+ 
+                     if r.clicked_by(PointerButton::Primary) {
+                         // Toggle node's openness.

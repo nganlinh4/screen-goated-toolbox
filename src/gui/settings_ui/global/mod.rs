@@ -1,6 +1,6 @@
 use super::node_graph::request_node_graph_view_reset;
 use crate::config::Config;
-use crate::gui::icons::{Icon, paint_icon};
+use crate::gui::icons::{Icon, draw_icon_static};
 use crate::gui::locale::LocaleText;
 use crate::updater::{UpdateStatus, Updater};
 use auto_launch::AutoLaunch;
@@ -82,9 +82,10 @@ pub fn render_global_settings(
     let on_btn = theme.on_accent();
 
     ui.horizontal(|ui| {
-        if crate::gui::widgets::filled_button(
+        if crate::gui::widgets::filled_icon_button(
             ui,
-            &format!("📊 {}", text.usage_statistics_title),
+            Icon::BarChart,
+            text.usage_statistics_title,
             theme.btn_stats(),
             on_btn,
             10,
@@ -98,9 +99,10 @@ pub fn render_global_settings(
 
         ui.add_space(10.0);
 
-        if crate::gui::widgets::filled_button(
+        if crate::gui::widgets::filled_icon_button(
             ui,
-            &format!("🔊 {}", text.tts_settings_button),
+            Icon::SettingsVoice,
+            text.tts_settings_button,
             theme.btn_tts_settings(),
             on_btn,
             10,
@@ -113,9 +115,10 @@ pub fn render_global_settings(
 
         ui.add_space(10.0);
 
-        if crate::gui::widgets::filled_button(
+        if crate::gui::widgets::filled_icon_button(
             ui,
-            &format!("📦 {}", text.downloaded_tools_button),
+            Icon::Download,
+            text.downloaded_tools_button,
             theme.btn_tools(),
             on_btn,
             10,
@@ -129,11 +132,13 @@ pub fn render_global_settings(
 
     ui.add_space(10.0);
 
-    if render_labeled_icon_button(
+    if crate::gui::widgets::filled_icon_button(
         ui,
         Icon::Priority,
         text.model_priority_button,
         theme.btn_priority(),
+        on_btn,
+        10,
     )
     .clicked()
     {
@@ -175,11 +180,14 @@ pub fn render_global_settings(
         .inner_margin(12.0)
         .corner_radius(10.0)
         .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(text.software_update_header)
-                    .strong()
-                    .size(14.0),
-            );
+            ui.horizontal(|ui| {
+                draw_icon_static(ui, Icon::Upgrade, Some(crate::gui::icons::ICON_MD));
+                ui.label(
+                    egui::RichText::new(text.software_update_header)
+                        .strong()
+                        .size(14.0),
+                );
+            });
             ui.add_space(6.0);
             render_update_section_content(ui, updater, update_status, text);
         });
@@ -193,11 +201,14 @@ pub fn render_global_settings(
         .inner_margin(12.0)
         .corner_radius(10.0)
         .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(text.startup_display_header)
-                    .strong()
-                    .size(14.0),
-            );
+            ui.horizontal(|ui| {
+                draw_icon_static(ui, Icon::Settings, Some(crate::gui::icons::ICON_MD));
+                ui.label(
+                    egui::RichText::new(text.startup_display_header)
+                        .strong()
+                        .size(14.0),
+                );
+            });
             ui.add_space(6.0);
 
             // Main startup toggle
@@ -364,7 +375,7 @@ pub fn render_global_settings(
                     }
                 };
 
-                egui::ComboBox::from_id_salt("graphics_mode_combo")
+                crate::gui::widgets::combo("graphics_mode_combo")
                     .selected_text(current_label)
                     .show_ui(ui, |ui| {
                         if ui
@@ -468,65 +479,4 @@ pub fn render_global_settings(
     ui.add_space(10.0);
 
     changed
-}
-
-fn render_labeled_icon_button(
-    ui: &mut egui::Ui,
-    icon: Icon,
-    label: &str,
-    background: egui::Color32,
-) -> egui::Response {
-    let text_color = egui::Color32::WHITE;
-    let text_style = egui::TextStyle::Button;
-    let label_galley = ui.painter().layout_no_wrap(
-        label.to_string(),
-        text_style.resolve(ui.style()),
-        text_color,
-    );
-    let icon_size = 12.0;
-    let icon_gap = 6.0;
-    let h_pad = ui.spacing().button_padding.x;
-    let v_pad = ui.spacing().button_padding.y;
-    let button_size = egui::vec2(
-        h_pad + icon_size + icon_gap + label_galley.rect.width() + h_pad,
-        ui.spacing()
-            .interact_size
-            .y
-            .max(label_galley.rect.height() + v_pad * 2.0),
-    );
-
-    let (button_rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
-    let painter = ui.painter();
-    painter.rect_filled(
-        button_rect,
-        10.0,
-        if response.hovered() {
-            background.gamma_multiply(1.1)
-        } else {
-            background
-        },
-    );
-
-    let icon_rect = egui::Rect::from_min_size(
-        egui::pos2(
-            button_rect.left() + h_pad,
-            button_rect.center().y - icon_size / 2.0,
-        ),
-        egui::vec2(icon_size, icon_size),
-    );
-    paint_icon(painter, icon_rect, icon, text_color);
-    painter.galley(
-        egui::pos2(
-            icon_rect.right() + icon_gap,
-            button_rect.center().y - label_galley.rect.height() / 2.0,
-        ),
-        label_galley,
-        text_color,
-    );
-
-    if response.hovered() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-
-    response
 }
