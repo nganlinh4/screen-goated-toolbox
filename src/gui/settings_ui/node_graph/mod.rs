@@ -46,7 +46,14 @@ pub fn render_node_graph(
         use_ollama,
         preset_type,
     );
-    let style = SnarlStyle::default();
+    // Flatten snarl's own canvas frame — its default `Frame::canvas` draws a
+    // separate fill + border, which (inside the wrapping card frame) produced a
+    // nested border and a mismatched padded band. With it transparent, the card
+    // frame around the graph is the ONLY surface. The grid pattern is kept.
+    let style = SnarlStyle {
+        bg_frame: Some(egui::Frame::NONE),
+        ..SnarlStyle::default()
+    };
 
     SnarlWidget::new()
         .id(ui.make_persistent_id("chain_graph"))

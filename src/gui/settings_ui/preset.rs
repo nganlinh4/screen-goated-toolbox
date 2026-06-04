@@ -534,13 +534,10 @@ pub fn render_preset_editor(
     if !(preset.show_controller_ui
         || preset.preset_type == "audio" && preset.audio_processing_mode == "realtime")
     {
-        // Use a subtle background for the node graph area
-        let is_dark = ui.visuals().dark_mode;
-        let graph_bg = if is_dark {
-            egui::Color32::from_rgba_unmultiplied(35, 40, 50, 200) // Subtle dark blue-gray
-        } else {
-            egui::Color32::from_rgba_unmultiplied(240, 242, 248, 255) // Soft light gray
-        };
+        // Frame the node graph like the cards above it (same fill, border and
+        // radius) so it reads as one consistent surface — not a panel with a
+        // mismatched padded band around the canvas.
+        let graph_theme = crate::gui::theme::AppTheme::from_ui(ui);
 
         // Width + height both come from the panel's true edges (`content_right`
         // / `content_bottom`), not the column's `available_*` which report
@@ -555,9 +552,10 @@ pub fn render_preset_editor(
         ui.set_max_width(graph_w);
         ui.push_id("node_graph_area", |ui| {
             egui::Frame::new()
-                .fill(graph_bg)
+                .fill(graph_theme.card_bg())
+                .stroke(graph_theme.card_stroke())
                 .inner_margin(6.0)
-                .corner_radius(8.0)
+                .corner_radius(10.0)
                 .show(ui, |ui| {
                     if render_node_graph(
                         ui,

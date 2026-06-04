@@ -15,7 +15,28 @@ pub(super) fn render_hotkeys(
     let mut changed = false;
 
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.hotkeys_section).strong());
+        // Vertically centre the section label with the taller buttons beside it.
+        // egui's horizontal/Align::Center does NOT reliably centre a bare label
+        // against taller siblings (pixel-measured ~2.5px too high), so paint the
+        // label galley ourselves, centred in a cell the EXACT height of a button
+        // (= button text row-height + 2·vertical button padding, floored at the
+        // interactive size).
+        let btn_h = (ui.text_style_height(&egui::TextStyle::Button)
+            + 2.0 * ui.spacing().button_padding.y)
+            .max(ui.spacing().interact_size.y);
+        let lbl_color = ui.visuals().strong_text_color();
+        let galley = ui.painter().layout_no_wrap(
+            text.hotkeys_section.to_string(),
+            egui::TextStyle::Body.resolve(ui.style()),
+            lbl_color,
+        );
+        let gsize = galley.size();
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(gsize.x, btn_h), egui::Sense::hover());
+        ui.painter().galley(
+            egui::pos2(rect.left(), rect.center().y - gsize.y / 2.0),
+            galley,
+            lbl_color,
+        );
 
         let theme = AppTheme::from_ui(ui);
 
