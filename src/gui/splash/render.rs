@@ -128,9 +128,8 @@ pub fn update(update_ctx: SplashUpdateContext<'_>) -> SplashStatus {
         mouse_influence.x += (tx - mouse_influence.x) * 0.05;
         mouse_influence.y += (ty - mouse_influence.y) * 0.05;
 
-        let cam_z_offset = warp_progress * 2000.0;
-        let cam_dist =
-            600.0 + smoothstep(0.0, ANIMATION_DURATION, physics_t) * 100.0 - cam_z_offset;
+        // Camera stays put on exit — the voxels drift outward themselves.
+        let cam_dist = 600.0 + smoothstep(0.0, ANIMATION_DURATION, physics_t) * 100.0;
 
         let fov = 800.0;
         let mouse_wx = (pointer.x - center.x) * cam_dist / fov;
@@ -217,20 +216,24 @@ fn update_voxels(
             }
 
             if warp_progress > 0.0 {
-                let start_threshold = v.noise_factor * 0.75;
-                let move_duration = 0.25;
+                // Gentle "release": each voxel lets go at a slightly staggered
+                // time and drifts outward + upward, EASED-OUT (quick release then
+                // decelerating) instead of rushing the camera. Outer voxels still
+                // cross the window edge onto the desktop overlay, but as a calm
+                // dispersal rather than a hyperspace punch.
+                let start_threshold = v.noise_factor * 0.35;
+                let move_duration = 0.7;
                 let local_linear =
                     ((warp_progress - start_threshold) / move_duration).clamp(0.0, 1.0);
-                let local_eased = local_linear * local_linear * local_linear;
+                let local_eased = 1.0 - (1.0 - local_linear).powi(3);
 
                 if local_eased > 0.0 {
-                    let radial = Vec3::new(v.pos.x, v.pos.y, 0.0).normalize();
-                    let curl_angle = local_eased * (v.noise_factor - 0.5) * 6.0;
-                    let swirl_vec = radial.rotate_z(curl_angle);
-                    let dist_mult = 1200.0;
-
-                    target_base = target_base.add(swirl_vec.mul(local_eased * dist_mult));
-                    target_base.z += local_eased * (v.noise_factor - 0.5) * 800.0;
+                    // Outward from centre with a slight upward lift (+y is up on
+                    // screen) and a faint swirl for life.
+                    let mut dir = Vec3::new(v.pos.x, v.pos.y + 80.0, 0.0).normalize();
+                    dir = dir.rotate_z(local_eased * (v.noise_factor - 0.5) * 1.2);
+                    let drift = 760.0;
+                    target_base = target_base.add(dir.mul(local_eased * drift));
                 }
             }
 

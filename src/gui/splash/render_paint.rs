@@ -46,7 +46,10 @@ pub fn paint(paint_ctx: SplashPaintContext<'_>) -> bool {
     let mut warp_prog = 0.0;
     if let Some(exit_start) = exit_start_time {
         let dt = (now - exit_start) as f32;
-        warp_prog = (dt / EXIT_DURATION).powi(5);
+        // Graceful smoothstep dissolve (was powi(5), which back-loaded the whole
+        // thing into a violent rush in the last fraction of a second).
+        let p = (dt / EXIT_DURATION).clamp(0.0, 1.0);
+        warp_prog = p * p * (3.0 - 2.0 * p);
     }
 
     let viewport_rect = ctx.input(|i| {
@@ -119,6 +122,33 @@ pub fn paint(paint_ctx: SplashPaintContext<'_>) -> bool {
     } else {
         let c_top = C_SKY_DAY_TOP.linear_multiply(sky_exit_fade);
         painter.rect_filled(rect, 12.0, c_top);
+    }
+
+    // Atmospheric haze: the sky pales toward the horizon (day) / lifts to a faint
+    // deep blue at the bottom (dark) — a vertical gradient over the flat base so
+    // the sky reads as real atmosphere instead of a single flat fill.
+    {
+        let (haze_col, haze_a) = if is_dark {
+            (Color32::from_rgb(34, 30, 64), 0.16)
+        } else {
+            (Color32::from_rgb(226, 239, 255), 0.6)
+        };
+        let a = (sky_exit_fade * master_alpha).clamp(0.0, 1.0);
+        let top = Color32::TRANSPARENT;
+        let bot = haze_col.linear_multiply(haze_a * a);
+        let v = |pos: Pos2, color: Color32| egui::epaint::Vertex {
+            pos,
+            uv: Pos2::ZERO,
+            color,
+        };
+        let mut mesh = egui::Mesh::default();
+        mesh.vertices.push(v(rect.left_top(), top));
+        mesh.vertices.push(v(rect.right_top(), top));
+        mesh.vertices.push(v(rect.right_bottom(), bot));
+        mesh.vertices.push(v(rect.left_bottom(), bot));
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        painter.add(mesh);
     }
 
     if master_alpha <= 0.05 {
@@ -199,6 +229,9 @@ pub fn paint(paint_ctx: SplashPaintContext<'_>) -> bool {
         &mouse_influence,
         draw_list,
     );
+
+    // --- VIGNETTE: subtle cinematic edge-darkening to focus the centre ---
+    paint_vignette(&painter, &rect, is_dark, master_alpha * sky_exit_fade);
 
     // --- LAYER 6: UI TEXT ---
     render_layers::paint_ui_text(
@@ -316,6 +349,15 @@ fn paint_stars(
         if star_alpha > 0.1 {
             let size = star.size * (1.0 - warp_prog);
             if is_dark {
+                // Brighter stars get a faint halo so the field reads with depth
+                // instead of a flat dot screen.
+                if star.brightness > 0.72 {
+                    painter.circle_filled(
+                        Pos2::new(sx, sy),
+                        size * 2.6,
+                        C_WHITE.linear_multiply(star_alpha * 0.12),
+                    );
+                }
                 painter.circle_filled(Pos2::new(sx, sy), size, C_WHITE.linear_multiply(star_alpha));
             } else {
                 let day_star_alpha = star_alpha * 0.3;
@@ -343,17 +385,19 @@ fn paint_god_rays(
         let ray_rot = t * 0.1;
 
         let mut mesh = egui::Mesh::default();
-        let c1 = Color32::from_white_alpha(55);
+        let c1 = Color32::from_white_alpha(45);
 
         for i in 0..ray_count {
             let angle = (i as f32 / ray_count as f32) * PI * 2.0 + ray_rot;
             let next_angle = ((i as f32 + 0.5) / ray_count as f32) * PI * 2.0 + ray_rot;
 
             let v_idx = mesh.vertices.len() as u32;
+            // Bright at the sun, fading out along each shaft — crepuscular rays
+            // emanate FROM the light source (this was previously inverted).
             mesh.vertices.push(egui::epaint::Vertex {
                 pos: sun_pos,
                 uv: Pos2::ZERO,
-                color: Color32::TRANSPARENT,
+                color: c1,
             });
 
             let ray_len = 1200.0;
@@ -363,16 +407,60 @@ fn paint_god_rays(
             mesh.vertices.push(egui::epaint::Vertex {
                 pos: p1,
                 uv: Pos2::ZERO,
-                color: c1,
+                color: Color32::TRANSPARENT,
             });
             mesh.vertices.push(egui::epaint::Vertex {
                 pos: p2,
                 uv: Pos2::ZERO,
-                color: c1,
+                color: Color32::TRANSPARENT,
             });
 
             mesh.add_triangle(v_idx, v_idx + 1, v_idx + 2);
         }
         painter.add(mesh);
     }
+}
+
+/// Soft radial vignette: clear in the centre, darkening toward the corners, for
+/// cinematic depth. Drawn as a transparent-inner / dark-outer annulus mesh.
+fn paint_vignette(painter: &egui::Painter, rect: &Rect, is_dark: bool, alpha: f32) {
+    if alpha <= 0.01 {
+        return;
+    }
+    let center = rect.center();
+    let corner_r = (rect.size().x.powi(2) + rect.size().y.powi(2)).sqrt() * 0.5;
+    let dark = if is_dark {
+        Color32::from_rgb(0, 0, 4)
+    } else {
+        Color32::from_rgb(12, 22, 48)
+    };
+    let max_a = if is_dark { 0.42 } else { 0.26 } * alpha;
+    let inner = corner_r * 0.55; // clear out to here, then darken toward the rim
+    let outer = corner_r * 1.06;
+
+    let segments = 64;
+    let mut mesh = egui::Mesh::default();
+    for s in 0..=segments {
+        let ang = (s as f32 / segments as f32) * std::f32::consts::PI * 2.0;
+        let dir = Vec2::new(ang.cos(), ang.sin());
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: center + dir * inner,
+            uv: Pos2::ZERO,
+            color: Color32::TRANSPARENT,
+        });
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: center + dir * outer,
+            uv: Pos2::ZERO,
+            color: dark.linear_multiply(max_a),
+        });
+    }
+    for s in 0..segments as u32 {
+        let i0 = s * 2;
+        let o0 = s * 2 + 1;
+        let i1 = (s + 1) * 2;
+        let o1 = (s + 1) * 2 + 1;
+        mesh.add_triangle(i0, o0, o1);
+        mesh.add_triangle(i0, o1, i1);
+    }
+    painter.add(mesh);
 }
