@@ -59,7 +59,7 @@ fn render_step_audio_reference_controls(
             .find(|item| item.id == config.step_audio_settings.reference_voice_id)
             .map(|item| reference_label_or_default(item, text))
             .unwrap_or_else(|| text.tts_reference_default.to_string());
-        egui::ComboBox::from_id_salt("step_audio_global_reference_voice")
+        crate::gui::widgets::combo("step_audio_global_reference_voice")
             .selected_text(selected)
             .width(240.0)
             .show_ui(ui, |ui| {
@@ -124,7 +124,7 @@ fn render_magpie_voice_config_rows(
                             .color(theme.success()),
                     );
                     ui.label("→");
-                    egui::ComboBox::from_id_salt(format!("magpie_voice_{}", idx))
+                    crate::gui::widgets::combo(format!("magpie_voice_{}", idx))
                         .selected_text(normalize_magpie_voice(&voice_config.voice_id))
                         .width(220.0)
                         .show_ui(ui, |ui| {
@@ -166,7 +166,7 @@ fn render_magpie_voice_config_rows(
             .collect();
 
         if !available.is_empty() {
-            egui::ComboBox::from_id_salt("magpie_add_language")
+            crate::gui::widgets::combo("magpie_add_language")
                 .selected_text(text.tts_add_language_label)
                 .width(150.0)
                 .show_ui(ui, |ui| {
@@ -243,7 +243,7 @@ fn render_kokoro_voice_config_rows(
                     let voice_lang =
                         kokoro_voice_language_for_condition(&voice_config.language_code)
                             .unwrap_or("en-us");
-                    egui::ComboBox::from_id_salt(format!("kokoro_voice_{idx}"))
+                    crate::gui::widgets::combo(format!("kokoro_voice_{idx}"))
                         .selected_text(&voice_config.voice_id)
                         .width(220.0)
                         .show_ui(ui, |ui| {
@@ -297,7 +297,7 @@ fn render_kokoro_voice_config_rows(
             .collect();
 
         if !available.is_empty() {
-            egui::ComboBox::from_id_salt("kokoro_add_language")
+            crate::gui::widgets::combo("kokoro_add_language")
                 .selected_text(text.tts_add_language_label)
                 .width(150.0)
                 .show_ui(ui, |ui| {
@@ -383,7 +383,7 @@ fn render_supertonic_voice_config_rows(
                             .color(theme.success()),
                     );
                     ui.label("→");
-                    egui::ComboBox::from_id_salt(format!("supertonic_voice_{idx}"))
+                    crate::gui::widgets::combo(format!("supertonic_voice_{idx}"))
                         .selected_text(normalize_supertonic_voice(&voice_config.voice_id))
                         .width(160.0)
                         .show_ui(ui, |ui| {
@@ -425,7 +425,7 @@ fn render_supertonic_voice_config_rows(
             .collect();
 
         if !available.is_empty() {
-            egui::ComboBox::from_id_salt("supertonic_add_language")
+            crate::gui::widgets::combo("supertonic_add_language")
                 .selected_text(text.tts_add_language_label)
                 .width(150.0)
                 .show_ui(ui, |ui| {
@@ -485,7 +485,7 @@ fn render_vieneu_reference_controls(
             .find(|item| item.id == config.vieneu_settings.reference_voice_id)
             .map(|item| reference_label_or_default(item, text))
             .unwrap_or_else(|| text.tts_reference_default.to_string());
-        egui::ComboBox::from_id_salt("vieneu_global_reference_voice")
+        crate::gui::widgets::combo("vieneu_global_reference_voice")
             .selected_text(selected)
             .width(240.0)
             .show_ui(ui, |ui| {

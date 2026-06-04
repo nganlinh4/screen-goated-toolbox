@@ -123,7 +123,7 @@ impl SettingsApp {
             }
         };
 
-        if crate::gui::icons::icon_button_sized(ui, theme_icon, 20.0)
+        if crate::gui::icons::icon_button_sized(ui, theme_icon, crate::gui::icons::ICON_XL)
             .on_hover_text(tooltip)
             .clicked()
         {
@@ -142,14 +142,27 @@ impl SettingsApp {
             "ko" => "🇰🇷",
             _ => "🇺🇸",
         };
-        // A plain menu button instead of egui's ComboBox. The ComboBox frames the
-        // tall flag-emoji galley with its own interact_size minimum and draws the
-        // box ~2px below a button (pixel-measured: 15.5 vs the buttons' 13.5), and
-        // a wrapper cell couldn't reach that internal offset. A regular Button
-        // centers in the title-bar cell exactly like the other buttons.
-        // No unicode arrow glyph here — U+25BE/▾ isn't in the app's font set and
-        // renders as tofu; the flag-only menu button still opens on click.
-        ui.menu_button(lang_flag, |ui| {
+        // A plain menu button instead of egui's ComboBox (the ComboBox draws its
+        // box ~2px below a same-height button, which a wrapper cell can't fix). We
+        // reserve trailing space in the label and paint a Material chevron over it,
+        // so it reads as a dropdown without egui's tofu ▾ glyph. Size it off the
+        // same `spacing.icon_width` egui uses for every ComboBox arrow, so this
+        // dropdown's chevron matches the others instead of being an arbitrary size.
+        let chevron_px = ui.spacing().icon_width;
+        let chevron_gap = 4.0_f32;
+        let space_w = ui
+            .painter()
+            .layout_no_wrap(
+                " ".to_string(),
+                egui::TextStyle::Button.resolve(ui.style()),
+                egui::Color32::WHITE,
+            )
+            .rect
+            .width()
+            .max(0.1);
+        let lead = (((chevron_px + chevron_gap) / space_w).ceil() as usize).max(1);
+        let lang_label = format!("{}{}", lang_flag, " ".repeat(lead));
+        let menu_resp = ui.menu_button(lang_label, |ui| {
             if ui
                 .selectable_value(&mut self.config.ui_language, "en".to_string(), "🇺🇸 English")
                 .clicked()
@@ -172,14 +185,30 @@ impl SettingsApp {
             {
                 ui.close();
             }
-        });
+        })
+        .response;
+        // Paint the Material chevron over the reserved trailing space.
+        let chevron_color = ui.style().interact(&menu_resp).fg_stroke.color;
+        let chevron_rect = egui::Rect::from_center_size(
+            egui::pos2(
+                menu_resp.rect.right() - ui.spacing().button_padding.x - chevron_px / 2.0,
+                menu_resp.rect.center().y,
+            ),
+            egui::vec2(chevron_px, chevron_px),
+        );
+        crate::gui::icons::paint_icon(
+            ui.painter(),
+            chevron_rect,
+            crate::gui::icons::Icon::ArrowDown,
+            chevron_color,
+        );
         if original_lang != self.config.ui_language {
             self.save_and_sync();
         }
 
         // History Button
         ui.spacing_mut().item_spacing.x = 2.0;
-        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::Icon::History, Some(14.0));
+        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::Icon::History, Some(crate::gui::icons::ICON_SM));
         let is_history = matches!(self.view_mode, ViewMode::History);
         if ui
             .selectable_label(is_history, egui::RichText::new(text.history_btn).size(13.0))
@@ -192,9 +221,10 @@ impl SettingsApp {
         ui.add_space(2.0);
 
         // Chill Corner (PromptDJ) — violet accent (its on-brand #9900ff family).
-        if crate::gui::widgets::filled_button(
+        if crate::gui::widgets::filled_icon_button(
             ui,
-            &format!("🎵 {}", text.prompt_dj_btn),
+            crate::gui::icons::Icon::Album,
+            text.prompt_dj_btn,
             theme.accent_prompt_dj(),
             btn_text,
             6,
@@ -205,9 +235,10 @@ impl SettingsApp {
         }
 
         // Download Manager — red accent.
-        if crate::gui::widgets::filled_button(
+        if crate::gui::widgets::filled_icon_button(
             ui,
-            &format!("⬇ {}", text.download_feature_btn),
+            crate::gui::icons::Icon::Movie,
+            text.download_feature_btn,
             theme.accent_download(),
             btn_text,
             6,
@@ -218,9 +249,10 @@ impl SettingsApp {
         }
 
         // Screen Record — blue accent (its design-system primary).
-        if crate::gui::widgets::filled_button(
+        if crate::gui::widgets::filled_icon_button(
             ui,
-            &format!("🎥 {}", text.screen_record_btn),
+            crate::gui::icons::Icon::Videocam,
+            text.screen_record_btn,
             theme.accent_screen_record(),
             btn_text,
             6,
@@ -231,9 +263,10 @@ impl SettingsApp {
         }
 
         // Help Assistant — teal accent (distinct from the violet PromptDJ button).
-        if crate::gui::widgets::filled_button(
+        if crate::gui::widgets::filled_icon_button(
             ui,
-            &format!("❓ {}", text.help_assistant_btn),
+            crate::gui::icons::Icon::AutoStories,
+            text.help_assistant_btn,
             theme.accent_help(),
             btn_text,
             6,
@@ -248,7 +281,7 @@ impl SettingsApp {
 
         // Global Settings
         ui.spacing_mut().item_spacing.x = 2.0;
-        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::Icon::Settings, Some(14.0));
+        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::Icon::Settings, Some(crate::gui::icons::ICON_SM));
         let is_global = matches!(self.view_mode, ViewMode::Global);
         if ui
             .selectable_label(
@@ -288,7 +321,7 @@ impl SettingsApp {
                 ui.painter(),
                 close_resp
                     .rect
-                    .shrink2(egui::vec2(12.0, if is_maximized { 12.0 } else { 6.0 })),
+                    .shrink2(egui::vec2(11.0, if is_maximized { 11.0 } else { 5.0 })),
                 crate::gui::icons::Icon::Close,
                 if close_resp.hovered() || is_dark {
                     egui::Color32::WHITE
@@ -339,7 +372,7 @@ impl SettingsApp {
                 ui.painter(),
                 min_resp
                     .rect
-                    .shrink2(egui::vec2(13.0, if is_maximized { 13.0 } else { 7.0 })),
+                    .shrink2(egui::vec2(11.0, if is_maximized { 11.0 } else { 5.0 })),
                 crate::gui::icons::Icon::Minimize,
                 if is_dark {
                     egui::Color32::WHITE

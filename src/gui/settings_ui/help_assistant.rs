@@ -302,7 +302,7 @@ fn run_help_request(gemini_key: String, ui_language: String, question: String) {
             Err(e) => {
                 crate::overlay::result::update_window_text(
                     api_hwnd,
-                    &format!("## ❌ Error\n\n{}", e),
+                    &format!("## Error\n\n{}", e),
                 );
                 return;
             }
@@ -322,7 +322,7 @@ fn run_help_request(gemini_key: String, ui_language: String, question: String) {
 
         let response = match result {
             Ok(answer) => format!("### {}\n\n{}", question, answer),
-            Err(e) => format!("## ❌ Error\n\n{}", e),
+            Err(e) => format!("## Error\n\n{}", e),
         };
 
         crate::overlay::result::update_window_text(api_hwnd, &response);

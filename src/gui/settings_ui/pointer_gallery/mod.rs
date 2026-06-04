@@ -14,9 +14,10 @@ use backend::{
 };
 use eframe::egui;
 use preview::{
-    PreviewTexture, preview_strip_width, render_collection_previews, render_status_label,
+    PreviewLoader, PreviewTexture, preview_strip_width, render_collection_previews,
+    render_status_label,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -29,6 +30,7 @@ const PREVIEW_ICON_SIZE: f32 = 24.0;
 const ACTION_COLUMN_WIDTH: f32 = 104.0;
 const STATUS_COLUMN_WIDTH: f32 = 120.0;
 const DISK_SYNC_INTERVAL_SECS: f64 = 1.2;
+const DISK_SYNC_IDLE_INTERVAL_SECS: f64 = 8.0;
 const POINTER_SIZE_SLIDER_WIDTH: f32 = 180.0;
 const DEFAULT_POINTER_SIZE: u32 = 32;
 const LIVE_PREVIEW_APPLY_INTERVAL_SECS: f64 = 0.09;
@@ -83,6 +85,8 @@ pub struct PointerGallery {
     event_rx: Option<Receiver<GalleryEvent>>,
     status_message: Option<(bool, String)>,
     preview_textures: HashMap<String, PreviewTexture>,
+    preview_loader: PreviewLoader,
+    failed_previews: HashSet<String>,
     stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pointer_size: u32,
     pointer_size_loaded: bool,
@@ -144,6 +148,8 @@ impl PointerGallery {
             event_rx: None,
             status_message: None,
             preview_textures: HashMap::new(),
+            preview_loader: PreviewLoader::new(),
+            failed_previews: HashSet::new(),
             stop_signal: new_stop_signal(),
             pointer_size: DEFAULT_POINTER_SIZE,
             pointer_size_loaded: false,
@@ -161,6 +167,19 @@ impl PointerGallery {
         self.ensure_preload_started();
         self.poll_worker_events();
         self.sync_collections_from_disk(ctx);
+
+        // Upload any previews decoded on the background thread. Keep repainting
+        // while decodes are still in flight so freshly-decoded icons appear.
+        let now = ctx.input(|i| i.time);
+        let previews_pending = self.preview_loader.drain(
+            ctx,
+            &mut self.preview_textures,
+            &mut self.failed_previews,
+            now,
+        );
+        if previews_pending {
+            ctx.request_repaint_after(Duration::from_millis(33));
+        }
 
         let mut open = true;
         let mut pending_apply: Option<String> = None;
@@ -308,6 +327,8 @@ impl PointerGallery {
                                                 ctx,
                                                 collection,
                                                 &mut self.preview_textures,
+                                                &mut self.preview_loader,
+                                                &self.failed_previews,
                                                 required_file_names(),
                                                 PREVIEW_ICON_SIZE,
                                             );
@@ -383,6 +404,7 @@ impl PointerGallery {
             collection.file_order.clear();
         }
         self.preview_textures.clear();
+        self.failed_previews.clear();
 
         let (tx, rx) = mpsc::channel();
         self.event_rx = Some(rx);
@@ -434,7 +456,17 @@ impl PointerGallery {
 
     fn sync_collections_from_disk(&mut self, ctx: &egui::Context) {
         let now = ctx.input(|i| i.time);
-        if now - self.last_disk_sync_secs < DISK_SYNC_INTERVAL_SECS {
+        // While a download worker is active, poll the disk frequently so new
+        // files surface quickly. Once it is idle, the file set is stable, so
+        // back off to a much longer interval to avoid hundreds of redundant
+        // stat() calls per second on the UI thread.
+        let worker_active = self.event_rx.is_some();
+        let interval = if worker_active {
+            DISK_SYNC_INTERVAL_SECS
+        } else {
+            DISK_SYNC_IDLE_INTERVAL_SECS
+        };
+        if now - self.last_disk_sync_secs < interval {
             return;
         }
         self.last_disk_sync_secs = now;
@@ -483,6 +515,8 @@ impl PointerGallery {
 
         for key in removed_texture_keys {
             self.preview_textures.remove(&key);
+            self.failed_previews.remove(&key);
+            self.preview_loader.forget(&key);
         }
     }
 

@@ -109,7 +109,7 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                         "text" => Icon::Text,
                         _ => Icon::Settings,
                     };
-                    draw_icon_static(ui, icon, Some(16.0));
+                    draw_icon_static(ui, icon, Some(crate::gui::icons::ICON_MD));
 
                     let type_name = match actual_type {
                         "audio" => self.text.node_input_audio,
@@ -121,13 +121,13 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                     ui.label(format!("{} {}", prefix, type_name));
                 }
                 ChainNode::Process { .. } => {
-                    draw_icon_static(ui, Icon::Settings, Some(16.0));
+                    draw_icon_static(ui, Icon::Settings, Some(crate::gui::icons::ICON_MD));
                     let title = self.text.node_process_title;
                     ui.label(title);
                 }
 
                 ChainNode::Special { .. } => {
-                    draw_icon_static(ui, Icon::Settings, Some(16.0));
+                    draw_icon_static(ui, Icon::Settings, Some(crate::gui::icons::ICON_MD));
                     // Dynamic header based on preset type
                     let title = match self.preset_type.as_str() {
                         "image" => self.text.node_special_image_to_text,
@@ -206,12 +206,25 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
             _ => self.text.node_menu_add_special_generic,
         };
 
-        if ui.button(add_process_label).clicked() {
+        let add_process_clicked = ui
+            .horizontal(|ui| {
+                draw_icon_static(ui, Icon::Plus, Some(crate::gui::icons::ICON_MD));
+                ui.button(add_process_label).clicked()
+            })
+            .inner;
+        if add_process_clicked {
             snarl.insert_node(pos, ChainNode::default());
             self.changed = true;
             ui.close();
         }
-        if self.preset_type != "text" && ui.button(add_special_label).clicked() {
+        let add_special_clicked = self.preset_type != "text"
+            && ui
+                .horizontal(|ui| {
+                    draw_icon_static(ui, Icon::Star, Some(crate::gui::icons::ICON_MD));
+                    ui.button(add_special_label).clicked()
+                })
+                .inner;
+        if add_special_clicked {
             let mut node = ChainNode::default();
             // Force it to be Special
             if let ChainNode::Process {
@@ -259,16 +272,19 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
         snarl: &mut Snarl<ChainNode>,
     ) {
         let delete_label = match self.ui_language.as_str() {
-            "vi" => "🗑 Xóa node",
-            "ko" => "🗑 노드 삭제",
-            _ => "🗑 Delete Node",
+            "vi" => "Xóa node",
+            "ko" => "노드 삭제",
+            _ => "Delete Node",
         };
 
-        if ui.button(delete_label).clicked() {
-            snarl.remove_node(node_id);
-            self.changed = true;
-            ui.close();
-        }
+        ui.horizontal(|ui| {
+            draw_icon_static(ui, Icon::Delete, Some(crate::gui::icons::ICON_MD));
+            if ui.button(delete_label).clicked() {
+                snarl.remove_node(node_id);
+                self.changed = true;
+                ui.close();
+            }
+        });
     }
 
     fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<ChainNode>) {

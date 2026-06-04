@@ -1,5 +1,5 @@
 use crate::config::{Config, TtsMethod};
-use crate::gui::icons::{Icon, icon_button};
+use crate::gui::icons::{Icon, draw_icon_static, icon_button};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
@@ -106,7 +106,7 @@ pub fn render_tts_settings_modal(
     ))
     .rect_filled(screen_rect, 0.0, theme.scrim_color());
 
-    egui::Window::new(format!("🔊 {}", text.tts_settings_title))
+    egui::Window::new(text.tts_settings_title)
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
@@ -116,6 +116,10 @@ pub fn render_tts_settings_modal(
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .show(&ctx, |ui| {
             ui.set_min_height(500.0); // Force minimum height for the content area
+            // Cap the content width so `horizontal_wrapped` rows (e.g. the TTS
+            // method list) actually wrap instead of letting the auto-sizing
+            // Window grow past the screen edges.
+            ui.set_max_width(820.0);
 
             // Split the bundled "Title (feature scope)" locale string so the
             // parenthetical feature-scope hint renders as the muted dialog
@@ -127,13 +131,18 @@ pub fn render_tts_settings_modal(
                 ),
                 None => (text.tts_settings_title, None),
             };
-            if crate::gui::widgets::dialog_header(
-                ui,
-                &theme,
-                &format!("🔊 {}", title_text),
-                scope_hint,
-                |_| {},
-            ) {
+            let mut close_dialog = false;
+            ui.horizontal(|ui| {
+                draw_icon_static(ui, Icon::Speaker, Some(crate::gui::icons::ICON_LG));
+                close_dialog = crate::gui::widgets::dialog_header(
+                    ui,
+                    &theme,
+                    title_text,
+                    scope_hint,
+                    |_| {},
+                );
+            });
+            if close_dialog {
                 *show_modal = false;
             }
 
@@ -313,7 +322,7 @@ pub fn render_tts_settings_modal(
 
                         if !available.is_empty() {
                             // Dropdown that immediately adds selected language
-                            egui::ComboBox::from_id_salt("tts_add_condition")
+                            crate::gui::widgets::combo("tts_add_condition")
                                 .selected_text(text.tts_add_condition)
                                 .width(140.0)
                                 .show_ui(ui, |ui| {
@@ -502,7 +511,7 @@ pub fn render_tts_settings_modal(
                                 // Voice dropdown for this language
                                 let voices = crate::api::tts::edge_voices::get_voices_for_language(&voice_config.language_code);
 
-                                egui::ComboBox::from_id_salt(format!("edge_voice_{}", idx))
+                                crate::gui::widgets::combo(format!("edge_voice_{}", idx))
                                     .selected_text(&voice_config.voice_name)
                                     .width(220.0)
                                     .show_ui(ui, |ui| {
@@ -549,7 +558,7 @@ pub fn render_tts_settings_modal(
                             .collect();
 
                         if !available.is_empty() {
-                            egui::ComboBox::from_id_salt("edge_add_language")
+                            crate::gui::widgets::combo("edge_add_language")
                                 .selected_text(text.tts_add_language_label)
                                 .width(150.0)
                                 .show_ui(ui, |ui| {

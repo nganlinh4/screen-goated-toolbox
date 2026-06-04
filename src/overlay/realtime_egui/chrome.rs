@@ -100,6 +100,14 @@ pub(super) fn render_device_warning(
         .stroke(egui::Stroke::new(1.0, theme.warning.gamma_multiply(0.45)))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
+                let (icon_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(crate::gui::icons::ICON_MD, crate::gui::icons::ICON_MD), egui::Sense::hover());
+                crate::gui::icons::paint_icon(
+                    ui.painter(),
+                    icon_rect,
+                    crate::gui::icons::Icon::Warning,
+                    theme.warning,
+                );
                 ui.label(egui::RichText::new(locale.device_mode_warning).color(theme.warning));
                 if compact_button(ui, locale.select_app_btn, false, theme).clicked() {
                     crate::overlay::realtime_webview::app_selection::show_audio_app_selector_overlay();
@@ -168,6 +176,14 @@ pub(super) fn render_tts_panel(
 
         if is_device_mode && app_pid == 0 && tts_on {
             ui.horizontal(|ui| {
+                let (icon_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(crate::gui::icons::ICON_MD, crate::gui::icons::ICON_MD), egui::Sense::hover());
+                crate::gui::icons::paint_icon(
+                    ui.painter(),
+                    icon_rect,
+                    crate::gui::icons::Icon::Warning,
+                    theme.warning,
+                );
                 ui.label(egui::RichText::new(locale.device_mode_warning).color(theme.warning));
                 if compact_button(ui, locale.select_app_btn, false, theme).clicked() {
                     crate::overlay::realtime_webview::app_selection::show_audio_app_selector_overlay();

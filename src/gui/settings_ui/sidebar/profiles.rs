@@ -146,7 +146,7 @@ pub fn render_profiles(
 
                                         // Rename is only offered on the active profile.
                                         if is_active
-                                            && icon_button_sized(ui, Icon::Edit, 16.0)
+                                            && icon_button_sized(ui, Icon::Edit, crate::gui::icons::ICON_MD)
                                                 .on_hover_text(text.profile_edit_tooltip)
                                                 .clicked()
                                         {
@@ -158,7 +158,7 @@ pub fn render_profiles(
                                         }
 
                                         if can_delete
-                                            && icon_button_sized(ui, Icon::Close, 16.0)
+                                            && icon_button_sized(ui, Icon::Close, crate::gui::icons::ICON_MD)
                                                 .on_hover_text(text.profile_delete_tooltip)
                                                 .clicked()
                                         {
@@ -181,7 +181,7 @@ pub fn render_profiles(
                     }
 
                     ui.add_space(2.0);
-                    if icon_button_sized(ui, Icon::Plus, 22.0)
+                    if icon_button_sized(ui, Icon::Plus, crate::gui::icons::ICON_LG)
                         .on_hover_text(text.profile_add_tooltip)
                         .clicked()
                     {

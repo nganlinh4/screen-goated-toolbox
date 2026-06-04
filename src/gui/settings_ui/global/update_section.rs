@@ -51,9 +51,11 @@ pub fn render_update_section_content(
                 theme.warning(),
                 format!("{} {}", text.new_version_available, version),
             );
-            ui.collapsing(text.release_notes_label, |ui| {
-                ui.label(body);
-            });
+            egui::CollapsingHeader::new(text.release_notes_label)
+                .icon(crate::gui::widgets::collapsing_chevron)
+                .show(ui, |ui| {
+                    ui.label(body);
+                });
             ui.add_space(5.0);
             if ui
                 .button(egui::RichText::new(text.download_update_btn).strong())

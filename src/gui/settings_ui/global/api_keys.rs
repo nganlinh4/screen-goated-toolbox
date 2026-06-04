@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::gui::icons::{Icon, icon_button};
+use crate::gui::icons::{Icon, draw_icon_static, icon_button};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 
@@ -38,6 +38,7 @@ pub(super) fn render_api_keys_card(
         .corner_radius(10.0)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
+                draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_MD));
                 ui.label(
                     egui::RichText::new(text.api_keys_header)
                         .strong()
