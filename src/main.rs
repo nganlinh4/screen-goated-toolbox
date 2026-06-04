@@ -36,7 +36,7 @@ pub use hotkey::RESTORE_EVENT;
 pub use screen_capture::GdiCapture;
 
 // Window dimensions
-pub const WINDOW_WIDTH: f32 = 1230.0;
+pub const WINDOW_WIDTH: f32 = 1250.0;
 pub const WINDOW_HEIGHT: f32 = 650.0;
 
 // Wrappers for thread-safe types

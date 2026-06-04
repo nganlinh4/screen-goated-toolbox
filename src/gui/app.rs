@@ -17,6 +17,14 @@ impl eframe::App for SettingsApp {
         [0.0, 0.0, 0.0, 0.0]
     }
 
+    /// Persist only the window geometry (size/position/maximized) across launches
+    /// — handled by eframe's `persist_window` (default true) once the `persistence`
+    /// feature is enabled. Keep egui UI memory non-persistent so we don't restore
+    /// stale scroll / node-graph zoom / open-states on the next launch.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // egui 0.34 hands the root viewport a `&mut Ui`; derive the Context for
         // the non-panel logic + overlays (which paint via Area / ctx painters).
