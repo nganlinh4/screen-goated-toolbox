@@ -1,6 +1,6 @@
 // --- SPLASH SCREEN UPDATE LOGIC ---
 // Update physics and state for the splash screen animation.
-// Painting logic is in render_paint.rs.
+// Painting is in pixel.rs (the framebuffer pixel-art renderer).
 
 use super::audio::SplashAudio;
 use super::math::{Vec3, lerp, smoothstep};
@@ -9,9 +9,6 @@ use super::{ANIMATION_DURATION, EXIT_DURATION, START_TRANSITION, SplashStatus};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use std::sync::{Arc, Mutex};
-
-// Re-export paint types and function from render_paint
-pub use super::render_paint::{SplashPaintContext, paint};
 
 pub struct SplashUpdateContext<'a> {
     pub ctx: &'a egui::Context,
