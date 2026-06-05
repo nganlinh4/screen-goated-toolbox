@@ -2,7 +2,7 @@
 // Data structures and initialization for splash screen scene elements.
 
 use super::math::Vec3;
-use super::{C_CYAN, C_DAY_REP, C_DAY_SEC, C_MAGENTA, C_SHADOW, C_WHITE};
+use super::{C_SHADOW, C_WHITE};
 use eframe::egui::Color32;
 use eframe::egui::Vec2;
 use std::f32::consts::PI;
@@ -44,7 +44,8 @@ pub fn init_scene(
     voxels: &mut Vec<Voxel>,
     clouds: &mut Vec<Cloud>,
     moon_features: &mut Vec<MoonFeature>,
-    is_dark: bool,
+    accent_primary: Color32,
+    accent_secondary: Color32,
 ) {
     let mut rng_state = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -104,12 +105,11 @@ pub fn init_scene(
             }
         };
 
-    let c_primary = if is_dark { C_MAGENTA } else { C_DAY_REP };
-    let c_secondary = if is_dark { C_CYAN } else { C_DAY_SEC };
-
-    spawn_letter(&s_map, -120.0, c_secondary, 0.92); // S — ~8% white
-    spawn_letter(&g_map, -35.0, c_primary, 0.85); // G — ~15% white
-    spawn_letter(&t_map, 50.0, c_secondary, 0.92); // T — ~8% white
+    // Colours come from the rolled palette (primary = G, secondary = S/T). The
+    // accent letter G gets the LOWER white-sprinkle chance; S/T get the higher.
+    spawn_letter(&s_map, -120.0, accent_secondary, 0.85); // S — ~15% white
+    spawn_letter(&g_map, -35.0, accent_primary, 0.92); // G — ~8% white (accent, lower)
+    spawn_letter(&t_map, 50.0, accent_secondary, 0.85); // T — ~15% white
 
     // Debris
     for _ in 0..100 {

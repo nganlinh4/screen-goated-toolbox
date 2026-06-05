@@ -4,9 +4,12 @@
 mod audio;
 mod escape_overlay;
 mod math;
+mod palette;
 mod pixel;
 mod render;
 mod scene;
+
+use palette::Palette;
 
 use audio::SplashAudio;
 use eframe::egui::{self, Color32, Pos2, Vec2};
@@ -21,32 +24,10 @@ const ANIMATION_DURATION: f32 = 3.6;
 const START_TRANSITION: f32 = 0.8;
 const EXIT_DURATION: f32 = 1.6;
 
-// --- PALETTE ---
-const C_VOID: Color32 = Color32::from_rgb(5, 5, 10);
-const C_CYAN: Color32 = Color32::from_rgb(0, 255, 240);
-const C_MAGENTA: Color32 = Color32::from_rgb(255, 0, 110);
+// Theme-independent voxel colours (per-palette colours live in `palette.rs`):
+// `C_WHITE` = the random white-sprinkle voxels, `C_SHADOW` = debris.
 const C_WHITE: Color32 = Color32::from_rgb(240, 245, 255);
 const C_SHADOW: Color32 = Color32::from_rgb(20, 20, 30);
-
-// Moon Palette
-const C_MOON_BASE: Color32 = Color32::from_rgb(230, 60, 120);
-const C_MOON_SHADOW: Color32 = Color32::from_rgb(130, 20, 60);
-const C_MOON_HIGHLIGHT: Color32 = Color32::from_rgb(255, 180, 220);
-const C_MOON_GLOW: Color32 = Color32::from_rgb(255, 0, 100);
-
-// Dark Cloud Palette
-const C_CLOUD_CORE: Color32 = Color32::from_rgb(2, 2, 5);
-
-// Day Palette
-const C_DAY_REP: Color32 = Color32::from_rgb(0, 110, 255);
-const C_DAY_SEC: Color32 = Color32::from_rgb(255, 255, 255);
-const C_DAY_TEXT: Color32 = Color32::from_rgb(255, 120, 0);
-
-const C_SUN_BODY: Color32 = Color32::from_rgb(255, 160, 20);
-const C_SUN_FLARE: Color32 = Color32::from_rgb(255, 240, 150);
-const C_SUN_GLOW: Color32 = Color32::from_rgb(255, 200, 50);
-
-const C_CLOUD_WHITE: Color32 = Color32::from_rgb(255, 255, 255);
 
 type DrawListEntry = (f32, Pos2, f32, Color32, bool, bool);
 
@@ -66,8 +47,11 @@ pub struct SplashScreen {
     draw_list: RefCell<Vec<DrawListEntry>>,
     // Escape overlay — separate transparent window for voxels that fly beyond the main window
     escape_overlay: RefCell<Option<EscapeOverlay>>,
-    // Pixel-art framebuffer texture (only used when PIXEL_ART is on).
+    // Pixel-art framebuffer texture.
     pixel_tex: RefCell<Option<egui::TextureHandle>>,
+    // Randomly-rolled atmosphere palette (theme-coherent) + its seed.
+    palette: Palette,
+    palette_seed: u64,
 }
 
 pub enum SplashStatus {
@@ -78,6 +62,13 @@ pub enum SplashStatus {
 impl SplashScreen {
     pub fn new(ctx: &egui::Context) -> Self {
         let is_dark = ctx.global_style().visuals.dark_mode;
+        // Roll a random, theme-coherent atmosphere for this launch.
+        let palette_seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0x9E37_79B9_7F4A_7C15);
+        let palette = palette::pick(is_dark, palette_seed);
+        crate::log_info!("[Splash] atmosphere: {}", palette.name);
         let audio_container = Arc::new(Mutex::new(None));
         let audio_container_clone = audio_container.clone();
 
@@ -105,6 +96,8 @@ impl SplashScreen {
             draw_list: RefCell::new(Vec::with_capacity(600)),
             escape_overlay: RefCell::new(None),
             pixel_tex: RefCell::new(None),
+            palette,
+            palette_seed,
         };
 
         slf.init_scene();
@@ -120,7 +113,8 @@ impl SplashScreen {
             &mut self.voxels,
             &mut self.clouds,
             &mut self.moon_features,
-            self.is_dark,
+            self.palette.accent_primary,
+            self.palette.accent_secondary,
         );
         self.init_done = true;
     }
@@ -142,6 +136,28 @@ impl SplashScreen {
             has_played_impact: &mut self.has_played_impact,
         });
 
+        // Theme toggled mid-splash → roll a fresh palette of the new mood and
+        // recolour the existing voxels in place (keeping their positions).
+        if self.is_dark != self.palette.is_night {
+            let old = self.palette;
+            self.palette_seed = self
+                .palette_seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1);
+            self.palette = palette::pick(self.is_dark, self.palette_seed);
+            crate::log_info!("[Splash] atmosphere: {}", self.palette.name);
+            for v in self.voxels.iter_mut() {
+                if v.is_debris {
+                    continue;
+                }
+                if v.color == old.accent_primary {
+                    v.color = self.palette.accent_primary;
+                } else if v.color == old.accent_secondary {
+                    v.color = self.palette.accent_secondary;
+                }
+            }
+        }
+
         // Create escape overlay on first frame of exit
         if self.exit_start_time.is_some() && !was_exiting {
             *self.escape_overlay.borrow_mut() = EscapeOverlay::new();
@@ -162,7 +178,7 @@ impl SplashScreen {
             ctx,
             start_time: self.start_time,
             exit_start_time: self.exit_start_time,
-            is_dark: self.is_dark,
+            palette: self.palette,
             voxels: &self.voxels,
             moon_features: &self.moon_features,
             clouds: &self.clouds,
