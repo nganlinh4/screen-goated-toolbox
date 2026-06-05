@@ -95,17 +95,23 @@ pub fn render_downloaded_tools_modal(
             .show(ctx, |ui| {
                 ui.set_min_width(900.0);
 
-                if crate::gui::widgets::dialog_header(ui, &theme, text.downloaded_tools_title, None, |ui| {
-                    if ui
-                        .button(
-                            egui::RichText::new(text.downloaded_tools_clean_all)
-                                .color(theme.danger_text()),
-                        )
-                        .clicked()
-                    {
-                        clean_all_downloaded_tools(download_manager);
-                    }
-                }) {
+                if crate::gui::widgets::dialog_header(
+                    ui,
+                    &theme,
+                    text.downloaded_tools_title,
+                    None,
+                    |ui| {
+                        if ui
+                            .button(
+                                egui::RichText::new(text.downloaded_tools_clean_all)
+                                    .color(theme.danger_text()),
+                            )
+                            .clicked()
+                        {
+                            clean_all_downloaded_tools(download_manager);
+                        }
+                    },
+                ) {
                     open = false;
                 }
 

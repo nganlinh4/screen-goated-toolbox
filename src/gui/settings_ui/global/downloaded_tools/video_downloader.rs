@@ -40,8 +40,7 @@ fn render_ytdlp_content(
                     let path = download_manager.bin_dir.join("yt-dlp.exe");
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete)
-                                .color(theme.danger_text()),
+                            egui::RichText::new(text.tool_action_delete).color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -150,8 +149,7 @@ fn render_ffmpeg_content(
                 InstallStatus::Installed => {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete)
-                                .color(theme.danger_text()),
+                            egui::RichText::new(text.tool_action_delete).color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -267,8 +265,7 @@ fn render_deno_content(
                     let path = download_manager.bin_dir.join("deno.exe");
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete)
-                                .color(theme.danger_text()),
+                            egui::RichText::new(text.tool_action_delete).color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -368,9 +365,7 @@ fn render_update_status(
             if ui.small_button(text.tool_update_check_again).clicked() {
                 on_check();
             }
-            ui.label(
-                egui::RichText::new(text.tool_update_latest).color(theme.success()),
-            );
+            ui.label(egui::RichText::new(text.tool_update_latest).color(theme.success()));
         }
         UpdateStatus::Error(e) => {
             if ui.small_button(text.tool_update_retry).clicked() {
