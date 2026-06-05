@@ -167,9 +167,9 @@ impl SettingsApp {
             self.save_and_sync();
         }
 
-        // Language switcher — plain menu button with a static Material chevron
-        // painted over reserved trailing space (sized off the same `icon_width`
-        // every ComboBox arrow uses, so it matches the other dropdowns).
+        // Language switcher — plain menu button with a Material chevron painted
+        // over reserved trailing space; it flips up when the menu is open (like
+        // the ComboBox arrows), sized off the same `icon_width`.
         let original_lang = self.config.ui_language.clone();
         let chevron_px = ui.spacing().icon_width;
         let chevron_gap = 4.0_f32;
@@ -190,7 +190,7 @@ impl SettingsApp {
             .max(0.1);
         let lead = (((chevron_px + chevron_gap) / space_w).ceil() as usize).max(1);
         let lang_label = format!("{}{}", lang_flag, " ".repeat(lead));
-        let menu_resp = ui
+        let menu_inner = ui
             .menu_button(lang_label, |ui| {
                 if ui
                     .selectable_value(&mut self.config.ui_language, "en".to_string(), "🇺🇸 English")
@@ -214,8 +214,11 @@ impl SettingsApp {
                 {
                     ui.close();
                 }
-            })
-            .response;
+            });
+        // `menu_button` returns `Some` inner only while its menu is open — derive
+        // the open state from that to flip the chevron direction.
+        let menu_open = menu_inner.inner.is_some();
+        let menu_resp = menu_inner.response;
         let chevron_color = ui.style().interact(&menu_resp).fg_stroke.color;
         let chevron_rect = egui::Rect::from_center_size(
             egui::pos2(
@@ -224,12 +227,12 @@ impl SettingsApp {
             ),
             egui::vec2(chevron_px, chevron_px),
         );
-        crate::gui::icons::paint_icon(
-            ui.painter(),
-            chevron_rect,
-            crate::gui::icons::Icon::ArrowDown,
-            chevron_color,
-        );
+        let chevron_icon = if menu_open {
+            crate::gui::icons::Icon::ArrowUp
+        } else {
+            crate::gui::icons::Icon::ArrowDown
+        };
+        crate::gui::icons::paint_icon(ui.painter(), chevron_rect, chevron_icon, chevron_color);
         if original_lang != self.config.ui_language {
             self.save_and_sync();
         }
