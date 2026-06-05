@@ -186,8 +186,7 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                 }) {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete)
-                                .color(theme.danger_text()),
+                            egui::RichText::new(text.tool_action_delete).color(theme.danger_text()),
                         )
                         .clicked()
                     {

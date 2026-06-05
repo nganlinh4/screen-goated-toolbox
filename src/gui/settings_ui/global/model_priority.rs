@@ -195,8 +195,12 @@ fn render_chain_section(
                 {
                     row_action = RowAction::MoveDown;
                 }
-                if crate::gui::icons::icon_button_sized(ui, crate::gui::icons::Icon::Close, crate::gui::icons::ICON_LG)
-                    .clicked()
+                if crate::gui::icons::icon_button_sized(
+                    ui,
+                    crate::gui::icons::Icon::Close,
+                    crate::gui::icons::ICON_LG,
+                )
+                .clicked()
                 {
                     row_action = RowAction::Remove;
                 }

@@ -72,10 +72,7 @@ pub fn render_update_section_content(
             });
         }
         UpdateStatus::Error(e) => {
-            ui.colored_label(
-                theme.danger_text(),
-                format!("{} {}", text.update_failed, e),
-            );
+            ui.colored_label(theme.danger_text(), format!("{} {}", text.update_failed, e));
             ui.label(egui::RichText::new(text.app_folder_writable_hint).size(11.0));
             if ui.button(text.retry_btn).clicked()
                 && let Some(u) = updater
