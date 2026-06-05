@@ -4,16 +4,15 @@
 mod audio;
 mod escape_overlay;
 mod math;
+mod pixel;
 mod render;
-mod render_layers;
-mod render_paint;
 mod scene;
 
 use audio::SplashAudio;
 use eframe::egui::{self, Color32, Pos2, Vec2};
 use escape_overlay::{EscapeCircle, EscapeOverlay};
 use math::Vec3;
-use scene::{Cloud, MoonFeature, Star, Voxel};
+use scene::{Cloud, MoonFeature, Voxel};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -39,7 +38,6 @@ const C_MOON_GLOW: Color32 = Color32::from_rgb(255, 0, 100);
 const C_CLOUD_CORE: Color32 = Color32::from_rgb(2, 2, 5);
 
 // Day Palette
-const C_SKY_DAY_TOP: Color32 = Color32::from_rgb(100, 180, 255);
 const C_DAY_REP: Color32 = Color32::from_rgb(0, 110, 255);
 const C_DAY_SEC: Color32 = Color32::from_rgb(255, 255, 255);
 const C_DAY_TEXT: Color32 = Color32::from_rgb(255, 120, 0);
@@ -47,7 +45,6 @@ const C_DAY_TEXT: Color32 = Color32::from_rgb(255, 120, 0);
 const C_SUN_BODY: Color32 = Color32::from_rgb(255, 160, 20);
 const C_SUN_FLARE: Color32 = Color32::from_rgb(255, 240, 150);
 const C_SUN_GLOW: Color32 = Color32::from_rgb(255, 200, 50);
-const C_SUN_HIGHLIGHT: Color32 = Color32::from_rgb(255, 255, 220);
 
 const C_CLOUD_WHITE: Color32 = Color32::from_rgb(255, 255, 255);
 
@@ -57,7 +54,6 @@ pub struct SplashScreen {
     start_time: f64,
     voxels: Vec<Voxel>,
     clouds: Vec<Cloud>,
-    stars: Vec<Star>,
     moon_features: Vec<MoonFeature>,
     init_done: bool,
     mouse_influence: Vec2,
@@ -70,6 +66,8 @@ pub struct SplashScreen {
     draw_list: RefCell<Vec<DrawListEntry>>,
     // Escape overlay — separate transparent window for voxels that fly beyond the main window
     escape_overlay: RefCell<Option<EscapeOverlay>>,
+    // Pixel-art framebuffer texture (only used when PIXEL_ART is on).
+    pixel_tex: RefCell<Option<egui::TextureHandle>>,
 }
 
 pub enum SplashStatus {
@@ -95,7 +93,6 @@ impl SplashScreen {
             start_time: ctx.input(|i| i.time),
             voxels: Vec::with_capacity(600),
             clouds: Vec::with_capacity(20),
-            stars: Vec::with_capacity(200),
             moon_features: Vec::with_capacity(100),
             init_done: false,
             mouse_influence: Vec2::ZERO,
@@ -107,6 +104,7 @@ impl SplashScreen {
             has_played_impact: false,
             draw_list: RefCell::new(Vec::with_capacity(600)),
             escape_overlay: RefCell::new(None),
+            pixel_tex: RefCell::new(None),
         };
 
         slf.init_scene();
@@ -120,7 +118,6 @@ impl SplashScreen {
     fn init_scene(&mut self) {
         scene::init_scene(
             &mut self.voxels,
-            &mut self.stars,
             &mut self.clouds,
             &mut self.moon_features,
             self.is_dark,
@@ -159,21 +156,23 @@ impl SplashScreen {
     }
 
     pub fn paint(&self, ctx: &egui::Context, _theme_mode: &crate::config::ThemeMode) -> bool {
-        let result = render::paint(render::SplashPaintContext {
+        // The pixel path fills draw_list with the voxels' logical positions, so
+        // the escape-overlay trick below works.
+        let result = pixel::paint_pixel(pixel::PixelPaintContext {
             ctx,
             start_time: self.start_time,
             exit_start_time: self.exit_start_time,
-            voxels: &self.voxels,
-            clouds: &self.clouds,
-            stars: &self.stars,
-            moon_features: &self.moon_features,
-            mouse_influence: self.mouse_influence,
             is_dark: self.is_dark,
+            voxels: &self.voxels,
+            moon_features: &self.moon_features,
+            clouds: &self.clouds,
+            mouse_influence: self.mouse_influence,
             loading_text: &self.loading_text,
             draw_list: &self.draw_list,
+            tex: &self.pixel_tex,
         });
 
-        // After paint fills draw_list, send escaped voxels to the overlay
+        // After paint fills draw_list, send escaped voxels to the overlay.
         if self.escape_overlay.borrow().is_some() {
             self.update_escape_overlay(ctx);
         }

@@ -17,13 +17,6 @@ pub struct Cloud {
     pub puffs: Vec<(Vec2, f32)>, // (Offset from center, Radius multiplier)
 }
 
-pub struct Star {
-    pub pos: Vec2, // 0.0-1.0 normalized screen coords
-    pub phase: f32,
-    pub brightness: f32,
-    pub size: f32,
-}
-
 // --- MOON ENTITIES ---
 pub struct MoonFeature {
     pub pos: Vec2, // Normalized on moon disk (-1.0 to 1.0)
@@ -49,7 +42,6 @@ pub struct Voxel {
 /// Initialize all scene entities (voxels, stars, clouds, moon features)
 pub fn init_scene(
     voxels: &mut Vec<Voxel>,
-    stars: &mut Vec<Star>,
     clouds: &mut Vec<Cloud>,
     moon_features: &mut Vec<MoonFeature>,
     is_dark: bool,
@@ -72,45 +64,52 @@ pub fn init_scene(
     let spacing = 14.0;
     let mut total_voxels = 0;
 
-    let mut spawn_letter = |map: &[&str], offset_x: f32, color_theme: Color32| {
-        for (y, row) in map.iter().enumerate() {
-            for (x, ch) in row.chars().enumerate() {
-                if ch == '#' {
-                    total_voxels += 1;
-                    let tx = offset_x + (x as f32 * spacing);
-                    let ty = (2.0 - y as f32) * spacing;
-                    let tz = 0.0;
-                    let target = Vec3::new(tx, ty, tz);
+    // `white_thresh` is the RNG cutoff for the random white-voxel sprinkle:
+    // higher = rarer. The G keeps the original ~15%; S and T get a lower ~8%.
+    let mut spawn_letter =
+        |map: &[&str], offset_x: f32, color_theme: Color32, white_thresh: f32| {
+            for (y, row) in map.iter().enumerate() {
+                for (x, ch) in row.chars().enumerate() {
+                    if ch == '#' {
+                        total_voxels += 1;
+                        let tx = offset_x + (x as f32 * spacing);
+                        let ty = (2.0 - y as f32) * spacing;
+                        let tz = 0.0;
+                        let target = Vec3::new(tx, ty, tz);
 
-                    let strand_idx = total_voxels % 2;
-                    let h_y = ((total_voxels as f32 * 3.0) % 240.0) - 120.0;
-                    let h_radius = 60.0;
-                    let h_angle = (if strand_idx == 0 { 0.0 } else { PI }) + (h_y * 0.05);
+                        let strand_idx = total_voxels % 2;
+                        let h_y = ((total_voxels as f32 * 3.0) % 240.0) - 120.0;
+                        let h_radius = 60.0;
+                        let h_angle = (if strand_idx == 0 { 0.0 } else { PI }) + (h_y * 0.05);
 
-                    voxels.push(Voxel {
-                        helix_radius: h_radius,
-                        helix_angle_offset: h_angle,
-                        helix_y: h_y,
-                        target_pos: target,
-                        pos: Vec3::ZERO,
-                        rot: Vec3::new(rng() * 6.0, rng() * 6.0, rng() * 6.0),
-                        scale: 0.1,
-                        velocity: Vec3::ZERO,
-                        color: if rng() > 0.85 { C_WHITE } else { color_theme },
-                        noise_factor: rng(),
-                        is_debris: false,
-                    });
+                        voxels.push(Voxel {
+                            helix_radius: h_radius,
+                            helix_angle_offset: h_angle,
+                            helix_y: h_y,
+                            target_pos: target,
+                            pos: Vec3::ZERO,
+                            rot: Vec3::new(rng() * 6.0, rng() * 6.0, rng() * 6.0),
+                            scale: 0.1,
+                            velocity: Vec3::ZERO,
+                            color: if rng() > white_thresh {
+                                C_WHITE
+                            } else {
+                                color_theme
+                            },
+                            noise_factor: rng(),
+                            is_debris: false,
+                        });
+                    }
                 }
             }
-        }
-    };
+        };
 
     let c_primary = if is_dark { C_MAGENTA } else { C_DAY_REP };
     let c_secondary = if is_dark { C_CYAN } else { C_DAY_SEC };
 
-    spawn_letter(&s_map, -120.0, c_secondary);
-    spawn_letter(&g_map, -35.0, c_primary);
-    spawn_letter(&t_map, 50.0, c_secondary);
+    spawn_letter(&s_map, -120.0, c_secondary, 0.92); // S — ~8% white
+    spawn_letter(&g_map, -35.0, c_primary, 0.85); // G — ~15% white
+    spawn_letter(&t_map, 50.0, c_secondary, 0.92); // T — ~8% white
 
     // Debris
     for _ in 0..100 {
@@ -141,21 +140,7 @@ pub fn init_scene(
         });
     }
 
-    // --- 2. Init Stars ---
-    for _ in 0..150 {
-        stars.push(Star {
-            pos: Vec2::new(rng(), rng() * 0.85), // Keep mostly top/middle
-            phase: rng() * PI * 2.0,
-            brightness: 0.3 + rng() * 0.7,
-            size: if rng() > 0.95 {
-                1.5 + rng()
-            } else {
-                0.8 + rng() * 0.5
-            },
-        });
-    }
-
-    // --- 3. Init Dark Clouds (Volumetric Puffs) ---
+    // --- 2. Init Dark Clouds (Volumetric Puffs) ---
     for _ in 0..15 {
         // Fewer total clouds, but more complex
         let mut puffs = Vec::new();
