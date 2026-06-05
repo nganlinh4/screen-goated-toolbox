@@ -15,12 +15,9 @@ use eframe::egui::{self, Color32, Pos2, Rect, Vec2};
 use std::cell::RefCell;
 
 use super::math::Vec3;
+use super::palette::Palette;
 use super::scene::{Cloud, MoonFeature, Voxel};
-use super::{
-    ANIMATION_DURATION, C_CLOUD_CORE, C_CLOUD_WHITE, C_CYAN, C_DAY_REP, C_DAY_SEC, C_DAY_TEXT,
-    C_MAGENTA, C_MOON_BASE, C_MOON_GLOW, C_MOON_HIGHLIGHT, C_MOON_SHADOW, C_SUN_BODY, C_SUN_FLARE,
-    C_SUN_GLOW, C_VOID, C_WHITE, DrawListEntry, EXIT_DURATION,
-};
+use super::{ANIMATION_DURATION, C_WHITE, DrawListEntry, EXIT_DURATION};
 
 /// Vertical resolution of the framebuffer — the one knob for chunkiness. All
 /// text uses this same pixel size, so it stays unified with the scene.
@@ -36,7 +33,7 @@ pub struct PixelPaintContext<'a> {
     pub ctx: &'a egui::Context,
     pub start_time: f64,
     pub exit_start_time: Option<f64>,
-    pub is_dark: bool,
+    pub palette: Palette,
     pub voxels: &'a [Voxel],
     pub moon_features: &'a [MoonFeature],
     pub clouds: &'a [Cloud],
@@ -50,12 +47,13 @@ pub struct PixelPaintContext<'a> {
 struct Frame {
     w: usize,
     h: usize,
-    s: f32,    // logical screen px -> framebuffer px
-    cx: f32,   // framebuffer centre x
-    cy: f32,   // framebuffer centre y
-    t: f32,    // seconds since start
-    warp: f32, // 0..1 exit progress
-    is_dark: bool,
+    s: f32,        // logical screen px -> framebuffer px
+    cx: f32,       // framebuffer centre x
+    cy: f32,       // framebuffer centre y
+    t: f32,        // seconds since start
+    warp: f32,     // 0..1 exit progress
+    is_dark: bool, // = palette.is_night (moon vs sun, fade base, stars vs rays)
+    pal: Palette,
     mouse: Vec2,
 }
 
@@ -113,7 +111,8 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
         cy: h as f32 * 0.5,
         t,
         warp,
-        is_dark: c.is_dark,
+        is_dark: c.palette.is_night,
+        pal: c.palette,
         mouse: c.mouse_influence,
     };
     let mut buf = vec![Color32::BLACK; w * h];
@@ -122,8 +121,8 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
     // coords) so the escape overlay can fling voxels onto the desktop on exit.
     c.draw_list.borrow_mut().clear();
 
-    // Layer order matches the vector renderer. UI text/progress are NOT baked in
-    // — they render as a crisp overlay below (the FB pixels are too coarse).
+    // Layers, back to front. UI text/progress are NOT baked in — they render as a
+    // crisp painter overlay below (the FB pixels are too coarse for small text).
     paint_background(&mut buf, &f);
     paint_stars(&mut buf, &f);
     paint_god_rays(&mut buf, &f);
@@ -156,10 +155,14 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
     // their opaque scene colour. A hard dither (never semi-transparent) avoids the
     // gray wash that partial-alpha coloured pixels would blend over the UI. `buf`
     // is then moved straight into the texture (it's already `Vec<Color32>`).
-    if warp > 0.0 {
+    //
+    // The dissolve runs FASTER than the full exit so the UI reveal snaps; the
+    // escaped voxels keep flying over the revealed UI for the rest of the exit.
+    let dissolve = (warp * 2.2).clamp(0.0, 1.0);
+    if dissolve > 0.0 {
         for y in 0..h {
             for x in 0..w {
-                if bayer4(x, y) < warp {
+                if bayer4(x, y) < dissolve {
                     buf[y * w + x] = Color32::TRANSPARENT;
                 }
             }
@@ -202,7 +205,7 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
     );
 
     // UI text/progress are crisp overlays (the FB is too coarse for small text).
-    paint_ui_overlay(&painter, size, t, warp, c.is_dark, c.loading_text);
+    paint_ui_overlay(&painter, size, t, warp, c.palette, c.loading_text);
 
     // The pixel theme button is drawn into the FB above; catch its clicks here
     // (top-left, matching the vector switcher's position/size).
@@ -227,20 +230,11 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
 // --- LAYER 0: BACKGROUND (sky + haze) --------------------------------------
 
 fn paint_background(buf: &mut [Color32], f: &Frame) {
-    // The sky keeps its full colour on exit — the dither dissolve is the only exit
-    // effect, so the scene must NOT darken (the old `1 - warp*4` blackened it).
-    let base: Rgb = if f.is_dark {
-        rgb(C_VOID)
-    } else {
-        rgb((100.0, 180.0, 255.0)) // C_SKY_DAY_TOP
-    };
-    // Toward the horizon: faint deep-blue lift (night) / pale (day).
-    let haze: Rgb = if f.is_dark {
-        (34.0, 30.0, 64.0)
-    } else {
-        (226.0, 239.0, 255.0)
-    };
-    let haze_a = if f.is_dark { 0.16 } else { 0.6 };
+    // Sky gradient from the palette. Keeps its full colour on exit — the dither
+    // dissolve is the only exit effect (the old `1 - warp*4` blackened it).
+    let base = rgb(f.pal.sky_top);
+    let haze = rgb(f.pal.sky_horizon);
+    let haze_a = f.pal.haze_a;
 
     for y in 0..f.h {
         let vy = y as f32 / f.h as f32;
@@ -334,8 +328,8 @@ fn paint_celestial(buf: &mut [Color32], f: &Frame, features: &[MoonFeature]) {
     let r = f.len(140.0);
 
     if f.is_dark {
-        glow(buf, f, (cx, cy), r * 2.3, rgb(C_MOON_GLOW), 0.18 * alpha);
-        disc(buf, f, (cx, cy), r, rgb(C_MOON_BASE), alpha);
+        glow(buf, f, (cx, cy), r * 2.3, rgb(f.pal.glow), 0.18 * alpha);
+        disc(buf, f, (cx, cy), r, rgb(f.pal.body), alpha);
         // shadow lower-right, highlight upper-left (give it volume).
         disc(
             buf,
@@ -355,8 +349,8 @@ fn paint_celestial(buf: &mut [Color32], f: &Frame, features: &[MoonFeature]) {
         );
         moon_features(buf, f, (cx, cy), r, features, alpha, f.t * 0.05);
     } else {
-        glow(buf, f, (cx, cy), r * 3.0, rgb(C_SUN_GLOW), 0.30 * alpha);
-        disc(buf, f, (cx, cy), r, rgb(C_SUN_BODY), alpha);
+        glow(buf, f, (cx, cy), r * 3.0, rgb(f.pal.glow), 0.30 * alpha);
+        disc(buf, f, (cx, cy), r, rgb(f.pal.body), alpha);
         sun_features(buf, f, (cx, cy), r, features, alpha, f.t * 0.08);
     }
 }
@@ -389,7 +383,7 @@ fn moon_features(
                 f,
                 (fx - 1.0, fy - 1.0),
                 fr,
-                rgb(C_MOON_SHADOW),
+                rgb(f.pal.body_lo),
                 fa * 0.8,
             );
             disc(
@@ -397,11 +391,11 @@ fn moon_features(
                 f,
                 (fx + 1.0, fy + 1.0),
                 fr * 0.9,
-                rgb(C_MOON_HIGHLIGHT),
+                rgb(f.pal.body_hi),
                 fa * 0.4,
             );
         } else {
-            disc(buf, f, (fx, fy), fr, rgb(C_MOON_SHADOW), fa * 0.3);
+            disc(buf, f, (fx, fy), fr, rgb(f.pal.body_lo), fa * 0.3);
         }
     }
 }
@@ -429,10 +423,10 @@ fn sun_features(
         let fr = feat.radius * r * (0.5 + 0.5 * z);
         let fa = alpha * z;
         if feat.is_crater {
-            disc(buf, f, (fx, fy), fr * 0.6, (160.0, 60.0, 0.0), fa * 0.8);
+            disc(buf, f, (fx, fy), fr * 0.6, rgb(f.pal.body_lo), fa * 0.8);
         } else {
-            disc(buf, f, (fx, fy), fr * 1.5, rgb(C_SUN_FLARE), fa * 0.3);
-            disc(buf, f, (fx, fy), fr * 0.8, rgb(C_WHITE), fa * 0.5);
+            disc(buf, f, (fx, fy), fr * 1.5, rgb(f.pal.flare), fa * 0.3);
+            disc(buf, f, (fx, fy), fr * 0.8, rgb(f.pal.body_hi), fa * 0.5);
         }
     }
 }
@@ -440,13 +434,9 @@ fn sun_features(
 // --- LAYER 3: CLOUDS (dithered drifting blobs) -----------------------------
 
 fn paint_clouds(buf: &mut [Color32], f: &Frame, clouds: &[Cloud]) {
-    // The real volumetric clouds: each cloud is a cluster of puffs (soft outer
-    // fluff + denser core), mirroring the vector path. Dark in night, white in day.
-    let core: Rgb = if f.is_dark {
-        rgb(C_CLOUD_CORE)
-    } else {
-        rgb(C_CLOUD_WHITE)
-    };
+    // Volumetric clouds: each is a cluster of puffs (soft outer fluff + denser
+    // core). Colour from the palette (dark in night, white-ish in day).
+    let core = rgb(f.pal.cloud);
     let parallax = f.mouse * -15.0;
     // Gate: clouds never render below the horizon, so they don't sit in the grid
     // ("water"). Clipped at the pixel level (a puff straddling it gets cut, not
@@ -489,11 +479,7 @@ fn paint_grid(buf: &mut [Color32], f: &Frame) {
     let horizon = f.cy + f.len(120.0);
     let bottom = f.h as f32;
     let cam_y = 150.0 + f.t.min(ANIMATION_DURATION + 5.0) * 30.0;
-    let col: Rgb = if f.is_dark {
-        rgb(C_MAGENTA)
-    } else {
-        rgb(C_DAY_REP)
-    };
+    let col = rgb(f.pal.accent_primary);
 
     for i in 0..16 {
         let rnd = (i as f32 * 0.9).sin() * 0.5 + 0.5;
@@ -569,28 +555,14 @@ fn draw_voxels(buf: &mut [Color32], f: &Frame, voxels: &[Voxel], dl: &RefCell<Ve
         let fx = f.cx + vc.x * sc * f.s;
         let fy = f.cy - vc.y * sc * f.s;
         let r = (8.5 * v.scale * sc * f.s).max(0.6);
-        let is_white = v.color == C_WHITE || v.color == C_DAY_SEC;
-        // Theme-aware colour remap (mirrors the vector path): the scene may have
-        // been initialised under the other theme, so convert day<->night brand
-        // colours, and make day-mode debris white.
-        let mut base = v.color;
-        if !v.is_debris && v.color != C_WHITE {
-            if f.is_dark {
-                if v.color == C_DAY_REP {
-                    base = C_MAGENTA;
-                } else if v.color == C_DAY_SEC {
-                    base = C_CYAN;
-                }
-            } else if v.color == C_MAGENTA {
-                base = C_DAY_REP;
-            } else if v.color == C_CYAN {
-                base = C_DAY_SEC;
-            }
-        }
-        if !f.is_dark && v.is_debris {
-            base = C_CLOUD_WHITE;
-        }
-        let vcol = rgb(base);
+        // Spark voxels are white; the rest keep the palette colour set at init
+        // (re-rolled on theme toggle). Day-mode debris reads as bright motes.
+        let is_white = v.color == C_WHITE;
+        let vcol = if !f.is_dark && v.is_debris {
+            rgb(f.pal.cloud)
+        } else {
+            rgb(v.color)
+        };
         list.push((z, fx, fy, r, vcol, a, is_white, v.is_debris));
         // Record the LOGICAL screen position/size so the escape overlay can fling
         // voxels that drift past the window edge onto the desktop (the "trick").
@@ -617,14 +589,9 @@ fn draw_voxels(buf: &mut [Color32], f: &Frame, voxels: &[Voxel], dl: &RefCell<Ve
             continue;
         }
         // Sphere shading for the SGT text voxels: shadow disc, offset lit body,
-        // inner glow, specular highlight.
-        let shadow = if f.is_dark {
-            (0.0, 0.0, 0.0)
-        } else if is_white {
-            (100.0, 120.0, 150.0)
-        } else {
-            (0.0, 40.0, 100.0)
-        };
+        // inner glow, specular highlight. Shadow = a darkened version of the
+        // voxel's own colour, so it stays coherent in any palette.
+        let shadow = mul3(col, 0.3);
         fill_disc(buf, f, (fx, fy), r, shadow, a * 0.8);
         let body_off = (light.x * r * 0.15, light.y * r * 0.15);
         fill_disc(buf, f, (fx + body_off.0, fy + body_off.1), r * 0.85, col, a);
@@ -725,7 +692,7 @@ fn paint_ui_overlay(
     size: Vec2,
     t: f32,
     warp: f32,
-    is_dark: bool,
+    pal: Palette,
     loading: &str,
 ) {
     if warp >= 0.1 {
@@ -739,15 +706,14 @@ fn paint_ui_overlay(
 
     // Wordmark.
     let title = format!("SCREEN GOATED TOOLBOX V{}", env!("CARGO_PKG_VERSION"));
-    let title_col = if is_dark { C_WHITE } else { C_DAY_TEXT };
-    text_painter(painter, &title, cx, cy + 150.0, px, title_col, false);
+    text_painter(painter, &title, cx, cy + 150.0, px, pal.text_primary, false);
 
     // Progress bar — pixel-grid-aligned, square corners (no smooth pill).
     let bw = (52.0 * px).round();
     let bh = (2.0 * px).round();
     let by = (cy + 178.0).round(); // just below the wordmark
     let bx = (cx - bw * 0.5).round();
-    let track = if is_dark {
+    let track = if pal.is_night {
         Color32::from_white_alpha(30)
     } else {
         Color32::from_black_alpha(30)
@@ -758,7 +724,7 @@ fn paint_ui_overlay(
         track,
     );
     let prog = (t.min(ANIMATION_DURATION) / (ANIMATION_DURATION - 0.5)).clamp(0.0, 1.0);
-    let fillc = if is_dark { C_MAGENTA } else { C_DAY_REP };
+    let fillc = pal.accent_primary;
     painter.rect_filled(
         Rect::from_min_size(Pos2::new(bx, by), Vec2::new((bw * prog).round(), bh)),
         0.0,
@@ -766,7 +732,7 @@ fn paint_ui_overlay(
     );
 
     // Loading line — below the progress bar (no overlap).
-    let load_col = if is_dark { C_CYAN } else { C_DAY_TEXT };
+    let load_col = pal.text_accent;
     text_painter(
         painter,
         &loading.to_uppercase(),
@@ -780,7 +746,7 @@ fn paint_ui_overlay(
     // Click prompt — at the top.
     if t > ANIMATION_DURATION - 0.5 {
         let pulse = (t * 5.0).sin().abs() * 0.7 + 0.3;
-        let cc = if is_dark { C_CYAN } else { C_WHITE };
+        let cc = pal.text_accent;
         text_painter(
             painter,
             "CLICK ANYWHERE TO CONTINUE",
