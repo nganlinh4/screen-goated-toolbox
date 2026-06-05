@@ -1,5 +1,7 @@
 // --- TITLE BAR RENDERING ---
-// Window title bar with theme/language switchers, action buttons, and window controls.
+// Window title bar: theme/language/history/settings on the left; admin status &
+// version painted in the draggable gap; branding + window controls on the right.
+// (The mini-app launch buttons live in the footer.)
 
 use super::super::types::SettingsApp;
 use crate::gui::locale::LocaleText;
@@ -77,54 +79,84 @@ impl SettingsApp {
                 // to the TOP — leaving short items (theme icon, combo) high.
                 let title_row_w = ui.available_width();
                 let title_row_h = if is_maximized { 40.0 } else { 28.0 };
-                ui.allocate_ui_with_layout(egui::vec2(title_row_w, title_row_h), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(title_row_w, title_row_h),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
 
-                    // --- LEFT SIDE: Sidebar Controls ---
-                    self.render_title_bar_left_side(ui, &text);
-                    let left_end_x = ui.cursor().left();
+                        // --- LEFT SIDE: Sidebar Controls ---
+                        self.render_title_bar_left_side(ui, &text);
+                        let left_end_x = ui.cursor().left();
 
-                    // --- RIGHT SIDE: Window Controls & Branding ---
-                    let right_start_x =
-                        self.render_title_bar_right_side(ui, &ctx, is_dark, is_maximized);
+                        // --- RIGHT SIDE: Window Controls & Branding ---
+                        let right_start_x =
+                            self.render_title_bar_right_side(ui, &ctx, is_dark, is_maximized);
 
-                    // Update drag zone for next frame: the empty gap between the two sides.
-                    let bar_rect = ui.max_rect();
-                    if right_start_x > left_end_x {
-                        self.title_bar_drag_rect = egui::Rect::from_min_max(
-                            egui::pos2(left_end_x, bar_rect.top()),
-                            egui::pos2(right_start_x, bar_rect.bottom()),
-                        );
-                    }
-                });
+                        // Update drag zone for next frame: the empty gap between the two sides.
+                        let bar_rect = ui.max_rect();
+                        if right_start_x > left_end_x {
+                            self.title_bar_drag_rect = egui::Rect::from_min_max(
+                                egui::pos2(left_end_x, bar_rect.top()),
+                                egui::pos2(right_start_x, bar_rect.bottom()),
+                            );
+
+                            // Admin status + version: painted (NOT widgets) right-
+                            // aligned in the gap, just left of the branding — so the
+                            // title-bar window drag keeps working over them.
+                            let utheme = crate::gui::theme::AppTheme::from_dark(is_dark);
+                            let font = egui::TextStyle::Small.resolve(ui.style());
+                            let ver_galley = ui.painter().layout_no_wrap(
+                                concat!("v", env!("CARGO_PKG_VERSION")).to_string(),
+                                font.clone(),
+                                utheme.on_surface_variant(),
+                            );
+                            let is_admin = cfg!(target_os = "windows")
+                                && crate::gui::utils::is_running_as_admin();
+                            let (admin_txt, admin_col) = if is_admin {
+                                (text.footer_admin_running, utheme.success())
+                            } else {
+                                (text.footer_admin_text, utheme.on_surface_variant())
+                            };
+                            let admin_galley =
+                                ui.painter()
+                                    .layout_no_wrap(admin_txt.to_string(), font, admin_col);
+                            let cy = bar_rect.center().y;
+                            let ver_x = right_start_x - 10.0 - ver_galley.size().x;
+                            let admin_x = ver_x - 10.0 - admin_galley.size().x;
+                            // Only paint when they fit without overlapping the left controls.
+                            if admin_x > left_end_x + 6.0 {
+                                ui.painter().galley(
+                                    egui::pos2(admin_x, cy - admin_galley.size().y / 2.0),
+                                    admin_galley,
+                                    admin_col,
+                                );
+                                ui.painter().galley(
+                                    egui::pos2(ver_x, cy - ver_galley.size().y / 2.0),
+                                    ver_galley,
+                                    utheme.on_surface_variant(),
+                                );
+                            }
+                        }
+                    },
+                );
             });
     }
 
     fn render_title_bar_left_side(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
-        let is_dark = ui.visuals().dark_mode;
-        let theme = crate::gui::theme::AppTheme::from_dark(is_dark);
-        // Launcher buttons use bright accent fills; in dark mode those fills are
-        // light enough that near-black label text reads better than white.
-        let btn_text = if is_dark {
-            egui::Color32::from_rgb(22, 22, 26)
-        } else {
-            egui::Color32::WHITE
-        };
-
         // Nudge the controls in from the rounded left corner so they breathe.
         ui.add_space(6.0);
 
-        // Theme Switcher
-        let (theme_icon, tooltip) = match self.config.theme_mode {
+        // Theme switcher
+        let (theme_icon, theme_tip) = match self.config.theme_mode {
             crate::config::ThemeMode::Dark => (crate::gui::icons::Icon::Moon, "Theme: Dark"),
             crate::config::ThemeMode::Light => (crate::gui::icons::Icon::Sun, "Theme: Light"),
             crate::config::ThemeMode::System => {
                 (crate::gui::icons::Icon::Device, "Theme: System (Auto)")
             }
         };
-
         if crate::gui::icons::icon_button_sized(ui, theme_icon, crate::gui::icons::ICON_XL)
-            .on_hover_text(tooltip)
+            .on_hover_text(theme_tip)
             .clicked()
         {
             self.config.theme_mode = match self.config.theme_mode {
@@ -135,21 +167,17 @@ impl SettingsApp {
             self.save_and_sync();
         }
 
-        // Language Switcher
+        // Language switcher — plain menu button with a static Material chevron
+        // painted over reserved trailing space (sized off the same `icon_width`
+        // every ComboBox arrow uses, so it matches the other dropdowns).
         let original_lang = self.config.ui_language.clone();
+        let chevron_px = ui.spacing().icon_width;
+        let chevron_gap = 4.0_f32;
         let lang_flag = match self.config.ui_language.as_str() {
             "vi" => "🇻🇳",
             "ko" => "🇰🇷",
             _ => "🇺🇸",
         };
-        // A plain menu button instead of egui's ComboBox (the ComboBox draws its
-        // box ~2px below a same-height button, which a wrapper cell can't fix). We
-        // reserve trailing space in the label and paint a Material chevron over it,
-        // so it reads as a dropdown without egui's tofu ▾ glyph. Size it off the
-        // same `spacing.icon_width` egui uses for every ComboBox arrow, so this
-        // dropdown's chevron matches the others instead of being an arbitrary size.
-        let chevron_px = ui.spacing().icon_width;
-        let chevron_gap = 4.0_f32;
         let space_w = ui
             .painter()
             .layout_no_wrap(
@@ -162,32 +190,32 @@ impl SettingsApp {
             .max(0.1);
         let lead = (((chevron_px + chevron_gap) / space_w).ceil() as usize).max(1);
         let lang_label = format!("{}{}", lang_flag, " ".repeat(lead));
-        let menu_resp = ui.menu_button(lang_label, |ui| {
-            if ui
-                .selectable_value(&mut self.config.ui_language, "en".to_string(), "🇺🇸 English")
-                .clicked()
-            {
-                ui.close();
-            }
-            if ui
-                .selectable_value(
-                    &mut self.config.ui_language,
-                    "vi".to_string(),
-                    "🇻🇳 Tiếng Việt",
-                )
-                .clicked()
-            {
-                ui.close();
-            }
-            if ui
-                .selectable_value(&mut self.config.ui_language, "ko".to_string(), "🇰🇷 한국어")
-                .clicked()
-            {
-                ui.close();
-            }
-        })
-        .response;
-        // Paint the Material chevron over the reserved trailing space.
+        let menu_resp = ui
+            .menu_button(lang_label, |ui| {
+                if ui
+                    .selectable_value(&mut self.config.ui_language, "en".to_string(), "🇺🇸 English")
+                    .clicked()
+                {
+                    ui.close();
+                }
+                if ui
+                    .selectable_value(
+                        &mut self.config.ui_language,
+                        "vi".to_string(),
+                        "🇻🇳 Tiếng Việt",
+                    )
+                    .clicked()
+                {
+                    ui.close();
+                }
+                if ui
+                    .selectable_value(&mut self.config.ui_language, "ko".to_string(), "🇰🇷 한국어")
+                    .clicked()
+                {
+                    ui.close();
+                }
+            })
+            .response;
         let chevron_color = ui.style().interact(&menu_resp).fg_stroke.color;
         let chevron_rect = egui::Rect::from_center_size(
             egui::pos2(
@@ -206,9 +234,13 @@ impl SettingsApp {
             self.save_and_sync();
         }
 
-        // History Button
+        // History tab
         ui.spacing_mut().item_spacing.x = 2.0;
-        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::Icon::History, Some(crate::gui::icons::ICON_SM));
+        crate::gui::icons::draw_icon_static(
+            ui,
+            crate::gui::icons::Icon::History,
+            Some(crate::gui::icons::ICON_SM),
+        );
         let is_history = matches!(self.view_mode, ViewMode::History);
         if ui
             .selectable_label(is_history, egui::RichText::new(text.history_btn).size(13.0))
@@ -217,71 +249,12 @@ impl SettingsApp {
             self.view_mode = ViewMode::History;
         }
 
-        ui.spacing_mut().item_spacing.x = 6.0;
-        ui.add_space(2.0);
-
-        // Chill Corner (PromptDJ) — violet accent (its on-brand #9900ff family).
-        if crate::gui::widgets::filled_icon_button(
+        // General Settings tab
+        crate::gui::icons::draw_icon_static(
             ui,
-            crate::gui::icons::Icon::Album,
-            text.prompt_dj_btn,
-            theme.accent_prompt_dj(),
-            btn_text,
-            6,
-        )
-        .clicked()
-        {
-            crate::overlay::prompt_dj::show_prompt_dj();
-        }
-
-        // Download Manager — red accent.
-        if crate::gui::widgets::filled_icon_button(
-            ui,
-            crate::gui::icons::Icon::Movie,
-            text.download_feature_btn,
-            theme.accent_download(),
-            btn_text,
-            6,
-        )
-        .clicked()
-        {
-            self.download_manager.show_window = true;
-        }
-
-        // Screen Record — blue accent (its design-system primary).
-        if crate::gui::widgets::filled_icon_button(
-            ui,
-            crate::gui::icons::Icon::Videocam,
-            text.screen_record_btn,
-            theme.accent_screen_record(),
-            btn_text,
-            6,
-        )
-        .clicked()
-        {
-            crate::overlay::screen_record::show_screen_record();
-        }
-
-        // Help Assistant — teal accent (distinct from the violet PromptDJ button).
-        if crate::gui::widgets::filled_icon_button(
-            ui,
-            crate::gui::icons::Icon::AutoStories,
-            text.help_assistant_btn,
-            theme.accent_help(),
-            btn_text,
-            6,
-        )
-        .on_hover_text(text.help_assistant_title)
-        .clicked()
-        {
-            std::thread::spawn(|| {
-                crate::gui::settings_ui::help_assistant::show_help_input();
-            });
-        }
-
-        // Global Settings
-        ui.spacing_mut().item_spacing.x = 2.0;
-        crate::gui::icons::draw_icon_static(ui, crate::gui::icons::Icon::Settings, Some(crate::gui::icons::ICON_SM));
+            crate::gui::icons::Icon::Settings,
+            Some(crate::gui::icons::ICON_SM),
+        );
         let is_global = matches!(self.view_mode, ViewMode::Global);
         if ui
             .selectable_label(
@@ -292,6 +265,7 @@ impl SettingsApp {
         {
             self.view_mode = ViewMode::Global;
         }
+        ui.spacing_mut().item_spacing.x = 6.0;
     }
 
     fn render_title_bar_right_side(

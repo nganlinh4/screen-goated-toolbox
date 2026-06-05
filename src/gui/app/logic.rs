@@ -325,57 +325,70 @@ impl SettingsApp {
             self.tip_timer = now;
         }
 
-        // Calculate duration based on text length (reading speed ~ 15 chars/sec + 2s base)
         let current_tip = text
             .tips_list
             .get(self.current_tip_idx)
             .unwrap_or(&"")
             .to_string();
-        let display_duration = (2.0 + (current_tip.len() as f64 * 0.06)) as f32;
-        let fade_duration = 0.5f32;
 
-        let elapsed = (now - self.tip_timer) as f32;
+        // One cycle: fade in -> hold -> slide gradually left (within the fixed
+        // display window) -> hold -> fade out. The slide duration scales with the
+        // tip length so longer tips slide at a comfortable, near-constant pace.
+        let fade = 0.4_f32;
+        let hold = 1.0_f32; // "wait lil bit" on each side of the slide
+        let slide = (current_tip.chars().count() as f32 * 0.045).clamp(0.6, 4.0);
+        let total = fade + hold + slide + hold + fade;
+        let slide_start = fade + hold;
+        let e = (now - self.tip_timer) as f32;
 
-        if self.tip_is_fading_in {
-            // Fading In
-            self.tip_fade_state = (elapsed / fade_duration).min(1.0);
-            if elapsed >= fade_duration {
-                self.tip_fade_state = 1.0;
-                // Fully visible, wait for duration
-                if elapsed >= fade_duration + display_duration {
-                    self.tip_is_fading_in = false; // Start fading out
-                    self.tip_timer = now; // Reset timer for fade-out
-                }
-            }
-            if elapsed < fade_duration {
-                ctx.request_repaint_after(Duration::from_millis(16));
-            } else {
-                let remaining = (fade_duration + display_duration - elapsed).max(0.0);
-                ctx.request_repaint_after(Duration::from_secs_f32(remaining.max(0.016)));
-            }
+        // Opacity: ramp up over `fade`, hold at full, ramp down over the last `fade`.
+        self.tip_fade_state = if e < fade {
+            (e / fade).clamp(0.0, 1.0)
+        } else if e > total - fade {
+            ((total - e) / fade).clamp(0.0, 1.0)
         } else {
-            // Fading Out
-            self.tip_fade_state = (1.0 - (elapsed / fade_duration)).max(0.0);
-            if elapsed >= fade_duration {
-                self.tip_fade_state = 0.0;
+            1.0
+        };
 
-                // Switch to next random tip
-                self.rng_seed = simple_rand(self.rng_seed);
-                if !text.tips_list.is_empty() {
-                    let next = (self.rng_seed as usize) % text.tips_list.len();
-                    // Avoid repeating same tip if possible
-                    if next == self.current_tip_idx && text.tips_list.len() > 1 {
-                        self.current_tip_idx = (next + 1) % text.tips_list.len();
-                    } else {
-                        self.current_tip_idx = next;
-                    }
+        // Slide progress 0..1, smoothstep-eased so the motion eases in and out.
+        self.tip_scroll = if e <= slide_start {
+            0.0
+        } else if e >= slide_start + slide {
+            1.0
+        } else {
+            let s = (e - slide_start) / slide;
+            s * s * (3.0 - 2.0 * s)
+        };
+
+        if e >= total {
+            // Advance to the next (non-repeating) random tip and restart the cycle.
+            self.rng_seed = simple_rand(self.rng_seed);
+            if !text.tips_list.is_empty() {
+                let next = (self.rng_seed as usize) % text.tips_list.len();
+                if next == self.current_tip_idx && text.tips_list.len() > 1 {
+                    self.current_tip_idx = (next + 1) % text.tips_list.len();
+                } else {
+                    self.current_tip_idx = next;
                 }
-
-                self.tip_timer = now; // Reset timer
-                self.tip_is_fading_in = true; // Start fading in
             }
-            ctx.request_repaint_after(Duration::from_millis(16));
+            self.tip_fade_state = 0.0;
+            self.tip_scroll = 0.0;
+            self.tip_timer = now;
         }
+
+        // Repaint at 60 fps while animating (fade / slide); coast through the holds.
+        let next = if e < fade {
+            0.016
+        } else if e < slide_start {
+            (slide_start - e).max(0.016)
+        } else if e < slide_start + slide {
+            0.016
+        } else if e < total - fade {
+            (total - fade - e).max(0.016)
+        } else {
+            0.016
+        };
+        ctx.request_repaint_after(Duration::from_secs_f32(next));
     }
 
     pub(crate) fn handle_events(&mut self, ctx: &egui::Context) {

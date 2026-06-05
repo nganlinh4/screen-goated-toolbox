@@ -1,7 +1,7 @@
 // Main downloader UI panel (tab strip, URL input, format selection, action area).
 
 use super::super::types::{DownloadType, InstallStatus};
-use crate::gui::icons::{Icon, draw_icon_static};
+use crate::gui::icons::{draw_icon_static, Icon};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
@@ -130,26 +130,71 @@ impl DownloadManager {
     }
 
     fn render_tab_strip(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
+        let theme = AppTheme::from_ui(ui);
         ui.horizontal(|ui| {
             let mut close_tab_idx: Option<usize> = None;
             let mut switch_tab_idx: Option<usize> = None;
+            ui.spacing_mut().item_spacing.x = 4.0;
             for i in 0..self.sessions.len() {
                 let is_active = i == self.active_tab_idx;
                 let label = self.sessions[i].tab_name.clone();
-                let tab_btn =
-                    egui::Button::new(egui::RichText::new(&label).size(11.0)).selected(is_active);
-                if ui.add(tab_btn).clicked() {
-                    switch_tab_idx = Some(i);
-                }
-                if ui.small_button("\u{00d7}").clicked() {
-                    close_tab_idx = Some(i);
-                }
-                ui.add_space(2.0);
+                // Each tab is a self-contained pill carrying its own close control
+                // (matches the profile pills). Active = solid accent fill.
+                let pill_fill = if is_active {
+                    theme.accent_fill()
+                } else {
+                    theme.neutral_fill()
+                };
+                let on_pill = if is_active {
+                    theme.on_accent()
+                } else {
+                    theme.on_surface()
+                };
+                egui::Frame::new()
+                    .fill(pill_fill)
+                    .corner_radius(egui::CornerRadius::same(9))
+                    .inner_margin(egui::Margin {
+                        left: 9,
+                        right: 4,
+                        top: 2,
+                        bottom: 2,
+                    })
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            let widgets = &mut ui.visuals_mut().widgets;
+                            widgets.inactive.fg_stroke.color = on_pill;
+                            widgets.hovered.fg_stroke.color = on_pill;
+                            widgets.hovered.bg_fill = on_pill.gamma_multiply(0.18);
+                            let name_resp = ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&label).color(on_pill).size(11.0),
+                                )
+                                .selectable(false)
+                                .sense(egui::Sense::click()),
+                            );
+                            if name_resp.clicked() {
+                                switch_tab_idx = Some(i);
+                            }
+                            if crate::gui::icons::icon_button_sized(
+                                ui,
+                                crate::gui::icons::Icon::Close,
+                                crate::gui::icons::ICON_SM,
+                            )
+                            .clicked()
+                            {
+                                close_tab_idx = Some(i);
+                            }
+                        });
+                    });
             }
-            if ui
-                .small_button("+")
-                .on_hover_text(text.download_new_tab_tooltip)
-                .clicked()
+            if crate::gui::icons::icon_button_sized(
+                ui,
+                crate::gui::icons::Icon::Plus,
+                crate::gui::icons::ICON_LG,
+            )
+            .on_hover_text(text.download_new_tab_tooltip)
+            .clicked()
             {
                 self.add_tab();
             }
@@ -173,7 +218,11 @@ impl DownloadManager {
         text: &LocaleText,
     ) {
         let theme = AppTheme::from_ui(ui);
-        ui.label(egui::RichText::new("\u{1f4c2}").size(14.0));
+        crate::gui::icons::draw_icon_static(
+            ui,
+            crate::gui::icons::Icon::Folder,
+            Some(crate::gui::icons::ICON_SM),
+        );
 
         let current_path = self
             .custom_download_path
@@ -190,29 +239,39 @@ impl DownloadManager {
                 .color(ctx.global_style().visuals.weak_text_color()),
         );
 
-        ui.menu_button("\u{2699}", |ui| {
-            if ui.button(text.download_change_folder_btn).clicked() {
-                self.change_download_folder();
-                ui.close();
-            }
+        let gear_resp = ui
+            .menu_button("    ", |ui| {
+                if ui.button(text.download_change_folder_btn).clicked() {
+                    self.change_download_folder();
+                    ui.close();
+                }
 
-            ui.separator();
+                ui.separator();
 
-            let (ytdlp_size, ffmpeg_size, deno_size) = self.get_dependency_sizes();
-            let del_btn_text = text
-                .download_delete_deps_btn
-                .replacen("{}", &ytdlp_size, 1)
-                .replacen("{}", &ffmpeg_size, 1)
-                .replacen("{}", &deno_size, 1);
+                let (ytdlp_size, ffmpeg_size, deno_size) = self.get_dependency_sizes();
+                let del_btn_text = text
+                    .download_delete_deps_btn
+                    .replacen("{}", &ytdlp_size, 1)
+                    .replacen("{}", &ffmpeg_size, 1)
+                    .replacen("{}", &deno_size, 1);
 
-            if ui
-                .button(egui::RichText::new(del_btn_text).color(theme.danger_text()))
-                .clicked()
-            {
-                self.delete_dependencies();
-                ui.close();
-            }
-        });
+                if ui
+                    .button(egui::RichText::new(del_btn_text).color(theme.danger_text()))
+                    .clicked()
+                {
+                    self.delete_dependencies();
+                    ui.close();
+                }
+            })
+            .response;
+        // Paint the Material gear over the space-reserved menu button.
+        let gear_color = ui.style().interact(&gear_resp).fg_stroke.color;
+        crate::gui::icons::paint_icon(
+            ui.painter(),
+            egui::Rect::from_center_size(gear_resp.rect.center(), egui::vec2(16.0, 16.0)),
+            crate::gui::icons::Icon::Settings,
+            gear_color,
+        );
     }
 
     fn render_url_input(
@@ -325,7 +384,16 @@ impl DownloadManager {
             // Subtitle Selection
             self.render_subtitle_selection(ui, text, idx);
         } else if error.is_some() {
-            ui.colored_label(theme.danger_text(), "\u{274c}");
+            let (icon_rect, _) = ui.allocate_exact_size(
+                egui::vec2(crate::gui::icons::ICON_MD, crate::gui::icons::ICON_MD),
+                egui::Sense::hover(),
+            );
+            crate::gui::icons::paint_icon(
+                ui.painter(),
+                icon_rect,
+                crate::gui::icons::Icon::Warning,
+                theme.danger_text(),
+            );
         }
     }
 
@@ -439,8 +507,7 @@ impl DownloadManager {
 
                 ui.add_space(4.0);
                 self.render_cookie_browser_combo(ui, text);
-            },
-        );
+            });
     }
 
     fn render_cookie_browser_combo(&mut self, ui: &mut egui::Ui, text: &LocaleText) {

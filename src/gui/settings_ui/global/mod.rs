@@ -132,18 +132,40 @@ pub fn render_global_settings(
 
     ui.add_space(10.0);
 
-    if crate::gui::widgets::filled_icon_button(
-        ui,
-        Icon::Priority,
-        text.model_priority_button,
-        theme.btn_priority(),
-        on_btn,
-        10,
-    )
-    .clicked()
-    {
-        *show_model_priority_modal = true;
-    }
+    ui.horizontal(|ui| {
+        if crate::gui::widgets::filled_icon_button(
+            ui,
+            Icon::Priority,
+            text.model_priority_button,
+            theme.btn_priority(),
+            on_btn,
+            10,
+        )
+        .clicked()
+        {
+            *show_model_priority_modal = true;
+        }
+
+        ui.add_space(10.0);
+
+        // Help assistant — shares the Model Priority row (its teal accent kept).
+        if crate::gui::widgets::filled_icon_button(
+            ui,
+            Icon::AutoStories,
+            text.help_assistant_btn,
+            theme.accent_help(),
+            on_btn,
+            10,
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(text.help_assistant_title)
+        .clicked()
+        {
+            std::thread::spawn(|| {
+                crate::gui::settings_ui::help_assistant::show_help_input();
+            });
+        }
+    });
 
     // === USAGE STATISTICS MODAL ===
     render_usage_modal(

@@ -82,9 +82,9 @@ pub struct SettingsApp {
 
     // --- TIP UI STATE ---
     pub(crate) current_tip_idx: usize,
-    pub(crate) tip_timer: f64, // Time when the current tip started showing
+    pub(crate) tip_timer: f64,      // Time when the current cycle started
     pub(crate) tip_fade_state: f32, // 0.0 (Invisible) -> 1.0 (Visible)
-    pub(crate) tip_is_fading_in: bool,
+    pub(crate) tip_scroll: f32,     // 0.0 (start) -> 1.0 (fully slid left within window)
     pub(crate) show_tips_modal: bool,
     pub(crate) rng_seed: u32,
 

@@ -51,11 +51,13 @@ impl SettingsApp {
                     &text,
                     current_tip.clone(),
                     self.tip_fade_state,
+                    self.tip_scroll,
                     FooterToggles {
                         show_modal: &mut self.show_tips_modal,
+                        show_pointer_gallery: &mut self.pointer_gallery.show_window,
                         show_translation_gummy: &mut self.show_translation_gummy,
                         show_tts_playground: &mut self.show_tts_playground,
-                        show_pointer_gallery: &mut self.pointer_gallery.show_window,
+                        show_download: &mut self.download_manager.show_window,
                     },
                 );
             });
