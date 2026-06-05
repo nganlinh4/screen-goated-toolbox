@@ -111,14 +111,17 @@ pub fn render_tts_settings_modal(
         .resizable(false)
         .title_bar(false)
         .frame(theme.dialog_frame())
-        .default_width(860.0)
+        // Match `set_max_width` below so the window isn't wider than its capped
+        // content — otherwise the right-aligned header close (×) sits ~40px short
+        // of the window edge.
+        .default_width(820.0)
         .default_height(600.0)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .show(&ctx, |ui| {
             ui.set_min_height(500.0); // Force minimum height for the content area
-            // Cap the content width so `horizontal_wrapped` rows (e.g. the TTS
-            // method list) actually wrap instead of letting the auto-sizing
-            // Window grow past the screen edges.
+            // Cap the content width so long description labels wrap and the
+            // auto-sizing Window can't grow past the screen edges. Kept in sync
+            // with `default_width` above so the header × reaches the right edge.
             ui.set_max_width(820.0);
 
             // Split the bundled "Title (feature scope)" locale string so the
@@ -151,68 +154,114 @@ pub fn render_tts_settings_modal(
                 changed = true;
             }
 
-            // === TTS METHOD SELECTION ===
-            ui.horizontal_wrapped(|ui| {
+            // === TTS METHOD SELECTION === (dropdown — too many options for a row)
+            ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(text.tts_method_label).strong());
-
-                // Gemini Live (Premium)
-                if ui.radio_value(&mut config.tts_method, TtsMethod::GeminiLive, text.tts_method_standard).clicked() {
-                    changed = true;
-                }
-
-                // Edge TTS (Good)
-                if ui.radio_value(&mut config.tts_method, TtsMethod::EdgeTTS, text.tts_method_edge).clicked() {
-                    changed = true;
-                }
-
-                // Google Translate (Fast)
-                if ui.radio_value(&mut config.tts_method, TtsMethod::GoogleTranslate, text.tts_method_fast).clicked() {
-                    if config.tts_speed == "Fast" {
-                        config.tts_speed = "Normal".to_string();
-                    }
-                    changed = true;
-                }
-
-                // Open-weights leaderboard providers
-                if ui
-                    .radio_value(&mut config.tts_method, TtsMethod::StepAudioEditX, "Step Audio EditX")
-                    .on_hover_text("Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.")
-                    .clicked()
-                {
-                    changed = true;
-                }
-                if ui
-                    .radio_value(
-                        &mut config.tts_method,
-                        TtsMethod::MagpieMultilingual,
-                        "NVIDIA Magpie-Multilingual 357M",
-                    )
-                    .on_hover_text("Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese.")
-                    .clicked()
-                {
-                    changed = true;
-                }
-                if ui
-                    .radio_value(&mut config.tts_method, TtsMethod::Kokoro, "Kokoro 82M v1.0")
-                    .on_hover_text("Supports English, Mandarin Chinese, Japanese, Spanish, French, Hindi, Italian, and Portuguese.")
-                    .clicked()
-                {
-                    changed = true;
-                }
-                if ui
-                    .radio_value(&mut config.tts_method, TtsMethod::Supertonic, "Supertonic 3")
-                    .on_hover_text(SUPERTONIC_LANGUAGE_SUMMARY)
-                    .clicked()
-                {
-                    changed = true;
-                }
-                if ui
-                    .radio_value(&mut config.tts_method, TtsMethod::VieneuTts, "VieNeu-TTS v2")
-                    .on_hover_text("Vietnamese-first local TTS with English/Vietnamese code-switching and zero-shot voice cloning.")
-                    .clicked()
-                {
-                    changed = true;
-                }
+                let current_label = match config.tts_method {
+                    TtsMethod::GeminiLive => text.tts_method_standard,
+                    TtsMethod::EdgeTTS => text.tts_method_edge,
+                    TtsMethod::GoogleTranslate => text.tts_method_fast,
+                    TtsMethod::StepAudioEditX => "Step Audio EditX",
+                    TtsMethod::MagpieMultilingual => "NVIDIA Magpie-Multilingual 357M",
+                    TtsMethod::Kokoro => "Kokoro 82M v1.0",
+                    TtsMethod::Supertonic => "Supertonic 3",
+                    TtsMethod::VieneuTts | TtsMethod::VoxtralTts => "VieNeu-TTS v2",
+                    // Deprecated/hidden (migrated away on load) — never a real option.
+                    TtsMethod::FishAudioS2Pro => text.tts_method_standard,
+                };
+                crate::gui::widgets::combo("tts_method_combo")
+                    .selected_text(current_label)
+                    .width(300.0)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_value(
+                                &mut config.tts_method,
+                                TtsMethod::GeminiLive,
+                                text.tts_method_standard,
+                            )
+                            .clicked()
+                        {
+                            changed = true;
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut config.tts_method,
+                                TtsMethod::EdgeTTS,
+                                text.tts_method_edge,
+                            )
+                            .clicked()
+                        {
+                            changed = true;
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut config.tts_method,
+                                TtsMethod::GoogleTranslate,
+                                text.tts_method_fast,
+                            )
+                            .clicked()
+                        {
+                            if config.tts_speed == "Fast" {
+                                config.tts_speed = "Normal".to_string();
+                            }
+                            changed = true;
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut config.tts_method,
+                                TtsMethod::StepAudioEditX,
+                                "Step Audio EditX",
+                            )
+                            .on_hover_text("Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.")
+                            .clicked()
+                        {
+                            changed = true;
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut config.tts_method,
+                                TtsMethod::MagpieMultilingual,
+                                "NVIDIA Magpie-Multilingual 357M",
+                            )
+                            .on_hover_text("Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese.")
+                            .clicked()
+                        {
+                            changed = true;
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut config.tts_method,
+                                TtsMethod::Kokoro,
+                                "Kokoro 82M v1.0",
+                            )
+                            .on_hover_text("Supports English, Mandarin Chinese, Japanese, Spanish, French, Hindi, Italian, and Portuguese.")
+                            .clicked()
+                        {
+                            changed = true;
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut config.tts_method,
+                                TtsMethod::Supertonic,
+                                "Supertonic 3",
+                            )
+                            .on_hover_text(SUPERTONIC_LANGUAGE_SUMMARY)
+                            .clicked()
+                        {
+                            changed = true;
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut config.tts_method,
+                                TtsMethod::VieneuTts,
+                                "VieNeu-TTS v2",
+                            )
+                            .on_hover_text("Vietnamese-first local TTS with English/Vietnamese code-switching and zero-shot voice cloning.")
+                            .clicked()
+                        {
+                            changed = true;
+                        }
+                    });
             });
             ui.add_space(10.0);
             ui.separator();

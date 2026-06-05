@@ -11,7 +11,7 @@
 //!
 //! Module path: `crate::gui::widgets`.
 
-use crate::gui::theme::{blend, AppTheme};
+use crate::gui::theme::{AppTheme, blend};
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 
 /// Standard Material header for the settings modals.
@@ -100,11 +100,21 @@ pub fn filled_button_sized(
             visual.bg_fill = state_fill;
             visual.bg_stroke = Stroke::NONE;
         }
-        ui.add(
-            egui::Button::new(egui::RichText::new(label).color(text))
-                .corner_radius(CornerRadius::same(corner_radius))
-                .min_size(min_size),
-        )
+        let btn = egui::Button::new(egui::RichText::new(label).color(text))
+            .corner_radius(CornerRadius::same(corner_radius))
+            .min_size(min_size);
+        // egui positions a button's label via the parent layout's alignment, so a
+        // button made wider than its text (min_size.x > 0, e.g. a full-width CTA
+        // like "TẢI VỀ NGAY") would left-align the label. Center it both axes for
+        // explicitly-sized buttons; tight buttons (zero min) are unaffected.
+        if min_size.x > 0.0 {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.add(btn)
+            })
+            .inner
+        } else {
+            ui.add(btn)
+        }
     })
     .inner
 }
@@ -211,5 +221,11 @@ pub fn collapsing_chevron(ui: &mut egui::Ui, openness: f32, response: &egui::Res
         crate::gui::icons::Icon::ArrowDown
     };
     let color = ui.style().interact(response).fg_stroke.color;
-    crate::gui::icons::paint_icon(ui.painter(), response.rect, icon, color);
+    // The collapsing header's own icon rect is short, so `paint_icon` (which sizes
+    // the glyph off the rect's MIN side) rendered a too-small chevron. Paint a
+    // square sized off `icon_width` instead — the same metric egui uses for every
+    // ComboBox arrow — so collapsing chevrons match the dropdown ones.
+    let size = ui.spacing().icon_width;
+    let rect = egui::Rect::from_center_size(response.rect.center(), egui::vec2(size, size));
+    crate::gui::icons::paint_icon(ui.painter(), rect, icon, color);
 }

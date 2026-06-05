@@ -332,7 +332,7 @@ impl SettingsApp {
             current_tip_idx: 0,
             tip_timer: 0.0,
             tip_fade_state: 0.0,
-            tip_is_fading_in: true,
+            tip_scroll: 0.0,
             show_tips_modal: false,
             rng_seed,
             // ---------------
