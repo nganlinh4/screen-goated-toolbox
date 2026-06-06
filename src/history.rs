@@ -36,7 +36,9 @@ pub enum HistoryAction {
         result_text: String,
         input_text: String,
     }, // NEW: Save text-only entry
-    Delete(i64),
+    Delete {
+        media_path: String,
+    },
     ClearAll,
     Prune(usize),
 }
@@ -90,11 +92,19 @@ impl HistoryManager {
     }
 
     pub fn delete(&self, id: i64) {
-        let _ = self.tx.send(HistoryAction::Delete(id));
-        let mut guard = self.items.lock().unwrap();
-        if let Some(pos) = guard.iter().position(|x| x.id == id) {
-            guard.remove(pos);
-        }
+        // Remove from the shared cache for instant UI feedback, and hand the
+        // item's media path to the worker so it can delete the file and persist
+        // the new state. The worker must NOT re-look-up the item in the cache —
+        // it's already gone — or it would skip the file delete AND the DB save,
+        // leaking the file and resurrecting the entry on the next launch.
+        let media_path = {
+            let mut guard = self.items.lock().unwrap();
+            match guard.iter().position(|x| x.id == id) {
+                Some(pos) => guard.remove(pos).media_path,
+                None => return,
+            }
+        };
+        let _ = self.tx.send(HistoryAction::Delete { media_path });
     }
 
     pub fn clear_all(&self) {
@@ -161,11 +171,12 @@ fn process_queue(
             HistoryAction::SaveAudio { wav_data, text } => {
                 let now = Local::now();
                 let timestamp = now.format("%Y-%m-%d %H:%M:%S").to_string();
-                let filename = format!("audio_{}.wav", now.format("%Y%m%d_%H%M%S_%f"));
-                let path = media_dir.join(&filename);
                 let id = now.timestamp_nanos_opt().unwrap_or(0);
 
-                if fs::write(&path, wav_data).is_ok() {
+                if wav_data.is_empty() {
+                    // Transcript-only audio (e.g. Gemini Live) has no captured WAV.
+                    // Store the text entry with no media file so the panel omits the
+                    // "Listen" button instead of opening an empty/unplayable file.
                     items.insert(
                         0,
                         HistoryItem {
@@ -173,10 +184,26 @@ fn process_queue(
                             timestamp,
                             item_type: HistoryType::Audio,
                             text,
-                            media_path: filename,
+                            media_path: String::new(),
                         },
                     );
                     should_save = true;
+                } else {
+                    let filename = format!("audio_{}.wav", now.format("%Y%m%d_%H%M%S_%f"));
+                    let path = media_dir.join(&filename);
+                    if fs::write(&path, wav_data).is_ok() {
+                        items.insert(
+                            0,
+                            HistoryItem {
+                                id,
+                                timestamp,
+                                item_type: HistoryType::Audio,
+                                text,
+                                media_path: filename,
+                            },
+                        );
+                        should_save = true;
+                    }
                 }
             }
             HistoryAction::SaveText {
@@ -203,12 +230,13 @@ fn process_queue(
                     should_save = true;
                 }
             }
-            HistoryAction::Delete(id) => {
-                if let Some(pos) = items.iter().position(|x| x.id == id) {
-                    let item = items.remove(pos);
-                    let _ = fs::remove_file(media_dir.join(item.media_path));
-                    should_save = true;
+            HistoryAction::Delete { media_path } => {
+                // The cache entry was already removed by `HistoryManager::delete`.
+                // Here we only clean up the backing file and persist the new state.
+                if !media_path.is_empty() {
+                    let _ = fs::remove_file(media_dir.join(&media_path));
                 }
+                should_save = true;
             }
             HistoryAction::ClearAll => {
                 if let Ok(entries) = fs::read_dir(&media_dir) {
