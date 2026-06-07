@@ -304,7 +304,12 @@ impl SettingsApp {
             show_cerebras_api_key: false,
             icon_dark: None,
             icon_light: None,
+            current_preset_idx: match view_mode {
+                ViewMode::Preset(idx) => Some(idx),
+                _ => None,
+            },
             view_mode,
+            detail_panes: Vec::new(),
             recording_hotkey_for_preset: None,
             hotkey_conflict_msg: None,
             recording_sr_hotkey: false,

@@ -151,12 +151,7 @@ impl DownloadManager {
         }
     }
 
-    fn render_finished_state(
-        &self,
-        ui: &mut egui::Ui,
-        text: &LocaleText,
-        path: &std::path::Path,
-    ) {
+    fn render_finished_state(&self, ui: &mut egui::Ui, text: &LocaleText, path: &std::path::Path) {
         let theme = AppTheme::from_ui(ui);
         ui.vertical_centered(|ui| {
             ui.label(

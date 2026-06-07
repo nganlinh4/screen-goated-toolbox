@@ -65,8 +65,13 @@ pub fn show_language_selector(
 
         // Styled button to open popup
         let theme = AppTheme::from_ui(ui);
-        let button_response =
-            filled_button(ui, &current_val, theme.node_button_fill(), theme.on_accent(), 8);
+        let button_response = filled_button(
+            ui,
+            &current_val,
+            theme.node_button_fill(),
+            theme.on_accent(),
+            8,
+        );
 
         if button_response.clicked() {
             egui::Popup::toggle_id(ui.ctx(), button_response.id);

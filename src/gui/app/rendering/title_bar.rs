@@ -3,7 +3,7 @@
 // version painted in the draggable gap; branding + window controls on the right.
 // (The mini-app launch buttons live in the footer.)
 
-use super::super::types::SettingsApp;
+use super::super::types::{DetailPane, SettingsApp};
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::ViewMode;
 use eframe::egui;
@@ -190,31 +190,30 @@ impl SettingsApp {
             .max(0.1);
         let lead = (((chevron_px + chevron_gap) / space_w).ceil() as usize).max(1);
         let lang_label = format!("{}{}", lang_flag, " ".repeat(lead));
-        let menu_inner = ui
-            .menu_button(lang_label, |ui| {
-                if ui
-                    .selectable_value(&mut self.config.ui_language, "en".to_string(), "🇺🇸 English")
-                    .clicked()
-                {
-                    ui.close();
-                }
-                if ui
-                    .selectable_value(
-                        &mut self.config.ui_language,
-                        "vi".to_string(),
-                        "🇻🇳 Tiếng Việt",
-                    )
-                    .clicked()
-                {
-                    ui.close();
-                }
-                if ui
-                    .selectable_value(&mut self.config.ui_language, "ko".to_string(), "🇰🇷 한국어")
-                    .clicked()
-                {
-                    ui.close();
-                }
-            });
+        let menu_inner = ui.menu_button(lang_label, |ui| {
+            if ui
+                .selectable_value(&mut self.config.ui_language, "en".to_string(), "🇺🇸 English")
+                .clicked()
+            {
+                ui.close();
+            }
+            if ui
+                .selectable_value(
+                    &mut self.config.ui_language,
+                    "vi".to_string(),
+                    "🇻🇳 Tiếng Việt",
+                )
+                .clicked()
+            {
+                ui.close();
+            }
+            if ui
+                .selectable_value(&mut self.config.ui_language, "ko".to_string(), "🇰🇷 한국어")
+                .clicked()
+            {
+                ui.close();
+            }
+        });
         // `menu_button` returns `Some` inner only while its menu is open — derive
         // the open state from that to flip the chevron direction.
         let menu_open = menu_inner.inner.is_some();
@@ -237,36 +236,44 @@ impl SettingsApp {
             self.save_and_sync();
         }
 
-        // History tab
+        // History / General Settings tabs. Both are hidden ONLY in the full tier
+        // (both panels shown as columns — nothing left to switch). In the single-
+        // aux tier both tabs stay: clicking one picks which panel fills the slot,
+        // and the shown panel's tab renders in its selected state.
+        let both_aux = self.detail_panes.contains(&DetailPane::Global)
+            && self.detail_panes.contains(&DetailPane::History);
         ui.spacing_mut().item_spacing.x = 2.0;
-        crate::gui::icons::draw_icon_static(
-            ui,
-            crate::gui::icons::Icon::History,
-            Some(crate::gui::icons::ICON_SM),
-        );
-        let is_history = matches!(self.view_mode, ViewMode::History);
-        if ui
-            .selectable_label(is_history, egui::RichText::new(text.history_btn).size(13.0))
-            .clicked()
-        {
-            self.view_mode = ViewMode::History;
-        }
+        if !both_aux {
+            crate::gui::icons::draw_icon_static(
+                ui,
+                crate::gui::icons::Icon::History,
+                Some(crate::gui::icons::ICON_SM),
+            );
+            let is_history = self.detail_panes.contains(&DetailPane::History)
+                || matches!(self.view_mode, ViewMode::History);
+            if ui
+                .selectable_label(is_history, egui::RichText::new(text.history_btn).size(13.0))
+                .clicked()
+            {
+                self.view_mode = ViewMode::History;
+            }
 
-        // General Settings tab
-        crate::gui::icons::draw_icon_static(
-            ui,
-            crate::gui::icons::Icon::Settings,
-            Some(crate::gui::icons::ICON_SM),
-        );
-        let is_global = matches!(self.view_mode, ViewMode::Global);
-        if ui
-            .selectable_label(
-                is_global,
-                egui::RichText::new(text.global_settings).size(13.0),
-            )
-            .clicked()
-        {
-            self.view_mode = ViewMode::Global;
+            crate::gui::icons::draw_icon_static(
+                ui,
+                crate::gui::icons::Icon::Settings,
+                Some(crate::gui::icons::ICON_SM),
+            );
+            let is_global = self.detail_panes.contains(&DetailPane::Global)
+                || matches!(self.view_mode, ViewMode::Global);
+            if ui
+                .selectable_label(
+                    is_global,
+                    egui::RichText::new(text.global_settings).size(13.0),
+                )
+                .clicked()
+            {
+                self.view_mode = ViewMode::Global;
+            }
         }
         ui.spacing_mut().item_spacing.x = 6.0;
     }

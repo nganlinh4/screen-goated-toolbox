@@ -1,7 +1,7 @@
 // Main downloader UI panel (tab strip, URL input, format selection, action area).
 
 use super::super::types::{DownloadType, InstallStatus};
-use crate::gui::icons::{draw_icon_static, Icon};
+use crate::gui::icons::{Icon, draw_icon_static};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;

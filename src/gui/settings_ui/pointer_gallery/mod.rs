@@ -244,7 +244,8 @@ impl PointerGallery {
                                 Some((true, text.pointer_download_paused.to_string()));
                         }
 
-                        if self.downloads_paused && ui.button(text.pointer_action_resume).clicked() {
+                        if self.downloads_paused && ui.button(text.pointer_action_resume).clicked()
+                        {
                             self.downloads_paused = false;
                             self.restart_preload();
                         }
@@ -266,7 +267,8 @@ impl PointerGallery {
                         let mut size_value = self.pointer_size.clamp(min_size, max_size);
                         let slider_response = ui.add_sized(
                             [POINTER_SIZE_SLIDER_WIDTH, PREVIEW_ICON_SIZE - 2.0],
-                            egui::Slider::new(&mut size_value, min_size..=max_size).show_value(true),
+                            egui::Slider::new(&mut size_value, min_size..=max_size)
+                                .show_value(true),
                         );
                         if slider_response.changed() {
                             self.pointer_size = size_value;

@@ -5,7 +5,7 @@
 //! their own "is this dialog open?" state and react to the returned
 //! [`ConfirmResult`] each frame.
 
-use crate::gui::theme::{blend, AppTheme};
+use crate::gui::theme::{AppTheme, blend};
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 
 /// Outcome of a single frame of a confirmation dialog.
@@ -111,12 +111,18 @@ impl<'a> ConfirmModal<'a> {
                     } else {
                         theme.accent_fill()
                     };
-                    if pill_button(ui, self.confirm_label, confirm_fill, theme.on_accent()).clicked()
+                    if pill_button(ui, self.confirm_label, confirm_fill, theme.on_accent())
+                        .clicked()
                     {
                         result = ConfirmResult::Confirmed;
                     }
-                    if pill_button(ui, self.cancel_label, theme.neutral_fill(), theme.on_surface())
-                        .clicked()
+                    if pill_button(
+                        ui,
+                        self.cancel_label,
+                        theme.neutral_fill(),
+                        theme.on_surface(),
+                    )
+                    .clicked()
                     {
                         result = ConfirmResult::Cancelled;
                     }
@@ -134,12 +140,7 @@ impl<'a> ConfirmModal<'a> {
 /// A compact, fully-rounded button with Material-style hover/press state layers
 /// (the `text` color overlaid at 8% / 14% over `fill`), so it reads correctly
 /// in both light and dark themes.
-fn pill_button(
-    ui: &mut egui::Ui,
-    label: &str,
-    fill: Color32,
-    text: Color32,
-) -> egui::Response {
+fn pill_button(ui: &mut egui::Ui, label: &str, fill: Color32, text: Color32) -> egui::Response {
     ui.scope(|ui| {
         ui.spacing_mut().button_padding = egui::vec2(16.0, 8.0);
         let widgets = &mut ui.visuals_mut().widgets;

@@ -18,6 +18,16 @@ pub const MOD_CONTROL: u32 = 0x0002;
 pub const MOD_SHIFT: u32 = 0x0004;
 pub const MOD_WIN: u32 = 0x0008;
 
+/// A column the detail area can show (right of the preset-controls sidebar).
+/// As the window widens, more of these are shown side-by-side instead of being
+/// switched via the header tabs (see `SettingsApp::update_detail_layout`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DetailPane {
+    Editor,
+    Global,
+    History,
+}
+
 lazy_static::lazy_static! {
     pub static ref RESTORE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
@@ -54,6 +64,11 @@ pub struct SettingsApp {
     pub(crate) icon_light: Option<egui::TextureHandle>,
 
     pub(crate) view_mode: ViewMode,
+    // Responsive detail layout: the panes currently shown as side-by-side columns
+    // (recomputed each frame from the window width), and the preset whose editor
+    // is the main pane (persists across Global/History focus so it can stay open).
+    pub(crate) detail_panes: Vec<DetailPane>,
+    pub(crate) current_preset_idx: Option<usize>,
     pub(crate) recording_hotkey_for_preset: Option<usize>,
     pub(crate) hotkey_conflict_msg: Option<String>,
     pub(crate) recording_sr_hotkey: bool,
