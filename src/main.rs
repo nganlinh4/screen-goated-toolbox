@@ -38,6 +38,9 @@ pub use screen_capture::GdiCapture;
 // Window dimensions
 pub const WINDOW_WIDTH: f32 = 1250.0;
 pub const WINDOW_HEIGHT: f32 = 650.0;
+// Floor the user can't drag below — keeps the sidebar + editor usable.
+pub const MIN_WINDOW_WIDTH: f32 = 1245.0;
+pub const MIN_WINDOW_HEIGHT: f32 = 660.0;
 
 // Wrappers for thread-safe types
 use crate::win_types::SendHwnd;
@@ -443,6 +446,7 @@ fn main() -> eframe::Result<()> {
     // Window setup
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
         .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
+        .with_min_inner_size([MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT])
         .with_resizable(true)
         .with_visible(false)
         .with_transparent(false)
