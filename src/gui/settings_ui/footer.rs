@@ -113,10 +113,11 @@ pub fn render_footer(
 
         ui.add_space(10.0);
 
-        // 2. Tips: a FIXED-width display window. The tip fades in, holds, slides
-        // gradually left to reveal any overflow, holds, then fades out (driven by
-        // `tip_alpha` / `tip_scroll` from `update_tips_logic`). The text is clipped
-        // to the window, so long tips never push the layout around.
+        // 2. Tips: an EXPANDING display window — a minimum width that grows to
+        // fit the tip, up to the free space. The tip fades in, holds, and ONLY if
+        // it's too long to fit does it slide left to reveal the overflow, then
+        // fades out (driven by `tip_alpha` / `tip_scroll` from `update_tips_logic`).
+        // Text is clipped to the window, so long tips never push the layout around.
         let tip_color = ui.visuals().text_color().linear_multiply(tip_alpha);
         let icon_color =
             egui::Color32::from_rgba_unmultiplied(255, 200, 50, (tip_alpha * 255.0) as u8);
@@ -126,15 +127,14 @@ pub fn render_footer(
         let layout_job = format_footer_tip(&current_tip, tip_color, is_dark_mode, tip_alpha);
         let text_galley = ui.painter().layout_job(layout_job);
 
-        // Window = text width, capped at a fixed max (and whatever space is free):
-        // short tips show in full; long ones get the fixed range and slide.
-        const TIP_WINDOW_MAX: f32 = 480.0;
+        // Window = the tip's width, but AT LEAST `TIP_WINDOW_MIN` (so the region
+        // doesn't jump as tips cycle) and never beyond the free space. So a tip
+        // that fits in the available room is shown in full (overflow = 0 → it
+        // never slides); only genuinely-too-long tips slide.
+        const TIP_WINDOW_MIN: f32 = 480.0;
         let avail_for_text = (ui.available_width() - 10.0 - icon_size - icon_spacing).max(40.0);
-        let window_w = text_galley
-            .rect
-            .width()
-            .min(TIP_WINDOW_MAX)
-            .min(avail_for_text);
+        let min_window = TIP_WINDOW_MIN.min(avail_for_text);
+        let window_w = text_galley.rect.width().clamp(min_window, avail_for_text);
         let region_w = icon_size + icon_spacing + window_w;
 
         let (response, painter) = ui.allocate_painter(
