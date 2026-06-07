@@ -101,6 +101,10 @@ impl eframe::App for SettingsApp {
 
         // --- UI LAYOUT ---
         if main_ui_ready {
+            // Decide the responsive detail columns first — the title bar hides the
+            // tabs for panels that are shown as columns this frame.
+            self.update_detail_layout(ctx);
+
             // Title Bar (Custom Windows Bar) — top panel, shown into the root ui.
             if self.custom_chrome_ready {
                 self.render_title_bar(ui);

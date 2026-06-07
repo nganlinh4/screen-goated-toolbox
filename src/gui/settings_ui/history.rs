@@ -19,8 +19,8 @@ pub fn render_history_panel(
     let card_bg = theme.card_bg();
     let card_stroke = theme.card_stroke();
 
-    // Set max width for entire panel (outside frame so it properly constrains the card)
-    ui.set_max_width(510.0);
+    // The panel (a native side-panel) already bounds the width; don't force a
+    // hardcoded max that exceeds it (that overran the panel and clipped the text).
 
     // === HEADER CARD ===
     ui.add_space(5.0);
@@ -33,11 +33,7 @@ pub fn render_history_panel(
             // Row 1: Title + Max items slider
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::History, Some(crate::gui::icons::ICON_SM));
-                ui.label(
-                    egui::RichText::new(text.history_title)
-                        .strong()
-                        .size(14.0),
-                );
+                ui.label(egui::RichText::new(text.history_title).strong().size(14.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add(egui::Slider::new(&mut config.max_history_items, 10..=200))
@@ -132,8 +128,6 @@ pub fn render_history_panel(
             ui.set_height(list_h);
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.set_max_width(510.0);
-
                 let mut id_to_delete = None;
 
                 for item in filtered {

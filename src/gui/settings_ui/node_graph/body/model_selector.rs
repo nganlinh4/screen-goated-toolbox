@@ -110,7 +110,11 @@ pub fn show_model_and_settings(
                             egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
                         }
                         if model_supports_search(&m.id) {
-                            crate::gui::icons::draw_icon_static(ui, Icon::Search, Some(crate::gui::icons::ICON_XS));
+                            crate::gui::icons::draw_icon_static(
+                                ui,
+                                Icon::Search,
+                                Some(crate::gui::icons::ICON_XS),
+                            );
                         }
                     });
                 }

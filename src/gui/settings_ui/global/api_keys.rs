@@ -37,6 +37,9 @@ pub(super) fn render_api_keys_card(
         .inner_margin(12.0)
         .corner_radius(10.0)
         .show(ui, |ui| {
+            // Fill the (now wider) panel so the card doesn't leave a blank strip
+            // beside it that reads as a gap before the next column.
+            ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_MD));
                 ui.label(

@@ -300,10 +300,7 @@ fn run_help_request(gemini_key: String, ui_language: String, question: String) {
         let index = match get_help_index() {
             Ok(idx) => idx,
             Err(e) => {
-                crate::overlay::result::update_window_text(
-                    api_hwnd,
-                    &format!("## Error\n\n{}", e),
-                );
+                crate::overlay::result::update_window_text(api_hwnd, &format!("## Error\n\n{}", e));
                 return;
             }
         };

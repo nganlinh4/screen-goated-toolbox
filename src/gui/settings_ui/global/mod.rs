@@ -202,6 +202,7 @@ pub fn render_global_settings(
         .inner_margin(12.0)
         .corner_radius(10.0)
         .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::Upgrade, Some(crate::gui::icons::ICON_MD));
                 ui.label(
@@ -223,6 +224,7 @@ pub fn render_global_settings(
         .inner_margin(12.0)
         .corner_radius(10.0)
         .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::Settings, Some(crate::gui::icons::ICON_MD));
                 ui.label(

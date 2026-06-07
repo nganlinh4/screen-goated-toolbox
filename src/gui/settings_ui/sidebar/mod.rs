@@ -9,6 +9,18 @@ mod profiles;
 
 pub use localized::get_localized_preset_name;
 
+thread_local! {
+    static GRID_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+}
+
+/// The preset grid's measured width from the last render. The responsive layout
+/// uses this to size the preset-controls sidebar to fit its content — it varies
+/// with the number of modality columns and the preset name lengths, so a fixed
+/// fraction of the window would either clip it or waste space.
+pub(crate) fn cached_grid_width() -> f32 {
+    GRID_WIDTH.with(|w| w.get())
+}
+
 pub fn render_sidebar(
     ui: &mut egui::Ui,
     config: &mut Config,
@@ -48,10 +60,6 @@ pub fn render_sidebar(
     // They will appear in the order they are defined in config.presets.
 
     let current_view_mode = *view_mode;
-    // Use actual grid width from previous frame for Global Settings position
-    thread_local! {
-        static GRID_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
-    }
 
     // --- Presets Grid ---
     // Use stable ID based on preset count and IDs (not names - those change during typing)
@@ -434,7 +442,9 @@ fn render_preset_item_parts(
             if icon_button_sized(ui, star_icon, crate::gui::icons::ICON_LG).clicked() {
                 *preset_idx_to_toggle_favorite = Some(idx);
             }
-            if presets.len() > 1 && icon_button_sized(ui, Icon::Delete, crate::gui::icons::ICON_SM).clicked() {
+            if presets.len() > 1
+                && icon_button_sized(ui, Icon::Delete, crate::gui::icons::ICON_SM).clicked()
+            {
                 *preset_idx_to_delete = Some(idx);
             }
         }
