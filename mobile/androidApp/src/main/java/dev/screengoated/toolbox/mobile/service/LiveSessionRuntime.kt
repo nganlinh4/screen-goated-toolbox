@@ -254,6 +254,7 @@ class LiveSessionRuntime(
             s2sClient.runSession(
                 apiKey = apiKey,
                 model = model,
+                sourceMode = captureConfig.sourceMode,
                 audioChunks = audioCaptureController.open(
                     config = captureConfig,
                     onRms = { rms -> overlayController.updateVolume(rms) },

@@ -18,6 +18,25 @@ fun extractWindowsRawString(source: String, marker: String): String {
     return source.substring(contentStart, end)
 }
 
+fun extractRustConcatIncludeStrings(sourceFile: File, marker: String): String {
+    val source = sourceFile.readText()
+    val markerIndex = source.indexOf(marker)
+    require(markerIndex >= 0) { "Missing marker: $marker" }
+    val start = source.indexOf("concat!(", markerIndex)
+    require(start >= 0) { "Missing concat start for: $marker" }
+    val end = source.indexOf(");", start)
+    require(end >= 0) { "Missing concat end for: $marker" }
+    val body = source.substring(start, end)
+    val includePaths = Regex("""include_str!\("([^"]+)"\)""")
+        .findAll(body)
+        .map { it.groupValues[1] }
+        .toList()
+    require(includePaths.isNotEmpty()) { "Missing include_str entries for: $marker" }
+    return includePaths.joinToString(separator = "") { relativePath ->
+        sourceFile.parentFile.resolve(relativePath).readText()
+    }
+}
+
 fun extractQuotedStrings(source: String, marker: String, count: Int): List<String> {
     val markerIndex = source.indexOf(marker)
     require(markerIndex >= 0) { "Missing marker: $marker" }
@@ -91,9 +110,9 @@ val generatePresetOverlayAssets by tasks.registering {
         val outputDir = generatedPresetOverlayAssets.get().asFile.resolve("preset_overlay")
         outputDir.mkdirs()
 
-        val fitScript = extractWindowsRawString(
-            fitSource.readText(),
-            "const FIT_FONT_SCRIPT: &str = r#\"",
+        val fitScript = extractRustConcatIncludeStrings(
+            fitSource,
+            "const FIT_FONT_SCRIPT: &str = concat!(",
         )
         outputDir.resolve("windows_markdown_fit.js").writeText(
             """
