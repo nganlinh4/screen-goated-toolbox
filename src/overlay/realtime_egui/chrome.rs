@@ -381,7 +381,7 @@ fn render_transcription_controls(
         ui,
         "realtime_egui_transcription_model",
         transcription_model_label(&current_model),
-        96.0,
+        132.0,
         theme,
         |ui| {
             let models = [
@@ -390,6 +390,10 @@ fn render_transcription_controls(
                     "Gemini Live",
                 ),
                 ("gemini-live-s2s", "Gemini S2S"),
+                (
+                    crate::model_config::GEMINI_LIVE_TRANSLATE_MODEL_ID,
+                    "Gemini 3.5 translate",
+                ),
                 ("parakeet", "Parakeet"),
                 (crate::model_config::QWEN3_ASR_0_6B_MODEL_ID, "Qwen3 0.6B"),
                 (crate::model_config::QWEN3_ASR_1_7B_MODEL_ID, "Qwen3 1.7B"),
@@ -443,6 +447,7 @@ fn transcription_model_label(model: &str) -> &'static str {
         "parakeet" => "Parakeet",
         "zipformer" => "Zipformer",
         "gemini-live-s2s" => "Gemini S2S",
+        id if id == crate::model_config::GEMINI_LIVE_TRANSLATE_MODEL_ID => "Gemini 3.5 translate",
         id if id == crate::model_config::QWEN3_ASR_0_6B_MODEL_ID => "Qwen 0.6B",
         id if id == crate::model_config::QWEN3_ASR_1_7B_MODEL_ID => "Qwen 1.7B",
         _ => "Gemini",
@@ -459,9 +464,9 @@ fn render_translation_model_menu(
         .map(|a| {
             (
                 a.config.realtime_translation_model.clone(),
-                crate::model_config::normalize_realtime_transcription_model_id(
+                crate::model_config::is_gemini_live_s2s_model_id(
                     &a.config.realtime_transcription_model,
-                ) == "gemini-live-s2s",
+                ),
             )
         })
         .unwrap_or_default();

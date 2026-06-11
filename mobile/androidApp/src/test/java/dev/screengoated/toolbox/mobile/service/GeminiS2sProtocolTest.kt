@@ -24,10 +24,11 @@ class GeminiS2sProtocolTest {
     @Test
     fun `s2s source implements hedged attempts and first audio retry`() {
         val source = loadSourceFile(CLIENT_SOURCE_PATH).readText()
+        val vadSource = loadSourceFile(VAD_SOURCE_PATH).readText()
 
-        assertTrue(source.contains("private const val HEDGE_ATTEMPTS = 2"))
-        assertTrue(source.contains("private const val FIRST_AUDIO_SILENT_RETRY_MS = 3_800L"))
-        assertTrue(source.contains("private const val FIRST_AUDIO_ACTIVE_RETRY_MS = 5_200L"))
+        assertTrue(vadSource.contains("internal const val HEDGE_ATTEMPTS = 2"))
+        assertTrue(vadSource.contains("internal const val FIRST_AUDIO_SILENT_RETRY_MS = 3_800L"))
+        assertTrue(vadSource.contains("internal const val FIRST_AUDIO_ACTIVE_RETRY_MS = 5_200L"))
         assertTrue(source.contains("hedge-winner"))
         assertTrue(source.contains("reason=no_first_audio_retry"))
     }
@@ -54,6 +55,31 @@ class GeminiS2sProtocolTest {
         )
     }
 
+    @Test
+    fun `translate model setup source uses translation config`() {
+        val source = loadSourceFile(PROTOCOL_SOURCE_PATH).readText()
+        val clientSource = loadSourceFile(CLIENT_SOURCE_PATH).readText()
+
+        assertTrue(source.contains("isGeminiTranslateApiModel(model)"))
+        assertTrue(source.contains("RealtimeModelIds.GEMINI_LIVE_TRANSLATE_API_MODEL"))
+        assertTrue(source.contains("\"translationConfig\""))
+        assertTrue(source.contains(".put(\"targetLanguageCode\", targetLanguageCode(settings.targetLanguage))"))
+        assertTrue(source.contains(".put(\"echoTargetLanguage\", true)"))
+        assertTrue(source.contains("\"translationConfig\",\n                                JSONObject()"))
+        assertTrue(source.contains(".put(\"inputAudioTranscription\", JSONObject())"))
+        assertTrue(source.contains(".put(\"outputAudioTranscription\", JSONObject()),"))
+        assertTrue(clientSource.contains("shouldSendAudioStreamEnd(model)"))
+        assertTrue(clientSource.contains("stream-end-skipped"))
+        assertTrue(clientSource.contains("RealtimeLiveTranslateAndroid"))
+        assertTrue(clientSource.contains("runLiveTranslateContinuousSession("))
+        assertTrue(clientSource.contains("collectSegments(audioChunks, adaptiveVad, backlogMs, logTag)"))
+        assertTrue(clientSource.contains("player.playNativePcm24k(bytes, volumePercent)"))
+        assertEquals("zh-Hans", targetLanguageCode("Chinese"))
+        assertEquals("zh-Hant", targetLanguageCode("Chinese (Traditional)"))
+        assertEquals("pt-BR", targetLanguageCode("pt-BR"))
+        assertEquals("fil", targetLanguageCode("Filipino"))
+    }
+
     private fun loadSourceFile(path: String): File {
         val workingDirectory = requireNotNull(System.getProperty("user.dir"))
         return generateSequence(File(workingDirectory).absoluteFile) { current ->
@@ -70,5 +96,7 @@ class GeminiS2sProtocolTest {
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sPlayback.kt"
         private const val PROTOCOL_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sProtocol.kt"
+        private const val VAD_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sVad.kt"
     }
 }

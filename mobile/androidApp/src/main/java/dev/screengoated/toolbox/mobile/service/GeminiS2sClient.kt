@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.service
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
 import dev.screengoated.toolbox.mobile.service.tts.BlockingWebSocketSession
 import dev.screengoated.toolbox.mobile.service.tts.WebSocketEvent
@@ -38,13 +39,31 @@ class GeminiS2sClient(
         onDisplay: (S2sDisplaySnapshot) -> Unit,
     ) = coroutineScope {
         val startMs = SystemClock.elapsedRealtime()
+        val logTag = geminiLiveAudioLogTag(model)
         val initialSettings = settingsProvider()
         Log.i(
-            TAG,
+            logTag,
             "session-start model=$model target=${initialSettings.targetLanguage} " +
                 "voice=${initialSettings.globalTts.voice} speed=${initialSettings.realtime.speedPercent} " +
                 "volume=${initialSettings.realtime.volumePercent}",
         )
+        if (isGeminiLiveTranslateApiModel(model)) {
+            try {
+                runLiveTranslateContinuousSession(
+                    apiKey = apiKey,
+                    model = model,
+                    audioChunks = audioChunks,
+                    settingsProvider = settingsProvider,
+                    onDisplay = onDisplay,
+                    logTag = logTag,
+                )
+            } finally {
+                Log.i(logTag, "session-exit uptime_ms=${SystemClock.elapsedRealtime() - startMs}")
+                player.stopImmediate()
+            }
+            return@coroutineScope
+        }
+
         val contextMemory = S2sContextMemory()
         val adaptiveVad = AdaptiveS2sVadState()
         val backlogMs = AtomicInteger(0)
@@ -57,7 +76,7 @@ class GeminiS2sClient(
                 events = attempts,
                 settingsProvider = settingsProvider,
                 onDisplay = onDisplay,
-                logTag = TAG,
+                logTag = logTag,
                 backlogMs = backlogMs,
             )
         }
@@ -74,22 +93,205 @@ class GeminiS2sClient(
                         settingsProvider = settingsProvider,
                         output = attempts,
                         adaptiveVad = adaptiveVad,
+                        logTag = logTag,
                     )
                 }
             }
         }
 
         try {
-            collectSegments(audioChunks, adaptiveVad, backlogMs) { segment ->
+            collectSegments(audioChunks, adaptiveVad, backlogMs, logTag) { segment ->
                 workerChannels[(segment.id % SESSION_COUNT).toInt()].send(segment)
             }
         } finally {
-            Log.i(TAG, "session-exit uptime_ms=${SystemClock.elapsedRealtime() - startMs}")
+            Log.i(logTag, "session-exit uptime_ms=${SystemClock.elapsedRealtime() - startMs}")
             workerChannels.forEach { it.close() }
             workers.forEach { it.cancelAndJoin() }
             attempts.close()
             coordinator.cancelAndJoin()
             player.stopImmediate()
+        }
+    }
+
+    private suspend fun runLiveTranslateContinuousSession(
+        apiKey: String,
+        model: String,
+        audioChunks: kotlinx.coroutines.flow.Flow<ShortArray>,
+        settingsProvider: () -> GeminiS2sRuntimeSettings,
+        onDisplay: (S2sDisplaySnapshot) -> Unit,
+        logTag: String,
+    ) {
+        val textState = LiveTranslateTextAccumulator()
+        val stats = LiveTranslateStreamStats()
+        var streamId = 0L
+        var session: BlockingWebSocketSession? = null
+        var lastHealthAtMs = SystemClock.elapsedRealtime()
+        var lastServerActivityAtMs = SystemClock.elapsedRealtime()
+        var sentChunksAtLastActivity = 0
+
+        suspend fun connect(): BlockingWebSocketSession? {
+            val request = Request.Builder()
+                .url("$LIVE_WS_ENDPOINT?key=$apiKey")
+                .build()
+            val opened = BlockingWebSocketSession(httpClient, request)
+            if (!withContext(Dispatchers.IO) { opened.awaitOpen(10_000) }) {
+                opened.close()
+                Log.w(logTag, "continuous open-failed stream=$streamId")
+                return null
+            }
+            val setupPayload = buildGeminiS2sSetupPayload(
+                model = model,
+                settings = settingsProvider(),
+                contextText = "",
+            )
+            if (!opened.sendText(setupPayload) || !waitForGeminiS2sSetup(opened, logTag)) {
+                opened.close()
+                Log.w(logTag, "continuous setup-failed stream=$streamId")
+                return null
+            }
+            Log.i(logTag, "continuous socket connected stream=$streamId")
+            lastServerActivityAtMs = SystemClock.elapsedRealtime()
+            sentChunksAtLastActivity = stats.sentChunks
+            return opened
+        }
+
+        suspend fun ensureSession(): BlockingWebSocketSession? {
+            val current = session
+            if (current != null) {
+                return current
+            }
+            val connected = connect()
+            if (connected == null) {
+                delay(700)
+            }
+            session = connected
+            return connected
+        }
+
+        try {
+            audioChunks.collect { chunk ->
+                if (!currentCoroutineContext().isActive) {
+                    return@collect
+                }
+                val active = ensureSession() ?: return@collect
+                for (offset in chunk.indices step FRAME_SAMPLES) {
+                    val end = minOf(offset + FRAME_SAMPLES, chunk.size)
+                    val frame = chunk.copyOfRange(offset, end)
+                    if (!active.sendText(buildGeminiS2sAudioPayload(frame))) {
+                        Log.w(logTag, "continuous send-failed stream=$streamId sent_chunks=${stats.sentChunks}")
+                        active.close()
+                        session = null
+                        streamId++
+                        return@collect
+                    }
+                    stats.sentChunks++
+                    if (!drainLiveTranslateSocket(
+                            session = active,
+                            streamId = streamId,
+                            settingsProvider = settingsProvider,
+                            onDisplay = onDisplay,
+                            textState = textState,
+                            stats = stats,
+                            logTag = logTag,
+                        )
+                    ) {
+                        active.close()
+                        session = null
+                        streamId++
+                        return@collect
+                    }
+                }
+
+                val nowMs = SystemClock.elapsedRealtime()
+                if (stats.serverActivity) {
+                    lastServerActivityAtMs = nowMs
+                    sentChunksAtLastActivity = stats.sentChunks
+                    stats.serverActivity = false
+                }
+                if (nowMs - lastHealthAtMs >= 5_000L) {
+                    Log.i(
+                        logTag,
+                        "continuous health stream=$streamId sent_chunks=${stats.sentChunks} received_audio_chunks=${stats.receivedAudioChunks}",
+                    )
+                    lastHealthAtMs = nowMs
+                }
+                val silentSentChunks = stats.sentChunks - sentChunksAtLastActivity
+                if (session != null && silentSentChunks >= 100 && nowMs - lastServerActivityAtMs >= 15_000L) {
+                    Log.i(
+                        logTag,
+                        "continuous reconnect reason=server-silent stream=$streamId silent_ms=${nowMs - lastServerActivityAtMs} silent_sent_chunks=$silentSentChunks received_audio_chunks=${stats.receivedAudioChunks}",
+                    )
+                    session?.close()
+                    session = null
+                    streamId++
+                    lastServerActivityAtMs = nowMs
+                    sentChunksAtLastActivity = stats.sentChunks
+                }
+            }
+        } finally {
+            session?.close()
+            player.drain(1_000)
+        }
+    }
+
+    private fun drainLiveTranslateSocket(
+        session: BlockingWebSocketSession,
+        streamId: Long,
+        settingsProvider: () -> GeminiS2sRuntimeSettings,
+        onDisplay: (S2sDisplaySnapshot) -> Unit,
+        textState: LiveTranslateTextAccumulator,
+        stats: LiveTranslateStreamStats,
+        logTag: String,
+    ): Boolean {
+        while (true) {
+            when (val event = session.poll(2)) {
+                null -> return true
+                is WebSocketEvent.Text -> {
+                    handleLiveTranslatePayload(event.payload, settingsProvider, onDisplay, textState, stats)
+                }
+                is WebSocketEvent.Binary -> {
+                    handleLiveTranslatePayload(event.payload.utf8(), settingsProvider, onDisplay, textState, stats)
+                }
+                is WebSocketEvent.Failure -> {
+                    Log.w(logTag, "continuous socket failure stream=$streamId error=${event.throwable.message}", event.throwable)
+                    return false
+                }
+                WebSocketEvent.Closed -> {
+                    Log.i(logTag, "continuous socket closed stream=$streamId")
+                    return false
+                }
+            }
+        }
+    }
+
+    private fun handleLiveTranslatePayload(
+        payload: String,
+        settingsProvider: () -> GeminiS2sRuntimeSettings,
+        onDisplay: (S2sDisplaySnapshot) -> Unit,
+        textState: LiveTranslateTextAccumulator,
+        stats: LiveTranslateStreamStats,
+    ) {
+        val parsed = parseGeminiS2sUpdate(payload)
+        parsed.error?.let { throw IOException(it) }
+        var textChanged = false
+        if (parsed.inputText.isNotBlank()) {
+            textChanged = textState.updateSource(parsed.inputText) || textChanged
+        }
+        if (parsed.outputText.isNotBlank()) {
+            textChanged = textState.updateTarget(parsed.outputText) || textChanged
+        }
+        if (textChanged) {
+            onDisplay(textState.snapshot())
+        }
+        if (parsed.audioChunks.isNotEmpty()) {
+            val volumePercent = settingsProvider().realtime.volumePercent
+            parsed.audioChunks.forEach { bytes ->
+                player.playNativePcm24k(bytes, volumePercent)
+            }
+            stats.receivedAudioChunks += parsed.audioChunks.size
+        }
+        if (textChanged || parsed.audioChunks.isNotEmpty() || parsed.turnComplete || parsed.generationComplete) {
+            stats.serverActivity = true
         }
     }
 
@@ -102,6 +304,7 @@ class GeminiS2sClient(
         settingsProvider: () -> GeminiS2sRuntimeSettings,
         output: Channel<S2sEvent>,
         adaptiveVad: AdaptiveS2sVadState,
+        logTag: String,
     ) {
         output.send(
             S2sEvent.Queued(
@@ -121,11 +324,12 @@ class GeminiS2sClient(
             contextText = contextText,
             settingsProvider = settingsProvider,
             output = output,
+            logTag = logTag,
         )
         if (first == SegmentResult.OK) {
             adaptiveVad.observe(AdaptiveS2sVadOutcome.HEALTHY, segment)
         } else if (first == SegmentResult.RETRY_FRESH && currentCoroutineContext().isActive) {
-            Log.i(TAG, "retry segment=${segment.id} worker=$workerIndex gen=${segment.generation}")
+            Log.i(logTag, "retry segment=${segment.id} worker=$workerIndex gen=${segment.generation}")
             val second = runHedgedSegment(
                 apiKey = apiKey,
                 model = model,
@@ -136,6 +340,7 @@ class GeminiS2sClient(
                 contextText = contextText,
                 settingsProvider = settingsProvider,
                 output = output,
+                logTag = logTag,
             )
             if (second == SegmentResult.OK) {
                 adaptiveVad.observe(AdaptiveS2sVadOutcome.HEALTHY, segment)
@@ -158,8 +363,9 @@ class GeminiS2sClient(
         contextText: String,
         settingsProvider: () -> GeminiS2sRuntimeSettings,
         output: Channel<S2sEvent>,
+        logTag: String,
     ): SegmentResult = coroutineScope {
-        Log.i(TAG, "hedge segment=${segment.id} worker=$workerIndex gen=$baseGeneration attempts=$HEDGE_ATTEMPTS")
+        Log.i(logTag, "hedge segment=${segment.id} worker=$workerIndex gen=$baseGeneration attempts=$HEDGE_ATTEMPTS")
         val race = Channel<S2sRaceEvent>(Channel.UNLIMITED)
         val jobs = (0 until HEDGE_ATTEMPTS).map { attempt ->
             launch(Dispatchers.IO) {
@@ -174,13 +380,14 @@ class GeminiS2sClient(
                         contextText = contextText,
                         settings = settingsProvider(),
                         output = race,
+                        logTag = logTag,
                     )
                 } catch (error: Throwable) {
                     if (error is CancellationException) {
                         throw error
                     }
                     Log.w(
-                        TAG,
+                        logTag,
                         "attempt-error segment=${segment.id} gen=$generation attempt=$attempt error=${error.message}",
                         error,
                     )
@@ -202,7 +409,7 @@ class GeminiS2sClient(
                             winner = event.attempt
                             val generation = baseGeneration + (event.attempt * 100_000L)
                             Log.i(
-                                TAG,
+                                logTag,
                                 "hedge-winner segment=${segment.id} worker=$workerIndex gen=$generation attempt=${event.attempt} buffered_events=${buffered[event.attempt]?.size ?: 0}",
                             )
                             buffered[event.attempt]?.forEach { forwardWinnerEvent(it, output) }
@@ -245,7 +452,7 @@ class GeminiS2sClient(
                 }
             }
             if (winner == null) {
-                Log.i(TAG, "hedge-empty segment=${segment.id} worker=$workerIndex gen=$baseGeneration attempts=$HEDGE_ATTEMPTS")
+                Log.i(logTag, "hedge-empty segment=${segment.id} worker=$workerIndex gen=$baseGeneration attempts=$HEDGE_ATTEMPTS")
                 result = if (finalAttempt) SegmentResult.EMPTY_FINAL else SegmentResult.RETRY_FRESH
             }
         } finally {
@@ -277,6 +484,7 @@ class GeminiS2sClient(
         contextText: String,
         settings: GeminiS2sRuntimeSettings,
         output: Channel<S2sRaceEvent>,
+        logTag: String,
     ) {
         val startedAtMs = SystemClock.elapsedRealtime()
         val request = Request.Builder()
@@ -284,23 +492,23 @@ class GeminiS2sClient(
             .build()
         BlockingWebSocketSession(httpClient, request).use { session ->
             if (!withContext(Dispatchers.IO) { session.awaitOpen(10_000) }) {
-                Log.w(TAG, "open-failed segment=${segment.id} gen=${segment.generation} attempt=$attempt")
+                Log.w(logTag, "open-failed segment=${segment.id} gen=${segment.generation} attempt=$attempt")
                 output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
                 return
             }
-            Log.i(TAG, "open-ok segment=${segment.id} gen=${segment.generation} attempt=$attempt")
+            Log.i(logTag, "open-ok segment=${segment.id} gen=${segment.generation} attempt=$attempt")
             val setupPayload = buildGeminiS2sSetupPayload(
                 model = model,
                 settings = settings,
                 contextText = contextText,
             )
-            if (!session.sendText(setupPayload) || !waitForGeminiS2sSetup(session, TAG)) {
-                Log.w(TAG, "setup-failed segment=${segment.id} gen=${segment.generation} attempt=$attempt")
+            if (!session.sendText(setupPayload) || !waitForGeminiS2sSetup(session, logTag)) {
+                Log.w(logTag, "setup-failed segment=${segment.id} gen=${segment.generation} attempt=$attempt")
                 output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
                 return
             }
             Log.i(
-                TAG,
+                logTag,
                 "start segment=${segment.id} gen=${segment.generation} attempt=$attempt audio_ms=${segment.audioMs} context_chars=${contextText.length}",
             )
             for (offset in segment.samples.indices step FRAME_SAMPLES) {
@@ -310,7 +518,11 @@ class GeminiS2sClient(
                     return
                 }
             }
-            session.sendText(buildGeminiS2sAudioStreamEndPayload())
+            if (shouldSendAudioStreamEnd(model)) {
+                session.sendText(buildGeminiS2sAudioStreamEndPayload())
+            } else {
+                Log.i(logTag, "stream-end-skipped segment=${segment.id} gen=${segment.generation} attempt=$attempt")
+            }
 
             var firstAudioAtMs = 0L
             var lastAudioAtMs = 0L
@@ -323,7 +535,7 @@ class GeminiS2sClient(
                 val retryThreshold = groupedFirstAudioTimeoutMs(segment.audioMs.toLong(), textUpdates)
                 if (firstAudioAtMs == 0L && now - startedAtMs >= retryThreshold) {
                     Log.i(
-                        TAG,
+                        logTag,
                         "done segment=${segment.id} gen=${segment.generation} attempt=$attempt reason=no_first_audio_retry retry_ms=$retryThreshold source_audio_ms=${segment.audioMs} text_updates=$textUpdates chunks=$audioChunks first_audio_ms=none",
                     )
                     output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
@@ -331,7 +543,7 @@ class GeminiS2sClient(
                 }
                 if (firstAudioAtMs != 0L && now - lastAudioAtMs >= AUDIO_IDLE_FINISH_MS) {
                     Log.i(
-                        TAG,
+                        logTag,
                         "done segment=${segment.id} gen=${segment.generation} attempt=$attempt reason=audio_idle chunks=$audioChunks first_audio_ms=${firstAudioAtMs - startedAtMs}",
                     )
                     output.send(S2sRaceEvent.Done(segment.id, segment.generation, attempt))
@@ -339,7 +551,7 @@ class GeminiS2sClient(
                 }
                 if (now - startedAtMs > hardTimeoutMs) {
                     Log.i(
-                        TAG,
+                        logTag,
                         "done segment=${segment.id} gen=${segment.generation} attempt=$attempt reason=timeout timeout_ms=$hardTimeoutMs source_audio_ms=${segment.audioMs} chunks=$audioChunks first_audio_ms=${if (firstAudioAtMs == 0L) "none" else firstAudioAtMs - startedAtMs}",
                     )
                     output.send(
@@ -367,7 +579,7 @@ class GeminiS2sClient(
                         if (firstAudioAtMs == 0L) {
                             firstAudioAtMs = SystemClock.elapsedRealtime()
                             Log.i(
-                                TAG,
+                                logTag,
                                 "first-audio segment=${segment.id} gen=${segment.generation} attempt=$attempt elapsed_ms=${firstAudioAtMs - startedAtMs}",
                             )
                         }
@@ -377,7 +589,7 @@ class GeminiS2sClient(
                     }
                     if ((parsed.turnComplete || parsed.generationComplete) && audioChunks > 0) {
                         Log.i(
-                            TAG,
+                            logTag,
                             "done segment=${segment.id} gen=${segment.generation} attempt=$attempt reason=turn_complete chunks=$audioChunks first_audio_ms=${firstAudioAtMs - startedAtMs}",
                         )
                         output.trySend(S2sRaceEvent.Done(segment.id, segment.generation, attempt))
@@ -391,7 +603,7 @@ class GeminiS2sClient(
                         emptyReads++
                         if (emptyReads % 60 == 0) {
                             Log.d(
-                                TAG,
+                                logTag,
                                 "wait segment=${segment.id} gen=${segment.generation} elapsed_ms=${now - startedAtMs} no_audio_yet=${firstAudioAtMs == 0L} audio_chunks=$audioChunks text_updates=$textUpdates final_attempt=$finalAttempt",
                             )
                         }
@@ -426,6 +638,7 @@ class GeminiS2sClient(
         audioChunks: kotlinx.coroutines.flow.Flow<ShortArray>,
         adaptiveVad: AdaptiveS2sVadState,
         backlogMs: AtomicInteger,
+        logTag: String,
         emitSegment: suspend (S2sSegment) -> Unit,
     ) {
         var nextSegmentId = 0L
@@ -480,7 +693,7 @@ class GeminiS2sClient(
                 val audioMs = samples.size * 1000 / SAMPLE_RATE
                 backlogMs.addAndGet(audioMs)
                 Log.i(
-                    TAG,
+                    logTag,
                     "queued segment=$id worker=$worker audio_ms=$audioMs reason=$reason speech_frames=$speechFrames speech_ratio=${"%.2f".format(Locale.US, segmentSpeechRatio(segment))} speech_like_ratio=${"%.2f".format(Locale.US, segmentSpeechLikeRatio(segment))} confidence=${"%.2f".format(Locale.US, segmentSpeechConfidence(segment))} strictness=${"%.2f".format(Locale.US, vadSnapshot.strictness)} mean_rms=${"%.4f".format(Locale.US, segment.meanRms)} peak_rms=${"%.4f".format(Locale.US, segment.peakRms)} backlog_ms=${backlogMs.get()}",
                 )
                 emitSegment(
@@ -491,7 +704,7 @@ class GeminiS2sClient(
                 )
             } else {
                 Log.i(
-                    TAG,
+                    logTag,
                     "vad-skip segment=${nextSegmentId} strictness=${"%.2f".format(Locale.US, vadSnapshot.strictness)} confidence=${"%.2f".format(Locale.US, segmentSpeechConfidence(segment))} speech_like_ratio=${"%.2f".format(Locale.US, segmentSpeechLikeRatio(segment))} speech_ratio=${"%.2f".format(Locale.US, segmentSpeechRatio(segment))} mean_rms=${"%.4f".format(Locale.US, segment.meanRms)} peak_rms=${"%.4f".format(Locale.US, segment.peakRms)}",
                 )
             }
@@ -511,7 +724,7 @@ class GeminiS2sClient(
         }
 
         Log.i(
-            TAG,
+            logTag,
             "vad-start sample_rate=$SAMPLE_RATE frame_ms=$FRAME_MS min_segment_ms=${MIN_SEGMENT_SAMPLES * 1000 / SAMPLE_RATE}",
         )
         audioChunks.collect { chunk ->
@@ -561,7 +774,7 @@ class GeminiS2sClient(
                 val nowMs = SystemClock.elapsedRealtime()
                 if (nowMs - lastHealthAtMs >= VAD_HEALTH_INTERVAL_MS) {
                     Log.i(
-                        TAG,
+                        logTag,
                         "vad frames=$windowFrames speech_frames=$windowSpeechFrames " +
                             "peak_rms=${"%.4f".format(Locale.US, windowPeakRms)} " +
                             "noise_floor=${"%.4f".format(Locale.US, noiseFloor)} " +
@@ -577,7 +790,7 @@ class GeminiS2sClient(
             }
         }
         Log.i(
-            TAG,
+            logTag,
             "vad-exit final_segment=$nextSegmentId pending_ms=${pending.size * 1000 / SAMPLE_RATE} " +
                 "chunks=$totalChunks total_frames=$totalFrames",
         )
@@ -585,4 +798,132 @@ class GeminiS2sClient(
             flush("stop")
         }
     }
+}
+
+private fun geminiLiveAudioLogTag(model: String): String {
+    return if (isGeminiLiveTranslateApiModel(model)) "RealtimeLiveTranslateAndroid" else TAG
+}
+
+private data class LiveTranslateStreamStats(
+    var sentChunks: Int = 0,
+    var receivedAudioChunks: Int = 0,
+    var serverActivity: Boolean = false,
+)
+
+private class LiveTranslateTextAccumulator {
+    private var sourceCommitted: String = ""
+    private var sourceDraft: String = ""
+    private var targetCommitted: String = ""
+    private var targetDraft: String = ""
+
+    fun updateSource(incoming: String): Boolean {
+        val beforeCommitted = sourceCommitted
+        val beforeDraft = sourceDraft
+        val updated = updateLiveTextPair(sourceCommitted, sourceDraft, incoming)
+        sourceCommitted = updated.first
+        sourceDraft = updated.second
+        return beforeCommitted != sourceCommitted || beforeDraft != sourceDraft
+    }
+
+    fun updateTarget(incoming: String): Boolean {
+        val beforeCommitted = targetCommitted
+        val beforeDraft = targetDraft
+        val updated = updateLiveTextPair(targetCommitted, targetDraft, incoming)
+        targetCommitted = updated.first
+        targetDraft = updated.second
+        return beforeCommitted != targetCommitted || beforeDraft != targetDraft
+    }
+
+    fun snapshot(): S2sDisplaySnapshot {
+        return S2sDisplaySnapshot(
+            sourceCommitted = sourceCommitted,
+            sourceDraft = sourceDraft,
+            targetCommitted = targetCommitted,
+            targetDraft = targetDraft,
+        )
+    }
+}
+
+private fun updateLiveTextPair(
+    committedInput: String,
+    draftInput: String,
+    incomingInput: String,
+): Pair<String, String> {
+    val incoming = incomingInput.trim()
+    if (incoming.isEmpty()) {
+        return committedInput to draftInput
+    }
+    var committed = committedInput
+    var draft = draftInput
+    if (draft.isEmpty()) {
+        draft = incoming
+        return maybeCommitLiveDraft(committed, draft)
+    }
+    val trimmedDraft = draft.trim()
+    if (incoming == trimmedDraft || trimmedDraft.startsWith(incoming)) {
+        return committed to draft
+    }
+    if (incoming.startsWith(trimmedDraft)) {
+        draft = incoming
+        return maybeCommitLiveDraft(committed, draft)
+    }
+
+    val overlap = largestSuffixPrefixOverlap(trimmedDraft.trimEnd(), incoming)
+    if (overlap > 0) {
+        val suffix = incoming.substring(overlap).trimStart()
+        draft = if (suffix.isBlank()) draft.trimEnd() else "${draft.trimEnd()} $suffix"
+        return maybeCommitLiveDraft(committed, draft)
+    }
+
+    val committedPair = commitLiveDraft(committed, draft)
+    committed = committedPair.first
+    draft = incoming
+    return maybeCommitLiveDraft(committed, draft)
+}
+
+private fun maybeCommitLiveDraft(
+    committed: String,
+    draft: String,
+): Pair<String, String> {
+    val trimmed = draft.trim()
+    val wordCount = trimmed.split(Regex("\\s+")).count { it.isNotBlank() }
+    val endsSentence = trimmed.lastOrNull()?.let { it == '.' || it == '?' || it == '!' || it == '。' || it == '？' || it == '！' } == true
+    return if (endsSentence || wordCount >= 18) {
+        commitLiveDraft(committed, draft)
+    } else {
+        committed to draft
+    }
+}
+
+private fun commitLiveDraft(
+    committed: String,
+    draft: String,
+): Pair<String, String> {
+    val trimmed = draft.trim()
+    if (trimmed.isEmpty()) {
+        return committed to ""
+    }
+    val nextCommitted = if (committed.isEmpty()) trimmed else "$committed $trimmed"
+    return nextCommitted to ""
+}
+
+private fun largestSuffixPrefixOverlap(
+    left: String,
+    right: String,
+): Int {
+    val max = minOf(left.length, right.length)
+    for (size in max downTo 3) {
+        if (left.takeLast(size).equals(right.take(size), ignoreCase = true)) {
+            return size
+        }
+    }
+    return 0
+}
+
+private fun shouldSendAudioStreamEnd(model: String): Boolean {
+    return !isGeminiLiveTranslateApiModel(model)
+}
+
+private fun isGeminiLiveTranslateApiModel(model: String): Boolean {
+    return model == RealtimeModelIds.GEMINI_LIVE_TRANSLATE_API_MODEL || model.contains("live-translate")
 }

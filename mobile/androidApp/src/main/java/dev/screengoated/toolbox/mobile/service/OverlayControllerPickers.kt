@@ -94,7 +94,7 @@ internal fun OverlayController.onTranscriptionModelSelected(label: String) {
 }
 
 internal fun OverlayController.showTranslationModelPicker() {
-    if (repository.transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
+    if (RealtimeModelIds.isGeminiS2sModelId(repository.transcriptionModelId())) {
         return
     }
     val anchor = translationWindow?.currentBounds() ?: return
@@ -176,7 +176,7 @@ internal fun OverlayController.updateTranscriptionModel(modelId: String) {
 
 internal fun OverlayController.defaultTranscriptionLanguageFor(modelId: String): String {
     return if (
-        modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S ||
+        RealtimeModelIds.isGeminiS2sModelId(modelId) ||
         modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5
     ) {
         "all"
@@ -184,5 +184,4 @@ internal fun OverlayController.defaultTranscriptionLanguageFor(modelId: String):
         "en"
     }
 }
-
 

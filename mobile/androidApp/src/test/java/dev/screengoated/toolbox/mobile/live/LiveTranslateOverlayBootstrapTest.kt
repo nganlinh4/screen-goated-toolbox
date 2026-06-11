@@ -53,6 +53,7 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(translation.contains(defaultTranslationProviderId()))
         assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5))
         assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S))
+        assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_TRANSLATE))
         assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_PARAKEET))
         assertTrue(requiredModels.androidUnavailableTranscriptionProviders.contains(RealtimeModelIds.TRANSCRIPTION_PARAKEET))
         assertTrue(controls.translationPane.contains("translation-model-toggle"))
@@ -101,14 +102,17 @@ class LiveTranslateOverlayBootstrapTest {
         }
         assertEquals("Gemini Live | 100+ languages", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5 }.label)
         assertEquals("Gemini S2S", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S }.label)
+        assertEquals("Gemini 3.5 translate | 70+ languages", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_GEMINI_TRANSLATE }.label)
         assertEquals("Parakeet (Unavailable)", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET }.label)
         assertEquals("Moonshine Tiny | 1 language", transcriptionOptions.first { it.id == "moonshine-tiny-streaming" }.label)
         assertEquals("Moonshine Small | 1 language", transcriptionOptions.first { it.id == "moonshine-small-streaming" }.label)
         assertEquals("Moonshine Medium | 1 language", transcriptionOptions.first { it.id == "moonshine-medium-streaming" }.label)
         assertEquals("Zipformer | 8 languages", transcriptionOptions.first { it.id == "zipformer" }.label)
 
-        val mainJsSource = loadRepoFile(OVERLAY_MAIN_JS_PATH).readText()
+        val mainJsSource = loadRepoFile(OVERLAY_MAIN_JS_PATH).readText() +
+            loadRepoFile(OVERLAY_MAIN_JS_PART2_PATH).readText()
         assertTrue(mainJsSource.contains("'gemini-live-audio': 'Gemini Live'"))
+        assertTrue(mainJsSource.contains("'gemini-3.5-translate': 'Gemini 3.5 translate'"))
         assertTrue(mainJsSource.contains("'moonshine-tiny-streaming': 'Moonshine Tiny'"))
         assertTrue(mainJsSource.contains("'moonshine-small-streaming': 'Moonshine Small'"))
         assertTrue(mainJsSource.contains("'moonshine-medium-streaming': 'Moonshine Medium'"))
@@ -123,10 +127,12 @@ class LiveTranslateOverlayBootstrapTest {
         val builderSource = loadRepoFile(OVERLAY_HTML_BUILDER_PATH).readText()
         val logicSource = loadRepoFile(OVERLAY_LOGIC_JS_PATH).readText()
         val styleSource = loadRepoFile(OVERLAY_STYLE_PATH).readText()
-        val mainJsSource = loadRepoFile(OVERLAY_MAIN_JS_PATH).readText()
+        val mainJsSource = loadRepoFile(OVERLAY_MAIN_JS_PATH).readText() +
+            loadRepoFile(OVERLAY_MAIN_JS_PART2_PATH).readText()
         val webViewSource = loadRepoFile(OVERLAY_WEBVIEW_PATH).readText()
         val paneWindowSource = loadRepoFile(OVERLAY_PANE_WINDOW_PATH).readText()
         val controllerSource = loadRepoFile(OVERLAY_CONTROLLER_PATH).readText()
+        val boundsSource = loadRepoFile(OVERLAY_BOUNDS_PATH).readText()
         val runtimeModelsSource = loadRepoFile(TTS_RUNTIME_MODELS_PATH).readText()
         val audioTrackSource = loadRepoFile(AUDIO_TRACK_PLAYER_PATH).readText()
         val realtimeTtsCoordinatorSource = loadRepoFile(REALTIME_TTS_COORDINATOR_PATH).readText()
@@ -143,14 +149,14 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(builderSource.contains("\"TITLE_CONTENT\" to \"\""))
         assertTrue(styleSource.contains("#title:empty"))
         assertEquals("detached", fixture.requiredVisuals.mobileOverlayWindows)
-        assertTrue(controllerSource.contains("private var transcriptionWindow: OverlayPaneWindow? = null"))
-        assertTrue(controllerSource.contains("private var translationWindow: OverlayPaneWindow? = null"))
+        assertTrue(controllerSource.contains("internal var transcriptionWindow: OverlayPaneWindow? = null"))
+        assertTrue(controllerSource.contains("internal var translationWindow: OverlayPaneWindow? = null"))
         assertEquals("stacked-default-detached", fixture.requiredVisuals.portraitLayout)
-        assertTrue(controllerSource.contains("OverlayPaneId.TRANSCRIPTION -> top"))
-        assertTrue(controllerSource.contains("OverlayPaneId.TRANSLATION -> (top + height + gap)"))
+        assertTrue(boundsSource.contains("OverlayPaneId.TRANSCRIPTION -> top"))
+        assertTrue(boundsSource.contains("OverlayPaneId.TRANSLATION -> (top + height + gap)"))
         assertEquals("side-by-side-default-detached", fixture.requiredVisuals.landscapeLayout)
-        assertTrue(controllerSource.contains("OverlayPaneId.TRANSCRIPTION -> margin"))
-        assertTrue(controllerSource.contains("OverlayPaneId.TRANSLATION -> (screen.width() - width - margin)"))
+        assertTrue(boundsSource.contains("OverlayPaneId.TRANSCRIPTION -> margin"))
+        assertTrue(boundsSource.contains("OverlayPaneId.TRANSLATION -> (screen.width() - width - margin)"))
         assertEquals(false, fixture.requiredVisuals.chevronConsumesLayoutSpace)
         assertTrue(styleSource.contains("#header-toggle"))
         assertTrue(styleSource.contains("position: absolute"))
@@ -215,11 +221,12 @@ class LiveTranslateOverlayBootstrapTest {
         val paritySource = loadRepoFile(LIVE_TRANSLATE_PARITY_PATH).readText()
 
         assertTrue(fixture.requiredVisuals.targetLanguageChangeRestartsS2s)
-        assertTrue(controllerSource.contains("private fun updateTargetLanguage(language: String)"))
+        assertTrue(controllerSource.contains("internal fun updateTargetLanguage(language: String)"))
         assertTrue(controllerSource.contains("LiveTranslateParity.targetLanguageChangeRequiresRestart("))
         assertTrue(controllerSource.contains("previousConfig.transcriptionProvider.id"))
         assertTrue(controllerSource.contains("restartRequested()"))
-        assertTrue(paritySource.contains("return previousLanguage != nextLanguage && transcriptionProviderId == \"gemini-live-s2s\""))
+        assertTrue(paritySource.contains("transcriptionProviderId == \"gemini-live-s2s\""))
+        assertTrue(paritySource.contains("transcriptionProviderId == \"gemini-3.5-translate\""))
     }
 
     @Test
@@ -331,6 +338,8 @@ class LiveTranslateOverlayBootstrapTest {
         private const val FIXTURE_PATH = "parity-fixtures/live-translate/overlay-bootstrap.json"
         private const val OVERLAY_BASE_HTML_PATH = "mobile/androidApp/src/main/assets/realtime_overlay/base.html"
         private const val OVERLAY_MAIN_JS_PATH = "mobile/androidApp/src/main/assets/realtime_overlay/main.js"
+        private const val OVERLAY_MAIN_JS_PART2_PATH =
+            "mobile/androidApp/src/main/assets/realtime_overlay/main_part2.js"
         private const val OVERLAY_LOGIC_JS_PATH = "mobile/androidApp/src/main/assets/realtime_overlay/logic.js"
         private const val OVERLAY_STYLE_PATH = "mobile/androidApp/src/main/assets/realtime_overlay/style.css"
         private const val OVERLAY_HTML_BUILDER_PATH =
@@ -341,6 +350,8 @@ class LiveTranslateOverlayBootstrapTest {
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/OverlayPaneWindow.kt"
         private const val OVERLAY_CONTROLLER_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/OverlayController.kt"
+        private const val OVERLAY_BOUNDS_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/OverlayControllerBounds.kt"
         private const val TTS_RUNTIME_MODELS_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/tts/TtsRuntimeModels.kt"
         private const val AUDIO_TRACK_PLAYER_PATH =

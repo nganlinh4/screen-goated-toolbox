@@ -1,4 +1,4 @@
-mod audio_player;
+pub(crate) mod audio_player;
 
 use std::sync::{Arc, atomic::Ordering};
 use std::time::Duration;

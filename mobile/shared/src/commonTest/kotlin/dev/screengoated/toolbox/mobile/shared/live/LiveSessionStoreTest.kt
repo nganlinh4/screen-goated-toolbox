@@ -25,6 +25,13 @@ class LiveSessionStoreTest {
                 transcriptionProviderId = "gemini-live-s2s",
             ),
         )
+        assertTrue(
+            LiveTranslateParity.targetLanguageChangeRequiresRestart(
+                previousLanguage = "Vietnamese",
+                nextLanguage = "Korean",
+                transcriptionProviderId = "gemini-3.5-translate",
+            ),
+        )
         assertFalse(
             LiveTranslateParity.targetLanguageChangeRequiresRestart(
                 previousLanguage = "Vietnamese",

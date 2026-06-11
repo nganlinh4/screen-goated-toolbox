@@ -8,6 +8,7 @@ pub(super) fn run_vad_loop(
     overlay_hwnd: HWND,
     session_id: u64,
     adaptive_vad: Arc<Mutex<AdaptiveS2sVadState>>,
+    mode: S2sMode,
 ) {
     let mut pending = Vec::<i16>::new();
     let mut preroll = VecDeque::<i16>::new();
@@ -112,7 +113,8 @@ pub(super) fn run_vad_loop(
                     queued_at,
                 });
                 eprintln!(
-                    "[RealtimeS2S][Segment] queued id={} worker={} audio_ms={} samples={} speech_frames={} speech_ratio={:.2} speech_like_ratio={:.2} confidence={:.2} strictness={:.2} mean_rms={:.4} peak_rms={:.4} peak_sample={:.4} backlog_ms={}",
+                    "[{}][Segment] queued id={} worker={} audio_ms={} samples={} speech_frames={} speech_ratio={:.2} speech_like_ratio={:.2} confidence={:.2} strictness={:.2} mean_rms={:.4} peak_rms={:.4} peak_sample={:.4} backlog_ms={}",
+                    mode.log_tag(),
                     segment.id,
                     worker,
                     audio_ms,
@@ -160,7 +162,8 @@ pub(super) fn run_vad_loop(
             queued_at,
         });
         eprintln!(
-            "[RealtimeS2S][Segment] queued id={} worker={} audio_ms={} samples={} speech_frames={} speech_ratio={:.2} speech_like_ratio={:.2} confidence={:.2} strictness={:.2} mean_rms={:.4} peak_rms={:.4} peak_sample={:.4} backlog_ms={}",
+            "[{}][Segment] queued id={} worker={} audio_ms={} samples={} speech_frames={} speech_ratio={:.2} speech_like_ratio={:.2} confidence={:.2} strictness={:.2} mean_rms={:.4} peak_rms={:.4} peak_sample={:.4} backlog_ms={}",
+            mode.log_tag(),
             segment_id,
             worker,
             audio_ms,

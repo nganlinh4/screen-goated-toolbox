@@ -12,6 +12,7 @@ internal object RealtimeOverlayModelOptions {
     val transcriptionProviderIds: List<String> = listOf(
         RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5,
         RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S,
+        RealtimeModelIds.TRANSCRIPTION_GEMINI_TRANSLATE,
         RealtimeModelIds.TRANSCRIPTION_PARAKEET,
         "moonshine-tiny-streaming",
         "moonshine-small-streaming",
@@ -31,6 +32,10 @@ internal object RealtimeOverlayModelOptions {
         return listOf(
             RealtimeOverlayModelOption(RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5, GEMINI_LIVE_LABEL),
             RealtimeOverlayModelOption(RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S, geminiS2sLabel),
+            RealtimeOverlayModelOption(
+                RealtimeModelIds.TRANSCRIPTION_GEMINI_TRANSLATE,
+                GEMINI_TRANSLATE_LABEL,
+            ),
             RealtimeOverlayModelOption(
                 id = RealtimeModelIds.TRANSCRIPTION_PARAKEET,
                 label = parakeetLabel(unavailableSuffix),
@@ -58,6 +63,7 @@ internal object RealtimeOverlayModelOptions {
     }
 
     private const val GEMINI_LIVE_LABEL = "Gemini Live | 100+ languages"
+    private const val GEMINI_TRANSLATE_LABEL = "Gemini 3.5 translate | 70+ languages"
     private const val MOONSHINE_TINY_LABEL = "Moonshine Tiny | 1 language"
     private const val MOONSHINE_SMALL_LABEL = "Moonshine Small | 1 language"
     private const val MOONSHINE_MEDIUM_LABEL = "Moonshine Medium | 1 language"

@@ -84,6 +84,7 @@ pub fn run_gemini_live_s2s_batch_with_callbacks(
         } else {
             crate::model_config::normalize_tts_gemini_model(&batch_settings.model).to_string()
         },
+        mode: S2sMode::LegacyInterpreter,
         voice: if batch_settings.voice.trim().is_empty() {
             "Aoede".to_string()
         } else {

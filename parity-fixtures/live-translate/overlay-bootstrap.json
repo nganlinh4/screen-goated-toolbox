@@ -20,6 +20,7 @@
     "windowsTranscriptionProviders": [
       "gemini-live-audio",
       "gemini-live-s2s",
+      "gemini-3.5-translate",
       "parakeet",
       "qwen3-asr-0.6b",
       "qwen3-asr-1.7b",
@@ -28,6 +29,7 @@
     "androidTranscriptionProviders": [
       "gemini-live-audio",
       "gemini-live-s2s",
+      "gemini-3.5-translate",
       "parakeet",
       "moonshine-tiny-streaming",
       "moonshine-small-streaming",

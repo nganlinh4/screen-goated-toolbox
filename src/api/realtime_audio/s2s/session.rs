@@ -16,6 +16,7 @@ pub(super) fn session_worker(
         context_memory,
         adaptive_vad,
     };
+    let log_tag = resources.settings.mode.log_tag();
     let mut generation = 0u64;
     while !stop_signal.load(Ordering::SeqCst) {
         match segment_rx.recv_timeout(Duration::from_millis(50)) {
@@ -26,7 +27,7 @@ pub(super) fn session_worker(
                     run_single_segment_session(session_index, generation, segment, &resources)
                 {
                     eprintln!(
-                        "[RealtimeS2S] session={session_index} segment={segment_id} error: {err}"
+                        "[{log_tag}] session={session_index} segment={segment_id} error: {err}"
                     );
                     let _ = event_tx.send(S2sEvent::Error {
                         id: segment_id,
@@ -54,6 +55,7 @@ pub(super) fn run_single_segment_session(
         .unwrap_or_else(|_| S2sContextSnapshot {
             text: String::new(),
         });
+    let log_tag = resources.settings.mode.log_tag();
     let outcome = run_hedged_segment_session(
         HedgedSegmentRequest {
             session_index,
@@ -71,8 +73,8 @@ pub(super) fn run_single_segment_session(
     {
         let retry_generation = generation + 1_000_000;
         eprintln!(
-            "[RealtimeS2S] retry segment={} session={} gen={} fresh_gen={}",
-            segment.id, session_index, generation, retry_generation
+            "[{}] retry segment={} session={} gen={} fresh_gen={}",
+            log_tag, segment.id, session_index, generation, retry_generation
         );
         let retry_outcome = run_hedged_segment_session(
             HedgedSegmentRequest {
@@ -119,6 +121,7 @@ fn run_hedged_segment_session(
     let started = Instant::now();
     let source_audio_ms = samples_to_ms(segment.samples.len()) as u128;
     let hard_timeout_ms = grouped_hard_timeout_ms(source_audio_ms, final_attempt);
+    let log_tag = resources.settings.mode.log_tag();
 
     for attempt in 0..HEDGE_ATTEMPTS {
         let attempt_generation = generation + (attempt as u64 * 100_000);
@@ -149,7 +152,8 @@ fn run_hedged_segment_session(
                 cancel.store(true, Ordering::SeqCst);
             }
             eprintln!(
-                "[RealtimeS2S][Segment] timeout id={} session={} gen={} elapsed_ms={} timeout_ms={} audio_ms={} speech_ratio={:.2} peak_rms={:.4} peak_sample={:.4} winner={:?} saw_audio={:?} finished={:?} events={} final_attempt={}",
+                "[{}][Segment] timeout id={} session={} gen={} elapsed_ms={} timeout_ms={} audio_ms={} speech_ratio={:.2} peak_rms={:.4} peak_sample={:.4} winner={:?} saw_audio={:?} finished={:?} events={} final_attempt={}",
+                log_tag,
                 segment.id,
                 session_index,
                 generation,
@@ -243,7 +247,8 @@ fn run_hedged_segment_session(
                     let (input_text_events, output_text_events, audio_events) =
                         s2s_attempt_counts(&buffered_events);
                     eprintln!(
-                        "[RealtimeS2S][Segment] empty id={} session={} gen={} elapsed_ms={} attempts={} audio_ms={} speech_ratio={:.2} peak_rms={:.4} peak_sample={:.4} events={} final_attempt={}",
+                        "[{}][Segment] empty id={} session={} gen={} elapsed_ms={} attempts={} audio_ms={} speech_ratio={:.2} peak_rms={:.4} peak_sample={:.4} events={} final_attempt={}",
+                        log_tag,
                         segment.id,
                         session_index,
                         generation,
@@ -265,8 +270,8 @@ fn run_hedged_segment_session(
             Ok(S2sRaceEvent::Error { attempt, message }) => {
                 finished[attempt] = true;
                 eprintln!(
-                    "[RealtimeS2S] hedge-attempt-error segment={} session={} gen={} attempt={} error={}",
-                    segment.id, session_index, generation, attempt, message
+                    "[{}] hedge-attempt-error segment={} session={} gen={} attempt={} error={}",
+                    log_tag, segment.id, session_index, generation, attempt, message
                 );
                 if winner == Some(attempt) {
                     let _ = resources.event_tx.send(S2sEvent::Error {
@@ -328,6 +333,7 @@ fn spawn_hedged_attempt(request: HedgedAttemptRequest, resources: HedgedAttemptR
                     &mut socket,
                     &segment,
                     ProcessSegmentParams {
+                        mode: settings.mode,
                         session_index,
                         generation,
                         event_tx: &attempt_tx,

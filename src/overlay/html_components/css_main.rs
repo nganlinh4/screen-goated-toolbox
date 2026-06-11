@@ -251,6 +251,14 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             align-items: center;
             flex: 1;
             justify-content: flex-end;
+            min-width: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+            overscroll-behavior-x: contain;
+            scrollbar-width: none;
+        }}
+        #controls::-webkit-scrollbar {{
+            display: none;
         }}
         .btn-group {{
             display: flex;

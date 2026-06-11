@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.service
 import android.util.Base64
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import org.json.JSONArray
 import org.json.JSONObject
@@ -180,6 +181,29 @@ internal fun buildGeminiS2sSetupPayload(
     settings: GeminiS2sRuntimeSettings,
     contextText: String = "",
 ): String {
+    if (isGeminiTranslateApiModel(model)) {
+        return JSONObject()
+            .put(
+                "setup",
+                JSONObject()
+                    .put("model", "models/$model")
+                    .put(
+                        "generationConfig",
+                        JSONObject()
+                            .put("responseModalities", JSONArray().put("AUDIO"))
+                            .put(
+                                "translationConfig",
+                                JSONObject()
+                                    .put("targetLanguageCode", targetLanguageCode(settings.targetLanguage))
+                                    .put("echoTargetLanguage", true),
+                            ),
+                    )
+                    .put("inputAudioTranscription", JSONObject())
+                    .put("outputAudioTranscription", JSONObject()),
+            )
+            .toString()
+    }
+
     val generationConfig = JSONObject()
         .put("responseModalities", JSONArray().put("AUDIO"))
         .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
@@ -233,6 +257,72 @@ internal fun buildGeminiS2sSetupPayload(
                 .put("outputAudioTranscription", JSONObject()),
         )
         .toString()
+}
+
+private fun isGeminiTranslateApiModel(model: String): Boolean {
+    return model.contains("live-translate") || model == RealtimeModelIds.GEMINI_LIVE_TRANSLATE_API_MODEL
+}
+
+internal fun targetLanguageCode(language: String): String {
+    val trimmed = language.trim()
+    if (trimmed.isEmpty()) {
+        return "en"
+    }
+
+    return when (trimmed.lowercase(Locale.US)) {
+        "chinese",
+        "chinese (simplified)",
+        "simplified chinese",
+        "zh",
+        "zh-cn",
+        "zh-hans",
+        "zh_hans" -> "zh-Hans"
+        "chinese (traditional)",
+        "traditional chinese",
+        "zh-tw",
+        "zh-hant",
+        "zh_hant" -> "zh-Hant"
+        "portuguese (brazil)",
+        "brazilian portuguese",
+        "pt-br",
+        "pt_br" -> "pt-BR"
+        "portuguese (portugal)",
+        "european portuguese",
+        "pt-pt",
+        "pt_pt" -> "pt-PT"
+        "filipino",
+        "tagalog" -> "fil"
+        "norwegian" -> "no"
+        else -> {
+            if (isBcp47Like(trimmed)) {
+                normalizeBcp47Code(trimmed)
+            } else {
+                dev.screengoated.toolbox.mobile.model.LanguageCatalog.codeForName(trimmed)
+                    .lowercase(Locale.US)
+                    .ifBlank { "en" }
+            }
+        }
+    }
+}
+
+private fun isBcp47Like(value: String): Boolean {
+    val parts = value.split('-')
+    val language = parts.firstOrNull() ?: return false
+    return language.length in 2..3 &&
+        language.all { it.isLetter() } &&
+        parts.drop(1).all { part ->
+            part.isNotEmpty() && part.length <= 8 && part.all { it.isLetterOrDigit() }
+        }
+}
+
+private fun normalizeBcp47Code(code: String): String {
+    return when (code.lowercase(Locale.US)) {
+        "zh-hans" -> "zh-Hans"
+        "zh-hant" -> "zh-Hant"
+        "pt-br" -> "pt-BR"
+        "pt-pt" -> "pt-PT"
+        else -> code.lowercase(Locale.US)
+    }
 }
 
 internal fun buildGeminiS2sAudioPayload(samples: ShortArray): String {

@@ -92,6 +92,36 @@ internal class AudioTrackPlayer(
     }
 
     @Synchronized
+    fun playNativePcm24k(
+        pcm24k: ByteArray,
+        volumePercent: Int,
+    ) {
+        if (pcm24k.isEmpty()) {
+            return
+        }
+        requestAudioFocus()
+        ensureStarted()
+
+        val samples24k = ShortArray(pcm24k.size / 2)
+        for (i in samples24k.indices) {
+            val byteIndex = i * 2
+            samples24k[i] = ((pcm24k[byteIndex + 1].toInt() shl 8) or
+                (pcm24k[byteIndex].toInt() and 0xFF)).toShort()
+        }
+
+        val output = upsampleAndScale(samples24k, volumePercent)
+        val writtenBytes = audioTrack.write(output, 0, output.size, AudioTrack.WRITE_BLOCKING)
+        if (writtenBytes > 0) {
+            writtenFrames += writtenBytes / 2L
+            lastWriteCompletedAtMs = SystemClock.elapsedRealtime()
+            Log.d(
+                TAG,
+                "playNativePcm24k wrote bytes=$writtenBytes frames=${writtenBytes / 2L} totalWrittenFrames=$writtenFrames volume=$volumePercent",
+            )
+        }
+    }
+
+    @Synchronized
     fun beginCommunicationSession() {
         if (communicationSessionActive) {
             Log.d(TAG, "beginCommunicationSession ignored because communication session is already active")

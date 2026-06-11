@@ -73,7 +73,9 @@ fn should_run_text_translation_loop(
     translation_hwnd: Option<HWND>,
     trans_model: &str,
 ) -> bool {
-    translation_hwnd.is_some() && preset.blocks.len() > 1 && trans_model != "gemini-live-s2s"
+    translation_hwnd.is_some()
+        && preset.blocks.len() > 1
+        && !crate::model_config::is_gemini_live_s2s_model_id(trans_model)
 }
 
 fn spawn_text_translation_loop(
@@ -153,9 +155,12 @@ fn transcription_thread_entry(
                 text_translation_loop_active = true;
             }
         } else if !wants_text_translation {
-            if trans_model == "gemini-live-s2s" && hwnd_translation.is_some() {
+            if crate::model_config::is_gemini_live_s2s_model_id(&trans_model)
+                && hwnd_translation.is_some()
+            {
                 crate::log_info!(
-                    "[RealtimeTranslate] skip text translation loop because Gemini S2S owns target output"
+                    "[RealtimeTranslate] skip text translation loop because direct speech model owns target output transcription_model={}",
+                    trans_model
                 );
             }
             text_translation_loop_active = false;
@@ -171,7 +176,7 @@ fn transcription_thread_entry(
                 s.set_transcription_method(super::state::TranscriptionMethod::Qwen3Local);
             } else if trans_model == "zipformer" {
                 s.set_transcription_method(super::state::TranscriptionMethod::SherpaZipformer);
-            } else if trans_model == "gemini-live-s2s" {
+            } else if crate::model_config::is_gemini_live_s2s_model_id(&trans_model) {
                 s.set_transcription_method(super::state::TranscriptionMethod::GeminiLiveS2s);
             } else {
                 s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
@@ -213,7 +218,7 @@ fn transcription_thread_entry(
                 state.clone(),
                 session_id,
             )
-        } else if trans_model == "gemini-live-s2s" {
+        } else if crate::model_config::is_gemini_live_s2s_model_id(&trans_model) {
             super::s2s::run_gemini_live_s2s(
                 current_preset.clone(),
                 stop_signal.clone(),

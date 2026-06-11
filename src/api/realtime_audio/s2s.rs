@@ -324,6 +324,12 @@ enum S2sEvent {
         id: u64,
         message: String,
     },
+    LiveText {
+        source_full: String,
+        source_committed_len: usize,
+        target_committed: String,
+        target_draft: String,
+    },
     Interrupt,
 }
 
@@ -385,10 +391,26 @@ pub use live::run_gemini_live_s2s;
 struct S2sSettings {
     api_key: String,
     model: String,
+    mode: S2sMode,
     voice: String,
     speed: String,
     custom_instruction: String,
     target_language: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum S2sMode {
+    LegacyInterpreter,
+    LiveTranslate,
+}
+
+impl S2sMode {
+    fn log_tag(self) -> &'static str {
+        match self {
+            Self::LegacyInterpreter => "RealtimeS2S",
+            Self::LiveTranslate => "RealtimeLiveTranslate",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -425,6 +447,7 @@ struct HedgedAttemptResources {
 }
 
 struct ProcessSegmentParams<'a> {
+    mode: S2sMode,
     session_index: usize,
     generation: u64,
     event_tx: &'a mpsc::Sender<S2sEvent>,
@@ -440,18 +463,29 @@ fn load_settings() -> Result<S2sSettings> {
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
     }
     let model = app.config.tts_gemini_live_model.trim();
+    let transcription_model = crate::model_config::normalize_realtime_transcription_model_id(
+        &app.config.realtime_transcription_model,
+    );
     let voice = app.config.tts_voice.trim();
     let speed = app.config.tts_speed.trim();
     let target_language = app.config.realtime_target_language.clone();
     let custom_instruction =
         tts_instruction_for_target(&target_language, &app.config.tts_language_conditions);
+    let mode = if crate::model_config::is_gemini_live_translate_model_id(&transcription_model) {
+        S2sMode::LiveTranslate
+    } else {
+        S2sMode::LegacyInterpreter
+    };
     Ok(S2sSettings {
         api_key,
-        model: if model.is_empty() {
+        model: if mode == S2sMode::LiveTranslate {
+            crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL.to_string()
+        } else if model.is_empty() {
             crate::model_config::GEMINI_LIVE_API_MODEL_3_1.to_string()
         } else {
             crate::model_config::normalize_tts_gemini_model(model).to_string()
         },
+        mode,
         voice: if voice.is_empty() {
             "Aoede".to_string()
         } else {

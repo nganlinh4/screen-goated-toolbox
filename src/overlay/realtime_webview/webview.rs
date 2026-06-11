@@ -360,9 +360,9 @@ pub fn create_realtime_webview(
                         // TTS toggle for realtime translations
                         let requested_enabled = &body[11..] == "1";
                         controller::set_tts_enabled(requested_enabled);
-                        if controller::load_session_config().transcription_model
-                            != "gemini-live-s2s"
-                            && requested_enabled
+                        if !crate::model_config::is_gemini_live_s2s_model_id(
+                            &controller::load_session_config().transcription_model,
+                        ) && requested_enabled
                             && controller::load_session_config().audio_source == "device"
                         {
                             let script = "if(window.setTtsEnabled) window.setTtsEnabled(false);";

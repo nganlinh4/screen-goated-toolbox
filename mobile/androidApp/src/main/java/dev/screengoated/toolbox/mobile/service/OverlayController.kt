@@ -398,7 +398,9 @@ class OverlayController(
         val ttsState = overlayTtsState(
             settings = snapshot.ttsSettings,
             runtimeState = lastRuntimeTtsState,
-            forceEnabled = snapshot.state.config.transcriptionProvider.id == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S,
+            forceEnabled = dev.screengoated.toolbox.mobile.model.RealtimeModelIds.isGeminiS2sModelId(
+                snapshot.state.config.transcriptionProvider.id,
+            ),
         )
         if (force || lastTtsState != ttsState) {
             lastTtsState = ttsState
@@ -478,7 +480,7 @@ class OverlayController(
     )
 
     internal fun updateTtsEnabled(enabled: Boolean) {
-        if (repository.transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
+        if (RealtimeModelIds.isGeminiS2sModelId(repository.transcriptionModelId())) {
             val current = repository.currentRealtimeTtsSettings()
             repository.updateRealtimeTtsSettings(current.copy(enabled = true))
             return
