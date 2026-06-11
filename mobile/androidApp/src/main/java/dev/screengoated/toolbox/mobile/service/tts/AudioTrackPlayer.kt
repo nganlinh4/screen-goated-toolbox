@@ -13,6 +13,8 @@ import android.util.Log
 
 internal class AudioTrackPlayer(
     context: Context,
+    private val outputMode: AudioTrackOutputMode = AudioTrackOutputMode.VOICE_COMMUNICATION,
+    private val outputVolumeBoost: Float = 1.0f,
 ) {
     data class PlaybackDebugSnapshot(
         val active: Boolean,
@@ -26,7 +28,9 @@ internal class AudioTrackPlayer(
         val trackState: Int,
         val audioSessionId: Int,
         val audioMode: Int?,
+        val outputMode: AudioTrackOutputMode,
         val communicationDevice: String?,
+        val routedDevice: String?,
         val voiceCallVolume: Int?,
         val voiceCallMaxVolume: Int?,
         val musicVolume: Int?,
@@ -50,6 +54,8 @@ internal class AudioTrackPlayer(
     private var lastPlayStartedAtMs: Long = 0L
     private var lastWriteCompletedAtMs: Long = 0L
     private var lastStopAtMs: Long = 0L
+    private var nativePlaybackChunks: Long = 0L
+    private var lastNativePlaybackLogAtMs: Long = 0L
     private var communicationSessionActive = false
     private var previousAudioMode: Int? = null
     private var previousSpeakerphoneOn: Boolean? = null
@@ -79,14 +85,15 @@ internal class AudioTrackPlayer(
         val stretched = stretcher.stretch(samples24k, speedRatio)
 
         // Upsample stretched 24kHz to 48kHz and apply volume
-        val output = upsampleAndScale(stretched, volumePercent)
+        val effectiveVolumePercent = effectiveVolumePercent(volumePercent)
+        val output = upsampleAndScale(stretched, effectiveVolumePercent)
         val writtenBytes = audioTrack.write(output, 0, output.size, AudioTrack.WRITE_BLOCKING)
         if (writtenBytes > 0) {
             writtenFrames += writtenBytes / 2L
             lastWriteCompletedAtMs = SystemClock.elapsedRealtime()
             Log.d(
                 TAG,
-                "playPcm24k wrote bytes=$writtenBytes frames=${writtenBytes / 2L} totalWrittenFrames=$writtenFrames speed=$speedPercent volume=$volumePercent",
+                "playPcm24k wrote bytes=$writtenBytes frames=${writtenBytes / 2L} totalWrittenFrames=$writtenFrames speed=$speedPercent volume=$volumePercent effective_volume=$effectiveVolumePercent outputMode=$outputMode",
             )
         }
     }
@@ -109,15 +116,22 @@ internal class AudioTrackPlayer(
                 (pcm24k[byteIndex].toInt() and 0xFF)).toShort()
         }
 
-        val output = upsampleAndScale(samples24k, volumePercent)
+        val effectiveVolumePercent = effectiveVolumePercent(volumePercent)
+        val output = upsampleAndScale(samples24k, effectiveVolumePercent)
         val writtenBytes = audioTrack.write(output, 0, output.size, AudioTrack.WRITE_BLOCKING)
         if (writtenBytes > 0) {
             writtenFrames += writtenBytes / 2L
             lastWriteCompletedAtMs = SystemClock.elapsedRealtime()
-            Log.d(
-                TAG,
-                "playNativePcm24k wrote bytes=$writtenBytes frames=${writtenBytes / 2L} totalWrittenFrames=$writtenFrames volume=$volumePercent",
-            )
+            nativePlaybackChunks++
+            val nowMs = lastWriteCompletedAtMs
+            if (nowMs - lastNativePlaybackLogAtMs >= 5_000L) {
+                lastNativePlaybackLogAtMs = nowMs
+                val playedFrames = audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+                Log.d(
+                    TAG,
+                    "playNativePcm24k health chunks=$nativePlaybackChunks last_bytes=$writtenBytes totalWrittenFrames=$writtenFrames playedFrames=$playedFrames pendingFrames=${(writtenFrames - playedFrames).coerceAtLeast(0)} volume=$volumePercent effective_volume=$effectiveVolumePercent outputMode=$outputMode",
+                )
+            }
         }
     }
 
@@ -226,7 +240,13 @@ internal class AudioTrackPlayer(
             trackState = audioTrack.state,
             audioSessionId = audioTrack.audioSessionId,
             audioMode = manager?.mode,
+            outputMode = outputMode,
             communicationDevice = manager?.currentCommunicationDeviceLabel(),
+            routedDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioTrack.routedDevice?.debugLabel()
+            } else {
+                null
+            },
             voiceCallVolume = manager?.getStreamVolume(AudioManager.STREAM_VOICE_CALL),
             voiceCallMaxVolume = manager?.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL),
             musicVolume = manager?.getStreamVolume(AudioManager.STREAM_MUSIC),
@@ -271,7 +291,7 @@ internal class AudioTrackPlayer(
             lastPlayStartedAtMs = SystemClock.elapsedRealtime()
             Log.d(
                 TAG,
-                "AudioTrack playback started playState=${audioTrack.playState} trackState=${audioTrack.state} audioSessionId=${audioTrack.audioSessionId} mode=${audioManager?.mode?.debugAudioMode()} device=${audioManager?.currentCommunicationDeviceLabel()} voiceVolume=${audioManager?.streamVolumeLabel(AudioManager.STREAM_VOICE_CALL)} musicVolume=${audioManager?.streamVolumeLabel(AudioManager.STREAM_MUSIC)}",
+                "AudioTrack playback started outputMode=$outputMode playState=${audioTrack.playState} trackState=${audioTrack.state} audioSessionId=${audioTrack.audioSessionId} mode=${audioManager?.mode?.debugAudioMode()} communicationDevice=${audioManager?.currentCommunicationDeviceLabel()} routedDevice=${if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) audioTrack.routedDevice?.debugLabel() else null} voiceVolume=${audioManager?.streamVolumeLabel(AudioManager.STREAM_VOICE_CALL)} musicVolume=${audioManager?.streamVolumeLabel(AudioManager.STREAM_MUSIC)}",
             )
         }
     }
@@ -280,7 +300,7 @@ internal class AudioTrackPlayer(
         samples24k: ShortArray,
         volumePercent: Int,
     ): ByteArray {
-        val volume = volumePercent.coerceIn(0, 200) / 100f
+        val volume = volumePercent.coerceIn(0, MAX_OUTPUT_VOLUME_PERCENT) / 100f
         val output = ByteArray(samples24k.size * 4) // 2x upsample, 2 bytes per sample
         var outputIndex = 0
         for (sample in samples24k) {
@@ -292,6 +312,12 @@ internal class AudioTrackPlayer(
             }
         }
         return output
+    }
+
+    private fun effectiveVolumePercent(volumePercent: Int): Int {
+        return (volumePercent.coerceIn(0, MAX_INPUT_VOLUME_PERCENT) * outputVolumeBoost)
+            .toInt()
+            .coerceIn(0, MAX_OUTPUT_VOLUME_PERCENT)
     }
 
     private fun stopInternal() {
@@ -307,6 +333,8 @@ internal class AudioTrackPlayer(
         }
         active = false
         writtenFrames = 0
+        nativePlaybackChunks = 0
+        lastNativePlaybackLogAtMs = 0L
         lastStopAtMs = SystemClock.elapsedRealtime()
         abandonAudioFocus()
     }
@@ -352,8 +380,12 @@ internal class AudioTrackPlayer(
     }
 
     private fun buildOutputAudioAttributes(): AudioAttributes {
+        val usage = when (outputMode) {
+            AudioTrackOutputMode.MEDIA -> AudioAttributes.USAGE_MEDIA
+            AudioTrackOutputMode.VOICE_COMMUNICATION -> AudioAttributes.USAGE_VOICE_COMMUNICATION
+        }
         return AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+            .setUsage(usage)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             .setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
             .build()
@@ -372,7 +404,14 @@ internal class AudioTrackPlayer(
     private companion object {
         private const val TAG = "SGTTranslationGummyPlayer"
         private const val PLAYBACK_IDLE_STOP_MS = 200L
+        private const val MAX_INPUT_VOLUME_PERCENT = 200
+        private const val MAX_OUTPUT_VOLUME_PERCENT = 360
     }
+}
+
+internal enum class AudioTrackOutputMode {
+    MEDIA,
+    VOICE_COMMUNICATION,
 }
 
 private fun AudioDeviceInfo.debugLabel(): String {
