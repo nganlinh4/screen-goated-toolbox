@@ -20,6 +20,34 @@ fn send_s2s_setup(
     settings: &S2sSettings,
     context: &S2sContextSnapshot,
 ) -> Result<()> {
+    let payload = build_s2s_setup_payload(settings, context);
+
+    socket.write(Message::Text(payload.to_string().into()))?;
+    socket.flush()?;
+    Ok(())
+}
+
+fn build_s2s_setup_payload(
+    settings: &S2sSettings,
+    context: &S2sContextSnapshot,
+) -> serde_json::Value {
+    if settings.mode == S2sMode::LiveTranslate {
+        return serde_json::json!({
+            "setup": {
+                "model": format!("models/{}", settings.model),
+                "generationConfig": {
+                    "responseModalities": ["AUDIO"],
+                    "translationConfig": {
+                        "targetLanguageCode": target_language_code(&settings.target_language),
+                        "echoTargetLanguage": true
+                    }
+                },
+                "inputAudioTranscription": {},
+                "outputAudioTranscription": {}
+            }
+        });
+    }
+
     let instruction = format!(
         "You are a low-latency live interpreter. Translate every input speech segment into {}. \
          Speak only the translated content. Do not explain, summarize, answer, or add commentary. \
@@ -36,7 +64,7 @@ fn send_s2s_setup(
         },
         context.text
     );
-    let payload = serde_json::json!({
+    serde_json::json!({
         "setup": {
             "model": format!("models/{}", settings.model),
             "generationConfig": {
@@ -60,11 +88,133 @@ fn send_s2s_setup(
             "inputAudioTranscription": {},
             "outputAudioTranscription": {}
         }
-    });
+    })
+}
 
-    socket.write(Message::Text(payload.to_string().into()))?;
-    socket.flush()?;
-    Ok(())
+fn target_language_code(language: &str) -> String {
+    let trimmed = language.trim();
+    if trimmed.is_empty() {
+        return "en".to_string();
+    }
+
+    match trimmed.to_ascii_lowercase().as_str() {
+        "chinese"
+        | "chinese (simplified)"
+        | "simplified chinese"
+        | "zh"
+        | "zh-cn"
+        | "zh-hans"
+        | "zh_hans" => return "zh-Hans".to_string(),
+        "chinese (traditional)" | "traditional chinese" | "zh-tw" | "zh-hant" | "zh_hant" => {
+            return "zh-Hant".to_string();
+        }
+        "portuguese (brazil)" | "brazilian portuguese" | "pt-br" | "pt_br" => {
+            return "pt-BR".to_string();
+        }
+        "portuguese (portugal)" | "european portuguese" | "pt-pt" | "pt_pt" => {
+            return "pt-PT".to_string();
+        }
+        "filipino" | "tagalog" => return "fil".to_string(),
+        "norwegian" => return "no".to_string(),
+        code if is_bcp47_like(code) => return normalize_bcp47_code(trimmed),
+        _ => {}
+    }
+
+    isolang::Language::from_name(trimmed)
+        .map(|language| language.to_639_1().unwrap_or_else(|| language.to_639_3()))
+        .map(str::to_string)
+        .unwrap_or_else(|| "en".to_string())
+}
+
+fn is_bcp47_like(value: &str) -> bool {
+    let mut parts = value.split('-');
+    let Some(language) = parts.next() else {
+        return false;
+    };
+    language.len() >= 2
+        && language.len() <= 3
+        && language.chars().all(|ch| ch.is_ascii_lowercase())
+        && parts.all(|part| {
+            !part.is_empty()
+                && part.len() <= 8
+                && part
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+        })
+}
+
+fn normalize_bcp47_code(code: &str) -> String {
+    match code.to_ascii_lowercase().as_str() {
+        "zh-hans" => "zh-Hans".to_string(),
+        "zh-hant" => "zh-Hant".to_string(),
+        "pt-br" => "pt-BR".to_string(),
+        "pt-pt" => "pt-PT".to_string(),
+        value => value.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(model: &str, target_language: &str) -> S2sSettings {
+        S2sSettings {
+            api_key: "test-key".to_string(),
+            model: model.to_string(),
+            mode: if model == crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL {
+                S2sMode::LiveTranslate
+            } else {
+                S2sMode::LegacyInterpreter
+            },
+            voice: "Aoede".to_string(),
+            speed: "Normal".to_string(),
+            custom_instruction: String::new(),
+            target_language: target_language.to_string(),
+        }
+    }
+
+    #[test]
+    fn translate_model_setup_uses_translation_config() {
+        let payload = build_s2s_setup_payload(
+            &settings(
+                crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL,
+                "Vietnamese",
+            ),
+            &S2sContextSnapshot {
+                text: "legacy context must not be sent".to_string(),
+            },
+        );
+
+        let setup = &payload["setup"];
+        let expected_model = format!(
+            "models/{}",
+            crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL
+        );
+        assert_eq!(setup["model"].as_str(), Some(expected_model.as_str()));
+        assert!(setup.get("systemInstruction").is_none());
+        assert_eq!(setup["inputAudioTranscription"], serde_json::json!({}));
+        assert_eq!(setup["outputAudioTranscription"], serde_json::json!({}));
+        assert_eq!(
+            setup["generationConfig"]["translationConfig"]["targetLanguageCode"].as_str(),
+            Some("vi")
+        );
+        assert_eq!(
+            setup["generationConfig"]["translationConfig"]["echoTargetLanguage"].as_bool(),
+            Some(true)
+        );
+        assert!(setup["generationConfig"].get("inputAudioTranscription").is_none());
+        assert!(setup["generationConfig"].get("outputAudioTranscription").is_none());
+    }
+
+    #[test]
+    fn translate_target_language_code_preserves_bcp47_variants() {
+        assert_eq!(target_language_code("Chinese"), "zh-Hans");
+        assert_eq!(target_language_code("Chinese (Traditional)"), "zh-Hant");
+        assert_eq!(target_language_code("pt-BR"), "pt-BR");
+        assert_eq!(target_language_code("Portuguese (Portugal)"), "pt-PT");
+        assert_eq!(target_language_code("Filipino"), "fil");
+        assert_eq!(target_language_code("Korean"), "ko");
+    }
 }
 
 fn wait_for_setup(
@@ -93,6 +243,9 @@ fn wait_for_setup(
                         return Ok(());
                     }
                 }
+            }
+            Ok(Message::Close(frame)) => {
+                return Err(anyhow::anyhow!("S2S setup socket closed: {:?}", frame));
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(ref err))
@@ -123,6 +276,7 @@ pub(super) fn process_segment(
     params: ProcessSegmentParams<'_>,
 ) -> Result<SegmentOutcome> {
     let ProcessSegmentParams {
+        mode,
         session_index,
         generation,
         event_tx,
@@ -137,9 +291,12 @@ pub(super) fn process_segment(
         }
         send_audio_chunk(socket, chunk)?;
     }
-    send_audio_stream_end(socket)?;
+    if mode != S2sMode::LiveTranslate {
+        send_audio_stream_end(socket)?;
+    }
 
     let started = Instant::now();
+    let log_tag = mode.log_tag();
     let mut last_update = Instant::now();
     let mut last_audio_at: Option<Instant> = None;
     let mut first_audio_ms: Option<u128> = None;
@@ -216,7 +373,8 @@ pub(super) fn process_segment(
                     .map(|f| format!("connection closed ({}: {})", f.code, f.reason))
                     .unwrap_or_else(|| "connection closed".to_string());
                 eprintln!(
-                    "[RealtimeS2S] socket-close segment={} session={} gen={} elapsed_ms={} detail={} chunks={} text_updates={}",
+                    "[{}] socket-close segment={} session={} gen={} elapsed_ms={} detail={} chunks={} text_updates={}",
+                    log_tag,
                     segment_id,
                     session_index,
                     generation,
@@ -262,7 +420,8 @@ pub(super) fn process_segment(
                     || started.elapsed().as_millis() > total_timeout_ms
                 {
                     eprintln!(
-                        "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=timeout idle_ms={} total_timeout_ms={} source_audio_ms={} chunks={} first_audio_ms={}",
+                        "[{}] done segment={} session={} gen={} elapsed_ms={} reason=timeout idle_ms={} total_timeout_ms={} source_audio_ms={} chunks={} first_audio_ms={}",
+                        log_tag,
                         segment_id,
                         session_index,
                         generation,
@@ -289,12 +448,12 @@ pub(super) fn process_segment(
     Ok(SegmentOutcome::RetryFresh)
 }
 
-struct HandledS2sMessage {
-    audio_chunks: usize,
+pub(super) struct HandledS2sMessage {
+    pub(super) audio_chunks: usize,
     text_updates: usize,
 }
 
-fn handle_s2s_message(
+pub(super) fn handle_s2s_message(
     id: u64,
     message: &str,
     event_tx: &mpsc::Sender<S2sEvent>,
@@ -329,17 +488,17 @@ fn handle_s2s_message(
     })
 }
 
-struct S2sParsedUpdate {
-    setup_complete: bool,
-    input_transcript: Option<String>,
-    output_transcript: Option<String>,
-    audio_chunks: Vec<Vec<u8>>,
-    turn_complete: bool,
-    interrupted: bool,
-    error: Option<String>,
+pub(super) struct S2sParsedUpdate {
+    pub(super) setup_complete: bool,
+    pub(super) input_transcript: Option<String>,
+    pub(super) output_transcript: Option<String>,
+    pub(super) audio_chunks: Vec<Vec<u8>>,
+    pub(super) turn_complete: bool,
+    pub(super) interrupted: bool,
+    pub(super) error: Option<String>,
 }
 
-fn parse_s2s_update(message: &str) -> S2sParsedUpdate {
+pub(super) fn parse_s2s_update(message: &str) -> S2sParsedUpdate {
     let mut update = S2sParsedUpdate {
         setup_complete: message.contains("setupComplete"),
         input_transcript: None,

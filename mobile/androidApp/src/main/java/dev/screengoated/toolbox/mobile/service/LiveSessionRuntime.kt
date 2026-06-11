@@ -118,7 +118,7 @@ class LiveSessionRuntime(
             return
         }
         val modelId = repository.currentConfig().transcriptionProvider.id
-        val useGeminiS2s = modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S
+        val useGeminiS2s = RealtimeModelIds.isGeminiS2sModelId(modelId)
         val useMoonshine = modelId.startsWith("moonshine-") || modelId == "zipformer"
             || modelId == RealtimeModelIds.TRANSCRIPTION_MOONSHINE
         Log.i(

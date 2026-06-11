@@ -16,7 +16,7 @@ struct AutoSpeedState {
 }
 
 /// Simple audio player using Windows WASAPI with loopback exclusion.
-pub(super) struct AudioPlayer {
+pub(crate) struct AudioPlayer {
     _sample_rate: u32,
     shared_buffer: Arc<Mutex<VecDeque<i16>>>,
     shutdown: Arc<AtomicBool>,
@@ -35,7 +35,7 @@ impl AudioPlayer {
         }
     }
 
-    pub(super) fn new(sample_rate: u32, manager: Arc<TtsManager>) -> Self {
+    pub(crate) fn new(sample_rate: u32, manager: Arc<TtsManager>) -> Self {
         let shared_buffer: Arc<Mutex<VecDeque<i16>>> = Arc::new(Mutex::new(VecDeque::new()));
         let buffer_clone = shared_buffer.clone();
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -335,6 +335,27 @@ impl AudioPlayer {
             })
             .collect();
 
+        if let Ok(mut buf) = self.shared_buffer.lock() {
+            buf.extend(output_samples);
+        }
+    }
+
+    pub(crate) fn play_native_stream(&self, audio_data: &[u8]) {
+        let vol = crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME
+            .load(Ordering::Relaxed) as f32
+            / 100.0;
+        let output_samples = audio_data
+            .chunks_exact(2)
+            .flat_map(|chunk| {
+                let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
+                let scaled = (sample as f32 * vol).clamp(-32768.0, 32767.0) as i16;
+                [scaled, scaled]
+            })
+            .collect::<Vec<_>>();
+
+        if output_samples.is_empty() {
+            return;
+        }
         if let Ok(mut buf) = self.shared_buffer.lock() {
             buf.extend(output_samples);
         }

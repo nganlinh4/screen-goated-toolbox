@@ -20,7 +20,7 @@ class RealtimeTranslationClientParityTest {
         val repositorySource = loadSourceFile(REPOSITORY_SOURCE_PATH).readText()
         val overlaySource = loadSourceFile(OVERLAY_JS_SOURCE_PATH).readText()
 
-        assertTrue(repositorySource.contains("if (transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S)"))
+        assertTrue(repositorySource.contains("RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId())"))
         assertTrue(repositorySource.contains("fun updateTranslationModel(modelId: String)"))
         assertTrue(overlaySource.contains("if (s2sMode) return;"))
         assertTrue(overlaySource.contains("window.ipc.postMessage('translationModel:' + icon.getAttribute('data-value'))"))
@@ -31,8 +31,8 @@ class RealtimeTranslationClientParityTest {
         val repositorySource = loadSourceFile(REPOSITORY_SOURCE_PATH).readText()
         val controllerSource = loadSourceFile(OVERLAY_CONTROLLER_SOURCE_PATH).readText()
 
-        assertTrue(repositorySource.contains("enabled = settings.enabled || transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S"))
-        assertTrue(controllerSource.contains("if (repository.transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S)"))
+        assertTrue(repositorySource.contains("enabled = settings.enabled || RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId())"))
+        assertTrue(controllerSource.contains("if (RealtimeModelIds.isGeminiS2sModelId(repository.transcriptionModelId()))"))
         assertTrue(controllerSource.contains("repository.updateRealtimeTtsSettings(current.copy(enabled = true))"))
     }
 

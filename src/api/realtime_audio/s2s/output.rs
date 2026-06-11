@@ -35,6 +35,7 @@ pub(super) fn coordinate_output(
     translation_hwnd: Option<HWND>,
     state: SharedRealtimeState,
     context_memory: Arc<Mutex<S2sContextMemory>>,
+    mode: S2sMode,
 ) {
     let mut next_play_id = 0u64;
     let mut segments = BTreeMap::<u64, SegmentPlayback>::new();
@@ -99,10 +100,26 @@ pub(super) fn coordinate_output(
                     if id < next_play_id {
                         continue;
                     }
-                    eprintln!("[RealtimeS2S] segment={id} error: {message}");
+                    eprintln!("[{}] segment={id} error: {message}", mode.log_tag());
                     let segment = segments.entry(id).or_insert_with(SegmentPlayback::new);
                     segment.error = true;
                     segment.done = true;
+                }
+                S2sEvent::LiveText {
+                    source_full,
+                    source_committed_len,
+                    target_committed,
+                    target_draft,
+                } => {
+                    publish_live_translate_text(
+                        &state,
+                        overlay_hwnd,
+                        translation_hwnd,
+                        source_full,
+                        source_committed_len,
+                        target_committed,
+                        target_draft,
+                    );
                 }
                 S2sEvent::Interrupt => {
                     TTS_MANAGER.stop();
@@ -118,6 +135,7 @@ pub(super) fn coordinate_output(
             &mut next_play_id,
             &mut playback,
             translation_hwnd.unwrap_or(overlay_hwnd),
+            mode,
         );
         update_s2s_ready_backlog(&segments, next_play_id);
     }
@@ -132,6 +150,7 @@ fn drain_ordered_audio(
     next_play_id: &mut u64,
     playback: &mut Option<RealtimePlaybackBridge>,
     hwnd: HWND,
+    mode: S2sMode,
 ) {
     loop {
         let Some(segment) = segments.get_mut(next_play_id) else {
@@ -143,10 +162,12 @@ fn drain_ordered_audio(
             && segment.chunks.is_empty()
             && !segment.done
             && !segment.error
+            && mode != S2sMode::LiveTranslate
             && should_skip_stale_pending_segment(segment)
         {
             eprintln!(
-                "[RealtimeS2S] skip-play segment={} reason=pending-timeout delay_ms={} source_audio_ms={} input_text={} output_text={} backlog_ms={}",
+                "[{}] skip-play segment={} reason=pending-timeout delay_ms={} source_audio_ms={} input_text={} output_text={} backlog_ms={}",
+                mode.log_tag(),
                 next_play_id,
                 segment_delay_ms(segment),
                 segment.source_audio_ms,
@@ -163,7 +184,8 @@ fn drain_ordered_audio(
         if playback.is_none() && segment.chunks.is_empty() && (segment.done || segment.error) {
             let reason = if segment.error { "error" } else { "empty" };
             eprintln!(
-                "[RealtimeS2S] skip-play segment={} reason={reason} delay_ms={} backlog_ms={}",
+                "[{}] skip-play segment={} reason={reason} delay_ms={} backlog_ms={}",
+                mode.log_tag(),
                 next_play_id,
                 segment_delay_ms(segment),
                 s2s_backlog_ms()
@@ -237,6 +259,58 @@ fn publish_text(
     if let Some(hwnd) = translation_hwnd {
         update_translation_text(hwnd, &target_display);
     }
+}
+
+fn publish_live_translate_text(
+    state: &SharedRealtimeState,
+    overlay_hwnd: HWND,
+    translation_hwnd: Option<HWND>,
+    source_full: String,
+    source_committed_len: usize,
+    target_committed: String,
+    target_draft: String,
+) {
+    let source_committed_len = source_committed_len.min(source_full.len());
+    let source_committed_len = clamp_to_char_boundary(&source_full, source_committed_len);
+    let target_full = if target_committed.is_empty() {
+        target_draft.clone()
+    } else if target_draft.is_empty() {
+        target_committed.clone()
+    } else {
+        format!("{target_committed} {target_draft}")
+    };
+    let source_display = if let Ok(mut s) = state.lock() {
+        s.full_transcript = source_full.clone();
+        s.transcript_committed_pos = source_committed_len;
+        s.last_committed_pos = source_committed_len;
+        s.uncommitted_source_start = source_committed_len;
+        s.uncommitted_source_end = source_full.len();
+        s.display_transcript = if s.frozen_prefix.is_empty() {
+            source_full.clone()
+        } else if source_full.is_empty() {
+            s.frozen_prefix.clone()
+        } else {
+            format!("{}\n\n{}", s.frozen_prefix, source_full)
+        };
+        s.committed_translation = target_committed.clone();
+        s.uncommitted_translation = target_draft.clone();
+        s.display_translation = target_full.clone();
+        s.display_transcript.clone()
+    } else {
+        String::new()
+    };
+    update_overlay_text(overlay_hwnd, &source_display);
+    if let Some(hwnd) = translation_hwnd {
+        update_translation_text(hwnd, &target_full);
+    }
+}
+
+fn clamp_to_char_boundary(value: &str, mut index: usize) -> usize {
+    index = index.min(value.len());
+    while index > 0 && !value.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
 }
 
 struct S2sVisualText {

@@ -24,9 +24,9 @@ const TRANSLATION_INTERVAL_MAX_MS: u64 = 4_000;
 fn is_gemini_s2s_selected() -> bool {
     APP.lock()
         .map(|app| {
-            crate::model_config::normalize_realtime_transcription_model_id(
+            crate::model_config::is_gemini_live_s2s_model_id(
                 &app.config.realtime_transcription_model,
-            ) == "gemini-live-s2s"
+            )
         })
         .unwrap_or(false)
 }
@@ -44,7 +44,7 @@ pub fn run_translation_loop(
 
     if is_gemini_s2s_selected() {
         crate::log_info!(
-            "[RealtimeTranslate] not starting text translation loop: Gemini S2S is active"
+            "[RealtimeTranslate] not starting text translation loop: direct speech model is active"
         );
         return;
     }
@@ -83,7 +83,7 @@ pub fn run_translation_loop(
     while !stop_signal.load(Ordering::Relaxed) {
         if is_gemini_s2s_selected() {
             crate::log_info!(
-                "[RealtimeTranslate] stopping text translation loop: switched to Gemini S2S"
+                "[RealtimeTranslate] stopping text translation loop: switched to direct speech model"
             );
             break;
         }

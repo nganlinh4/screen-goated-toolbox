@@ -96,6 +96,15 @@ pub fn realtime_transcription_api_model(model_id: &str) -> String {
         .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string())
 }
 
+pub fn is_gemini_live_translate_model_id(model_id: &str) -> bool {
+    normalize_realtime_transcription_model_id(model_id) == GEMINI_LIVE_TRANSLATE_MODEL_ID
+}
+
+pub fn is_gemini_live_s2s_model_id(model_id: &str) -> bool {
+    let normalized = normalize_realtime_transcription_model_id(model_id);
+    normalized == "gemini-live-s2s" || normalized == GEMINI_LIVE_TRANSLATE_MODEL_ID
+}
+
 pub fn tts_gemini_model_options() -> &'static [(&'static str, &'static str)] {
     GENERATED_TTS_GEMINI_MODELS
 }

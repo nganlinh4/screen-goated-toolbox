@@ -74,6 +74,11 @@ pub fn get(font_size: u32) -> String {
             window.setTtsEnabled(true);
         }}
 
+        function isS2sTranscriptionModel(modelName) {{
+            return modelName === 'gemini-live-s2s' || modelName === 'gemini-3.5-translate';
+        }}
+        window.isS2sTranscriptionModel = isS2sTranscriptionModel;
+
         function applyS2sMode(isS2s) {{
             isS2sMode = !!isS2s;
             document.body.dataset.s2s = isS2s ? '1' : '0';
@@ -108,6 +113,7 @@ pub fn get(font_size: u32) -> String {
                     : window.REALTIME_L10N.ttsEnable;
             }}
         }}
+        window.applyS2sMode = applyS2sMode;
 
         if (speedSlider && speedValue) {{
             const autoToggle = document.getElementById('auto-speed-toggle');
@@ -175,6 +181,56 @@ pub fn get(font_size: u32) -> String {
                     }}, 1500);
                 }}
             }});
+        }}
+
+        // Header controls drag-to-scroll (mouse pan, mirrors Android touch scrolling)
+        const controlsBar = document.getElementById('controls');
+        if (controlsBar) {{
+            let controlsPanning = false;
+            let controlsPanned = false;
+            let controlsPanStartX = 0;
+            let controlsPanStartScroll = 0;
+
+            controlsBar.addEventListener('mousedown', function(e) {{
+                if (e.button !== 0) return;
+                if (e.target.closest('select') || (e.target.tagName === 'INPUT' && e.target.type === 'range')) return;
+                controlsPanning = true;
+                controlsPanned = false;
+                controlsPanStartX = e.screenX;
+                controlsPanStartScroll = controlsBar.scrollLeft;
+                document.addEventListener('mousemove', onControlsPanMove);
+                document.addEventListener('mouseup', onControlsPanEnd);
+            }});
+
+            function onControlsPanMove(e) {{
+                if (!controlsPanning) return;
+                const dx = e.screenX - controlsPanStartX;
+                if (!controlsPanned && Math.abs(dx) < 4) return;
+                controlsPanned = true;
+                controlsBar.scrollLeft = controlsPanStartScroll - dx;
+            }}
+
+            function onControlsPanEnd() {{
+                controlsPanning = false;
+                document.removeEventListener('mousemove', onControlsPanMove);
+                document.removeEventListener('mouseup', onControlsPanEnd);
+            }}
+
+            // Swallow the click that ends a pan so buttons don't activate
+            controlsBar.addEventListener('click', function(e) {{
+                if (controlsPanned) {{
+                    controlsPanned = false;
+                    e.stopPropagation();
+                    e.preventDefault();
+                }}
+            }}, true);
+
+            // Mouse wheel pans the header horizontally
+            controlsBar.addEventListener('wheel', function(e) {{
+                if (controlsBar.scrollWidth <= controlsBar.clientWidth) return;
+                e.preventDefault();
+                controlsBar.scrollLeft += (e.deltaX || e.deltaY);
+            }}, {{ passive: false }});
         }}
 
         // Drag support (left click for single window)
@@ -454,6 +510,15 @@ pub fn get(font_size: u32) -> String {
                 transLangSelect.hidden = true;
                 transLangSelect.value = 'all';
             }}
+        }}
+
+        if (transcriptionModelSelect) {{
+            transcriptionModelSelect.addEventListener('change', () => {{
+                applyS2sMode(isS2sTranscriptionModel(transcriptionModelSelect.value));
+            }});
+            applyS2sMode(isS2sTranscriptionModel(transcriptionModelSelect.value) || isS2sMode);
+        }} else {{
+            applyS2sMode(isS2sMode);
         }}
 
         if (transLangSelect) {{

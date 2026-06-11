@@ -135,6 +135,7 @@
         }
         const TRANSCRIPTION_MODEL_LABELS = {
             'gemini-live-audio': 'Gemini Live',
+            'gemini-3.5-translate': 'Gemini 3.5 translate',
             'moonshine-tiny-streaming': 'Moonshine Tiny',
             'moonshine-small-streaming': 'Moonshine Small',
             'moonshine-medium-streaming': 'Moonshine Medium',
@@ -209,7 +210,7 @@
             // Legacy
             const icons = document.querySelectorAll('.trans-model-icon');
             if (icons.length) setSelectedByDataValue(icons, modelName);
-            applyS2sMode(modelName === 'gemini-live-s2s');
+            applyS2sMode(modelName === 'gemini-live-s2s' || modelName === 'gemini-3.5-translate');
         }
 
         function setFontSize(fontSize) {
@@ -426,4 +427,3 @@
             document.addEventListener('mousemove', onWindowDragMove);
             document.addEventListener('mouseup', onWindowDragEnd);
         });
-

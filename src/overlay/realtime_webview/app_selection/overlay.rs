@@ -102,9 +102,9 @@ fn apply_audio_app_selection(pid: u32, name: &str) {
 fn cancel_audio_app_selection() {
     APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
     clear_selected_audio_app_candidate();
-    let is_s2s = crate::overlay::realtime_webview::controller::load_session_config()
-        .transcription_model
-        == "gemini-live-s2s";
+    let is_s2s = crate::model_config::is_gemini_live_s2s_model_id(
+        &crate::overlay::realtime_webview::controller::load_session_config().transcription_model,
+    );
     REALTIME_TTS_ENABLED.store(is_s2s, Ordering::SeqCst);
     crate::api::tts::TTS_MANAGER.stop();
 

@@ -132,7 +132,7 @@ class AndroidLiveSessionRepository(
 
     fun updateRealtimeTtsSettings(settings: RealtimeTtsSettings) {
         mutableRealtimeTtsSettings.value = settings.copy(
-            enabled = settings.enabled || transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S,
+            enabled = settings.enabled || RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId()),
             speedPercent = settings.speedPercent.coerceIn(50, 200),
             volumePercent = settings.volumePercent.coerceIn(0, 100),
         )
@@ -308,7 +308,7 @@ class AndroidLiveSessionRepository(
     fun transcriptionModelId(): String = state.value.config.transcriptionProvider.id
 
     fun updateTranslationModel(modelId: String) {
-        if (transcriptionModelId() == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
+        if (RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId())) {
             return
         }
         updateConfig(

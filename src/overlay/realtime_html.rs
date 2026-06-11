@@ -29,7 +29,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     } else {
         "graphic_eq"
     };
-    let is_s2s = transcription_model == "gemini-live-s2s";
+    let is_s2s = crate::model_config::is_gemini_live_s2s_model_id(transcription_model);
     let glow_color = if is_translation { "#ff9633" } else { "#00c8ff" };
 
     // Title content: volume bars for transcription, text for translation
@@ -80,6 +80,10 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             let trans_options = [
                 (gemini_id, "Gemini Live"),
                 ("gemini-live-s2s", "Gemini S2S"),
+                (
+                    crate::model_config::GEMINI_LIVE_TRANSLATE_MODEL_ID,
+                    "Gemini 3.5 translate",
+                ),
                 ("parakeet", "Parakeet"),
                 (qwen3_0_6b_id, "Qwen3 0.6B"),
                 (qwen3_1_7b_id, "Qwen3 1.7B"),
@@ -104,7 +108,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 app.config.realtime_transcription_language.clone()
             };
             let is_all_lang = transcription_model == gemini_id
-                || transcription_model == "gemini-live-s2s"
+                || crate::model_config::is_gemini_live_s2s_model_id(transcription_model)
                 || transcription_model == qwen3_0_6b_id
                 || transcription_model == qwen3_1_7b_id;
             let is_en_only = transcription_model == "parakeet";
