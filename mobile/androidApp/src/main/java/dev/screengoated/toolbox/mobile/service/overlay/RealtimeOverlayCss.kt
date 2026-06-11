@@ -255,19 +255,27 @@ private fun overlayModalCss(isDark: Boolean): String {
             border-radius: 12px;
             box-shadow: 0 8px 32px ${modal.shadowLg}, 0 0 20px ${modal.shadowSm};
             color: ${modal.textColor};
+            max-width: calc(100vw - 16px);
+            max-height: calc(100vh - 16px);
+            overflow-y: auto;
+            scrollbar-width: none;
+            box-sizing: border-box;
+        }
+        #tts-modal::-webkit-scrollbar, #download-modal::-webkit-scrollbar {
+            display: none;
         }
         #tts-modal { padding: 16px 20px; }
         #download-modal {
             border: 1px solid ${modal.borderFocusColor};
-            min-width: 320px;
-            max-width: 90vw;
+            min-width: min(320px, calc(100vw - 16px));
+            max-width: min(90vw, calc(100vw - 16px));
             padding: 12px 16px;
             text-align: center;
             z-index: 2147483647 !important;
         }
         #tts-modal {
             border: 1px solid ${modal.borderColor};
-            min-width: 200px;
+            min-width: min(200px, calc(100vw - 16px));
             z-index: 2147483647 !important;
         }
         #tts-modal.show, #download-modal.show {
@@ -307,6 +315,12 @@ private fun overlayModalCss(isDark: Boolean): String {
             gap: 12px;
             margin-bottom: 12px;
         }
+        body[data-s2s="1"] #tts-toggle {
+            display: none;
+        }
+        body[data-live-translate="1"] .tts-speed-row {
+            display: none;
+        }
         .tts-modal-label {
             font-size: 11px;
             color: ${modal.labelColor};
@@ -317,6 +331,7 @@ private fun overlayModalCss(isDark: Boolean): String {
         }
         .toggle-switch {
             position: relative;
+            flex-shrink: 0;
             width: 40px;
             height: 22px;
             background: ${modal.switchBg};

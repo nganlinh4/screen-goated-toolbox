@@ -30,15 +30,12 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         "graphic_eq"
     };
     let is_s2s = crate::model_config::is_gemini_live_s2s_model_id(transcription_model);
+    let is_live_translate =
+        transcription_model == crate::model_config::GEMINI_LIVE_TRANSLATE_MODEL_ID;
     let glow_color = if is_translation { "#ff9633" } else { "#00c8ff" };
 
-    // Title content: volume bars for transcription, text for translation
-    let title_content = if is_translation {
-        String::new()
-    } else {
-        // Canvas-based volume visualizer for smooth 60fps animation
-        r#"<canvas id="volume-canvas" width="90" height="24"></canvas>"#.to_string()
-    };
+    // Volume canvas lives inside #controls so it scrolls with the header (matches Android)
+    let title_content = String::new();
 
     let _mic_text = text.realtime_mic;
     let _device_text = text.realtime_device;
@@ -173,6 +170,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
 
             format!(
                 r#"
+                <canvas id="volume-canvas" width="90" height="24"></canvas>
                 <div class="btn-group">
                     <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="{mic_title}">{mic_svg}</span>
                     <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="{device_title}">{device_svg}</span>
@@ -296,7 +294,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         {css_content}
     </style>
 </head>
-<body data-s2s="{is_s2s_attr}">
+<body data-s2s="{is_s2s_attr}" data-live-translate="{is_live_translate_attr}">
     <div id="loading-overlay">{loading_icon}</div>
     <div id="container">
         <div id="header">
@@ -344,9 +342,9 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         <div class="tts-modal-title">
             <span class="material-symbols-rounded">{volume_up_svg}</span>
             {tts_title}
-                <div class="toggle-switch {tts_toggle_class}" id="tts-toggle" title="{tts_toggle_title}" style="margin-left: auto;"></div>
+                <div class="toggle-switch tts-toggle-control {tts_toggle_class}" id="tts-toggle" title="{tts_toggle_title}" style="margin-left: auto;"></div>
         </div>
-        <div class="tts-modal-row">
+        <div class="tts-modal-row tts-speed-row">
             <span class="tts-modal-label">{tts_speed}</span>
             <div class="speed-slider-container">
                 <input type="range" class="speed-slider" id="speed-slider" min="50" max="200" value="100" step="10">
@@ -354,7 +352,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 <button class="auto-toggle on" id="auto-speed-toggle" title="{tts_auto_title}">{tts_auto}</button>
             </div>
         </div>
-        <div class="tts-modal-row">
+        <div class="tts-modal-row tts-volume-row">
             <span class="tts-modal-label">{tts_volume}</span>
             <div class="speed-slider-container">
                 <input type="range" class="speed-slider" id="volume-slider" min="0" max="100" value="100" step="5">
@@ -384,6 +382,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         js_content = js,
         l10n_json = l10n_json,
         is_s2s_attr = if is_s2s { "1" } else { "0" },
+        is_live_translate_attr = if is_live_translate { "1" } else { "0" },
         tts_toggle_class = if is_s2s { "on locked" } else { "" },
         tts_toggle_title = if is_s2s {
             text.realtime_tts_s2s_locked_tooltip

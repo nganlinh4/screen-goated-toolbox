@@ -34,7 +34,10 @@ pub(super) fn get() -> String {
                 const tcSel = document.getElementById('transcription-model-select');
                 if (tcSel) tcSel.value = settings.transcriptionModel;
                 updateTransLangSelectState(settings.transcriptionModel);
-                applyS2sMode(isS2sTranscriptionModel(settings.transcriptionModel));
+                applyS2sMode(
+                    isS2sTranscriptionModel(settings.transcriptionModel),
+                    settings.transcriptionModel
+                );
                 // Legacy icons
                 if (transModelIcons && transModelIcons.length) {
                     transModelIcons.forEach(icon => {
