@@ -79,9 +79,19 @@ pub fn get(font_size: u32) -> String {
         }}
         window.isS2sTranscriptionModel = isS2sTranscriptionModel;
 
-        function applyS2sMode(isS2s) {{
+        function isLiveTranslateTranscriptionModel(modelName) {{
+            return modelName === 'gemini-3.5-translate';
+        }}
+        window.isLiveTranslateTranscriptionModel = isLiveTranslateTranscriptionModel;
+
+        function applyS2sMode(isS2s, modelName) {{
+            const activeModel = modelName ||
+                (document.getElementById('transcription-model-select') || {{}}).value ||
+                '';
+            const isLiveTranslate = isLiveTranslateTranscriptionModel(activeModel);
             isS2sMode = !!isS2s;
             document.body.dataset.s2s = isS2s ? '1' : '0';
+            document.body.dataset.liveTranslate = isLiveTranslate ? '1' : '0';
             if (isS2s) {{
                 ttsEnabled = true;
             }}
@@ -182,6 +192,17 @@ pub fn get(font_size: u32) -> String {
                 }}
             }});
         }}
+
+        // Modals cover the whole window when it is small — let their background drag the window
+        ['tts-modal', 'app-modal', 'download-modal'].forEach(function(id) {{
+            const modal = document.getElementById(id);
+            if (!modal) return;
+            modal.addEventListener('mousedown', function(e) {{
+                if (e.button !== 0) return;
+                if (e.target.closest('input, button, select, .toggle-switch, .ctrl-btn, .auto-toggle, .app-item')) return;
+                window.ipc.postMessage('startDrag');
+            }});
+        }});
 
         // Header controls drag-to-scroll (mouse pan, mirrors Android touch scrolling)
         const controlsBar = document.getElementById('controls');
@@ -514,9 +535,9 @@ pub fn get(font_size: u32) -> String {
 
         if (transcriptionModelSelect) {{
             transcriptionModelSelect.addEventListener('change', () => {{
-                applyS2sMode(isS2sTranscriptionModel(transcriptionModelSelect.value));
+                applyS2sMode(isS2sTranscriptionModel(transcriptionModelSelect.value), transcriptionModelSelect.value);
             }});
-            applyS2sMode(isS2sTranscriptionModel(transcriptionModelSelect.value) || isS2sMode);
+            applyS2sMode(isS2sTranscriptionModel(transcriptionModelSelect.value) || isS2sMode, transcriptionModelSelect.value);
         }} else {{
             applyS2sMode(isS2sMode);
         }}

@@ -250,12 +250,19 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             gap: 8px;
             align-items: center;
             flex: 1;
-            justify-content: flex-end;
             min-width: 0;
             overflow-x: auto;
             overflow-y: hidden;
             overscroll-behavior-x: contain;
             scrollbar-width: none;
+        }}
+        /* Pushes content right like flex-end, but overflow goes to the
+           scrollable end edge instead of the unscrollable start edge */
+        #controls > :first-child {{
+            margin-left: auto;
+        }}
+        #controls > * {{
+            flex-shrink: 0;
         }}
         #controls::-webkit-scrollbar {{
             display: none;
@@ -548,6 +555,8 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
              width: 16px;
              height: 16px;
              cursor: se-resize;
+             /* Above the modal dim overlays so resize stays usable while a modal is open */
+             z-index: 2147483647;
              opacity: 0.25;
              display: flex;
              align-items: flex-end;

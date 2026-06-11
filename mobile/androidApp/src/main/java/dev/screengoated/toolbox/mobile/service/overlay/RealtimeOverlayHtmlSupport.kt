@@ -58,9 +58,9 @@ internal fun overlayMobileShim(): String {
                 return null;
             }
 
-            if (container) {
-                container.addEventListener('touchstart', event => {
-                    if (event.touches.length !== 1 || blockInteractive(event.target)) return;
+            function attachMoveResize(surface, blockFn) {
+                surface.addEventListener('touchstart', event => {
+                    if (event.touches.length !== 1 || blockFn(event.target)) return;
                     const touch = event.touches[0];
                     const corner = detectCorner(touch.clientX, touch.clientY);
                     if (corner) {
@@ -72,8 +72,8 @@ internal fun overlayMobileShim(): String {
                     }
                 }, { passive: true });
 
-                container.addEventListener('touchmove', event => {
-                    if (event.touches.length !== 1 || blockInteractive(event.target)) return;
+                surface.addEventListener('touchmove', event => {
+                    if (event.touches.length !== 1 || blockFn(event.target)) return;
                     const touch = event.touches[0];
 
                     if (resizeTouch) {
@@ -99,7 +99,7 @@ internal fun overlayMobileShim(): String {
                     }
                 }, { passive: false });
 
-                container.addEventListener('touchend', event => {
+                surface.addEventListener('touchend', event => {
                     if (dragTouch && event.changedTouches.length > 0) {
                         const touch = event.changedTouches[0];
                         window.ipc.postMessage('dragEnd:' + Math.round(touch.screenX) + ',' + Math.round(touch.screenY));
@@ -107,14 +107,29 @@ internal fun overlayMobileShim(): String {
                     dragTouch = null;
                     resizeTouch = null;
                 }, { passive: true });
-                container.addEventListener('touchcancel', () => { dragTouch = null; resizeTouch = null; }, { passive: true });
+                surface.addEventListener('touchcancel', () => { dragTouch = null; resizeTouch = null; }, { passive: true });
             }
+
+            if (container) {
+                attachMoveResize(container, blockInteractive);
+            }
+
+            // Modals cover the whole window when it is small — keep drag/resize working on
+            // their background (interactive controls inside the modal stay untouched)
+            const blockModalInteractive = target =>
+                !!target.closest('input, button, select, .toggle-switch, .auto-toggle, .ctrl-btn');
+            ['tts-modal', 'download-modal'].forEach(id => {
+                const modal = document.getElementById(id);
+                if (modal) attachMoveResize(modal, blockModalInteractive);
+            });
 
             window.setTtsState = function(enabled, speed, autoSpeed, volume) {
                 const s2sMode = document.body && document.body.dataset.s2s === '1';
+                const liveTranslateMode = document.body && document.body.dataset.liveTranslate === '1';
                 if (ttsToggle) {
                     ttsToggle.classList.toggle('on', s2sMode || !!enabled);
                     ttsToggle.classList.toggle('locked', s2sMode);
+                    ttsToggle.hidden = s2sMode;
                 }
                 if (speakBtn) {
                     speakBtn.classList.toggle('active', s2sMode || !!enabled);
@@ -123,6 +138,8 @@ internal fun overlayMobileShim(): String {
                 if (speedSlider) speedSlider.value = speed;
                 if (speedValue) speedValue.textContent = (speed / 100).toFixed(1) + 'x';
                 if (autoToggle) autoToggle.classList.toggle('on', !!autoSpeed);
+                const speedRow = document.querySelector('.tts-speed-row');
+                if (speedRow) speedRow.hidden = liveTranslateMode;
                 if (volumeSlider) volumeSlider.value = volume;
                 if (volumeValue) volumeValue.textContent = volume + '%';
             };

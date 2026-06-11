@@ -152,10 +152,20 @@
             return TRANSCRIPTION_MODEL_LABELS[modelName] || modelName;
         }
 
-        function applyS2sMode(enabled) {
+        function isLiveTranslateModel(modelName) {
+            return modelName === 'gemini-3.5-translate';
+        }
+
+        function applyS2sMode(enabled, modelName) {
             s2sMode = !!enabled;
+            const activeModel = modelName ||
+                (document.getElementById('transcription-model-btn') || {}).dataset?.value ||
+                '';
+            const liveTranslateMode = isLiveTranslateModel(activeModel);
             document.documentElement.dataset.s2s = s2sMode ? '1' : '0';
+            document.documentElement.dataset.liveTranslate = liveTranslateMode ? '1' : '0';
             document.body.dataset.s2s = s2sMode ? '1' : '0';
+            document.body.dataset.liveTranslate = liveTranslateMode ? '1' : '0';
             const translationBtn = document.getElementById('translation-model-btn');
             if (translationBtn) {
                 translationBtn.disabled = s2sMode;
@@ -210,7 +220,7 @@
             // Legacy
             const icons = document.querySelectorAll('.trans-model-icon');
             if (icons.length) setSelectedByDataValue(icons, modelName);
-            applyS2sMode(modelName === 'gemini-live-s2s' || modelName === 'gemini-3.5-translate');
+            applyS2sMode(modelName === 'gemini-live-s2s' || modelName === 'gemini-3.5-translate', modelName);
         }
 
         function setFontSize(fontSize) {

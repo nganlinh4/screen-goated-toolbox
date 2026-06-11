@@ -7,7 +7,7 @@
         {{CSS_CONTENT}}
     </style>
 </head>
-<body>
+<body data-s2s="0" data-live-translate="0">
     <div id="loading-overlay">{{LOADING_ICON}}</div>
     <div id="container">
         <div id="header">
@@ -52,9 +52,9 @@
         <div class="tts-modal-title">
             <span class="material-symbols-rounded">{{VOLUME_UP_SVG}}</span>
             <span id="tts-modal-title-text">{{TTS_TITLE}}</span>
-            <div class="toggle-switch" id="tts-toggle" style="margin-left: auto;"></div>
+            <div class="toggle-switch tts-toggle-control" id="tts-toggle" style="margin-left: auto;"></div>
         </div>
-        <div class="tts-modal-row">
+        <div class="tts-modal-row tts-speed-row">
             <span class="tts-modal-label" id="tts-speed-label">{{TTS_SPEED}}</span>
             <div class="speed-slider-container">
                 <input type="range" class="speed-slider" id="speed-slider" min="50" max="200" value="100" step="10">
@@ -62,7 +62,7 @@
                 <button class="auto-toggle on" id="auto-speed-toggle" title="{{TTS_AUTO}}">{{TTS_AUTO}}</button>
             </div>
         </div>
-        <div class="tts-modal-row">
+        <div class="tts-modal-row tts-volume-row">
             <span class="tts-modal-label" id="tts-volume-label">{{TTS_VOLUME}}</span>
             <div class="speed-slider-container">
                 <input type="range" class="speed-slider" id="volume-slider" min="0" max="100" value="100" step="5">

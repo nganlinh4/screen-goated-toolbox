@@ -64,9 +64,18 @@ pub fn get(is_dark: bool) -> String {
             border-radius: 12px;
             padding: 16px 20px;
             z-index: 2147483647 !important; /* Max Element Z-Index */
-            min-width: 200px;
+            min-width: min(200px, calc(100vw - 16px));
+            max-width: calc(100vw - 16px);
+            max-height: calc(100vh - 16px);
+            overflow-y: auto;
+            scrollbar-width: none;
+            box-sizing: border-box;
+            cursor: grab;
             box-shadow: 0 8px 32px {shadow_lg}, 0 0 20px {shadow_sm};
             color: {text_color};
+        }}
+        #tts-modal::-webkit-scrollbar {{
+            display: none;
         }}
         #tts-modal.show {{
             display: block !important;
@@ -108,6 +117,12 @@ pub fn get(is_dark: bool) -> String {
         .tts-modal-row:last-child {{
             margin-bottom: 0;
         }}
+        body[data-s2s="1"] #tts-toggle {{
+            display: none;
+        }}
+        body[data-live-translate="1"] .tts-speed-row {{
+            display: none;
+        }}
         .tts-modal-label {{
             font-size: 12px;
             color: {label_color};
@@ -116,6 +131,7 @@ pub fn get(is_dark: bool) -> String {
         /* Toggle Switch */
         .toggle-switch {{
             position: relative;
+            flex-shrink: 0;
             width: 40px;
             height: 22px;
             background: {switch_bg};
@@ -215,9 +231,11 @@ pub fn get(is_dark: bool) -> String {
             border-radius: 12px;
             padding: 16px 20px;
             z-index: 2000 !important;
-            min-width: 280px;
-            max-width: 400px;
-            max-height: 70vh;
+            min-width: min(280px, calc(100vw - 16px));
+            max-width: min(400px, calc(100vw - 16px));
+            max-height: min(70vh, calc(100vh - 16px));
+            box-sizing: border-box;
+            cursor: grab;
             box-shadow: 0 8px 32px {shadow_lg}, 0 0 20px {shadow_sm};
             overflow: hidden;
             color: {text_color};
@@ -328,11 +346,19 @@ pub fn get(is_dark: bool) -> String {
             border-radius: 12px;
             padding: 12px 16px;
             z-index: 2147483647 !important;
-            min-width: 320px;
-            max-width: 90vw;
+            min-width: min(320px, calc(100vw - 16px));
+            max-width: min(90vw, calc(100vw - 16px));
+            max-height: calc(100vh - 16px);
+            overflow-y: auto;
+            scrollbar-width: none;
+            box-sizing: border-box;
+            cursor: grab;
             box-shadow: 0 8px 32px {shadow_lg}, 0 0 20px {shadow_sm};
             text-align: center;
             color: {text_color};
+        }}
+        #download-modal::-webkit-scrollbar {{
+            display: none;
         }}
         #download-modal.show {{
             display: block !important;
