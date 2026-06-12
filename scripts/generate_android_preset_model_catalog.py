@@ -141,10 +141,24 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
     constants = manifest["constants"]
     defaults = manifest["defaults"]
     aliases = manifest["realtime_transcription_aliases"]
+    realtime_options = manifest["realtime_transcription_options"]
     live_translation_providers = manifest["live_translation_providers"]
     tts_gemini_models = manifest["tts_gemini_models"]
 
     provider_api_by_id = {item["id"]: item["api_model"] for item in live_translation_providers}
+    model_by_id = {item["id"]: item for item in manifest["models"]}
+
+    def realtime_option_label(option_id: str) -> str:
+        catalog_id = "parakeet-local" if option_id == "parakeet" else option_id
+        model = model_by_id.get(catalog_id)
+        if model:
+            return model["name_en"]
+        return {
+            "zipformer": "(Transcribe) Zipformer",
+            "moonshine-tiny-streaming": "(Transcribe) Moonshine Tiny",
+            "moonshine-small-streaming": "(Transcribe) Moonshine Small",
+            "moonshine-medium-streaming": "(Transcribe) Moonshine Medium",
+        }.get(option_id, option_id)
 
     lines: list[str] = [
         "package dev.screengoated.toolbox.mobile.shared.live",
@@ -152,6 +166,11 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         "// Generated from catalog/model_catalog.json. Do not edit by hand.",
         "data class GeneratedGeminiLiveModelOption(",
         "    val apiModel: String,",
+        "    val label: String,",
+        ")",
+        "",
+        "data class GeneratedRealtimeTranscriptionOption(",
+        "    val id: String,",
         "    val label: String,",
         ")",
         "",
@@ -181,6 +200,24 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
                 "        GeneratedGeminiLiveModelOption(",
                 f"            apiModel = {kotlin_string(option['api_model'])},",
                 f"            label = {kotlin_string(option['label'])},",
+                "        ),",
+            ]
+        )
+
+    lines.extend(
+        [
+            "    )",
+            "",
+            "    val realtimeTranscriptionOptions: List<GeneratedRealtimeTranscriptionOption> = listOf(",
+        ]
+    )
+
+    for option_id in realtime_options["android"]:
+        lines.extend(
+            [
+                "        GeneratedRealtimeTranscriptionOption(",
+                f"            id = {kotlin_string(option_id)},",
+                f"            label = {kotlin_string(realtime_option_label(option_id))},",
                 "        ),",
             ]
         )
@@ -228,6 +265,11 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
             "            TRANSCRIPTION_GEMINI_TRANSLATE -> ProviderDescriptor(",
             "                id = TRANSCRIPTION_GEMINI_TRANSLATE,",
             "                model = GEMINI_LIVE_TRANSLATE_API_MODEL,",
+            "            )",
+            "",
+            '            "gemini-live-audio-3.1" -> ProviderDescriptor(',
+            '                id = "gemini-live-audio-3.1",',
+            "                model = GEMINI_LIVE_API_MODEL_3_1,",
             "            )",
             "",
             "            else -> ProviderDescriptor(",

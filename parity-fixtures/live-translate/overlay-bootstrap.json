@@ -5,7 +5,7 @@
     "targetLanguage": "Vietnamese",
     "translationModel": "text-llm",
     "translationApiModel": "",
-    "transcriptionModel": "gemini-live-s2s",
+    "transcriptionModel": "gemini-3.5-translate",
     "fontSize": 16,
     "ttsEnabled": false,
     "ttsSpeed": 100,
@@ -19,7 +19,7 @@
     ],
     "windowsTranscriptionProviders": [
       "gemini-live-audio",
-      "gemini-live-s2s",
+      "gemini-live-audio-3.1",
       "gemini-3.5-translate",
       "parakeet",
       "qwen3-asr-0.6b",
@@ -28,7 +28,7 @@
     ],
     "androidTranscriptionProviders": [
       "gemini-live-audio",
-      "gemini-live-s2s",
+      "gemini-live-audio-3.1",
       "gemini-3.5-translate",
       "parakeet",
       "moonshine-tiny-streaming",

@@ -11,7 +11,7 @@ use super::utils::extract_pcm_from_wav;
 use crate::APP;
 use crate::api::client::UREQ_AGENT;
 use crate::config::Preset;
-use crate::model_config::{get_model_by_id, model_is_non_llm};
+use crate::model_config::{get_model_by_id, is_gemini_live_translate_model_id, model_is_non_llm};
 
 /// Transcribe audio using Gemini REST API with streaming
 pub fn transcribe_audio_gemini<F>(
@@ -119,14 +119,40 @@ pub fn transcribe_with_gemini_live_input(
     model: &str,
     wav_data: Vec<u8>,
 ) -> anyhow::Result<String> {
+    transcribe_with_gemini_live(api_key, model, None, wav_data)
+}
+
+/// Translate audio using Gemini Live Translate and return outputTranscription.
+pub fn translate_with_gemini_live_output(
+    api_key: &str,
+    model: &str,
+    target_language: &str,
+    wav_data: Vec<u8>,
+) -> anyhow::Result<String> {
+    transcribe_with_gemini_live(api_key, model, Some(target_language), wav_data)
+}
+
+fn transcribe_with_gemini_live(
+    api_key: &str,
+    model: &str,
+    target_language: Option<&str>,
+    wav_data: Vec<u8>,
+) -> anyhow::Result<String> {
     use crate::api::realtime_audio::websocket::{
-        connect_websocket, parse_input_transcription, send_audio_chunk, send_audio_stream_end,
-        send_setup_message, set_socket_nonblocking, set_socket_short_timeout,
+        connect_websocket, parse_input_transcription, parse_output_transcription, send_audio_chunk,
+        send_audio_stream_end, send_live_translate_setup_message, send_setup_message,
+        set_socket_nonblocking, set_socket_short_timeout,
     };
     use crate::overlay::recording::AUDIO_INITIALIZING;
 
+    let is_translate = target_language.is_some();
     println!(
-        "[GeminiLiveInput] Starting transcription, WAV data size: {} bytes",
+        "[GeminiLiveInput] Starting {}, WAV data size: {} bytes",
+        if is_translate {
+            "translation"
+        } else {
+            "transcription"
+        },
         wav_data.len()
     );
 
@@ -148,7 +174,12 @@ pub fn transcribe_with_gemini_live_input(
     };
 
     println!("[GeminiLiveInput] Sending setup message...");
-    if let Err(e) = send_setup_message(&mut socket, model) {
+    let setup_result = if let Some(target_language) = target_language {
+        send_live_translate_setup_message(&mut socket, model, target_language)
+    } else {
+        send_setup_message(&mut socket, model)
+    };
+    if let Err(e) = setup_result {
         println!("[GeminiLiveInput] Setup message failed: {}", e);
         AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
         return Err(e);
@@ -238,6 +269,13 @@ pub fn transcribe_with_gemini_live_input(
     let mut offset = 0;
     let mut chunks_sent = 0;
     let mut transcripts_received = 0;
+    let parse_text = |msg: &str| {
+        if is_translate {
+            parse_output_transcription(msg)
+        } else {
+            parse_input_transcription(msg)
+        }
+    };
 
     println!("[GeminiLiveInput] Sending audio chunks...");
     while offset < pcm_samples.len() {
@@ -263,7 +301,7 @@ pub fn transcribe_with_gemini_live_input(
                         "[GeminiLiveInput] Message while sending: {}",
                         &msg[..msg.len().min(300)]
                     );
-                    if let Some(transcript) = parse_input_transcription(msg)
+                    if let Some(transcript) = parse_text(msg)
                         && !transcript.is_empty()
                     {
                         println!("[GeminiLiveInput] Got transcript: '{}'", transcript);
@@ -273,7 +311,7 @@ pub fn transcribe_with_gemini_live_input(
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
                     if let Ok(text) = String::from_utf8(data.to_vec())
-                        && let Some(transcript) = parse_input_transcription(&text)
+                        && let Some(transcript) = parse_text(&text)
                         && !transcript.is_empty()
                     {
                         println!(
@@ -318,7 +356,7 @@ pub fn transcribe_with_gemini_live_input(
                     "[GeminiLiveInput] Message in conclude phase: {}",
                     &msg[..msg.len().min(300)]
                 );
-                if let Some(transcript) = parse_input_transcription(msg)
+                if let Some(transcript) = parse_text(msg)
                     && !transcript.is_empty()
                 {
                     println!("[GeminiLiveInput] Got final transcript: '{}'", transcript);
@@ -328,7 +366,7 @@ pub fn transcribe_with_gemini_live_input(
             }
             Ok(tungstenite::Message::Binary(data)) => {
                 if let Ok(text) = String::from_utf8(data.to_vec())
-                    && let Some(transcript) = parse_input_transcription(&text)
+                    && let Some(transcript) = parse_text(&text)
                     && !transcript.is_empty()
                 {
                     println!(
@@ -541,9 +579,16 @@ pub fn execute_audio_processing_logic(
             transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
         }
     } else if provider == "gemini-live" {
-        // Gemini Live API (WebSocket-based) - uses INPUT transcription (what user said)
+        // Gemini Live API (WebSocket-based).
         if gemini_api_key.trim().is_empty() {
             Err(anyhow::anyhow!("NO_API_KEY:gemini"))
+        } else if is_gemini_live_translate_model_id(&audio_block.model) {
+            translate_with_gemini_live_output(
+                &gemini_api_key,
+                &model_name,
+                &audio_block.selected_language,
+                wav_data,
+            )
         } else {
             transcribe_with_gemini_live_input(&gemini_api_key, &model_name, wav_data)
         }

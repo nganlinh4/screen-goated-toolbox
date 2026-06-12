@@ -16,6 +16,9 @@ use crate::model_config::{
 };
 use eframe::egui;
 
+const MODEL_BUTTON_WRAP_WIDTH: f32 = 128.0;
+const PROMPT_EDITOR_WIDTH: f32 = 170.0;
+
 /// Renders the model selector, prompt editor, language vars, and settings row
 /// for Special and Process node bodies. Returns true if auto_copy was triggered.
 #[expect(clippy::too_many_arguments)]
@@ -40,9 +43,18 @@ pub fn show_model_and_settings(
         "ko" => "모델:",
         _ => "Model:",
     };
+    ui.label(model_label);
+    let model_def = get_model_by_id(model);
+    let display_name = model_def
+        .as_ref()
+        .map(|m| match viewer.ui_language.as_str() {
+            "vi" => m.name_vi.clone(),
+            "ko" => m.name_ko.clone(),
+            _ => m.name_en.clone(),
+        })
+        .unwrap_or_else(|| model.clone());
+
     ui.horizontal(|ui| {
-        ui.label(model_label);
-        let model_def = get_model_by_id(model);
         if let Some(m) = model_def.as_ref() {
             crate::gui::icons::draw_icon_static(
                 ui,
@@ -50,16 +62,13 @@ pub fn show_model_and_settings(
                 Some(crate::gui::icons::ICON_MD),
             );
         }
-        let display_name = model_def
-            .as_ref()
-            .map(|m| match viewer.ui_language.as_str() {
-                "vi" => m.name_vi.as_str(),
-                "ko" => m.name_ko.as_str(),
-                _ => m.name_en.as_str(),
-            })
-            .unwrap_or(model.as_str());
 
-        let button_response = ui.button(display_name);
+        let button_response = ui
+            .scope(|ui| {
+                ui.set_max_width(MODEL_BUTTON_WRAP_WIDTH);
+                ui.add(egui::Button::new(display_name).wrap())
+            })
+            .inner;
         if button_response.clicked() {
             egui::Popup::toggle_id(ui.ctx(), button_response.id);
             if viewer.use_ollama {
@@ -122,11 +131,15 @@ pub fn show_model_and_settings(
         });
     });
 
-    let is_gtx_model = get_model_by_id(model)
-        .map(|m| m.provider == "google-gtx")
+    let uses_target_language_selector = get_model_by_id(model)
+        .map(|m| {
+            m.provider == "google-gtx"
+                || (target_model_type == ModelType::Audio
+                    && crate::model_config::is_gemini_live_translate_model_id(&m.id))
+        })
         .unwrap_or(false);
 
-    if is_gtx_model {
+    if uses_target_language_selector {
         let label = match viewer.ui_language.as_str() {
             "vi" => "Ngôn ngữ:",
             "ko" => "언어:",
@@ -176,7 +189,7 @@ pub fn show_model_and_settings(
         if ui
             .add(
                 egui::TextEdit::multiline(prompt)
-                    .desired_width(152.0)
+                    .desired_width(PROMPT_EDITOR_WIDTH)
                     .desired_rows(2),
             )
             .changed()

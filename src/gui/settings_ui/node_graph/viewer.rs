@@ -7,6 +7,8 @@ use eframe::egui;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId, OutPin, Snarl};
 
+const NODE_HEADER_MIN_WIDTH: f32 = 170.0;
+
 pub struct ChainViewer<'a> {
     pub text: &'a LocaleText,
     pub ui_language: String,
@@ -93,8 +95,10 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
         snarl: &mut Snarl<ChainNode>,
     ) {
         let node = &snarl[node];
+        ui.set_min_width(NODE_HEADER_MIN_WIDTH);
         // Reverting to vertical-centered horizontal layout which is standard/safe
         ui.horizontal(|ui| {
+            ui.set_min_width(NODE_HEADER_MIN_WIDTH);
             // Add icon based on node type
             match node {
                 ChainNode::Input { block_type, .. } => {

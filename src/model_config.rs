@@ -109,6 +109,10 @@ pub fn tts_gemini_model_options() -> &'static [(&'static str, &'static str)] {
     GENERATED_TTS_GEMINI_MODELS
 }
 
+pub fn realtime_transcription_model_options() -> &'static [(&'static str, &'static str)] {
+    GENERATED_REALTIME_TRANSCRIPTION_OPTIONS
+}
+
 pub fn normalize_tts_gemini_model(api_model: &str) -> &'static str {
     GENERATED_TTS_GEMINI_MODELS
         .iter()

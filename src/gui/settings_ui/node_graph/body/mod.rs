@@ -9,6 +9,8 @@ use crate::model_config::ModelType;
 use eframe::egui;
 use egui_snarl::{NodeId, Snarl};
 
+const NODE_BODY_MIN_WIDTH: f32 = 170.0;
+
 pub fn show_body(
     viewer: &mut ChainViewer,
     node_id: NodeId,
@@ -28,6 +30,7 @@ pub fn show_body(
             let node = snarl.get_node_mut(node_id).unwrap();
 
             ui.vertical(|ui| {
+                ui.set_min_width(NODE_BODY_MIN_WIDTH);
                 ui.set_max_width(320.0);
 
                 match node {

@@ -381,25 +381,10 @@ fn render_transcription_controls(
         ui,
         "realtime_egui_transcription_model",
         transcription_model_label(&current_model),
-        132.0,
+        176.0,
         theme,
         |ui| {
-            let models = [
-                (
-                    crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5,
-                    "Gemini Live",
-                ),
-                ("gemini-live-s2s", "Gemini S2S"),
-                (
-                    crate::model_config::GEMINI_LIVE_TRANSLATE_MODEL_ID,
-                    "Gemini 3.5 translate",
-                ),
-                ("parakeet", "Parakeet"),
-                (crate::model_config::QWEN3_ASR_0_6B_MODEL_ID, "Qwen3 0.6B"),
-                (crate::model_config::QWEN3_ASR_1_7B_MODEL_ID, "Qwen3 1.7B"),
-                ("zipformer", "Zipformer"),
-            ];
-            for (id, label) in models {
+            for &(id, label) in crate::model_config::realtime_transcription_model_options() {
                 if ui.selectable_label(current_model == id, label).clicked() {
                     controller::set_transcription_model(id);
                     ui.close();
@@ -442,16 +427,12 @@ fn render_transcription_controls(
     });
 }
 
-fn transcription_model_label(model: &str) -> &'static str {
-    match model {
-        "parakeet" => "Parakeet",
-        "zipformer" => "Zipformer",
-        "gemini-live-s2s" => "Gemini S2S",
-        id if id == crate::model_config::GEMINI_LIVE_TRANSLATE_MODEL_ID => "Gemini 3.5 translate",
-        id if id == crate::model_config::QWEN3_ASR_0_6B_MODEL_ID => "Qwen 0.6B",
-        id if id == crate::model_config::QWEN3_ASR_1_7B_MODEL_ID => "Qwen 1.7B",
-        _ => "Gemini",
-    }
+fn transcription_model_label(model: &str) -> String {
+    crate::model_config::realtime_transcription_model_options()
+        .iter()
+        .find(|(id, _)| *id == model)
+        .map(|(_, label)| (*label).to_string())
+        .unwrap_or_else(|| "(Translate) 3.5 Translate".to_string())
 }
 
 fn render_translation_model_menu(

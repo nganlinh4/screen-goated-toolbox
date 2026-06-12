@@ -86,6 +86,10 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
             "gemini_live_audio_model_id_2_5",
         ),
         (
+            "GEMINI_LIVE_AUDIO_MODEL_ID_3_1",
+            "gemini_live_audio_model_id_3_1",
+        ),
+        (
             "GEMINI_LIVE_TRANSLATE_MODEL_ID",
             "gemini_live_translate_model_id",
         ),
@@ -176,6 +180,21 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
             "    ({}, {}),",
             rust_string(manifest_string(item, "api_model")),
             rust_string(manifest_string(item, "label"))
+        ));
+    }
+    lines.push("];".to_string());
+    lines.push(String::new());
+
+    let realtime_options = manifest_object(&manifest, "realtime_transcription_options");
+    lines.push(
+        "pub const GENERATED_REALTIME_TRANSCRIPTION_OPTIONS: &[(&str, &str)] = &[".to_string(),
+    );
+    for value in manifest_array_from_object(realtime_options, "windows") {
+        let id = value.as_str().unwrap();
+        lines.push(format!(
+            "    ({}, {}),",
+            rust_string(id),
+            rust_string(realtime_transcription_option_label(&manifest, id))
         ));
     }
     lines.push("];".to_string());
@@ -286,6 +305,30 @@ fn manifest_array_from_object<'a>(
         .get(key)
         .and_then(serde_json::Value::as_array)
         .unwrap_or_else(|| panic!("manifest object key {key:?} must be an array"))
+}
+
+fn realtime_transcription_option_label<'a>(
+    manifest: &'a serde_json::Value,
+    id: &'a str,
+) -> &'a str {
+    let catalog_id = match id {
+        "parakeet" => "parakeet-local",
+        _ => id,
+    };
+    if let Some(model) = manifest_array(manifest, "models")
+        .iter()
+        .filter_map(serde_json::Value::as_object)
+        .find(|model| manifest_string(model, "id") == catalog_id)
+    {
+        return manifest_string(model, "name_en");
+    }
+    match id {
+        "zipformer" => "(Transcribe) Zipformer",
+        "moonshine-tiny-streaming" => "(Transcribe) Moonshine Tiny",
+        "moonshine-small-streaming" => "(Transcribe) Moonshine Small",
+        "moonshine-medium-streaming" => "(Transcribe) Moonshine Medium",
+        _ => id,
+    }
 }
 
 fn manifest_string<'a>(
