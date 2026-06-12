@@ -70,22 +70,12 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
 
         {
             let gemini_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5;
+            let gemini_3_1_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_3_1;
             let qwen3_0_6b_id = crate::model_config::QWEN3_ASR_0_6B_MODEL_ID;
 
-            // Build transcription model dropdown options
+            // Build transcription model dropdown options from the shared model catalog.
             let qwen3_1_7b_id = crate::model_config::QWEN3_ASR_1_7B_MODEL_ID;
-            let trans_options = [
-                (gemini_id, "Gemini Live"),
-                ("gemini-live-s2s", "Gemini S2S"),
-                (
-                    crate::model_config::GEMINI_LIVE_TRANSLATE_MODEL_ID,
-                    "Gemini 3.5 translate",
-                ),
-                ("parakeet", "Parakeet"),
-                (qwen3_0_6b_id, "Qwen3 0.6B"),
-                (qwen3_1_7b_id, "Qwen3 1.7B"),
-                ("zipformer", "Zipformer"),
-            ];
+            let trans_options = crate::model_config::realtime_transcription_model_options();
             let options_html: String = trans_options
                 .iter()
                 .map(|(val, label)| {
@@ -105,6 +95,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 app.config.realtime_transcription_language.clone()
             };
             let is_all_lang = transcription_model == gemini_id
+                || transcription_model == gemini_3_1_id
                 || crate::model_config::is_gemini_live_s2s_model_id(transcription_model)
                 || transcription_model == qwen3_0_6b_id
                 || transcription_model == qwen3_1_7b_id;

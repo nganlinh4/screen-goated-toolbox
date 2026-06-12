@@ -37,7 +37,7 @@
   - `audio_source=device`
   - `target_language=Vietnamese`
   - `translation_model=text-llm`
-  - `transcription_model=gemini-live-s2s`
+  - `transcription_model=gemini-3.5-translate`
   - `font_size=16`
 - Realtime overlay contract:
   - transcription pane header shows the live waveform canvas, not a fake activity stub
@@ -72,8 +72,9 @@
   - `text-llm` walks the centralized `text_to_text` priority chain at translate time, picking the first model whose provider key/availability check passes (Cerebras / Google / Groq are the supported HTTP backends today); the per-model API name comes from the shared model catalog, not a separate realtime constant
   - Android `text-llm` must reuse the same provider enabled/key availability checks as the preset retry chain before attempting a provider in the priority chain
   - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
-  - Windows transcription providers are exposed in this order: `gemini-live-audio`, `gemini-live-s2s`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`
+  - Windows transcription providers are exposed in this order: `gemini-live-audio`, `gemini-live-audio-3.1`, `gemini-3.5-translate`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`
   - Android transcription providers expose the same cloud/S2S and Zipformer control surface, keep `parakeet` visible as unavailable, and additionally expose the documented Android-native Moonshine variants: `moonshine-tiny-streaming`, `moonshine-small-streaming`, and `moonshine-medium-streaming`
+  - Legacy `gemini-live-s2s` remains a persisted-setting compatibility alias for `gemini-3.5-translate`; it is not a visible picker entry.
   - Android may mark Parakeet unavailable, but must not hide it, enable it in the picker, or pretend it is active
 - Gemini S2S hides the translation model selector and read-locks TTS on both platforms; the controller/state boundary still rejects translation-model changes while S2S is active.
 - Transcription language controls that are disabled because the active transcription model owns or auto-detects the source language are hidden rather than shown as grayed-out chrome.

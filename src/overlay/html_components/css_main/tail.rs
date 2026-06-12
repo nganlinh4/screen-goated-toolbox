@@ -67,10 +67,22 @@ pub(super) fn get(
         .trans-model-icon.active[data-value="gemini-live-audio"] {{
             color: {secondary};
         }}
+        .trans-model-icon.active[data-value="gemini-live-audio-3.1"] {{
+            color: {secondary};
+        }}
+        .trans-model-icon.active[data-value="gemini-3.5-translate"] {{
+            color: {secondary};
+        }}
         .trans-model-icon.active[data-value="parakeet"] {{
             color: {primary};
         }}
         .trans-model-icon.active[data-value="qwen3-asr-0.6b"] {{
+            color: {tertiary};
+        }}
+        .trans-model-icon.active[data-value="qwen3-asr-1.7b"] {{
+            color: {tertiary};
+        }}
+        .trans-model-icon.active[data-value="zipformer"] {{
             color: {tertiary};
         }}
 

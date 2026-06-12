@@ -38,7 +38,7 @@ fn build_s2s_setup_payload(
                 "generationConfig": {
                     "responseModalities": ["AUDIO"],
                     "translationConfig": {
-                        "targetLanguageCode": target_language_code(&settings.target_language),
+                        "targetLanguageCode": crate::api::realtime_audio::websocket::live_translate_target_language_code(&settings.target_language),
                         "echoTargetLanguage": true
                     }
                 },
@@ -91,68 +91,6 @@ fn build_s2s_setup_payload(
     })
 }
 
-fn target_language_code(language: &str) -> String {
-    let trimmed = language.trim();
-    if trimmed.is_empty() {
-        return "en".to_string();
-    }
-
-    match trimmed.to_ascii_lowercase().as_str() {
-        "chinese"
-        | "chinese (simplified)"
-        | "simplified chinese"
-        | "zh"
-        | "zh-cn"
-        | "zh-hans"
-        | "zh_hans" => return "zh-Hans".to_string(),
-        "chinese (traditional)" | "traditional chinese" | "zh-tw" | "zh-hant" | "zh_hant" => {
-            return "zh-Hant".to_string();
-        }
-        "portuguese (brazil)" | "brazilian portuguese" | "pt-br" | "pt_br" => {
-            return "pt-BR".to_string();
-        }
-        "portuguese (portugal)" | "european portuguese" | "pt-pt" | "pt_pt" => {
-            return "pt-PT".to_string();
-        }
-        "filipino" | "tagalog" => return "fil".to_string(),
-        "norwegian" => return "no".to_string(),
-        code if is_bcp47_like(code) => return normalize_bcp47_code(trimmed),
-        _ => {}
-    }
-
-    isolang::Language::from_name(trimmed)
-        .map(|language| language.to_639_1().unwrap_or_else(|| language.to_639_3()))
-        .map(str::to_string)
-        .unwrap_or_else(|| "en".to_string())
-}
-
-fn is_bcp47_like(value: &str) -> bool {
-    let mut parts = value.split('-');
-    let Some(language) = parts.next() else {
-        return false;
-    };
-    language.len() >= 2
-        && language.len() <= 3
-        && language.chars().all(|ch| ch.is_ascii_lowercase())
-        && parts.all(|part| {
-            !part.is_empty()
-                && part.len() <= 8
-                && part
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
-        })
-}
-
-fn normalize_bcp47_code(code: &str) -> String {
-    match code.to_ascii_lowercase().as_str() {
-        "zh-hans" => "zh-Hans".to_string(),
-        "zh-hant" => "zh-Hant".to_string(),
-        "pt-br" => "pt-BR".to_string(),
-        "pt-pt" => "pt-PT".to_string(),
-        value => value.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,18 +140,27 @@ mod tests {
             setup["generationConfig"]["translationConfig"]["echoTargetLanguage"].as_bool(),
             Some(true)
         );
-        assert!(setup["generationConfig"].get("inputAudioTranscription").is_none());
-        assert!(setup["generationConfig"].get("outputAudioTranscription").is_none());
+        assert!(
+            setup["generationConfig"]
+                .get("inputAudioTranscription")
+                .is_none()
+        );
+        assert!(
+            setup["generationConfig"]
+                .get("outputAudioTranscription")
+                .is_none()
+        );
     }
 
     #[test]
     fn translate_target_language_code_preserves_bcp47_variants() {
-        assert_eq!(target_language_code("Chinese"), "zh-Hans");
-        assert_eq!(target_language_code("Chinese (Traditional)"), "zh-Hant");
-        assert_eq!(target_language_code("pt-BR"), "pt-BR");
-        assert_eq!(target_language_code("Portuguese (Portugal)"), "pt-PT");
-        assert_eq!(target_language_code("Filipino"), "fil");
-        assert_eq!(target_language_code("Korean"), "ko");
+        let code = crate::api::realtime_audio::websocket::live_translate_target_language_code;
+        assert_eq!(code("Chinese"), "zh-Hans");
+        assert_eq!(code("Chinese (Traditional)"), "zh-Hant");
+        assert_eq!(code("pt-BR"), "pt-BR");
+        assert_eq!(code("Portuguese (Portugal)"), "pt-PT");
+        assert_eq!(code("Filipino"), "fil");
+        assert_eq!(code("Korean"), "ko");
     }
 }
 

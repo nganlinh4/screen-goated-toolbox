@@ -29,7 +29,9 @@ object RealtimeModelIds {
     const val TRANSLATION_LLM = GeneratedLiveModelCatalog.TRANSLATION_PROVIDER_LLM
     const val TRANSLATION_GTX = GeneratedLiveModelCatalog.TRANSLATION_PROVIDER_GTX
 
-    fun defaultTranscriptionProvider(modelId: String = TRANSCRIPTION_GEMINI_S2S): ProviderDescriptor {
+    fun defaultTranscriptionProvider(
+        modelId: String = GeneratedLiveModelCatalog.DEFAULT_TRANSCRIPTION_PROVIDER_ID,
+    ): ProviderDescriptor {
         return GeneratedLiveModelCatalog.defaultTranscriptionProvider(modelId)
     }
 

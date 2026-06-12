@@ -94,6 +94,33 @@ pub fn send_setup_message(
     Ok(())
 }
 
+/// Send session setup for Gemini Live Translate models.
+pub fn send_live_translate_setup_message(
+    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
+    model: &str,
+    target_language: &str,
+) -> Result<()> {
+    let setup = serde_json::json!({
+        "setup": {
+            "model": format!("models/{}", model),
+            "generationConfig": {
+                "responseModalities": ["AUDIO"],
+                "translationConfig": {
+                    "targetLanguageCode": live_translate_target_language_code(target_language),
+                    "echoTargetLanguage": true
+                }
+            },
+            "inputAudioTranscription": {},
+            "outputAudioTranscription": {}
+        }
+    });
+
+    socket.write(tungstenite::Message::Text(setup.to_string().into()))?;
+    socket.flush()?;
+
+    Ok(())
+}
+
 pub fn send_audio_stream_end(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
 ) -> Result<()> {
@@ -147,4 +174,78 @@ pub fn parse_input_transcription(msg: &str) -> Option<String> {
         return Some(text.to_string());
     }
     None
+}
+
+/// Parse outputTranscription from WebSocket message (what the model said).
+pub fn parse_output_transcription(msg: &str) -> Option<String> {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
+        && let Some(server_content) = json.get("serverContent")
+        && let Some(output_transcription) = server_content.get("outputTranscription")
+        && let Some(text) = output_transcription.get("text").and_then(|t| t.as_str())
+    {
+        return Some(text.to_string());
+    }
+    None
+}
+
+pub fn live_translate_target_language_code(language: &str) -> String {
+    let trimmed = language.trim();
+    if trimmed.is_empty() {
+        return "en".to_string();
+    }
+
+    match trimmed.to_ascii_lowercase().as_str() {
+        "chinese"
+        | "chinese (simplified)"
+        | "simplified chinese"
+        | "zh"
+        | "zh-cn"
+        | "zh-hans"
+        | "zh_hans" => return "zh-Hans".to_string(),
+        "chinese (traditional)" | "traditional chinese" | "zh-tw" | "zh-hant" | "zh_hant" => {
+            return "zh-Hant".to_string();
+        }
+        "portuguese (brazil)" | "brazilian portuguese" | "pt-br" | "pt_br" => {
+            return "pt-BR".to_string();
+        }
+        "portuguese (portugal)" | "european portuguese" | "pt-pt" | "pt_pt" => {
+            return "pt-PT".to_string();
+        }
+        "filipino" | "tagalog" => return "fil".to_string(),
+        "norwegian" => return "no".to_string(),
+        code if is_bcp47_like(code) => return normalize_bcp47_code(trimmed),
+        _ => {}
+    }
+
+    isolang::Language::from_name(trimmed)
+        .map(|language| language.to_639_1().unwrap_or_else(|| language.to_639_3()))
+        .map(str::to_string)
+        .unwrap_or_else(|| "en".to_string())
+}
+
+fn is_bcp47_like(value: &str) -> bool {
+    let mut parts = value.split('-');
+    let Some(language) = parts.next() else {
+        return false;
+    };
+    language.len() >= 2
+        && language.len() <= 3
+        && language.chars().all(|ch| ch.is_ascii_lowercase())
+        && parts.all(|part| {
+            !part.is_empty()
+                && part.len() <= 8
+                && part
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+        })
+}
+
+fn normalize_bcp47_code(code: &str) -> String {
+    match code.to_ascii_lowercase().as_str() {
+        "zh-hans" => "zh-Hans".to_string(),
+        "zh-hant" => "zh-Hant".to_string(),
+        "pt-br" => "pt-BR".to_string(),
+        "pt-pt" => "pt-PT".to_string(),
+        value => value.to_string(),
+    }
 }

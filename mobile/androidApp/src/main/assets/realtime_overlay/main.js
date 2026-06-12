@@ -134,17 +134,18 @@
             }
         }
         const TRANSCRIPTION_MODEL_LABELS = {
-            'gemini-live-audio': 'Gemini Live',
-            'gemini-3.5-translate': 'Gemini 3.5 translate',
-            'moonshine-tiny-streaming': 'Moonshine Tiny',
-            'moonshine-small-streaming': 'Moonshine Small',
-            'moonshine-medium-streaming': 'Moonshine Medium',
-            'zipformer': 'Zipformer',
+            'gemini-live-audio': '(Transcribe) 2.5 Live',
+            'gemini-live-audio-3.1': '(Transcribe) 3.1 Live',
+            'gemini-3.5-translate': '(Translate) 3.5 Translate',
+            'moonshine-tiny-streaming': '(Transcribe) Moonshine Tiny',
+            'moonshine-small-streaming': '(Transcribe) Moonshine Small',
+            'moonshine-medium-streaming': '(Transcribe) Moonshine Medium',
+            'zipformer': '(Transcribe) Zipformer',
         };
 
         function transcriptionModelLabel(modelName) {
             if (modelName === 'gemini-live-s2s') {
-                return overlayLocale.geminiS2sTitle || 'Gemini S2S';
+                return TRANSCRIPTION_MODEL_LABELS['gemini-3.5-translate'];
             }
             if (modelName === 'parakeet') {
                 return 'Parakeet (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')';
