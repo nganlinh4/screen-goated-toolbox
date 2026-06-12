@@ -2,6 +2,8 @@ package dev.screengoated.toolbox.mobile.preset
 
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 
+import kotlinx.serialization.Serializable
+
 enum class PresetModelProvider {
     GOOGLE,
     CEREBRAS,
@@ -22,6 +24,26 @@ enum class PresetModelType {
     AUDIO,
 }
 
+enum class PresetModelSource {
+    BUILT_IN,
+    USER,
+    DISCOVERED,
+}
+
+@Serializable
+data class CustomPresetModelDefinition(
+    val id: String,
+    val provider: PresetModelProvider = PresetModelProvider.OPENROUTER,
+    val displayName: String,
+    val fullName: String,
+    val modelType: PresetModelType = PresetModelType.TEXT,
+    val enabled: Boolean = true,
+    val quotaEn: String = "Provider quota",
+    val quotaVi: String = "Theo nhà cung cấp",
+    val quotaKo: String = "공급자 기준",
+    val supportsSearch: Boolean? = null,
+)
+
 data class PresetModelDescriptor(
     val id: String,
     val provider: PresetModelProvider,
@@ -34,6 +56,8 @@ data class PresetModelDescriptor(
     val quotaEn: String = "",
     val quotaVi: String = "",
     val quotaKo: String = "",
+    val source: PresetModelSource = PresetModelSource.BUILT_IN,
+    val supportsSearchOverride: Boolean? = null,
 ) {
     fun localizedName(lang: String): String = when (lang) {
         "vi" -> nameVi
@@ -48,11 +72,47 @@ data class PresetModelDescriptor(
     }
 }
 
-object PresetModelCatalog {
-    private val allModels: List<PresetModelDescriptor> = GeneratedPresetModelCatalogData.models
-    val models: List<PresetModelDescriptor> = allModels.filter { it.provider != PresetModelProvider.PARAKEET }
+object PresetCustomModelRegistry {
+    @Volatile
+    private var customModels: List<CustomPresetModelDefinition> = emptyList()
 
-    private val byId = allModels.associateBy { it.id }
+    fun set(models: List<CustomPresetModelDefinition>) {
+        customModels = models
+    }
+
+    fun definitions(): List<CustomPresetModelDefinition> = customModels
+
+    fun descriptors(): List<PresetModelDescriptor> = customModels.mapNotNull { model ->
+        if (model.id.isBlank() || model.fullName.isBlank() || !model.enabled) {
+            null
+        } else {
+            PresetModelDescriptor(
+                id = model.id,
+                provider = model.provider,
+                fullName = model.fullName,
+                modelType = model.modelType,
+                displayName = model.displayName.ifBlank { model.fullName },
+                nameVi = model.displayName.ifBlank { model.fullName },
+                nameKo = model.displayName.ifBlank { model.fullName },
+                quotaEn = model.quotaEn,
+                quotaVi = model.quotaVi,
+                quotaKo = model.quotaKo,
+                source = PresetModelSource.USER,
+                supportsSearchOverride = model.supportsSearch,
+            )
+        }
+    }
+}
+
+object PresetModelCatalog {
+    private val builtInModels: List<PresetModelDescriptor> = GeneratedPresetModelCatalogData.models
+    private val allModels: List<PresetModelDescriptor>
+        get() = builtInModels + PresetCustomModelRegistry.descriptors()
+    val models: List<PresetModelDescriptor>
+        get() = allModels.filter { it.provider != PresetModelProvider.PARAKEET }
+
+    private val byId: Map<String, PresetModelDescriptor>
+        get() = allModels.associateBy { it.id }
 
     fun getById(id: String): PresetModelDescriptor? = byId[id]
 
@@ -72,7 +132,9 @@ object PresetModelCatalog {
 
     fun isNonLlm(id: String): Boolean = getById(id)?.isNonLlm == true
 
-    fun supportsSearchById(id: String): Boolean = getById(id)?.let { supportsSearchByName(it.fullName) } ?: false
+    fun supportsSearchById(id: String): Boolean = getById(id)?.let {
+        it.supportsSearchOverride ?: supportsSearchByName(it.fullName)
+    } ?: false
 
     fun supportsSearchByName(fullName: String): Boolean {
         if (fullName in GeneratedPresetModelCatalogData.searchDisabledFullNames) {

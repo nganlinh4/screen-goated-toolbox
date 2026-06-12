@@ -403,19 +403,6 @@
       "quota_en": "20 requests/day"
     },
     {
-      "id": "or-nemotron-vl",
-      "provider": "openrouter",
-      "name_vi": "OR-Cân bằng",
-      "name_ko": "OR-균형",
-      "name_en": "OR-Balanced",
-      "full_name": "nvidia/nemotron-nano-12b-v2-vl:free",
-      "model_type": "Vision",
-      "enabled": true,
-      "quota_vi": "50 lượt chung/ngày",
-      "quota_ko": "50 공유 요청/일",
-      "quota_en": "50 shared requests/day"
-    },
-    {
       "id": "taalas-llama-8b",
       "provider": "taalas",
       "name_vi": "Tức khắc",
@@ -674,32 +661,6 @@
       "quota_vi": "20 lượt/ngày",
       "quota_ko": "20 요청/일",
       "quota_en": "20 requests/day"
-    },
-    {
-      "id": "or-nemotron-text",
-      "provider": "openrouter",
-      "name_vi": "OR-Nhanh",
-      "name_ko": "OR-빠름",
-      "name_en": "OR-Fast",
-      "full_name": "nvidia/nemotron-3-nano-30b-a3b:free",
-      "model_type": "Text",
-      "enabled": true,
-      "quota_vi": "50 lượt chung/ngày",
-      "quota_ko": "50 공유 요청/일",
-      "quota_en": "50 shared requests/day"
-    },
-    {
-      "id": "or-deepseek-chimera",
-      "provider": "openrouter",
-      "name_vi": "OR-Ch.xác, chậm",
-      "name_ko": "OR-정확, 느림",
-      "name_en": "OR-Accurate, Slow",
-      "full_name": "tngtech/deepseek-r1t2-chimera:free",
-      "model_type": "Text",
-      "enabled": true,
-      "quota_vi": "50 lượt chung/ngày",
-      "quota_ko": "50 공유 요청/일",
-      "quota_en": "50 shared requests/day"
     },
     {
       "id": "whisper-fast",

@@ -89,36 +89,39 @@ fn check_model_has_vision(base_url: &str, model_name: &str) -> bool {
 
     let resp = match UREQ_AGENT.post(&url).send_json(&payload) {
         Ok(r) => r,
-        Err(_) => return false,
+        Err(_) => return ollama_model_has_vision(model_name, &[], ""),
     };
 
     if let Ok(show_resp) = resp.into_body().read_json::<OllamaShowResponse>() {
-        // Check families for vision-related names
-        let families_str = show_resp.details.families.join(" ").to_lowercase();
-        if families_str.contains("clip") || families_str.contains("vision") {
-            return true;
-        }
-
-        // Check modelfile for projector (indicates vision capability)
-        let modelfile_lower = show_resp.modelfile.to_lowercase();
-        if modelfile_lower.contains("projector") || modelfile_lower.contains("vision") {
-            return true;
-        }
-
-        // Check model name patterns for common vision models
-        let name_lower = model_name.to_lowercase();
-        if name_lower.contains("vision")
-            || name_lower.contains("-vl")
-            || name_lower.contains("llava")
-            || name_lower.contains("bakllava")
-            || name_lower.contains("moondream")
-            || name_lower.contains("minicpm-v")
-        {
-            return true;
-        }
+        return ollama_model_has_vision(
+            model_name,
+            &show_resp.details.families,
+            &show_resp.modelfile,
+        );
     }
 
-    false
+    ollama_model_has_vision(model_name, &[], "")
+}
+
+fn ollama_model_has_vision(model_name: &str, families: &[String], modelfile: &str) -> bool {
+    let families_str = families.join(" ").to_lowercase();
+    if families_str.contains("clip") || families_str.contains("vision") {
+        return true;
+    }
+
+    let modelfile_lower = modelfile.to_lowercase();
+    if modelfile_lower.contains("projector") || modelfile_lower.contains("vision") {
+        return true;
+    }
+
+    let name_lower = model_name.to_lowercase();
+    name_lower.contains("vision")
+        || name_lower.contains("-vl")
+        || name_lower.contains("/vl")
+        || name_lower.contains("llava")
+        || name_lower.contains("bakllava")
+        || name_lower.contains("moondream")
+        || name_lower.contains("minicpm-v")
 }
 
 /// Fetch models with their capabilities (vision/text)
@@ -315,4 +318,39 @@ where
     }
 
     Ok(full_content)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ollama_model_has_vision;
+
+    #[test]
+    fn detects_vision_from_families() {
+        assert!(ollama_model_has_vision(
+            "custom",
+            &["llama".to_string(), "clip".to_string()],
+            "",
+        ));
+    }
+
+    #[test]
+    fn detects_vision_from_modelfile() {
+        assert!(ollama_model_has_vision(
+            "custom",
+            &[],
+            "FROM base\nPARAMETER projector mmproj.bin",
+        ));
+    }
+
+    #[test]
+    fn detects_vision_from_model_name_when_show_is_unhelpful() {
+        assert!(ollama_model_has_vision("qwen2.5vl:7b", &[], ""));
+        assert!(ollama_model_has_vision("llava:latest", &[], ""));
+        assert!(ollama_model_has_vision("minicpm-v:8b", &[], ""));
+    }
+
+    #[test]
+    fn keeps_plain_text_model_as_text() {
+        assert!(!ollama_model_has_vision("llama3.2:latest", &[], ""));
+    }
 }

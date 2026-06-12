@@ -32,11 +32,14 @@ data class ModelEntry(
 
 object ModelCatalog {
 
-    private val allModels: List<ModelEntry> = PresetModelCatalog.models.map(PresetModelDescriptor::toUiEntry)
+    private val allModels: List<ModelEntry>
+        get() = PresetModelCatalog.models.map(PresetModelDescriptor::toUiEntry)
 
-    val models: List<ModelEntry> = PresetModelCatalog.dialogModels().map(PresetModelDescriptor::toUiEntry)
+    val models: List<ModelEntry>
+        get() = PresetModelCatalog.dialogModels().map(PresetModelDescriptor::toUiEntry)
 
-    private val byId = allModels.associateBy { it.id }
+    private val byId: Map<String, ModelEntry>
+        get() = allModels.associateBy { it.id }
 
     fun getById(id: String): ModelEntry? = byId[id]
 
@@ -67,7 +70,7 @@ private fun PresetModelDescriptor.toUiEntry(): ModelEntry {
             PresetModelType.VISION -> ModelType.VISION
             PresetModelType.AUDIO -> ModelType.AUDIO
         },
-        supportsSearch = PresetModelCatalog.supportsSearchByName(fullName),
+        supportsSearch = PresetModelCatalog.supportsSearchById(id),
         isNonLlm = isNonLlm,
     )
 }

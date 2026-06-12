@@ -8,6 +8,7 @@ use eframe::egui;
 use std::collections::HashMap;
 
 mod api_keys;
+mod custom_models;
 mod downloaded_tools;
 mod model_priority;
 mod tts_settings;
@@ -16,6 +17,7 @@ mod usage_stats;
 
 use crate::gui::settings_ui::download_manager::DownloadManager;
 use api_keys::{ApiKeyCardStyle, ApiKeyVisibility, render_api_keys_card};
+use custom_models::render_custom_models_modal;
 use downloaded_tools::render_downloaded_tools_modal;
 use model_priority::render_model_priority_modal;
 use tts_settings::render_tts_settings_modal;
@@ -45,6 +47,7 @@ pub fn render_global_settings(
     show_tts_modal: &mut bool,
     show_tools_modal: &mut bool,
     show_model_priority_modal: &mut bool,
+    show_custom_models_modal: &mut bool,
     download_manager: &mut DownloadManager,
     _cached_audio_devices: &std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
     _recording_sr_hotkey: &mut bool,
@@ -148,6 +151,22 @@ pub fn render_global_settings(
 
         ui.add_space(10.0);
 
+        if crate::gui::widgets::filled_icon_button(
+            ui,
+            Icon::Settings,
+            text.custom_models_button,
+            theme.btn_tools(),
+            on_btn,
+            10,
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+        {
+            *show_custom_models_modal = true;
+        }
+
+        ui.add_space(10.0);
+
         // Help assistant — shares the Model Priority row (its teal accent kept).
         if crate::gui::widgets::filled_icon_button(
             ui,
@@ -178,6 +197,7 @@ pub fn render_global_settings(
         config.use_openrouter,
         config.use_ollama,
         config.use_cerebras,
+        &config.custom_models,
     );
 
     // === TOOLS MODAL ===
@@ -190,6 +210,10 @@ pub fn render_global_settings(
     }
 
     if render_model_priority_modal(ui, config, text, show_model_priority_modal) {
+        changed = true;
+    }
+
+    if render_custom_models_modal(ui, config, text, show_custom_models_modal) {
         changed = true;
     }
 
@@ -464,6 +488,7 @@ pub fn render_global_settings(
                     let saved_use_ollama = config.use_ollama;
                     let saved_use_cerebras = config.use_cerebras;
                     let saved_ollama_base_url = config.ollama_base_url.clone();
+                    let saved_custom_models = config.custom_models.clone();
 
                     *config = Config::default();
 
@@ -478,6 +503,7 @@ pub fn render_global_settings(
                     config.use_ollama = saved_use_ollama;
                     config.use_cerebras = saved_use_cerebras;
                     config.ollama_base_url = saved_ollama_base_url;
+                    config.custom_models = saved_custom_models;
                     // config.realtime_translation_model = saved_realtime_model;
                     request_node_graph_view_reset(ui.ctx());
 

@@ -7,6 +7,7 @@
 //! - `model_priority`: Smart retry priority chains
 //! - `tts`: TTS-related types (TtsMethod, EdgeTtsSettings, etc.)
 
+mod custom_models;
 mod enums;
 mod hotkey;
 mod model_priority;
@@ -16,6 +17,8 @@ mod tts;
 
 // Re-export all types for easy access
 pub use translation_gummy::TranslationGummySettings;
+
+pub use custom_models::{CustomModelDefinition, CustomModelType};
 
 pub use enums::{
     BlockType, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, ThemeMode, get_system_ui_language,

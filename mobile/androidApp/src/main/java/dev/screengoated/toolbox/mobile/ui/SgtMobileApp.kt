@@ -65,6 +65,7 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
+import dev.screengoated.toolbox.mobile.preset.CustomPresetModelDefinition
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
@@ -83,6 +84,7 @@ fun SgtMobileApp(
     ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
+    customModels: List<CustomPresetModelDefinition>,
     uiPreferences: MobileUiPreferences,
     locale: MobileLocaleText,
     historyState: HistoryUiState,
@@ -95,6 +97,7 @@ fun SgtMobileApp(
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsChanged: (PresetRuntimeSettings) -> Unit,
+    onCustomModelsChanged: (List<CustomPresetModelDefinition>) -> Unit,
     onUiLanguageSelected: (String) -> Unit,
     onThemeCycleRequested: () -> Unit,
     onGlobalTtsMethodChanged: (MobileTtsMethod) -> Unit,
@@ -127,6 +130,7 @@ fun SgtMobileApp(
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
     var ttsGeminiOnly by rememberSaveable { mutableStateOf(false) }
     var showPresetRuntimeSettings by rememberSaveable { mutableStateOf(false) }
+    var showCustomModels by rememberSaveable { mutableStateOf(false) }
     var showUsageStats by rememberSaveable { mutableStateOf(false) }
     var showDownloadedTools by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
@@ -186,6 +190,16 @@ fun SgtMobileApp(
             uiLanguage = uiPreferences.uiLanguage,
             onDismiss = { showPresetRuntimeSettings = false },
             onSave = { onPresetRuntimeSettingsChanged(it) },
+        )
+    }
+
+    if (showCustomModels) {
+        CustomModelsDialog(
+            models = customModels,
+            openRouterApiKey = openRouterApiKey,
+            locale = locale,
+            onDismiss = { showCustomModels = false },
+            onSave = onCustomModelsChanged,
         )
     }
 
@@ -281,6 +295,7 @@ fun SgtMobileApp(
                     onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
                     onOllamaUrlChanged = onOllamaUrlChanged,
                     onPresetRuntimeSettingsClick = { showPresetRuntimeSettings = true },
+                    onCustomModelsClick = { showCustomModels = true },
                     onUsageStatsClick = { showUsageStats = true },
                     onDownloadedToolsClick = { showDownloadedTools = true },
                     onResetDefaults = {

@@ -69,37 +69,21 @@ where
 
     if provider == "ollama" {
         // Ollama Local API
-        let (ollama_base_url, ollama_vision_model, ui_language) = crate::APP
+        let (ollama_base_url, ui_language) = crate::APP
             .lock()
             .ok()
             .map(|app| {
                 let config = app.config.clone();
-                (
-                    config.ollama_base_url.clone(),
-                    config.ollama_vision_model.clone(),
-                    config.ui_language.clone(),
-                )
+                (config.ollama_base_url.clone(), config.ui_language.clone())
             })
-            .unwrap_or_else(|| {
-                (
-                    "http://localhost:11434".to_string(),
-                    model.clone(),
-                    "en".to_string(),
-                )
-            });
-
-        let actual_model = if ollama_vision_model.is_empty() {
-            model.clone()
-        } else {
-            ollama_vision_model
-        };
+            .unwrap_or_else(|| ("http://localhost:11434".to_string(), "en".to_string()));
 
         // Reload image from PNG data
         let ollama_image = image::load_from_memory(&image_data)?.to_rgba8();
 
         return super::ollama::ollama_generate_vision(
             &ollama_base_url,
-            &actual_model,
+            &model,
             &prompt,
             ollama_image,
             streaming_enabled,

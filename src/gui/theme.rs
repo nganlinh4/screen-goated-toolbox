@@ -90,7 +90,10 @@ impl AppTheme {
 
     /// Download Manager launcher accent — red.
     pub fn accent_download(&self) -> Color32 {
-        self.pick(Color32::from_rgb(224, 96, 96), Color32::from_rgb(216, 62, 62))
+        self.pick(
+            Color32::from_rgb(224, 96, 96),
+            Color32::from_rgb(216, 62, 62),
+        )
     }
 
     /// Screen Record launcher accent — blue (its design-system primary).
@@ -111,7 +114,10 @@ impl AppTheme {
 
     /// Pointer Gallery footer launcher — green (distinct from Screen Record's blue).
     pub fn launch_pointer(&self) -> Color32 {
-        self.pick(Color32::from_rgb(56, 168, 112), Color32::from_rgb(34, 150, 94))
+        self.pick(
+            Color32::from_rgb(56, 168, 112),
+            Color32::from_rgb(34, 150, 94),
+        )
     }
 
     /// Translation Gummy footer launcher — rose.
@@ -124,14 +130,20 @@ impl AppTheme {
 
     /// TTS Playground footer launcher — warm amber (dark) / terracotta (light).
     pub fn launch_tts(&self) -> Color32 {
-        self.pick(Color32::from_rgb(237, 137, 54), Color32::from_rgb(194, 65, 12))
+        self.pick(
+            Color32::from_rgb(237, 137, 54),
+            Color32::from_rgb(194, 65, 12),
+        )
     }
 
     // --- Global settings modal-open buttons ---------------------------------
 
     /// "Usage statistics" modal-open button fill — teal.
     pub fn btn_stats(&self) -> Color32 {
-        self.pick(Color32::from_rgb(50, 100, 110), Color32::from_rgb(90, 160, 170))
+        self.pick(
+            Color32::from_rgb(50, 100, 110),
+            Color32::from_rgb(90, 160, 170),
+        )
     }
 
     /// "TTS settings" modal-open button fill — purple.
@@ -152,7 +164,10 @@ impl AppTheme {
 
     /// "Model priority" modal-open button fill — amber/brown.
     pub fn btn_priority(&self) -> Color32 {
-        self.pick(Color32::from_rgb(120, 88, 50), Color32::from_rgb(196, 142, 73))
+        self.pick(
+            Color32::from_rgb(120, 88, 50),
+            Color32::from_rgb(196, 142, 73),
+        )
     }
 
     // --- Preset hotkey controls ---------------------------------------------
@@ -262,7 +277,10 @@ impl AppTheme {
     /// Scrim painted behind a modal dialog. A touch stronger than egui's
     /// default backdrop so the dialog reads as the clear focus.
     pub fn scrim_color(&self) -> Color32 {
-        self.pick(Color32::from_black_alpha(150), Color32::from_black_alpha(96))
+        self.pick(
+            Color32::from_black_alpha(150),
+            Color32::from_black_alpha(96),
+        )
     }
 
     /// Raised container surface for dialogs (one elevation step above `card_bg`).
@@ -394,7 +412,11 @@ impl AppTheme {
     pub fn apply_global_style(ctx: &Context, dark: bool) {
         let theme = AppTheme::from_dark(dark);
         let mut style = (*ctx.global_style()).clone();
-        let mut v = if dark { Visuals::dark() } else { Visuals::light() };
+        let mut v = if dark {
+            Visuals::dark()
+        } else {
+            Visuals::light()
+        };
 
         let text = theme.on_surface();
         let hairline = theme.pick(
@@ -458,13 +480,19 @@ impl AppTheme {
             offset: [0, 6],
             blur: 24,
             spread: 0,
-            color: theme.pick(Color32::from_black_alpha(140), Color32::from_black_alpha(50)),
+            color: theme.pick(
+                Color32::from_black_alpha(140),
+                Color32::from_black_alpha(50),
+            ),
         };
         v.popup_shadow = Shadow {
             offset: [0, 4],
             blur: 16,
             spread: 0,
-            color: theme.pick(Color32::from_black_alpha(120), Color32::from_black_alpha(40)),
+            color: theme.pick(
+                Color32::from_black_alpha(120),
+                Color32::from_black_alpha(40),
+            ),
         };
         v.menu_corner_radius = CornerRadius::same(12);
 

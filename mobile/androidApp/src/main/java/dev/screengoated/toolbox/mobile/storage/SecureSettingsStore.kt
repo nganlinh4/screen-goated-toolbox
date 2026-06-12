@@ -14,6 +14,7 @@ import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.preset.CustomPresetModelDefinition
 import dev.screengoated.toolbox.mobile.service.tts.CachedEdgeVoiceCatalog
 import kotlinx.serialization.json.Json
 
@@ -139,6 +140,19 @@ class SecureSettingsStore(
         }.getOrDefault(PresetRuntimeSettings())
     }
 
+    fun loadCustomModels(): List<CustomPresetModelDefinition> {
+        val payload = prefs.getString(KEY_CUSTOM_MODELS, null) ?: return emptyList()
+        return runCatching {
+            json.decodeFromString<List<CustomPresetModelDefinition>>(payload)
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveCustomModels(models: List<CustomPresetModelDefinition>) {
+        prefs.edit {
+            putString(KEY_CUSTOM_MODELS, json.encodeToString(models))
+        }
+    }
+
     fun savePresetRuntimeSettings(settings: PresetRuntimeSettings) {
         prefs.edit {
             putString(
@@ -232,6 +246,7 @@ class SecureSettingsStore(
         private const val KEY_OPENROUTER_API_KEY = "openrouter_api_key"
         private const val KEY_OLLAMA_URL = "ollama_url"
         private const val KEY_PRESET_RUNTIME_SETTINGS = "preset_runtime_settings"
+        private const val KEY_CUSTOM_MODELS = "custom_models"
         private const val KEY_TRANSCRIPTION_FONT_SIZE = "transcription_font_size"
         private const val KEY_TRANSLATION_FONT_SIZE = "translation_font_size"
         private const val KEY_TTS_ENABLED = "realtime_tts_enabled"

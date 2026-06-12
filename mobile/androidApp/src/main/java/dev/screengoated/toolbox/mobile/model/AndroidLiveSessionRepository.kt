@@ -16,6 +16,8 @@ import dev.screengoated.toolbox.mobile.shared.live.TranscriptionMethod
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
 import dev.screengoated.toolbox.mobile.shared.live.TranslationResponse
 import dev.screengoated.toolbox.mobile.shared.live.LiveTextState
+import dev.screengoated.toolbox.mobile.preset.CustomPresetModelDefinition
+import dev.screengoated.toolbox.mobile.preset.PresetCustomModelRegistry
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
@@ -46,6 +48,7 @@ class AndroidLiveSessionRepository(
     )
     private val mutableUiPreferences = MutableStateFlow(settingsStore.loadUiPreferences())
     private val mutablePresetRuntimeSettings = MutableStateFlow(settingsStore.loadPresetRuntimeSettings())
+    private val mutableCustomModels = MutableStateFlow(settingsStore.loadCustomModels())
 
     val apiKey: StateFlow<String> = mutableApiKey.asStateFlow()
     val cerebrasApiKey: StateFlow<String> = mutableCerebrasApiKey.asStateFlow()
@@ -59,10 +62,12 @@ class AndroidLiveSessionRepository(
     val globalTtsSettings: StateFlow<MobileGlobalTtsSettings> = mutableGlobalTtsSettings.asStateFlow()
     val uiPreferences: StateFlow<MobileUiPreferences> = mutableUiPreferences.asStateFlow()
     val presetRuntimeSettings: StateFlow<PresetRuntimeSettings> = mutablePresetRuntimeSettings.asStateFlow()
+    val customModels: StateFlow<List<CustomPresetModelDefinition>> = mutableCustomModels.asStateFlow()
 
     val supportedLanguages: List<String> = LanguageCatalog.names
 
     init {
+        PresetCustomModelRegistry.set(mutableCustomModels.value)
         val permissions = permissionEvaluator.evaluate(context, persistedConfig, overlaySupported)
         store.hydrate(persistedConfig, permissions)
     }
@@ -157,6 +162,12 @@ class AndroidLiveSessionRepository(
     fun updatePresetRuntimeSettings(settings: PresetRuntimeSettings) {
         mutablePresetRuntimeSettings.value = settings
         settingsStore.savePresetRuntimeSettings(settings)
+    }
+
+    fun updateCustomModels(models: List<CustomPresetModelDefinition>) {
+        mutableCustomModels.value = models
+        PresetCustomModelRegistry.set(models)
+        settingsStore.saveCustomModels(models)
     }
 
     fun runtimePermissions(): Array<String> = permissionEvaluator.runtimePermissions()
@@ -299,6 +310,8 @@ class AndroidLiveSessionRepository(
     fun currentUiPreferences(): MobileUiPreferences = uiPreferences.value
 
     fun currentPresetRuntimeSettings(): PresetRuntimeSettings = presetRuntimeSettings.value
+
+    fun currentCustomModels(): List<CustomPresetModelDefinition> = customModels.value
 
     fun currentTextToTextChain(): List<String> =
         presetRuntimeSettings.value.modelPriorityChains.textToText
