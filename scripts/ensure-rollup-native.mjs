@@ -32,7 +32,7 @@ console.log(`[ensure-rollup-native] Missing ${targetPackage}; installing ${versi
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const installResult = spawnSync(
   npmCommand,
-  ['install', '--no-save', `${targetPackage}@${versionRange}`],
+  ['install', '--no-save', '--package-lock=false', `${targetPackage}@${versionRange}`],
   {
     cwd,
     stdio: 'inherit',

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(cargo check *)",
+      "PowerShell(Tee-Object *)"
+    ]
+  }
+}
