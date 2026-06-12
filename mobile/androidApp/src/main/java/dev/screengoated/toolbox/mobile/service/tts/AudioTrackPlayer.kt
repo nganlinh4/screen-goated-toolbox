@@ -155,11 +155,7 @@ internal class AudioTrackPlayer(
         runCatching {
             manager.mode = AudioManager.MODE_IN_COMMUNICATION
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val preferredDevice = manager.availableCommunicationDevices.firstOrNull {
-                    it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-                } ?: manager.availableCommunicationDevices.firstOrNull {
-                    it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-                }
+                val preferredDevice = manager.preferredCommunicationDevice()
                 if (preferredDevice != null) {
                     val selected = manager.setCommunicationDevice(preferredDevice)
                     Log.d(
@@ -422,6 +418,11 @@ private fun AudioDeviceInfo.debugLabel(): String {
         AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "bluetooth_a2dp"
         AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired_headset"
         AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired_headphones"
+        AudioDeviceInfo.TYPE_USB_HEADSET -> "usb_headset"
+        AudioDeviceInfo.TYPE_HEARING_AID -> "hearing_aid"
+        AudioDeviceInfo.TYPE_BLE_HEADSET -> "ble_headset"
+        AudioDeviceInfo.TYPE_BLE_SPEAKER -> "ble_speaker"
+        AudioDeviceInfo.TYPE_BLE_BROADCAST -> "ble_broadcast"
         else -> "type_$type"
     }
 }
@@ -438,6 +439,33 @@ private fun AudioManager.availableCommunicationDevicesLabel(): String {
         return "legacy"
     }
     return availableCommunicationDevices.joinToString(prefix = "[", postfix = "]") { it.debugLabel() }
+}
+
+private fun AudioManager.preferredCommunicationDevice(): AudioDeviceInfo? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+        return null
+    }
+    val devices = availableCommunicationDevices
+    return devices.firstOrNull { it.isExternalCommunicationDevice() }
+        ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+        ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+}
+
+private fun AudioDeviceInfo.isExternalCommunicationDevice(): Boolean {
+    return when (type) {
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_WIRED_HEADSET,
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+        AudioDeviceInfo.TYPE_USB_HEADSET,
+        AudioDeviceInfo.TYPE_HEARING_AID,
+        -> true
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER,
+        AudioDeviceInfo.TYPE_BLE_BROADCAST,
+        -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        else -> false
+    }
 }
 
 private fun AudioManager.streamVolumeLabel(streamType: Int): String {
