@@ -2,7 +2,7 @@ import * as React from 'react';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { Check } from 'lucide-react';
+import { Check } from '@/components/ui/MaterialIcon';
 
 function DropdownMenu(props: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root modal={false} {...props} />;

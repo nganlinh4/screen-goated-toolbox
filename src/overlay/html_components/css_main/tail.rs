@@ -129,7 +129,7 @@ pub(super) fn get(
             background: rgba(76, 175, 80, 0.14);
             box-shadow: 0 2px 8px rgba(76, 175, 80, 0.35);
         }}
-        .speak-btn.active .material-symbols-rounded {{
+        .speak-btn.active .inline-svg-icon {{
             animation: speak-pulse 1.5s cubic-bezier(0.2, 0.0, 0, 1.0) infinite;
         }}
         .speak-btn.locked {{

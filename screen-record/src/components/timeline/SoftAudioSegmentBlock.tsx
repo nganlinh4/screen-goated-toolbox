@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Scissors } from "lucide-react";
+import { Scissors } from '@/components/ui/MaterialIcon';
 import {
   getHandlePriorityThresholdTime,
   isTimeNearRangeBoundary,

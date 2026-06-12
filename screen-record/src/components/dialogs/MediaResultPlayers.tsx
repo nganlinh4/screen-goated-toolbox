@@ -6,7 +6,7 @@ import {
   Play,
   Volume2,
   VolumeX,
-} from "lucide-react";
+} from '@/components/ui/MaterialIcon';
 
 function fmtTime(s: number) {
   if (!isFinite(s) || s < 0) return "0:00";

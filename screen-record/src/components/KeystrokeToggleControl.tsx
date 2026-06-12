@@ -1,6 +1,6 @@
 import { VideoSegment } from "@/types/video";
 import { Button } from "@/components/ui/button";
-import { Keyboard } from "lucide-react";
+import { Keyboard } from '@/components/ui/MaterialIcon';
 import { useSettings } from "@/hooks/useSettings";
 import { DEFAULT_KEYSTROKE_DELAY_SEC } from "@/hooks/useKeystrokeOverlayEditor";
 import { saveKeystrokeLanguage } from "@/hooks/useVideoState";

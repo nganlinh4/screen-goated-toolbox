@@ -482,7 +482,7 @@ private fun LiveTranslateCarouselTile(
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Icon(
-                        painterResource(R.drawable.ms_rtt),
+                        painterResource(LiveTranslateVisuals.icon),
                         contentDescription = null,
                         tint = slotColor,
                         modifier = Modifier.size(AppCardLandscapeIconSize),
@@ -527,7 +527,7 @@ private fun LiveTranslateCarouselTile(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    painterResource(R.drawable.ms_rtt),
+                    painterResource(LiveTranslateVisuals.icon),
                     contentDescription = null,
                     tint = slotColor,
                     modifier = Modifier.size(AppCardPortraitIconSize),

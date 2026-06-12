@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { Scissors } from 'lucide-react';
+import { Scissors } from '@/components/ui/MaterialIcon';
 import { VideoSegment, TextSegment } from '@/types/video';
 import {
   getHandlePriorityThresholdTime,

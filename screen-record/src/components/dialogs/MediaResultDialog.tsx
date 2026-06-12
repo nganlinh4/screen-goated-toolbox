@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { FolderOpen, Copy, CheckCircle2 } from 'lucide-react';
+import { FolderOpen, Copy, CheckCircle2 } from '@/components/ui/MaterialIcon';
 import { invoke } from '@/lib/ipc';
 import { useSettings } from '@/hooks/useSettings';
 import type { ExportArtifact } from '@/types/video';

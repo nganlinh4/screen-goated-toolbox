@@ -1,5 +1,5 @@
 import type { PointerEvent } from "react";
-import { ChevronDown, Loader2, Mic, MonitorSpeaker, Volume2 } from "lucide-react";
+import { ChevronDown, Loader2, Mic, MonitorSpeaker, Volume2 } from '@/components/ui/MaterialIcon';
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";

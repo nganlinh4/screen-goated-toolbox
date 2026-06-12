@@ -1,4 +1,4 @@
-import { AudioLines, Captions, Rows3 } from 'lucide-react';
+import { AudioLines, Captions, Rows3 } from '@/components/ui/MaterialIcon';
 import { useEffect, useRef, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { useSettings } from '@/hooks/useSettings';

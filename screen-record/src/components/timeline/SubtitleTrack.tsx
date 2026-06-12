@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Scissors } from 'lucide-react';
+import { Scissors } from '@/components/ui/MaterialIcon';
 import { ImportedAudioSegment, SubtitleSegment, SubtitleSourceGroup, VideoSegment } from '@/types/video';
 import type {
   SubtitleGenerationIndicator,
