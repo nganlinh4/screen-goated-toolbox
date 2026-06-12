@@ -84,27 +84,18 @@ where
 
     if provider == "ollama" {
         // --- OLLAMA LOCAL API ---
-        let (ollama_base_url, ollama_text_model) = crate::APP
+        let ollama_base_url = crate::APP
             .lock()
             .ok()
             .map(|app| {
                 let config = app.config.clone();
-                (
-                    config.ollama_base_url.clone(),
-                    config.ollama_text_model.clone(),
-                )
+                config.ollama_base_url.clone()
             })
-            .unwrap_or_else(|| ("http://localhost:11434".to_string(), model.clone()));
-
-        let actual_model = if ollama_text_model.is_empty() {
-            model.clone()
-        } else {
-            ollama_text_model
-        };
+            .unwrap_or_else(|| "http://localhost:11434".to_string());
 
         return crate::api::ollama::ollama_generate_text(
             &ollama_base_url,
-            &actual_model,
+            &model,
             &prompt,
             streaming_enabled,
             ui_language,

@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
-    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, KokoroSettings,
-    MagpieSettings, ModelPriorityChains, PresetProfile, StepAudioReferenceVoice, StepAudioSettings,
-    SupertonicSettings, ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod,
-    TtsPlaygroundSettings, VieneuSettings, VoxtralSettings, default_tts_language_conditions,
-    get_system_ui_language,
+    CustomModelDefinition, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey,
+    KokoroSettings, MagpieSettings, ModelPriorityChains, PresetProfile, StepAudioReferenceVoice,
+    StepAudioSettings, SupertonicSettings, ThemeMode, TranslationGummySettings,
+    TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings, VieneuSettings, VoxtralSettings,
+    default_tts_language_conditions, get_system_ui_language,
 };
 
 // ============================================================================
@@ -255,6 +255,13 @@ pub struct Config {
     pub ollama_text_model: String,
 
     // -------------------------------------------------------------------------
+    // Custom Model Registry
+    // -------------------------------------------------------------------------
+    /// User-defined model entries merged with the generated catalog at runtime.
+    #[serde(default)]
+    pub custom_models: Vec<CustomModelDefinition>,
+
+    // -------------------------------------------------------------------------
     // Realtime Audio Settings
     // -------------------------------------------------------------------------
     /// Model for realtime translation provider
@@ -448,6 +455,7 @@ impl Default for Config {
             ollama_base_url: "http://localhost:11434".to_string(),
             ollama_vision_model: String::new(),
             ollama_text_model: String::new(),
+            custom_models: Vec::new(),
 
             // Realtime Audio
             realtime_translation_model: crate::model_config::REALTIME_TRANSLATION_MODEL_LLM

@@ -208,7 +208,7 @@ private fun ChainEditor(
     accent: androidx.compose.ui.graphics.Color,
     onChainChanged: (List<String>) -> Unit,
 ) {
-    val availableModels = remember(modelType) { PresetModelCatalog.forType(modelType) }
+    val availableModels = PresetModelCatalog.forType(modelType)
     var showAddMenu by remember { mutableStateOf(false) }
     var draggedModelId by remember { mutableStateOf<String?>(null) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }

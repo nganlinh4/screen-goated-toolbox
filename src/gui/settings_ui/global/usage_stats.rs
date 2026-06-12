@@ -1,6 +1,7 @@
+use crate::config::types::CustomModelDefinition;
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
-use crate::model_config::{get_all_models, get_all_models_with_ollama};
+use crate::model_config::get_all_models_with_custom;
 use eframe::egui;
 use std::collections::HashMap;
 
@@ -18,6 +19,7 @@ pub fn render_usage_modal(
     use_openrouter: bool,
     use_ollama: bool,
     use_cerebras: bool,
+    custom_models: &[CustomModelDefinition],
 ) {
     if !*show_modal {
         return;
@@ -41,12 +43,7 @@ pub fn render_usage_modal(
                 *show_modal = false;
             }
 
-            // Get all models including Ollama models from cache
-            let all_models = if use_ollama {
-                get_all_models_with_ollama()
-            } else {
-                get_all_models().to_vec()
-            };
+            let all_models = get_all_models_with_custom(custom_models);
 
             let mut shown_models = std::collections::HashSet::new();
 

@@ -1,6 +1,9 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
+import dev.screengoated.toolbox.mobile.shared.preset.BlockType
+import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_TEXT_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
@@ -312,7 +315,7 @@ class PresetRepository(
         val builtInResolved = canonicalPresets.mapNotNull { canonical ->
             val override = storedOverrides.builtInOverrides[canonical.id]
             if (override?.isHidden == true) return@mapNotNull null
-            val resolved = override?.let { canonical.applyOverride(it) } ?: canonical
+            val resolved = normalizePresetModelIds(override?.let { canonical.applyOverride(it) } ?: canonical)
             val executionCapability = resolveExecutionCapability(resolved)
             ResolvedPreset(
                 preset = resolved,
@@ -326,9 +329,10 @@ class PresetRepository(
             )
         }
         val customResolved = storedOverrides.customPresets.values.map { preset ->
-            val executionCapability = resolveExecutionCapability(preset)
+            val normalizedPreset = normalizePresetModelIds(preset)
+            val executionCapability = resolveExecutionCapability(normalizedPreset)
             ResolvedPreset(
-                preset = preset,
+                preset = normalizedPreset,
                 hasOverride = false,
                 isBuiltIn = false,
                 executionCapability = executionCapability,
@@ -341,6 +345,32 @@ class PresetRepository(
         _catalogState.value = PresetCatalogState(
             presets = builtInResolved + customResolved,
         )
+    }
+
+    private fun normalizePresetModelIds(preset: Preset): Preset {
+        return preset.copy(
+            blocks = preset.blocks.map { block ->
+                val descriptor = PresetModelCatalog.getById(block.model)
+                val expectedType = when (block.blockType) {
+                    BlockType.IMAGE -> PresetModelType.VISION
+                    BlockType.TEXT -> PresetModelType.TEXT
+                    BlockType.AUDIO -> PresetModelType.AUDIO
+                    BlockType.INPUT_ADAPTER -> null
+                }
+                if (expectedType == null || descriptor?.modelType == expectedType) {
+                    block
+                } else {
+                    block.copy(model = defaultModelIdForBlock(block.blockType))
+                }
+            },
+        )
+    }
+
+    private fun defaultModelIdForBlock(blockType: BlockType): String = when (blockType) {
+        BlockType.IMAGE -> DEFAULT_IMAGE_MODEL_ID
+        BlockType.TEXT -> DEFAULT_TEXT_MODEL_ID
+        BlockType.AUDIO -> "whisper-accurate"
+        BlockType.INPUT_ADAPTER -> ""
     }
 
     private fun persistOverrides(updatedOverrides: Map<String, PresetOverride>) {

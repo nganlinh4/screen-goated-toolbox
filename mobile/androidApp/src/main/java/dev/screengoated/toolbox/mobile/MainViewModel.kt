@@ -17,6 +17,7 @@ import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.next
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.model.withMethod
+import dev.screengoated.toolbox.mobile.preset.CustomPresetModelDefinition
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.service.LiveTranslateService
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
@@ -56,6 +57,7 @@ class MainViewModel(
     val globalTtsSettings: StateFlow<MobileGlobalTtsSettings> = repository.globalTtsSettings
     val uiPreferences: StateFlow<MobileUiPreferences> = repository.uiPreferences
     val presetRuntimeSettings: StateFlow<PresetRuntimeSettings> = repository.presetRuntimeSettings
+    val customModels: StateFlow<List<CustomPresetModelDefinition>> = repository.customModels
     val edgeVoiceCatalogState: StateFlow<EdgeVoiceCatalogState> = ttsRuntimeService.edgeVoiceCatalogState
     val historyState: StateFlow<HistoryUiState> = historyRepository.state
     val historySearchQuery: StateFlow<String> = mutableHistorySearchQuery.asStateFlow()
@@ -113,6 +115,10 @@ class MainViewModel(
 
     fun onOllamaUrlChanged(url: String) {
         repository.updateOllamaUrl(url)
+    }
+
+    fun onCustomModelsChanged(models: List<CustomPresetModelDefinition>) {
+        repository.updateCustomModels(models)
     }
 
     fun onUiLanguageSelected(languageCode: String) {

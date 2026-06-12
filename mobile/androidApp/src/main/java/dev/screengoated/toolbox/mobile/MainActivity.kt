@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
             val globalTtsSettings by viewModel.globalTtsSettings.collectAsStateWithLifecycle()
             val uiPreferences by viewModel.uiPreferences.collectAsStateWithLifecycle()
             val presetRuntimeSettings by viewModel.presetRuntimeSettings.collectAsStateWithLifecycle()
+            val customModels by viewModel.customModels.collectAsStateWithLifecycle()
             val edgeVoiceCatalogState by viewModel.edgeVoiceCatalogState.collectAsStateWithLifecycle()
             val historyState by viewModel.historyState.collectAsStateWithLifecycle()
             val historySearchQuery by viewModel.historySearchQuery.collectAsStateWithLifecycle()
@@ -141,6 +142,7 @@ class MainActivity : ComponentActivity() {
                     ollamaUrl = ollamaUrl,
                     globalTtsSettings = globalTtsSettings,
                     presetRuntimeSettings = presetRuntimeSettings,
+                    customModels = customModels,
                     uiPreferences = uiPreferences,
                     locale = locale,
                     historyState = historyState,
@@ -152,6 +154,7 @@ class MainActivity : ComponentActivity() {
                     onOpenRouterApiKeyChanged = viewModel::onOpenRouterApiKeyChanged,
                     onOllamaUrlChanged = viewModel::onOllamaUrlChanged,
                     onPresetRuntimeSettingsChanged = viewModel::onPresetRuntimeSettingsChanged,
+                    onCustomModelsChanged = viewModel::onCustomModelsChanged,
                     onUiLanguageSelected = viewModel::onUiLanguageSelected,
                     onThemeCycleRequested = viewModel::onThemeCycleRequested,
                     edgeVoiceCatalogState = edgeVoiceCatalogState,

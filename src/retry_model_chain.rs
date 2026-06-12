@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::model_config::{
-    ModelConfig, ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
-    model_supports_search_by_id, model_supports_search_by_name,
+    ModelConfig, ModelType, get_all_models_with_custom, get_model_by_id_with_custom,
+    model_is_non_llm, model_supports_search_by_id_with_custom, model_supports_search_by_name,
 };
 use std::collections::HashSet;
 
@@ -105,7 +105,7 @@ pub fn preflight_skip_reason(
         return Some(reason);
     }
 
-    if get_model_by_id(model_id).is_none() {
+    if get_model_by_id_with_custom(model_id, &config.custom_models).is_none() {
         return Some(format!("Model config not found: {}", model_id));
     }
 
@@ -119,7 +119,8 @@ pub fn resolve_next_retry_model(
     chain_kind: RetryChainKind,
     config: &Config,
 ) -> Option<ModelConfig> {
-    let must_support_search = model_supports_search_by_id(current_model_id);
+    let must_support_search =
+        model_supports_search_by_id_with_custom(current_model_id, &config.custom_models);
 
     for candidate_id in chain_kind.configured_chain(config) {
         if failed_model_ids
@@ -129,7 +130,7 @@ pub fn resolve_next_retry_model(
             continue;
         }
 
-        let Some(model) = get_model_by_id(candidate_id) else {
+        let Some(model) = get_model_by_id_with_custom(candidate_id, &config.custom_models) else {
             continue;
         };
 
@@ -162,8 +163,8 @@ fn resolve_auto_retry_model(
     must_support_search: bool,
     config: &Config,
 ) -> Option<ModelConfig> {
-    let all_models: Vec<ModelConfig> = get_all_models_with_ollama();
-    let current_provider = get_model_by_id(current_model_id)
+    let all_models: Vec<ModelConfig> = get_all_models_with_custom(&config.custom_models);
+    let current_provider = get_model_by_id_with_custom(current_model_id, &config.custom_models)
         .map(|m| m.provider)
         .unwrap_or_default();
 
@@ -223,7 +224,10 @@ fn is_retry_candidate_compatible(
         && !model_is_non_llm(&model.id)
         && !blocked_providers.contains(&model.provider)
         && provider_is_available(&model.provider, config)
-        && (!must_support_search || model_supports_search_by_name(&model.full_name))
+        && (!must_support_search
+            || model
+                .supports_search_override
+                .unwrap_or_else(|| model_supports_search_by_name(&model.full_name)))
 }
 
 #[cfg(test)]

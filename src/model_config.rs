@@ -7,6 +7,13 @@ pub enum ModelType {
     Audio,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelSource {
+    BuiltIn,
+    User,
+    Discovered,
+}
+
 #[derive(Clone, Debug)]
 pub struct ModelConfig {
     pub id: String,
@@ -20,6 +27,8 @@ pub struct ModelConfig {
     pub quota_limit_vi: String,
     pub quota_limit_ko: String,
     pub quota_limit_en: String,
+    pub source: ModelSource,
+    pub supports_search_override: Option<bool>,
 }
 
 impl ModelConfig {
@@ -52,6 +61,8 @@ impl ModelConfig {
             quota_limit_vi: quota_limit_vi.to_string(),
             quota_limit_ko: quota_limit_ko.to_string(),
             quota_limit_en: quota_limit_en.to_string(),
+            source: ModelSource::BuiltIn,
+            supports_search_override: None,
         }
     }
 }
@@ -72,8 +83,28 @@ pub fn get_all_models() -> &'static [ModelConfig] {
 }
 
 pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
+    let custom_models = crate::APP
+        .lock()
+        .ok()
+        .map(|app| app.config.custom_models.clone())
+        .unwrap_or_default();
+    get_model_by_id_with_custom(id, &custom_models)
+}
+
+pub fn get_model_by_id_with_custom(
+    id: &str,
+    custom_models: &[crate::config::types::CustomModelDefinition],
+) -> Option<ModelConfig> {
     if let Some(model) = get_all_models().iter().find(|m| m.id == id) {
         return Some(model.clone());
+    }
+
+    if let Some(model) = custom_models
+        .iter()
+        .filter_map(custom_model_definition_to_config)
+        .find(|model| model.id == id)
+    {
+        return Some(model);
     }
 
     let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
@@ -131,7 +162,24 @@ pub fn default_text_to_text_priority_chain_ids() -> &'static [&'static str] {
 
 /// Get all models including dynamically fetched Ollama models.
 pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
+    let custom_models = crate::APP
+        .lock()
+        .ok()
+        .map(|app| app.config.custom_models.clone())
+        .unwrap_or_default();
+    get_all_models_with_custom(&custom_models)
+}
+
+pub fn get_all_models_with_custom(
+    custom_models: &[crate::config::types::CustomModelDefinition],
+) -> Vec<ModelConfig> {
     let mut models: Vec<ModelConfig> = ALL_MODELS.iter().cloned().collect();
+
+    models.extend(
+        custom_models
+            .iter()
+            .filter_map(custom_model_definition_to_config),
+    );
 
     let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
     for ollama_model in cached.iter() {
@@ -139,6 +187,43 @@ pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
     }
 
     models
+}
+
+pub fn custom_model_definition_to_config(
+    custom: &crate::config::types::CustomModelDefinition,
+) -> Option<ModelConfig> {
+    let id = custom.id.trim();
+    let provider = custom.provider.trim();
+    let full_name = custom.full_name.trim();
+    if id.is_empty() || provider.is_empty() || full_name.is_empty() {
+        return None;
+    }
+
+    let model_type = match custom.model_type {
+        crate::config::types::CustomModelType::Text => ModelType::Text,
+        crate::config::types::CustomModelType::Vision => ModelType::Vision,
+    };
+    let display_name = if custom.display_name.trim().is_empty() {
+        full_name
+    } else {
+        custom.display_name.trim()
+    };
+
+    Some(ModelConfig {
+        id: id.to_string(),
+        provider: provider.to_string(),
+        name_vi: display_name.to_string(),
+        name_ko: display_name.to_string(),
+        name_en: display_name.to_string(),
+        full_name: full_name.to_string(),
+        model_type,
+        enabled: custom.enabled,
+        quota_limit_vi: custom.quota_vi.clone(),
+        quota_limit_ko: custom.quota_ko.clone(),
+        quota_limit_en: custom.quota_en.clone(),
+        source: ModelSource::User,
+        supports_search_override: custom.supports_search,
+    })
 }
 
 /// Check if a model supports search capabilities by its Full Name (API Name).
@@ -165,7 +250,22 @@ pub fn model_supports_search_by_name(full_name: &str) -> bool {
 
 /// Check if a model supports search capabilities by its Internal ID.
 pub fn model_supports_search_by_id(id: &str) -> bool {
-    if let Some(conf) = get_model_by_id(id) {
+    let custom_models = crate::APP
+        .lock()
+        .ok()
+        .map(|app| app.config.custom_models.clone())
+        .unwrap_or_default();
+    model_supports_search_by_id_with_custom(id, &custom_models)
+}
+
+pub fn model_supports_search_by_id_with_custom(
+    id: &str,
+    custom_models: &[crate::config::types::CustomModelDefinition],
+) -> bool {
+    if let Some(conf) = get_model_by_id_with_custom(id, custom_models) {
+        if let Some(supports_search) = conf.supports_search_override {
+            return supports_search;
+        }
         return model_supports_search_by_name(&conf.full_name);
     }
 
@@ -199,6 +299,13 @@ lazy_static::lazy_static! {
 /// Check if Ollama model scan is in progress
 pub fn is_ollama_scan_in_progress() -> bool {
     OLLAMA_SCAN_IN_PROGRESS.load(Ordering::SeqCst)
+}
+
+pub fn ollama_cached_model_count() -> usize {
+    OLLAMA_MODEL_CACHE
+        .lock()
+        .map(|models| models.len())
+        .unwrap_or(0)
 }
 
 /// Trigger background scan for Ollama models (non-blocking)
@@ -256,6 +363,8 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_vi: "Không giới hạn".to_string(),
                         quota_limit_ko: "무제한".to_string(),
                         quota_limit_en: "Unlimited".to_string(),
+                        source: ModelSource::Discovered,
+                        supports_search_override: None,
                     });
 
                     new_models.push(ModelConfig {
@@ -270,6 +379,8 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_vi: "Không giới hạn".to_string(),
                         quota_limit_ko: "무제한".to_string(),
                         quota_limit_en: "Unlimited".to_string(),
+                        source: ModelSource::Discovered,
+                        supports_search_override: None,
                     });
                 } else {
                     new_models.push(ModelConfig {
@@ -284,6 +395,8 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_vi: "Không giới hạn".to_string(),
                         quota_limit_ko: "무제한".to_string(),
                         quota_limit_en: "Unlimited".to_string(),
+                        source: ModelSource::Discovered,
+                        supports_search_override: None,
                     });
                 }
             }

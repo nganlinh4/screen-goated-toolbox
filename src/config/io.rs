@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::config::config::Config;
 use crate::config::preset::{Preset, ProcessingBlock, get_default_presets};
-use crate::model_config::{ModelType, get_model_by_id, model_is_non_llm};
+use crate::model_config::{ModelType, get_model_by_id_with_custom, model_is_non_llm};
 
 // ============================================================================
 // CONFIG PATH
@@ -60,17 +60,21 @@ fn migrate_config(config: &mut Config) {
             .min(profile.presets.len().saturating_sub(1));
     }
 
+    let custom_models = config.custom_models.clone();
+
     normalize_model_priority_chain(
         &mut config.model_priority_chains.image_to_text,
         ModelType::Vision,
+        &custom_models,
     );
-    normalize_saved_block_model_ids(&mut config.presets);
+    normalize_saved_block_model_ids(&mut config.presets, &custom_models);
     for profile in &mut config.preset_profiles {
-        normalize_saved_block_model_ids(&mut profile.presets);
+        normalize_saved_block_model_ids(&mut profile.presets, &custom_models);
     }
     normalize_model_priority_chain(
         &mut config.model_priority_chains.text_to_text,
         ModelType::Text,
+        &custom_models,
     );
     normalize_translation_gummy_settings(config);
     normalize_removed_tts_methods(config);
@@ -134,15 +138,23 @@ fn migrate_preset_list(presets: &mut Vec<Preset>, default_presets: &[Preset]) {
     }
 }
 
-fn normalize_saved_block_model_ids(presets: &mut [Preset]) {
+fn normalize_saved_block_model_ids(
+    presets: &mut [Preset],
+    custom_models: &[crate::config::types::CustomModelDefinition],
+) {
     for preset in presets {
         for block in &mut preset.blocks {
-            block.model = normalize_model_id_for_block(&block.block_type, &block.model);
+            block.model =
+                normalize_model_id_for_block(&block.block_type, &block.model, custom_models);
         }
     }
 }
 
-fn normalize_model_id_for_block(block_type: &str, model_id: &str) -> String {
+fn normalize_model_id_for_block(
+    block_type: &str,
+    model_id: &str,
+    custom_models: &[crate::config::types::CustomModelDefinition],
+) -> String {
     let expected_type = match block_type {
         "image" => Some(ModelType::Vision),
         "text" => Some(ModelType::Text),
@@ -154,7 +166,7 @@ fn normalize_model_id_for_block(block_type: &str, model_id: &str) -> String {
         return model_id.to_string();
     };
 
-    if let Some(model) = get_model_by_id(model_id)
+    if let Some(model) = get_model_by_id_with_custom(model_id, custom_models)
         && model.model_type == expected_type
     {
         return model_id.to_string();
@@ -163,13 +175,17 @@ fn normalize_model_id_for_block(block_type: &str, model_id: &str) -> String {
     default_model_id_for_type(expected_type).to_string()
 }
 
-fn normalize_model_priority_chain(chain: &mut Vec<String>, expected_type: ModelType) {
+fn normalize_model_priority_chain(
+    chain: &mut Vec<String>,
+    expected_type: ModelType,
+    custom_models: &[crate::config::types::CustomModelDefinition],
+) {
     let fallback = default_model_id_for_type(expected_type).to_string();
     let mut normalized = Vec::with_capacity(chain.len());
     let mut seen = std::collections::HashSet::new();
 
     for model_id in chain.drain(..) {
-        let candidate = match get_model_by_id(&model_id) {
+        let candidate = match get_model_by_id_with_custom(&model_id, custom_models) {
             Some(model) if model.model_type == expected_type && !model_is_non_llm(&model_id) => {
                 model_id
             }

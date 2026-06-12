@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use crate::APP;
 use crate::config::Config;
 use crate::model_config::{
-    ModelConfig, ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
+    ModelConfig, ModelType, get_all_models_with_custom, get_model_by_id_with_custom,
+    model_is_non_llm,
 };
 use crate::retry_model_chain::{
     RetryChainKind, preflight_skip_reason, provider_is_available, resolve_next_retry_model,
@@ -56,7 +57,7 @@ pub(super) fn collect_translation_models(config: &Config) -> Vec<ModelConfig> {
         }
     }
 
-    for model in get_all_models_with_ollama()
+    for model in get_all_models_with_custom(&config.custom_models)
         .into_iter()
         .filter(|model| is_compatible_translation_model(model, config, &blocked_providers))
     {
@@ -81,11 +82,7 @@ pub(super) fn collect_prioritized_translation_models(
         });
     }
     let blocked_providers = HashSet::new();
-    let Some(model) = get_model_by_id(model_id).or_else(|| {
-        get_all_models_with_ollama()
-            .into_iter()
-            .find(|model| model.id == model_id)
-    }) else {
+    let Some(model) = get_model_by_id_with_custom(model_id, &config.custom_models) else {
         return Err(format!("Unknown subtitle translation model: {model_id}"));
     };
     if !is_compatible_translation_model(&model, config, &blocked_providers) {
@@ -113,7 +110,7 @@ fn resolve_initial_translation_model(
     blocked_providers: &HashSet<String>,
 ) -> Option<ModelConfig> {
     for candidate_id in RetryChainKind::TextToText.configured_chain(config) {
-        let Some(model) = get_model_by_id(candidate_id) else {
+        let Some(model) = get_model_by_id_with_custom(candidate_id, &config.custom_models) else {
             continue;
         };
         if is_compatible_translation_model(&model, config, blocked_providers) {
@@ -121,7 +118,7 @@ fn resolve_initial_translation_model(
         }
     }
 
-    get_all_models_with_ollama()
+    get_all_models_with_custom(&config.custom_models)
         .into_iter()
         .find(|model| is_compatible_translation_model(model, config, blocked_providers))
 }

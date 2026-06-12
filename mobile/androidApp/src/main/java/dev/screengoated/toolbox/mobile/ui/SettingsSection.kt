@@ -37,6 +37,7 @@ internal fun GlobalSection(
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsClick: () -> Unit,
+    onCustomModelsClick: () -> Unit,
     onUsageStatsClick: () -> Unit,
     onDownloadedToolsClick: () -> Unit,
     onResetDefaults: () -> Unit,
@@ -82,6 +83,13 @@ internal fun GlobalSection(
                     text = locale.presetRuntimeButton,
                     icon = R.drawable.ms_settings,
                     onClick = onPresetRuntimeSettingsClick,
+                    morphStyle = SettingsActionMorphStyle.PRIORITY,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsActionButton(
+                    text = locale.customModelsButton,
+                    icon = R.drawable.ms_tune,
+                    onClick = onCustomModelsClick,
                     morphStyle = SettingsActionMorphStyle.PRIORITY,
                     modifier = Modifier.weight(1f),
                 )
@@ -146,6 +154,18 @@ internal fun GlobalSection(
                     morphStyle = SettingsActionMorphStyle.PRIORITY,
                     modifier = Modifier.weight(1f),
                 )
+                SettingsActionButton(
+                    text = locale.customModelsButton,
+                    icon = R.drawable.ms_tune,
+                    onClick = onCustomModelsClick,
+                    morphStyle = SettingsActionMorphStyle.PRIORITY,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
+            ) {
                 SettingsActionButton(
                     text = locale.usageStatsButton,
                     icon = R.drawable.ms_bar_chart,
