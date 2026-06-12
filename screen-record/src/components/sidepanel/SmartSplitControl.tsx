@@ -1,4 +1,4 @@
-import { Scissors } from 'lucide-react';
+import { Scissors } from '@/components/ui/MaterialIcon';
 import { useState } from 'react';
 import { Slider } from '@/components/ui/Slider';
 import { SettingRow } from '@/components/layout/SettingRow';

@@ -338,25 +338,29 @@ fn render_preset_item_parts(
     let is_selected = matches!(current_view_mode, ViewMode::Preset(i) if *i == idx);
     let has_hotkey = !preset.hotkeys.is_empty();
 
-    let icon_type = match preset.preset_type.as_str() {
-        "audio" => {
-            if preset.audio_processing_mode == "realtime" {
-                Icon::Realtime
-            } else if preset.audio_source == "device" {
-                Icon::Speaker
-            } else {
-                Icon::Microphone
+    let icon_type = if preset.id == "preset_realtime_audio_translate" {
+        Icon::Translate
+    } else {
+        match preset.preset_type.as_str() {
+            "audio" => {
+                if preset.audio_processing_mode == "realtime" {
+                    Icon::Realtime
+                } else if preset.audio_source == "device" {
+                    Icon::Speaker
+                } else {
+                    Icon::Microphone
+                }
             }
-        }
-        "video" => Icon::Image,
-        "text" => {
-            if preset.text_input_mode == "select" {
-                Icon::TextSelect
-            } else {
-                Icon::Keyboard
+            "video" => Icon::Image,
+            "text" => {
+                if preset.text_input_mode == "select" {
+                    Icon::TextSelect
+                } else {
+                    Icon::Keyboard
+                }
             }
+            _ => Icon::Image,
         }
-        _ => Icon::Image,
     };
 
     // --- Column X: Content ---

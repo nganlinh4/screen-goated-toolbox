@@ -59,7 +59,6 @@ pub enum Icon {
     DragHandle,      // Drag handle for reordering
     History,         // History (clock)
     Priority,        // Model priority chain
-    Parakeet,        // Parakeet (bird)
     Pointer,         // Mouse pointer/cursor
 
     // Title-bar / launch / settings (icon choices aligned with the Android app)
@@ -80,7 +79,8 @@ pub enum Icon {
     Terminal,     // ollama      (Android: ms_terminal)
     Public,       // openrouter  (Android: ms_public)
     QrCode,       // qrserver
-    Circle,       // qwen3
+    SpeechToText, // parakeet / local ASR providers
+    Psychology,   // local AI / ASR providers
     Rocket,       // taalas
     Search,
 
@@ -131,7 +131,6 @@ fn icon_svg_bytes(icon: Icon) -> &'static [u8] {
         Icon::DragHandle => include_bytes!("svg/drag_handle.svg"),
         Icon::History => include_bytes!("svg/history.svg"),
         Icon::Priority => include_bytes!("svg/priority.svg"),
-        Icon::Parakeet => include_bytes!("svg/parakeet.svg"),
         Icon::Pointer => include_bytes!("svg/pointer.svg"),
         Icon::Album => include_bytes!("svg/album.svg"),
         Icon::Movie => include_bytes!("svg/movie.svg"),
@@ -148,7 +147,8 @@ fn icon_svg_bytes(icon: Icon) -> &'static [u8] {
         Icon::Terminal => include_bytes!("svg/terminal.svg"),
         Icon::Public => include_bytes!("svg/public.svg"),
         Icon::QrCode => include_bytes!("svg/qr_code.svg"),
-        Icon::Circle => include_bytes!("svg/circle.svg"),
+        Icon::SpeechToText => include_bytes!("svg/speech_to_text.svg"),
+        Icon::Psychology => include_bytes!("svg/psychology.svg"),
         Icon::Rocket => include_bytes!("svg/rocket.svg"),
         Icon::Search => include_bytes!("svg/search.svg"),
         Icon::ArrowUp => include_bytes!("svg/keyboard_arrow_up.svg"),
@@ -310,8 +310,8 @@ pub fn provider_icon(provider: &str) -> Icon {
         "openrouter" => Icon::Public,
         "ollama" => Icon::Terminal,
         "qrserver" => Icon::QrCode,
-        "parakeet" => Icon::Parakeet,
-        "qwen3" => Icon::Circle,
+        "parakeet" => Icon::SpeechToText,
+        "qwen3" => Icon::Psychology,
         "taalas" => Icon::Rocket,
         _ => Icon::Settings,
     }

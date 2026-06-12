@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen } from '@/components/ui/MaterialIcon';
 import { invoke } from "@/lib/ipc";
 import { useSettings } from "@/hooks/useSettings";
 import type { AudioDownloadFormat } from "@/types/video";

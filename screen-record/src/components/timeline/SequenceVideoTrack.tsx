@@ -1,6 +1,6 @@
 import type { ProjectComposition } from "@/types/video";
 import type { SequenceTimelineModel } from "@/lib/sequenceTimeline";
-import { Plus, X } from "lucide-react";
+import { Plus, X } from '@/components/ui/MaterialIcon';
 import { useSettings } from "@/hooks/useSettings";
 
 interface SequenceVideoTrackProps {

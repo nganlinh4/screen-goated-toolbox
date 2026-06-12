@@ -4,7 +4,7 @@ import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import type { ImportedAudioSegment } from '@/types/video';
 import type { Translations } from '@/i18n';
 import { useState } from 'react';
-import { Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { Plus, RotateCcw, Trash2, X } from '@/components/ui/MaterialIcon';
 import type { PanelSelectOption } from '@/components/ui/PanelSelect';
 import { PanelSelect } from '@/components/ui/PanelSelect';
 import { Slider } from '@/components/ui/Slider';

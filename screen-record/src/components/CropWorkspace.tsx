@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, Crop, X } from "lucide-react";
+import { Check, Crop, X } from '@/components/ui/MaterialIcon';
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/Slider";
 import { useSettings } from "@/hooks/useSettings";

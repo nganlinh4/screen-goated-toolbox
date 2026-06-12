@@ -163,8 +163,8 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 r#"
                 <canvas id="volume-canvas" width="90" height="24"></canvas>
                 <div class="btn-group">
-                    <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="{mic_title}">{mic_svg}</span>
-                    <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="{device_title}">{device_svg}</span>
+                    <span class="inline-svg-icon audio-icon {mic_active}" id="mic-btn" data-value="mic" title="{mic_title}">{mic_svg}</span>
+                    <span class="inline-svg-icon audio-icon {device_active}" id="device-btn" data-value="device" title="{device_title}">{device_svg}</span>
                 </div>
                 <select class="model-dropdown" id="transcription-model-select" title="{model_title}">
                     {options_html}
@@ -209,7 +209,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
 
             format!(
                 r#"
-                <span class="ctrl-btn speak-btn {speak_active}" id="speak-btn" title="{speak_title}"><span class="material-symbols-rounded">{volume_up_svg}</span></span>
+                <span class="ctrl-btn speak-btn {speak_active}" id="speak-btn" title="{speak_title}"><span class="inline-svg-icon">{volume_up_svg}</span></span>
                 <select class="model-dropdown" id="translation-model-select" title="{translation_model_title}" {translation_model_disabled} {translation_model_hidden}>
                     {model_options_html}
                 </select>
@@ -292,30 +292,30 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             <div id="title">{title_content}</div>
             <div id="controls">
                 {audio_selector}
-                <span class="ctrl-btn" id="copy-btn" title="{copy_title}"><span class="material-symbols-rounded">{content_copy_svg}</span></span>
+                <span class="ctrl-btn" id="copy-btn" title="{copy_title}"><span class="inline-svg-icon">{content_copy_svg}</span></span>
                 <div class="pill-group">
-                    <span class="ctrl-btn" id="font-decrease" title="{font_decrease_title}"><span class="material-symbols-rounded">{remove_svg}</span></span>
-                    <span class="ctrl-btn" id="font-increase" title="{font_increase_title}"><span class="material-symbols-rounded">{add_svg}</span></span>
+                    <span class="ctrl-btn" id="font-decrease" title="{font_decrease_title}"><span class="inline-svg-icon">{remove_svg}</span></span>
+                    <span class="ctrl-btn" id="font-increase" title="{font_increase_title}"><span class="inline-svg-icon">{add_svg}</span></span>
                 </div>
                 <div class="btn-group">
-                    <span class="vis-btn mic active" id="toggle-mic" title="{toggle_mic_title}"><span class="material-symbols-rounded">{subtitles_svg}</span></span>
-                    <span class="vis-btn trans active" id="toggle-trans" title="{toggle_trans_title}"><span class="material-symbols-rounded">{translate_svg}</span></span>
+                    <span class="vis-btn mic active" id="toggle-mic" title="{toggle_mic_title}"><span class="inline-svg-icon">{subtitles_svg}</span></span>
+                    <span class="vis-btn trans active" id="toggle-trans" title="{toggle_trans_title}"><span class="inline-svg-icon">{translate_svg}</span></span>
                 </div>
             </div>
         </div>
-        <div id="header-toggle" title="{toggle_header_title}"><span class="material-symbols-rounded">{expand_less_svg}</span></div>
+        <div id="header-toggle" title="{toggle_header_title}"><span class="inline-svg-icon">{expand_less_svg}</span></div>
         <div id="viewport">
             <div id="content">
                 <span class="placeholder">{placeholder_text}</span>
             </div>
         </div>
-        <div id="resize-hint"><span class="material-symbols-rounded" style="font-size: 20px;">{pip_svg}</span></div>
+        <div id="resize-hint"><span class="inline-svg-icon" style="font-size: 20px;">{pip_svg}</span></div>
     </div>
     <!-- Download Modal -->
     <div id="download-modal-overlay"></div>
     <div id="download-modal">
         <div class="download-modal-title">
-            <span class="material-symbols-rounded">{download_svg}</span>
+            <span class="inline-svg-icon">{download_svg}</span>
             <span id="download-title">{download_default_title}</span>
         </div>
         <div class="download-modal-msg" id="download-msg">{download_wait}</div>
@@ -323,7 +323,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             <div class="download-progress-fill" id="download-fill" style="width: 0%;"></div>
         </div>
         <button class="download-cancel-btn" id="download-cancel-btn" title="{download_cancel_title}">
-            <span class="material-symbols-rounded">{close_svg}</span>
+            <span class="inline-svg-icon">{close_svg}</span>
             {cancel_text}
         </button>
     </div>
@@ -331,7 +331,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     <div id="tts-modal-overlay"></div>
     <div id="tts-modal">
         <div class="tts-modal-title">
-            <span class="material-symbols-rounded">{volume_up_svg}</span>
+            <span class="inline-svg-icon">{volume_up_svg}</span>
             {tts_title}
                 <div class="toggle-switch tts-toggle-control {tts_toggle_class}" id="tts-toggle" title="{tts_toggle_title}" style="margin-left: auto;"></div>
         </div>
@@ -355,7 +355,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     <div id="app-modal-overlay"></div>
     <div id="app-modal">
         <div class="app-modal-title">
-            <span class="material-symbols-rounded">{apps_svg}</span>
+            <span class="inline-svg-icon">{apps_svg}</span>
             {app_select_title}
         </div>
         <div class="app-modal-hint">{app_select_hint}</div>

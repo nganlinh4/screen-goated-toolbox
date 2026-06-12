@@ -1,4 +1,4 @@
-import { AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { AlignLeft, AlignCenter, AlignRight } from '@/components/ui/MaterialIcon';
 import { VideoSegment, TextSegment } from '@/types/video';
 import { ColorPicker } from '@/components/ui/ColorPicker';
 import { Checkbox } from '@/components/ui/checkbox';

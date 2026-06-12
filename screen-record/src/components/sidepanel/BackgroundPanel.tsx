@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
-import { Trash2, Download, Loader2 } from 'lucide-react';
+import { Trash2, Download, Loader2 } from '@/components/ui/MaterialIcon';
 import { BackgroundConfig } from '@/types/video';
 import { Slider } from '@/components/ui/Slider';
 import { Switch } from '@/components/ui/Switch';

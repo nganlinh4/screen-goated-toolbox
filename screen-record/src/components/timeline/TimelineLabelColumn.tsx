@@ -1,5 +1,5 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { AudioLines, Download, Plus } from "lucide-react";
+import { AudioLines, Download, Plus } from '@/components/ui/MaterialIcon';
 import type {
   AudioDownloadTrackKind,
   ImportedAudioSegment,

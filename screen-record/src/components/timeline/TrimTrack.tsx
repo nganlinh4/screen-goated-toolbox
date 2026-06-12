@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { VideoSegment, TrimSegment } from "@/types/video";
 import { getTotalTrimDuration, getTrimSegments } from "@/lib/trimSegments";
-import { Scissors, Plus } from "lucide-react";
+import { Scissors, Plus } from '@/components/ui/MaterialIcon';
 import {
   getHandlePriorityThresholdTime,
   isTimeNearRangeBoundary,

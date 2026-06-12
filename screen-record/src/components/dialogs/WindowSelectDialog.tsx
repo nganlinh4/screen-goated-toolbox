@@ -1,4 +1,4 @@
-import { Lock } from 'lucide-react';
+import { Lock } from '@/components/ui/MaterialIcon';
 import { WindowInfo } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
 import {

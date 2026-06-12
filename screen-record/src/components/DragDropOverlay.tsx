@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { AudioLines, Captions, Film } from "lucide-react";
+import { AudioLines, Captions, Film } from '@/components/ui/MaterialIcon';
 import { useSettings } from "@/hooks/useSettings";
 
 type DragKind = "video" | "audio" | "subtitle" | "either" | "none";

@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction } from "react";
-import { Copy, Minus, Square, X } from "lucide-react";
+import { Copy, Minus, Square, X } from '@/components/ui/MaterialIcon';
 import { invoke } from "@/lib/ipc";
 import type { Translations } from "@/i18n";
 
