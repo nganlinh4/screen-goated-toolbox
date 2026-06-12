@@ -77,9 +77,17 @@ class OverlayController(
     internal var lastSyncedVisibility: Pair<Boolean, Boolean>? = null
     internal var lastTtsState: OverlayTtsState? = null
     internal var lastRuntimeTtsState: TtsRuntimeState = TtsRuntimeState()
-    internal val dismissTargets = MorphDismissZone.singleDismiss()
-    internal var dismissZone: MorphDismissZone? = null
-    internal val lastDismissDistanceSq = FloatArray(dismissTargets.size) { Float.POSITIVE_INFINITY }
+    internal val dismissBubble = DismissBubbleController(
+        context = context,
+        windowManager = windowManager,
+        showDismissAll = true,
+        allLabel = { dismissAllLabel(repository.currentUiPreferences().uiLanguage) },
+    )
+    internal val dragSnap = OverlayDismissSnap(
+        density = context.resources.displayMetrics.density,
+        screenBounds = { screenBounds() },
+        targetCenter = { action -> dismissBubble.targetCenterPx(action, screenBounds()) },
+    )
     internal val boundsPersistenceSuspended = mutableSetOf<OverlayPaneId>()
 
     fun show(scope: CoroutineScope): Boolean {
@@ -126,7 +134,8 @@ class OverlayController(
         transcriptionLanguagePicker.hide()
         transcriptionModelPicker.hide()
         translationModelPicker.hide()
-        hideDismissZone()
+        dragSnap.cancel()
+        dismissBubble.hide()
         lastSyncedVisibility = null
         lastTtsState = null
         lastRuntimeTtsState = TtsRuntimeState()
@@ -261,30 +270,25 @@ class OverlayController(
         when {
             message.startsWith("dragWindow:") -> {
                 boundsPersistenceSuspended.add(paneId)
+                if (!dragSnap.isActive) dragSnap.begin(paneId, shownPaneWindows())
                 parseDelta(message.removePrefix("dragWindow:")) { dx, dy ->
-                    windowFor(paneId)?.moveBy(
+                    dragSnap.onDragDelta(
                         (dx * DRAG_WINDOW_GAIN).roundToInt(),
                         (dy * DRAG_WINDOW_GAIN).roundToInt(),
                     )
                 }
-                ensureDismissBubble()
+                dismissBubble.ensureShown()
             }
 
             message.startsWith("dragAt:") -> {
-                val rawXY = message.removePrefix("dragAt:")
-                updateDismissZone(rawXY)
+                val hit = dismissBubble.hit(message.removePrefix("dragAt:"), screenBounds())
+                dismissBubble.update(hit)
+                dragSnap.setMode(snapModeFor(dragSnap.currentMode, hit))
             }
 
             message.startsWith("dragEnd:") -> {
-                val proximity = dismissZoneProximity(message.removePrefix("dragEnd:"))
-                resetDismissTracking()
-                val currentBounds = windowFor(paneId)?.currentBounds()
-                if (proximity >= DISMISS_THRESHOLD) {
-                    dismissOverlay(paneId)
-                } else {
-                    currentBounds?.let { saveBounds(paneId, it) }
-                    hideDismissZone()
-                }
+                dismissBubble.resetTracking()
+                finishDragGesture(paneId, dragSnap.currentMode)
                 boundsPersistenceSuspended.remove(paneId)
             }
 
@@ -567,6 +571,8 @@ internal fun overlayTtsState(
 internal const val OVERLAY_MIN_WIDTH_PX = 420
 internal const val OVERLAY_MIN_HEIGHT_PX = 180
 internal const val DRAG_WINDOW_GAIN = 1f
-internal const val DISMISS_THRESHOLD = 0.8f
 internal const val DISMISS_ZONE_PX = 120
+// Hysteresis for magnetic snap: latch onto a bubble at ENTER, release below EXIT.
+internal const val SNAP_ENTER_PROXIMITY = 0.82f
+internal const val SNAP_EXIT_PROXIMITY = 0.5f
 internal const val PERF_TAG = "SGTOverlayPerf"

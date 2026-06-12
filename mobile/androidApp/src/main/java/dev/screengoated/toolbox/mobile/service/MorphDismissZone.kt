@@ -257,6 +257,25 @@ internal class MorphDismissZone(
             )
         }
 
+        /**
+         * Screen-space centre of each target, in physical pixels — used to fly
+         * draggable overlays into the bubbles. [screenBounds] is in pixels.
+         */
+        fun targetCentersPx(
+            screenBounds: Rect,
+            density: Float,
+            targets: List<DismissTargetDef>,
+            layoutDirection: Int = View.LAYOUT_DIRECTION_LTR,
+        ): List<Pair<Float, Float>> = targets.map { target ->
+            targetCenter(
+                screenBounds = screenBounds,
+                density = density,
+                coordinateScale = 1f,
+                target = target,
+                layoutDirection = layoutDirection,
+            )
+        }
+
         private fun targetCenter(
             screenBounds: Rect,
             density: Float,

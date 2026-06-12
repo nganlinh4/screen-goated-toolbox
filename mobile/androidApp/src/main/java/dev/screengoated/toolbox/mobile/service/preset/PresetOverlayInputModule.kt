@@ -13,7 +13,7 @@ internal class PresetOverlayInputModule(
     private val context: Context,
     private val windowManager: WindowManager,
     private val textInputHtmlBuilder: PresetTextInputHtmlBuilder,
-    private val dismissTarget: PresetOverlayDismissTarget,
+    private val dismissTarget: dev.screengoated.toolbox.mobile.service.DismissBubbleController,
     private val uiLanguage: () -> String,
     private val isDarkTheme: () -> Boolean,
     private val screenBoundsProvider: () -> Rect,

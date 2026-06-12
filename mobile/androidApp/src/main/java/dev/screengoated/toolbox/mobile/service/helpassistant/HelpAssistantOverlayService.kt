@@ -23,7 +23,8 @@ import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
 import dev.screengoated.toolbox.mobile.service.preset.PresetButtonCanvasHtmlBuilder
 import dev.screengoated.toolbox.mobile.service.preset.PresetMarkdownRenderer
-import dev.screengoated.toolbox.mobile.service.preset.PresetOverlayDismissTarget
+import dev.screengoated.toolbox.mobile.service.DismissBubbleController
+import dev.screengoated.toolbox.mobile.service.dismissAllLabel
 import dev.screengoated.toolbox.mobile.service.preset.PresetOverlayResultModule
 import dev.screengoated.toolbox.mobile.service.preset.PresetResultHtmlBuilder
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
@@ -54,7 +55,12 @@ class HelpAssistantOverlayService : Service() {
             context = this,
             windowManager = windowManager,
             presetRepository = appContainer.presetRepository,
-            dismissTarget = PresetOverlayDismissTarget(this, windowManager, ::uiLanguage),
+            dismissTarget = DismissBubbleController(
+                context = this,
+                windowManager = windowManager,
+                showDismissAll = true,
+                allLabel = { dismissAllLabel(uiLanguage()) },
+            ),
             resultHtmlBuilder = PresetResultHtmlBuilder(this),
             buttonCanvasHtmlBuilder = PresetButtonCanvasHtmlBuilder(this),
             renderer = PresetMarkdownRenderer(this),
