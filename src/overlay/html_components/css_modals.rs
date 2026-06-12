@@ -388,7 +388,7 @@ pub fn get(is_dark: bool) -> String {
             gap: 6px;
             line-height: 1.2;
         }}
-        .download-modal-title .material-symbols-rounded {{
+        .download-modal-title .inline-svg-icon {{
             font-size: 18px;
             width: 18px;
             height: 18px;
@@ -439,7 +439,7 @@ pub fn get(is_dark: bool) -> String {
             border-color: #ff6666;
             color: #ff8888;
         }}
-        .download-cancel-btn .material-symbols-rounded {{
+        .download-cancel-btn .inline-svg-icon {{
             font-size: 14px;
         }}
     "###,

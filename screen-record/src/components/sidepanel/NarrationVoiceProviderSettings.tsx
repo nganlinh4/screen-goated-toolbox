@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { X } from '@/components/ui/MaterialIcon';
 import { PanelSelect } from '@/components/ui/PanelSelect';
 import { useSettings } from '@/hooks/useSettings';
 import {

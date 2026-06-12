@@ -1,4 +1,4 @@
-import { Wand2 } from "lucide-react";
+import { Wand2 } from '@/components/ui/MaterialIcon';
 import { Button } from "@/components/ui/button";
 import { useSettings } from "@/hooks/useSettings";
 import { sv } from "@/lib/appUtils";

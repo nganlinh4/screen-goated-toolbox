@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/Slider';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
-import { Trash2 } from 'lucide-react';
+import { Trash2 } from '@/components/ui/MaterialIcon';
 import { VideoSegment } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 

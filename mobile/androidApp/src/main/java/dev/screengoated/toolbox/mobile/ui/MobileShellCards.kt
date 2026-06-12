@@ -438,7 +438,7 @@ internal fun LiveControlCard(
             horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
         ) {
             GradientMaskedIcon(
-                R.drawable.ms_translate,
+                LiveTranslateVisuals.icon,
                 if (isRunning) {
                     Brush.linearGradient(
                         listOf(

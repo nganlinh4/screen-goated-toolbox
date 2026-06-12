@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Video, Loader2, Play, Pause, Crop, Music4, Pencil, Check, X } from 'lucide-react';
+import { Video, Loader2, Play, Pause, Crop, Music4, Pencil, Check, X } from '@/components/ui/MaterialIcon';
 import { VideoSegment, BackgroundConfig, MousePosition, type ImportedAudioSegment } from '@/types/video';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';

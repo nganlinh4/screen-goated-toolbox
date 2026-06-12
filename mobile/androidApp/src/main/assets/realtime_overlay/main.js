@@ -412,7 +412,7 @@
                         window.ipc.postMessage('copyText:' + textContent);
                         // Show success feedback
                         copyBtn.classList.add('copied');
-                        const icon = copyBtn.querySelector('.material-symbols-rounded');
+                        const icon = copyBtn.querySelector('.inline-svg-icon');
                         if (icon) icon.innerHTML = '{{CHECK_SVG}}';
                         setTimeout(() => {
                             copyBtn.classList.remove('copied');

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Keyboard, MousePointer2, Scissors } from 'lucide-react';
+import { Keyboard, MousePointer2, Scissors } from '@/components/ui/MaterialIcon';
 import { CursorVisibilitySegment, KeystrokeEvent, VideoSegment } from '@/types/video';
 import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
 import { useSettings } from '@/hooks/useSettings';

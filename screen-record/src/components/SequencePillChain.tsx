@@ -1,4 +1,4 @@
-import { Link2, Plus, X, Check, Minus, LogOut } from "lucide-react";
+import { Link2, Plus, X, Check, Minus, LogOut } from '@/components/ui/MaterialIcon';
 import { useSettings } from "@/hooks/useSettings";
 import type { ProjectComposition, ProjectCompositionClip, ProjectCompositionMode } from "@/types/video";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";

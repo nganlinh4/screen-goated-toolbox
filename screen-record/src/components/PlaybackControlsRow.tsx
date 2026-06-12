@@ -1,4 +1,4 @@
-import { MousePointer2 } from "lucide-react";
+import { MousePointer2 } from '@/components/ui/MaterialIcon';
 import { Button } from "@/components/ui/button";
 import { PlaybackControls } from "@/components/VideoPreview";
 import { CanvasModeToggle } from "@/components/CanvasModeToggle";

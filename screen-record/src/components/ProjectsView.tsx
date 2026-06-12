@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Video, Trash2, Play, X, Upload, AudioLines } from "lucide-react";
+import { Video, Trash2, Play, X, Upload, AudioLines } from '@/components/ui/MaterialIcon';
 import { Project } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
 import { useSettings } from "@/hooks/useSettings";

@@ -281,18 +281,7 @@ internal fun NodeCard(
                                 modifier = Modifier.widthIn(min = 300.dp),
                             ) {
                                 availableModels.forEach { model ->
-                                    val providerIcon = when (model.provider) {
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE,
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GEMINI_LIVE,
-                                        -> R.drawable.ms_auto_awesome
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE_GTX -> R.drawable.ms_translate
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GROQ -> R.drawable.ms_bolt
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.CEREBRAS -> R.drawable.ms_local_fire_department
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> R.drawable.ms_public
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> R.drawable.ms_computer
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.TAALAS -> R.drawable.ms_auto_awesome
-                                        else -> R.drawable.ms_auto_awesome
-                                    }
+                                    val providerIcon = providerIconRes(model.provider)
                                     val hasSearch = catalog.supportsSearchById(model.id)
                                     val isSelected = model.id == block.model
                                     androidx.compose.material3.DropdownMenuItem(

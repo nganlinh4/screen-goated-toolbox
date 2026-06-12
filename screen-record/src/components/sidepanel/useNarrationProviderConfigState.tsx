@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle } from '@/components/ui/MaterialIcon';
 import { useSettings } from '@/hooks/useSettings';
 import {
   useNarrationSettings,

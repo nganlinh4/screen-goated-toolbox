@@ -50,25 +50,13 @@ import dev.screengoated.toolbox.mobile.preset.GeneratedPresetModelCatalogData
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
 import dev.screengoated.toolbox.mobile.preset.PresetModelPriorityChains
-import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.PresetModelType
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
+import dev.screengoated.toolbox.mobile.preset.ui.providerIconRes
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import kotlin.math.roundToInt
 
 private const val PRESET_RUNTIME_DRAG_LOG_TAG = "PresetRuntimeDrag"
-
-@androidx.annotation.DrawableRes
-private fun providerIcon(provider: PresetModelProvider): Int = when (provider) {
-    PresetModelProvider.GOOGLE, PresetModelProvider.GEMINI_LIVE -> R.drawable.ms_auto_awesome
-    PresetModelProvider.GOOGLE_GTX -> R.drawable.ms_translate
-    PresetModelProvider.GROQ -> R.drawable.ms_electric_bolt
-    PresetModelProvider.CEREBRAS -> R.drawable.ms_local_fire_department
-    PresetModelProvider.OPENROUTER -> R.drawable.ms_public
-    PresetModelProvider.OLLAMA -> R.drawable.ms_terminal
-    PresetModelProvider.TAALAS -> R.drawable.ms_auto_awesome
-    else -> R.drawable.ms_auto_awesome
-}
 
 @Composable
 fun PresetRuntimeSettingsDialog(
@@ -482,7 +470,7 @@ private fun ModelPill(
         Box(modifier = Modifier.weight(1f)) {
             TextButton(onClick = { showDropdown = true }, modifier = Modifier.fillMaxWidth()) {
                 if (descriptor != null) {
-                    Icon(painterResource(providerIcon(descriptor.provider)), null, modifier = Modifier.size(16.dp), tint = accent)
+                    Icon(painterResource(providerIconRes(descriptor.provider)), null, modifier = Modifier.size(16.dp), tint = accent)
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
@@ -511,7 +499,7 @@ private fun ModelPill(
 private fun ModelDropdownItem(model: PresetModelDescriptor, uiLanguage: String, onClick: () -> Unit) {
     DropdownMenuItem(
         leadingIcon = {
-            Icon(painterResource(providerIcon(model.provider)), null, modifier = Modifier.size(18.dp))
+            Icon(painterResource(providerIconRes(model.provider)), null, modifier = Modifier.size(18.dp))
         },
         text = {
             Column {

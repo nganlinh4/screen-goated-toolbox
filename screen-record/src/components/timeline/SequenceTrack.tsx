@@ -1,6 +1,6 @@
 import type { ProjectComposition, ProjectCompositionMode } from "@/types/video";
 import { getClipOffsets, getSequenceDuration } from "@/lib/projectComposition";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from '@/components/ui/MaterialIcon';
 import { useSettings } from "@/hooks/useSettings";
 
 interface SequenceTrackProps {

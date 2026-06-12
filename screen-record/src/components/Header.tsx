@@ -5,7 +5,7 @@ import {
   Keyboard, X, Download, FolderOpen,
   ChevronDown, ChevronLeft, ChevronRight, Monitor, AppWindow,
   Loader2, CircleCheck,
-} from 'lucide-react';
+} from '@/components/ui/MaterialIcon';
 import { Hotkey, MonitorInfo } from '@/hooks/useAppHooks';
 import { formatMonitorSummary, formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
