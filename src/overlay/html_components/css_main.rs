@@ -129,27 +129,17 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             from {{ opacity: 1; }}
             to {{ opacity: 0; }}
         }}
-        .material-symbols-rounded {{
-            font-family: 'Material Symbols Rounded'; /* Fallback */
-            font-weight: normal;
-            font-style: normal;
+        .inline-svg-icon {{
             font-size: 24px;
             line-height: 1;
-            letter-spacing: normal;
-            text-transform: none;
-            display: inline-flex; /* Center SVG */
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            white-space: nowrap;
-            word-wrap: normal;
-            direction: ltr;
             vertical-align: middle;
-
-            /* SVG container sizing */
             width: 1em;
             height: 1em;
         }}
-        .material-symbols-rounded svg {{
+        .inline-svg-icon svg {{
             width: 100%;
             height: 100%;
             fill: currentColor;
@@ -222,11 +212,11 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
         #header-toggle.collapsed:hover {{
             opacity: 0.8;
         }}
-        #header-toggle .material-symbols-rounded {{
+        #header-toggle .inline-svg-icon {{
             font-size: 14px;
             transition: transform 0.3s cubic-bezier(0.2, 0.0, 0, 1.0);
         }}
-        #header-toggle.collapsed .material-symbols-rounded {{
+        #header-toggle.collapsed .inline-svg-icon {{
             transform: rotate(180deg);
         }}
         #title {{

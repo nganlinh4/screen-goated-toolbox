@@ -1,6 +1,6 @@
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
 import type { Translations } from '@/i18n';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle } from '@/components/ui/MaterialIcon';
 import type { PanelSelectOption } from '@/components/ui/PanelSelect';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptions';

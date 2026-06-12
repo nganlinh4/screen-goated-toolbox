@@ -103,7 +103,7 @@ internal class RealtimeOverlayHtmlBuilder(
     ): String {
         return if (isTranslation) {
             """
-            <span class="ctrl-btn speak-btn" id="speak-btn" title="${locale.overlay.ttsSettingsTitle}"><span class="material-symbols-rounded">${RealtimeOverlayIcons.VOLUME_UP}</span></span>
+            <span class="ctrl-btn speak-btn" id="speak-btn" title="${locale.overlay.ttsSettingsTitle}"><span class="inline-svg-icon">${RealtimeOverlayIcons.VOLUME_UP}</span></span>
             <button class="model-dropdown" id="translation-model-btn" type="button" title="${locale.overlay.translationModelTitle}" data-value="">
                 <span id="translation-model-label">--</span>
             </button>
@@ -115,8 +115,8 @@ internal class RealtimeOverlayHtmlBuilder(
             """
             <canvas id="volume-canvas" width="90" height="24"></canvas>
             <div class="btn-group">
-                <span class="material-symbols-rounded audio-icon" id="mic-btn" data-value="mic" title="${locale.overlay.micInputTitle}">${RealtimeOverlayIcons.MIC}</span>
-                <span class="material-symbols-rounded audio-icon" id="device-btn" data-value="device" title="${locale.overlay.deviceAudioTitle}">${RealtimeOverlayIcons.SPEAKER_GROUP}</span>
+                <span class="inline-svg-icon audio-icon" id="mic-btn" data-value="mic" title="${locale.overlay.micInputTitle}">${RealtimeOverlayIcons.MIC}</span>
+                <span class="inline-svg-icon audio-icon" id="device-btn" data-value="device" title="${locale.overlay.deviceAudioTitle}">${RealtimeOverlayIcons.SPEAKER_GROUP}</span>
             </div>
             <button class="model-dropdown" id="transcription-model-btn" type="button" title="${locale.overlay.transcriptionModelTitle}" data-value="">
                 <span id="transcription-model-label">--</span>

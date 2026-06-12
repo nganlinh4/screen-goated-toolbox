@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Keyboard } from 'lucide-react';
+import { AlertTriangle, Keyboard } from '@/components/ui/MaterialIcon';
 import { MonitorInfo, Hotkey, WindowInfo } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
 import { formatMonitorDialogSummary } from '@/utils/helpers';

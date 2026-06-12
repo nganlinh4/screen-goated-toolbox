@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen } from '@/components/ui/MaterialIcon';
 import { invoke } from '@/lib/ipc';
 import {
   Dialog,
