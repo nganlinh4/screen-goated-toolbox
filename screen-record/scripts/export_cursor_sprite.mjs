@@ -118,7 +118,7 @@ async function main() {
     ({ Resvg } = require('@resvg/resvg-js'));
   } catch {
     console.log('[cursor-sprite] @resvg/resvg-js not found — installing (no-save)...');
-    execSync('npm install --no-save @resvg/resvg-js', { stdio: 'inherit', cwd: installDir });
+    execSync('npm install --no-save --package-lock=false @resvg/resvg-js', { stdio: 'inherit', cwd: installDir });
     ({ Resvg } = require('@resvg/resvg-js'));
   }
 
