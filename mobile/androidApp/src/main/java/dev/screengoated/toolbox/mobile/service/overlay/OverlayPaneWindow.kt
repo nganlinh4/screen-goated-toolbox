@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.service.overlay
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
@@ -10,6 +11,8 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
+import android.view.animation.Interpolator
+import android.view.animation.OvershootInterpolator
 import android.webkit.WebView
 import android.widget.FrameLayout
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
@@ -155,6 +158,143 @@ internal class OverlayPaneWindow(
             width = layoutParams.width,
             height = layoutParams.height,
         )
+    }
+
+    // ── Dismiss-snap animation ──────────────────────────────────────
+    // Used by the dismiss-bubble interaction to magnetically fly a pane's
+    // centre onto a bubble (snap), restore it (fly back), or swallow it.
+
+    private var snapAnimator: ValueAnimator? = null
+
+    /** Immediately place the pane's top-left at ([x],[y]) with the given visual transform. */
+    fun setVisualState(
+        x: Int,
+        y: Int,
+        scale: Float,
+        rotationDeg: Float,
+        alpha: Float,
+    ) {
+        snapAnimator?.cancel()
+        layoutParams.x = x
+        layoutParams.y = y
+        if (attached) {
+            runCatching { windowManager.updateViewLayout(rootView, layoutParams) }
+        }
+        rootView.pivotX = layoutParams.width / 2f
+        rootView.pivotY = layoutParams.height / 2f
+        rootView.scaleX = scale
+        rootView.scaleY = scale
+        rootView.rotation = rotationDeg
+        rootView.alpha = alpha
+    }
+
+    /** Animate the pane so its centre lands on ([centerX], [centerY]) with the given visual transform. */
+    fun animateCenterTo(
+        centerX: Float,
+        centerY: Float,
+        scale: Float,
+        rotationDeg: Float = 0f,
+        alpha: Float = 1f,
+        durationMs: Long = 320L,
+        interpolator: Interpolator = OvershootInterpolator(1.1f),
+        onEnd: (() -> Unit)? = null,
+    ) {
+        val bounds = currentBounds()
+        animateTransform(
+            targetX = (centerX - bounds.width / 2f),
+            targetY = (centerY - bounds.height / 2f),
+            targetScale = scale,
+            targetRotation = rotationDeg,
+            targetAlpha = alpha,
+            durationMs = durationMs,
+            interpolator = interpolator,
+            onEnd = onEnd,
+        )
+    }
+
+    /** Fly the pane back to [bounds] at its natural, untransformed look. */
+    fun animateRestoreTo(
+        bounds: OverlayBounds,
+        durationMs: Long = 360L,
+        interpolator: Interpolator = OvershootInterpolator(1.6f),
+        onEnd: (() -> Unit)? = null,
+    ) {
+        animateTransform(
+            targetX = bounds.x.toFloat(),
+            targetY = bounds.y.toFloat(),
+            targetScale = 1f,
+            targetRotation = 0f,
+            targetAlpha = 1f,
+            durationMs = durationMs,
+            interpolator = interpolator,
+            onEnd = onEnd,
+        )
+    }
+
+    /** Shrink the pane into nothing (final swallow), then [onEnd]. */
+    fun animateSwallow(onEnd: (() -> Unit)? = null) {
+        snapAnimator?.cancel()
+        rootView.pivotX = rootView.width / 2f
+        rootView.pivotY = rootView.height / 2f
+        rootView.animate()
+            .scaleX(0f)
+            .scaleY(0f)
+            .alpha(0f)
+            .setDuration(170L)
+            .withEndAction { onEnd?.invoke() }
+            .start()
+    }
+
+    fun resetTransform() {
+        snapAnimator?.cancel()
+        snapAnimator = null
+        rootView.animate().cancel()
+        rootView.scaleX = 1f
+        rootView.scaleY = 1f
+        rootView.rotation = 0f
+        rootView.alpha = 1f
+    }
+
+    private fun animateTransform(
+        targetX: Float,
+        targetY: Float,
+        targetScale: Float,
+        targetRotation: Float,
+        targetAlpha: Float,
+        durationMs: Long,
+        interpolator: Interpolator,
+        onEnd: (() -> Unit)?,
+    ) {
+        snapAnimator?.cancel()
+        val startX = layoutParams.x.toFloat()
+        val startY = layoutParams.y.toFloat()
+        val startScale = rootView.scaleX
+        val startRotation = rootView.rotation
+        val startAlpha = rootView.alpha
+        rootView.pivotX = layoutParams.width / 2f
+        rootView.pivotY = layoutParams.height / 2f
+        snapAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = durationMs
+            this.interpolator = interpolator
+            addUpdateListener { anim ->
+                val t = anim.animatedValue as Float
+                layoutParams.x = (startX + (targetX - startX) * t).roundToInt()
+                layoutParams.y = (startY + (targetY - startY) * t).roundToInt()
+                if (attached) {
+                    runCatching { windowManager.updateViewLayout(rootView, layoutParams) }
+                }
+                rootView.scaleX = startScale + (targetScale - startScale) * t
+                rootView.scaleY = rootView.scaleX
+                rootView.rotation = startRotation + (targetRotation - startRotation) * t
+                rootView.alpha = startAlpha + (targetAlpha - startAlpha) * t
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    onEnd?.invoke()
+                }
+            })
+            start()
+        }
     }
 
     fun render(

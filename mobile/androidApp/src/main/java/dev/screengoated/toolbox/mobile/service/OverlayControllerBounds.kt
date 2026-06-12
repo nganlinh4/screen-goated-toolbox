@@ -137,61 +137,86 @@ internal fun OverlayController.isDarkTheme(themeMode: MobileThemeMode): Boolean 
     }
 }
 
-internal fun OverlayController.ensureDismissBubble() {
-    if (dismissZone != null) return
-    dismissZone = MorphDismissZone(
-        context = context,
-        windowManager = windowManager,
-        targets = dismissTargets,
-    ).also { it.show() }
-}
-
-internal fun OverlayController.updateDismissZone(rawXY: String) {
-    ensureDismissBubble()
-    dismissZone?.update(floatArrayOf(dismissZoneProximity(rawXY)))
-}
-
-internal fun OverlayController.hideDismissZone() {
-    dismissZone?.hide()
-    dismissZone = null
-    resetDismissTracking()
-}
-
-internal fun OverlayController.dismissZoneProximity(rawXY: String): Float {
-    val parts = rawXY.split(",")
-    if (parts.size != 2) return 0f
-    val fingerCssX = parts[0].toFloatOrNull() ?: return 0f
-    val fingerCssY = parts[1].toFloatOrNull() ?: return 0f
-    val density = context.resources.displayMetrics.density
-    val hit = MorphDismissZone.hitTest(
-        rawX = fingerCssX,
-        rawY = fingerCssY,
-        screenBounds = screenBounds(),
-        density = density,
-        coordinateScale = density,
-        targets = dismissTargets,
-        previousDistanceSq = lastDismissDistanceSq,
-        layoutDirection = context.resources.configuration.layoutDirection,
-    )
-    hit.distanceSq.copyInto(lastDismissDistanceSq)
-    return hit.proximities.firstOrNull() ?: 0f
-}
-
 internal fun OverlayController.isNearDismissArea(bounds: OverlayBounds): Boolean {
     val screen = screenBounds()
     val dismissTop = (screen.height() - dp(DISMISS_ZONE_PX)).coerceAtLeast(0)
     return bounds.y + bounds.height >= dismissTop
 }
 
-internal fun OverlayController.resetDismissTracking() {
-    lastDismissDistanceSq.fill(Float.POSITIVE_INFINITY)
+/** Currently-visible panes, in stacking order (transcription above translation). */
+internal fun OverlayController.shownPaneWindows(): List<Pair<OverlayPaneId, OverlayPaneWindow>> =
+    buildList {
+        transcriptionWindow?.let { if (listeningVisible) add(OverlayPaneId.TRANSCRIPTION to it) }
+        translationWindow?.let { if (translationVisible) add(OverlayPaneId.TRANSLATION to it) }
+    }
+
+/** Resolve the snap mode from proximity with hysteresis so it doesn't flap at the edges. */
+internal fun snapModeFor(current: DismissAction, hit: DismissHit): DismissAction {
+    val single = hit.singleProximity
+    val all = hit.allProximity
+    val allWins = all >= single
+    val enter = SNAP_ENTER_PROXIMITY
+    val exit = SNAP_EXIT_PROXIMITY
+    return when (current) {
+        DismissAction.ALL -> when {
+            single >= enter && !allWins -> DismissAction.SINGLE
+            all >= exit -> DismissAction.ALL
+            else -> DismissAction.NONE
+        }
+        DismissAction.SINGLE -> when {
+            all >= enter && allWins -> DismissAction.ALL
+            single >= exit -> DismissAction.SINGLE
+            else -> DismissAction.NONE
+        }
+        DismissAction.NONE -> when {
+            all >= enter && allWins -> DismissAction.ALL
+            single >= enter -> DismissAction.SINGLE
+            else -> DismissAction.NONE
+        }
+    }
 }
 
-internal fun OverlayController.dismissOverlay(paneId: OverlayPaneId) {
-    hideDismissZone()
-    when (paneId) {
-        OverlayPaneId.TRANSCRIPTION -> toggleListening(false)
-        OverlayPaneId.TRANSLATION -> toggleTranslation(false)
+/** Commit the drag: snapped panes swallow into the bubble and dismiss; otherwise fly home. */
+internal fun OverlayController.finishDragGesture(
+    paneId: OverlayPaneId,
+    committed: DismissAction,
+) {
+    when (committed) {
+        DismissAction.ALL -> {
+            dismissBubble.swallow(DismissAction.ALL) {}
+            dragSnap.finish(
+                committed = DismissAction.ALL,
+                onCommit = {
+                    stopTextToSpeech()
+                    stopRequested()
+                },
+                onSettle = {},
+            )
+        }
+        DismissAction.SINGLE -> {
+            dismissBubble.swallow(DismissAction.SINGLE) {}
+            dragSnap.finish(
+                committed = DismissAction.SINGLE,
+                onCommit = {
+                    when (paneId) {
+                        OverlayPaneId.TRANSCRIPTION -> toggleListening(false)
+                        OverlayPaneId.TRANSLATION -> toggleTranslation(false)
+                    }
+                },
+                onSettle = {},
+            )
+        }
+        DismissAction.NONE -> {
+            val free = dragSnap.freeBoundsOf(paneId)
+            dragSnap.finish(
+                committed = DismissAction.NONE,
+                onCommit = {},
+                onSettle = {
+                    (free ?: windowFor(paneId)?.currentBounds())?.let { saveBounds(paneId, it) }
+                    dismissBubble.hide()
+                },
+            )
+        }
     }
 }
 

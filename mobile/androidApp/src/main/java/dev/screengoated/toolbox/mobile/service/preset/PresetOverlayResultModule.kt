@@ -23,7 +23,7 @@ internal class PresetOverlayResultModule(
     internal val context: Context,
     internal val windowManager: WindowManager,
     internal val presetRepository: PresetRepository,
-    internal val dismissTarget: PresetOverlayDismissTarget,
+    internal val dismissTarget: dev.screengoated.toolbox.mobile.service.DismissBubbleController,
     internal val resultHtmlBuilder: PresetResultHtmlBuilder,
     internal val buttonCanvasHtmlBuilder: PresetButtonCanvasHtmlBuilder,
     internal val renderer: PresetMarkdownRenderer,

@@ -20,6 +20,8 @@ import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
 import dev.screengoated.toolbox.mobile.preset.resolvePrompt
+import dev.screengoated.toolbox.mobile.service.DismissBubbleController
+import dev.screengoated.toolbox.mobile.service.dismissAllLabel
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.service.ScreenshotCaptureFailureReason
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
@@ -58,7 +60,12 @@ internal class PresetOverlayController(
     internal val favoriteBubbleHtmlBuilder = FavoriteBubbleHtmlBuilder()
     internal val textInputHtmlBuilder = PresetTextInputHtmlBuilder()
     internal val density = context.resources.displayMetrics.density
-    internal val dismissTarget = PresetOverlayDismissTarget(context, windowManager, ::uiLanguage)
+    internal val dismissTarget = DismissBubbleController(
+        context = context,
+        windowManager = windowManager,
+        showDismissAll = true,
+        allLabel = { dismissAllLabel(uiLanguage()) },
+    )
     internal val clipboardManager = context.getSystemService(ClipboardManager::class.java)
 
     internal val processingIndicator = PresetProcessingIndicator(context, windowManager)

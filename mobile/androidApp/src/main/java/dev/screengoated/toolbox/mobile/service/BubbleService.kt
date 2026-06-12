@@ -51,9 +51,7 @@ class BubbleService : Service() {
 
     private var attached = false
     private var bubbleFrontPending = false
-    private val dismissTargets = MorphDismissZone.singleDismiss()
-    private var dismissZone: MorphDismissZone? = null
-    private val lastFingerDistanceSq = FloatArray(dismissTargets.size) { Float.POSITIVE_INFINITY }
+    private lateinit var dismissBubble: DismissBubbleController
     private var isPanelExpanded = false
     private var opacityDecayJob: Job? = null
     private var recentInteractionUntilMs = 0L
@@ -80,6 +78,12 @@ class BubbleService : Service() {
 
         runCatching {
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            dismissBubble = DismissBubbleController(
+                context = this,
+                windowManager = windowManager,
+                showDismissAll = false,
+                coordinateScaleOverride = 1f,
+            )
             positionPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val appContainer = (application as SgtMobileApplication).appContainer
             val density = resources.displayMetrics.density
@@ -146,7 +150,7 @@ class BubbleService : Service() {
         } else {
             saveBubblePosition()
         }
-        hideDismissZone()
+        if (::dismissBubble.isInitialized) dismissBubble.hide()
         opacityDecayJob?.cancel()
         presetOverlayController?.destroy()
         presetOverlayController = null
@@ -250,32 +254,27 @@ class BubbleService : Service() {
                             runCatching { windowManager.updateViewLayout(bubbleView, layoutParams) }
                         }
                         presetOverlayController?.updateBubbleBounds(currentBubbleBounds())
-                        updateDismissZone(event.rawX, event.rawY)
+                        dismissBubble.update(dismissBubble.hit(event.rawX, event.rawY, bubbleScreenBounds()))
                     }
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
                     if (isDragging) {
                         recordBubbleInteraction()
-                        val proximity = bubbleDragDismissProximity(event.rawX, event.rawY)
-                        resetDismissTracking()
-                        if (proximity >= 0.8f) {
+                        val hit = dismissBubble.hit(event.rawX, event.rawY, bubbleScreenBounds())
+                        dismissBubble.resetTracking()
+                        if (hit.committedAction() != DismissAction.NONE) {
                             // Swallow: shrink bubble into dismiss target
                             bubbleView.animate()
                                 .scaleX(0.2f).scaleY(0.2f).alpha(0f)
                                 .setDuration(180).start()
-                            dismissZone?.swallow(0) {
-                                resetPositionOnDestroy = true
-                                dismissZone = null
-                                stopForeground(STOP_FOREGROUND_REMOVE)
-                                stopSelf()
-                            } ?: run {
+                            dismissBubble.swallow(DismissAction.SINGLE) {
                                 resetPositionOnDestroy = true
                                 stopForeground(STOP_FOREGROUND_REMOVE)
                                 stopSelf()
                             }
                         } else {
-                            hideDismissZone()
+                            dismissBubble.hide()
                             saveBubblePosition()
                         }
                     } else {
@@ -285,8 +284,7 @@ class BubbleService : Service() {
                     return true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    hideDismissZone()
-                    resetDismissTracking()
+                    dismissBubble.hide()
                     return true
                 }
             }
@@ -460,41 +458,9 @@ class BubbleService : Service() {
         }
     }
 
-    private fun updateDismissZone(rawX: Float, rawY: Float) {
-        val zone = dismissZone ?: MorphDismissZone(
-            context = this,
-            windowManager = windowManager,
-            targets = dismissTargets,
-        ).also { dismissZone = it; it.show() }
-        zone.update(currentDismissHit(rawX, rawY).proximities)
-    }
-
-    private fun hideDismissZone() {
-        dismissZone?.hide()
-        dismissZone = null
-        resetDismissTracking()
-    }
-
-    private fun bubbleDragDismissProximity(rawX: Float, rawY: Float): Float {
-        return currentDismissHit(rawX, rawY).proximities.firstOrNull() ?: 0f
-    }
-
-    private fun currentDismissHit(rawX: Float, rawY: Float): MorphDismissZone.DismissHitResult {
+    private fun bubbleScreenBounds(): Rect {
         val metrics = resources.displayMetrics
-        return MorphDismissZone.hitTest(
-            rawX = rawX,
-            rawY = rawY,
-            screenBounds = Rect(0, 0, metrics.widthPixels, metrics.heightPixels),
-            density = metrics.density,
-            coordinateScale = 1f,
-            targets = dismissTargets,
-            previousDistanceSq = lastFingerDistanceSq,
-            layoutDirection = resources.configuration.layoutDirection,
-        ).also { it.distanceSq.copyInto(lastFingerDistanceSq) }
-    }
-
-    private fun resetDismissTracking() {
-        lastFingerDistanceSq.fill(Float.POSITIVE_INFINITY)
+        return Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
