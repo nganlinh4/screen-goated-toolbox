@@ -1,5 +1,5 @@
 use super::super::capture::{
-    start_device_loopback_capture, start_mic_capture, start_per_app_capture,
+    start_device_loopback_capture_resilient, start_mic_capture_resilient, start_per_app_capture,
 };
 use super::super::state::{SharedRealtimeState, TranscriptionMethod};
 use super::super::utils::{
@@ -293,7 +293,7 @@ pub(super) fn start_audio_capture(
         start_per_app_capture(selected_pid, audio_buffer, stop_signal, pause_signal)?;
         Ok(None)
     } else if audio_source == "mic" {
-        Ok(Some(start_mic_capture(
+        Ok(Some(start_mic_capture_resilient(
             audio_buffer,
             stop_signal,
             pause_signal,
@@ -301,7 +301,7 @@ pub(super) fn start_audio_capture(
     } else if audio_source == "device" && tts_enabled && selected_pid == 0 {
         Ok(None)
     } else {
-        Ok(Some(start_device_loopback_capture(
+        Ok(Some(start_device_loopback_capture_resilient(
             audio_buffer,
             stop_signal,
             pause_signal,

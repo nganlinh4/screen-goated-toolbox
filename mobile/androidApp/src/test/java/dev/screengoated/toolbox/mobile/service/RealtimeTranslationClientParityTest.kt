@@ -18,7 +18,7 @@ class RealtimeTranslationClientParityTest {
     @Test
     fun `s2s rejects translation model changes at state and legacy ipc boundaries`() {
         val repositorySource = loadSourceFile(REPOSITORY_SOURCE_PATH).readText()
-        val overlaySource = loadSourceFile(OVERLAY_JS_SOURCE_PATH).readText()
+        val overlaySource = loadOverlayJsSource()
 
         assertTrue(repositorySource.contains("RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId())"))
         assertTrue(repositorySource.contains("fun updateTranslationModel(modelId: String)"))
@@ -38,12 +38,12 @@ class RealtimeTranslationClientParityTest {
 
     @Test
     fun `s2s timeouts scale with source audio length`() {
-        val s2sSource = loadSourceFile(GEMINI_S2S_CLIENT_SOURCE_PATH).readText()
+        val s2sSource = loadSourceFile(GEMINI_S2S_VAD_SOURCE_PATH).readText()
 
-        assertTrue(s2sSource.contains("private fun groupedFirstAudioTimeoutMs("))
+        assertTrue(s2sSource.contains("fun groupedFirstAudioTimeoutMs("))
         assertTrue(s2sSource.contains("base + sourceAudioMs * 2"))
         assertTrue(s2sSource.contains("coerceIn(5_500L, 30_000L)"))
-        assertTrue(s2sSource.contains("private fun groupedHardTimeoutMs("))
+        assertTrue(s2sSource.contains("fun groupedHardTimeoutMs("))
         assertTrue(s2sSource.contains("S2S_HEDGE_TIMEOUT_MS"))
         assertTrue(s2sSource.contains("S2S_HEDGE_FINAL_TIMEOUT_MS"))
         assertTrue(s2sSource.contains("base + sourceAudioMs * 4"))
@@ -62,9 +62,9 @@ class RealtimeTranslationClientParityTest {
     fun `translation cadence stays adaptive and failure keeps session alive`() {
         val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
 
-        assertTrue(runtimeSource.contains("private const val TRANSLATION_INTERVAL_MS = 1_500L"))
-        assertTrue(runtimeSource.contains("private const val TRANSLATION_INTERVAL_MAX_MS = 4_000L"))
-        assertTrue(runtimeSource.contains("private fun computeAdaptiveTranslationIntervalMs(latencyMs: Long): Long"))
+        assertTrue(runtimeSource.contains("const val TRANSLATION_INTERVAL_MS = 1_500L"))
+        assertTrue(runtimeSource.contains("const val TRANSLATION_INTERVAL_MAX_MS = 4_000L"))
+        assertTrue(runtimeSource.contains("fun computeAdaptiveTranslationIntervalMs(latencyMs: Long): Long"))
         assertTrue(runtimeSource.contains("return (latencyMs + 250L)"))
         assertTrue(runtimeSource.contains(".coerceAtLeast(TRANSLATION_INTERVAL_MS)"))
         assertTrue(runtimeSource.contains(".coerceAtMost(TRANSLATION_INTERVAL_MAX_MS)"))
@@ -134,7 +134,7 @@ class RealtimeTranslationClientParityTest {
 
     @Test
     fun `s2s overlay tooltips are localized and refreshed without reload`() {
-        val overlaySource = loadSourceFile(OVERLAY_JS_SOURCE_PATH).readText()
+        val overlaySource = loadOverlayJsSource()
         val webViewSource = loadSourceFile(OVERLAY_WEBVIEW_SOURCE_PATH).readText()
         val builderSource = loadSourceFile(OVERLAY_HTML_BUILDER_SOURCE_PATH).readText()
         val htmlTemplateSource = loadSourceFile(OVERLAY_BASE_HTML_SOURCE_PATH).readText()
@@ -169,7 +169,7 @@ class RealtimeTranslationClientParityTest {
     @Test
     fun `android parakeet remains visibly unavailable and cannot run as fake active transcription`() {
         val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
-        val overlaySource = loadSourceFile(OVERLAY_JS_SOURCE_PATH).readText()
+        val overlaySource = loadOverlayJsSource()
         val modelOptionsSource = loadSourceFile(OVERLAY_MODEL_OPTIONS_SOURCE_PATH).readText()
 
         assertTrue(modelOptionsSource.contains("RealtimeModelIds.TRANSCRIPTION_PARAKEET"))
@@ -183,8 +183,8 @@ class RealtimeTranslationClientParityTest {
     @Test
     fun `native overlay pickers use localized search hints`() {
         val pickerSource = loadSourceFile(OVERLAY_LANGUAGE_PICKER_SOURCE_PATH).readText()
-        val controllerSource = loadSourceFile(OVERLAY_CONTROLLER_SOURCE_PATH).readText()
-        val localeSource = loadSourceFile(MOBILE_LOCALE_SOURCE_PATH).readText()
+        val controllerSource = loadSourceFile(OVERLAY_CONTROLLER_PICKERS_SOURCE_PATH).readText()
+        val localeSource = loadSourceFile(MOBILE_LOCALE_TYPES_SOURCE_PATH).readText()
 
         assertTrue(pickerSource.contains("searchHint: String"))
         assertTrue(pickerSource.contains("hint = searchHint"))
@@ -202,9 +202,13 @@ class RealtimeTranslationClientParityTest {
             ?: error("Could not locate $path from $workingDirectory")
     }
 
+    private fun loadOverlayJsSource(): String =
+        loadSourceFile(OVERLAY_JS_SOURCE_PATH).readText() +
+            loadSourceFile(OVERLAY_JS_PART2_SOURCE_PATH).readText()
+
     private companion object {
         private const val CLIENT_SOURCE_PATH =
-            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiClients.kt"
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/RealtimeTranslationClient.kt"
         private const val RUNTIME_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/LiveSessionRuntime.kt"
         private const val REPOSITORY_SOURCE_PATH =
@@ -213,6 +217,8 @@ class RealtimeTranslationClientParityTest {
             "mobile/shared/src/commonMain/kotlin/dev/screengoated/toolbox/mobile/shared/live/LiveSessionStore.kt"
         private const val OVERLAY_CONTROLLER_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/OverlayController.kt"
+        private const val OVERLAY_CONTROLLER_PICKERS_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/OverlayControllerPickers.kt"
         private const val OVERLAY_WEBVIEW_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/OverlayControllerWebView.kt"
         private const val OVERLAY_LANGUAGE_PICKER_SOURCE_PATH =
@@ -227,9 +233,15 @@ class RealtimeTranslationClientParityTest {
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/RealtimeOverlayModelOptions.kt"
         private const val GEMINI_S2S_CLIENT_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sClient.kt"
+        private const val GEMINI_S2S_VAD_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sVad.kt"
         private const val MOBILE_LOCALE_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/i18n/MobileLocaleText.kt"
+        private const val MOBILE_LOCALE_TYPES_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/i18n/MobileLocaleTypes.kt"
         private const val OVERLAY_JS_SOURCE_PATH =
             "mobile/androidApp/src/main/assets/realtime_overlay/main.js"
+        private const val OVERLAY_JS_PART2_SOURCE_PATH =
+            "mobile/androidApp/src/main/assets/realtime_overlay/main_part2.js"
     }
 }

@@ -311,22 +311,18 @@ fn realtime_transcription_option_label<'a>(
     manifest: &'a serde_json::Value,
     id: &'a str,
 ) -> &'a str {
-    let catalog_id = match id {
-        "parakeet" => "parakeet-local",
-        _ => id,
-    };
-    if let Some(model) = manifest_array(manifest, "models")
-        .iter()
-        .filter_map(serde_json::Value::as_object)
-        .find(|model| manifest_string(model, "id") == catalog_id)
-    {
-        return manifest_string(model, "name_en");
-    }
+    let _ = manifest;
     match id {
-        "zipformer" => "(Transcribe) Zipformer",
-        "moonshine-tiny-streaming" => "(Transcribe) Moonshine Tiny",
-        "moonshine-small-streaming" => "(Transcribe) Moonshine Small",
-        "moonshine-medium-streaming" => "(Transcribe) Moonshine Medium",
+        "gemini-live-audio" => "Gemini Live",
+        "gemini-live-audio-3.1" => "Gemini S2S",
+        "gemini-3.5-translate" => "Gemini Translate",
+        "parakeet" => "Parakeet",
+        "qwen3-asr-0.6b" => "Qwen3-ASR 0.6B",
+        "qwen3-asr-1.7b" => "Qwen3-ASR 1.7B",
+        "zipformer" => "Zipformer",
+        "moonshine-tiny-streaming" => "Moonshine Tiny",
+        "moonshine-small-streaming" => "Moonshine Small",
+        "moonshine-medium-streaming" => "Moonshine Medium",
         _ => id,
     }
 }

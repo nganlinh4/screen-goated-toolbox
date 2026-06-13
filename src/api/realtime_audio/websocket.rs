@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
+use std::io;
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -63,6 +64,56 @@ pub fn set_socket_short_timeout(
     // 200ms timeout allows checking for model changes 5 times per second
     tcp_stream.set_read_timeout(Some(Duration::from_millis(200)))?;
     Ok(())
+}
+
+pub fn is_transient_socket_read_error(error: &tungstenite::Error) -> bool {
+    matches!(error, tungstenite::Error::Io(err) if is_transient_read_io_error(err))
+}
+
+pub fn is_recoverable_socket_error(error: &tungstenite::Error) -> bool {
+    if is_transient_socket_read_error(error) {
+        return true;
+    }
+    match error {
+        tungstenite::Error::Io(err) => is_recoverable_io_error(err),
+        _ => is_recoverable_socket_error_text(&error.to_string()),
+    }
+}
+
+pub fn is_transient_read_io_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut | io::ErrorKind::Interrupted
+    ) || error.raw_os_error() == Some(997)
+        || error
+            .to_string()
+            .contains("Overlapped I/O operation is in progress")
+}
+
+pub fn is_recoverable_io_error(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(-2146893008)
+        || is_recoverable_socket_error_text(&error.to_string())
+}
+
+pub fn is_transient_anyhow_io_error(error: &anyhow::Error) -> bool {
+    let detail = format!("{error:?}");
+    detail.contains("os error 997") || detail.contains("Overlapped I/O operation is in progress")
+}
+
+pub fn is_recoverable_anyhow_socket_error(error: &anyhow::Error) -> bool {
+    if is_transient_anyhow_io_error(error) {
+        return true;
+    }
+    is_recoverable_socket_error_text(&format!("{error:?}"))
+}
+
+fn is_recoverable_socket_error_text(text: &str) -> bool {
+    let lowered = text.to_ascii_lowercase();
+    lowered.contains("reset")
+        || lowered.contains("closed")
+        || lowered.contains("broken")
+        || lowered.contains("could not be decrypted")
+        || lowered.contains("os error -2146893008")
 }
 
 /// Send session setup message to configure transcription mode

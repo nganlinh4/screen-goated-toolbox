@@ -389,6 +389,20 @@ pub fn start_device_loopback_capture(
     Ok(stream)
 }
 
+pub fn start_device_loopback_capture_resilient(
+    audio_buffer: Arc<Mutex<Vec<i16>>>,
+    stop_signal: Arc<AtomicBool>,
+    pause_signal: Arc<AtomicBool>,
+) -> Result<cpal::Stream> {
+    retry_capture_stream("device-loopback", || {
+        start_device_loopback_capture(
+            audio_buffer.clone(),
+            stop_signal.clone(),
+            pause_signal.clone(),
+        )
+    })
+}
+
 /// Start microphone capture
 /// Returns the cpal Stream that must be kept alive
 pub fn start_mic_capture(
@@ -468,4 +482,47 @@ pub fn start_mic_capture(
 
     stream.play()?;
     Ok(stream)
+}
+
+pub fn start_mic_capture_resilient(
+    audio_buffer: Arc<Mutex<Vec<i16>>>,
+    stop_signal: Arc<AtomicBool>,
+    pause_signal: Arc<AtomicBool>,
+) -> Result<cpal::Stream> {
+    retry_capture_stream("mic", || {
+        start_mic_capture(
+            audio_buffer.clone(),
+            stop_signal.clone(),
+            pause_signal.clone(),
+        )
+    })
+}
+
+fn retry_capture_stream(
+    label: &str,
+    mut start: impl FnMut() -> Result<cpal::Stream>,
+) -> Result<cpal::Stream> {
+    let mut last_error = None;
+    for attempt in 0..4 {
+        match start() {
+            Ok(stream) => return Ok(stream),
+            Err(error) if is_overlapped_io_pending_error(&error) && attempt < 3 => {
+                crate::log_info!(
+                    "[RealtimeAudio] retry capture start label={} attempt={} error={}",
+                    label,
+                    attempt + 1,
+                    error
+                );
+                last_error = Some(error);
+                std::thread::sleep(Duration::from_millis(120 * (attempt + 1) as u64));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Failed to start {label} capture")))
+}
+
+fn is_overlapped_io_pending_error(error: &anyhow::Error) -> bool {
+    let detail = format!("{error:?}");
+    detail.contains("os error 997") || detail.contains("Overlapped I/O operation is in progress")
 }

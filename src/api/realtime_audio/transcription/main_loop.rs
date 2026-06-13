@@ -10,8 +10,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::api::realtime_audio::state::SharedRealtimeState;
 use crate::api::realtime_audio::utils::update_overlay_text;
 use crate::api::realtime_audio::websocket::{
-    connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
-    set_socket_nonblocking,
+    connect_websocket, is_recoverable_socket_error, is_transient_socket_read_error,
+    parse_input_transcription, send_audio_chunk, send_setup_message, set_socket_nonblocking,
 };
 use crate::api::realtime_audio::{DEVICE_RECONNECT_REQUESTED, WM_VOLUME_UPDATE};
 
@@ -264,10 +264,7 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                 );
             }
             Ok(_) => {}
-            Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
+            Err(e) if is_transient_socket_read_error(&e) => {
                 consecutive_empty_reads += 1;
                 if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
                     && last_transcription_time.elapsed()
@@ -308,10 +305,7 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
             }
             Err(e) => {
                 let error_str = e.to_string();
-                if error_str.contains("reset")
-                    || error_str.contains("closed")
-                    || error_str.contains("broken")
-                {
+                if is_recoverable_socket_error(&e) {
                     crate::log_info!(
                         "[RealtimeGeminiLiveHealth] reconnect-start reason=socket-error error={} empty_reads={} since_transcript_ms={} mode={}",
                         error_str,

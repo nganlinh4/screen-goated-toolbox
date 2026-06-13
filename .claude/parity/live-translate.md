@@ -72,7 +72,7 @@
   - `text-llm` walks the centralized `text_to_text` priority chain at translate time, picking the first model whose provider key/availability check passes (Cerebras / Google / Groq are the supported HTTP backends today); the per-model API name comes from the shared model catalog, not a separate realtime constant
   - Android `text-llm` must reuse the same provider enabled/key availability checks as the preset retry chain before attempting a provider in the priority chain
   - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
-  - Windows transcription providers are exposed in this order: `gemini-live-audio`, `gemini-live-audio-3.1`, `gemini-3.5-translate`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`
+  - Windows transcription providers are exposed in this order: `gemini-3.5-translate`, `gemini-live-audio`, `gemini-live-audio-3.1`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`
   - Android transcription providers expose the same cloud/S2S and Zipformer control surface, keep `parakeet` visible as unavailable, and additionally expose the documented Android-native Moonshine variants: `moonshine-tiny-streaming`, `moonshine-small-streaming`, and `moonshine-medium-streaming`
   - Legacy `gemini-live-s2s` remains a persisted-setting compatibility alias for `gemini-3.5-translate`; it is not a visible picker entry.
   - Android may mark Parakeet unavailable, but must not hide it, enable it in the picker, or pretend it is active
@@ -84,6 +84,7 @@
 - Gemini S2S ordered playback skips stale pending segments that block later ready audio, using a longer grace period when input/output text has already arrived for that segment.
 - Gemini S2S first-audio retry and hard hedge timeouts scale with source audio length on both platforms, using the Windows grouped timeout formulas.
 - Gemini S2S display preserves the full accumulated source and target transcript on both platforms; it must not trim the committed display to only a recent window.
+- Gemini Translate continuous sockets use the Windows reconnect policy on both platforms: recoverable socket failures reconnect instead of surfacing as transcript errors, reconnect attempts use bounded backoff with jitter, health logs include socket age / server idle / input idle / reconnect attempt counters, and long-lived sockets proactively rotate only during a quiet window.
 - TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model
 - Android mobile uses a native overlay language picker window instead of relying on the embedded WebView `<select>` popup, because the control must remain usable inside detached overlay windows.
 

@@ -195,10 +195,7 @@ fn wait_for_setup(
                 return Err(anyhow::anyhow!("S2S setup socket closed: {:?}", frame));
             }
             Ok(_) => {}
-            Err(tungstenite::Error::Io(ref err))
-                if err.kind() == std::io::ErrorKind::WouldBlock
-                    || err.kind() == std::io::ErrorKind::TimedOut =>
-            {
+            Err(error) if is_transient_socket_read_error(&error) => {
                 if started.elapsed() > Duration::from_secs(15) {
                     return Err(anyhow::anyhow!("S2S setup timeout"));
                 }
@@ -337,10 +334,7 @@ pub(super) fn process_segment(
                 return Ok(SegmentOutcome::RetryFresh);
             }
             Ok(_) => {}
-            Err(tungstenite::Error::Io(ref err))
-                if err.kind() == std::io::ErrorKind::WouldBlock
-                    || err.kind() == std::io::ErrorKind::TimedOut =>
-            {
+            Err(error) if is_transient_socket_read_error(&error) => {
                 if audio_chunks > 0
                     && last_audio_at
                         .map(|last| last.elapsed().as_millis() >= AUDIO_IDLE_FINISH_MS)

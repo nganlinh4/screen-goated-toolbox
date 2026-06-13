@@ -84,6 +84,26 @@ class GeminiS2sProtocolTest {
         assertEquals("fil", targetLanguageCode("Filipino"))
     }
 
+    @Test
+    fun `live translate continuous socket policy matches Windows probes`() {
+        val source = loadSourceFile(CLIENT_SOURCE_PATH).readText()
+
+        assertTrue(source.contains("private const val LIVE_TRANSLATE_SERVER_SILENT_SENT_CHUNKS = 100"))
+        assertTrue(source.contains("private const val LIVE_TRANSLATE_SERVER_SILENT_MS = 15_000L"))
+        assertTrue(source.contains("private const val LIVE_TRANSLATE_PROACTIVE_ROTATE_MS = 12 * 60 * 1_000L"))
+        assertTrue(source.contains("private const val LIVE_TRANSLATE_ROTATE_QUIET_MS = 3_000L"))
+        assertTrue(source.contains("private fun liveTranslateReconnectDelayMs("))
+        assertTrue(source.contains("val baseMs = 250L * (1L shl cappedAttempt)"))
+        assertTrue(source.contains("coerceAtMost(6_000L)"))
+        assertTrue(source.contains("continuous reconnect scheduled reason="))
+        assertTrue(source.contains("continuous reconnect reason=server-silent"))
+        assertTrue(source.contains("continuous reconnect reason=proactive-rotation"))
+        assertTrue(source.contains("socket_age_ms="))
+        assertTrue(source.contains("since_server_ms="))
+        assertTrue(source.contains("since_input_ms="))
+        assertTrue(source.contains("reconnect_attempts="))
+    }
+
     private fun loadSourceFile(path: String): File {
         val workingDirectory = requireNotNull(System.getProperty("user.dir"))
         return generateSequence(File(workingDirectory).absoluteFile) { current ->
