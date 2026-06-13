@@ -114,7 +114,7 @@ pub fn get_model_by_id_with_custom(
 pub fn normalize_realtime_transcription_model_id(model_id: &str) -> String {
     let normalized = generated_normalize_realtime_transcription_model_id(model_id);
     if normalized.starts_with("moonshine-") {
-        GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string()
+        DEFAULT_REALTIME_TRANSCRIPTION_MODEL.to_string()
     } else {
         normalized.to_string()
     }

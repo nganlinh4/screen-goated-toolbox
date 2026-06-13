@@ -19,12 +19,12 @@ use crate::overlay::realtime_webview::{
     AUDIO_SOURCE_CHANGE, LANGUAGE_CHANGE, SELECTED_APP_PID, TRANSCRIPTION_MODEL_CHANGE,
 };
 
-use super::capture::{start_mic_capture, start_per_app_capture};
+use super::capture::{start_mic_capture_resilient, start_per_app_capture};
 use super::state::SharedRealtimeState;
 use super::utils::{update_overlay_text, update_translation_text};
 use super::websocket::{
-    connect_websocket, send_audio_chunk, send_audio_stream_end, set_socket_nonblocking,
-    set_socket_short_timeout,
+    connect_websocket, is_recoverable_socket_error, is_transient_socket_read_error,
+    send_audio_chunk, send_audio_stream_end, set_socket_nonblocking, set_socket_short_timeout,
 };
 use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 

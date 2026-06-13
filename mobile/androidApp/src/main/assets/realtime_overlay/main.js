@@ -134,13 +134,13 @@
             }
         }
         const TRANSCRIPTION_MODEL_LABELS = {
-            'gemini-live-audio': '(Transcribe) 2.5 Live',
-            'gemini-live-audio-3.1': '(Transcribe) 3.1 Live',
-            'gemini-3.5-translate': '(Translate) 3.5 Translate',
-            'moonshine-tiny-streaming': '(Transcribe) Moonshine Tiny',
-            'moonshine-small-streaming': '(Transcribe) Moonshine Small',
-            'moonshine-medium-streaming': '(Transcribe) Moonshine Medium',
-            'zipformer': '(Transcribe) Zipformer',
+            'gemini-live-audio': 'Gemini Live',
+            'gemini-live-audio-3.1': 'Gemini S2S',
+            'gemini-3.5-translate': 'Gemini Translate',
+            'moonshine-tiny-streaming': 'Moonshine Tiny',
+            'moonshine-small-streaming': 'Moonshine Small',
+            'moonshine-medium-streaming': 'Moonshine Medium',
+            'zipformer': 'Zipformer',
         };
 
         function transcriptionModelLabel(modelName) {

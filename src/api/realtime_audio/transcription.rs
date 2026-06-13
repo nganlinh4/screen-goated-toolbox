@@ -18,11 +18,14 @@ use crate::model_config::{
 use crate::overlay::realtime_webview::SELECTED_APP_PID;
 
 use super::REALTIME_RMS;
-use super::capture::{start_device_loopback_capture, start_mic_capture, start_per_app_capture};
+use super::capture::{
+    start_device_loopback_capture_resilient, start_mic_capture_resilient, start_per_app_capture,
+};
 use super::state::SharedRealtimeState;
 use super::translation::run_translation_loop;
 use super::websocket::{
-    connect_websocket, send_setup_message, set_socket_nonblocking, set_socket_short_timeout,
+    connect_websocket, is_transient_socket_read_error, send_setup_message, set_socket_nonblocking,
+    set_socket_short_timeout,
 };
 
 fn wait_for_selected_audio_app(stop_signal: &Arc<AtomicBool>) -> Option<u32> {
@@ -247,6 +250,7 @@ fn transcription_thread_entry(
             let is_user_initiated = AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
                 || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
                 || reconnect_requested
+                || super::websocket::is_recoverable_anyhow_socket_error(&e)
                 || stop_signal.load(Ordering::Relaxed);
 
             if !is_user_initiated {
@@ -399,10 +403,7 @@ fn run_realtime_transcription(
                 }
             }
             Ok(_) => {}
-            Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
+            Err(e) if is_transient_socket_read_error(&e) => {
                 if setup_start.elapsed() > Duration::from_secs(30) {
                     return Err(anyhow::anyhow!("Setup timeout - no response from server"));
                 }
@@ -466,7 +467,7 @@ fn run_realtime_transcription(
         }
         _stream = None;
     } else if using_device_loopback {
-        _stream = Some(start_device_loopback_capture(
+        _stream = Some(start_device_loopback_capture_resilient(
             audio_buffer.clone(),
             stop_signal.clone(),
             dummy_pause.clone(),
@@ -477,7 +478,7 @@ fn run_realtime_transcription(
         );
         return Ok(());
     } else {
-        _stream = Some(start_mic_capture(
+        _stream = Some(start_mic_capture_resilient(
             audio_buffer.clone(),
             stop_signal.clone(),
             dummy_pause.clone(),

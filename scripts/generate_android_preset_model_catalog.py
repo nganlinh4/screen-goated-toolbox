@@ -146,18 +146,18 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
     tts_gemini_models = manifest["tts_gemini_models"]
 
     provider_api_by_id = {item["id"]: item["api_model"] for item in live_translation_providers}
-    model_by_id = {item["id"]: item for item in manifest["models"]}
-
     def realtime_option_label(option_id: str) -> str:
-        catalog_id = "parakeet-local" if option_id == "parakeet" else option_id
-        model = model_by_id.get(catalog_id)
-        if model:
-            return model["name_en"]
         return {
-            "zipformer": "(Transcribe) Zipformer",
-            "moonshine-tiny-streaming": "(Transcribe) Moonshine Tiny",
-            "moonshine-small-streaming": "(Transcribe) Moonshine Small",
-            "moonshine-medium-streaming": "(Transcribe) Moonshine Medium",
+            "gemini-live-audio": "Gemini Live",
+            "gemini-live-audio-3.1": "Gemini S2S",
+            "gemini-3.5-translate": "Gemini Translate",
+            "parakeet": "Parakeet",
+            "qwen3-asr-0.6b": "Qwen3-ASR 0.6B",
+            "qwen3-asr-1.7b": "Qwen3-ASR 1.7B",
+            "zipformer": "Zipformer",
+            "moonshine-tiny-streaming": "Moonshine Tiny",
+            "moonshine-small-streaming": "Moonshine Small",
+            "moonshine-medium-streaming": "Moonshine Medium",
         }.get(option_id, option_id)
 
     lines: list[str] = [

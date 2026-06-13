@@ -18,18 +18,18 @@
       "google-gtx"
     ],
     "windowsTranscriptionProviders": [
+      "gemini-3.5-translate",
       "gemini-live-audio",
       "gemini-live-audio-3.1",
-      "gemini-3.5-translate",
       "parakeet",
       "qwen3-asr-0.6b",
       "qwen3-asr-1.7b",
       "zipformer"
     ],
     "androidTranscriptionProviders": [
+      "gemini-3.5-translate",
       "gemini-live-audio",
       "gemini-live-audio-3.1",
-      "gemini-3.5-translate",
       "parakeet",
       "moonshine-tiny-streaming",
       "moonshine-small-streaming",

@@ -62,7 +62,7 @@ pub static REALTIME_RMS: std::sync::atomic::AtomicU32 = std::sync::atomic::Atomi
 pub static DEVICE_RECONNECT_REQUESTED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-/// Cancel Parakeet download and revert to Gemini Live mode
+/// Cancel Parakeet download and revert to the default realtime model.
 pub fn cancel_download_and_revert_to_gemini() {
     use crate::overlay::realtime_webview::state::{
         NEW_TRANSCRIPTION_MODEL, REALTIME_HWND, REALTIME_STATE, REALTIME_WEBVIEWS,
@@ -78,18 +78,18 @@ pub fn cancel_download_and_revert_to_gemini() {
         state.is_downloading = false;
     }
 
-    let gemini_model_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string();
+    let default_model_id = crate::model_config::DEFAULT_REALTIME_TRANSCRIPTION_MODEL.to_string();
 
-    // 3. Revert transcription model to Gemini Live 2.5 in config
+    // 3. Revert transcription model in config
     {
         let mut app = crate::APP.lock().unwrap();
-        app.config.realtime_transcription_model = gemini_model_id.clone();
+        app.config.realtime_transcription_model = default_model_id.clone();
         crate::config::save_config(&app.config);
     }
 
-    // 4. Signal model change to restart with Gemini Live 2.5
+    // 4. Signal model change to restart with the default model
     if let Ok(mut model) = NEW_TRANSCRIPTION_MODEL.lock() {
-        *model = gemini_model_id.clone();
+        *model = default_model_id.clone();
     }
     TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
 
@@ -102,7 +102,7 @@ pub fn cancel_download_and_revert_to_gemini() {
             let script = r#"
                 if(window.hideDownloadModal) window.hideDownloadModal();
                 document.querySelectorAll('.trans-model-icon').forEach(icon => {
-                    icon.classList.toggle('active', icon.getAttribute('data-value') === 'gemini-live-audio');
+                    icon.classList.toggle('active', icon.getAttribute('data-value') === 'gemini-3.5-translate');
                 });
             "#;
             REALTIME_WEBVIEWS.with(|wvs| {
@@ -113,5 +113,5 @@ pub fn cancel_download_and_revert_to_gemini() {
         }
     }
 
-    println!("Parakeet download cancelled, reverting to Gemini Live");
+    println!("Parakeet download cancelled, reverting to default realtime model");
 }

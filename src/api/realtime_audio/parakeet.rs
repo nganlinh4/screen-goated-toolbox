@@ -209,7 +209,7 @@ where
             None
         }
     } else if audio_source == "mic" {
-        Some(super::capture::start_mic_capture(
+        Some(super::capture::start_mic_capture_resilient(
             audio_buffer.clone(),
             stop_signal.clone(),
             pause_signal.clone(),
@@ -217,7 +217,7 @@ where
     } else if audio_source == "device" && tts_enabled && selected_pid == 0 {
         None
     } else {
-        Some(super::capture::start_device_loopback_capture(
+        Some(super::capture::start_device_loopback_capture_resilient(
             audio_buffer.clone(),
             stop_signal.clone(),
             pause_signal.clone(),

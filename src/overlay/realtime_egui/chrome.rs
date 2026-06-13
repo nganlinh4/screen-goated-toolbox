@@ -372,7 +372,7 @@ fn render_transcription_controls(
         })
         .unwrap_or_else(|_| {
             (
-                crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string(),
+                crate::model_config::DEFAULT_REALTIME_TRANSCRIPTION_MODEL.to_string(),
                 "en".to_string(),
             )
         });
@@ -432,7 +432,13 @@ fn transcription_model_label(model: &str) -> String {
         .iter()
         .find(|(id, _)| *id == model)
         .map(|(_, label)| (*label).to_string())
-        .unwrap_or_else(|| "(Translate) 3.5 Translate".to_string())
+        .unwrap_or_else(|| {
+            crate::model_config::realtime_transcription_model_options()
+                .iter()
+                .find(|(id, _)| *id == crate::model_config::DEFAULT_REALTIME_TRANSCRIPTION_MODEL)
+                .map(|(_, label)| (*label).to_string())
+                .unwrap_or_else(|| "Gemini Translate".to_string())
+        })
 }
 
 fn render_translation_model_menu(
