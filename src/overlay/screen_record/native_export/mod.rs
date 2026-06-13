@@ -18,7 +18,6 @@ mod progress;
 pub mod sampling;
 pub mod staging;
 mod util;
-mod warmup;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,7 +33,6 @@ pub use composition::start_composition_export;
 pub(crate) use pipeline::run_native_export_with_staged;
 pub use pipeline::start_native_export;
 pub use progress::{export_replay_args_path, persist_export_result};
-pub use warmup::warm_up_export_pipeline_when_idle;
 
 pub fn prewarm_custom_background(url: &str) -> Result<(), String> {
     overlay::prewarm_custom_background(url)
@@ -42,8 +40,6 @@ pub fn prewarm_custom_background(url: &str) -> Result<(), String> {
 
 /// Flag to signal export cancellation from the frontend.
 static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
-/// Ensures GPU export warm-up runs once per app session.
-static EXPORT_GPU_WARMED: AtomicBool = AtomicBool::new(false);
 /// Indicates an export is actively running.
 static EXPORT_ACTIVE: AtomicBool = AtomicBool::new(false);
 

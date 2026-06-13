@@ -440,6 +440,7 @@ function App() {
       currentRawVideoPath,
       currentRawMicAudioPath,
       duration,
+      isSubtitlePanelActive: activePanel === "subtitles",
       setActivePanel,
       persistProject: (opts) => persistRef.current?.(opts) ?? Promise.resolve(),
     },

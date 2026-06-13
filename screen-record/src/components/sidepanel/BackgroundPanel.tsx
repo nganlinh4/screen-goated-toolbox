@@ -36,16 +36,54 @@ export type BgDlState =
   | { status: 'done'; ext: string; version: number }
   | { status: 'error'; message: string };
 
+type DownloadableBgNativeState = {
+  downloaded?: boolean;
+  ext?: string | null;
+  version?: number | null;
+  progress?: unknown;
+};
+
+type DownloadableBgStateMap = Record<string, DownloadableBgNativeState>;
+
 export const buildDownloadedBgUrl = (id: string, ext: string, version: number): string =>
   `/bg-downloaded/${id}.${ext}?v=${version}`;
 
-export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>) {
-  const [state, setState] = useState<BgDlState>({ status: 'checking' });
+const nativeBgStateToUiState = (nativeState?: DownloadableBgNativeState): BgDlState => {
+  if (!nativeState) return { status: 'idle' };
+  if (typeof nativeState.progress === 'object' && nativeState.progress !== null) {
+    if ('Downloading' in nativeState.progress) {
+      const progress = (nativeState.progress as { Downloading?: { progress?: number } }).Downloading?.progress ?? 0;
+      return { status: 'downloading', progress };
+    }
+    if ('Error' in nativeState.progress) {
+      return { status: 'error', message: String((nativeState.progress as { Error?: unknown }).Error ?? '') };
+    }
+  }
+  if (nativeState.downloaded && nativeState.ext) {
+    return { status: 'done', ext: nativeState.ext, version: nativeState.version ?? 0 };
+  }
+  return { status: 'idle' };
+};
+
+export function useDownloadableBg(
+  bg: DownloadableBg,
+  setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>,
+  syncedState?: BgDlState,
+) {
+  const [state, setState] = useState<BgDlState>(syncedState ?? { status: 'idle' });
   const syncInFlightRef = useRef(false);
   const prewarmedUrlSetRef = useRef<Set<string>>(new Set());
   const prewarmInFlightUrlSetRef = useRef<Set<string>>(new Set());
   const pendingPostDownloadPrewarmRef = useRef(false);
   const pendingAutoApplyRef = useRef(false);
+
+  useEffect(() => {
+    if (!syncedState) return;
+    setState(prev => {
+      if (prev.status === 'downloading' || prev.status === 'prewarming') return prev;
+      return syncedState;
+    });
+  }, [syncedState]);
 
   const ensurePrewarmed = useCallback(async (url: string) => {
     if (prewarmedUrlSetRef.current.has(url)) return;
@@ -218,19 +256,12 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
   }, [bg.id, setBackgroundConfig]);
 
   useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      if (cancelled) return;
-      await syncState();
-    };
-
-    run();
-    const interval = setInterval(run, 500);
+    if (state.status !== 'downloading') return;
+    const interval = setInterval(syncState, 500);
     return () => {
-      cancelled = true;
       clearInterval(interval);
     };
-  }, [syncState]);
+  }, [state.status, syncState]);
 
   return { state, startDownload, selectBg, deleteBg };
 }
@@ -238,13 +269,14 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
 // ============================================================================
 // DownloadableBgButton
 // ============================================================================
-function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
+function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig, syncedState }: {
   bg: DownloadableBg;
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
+  syncedState?: BgDlState;
 }) {
   const { t } = useSettings();
-  const { state, startDownload, selectBg, deleteBg } = useDownloadableBg(bg, setBackgroundConfig);
+  const { state, startDownload, selectBg, deleteBg } = useDownloadableBg(bg, setBackgroundConfig, syncedState);
 
   const [isApplying, setIsApplying] = useState(false);
   const isDownloaded = state.status === 'done';
@@ -354,6 +386,45 @@ export function BackgroundPanel({
 }: BackgroundPanelProps) {
   const { t } = useSettings();
   const [applyingKey, setApplyingKey] = useState<string | null>(null);
+  const [downloadedBgStates, setDownloadedBgStates] = useState<Record<string, BgDlState>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const syncDownloadableBackgrounds = async () => {
+      try {
+        const nativeStates = await invoke<DownloadableBgStateMap>('get_bg_download_states', {
+          ids: DOWNLOADABLE_BACKGROUNDS.map(bg => bg.id),
+        });
+        if (cancelled) return;
+        const nextStates = Object.fromEntries(
+          DOWNLOADABLE_BACKGROUNDS.map(bg => [bg.id, nativeBgStateToUiState(nativeStates[bg.id])])
+        ) as Record<string, BgDlState>;
+        setDownloadedBgStates(nextStates);
+
+        setBackgroundConfig(prev => {
+          if (prev.backgroundType !== 'custom' || typeof prev.customBackground !== 'string') return prev;
+          const selectedBg = DOWNLOADABLE_BACKGROUNDS.find(bg =>
+            prev.customBackground?.includes(`/bg-downloaded/${bg.id}.`)
+          );
+          if (!selectedBg) return prev;
+          const selectedState = nextStates[selectedBg.id];
+          if (selectedState?.status === 'done') {
+            const syncedUrl = buildDownloadedBgUrl(selectedBg.id, selectedState.ext, selectedState.version);
+            return prev.customBackground === syncedUrl ? prev : { ...prev, customBackground: syncedUrl };
+          }
+          return { ...prev, backgroundType: DEFAULT_BUILT_IN_BACKGROUND_ID, customBackground: undefined };
+        });
+      } catch (error) {
+        console.warn('Failed to sync downloadable background states:', error);
+      }
+    };
+
+    void syncDownloadableBackgrounds();
+    return () => {
+      cancelled = true;
+    };
+  }, [setBackgroundConfig]);
+
   const applyPreset = (key: string, update: Partial<BackgroundConfig>) => {
     setApplyingKey(key);
     setBackgroundConfig(prev => ({ ...prev, ...update }));
@@ -431,6 +502,7 @@ export function BackgroundPanel({
                 bg={bg}
                 backgroundConfig={backgroundConfig}
                 setBackgroundConfig={setBackgroundConfig}
+                syncedState={downloadedBgStates[bg.id]}
               />
             ))}
 

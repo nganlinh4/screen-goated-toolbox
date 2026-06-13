@@ -53,6 +53,29 @@ pub fn handle_ipc_command(
             let status = bg_download::get_download_status(id);
             Ok(serde_json::to_value(&status).unwrap())
         }
+        "get_bg_download_states" => {
+            let ids = args["ids"]
+                .as_array()
+                .ok_or("Missing ids")?
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect::<Vec<_>>();
+            let mut states = serde_json::Map::new();
+            for id in ids {
+                let info = bg_download::download_info(id);
+                let status = bg_download::get_download_status(id);
+                states.insert(
+                    id.to_string(),
+                    serde_json::json!({
+                        "downloaded": info.is_some(),
+                        "ext": info.as_ref().map(|(ext, _)| ext.clone()),
+                        "version": info.as_ref().map(|(_, version)| *version),
+                        "progress": status,
+                    }),
+                );
+            }
+            Ok(serde_json::Value::Object(states))
+        }
         "delete_bg_download" => {
             let id = args["id"].as_str().unwrap_or("");
             bg_download::delete_downloaded(id);
@@ -428,7 +451,7 @@ pub fn handle_ipc_command(
             unsafe {
                 let hwnd = std::ptr::addr_of!(SR_HWND).read();
                 if !hwnd.is_invalid() {
-                    let _ = ShowWindow(hwnd.0, SW_HIDE);
+                    let _ = PostMessageW(Some(hwnd.0), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
             }
             Ok(serde_json::Value::Null)

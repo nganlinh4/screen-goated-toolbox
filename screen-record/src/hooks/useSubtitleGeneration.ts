@@ -66,6 +66,7 @@ export function useSubtitleGeneration({
   currentRawVideoPath,
   currentRawMicAudioPath,
   duration,
+  isSubtitlePanelActive = false,
   setActivePanel,
   persistProject,
 }: UseSubtitleGenerationParams) {
@@ -246,10 +247,11 @@ export function useSubtitleGeneration({
   }, []);
 
   useEffect(() => {
+    if (!isSubtitlePanelActive) return;
     void refreshSubtitleCapabilities().catch(() => {
       setCapabilities(null);
     });
-  }, [refreshSubtitleCapabilities]);
+  }, [isSubtitlePanelActive, refreshSubtitleCapabilities]);
 
   const capabilityByMethod = useMemo(
     () => new Map((capabilities?.methods ?? []).map((entry) => [entry.method, entry])),

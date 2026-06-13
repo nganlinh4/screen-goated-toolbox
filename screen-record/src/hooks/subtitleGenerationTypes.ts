@@ -109,6 +109,7 @@ export interface UseSubtitleGenerationParams {
   currentRawVideoPath: string;
   currentRawMicAudioPath: string;
   duration: number;
+  isSubtitlePanelActive?: boolean;
   setActivePanel: (
     panel: 'zoom' | 'background' | 'cursor' | 'text' | 'subtitles',
   ) => void;
