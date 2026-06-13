@@ -7,6 +7,7 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::CreateSolidBrush;
+use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -30,9 +31,36 @@ use windows::Win32::Graphics::Gdi::{
 
 use super::handle_ipc_command;
 
+struct ComApartmentGuard {
+    initialized: bool,
+}
+
+impl Drop for ComApartmentGuard {
+    fn drop(&mut self) {
+        if self.initialized {
+            unsafe {
+                CoUninitialize();
+            }
+        }
+    }
+}
+
 pub(super) unsafe fn internal_create_sr_loop() {
     unsafe {
         crate::log_info!("[ScreenRecord] WebView thread started");
+        let coinit_result = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let _com_guard = ComApartmentGuard {
+            initialized: coinit_result.is_ok(),
+        };
+        if coinit_result.is_ok() {
+            crate::log_info!("[ScreenRecord] COM initialized as STA");
+        } else {
+            crate::log_info!(
+                "[ScreenRecord] COM STA init failed: HRESULT 0x{:08X}",
+                coinit_result.0 as u32
+            );
+        }
+
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = windows::core::w!("ScreenRecord_Class");
 
@@ -160,7 +188,6 @@ pub(super) unsafe fn internal_create_sr_loop() {
         } else {
             ""
         };
-
         let init_script = format!(
             r#"
         (function() {{
@@ -211,6 +238,8 @@ pub(super) unsafe fn internal_create_sr_loop() {
                 eprintln!("Failed to create ScreenRecord WebView: {:?}", e);
                 let _ = DestroyWindow(hwnd);
                 SR_HWND = SendHwnd::default();
+                super::IS_WARMED_UP = false;
+                super::IS_INITIALIZING = false;
                 return;
             }
         };
@@ -233,20 +262,6 @@ pub(super) unsafe fn internal_create_sr_loop() {
         let port = ipc::start_global_media_server().unwrap_or(0);
         SERVER_PORT.store(port, std::sync::atomic::Ordering::SeqCst);
 
-        // Eagerly initialize the shared GPU context (wgpu device + pipelines) in
-        // the background. This takes ~8s on first run and is cached forever via
-        // OnceLock, so doing it early avoids blocking the first export.
-        thread::spawn(|| {
-            super::gpu_export::eager_init_gpu_context();
-        });
-
-        // Prepare export GPU pipeline in the background once the recorder has been
-        // idle long enough. Warm-up is useful for first export, but running it
-        // during active capture steals GPU time from recording.
-        thread::spawn(|| {
-            super::native_export::warm_up_export_pipeline_when_idle();
-        });
-
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
             let _ = TranslateMessage(&msg);
@@ -255,6 +270,9 @@ pub(super) unsafe fn internal_create_sr_loop() {
 
         SR_WEBVIEW.with(|wv| {
             *wv.borrow_mut() = None;
+        });
+        SR_WEB_CONTEXT.with(|ctx| {
+            *ctx.borrow_mut() = None;
         });
         SR_HWND = SendHwnd::default();
         super::IS_WARMED_UP = false;
@@ -372,7 +390,7 @@ fn handle_ipc_message(msg: wry::http::Request<String>, send_hwnd: SendHwnd) {
                 let _ = ShowWindow(hwnd, SW_MAXIMIZE);
             }
         } else if body == "close_window" {
-            let _ = ShowWindow(hwnd, SW_HIDE);
+            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
         } else if body == "enter_fullscreen" {
             handle_enter_fullscreen(hwnd);
         } else if body == "exit_fullscreen" {

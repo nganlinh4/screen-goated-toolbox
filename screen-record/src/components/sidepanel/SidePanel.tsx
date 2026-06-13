@@ -50,7 +50,7 @@ const PANEL_TAB_ORDER: ActivePanel[] = [
   'text',
 ];
 const PANEL_EXIT_MS = 320;
-const KEEP_ALIVE_PANEL_IDS = new Set<ActivePanel>(['background', 'narration']);
+const KEEP_ALIVE_PANEL_IDS = new Set<ActivePanel>(['background']);
 
 // ============================================================================
 // PanelTabs

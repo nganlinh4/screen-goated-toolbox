@@ -35,12 +35,13 @@ pub(super) unsafe extern "system" fn sr_wnd_proc(
                 LRESULT(1) // Suppress -- WebView covers full client area
             }
             WM_CLOSE => {
+                crate::log_info!("[ScreenRecord] WM_CLOSE received; destroying window");
                 if super::engine::IS_RECORDING.load(std::sync::atomic::Ordering::SeqCst)
                     || super::engine::ENCODER_ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
                 {
                     cleanup_on_app_exit();
                 }
-                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }
             WM_DESTROY => {

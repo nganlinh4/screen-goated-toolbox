@@ -494,9 +494,3 @@ pub(super) fn shared_gpu_context() -> Result<&'static SharedGpuContext, String> 
         Err(err) => Err(err.clone()),
     }
 }
-
-/// Eagerly initialize the shared GPU context in the background.
-/// Safe to call from any thread; OnceLock ensures single initialization.
-pub fn eager_init_gpu_context() {
-    let _ = SHARED_GPU_CONTEXT.get_or_init(create_shared_gpu_context);
-}

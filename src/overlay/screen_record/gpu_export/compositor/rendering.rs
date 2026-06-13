@@ -56,29 +56,6 @@ impl GpuCompositor {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
-    pub fn render_frame_enqueue_readback(
-        &mut self,
-        uniforms: &CompositorUniforms,
-    ) -> Result<(), String> {
-        self.render_to_output(uniforms, true, None);
-        self.enqueue_output_readback()
-    }
-
-    pub fn render_frame_into(
-        &mut self,
-        uniforms: &CompositorUniforms,
-        out: &mut Vec<u8>,
-    ) -> Result<(), String> {
-        self.render_frame_enqueue_readback(uniforms)?;
-        self.readback_output(out)
-    }
-
-    pub fn render_frame(&mut self, uniforms: &CompositorUniforms) -> Vec<u8> {
-        let mut out = Vec::with_capacity((self.width * self.height * 4) as usize);
-        let _ = self.render_frame_into(uniforms, &mut out);
-        out
-    }
-
     /// Run all motion blur sub-frames in a single RenderPass with one queue.submit().
     ///
     /// Each pass updates the uniform buffer offset (dynamic offset) and blend constant
