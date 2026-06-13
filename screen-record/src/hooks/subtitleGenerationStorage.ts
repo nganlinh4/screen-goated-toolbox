@@ -13,11 +13,11 @@ const SUBTITLE_AUTO_SPLIT_MAX_UNITS_KEY = 'screen-record-subtitle-auto-split-max
 export const DEFAULT_SUBTITLE_METHOD_CAPABILITIES: SubtitleMethodCapability[] = [
   { method: 'groq-whisper-accurate', available: true, reason: null },
   { method: 'groq-whisper-large-v3-turbo', available: true, reason: null },
-  { method: 'gemini-3-1-flash-lite', available: false, reason: null },
-  { method: 'gemini-3-flash-preview', available: false, reason: null },
-  { method: 'qwen-local-0-6b', available: false, reason: null },
-  { method: 'qwen-local-1-7b', available: false, reason: null },
-  { method: 'parakeet-tdt-0-6b-v3', available: false, reason: null },
+  { method: 'gemini-3-1-flash-lite', available: true, reason: null },
+  { method: 'gemini-3-flash-preview', available: true, reason: null },
+  { method: 'qwen-local-0-6b', available: true, reason: null },
+  { method: 'qwen-local-1-7b', available: true, reason: null },
+  { method: 'parakeet-tdt-0-6b-v3', available: true, reason: null },
 ];
 
 export const DEFAULT_SUBTITLE_AUTO_SPLIT_MAX_UNITS = 8;

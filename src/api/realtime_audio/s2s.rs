@@ -514,7 +514,7 @@ use vad::{collect_vad_segments, group_timed_segments, run_vad_loop};
 mod session;
 use session::{run_single_segment_session, session_worker};
 
-mod transport;
+pub(crate) mod transport;
 use transport::{open_fresh_socket_session, process_segment};
 
 mod output;
