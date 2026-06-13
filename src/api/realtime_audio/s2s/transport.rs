@@ -429,17 +429,17 @@ pub(super) fn handle_s2s_message(
     })
 }
 
-pub(super) struct S2sParsedUpdate {
-    pub(super) setup_complete: bool,
-    pub(super) input_transcript: Option<String>,
-    pub(super) output_transcript: Option<String>,
-    pub(super) audio_chunks: Vec<Vec<u8>>,
-    pub(super) turn_complete: bool,
-    pub(super) interrupted: bool,
-    pub(super) error: Option<String>,
+pub(crate) struct S2sParsedUpdate {
+    pub(crate) setup_complete: bool,
+    pub(crate) input_transcript: Option<String>,
+    pub(crate) output_transcript: Option<String>,
+    pub(crate) audio_chunks: Vec<Vec<u8>>,
+    pub(crate) turn_complete: bool,
+    pub(crate) interrupted: bool,
+    pub(crate) error: Option<String>,
 }
 
-pub(super) fn parse_s2s_update(message: &str) -> S2sParsedUpdate {
+pub(crate) fn parse_s2s_update(message: &str) -> S2sParsedUpdate {
     let mut update = S2sParsedUpdate {
         setup_complete: message.contains("setupComplete"),
         input_transcript: None,

@@ -66,7 +66,6 @@ export function useSubtitleGeneration({
   currentRawVideoPath,
   currentRawMicAudioPath,
   duration,
-  isSubtitlePanelActive = false,
   setActivePanel,
   persistProject,
 }: UseSubtitleGenerationParams) {
@@ -237,71 +236,71 @@ export function useSubtitleGeneration({
     }
   }, [canUseMicSource, canUseAudioSource, canUseVideoSource, composition?.audioSegments, sourceType]);
 
-  const refreshSubtitleCapabilities = useCallback(async () => {
-    const nextCapabilities = await invoke<SubtitleGenerationCapabilities>(
-      'get_subtitle_generation_capabilities',
-      {},
-    );
-    setCapabilities(nextCapabilities);
-    return nextCapabilities;
-  }, []);
-
-  useEffect(() => {
-    if (!isSubtitlePanelActive) return;
-    void refreshSubtitleCapabilities().catch(() => {
-      setCapabilities(null);
+  const updateMethodCapability = useCallback((
+    method: SubtitleMethod,
+    available: boolean,
+    reason?: string | null,
+  ) => {
+    setCapabilities((prev) => {
+      const currentMethods = prev?.methods ?? DEFAULT_SUBTITLE_METHOD_CAPABILITIES;
+      return {
+        methods: currentMethods.map((entry) => (
+          entry.method === method
+            ? { ...entry, available, reason: reason ?? null }
+            : entry
+        )),
+      };
     });
-  }, [isSubtitlePanelActive, refreshSubtitleCapabilities]);
+  }, []);
 
   const capabilityByMethod = useMemo(
     () => new Map((capabilities?.methods ?? []).map((entry) => [entry.method, entry])),
     [capabilities],
   );
 
-  useEffect(() => {
-    const selectedCapability = capabilityByMethod.get(subtitleMethod);
-    if (selectedCapability?.available !== false) return;
-    const fallbackMethod = capabilities?.methods.find((entry) => entry.available)?.method;
-    if (fallbackMethod && fallbackMethod !== subtitleMethod) {
-      setSubtitleMethodState(fallbackMethod);
+  const prepareLocalSubtitleMethod = useCallback(async (method: SubtitleMethod) => {
+    if (!isQwenLocalSubtitleMethod(method) && !isParakeetTdtSubtitleMethod(method)) {
+      updateMethodCapability(method, true, null);
+      return { available: true, startedDownloads: false, reason: null };
     }
-  }, [capabilities, capabilityByMethod, subtitleMethod]);
+
+    const result = isParakeetTdtSubtitleMethod(method)
+      ? await invoke<PrepareParakeetTdtResult>('prepare_parakeet_tdt_subtitles', {
+          subtitleMethod: method,
+        })
+      : await invoke<PrepareQwenLocalResult>('prepare_qwen_local_subtitles', {
+          subtitleMethod: method,
+        });
+    updateMethodCapability(method, result.available, result.reason ?? null);
+    return result;
+  }, [updateMethodCapability]);
 
   const setSubtitleMethod = useCallback(async (nextMethod: SubtitleMethod) => {
     if (nextMethod === subtitleMethod) return;
     setSubtitleMethodNotice(null);
     if (!isQwenLocalSubtitleMethod(nextMethod) && !isParakeetTdtSubtitleMethod(nextMethod)) {
-      setSubtitleMethodState(nextMethod);
-      return;
-    }
-
-    const latestCapabilities = await refreshSubtitleCapabilities().catch(() => capabilities);
-    const nextCapability = latestCapabilities?.methods.find((entry) => entry.method === nextMethod);
-    if (nextCapability?.available !== false) {
+      updateMethodCapability(nextMethod, true, null);
       setSubtitleMethodState(nextMethod);
       return;
     }
 
     try {
-      const result = isParakeetTdtSubtitleMethod(nextMethod)
-        ? await invoke<PrepareParakeetTdtResult>('prepare_parakeet_tdt_subtitles', {
-            subtitleMethod: nextMethod,
-          })
-        : await invoke<PrepareQwenLocalResult>('prepare_qwen_local_subtitles', {
-            subtitleMethod: nextMethod,
-          });
+      const result = await prepareLocalSubtitleMethod(nextMethod);
       if (result.available) {
         setSubtitleMethodState(nextMethod);
         return;
       }
-      setSubtitleMethodNotice(result.reason ?? nextCapability?.reason ?? null);
+      setSubtitleMethodNotice(result.reason ?? null);
     } catch (error) {
       setSubtitleMethodNotice(error instanceof Error ? error.message : String(error));
     }
-  }, [capabilities, refreshSubtitleCapabilities, subtitleMethod]);
+  }, [prepareLocalSubtitleMethod, subtitleMethod, updateMethodCapability]);
 
   const selectedMethodCapability = capabilityByMethod.get(subtitleMethod);
-  const canUseSelectedSubtitleMethod = selectedMethodCapability?.available !== false;
+  const selectedMethodIsLocal = isQwenLocalSubtitleMethod(subtitleMethod)
+    || isParakeetTdtSubtitleMethod(subtitleMethod);
+  const canUseSelectedSubtitleMethod = selectedMethodCapability?.available !== false
+    || selectedMethodIsLocal;
   const selectedSubtitleMethodReason = subtitleMethodNotice
     ?? (selectedMethodCapability?.available === false
     ? selectedMethodCapability.reason ?? 'This subtitle method is unavailable.'
@@ -424,24 +423,27 @@ export function useSubtitleGeneration({
     }
     setIsStartingSubtitleJob(true);
     try {
-    const latestCapabilities = await refreshSubtitleCapabilities().catch(() => capabilities);
-    const latestSelectedMethod = latestCapabilities?.methods.find((entry) => entry.method === subtitleMethod);
-    if (latestSelectedMethod?.available === false) {
-      const message = latestSelectedMethod.reason ?? 'Selected subtitle method is unavailable';
-      setStatus({
-        state: 'error',
-        message,
-        messageKey: 'subtitleStatusMethodUnavailable',
-        progress: 0,
-        activeClipId: null,
-        totalClips: 0,
-        completedClips: 0,
-        resultsRevision: 0,
-        skipped: [],
-        error: message,
-      });
-      lastStatusViewKeyRef.current = '';
-      return;
+    if (selectedMethodIsLocal) {
+      const preparation = await prepareLocalSubtitleMethod(subtitleMethod);
+      if (!preparation.available) {
+        const message = preparation.reason ?? 'Selected subtitle method is unavailable';
+        setStatus({
+          state: 'error',
+          message,
+          messageKey: 'subtitleStatusMethodUnavailable',
+          progress: 0,
+          activeClipId: null,
+          totalClips: 0,
+          completedClips: 0,
+          resultsRevision: 0,
+          skipped: [],
+          error: message,
+        });
+        setSubtitleMethodNotice(message);
+        lastStatusViewKeyRef.current = '';
+        return;
+      }
+      setSubtitleMethodNotice(null);
     }
 
     const plan = buildSubtitleGenerationPlan({
@@ -527,7 +529,6 @@ export function useSubtitleGeneration({
     }
   }, [
     activeClipId,
-    capabilities,
     clearQueuedSubtitleResults,
     composition,
     currentRawMicAudioPath,
@@ -538,8 +539,9 @@ export function useSubtitleGeneration({
     geminiPrompt,
     groqVocabulary,
     languageHint,
-    refreshSubtitleCapabilities,
+    prepareLocalSubtitleMethod,
     segment,
+    selectedMethodIsLocal,
     setActivePanel,
     sourceType,
     subtitleMethod,

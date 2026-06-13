@@ -25,6 +25,9 @@ type NarrationStatus = {
   state: string;
 } | null;
 
+type NarrationMode = 'subtitles' | 's2s';
+type DirectVoiceMethod = 's2s' | 'gemini-translate';
+
 interface S2sState {
   canGenerate: boolean;
   handleCancel: () => void;
@@ -48,8 +51,9 @@ interface NarrationModeSectionsProps {
   groupBudgetLabel: string;
   groupTextBudget: number;
   hasSubtitleRange: boolean;
+  directVoiceMethod: DirectVoiceMethod;
   narration: SubtitleNarrationState;
-  narrationMode: 'subtitles' | 's2s';
+  narrationMode: NarrationMode;
   onSourceChange: (value: SubtitleSource) => void;
   readUnsplitSubtitles: boolean;
   s2s: S2sState;
@@ -61,7 +65,8 @@ interface NarrationModeSectionsProps {
   selectedSourceTrackId: string;
   setGroupTextBudget: (value: number) => void;
   setIsGroupSliderDragging: (value: boolean) => void;
-  setNarrationMode: (mode: 'subtitles' | 's2s') => void;
+  setDirectVoiceMethod: (method: DirectVoiceMethod) => void;
+  setNarrationMode: (mode: NarrationMode) => void;
   setReadUnsplitSubtitles: (value: boolean) => void;
   setS2sTargetLanguage: (value: string) => void;
   setSelectedSourceTrackId: (value: string) => void;
@@ -76,6 +81,7 @@ export function NarrationModeSections({
   groupBudgetLabel,
   groupTextBudget,
   hasSubtitleRange,
+  directVoiceMethod,
   narration,
   narrationMode,
   onSourceChange,
@@ -89,6 +95,7 @@ export function NarrationModeSections({
   selectedSourceTrackId,
   setGroupTextBudget,
   setIsGroupSliderDragging,
+  setDirectVoiceMethod,
   setNarrationMode,
   setReadUnsplitSubtitles,
   setS2sTargetLanguage,
@@ -105,6 +112,12 @@ export function NarrationModeSections({
       Math.min(MAX_NARRATION_GROUP_TEXT_BUDGET, Math.round(value)),
     ),
   );
+
+  const isDirectVoiceMode = narrationMode === 's2s';
+  const directVoiceMethodOptions = [
+    { value: 's2s', label: t.narrationTtsMethodGeminiS2s },
+    { value: 'gemini-translate', label: t.narrationTtsMethodGeminiTranslate },
+  ];
 
   return (
     <>
@@ -128,10 +141,22 @@ export function NarrationModeSections({
         </button>
       </div>
 
-      {narrationMode === 's2s' && (
-        <div className="narration-panel-s2s rounded-xl border border-outline/35 bg-surface-container-high/45 p-2.5">
+      {isDirectVoiceMode && (
+        <div className="narration-panel-direct-voice rounded-xl border border-outline/35 bg-surface-container-high/45 p-2.5">
           <div className="narration-s2s-title mb-2 text-[11px] font-semibold text-on-surface">
             {t.narrationModeS2s}
+          </div>
+          <div className="narration-direct-method-row mb-2 flex items-center gap-2">
+            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+              {t.narrationTtsModel}
+            </span>
+            <PanelSelect
+              value={directVoiceMethod}
+              options={directVoiceMethodOptions}
+              onChange={(value) => setDirectVoiceMethod(value as DirectVoiceMethod)}
+              triggerClassName="narration-direct-method-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+              contentClassName="narration-direct-method-menu"
+            />
           </div>
           <div className="narration-s2s-source-row mb-2 flex items-center gap-2">
             <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">

@@ -1,0 +1,780 @@
+{
+  "generatedFrom": "C:\\WORK\\screen-goated-toolbox",
+  "systems": [
+    {
+      "system": "screen-record/src/i18n (TS)",
+      "enKeyCount": 550,
+      "locales": {
+        "ko": {
+          "keyCount": 550,
+          "missingCount": 0,
+          "extraCount": 0,
+          "placeholderMismatchCount": 0,
+          "identicalCount": 24,
+          "missing": [],
+          "extra": [],
+          "placeholderMismatch": [],
+          "identical": [
+            {
+              "key": "cursorScreenStudio",
+              "value": "Screen Studio",
+              "line": 126
+            },
+            {
+              "key": "subtitleMethodGroqWhisperAccurate",
+              "value": "Groq Whisper Large v3",
+              "line": 195
+            },
+            {
+              "key": "subtitleMethodGroqWhisperLargeV3Turbo",
+              "value": "Groq Whisper Large v3 Turbo",
+              "line": 196
+            },
+            {
+              "key": "subtitleMethodGemini3_1FlashLite",
+              "value": "Gemini 3.1 Flash Lite",
+              "line": 197
+            },
+            {
+              "key": "subtitleMethodGemini3FlashPreview",
+              "value": "Gemini 3 Flash Preview",
+              "line": 198
+            },
+            {
+              "key": "subtitleMethodQwenLocal0_6B",
+              "value": "Qwen Local 0.6B",
+              "line": 199
+            },
+            {
+              "key": "subtitleMethodQwenLocal1_7B",
+              "value": "Qwen Local 1.7B",
+              "line": 200
+            },
+            {
+              "key": "subtitleMethodParakeetTdt0_6BV3",
+              "value": "Parakeet TDT 0.6B v3",
+              "line": 201
+            },
+            {
+              "key": "narrationModeGeminiTranslate",
+              "value": "Gemini Translate",
+              "line": 314
+            },
+            {
+              "key": "narrationTtsMethodGemini",
+              "value": "Gemini Live",
+              "line": 333
+            },
+            {
+              "key": "narrationTtsMethodGeminiS2s",
+              "value": "Gemini S2S",
+              "line": 334
+            },
+            {
+              "key": "narrationTtsMethodGeminiTranslate",
+              "value": "Gemini Translate",
+              "line": 335
+            },
+            {
+              "key": "narrationTtsMethodEdge",
+              "value": "Edge TTS",
+              "line": 337
+            },
+            {
+              "key": "narrationTtsMethodKokoro",
+              "value": "Kokoro 82M v1.0",
+              "line": 338
+            },
+            {
+              "key": "exportBackendCpuX264",
+              "value": "CPU x264",
+              "line": 417
+            },
+            {
+              "key": "exportBackendZeroCopyGpu",
+              "value": "GPU Zero-Copy",
+              "line": 418
+            },
+            {
+              "key": "exportBackendNvencTurbo",
+              "value": "GPU NVENC Turbo",
+              "line": 420
+            },
+            {
+              "key": "exportFormatGif",
+              "value": "GIF",
+              "line": 426
+            },
+            {
+              "key": "exportFormatMp4",
+              "value": "MP4",
+              "line": 427
+            },
+            {
+              "key": "audioFormatMp3",
+              "value": "MP3",
+              "line": 440
+            },
+            {
+              "key": "audioFormatWav",
+              "value": "WAV",
+              "line": 441
+            },
+            {
+              "key": "recorderEssentials",
+              "value": "Recorder Essentials",
+              "line": 528
+            },
+            {
+              "key": "dimFullHD",
+              "value": "Full HD (1080p)",
+              "line": 587
+            },
+            {
+              "key": "dimHD",
+              "value": "HD (720p)",
+              "line": 588
+            }
+          ]
+        },
+        "vi": {
+          "keyCount": 550,
+          "missingCount": 0,
+          "extraCount": 0,
+          "placeholderMismatchCount": 0,
+          "identicalCount": 39,
+          "missing": [],
+          "extra": [],
+          "placeholderMismatch": [],
+          "identical": [
+            {
+              "key": "tabCamera",
+              "value": "Camera",
+              "line": 52
+            },
+            {
+              "key": "cameraSettings",
+              "value": "Camera",
+              "line": 88
+            },
+            {
+              "key": "cursorScreenStudio",
+              "value": "Screen Studio",
+              "line": 126
+            },
+            {
+              "key": "cursorLabCopyJson",
+              "value": "Copy JSON",
+              "line": 129
+            },
+            {
+              "key": "cursorLabScale",
+              "value": "Scale",
+              "line": 133
+            },
+            {
+              "key": "cursorLabOffset",
+              "value": "offset",
+              "line": 134
+            },
+            {
+              "key": "subtitleMethodGroqWhisperAccurate",
+              "value": "Groq Whisper Large v3",
+              "line": 195
+            },
+            {
+              "key": "subtitleMethodGroqWhisperLargeV3Turbo",
+              "value": "Groq Whisper Large v3 Turbo",
+              "line": 196
+            },
+            {
+              "key": "subtitleMethodGemini3_1FlashLite",
+              "value": "Gemini 3.1 Flash Lite",
+              "line": 197
+            },
+            {
+              "key": "subtitleMethodGemini3FlashPreview",
+              "value": "Gemini 3 Flash Preview",
+              "line": 198
+            },
+            {
+              "key": "subtitleMethodQwenLocal0_6B",
+              "value": "Qwen Local 0.6B",
+              "line": 199
+            },
+            {
+              "key": "subtitleMethodQwenLocal1_7B",
+              "value": "Qwen Local 1.7B",
+              "line": 200
+            },
+            {
+              "key": "subtitleMethodParakeetTdt0_6BV3",
+              "value": "Parakeet TDT 0.6B v3",
+              "line": 201
+            },
+            {
+              "key": "subtitleMethodHelpRuntimeCloud",
+              "value": "Cloud",
+              "line": 204
+            },
+            {
+              "key": "subtitleMethodHelpRuntimeLocal",
+              "value": "Local",
+              "line": 205
+            },
+            {
+              "key": "subtitleTranslationModel",
+              "value": "Model",
+              "line": 271
+            },
+            {
+              "key": "narrationModeGeminiTranslate",
+              "value": "Gemini Translate",
+              "line": 314
+            },
+            {
+              "key": "narrationTtsMethodGemini",
+              "value": "Gemini Live",
+              "line": 333
+            },
+            {
+              "key": "narrationTtsMethodGeminiS2s",
+              "value": "Gemini S2S",
+              "line": 334
+            },
+            {
+              "key": "narrationTtsMethodGeminiTranslate",
+              "value": "Gemini Translate",
+              "line": 335
+            },
+            {
+              "key": "narrationTtsMethodEdge",
+              "value": "Edge TTS",
+              "line": 337
+            },
+            {
+              "key": "narrationTtsMethodKokoro",
+              "value": "Kokoro 82M v1.0",
+              "line": 338
+            },
+            {
+              "key": "exportBackendCpuX264",
+              "value": "CPU x264",
+              "line": 417
+            },
+            {
+              "key": "exportBackendZeroCopyGpu",
+              "value": "GPU Zero-Copy",
+              "line": 418
+            },
+            {
+              "key": "exportBackendMfH264Encode",
+              "value": "DX12 Compositor · Media Foundation H.264",
+              "line": 419
+            },
+            {
+              "key": "exportBackendNvencTurbo",
+              "value": "GPU NVENC Turbo",
+              "line": 420
+            },
+            {
+              "key": "exportFormatGif",
+              "value": "GIF",
+              "line": 426
+            },
+            {
+              "key": "exportFormatMp4",
+              "value": "MP4",
+              "line": 427
+            },
+            {
+              "key": "audioFormatMp3",
+              "value": "MP3",
+              "line": 440
+            },
+            {
+              "key": "audioFormatWav",
+              "value": "WAV",
+              "line": 441
+            },
+            {
+              "key": "copyGif",
+              "value": "Copy GIF",
+              "line": 449
+            },
+            {
+              "key": "ok",
+              "value": "OK",
+              "line": 479
+            },
+            {
+              "key": "clipInfoWebcam",
+              "value": "Webcam",
+              "line": 494
+            },
+            {
+              "key": "recorderEssentials",
+              "value": "Recorder Essentials",
+              "line": 528
+            },
+            {
+              "key": "trackVideo",
+              "value": "Video",
+              "line": 540
+            },
+            {
+              "key": "trackMicAudio",
+              "value": "Mic",
+              "line": 543
+            },
+            {
+              "key": "trackWebcam",
+              "value": "Webcam",
+              "line": 554
+            },
+            {
+              "key": "dimFullHD",
+              "value": "Full HD (1080p)",
+              "line": 587
+            },
+            {
+              "key": "dimHD",
+              "value": "HD (720p)",
+              "line": 588
+            }
+          ]
+        }
+      }
+    },
+    {
+      "system": "promptdj-midi/utils/Locales.ts (TS)",
+      "enKeyCount": 20,
+      "locales": {
+        "ko": {
+          "keyCount": 20,
+          "missingCount": 0,
+          "extraCount": 0,
+          "placeholderMismatchCount": 0,
+          "identicalCount": 0,
+          "missing": [],
+          "extra": [],
+          "placeholderMismatch": [],
+          "identical": []
+        },
+        "vi": {
+          "keyCount": 20,
+          "missingCount": 0,
+          "extraCount": 0,
+          "placeholderMismatchCount": 0,
+          "identicalCount": 0,
+          "missing": [],
+          "extra": [],
+          "placeholderMismatch": [],
+          "identical": []
+        }
+      }
+    },
+    {
+      "system": "src/gui/locale (Rust)",
+      "enKeyCount": 589,
+      "locales": {
+        "ko": {
+          "keyCount": 588,
+          "missingCount": 1,
+          "extraCount": 0,
+          "placeholderMismatchCount": 0,
+          "identicalCount": 19,
+          "missing": [
+            "overlay_refine_placeholder"
+          ],
+          "extra": [],
+          "placeholderMismatch": [],
+          "identical": [
+            {
+              "key": "use_groq_checkbox",
+              "value": "Groq",
+              "line": 19
+            },
+            {
+              "key": "use_gemini_checkbox",
+              "value": "Gemini",
+              "line": 20
+            },
+            {
+              "key": "use_openrouter_checkbox",
+              "value": "OpenRouter",
+              "line": 21
+            },
+            {
+              "key": "use_cerebras_checkbox",
+              "value": "Cerebras",
+              "line": 24
+            },
+            {
+              "key": "tts_google_translate_title",
+              "value": "Google Translate TTS",
+              "line": 203
+            },
+            {
+              "key": "tts_edge_title",
+              "value": "Microsoft Edge TTS",
+              "line": 205
+            },
+            {
+              "key": "tts_kokoro_title",
+              "value": "Kokoro 82M v1.0",
+              "line": 239
+            },
+            {
+              "key": "llm_label",
+              "value": "LLM",
+              "line": 338
+            },
+            {
+              "key": "download_url_label",
+              "value": "URL:",
+              "line": 345
+            },
+            {
+              "key": "download_deps_ytdlp",
+              "value": "yt-dlp:",
+              "line": 354
+            },
+            {
+              "key": "download_deps_ffmpeg",
+              "value": "ffmpeg:",
+              "line": 355
+            },
+            {
+              "key": "tool_ai_runtime",
+              "value": "DirectML + ONNX Runtime",
+              "line": 388
+            },
+            {
+              "key": "tool_parakeet_tdt",
+              "value": "Parakeet TDT 0.6B v3",
+              "line": 390
+            },
+            {
+              "key": "tool_parakeet_card",
+              "value": "Parakeet",
+              "line": 449
+            },
+            {
+              "key": "tool_qwen3_card",
+              "value": "Qwen3-ASR",
+              "line": 450
+            },
+            {
+              "key": "tool_kokoro_card",
+              "value": "Kokoro TTS",
+              "line": 451
+            },
+            {
+              "key": "tool_kokoro",
+              "value": "Kokoro 82M v1.0",
+              "line": 452
+            },
+            {
+              "key": "tool_zipformer_card",
+              "value": "Zipformer ASR",
+              "line": 466
+            },
+            {
+              "key": "tool_zipformer_desc_runtime_dlls",
+              "value": "sherpa-onnx + onnxruntime",
+              "line": 468
+            }
+          ]
+        },
+        "vi": {
+          "keyCount": 589,
+          "missingCount": 0,
+          "extraCount": 0,
+          "placeholderMismatchCount": 0,
+          "identicalCount": 28,
+          "missing": [],
+          "extra": [],
+          "placeholderMismatch": [],
+          "identical": [
+            {
+              "key": "use_groq_checkbox",
+              "value": "Groq",
+              "line": 19
+            },
+            {
+              "key": "use_gemini_checkbox",
+              "value": "Gemini",
+              "line": 20
+            },
+            {
+              "key": "use_openrouter_checkbox",
+              "value": "OpenRouter",
+              "line": 21
+            },
+            {
+              "key": "use_cerebras_checkbox",
+              "value": "Cerebras",
+              "line": 24
+            },
+            {
+              "key": "audio_src_mic",
+              "value": "Microphone",
+              "line": 42
+            },
+            {
+              "key": "add_text_preset_btn",
+              "value": "+ Text",
+              "line": 95
+            },
+            {
+              "key": "node_process_title",
+              "value": "Text -> Text",
+              "line": 102
+            },
+            {
+              "key": "node_special_audio_to_text",
+              "value": "Audio -> Text",
+              "line": 105
+            },
+            {
+              "key": "tts_playground_tab_tts_clone",
+              "value": "TTS / Clone",
+              "line": 143
+            },
+            {
+              "key": "model_priority_text_chain_title",
+              "value": "Text -> Text",
+              "line": 172
+            },
+            {
+              "key": "tts_google_translate_title",
+              "value": "Google Translate TTS",
+              "line": 203
+            },
+            {
+              "key": "tts_edge_title",
+              "value": "Microsoft Edge TTS",
+              "line": 205
+            },
+            {
+              "key": "tts_kokoro_title",
+              "value": "Kokoro 82M v1.0",
+              "line": 239
+            },
+            {
+              "key": "llm_label",
+              "value": "LLM",
+              "line": 338
+            },
+            {
+              "key": "download_url_label",
+              "value": "URL:",
+              "line": 471
+            },
+            {
+              "key": "download_deps_ytdlp",
+              "value": "yt-dlp:",
+              "line": 480
+            },
+            {
+              "key": "download_deps_ffmpeg",
+              "value": "ffmpeg:",
+              "line": 481
+            },
+            {
+              "key": "tool_ai_runtime",
+              "value": "DirectML + ONNX Runtime",
+              "line": 518
+            },
+            {
+              "key": "tool_parakeet_tdt",
+              "value": "Parakeet TDT 0.6B v3",
+              "line": 520
+            },
+            {
+              "key": "tool_deno",
+              "value": "Deno JS Runtime",
+              "line": 524
+            },
+            {
+              "key": "tool_ffmpeg",
+              "value": "ffmpeg + ffprobe",
+              "line": 525
+            },
+            {
+              "key": "tool_parakeet_card",
+              "value": "Parakeet",
+              "line": 579
+            },
+            {
+              "key": "tool_qwen3_card",
+              "value": "Qwen3-ASR",
+              "line": 580
+            },
+            {
+              "key": "tool_kokoro_card",
+              "value": "Kokoro TTS",
+              "line": 581
+            },
+            {
+              "key": "tool_kokoro",
+              "value": "Kokoro 82M v1.0",
+              "line": 582
+            },
+            {
+              "key": "tool_zipformer_card",
+              "value": "Zipformer ASR",
+              "line": 596
+            },
+            {
+              "key": "tool_zipformer_runtime_dlls",
+              "value": "Runtime DLLs",
+              "line": 597
+            },
+            {
+              "key": "tool_zipformer_desc_runtime_dlls",
+              "value": "sherpa-onnx + onnxruntime",
+              "line": 598
+            }
+          ]
+        }
+      }
+    },
+    {
+      "system": "mobile ui/i18n (Kotlin)",
+      "enKeyCount": 285,
+      "locales": {
+        "ko": {
+          "keyCount": 285,
+          "missingCount": 0,
+          "extraCount": 0,
+          "placeholderMismatchCount": 0,
+          "identicalCount": 10,
+          "missing": [],
+          "extra": [],
+          "placeholderMismatch": [],
+          "identical": [
+            {
+              "key": "appTitle",
+              "value": "SGT Mobile",
+              "line": 8
+            },
+            {
+              "key": "appHeaderTitle",
+              "value": "Screen Goated Toolbox",
+              "line": 9
+            },
+            {
+              "key": "ollamaUrlLabel",
+              "value": "Ollama URL",
+              "line": 109
+            },
+            {
+              "key": "presetRuntimeTextChainLabel",
+              "value": "Text → Text",
+              "line": 166
+            },
+            {
+              "key": "geminiS2sTitle",
+              "value": "Gemini S2S",
+              "line": 212
+            },
+            {
+              "key": "llmLabel",
+              "value": "LLM",
+              "line": 213
+            },
+            {
+              "key": "ttsGoogleTranslateTitle",
+              "value": "Google Translate TTS",
+              "line": 243
+            },
+            {
+              "key": "ttsEdgeTitle",
+              "value": "Microsoft Edge TTS",
+              "line": 245
+            },
+            {
+              "key": "dlUrlLabel",
+              "value": "URL:",
+              "line": 285
+            },
+            {
+              "key": "toolRuntimeOrt",
+              "value": "ONNX Runtime",
+              "line": 326
+            }
+          ]
+        },
+        "vi": {
+          "keyCount": 285,
+          "missingCount": 0,
+          "extraCount": 0,
+          "placeholderMismatchCount": 0,
+          "identicalCount": 11,
+          "missing": [],
+          "extra": [],
+          "placeholderMismatch": [],
+          "identical": [
+            {
+              "key": "appTitle",
+              "value": "SGT Mobile",
+              "line": 8
+            },
+            {
+              "key": "appHeaderTitle",
+              "value": "Screen Goated Toolbox",
+              "line": 9
+            },
+            {
+              "key": "presetRuntimeTextChainLabel",
+              "value": "Text → Text",
+              "line": 166
+            },
+            {
+              "key": "geminiLiveTitle",
+              "value": "Gemini Live (Cloud)",
+              "line": 211
+            },
+            {
+              "key": "geminiS2sTitle",
+              "value": "Gemini S2S",
+              "line": 212
+            },
+            {
+              "key": "llmLabel",
+              "value": "LLM",
+              "line": 213
+            },
+            {
+              "key": "ttsGoogleTranslateTitle",
+              "value": "Google Translate TTS",
+              "line": 243
+            },
+            {
+              "key": "ttsEdgeTitle",
+              "value": "Microsoft Edge TTS",
+              "line": 245
+            },
+            {
+              "key": "dlUrlLabel",
+              "value": "URL:",
+              "line": 285
+            },
+            {
+              "key": "dlVideoLabel",
+              "value": "Video",
+              "line": 309
+            },
+            {
+              "key": "toolRuntimeOrt",
+              "value": "ONNX Runtime",
+              "line": 326
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

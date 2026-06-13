@@ -48,6 +48,8 @@ import { NarrationVoiceProviderSettings } from './NarrationVoiceProviderSettings
 import { useNarrationProviderConfigState } from './useNarrationProviderConfigState';
 
 const CURRENT_SUBTITLE_VIEW_SOURCE_ID = 'current-subtitle-view';
+type NarrationMode = 'subtitles' | 's2s';
+type DirectVoiceMethod = 's2s' | 'gemini-translate';
 
 interface NarrationPanelProps {
   segment: VideoSegment | null;
@@ -115,12 +117,14 @@ export function NarrationPanel({
   const [readUnsplitSubtitles, setReadUnsplitSubtitles] = useState(getInitialReadUnsplitSubtitles);
   const [groupTextBudget, setGroupTextBudget] = useState(getInitialNarrationGroupTextBudget);
   const [isGroupSliderDragging, setIsGroupSliderDragging] = useState(false);
-  const [narrationMode, setNarrationMode] = useState<'subtitles' | 's2s'>(
+  const [narrationMode, setNarrationMode] = useState<NarrationMode>(
     visibleSubtitles.length > 0 ? 'subtitles' : 's2s',
   );
+  const [directVoiceMethod, setDirectVoiceMethod] = useState<DirectVoiceMethod>('s2s');
   const [s2sTargetLanguage, setS2sTargetLanguage] = useState('vi');
   const segmentRef = useRef<VideoSegment | null>(segment);
-  const effectiveTtsMethod: NarrationTtsMethod = narrationMode === 's2s'
+  const isDirectVoiceMode = narrationMode === 's2s';
+  const effectiveTtsMethod: NarrationTtsMethod = isDirectVoiceMode
     ? 'GeminiLive'
     : settings.method;
 
@@ -322,6 +326,7 @@ export function NarrationPanel({
     return nextSegment;
   }, [onUpdateSegment, onUpdateSegmentSilently]);
   const s2s = useS2sNarration({
+    backendMode: directVoiceMethod,
     t,
     segment,
     composition,
@@ -387,6 +392,7 @@ export function NarrationPanel({
           groupBudgetLabel={groupBudgetLabel}
           groupTextBudget={groupTextBudget}
           hasSubtitleRange={Boolean(selectedSubtitleRange)}
+          directVoiceMethod={directVoiceMethod}
           narration={narration}
           narrationMode={narrationMode}
           onSourceChange={onSourceChange}
@@ -400,6 +406,7 @@ export function NarrationPanel({
           selectedSourceTrackId={selectedSourceTrackId}
           setGroupTextBudget={setGroupTextBudget}
           setIsGroupSliderDragging={setIsGroupSliderDragging}
+          setDirectVoiceMethod={setDirectVoiceMethod}
           setNarrationMode={setNarrationMode}
           setReadUnsplitSubtitles={setReadUnsplitSubtitles}
           setS2sTargetLanguage={setS2sTargetLanguage}
@@ -410,29 +417,30 @@ export function NarrationPanel({
           subtitlesAvailable={visibleSubtitles.length > 0}
         />
 
+        {(!isDirectVoiceMode || directVoiceMethod === 's2s') && (
         <div className="narration-panel-tts rounded-xl border border-outline/30 bg-surface-container-high/40 p-2.5">
           <div className="narration-panel-tts-header mb-2 text-[11px] font-semibold text-on-surface">
             {t.narrationTtsTitle}
           </div>
 
+          {!isDirectVoiceMode && (
           <div className="narration-panel-row mb-2 flex items-center gap-2">
             <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
               {t.narrationTtsMethod}
             </span>
             <PanelSelect
               value={effectiveTtsMethod}
-              options={narrationMode === 's2s'
-                ? [{ value: 'GeminiLive', label: t.narrationTtsMethodGeminiS2s }]
-                : providerOptions}
+              options={providerOptions}
               onChange={(value) => {
-                if (narrationMode !== 's2s') update('method', value as NarrationTtsMethod);
+                if (!isDirectVoiceMode) update('method', value as NarrationTtsMethod);
               }}
               triggerClassName="narration-method-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
               contentClassName="narration-method-menu"
             />
           </div>
+          )}
 
-          {effectiveTtsMethod === 'GeminiLive' && (
+          {effectiveTtsMethod === 'GeminiLive' && directVoiceMethod === 's2s' && (
             <NarrationGeminiSettings
               addLanguageCondition={addLanguageCondition}
               availableConditionLanguages={availableConditionLanguages}
@@ -448,40 +456,43 @@ export function NarrationPanel({
             />
           )}
 
-          <NarrationVoiceProviderSettings
-            addEdgeVoiceConfig={addEdgeVoiceConfig}
-            addKokoroVoiceConfig={addKokoroVoiceConfig}
-            addMagpieVoiceConfig={addMagpieVoiceConfig}
-            addSupertonicVoiceConfig={addSupertonicVoiceConfig}
-            availableEdgeVoiceLanguages={availableEdgeVoiceLanguages}
-            availableKokoroVoiceLanguages={availableKokoroVoiceLanguages}
-            availableMagpieVoiceLanguages={availableMagpieVoiceLanguages}
-            availableSupertonicLanguages={availableSupertonicLanguages}
-            edgeVoiceConfigs={edgeVoiceConfigs}
-            edgeVoiceState={metadata?.edgeVoiceState}
-            edgeVoicesByLanguage={edgeVoicesByLanguage}
-            effectiveTtsMethod={effectiveTtsMethod}
-            googleSpeedOptions={googleSpeedOptions}
-            kokoroVoiceConfigs={kokoroVoiceConfigs}
-            kokoroVoices={kokoroVoices}
-            magpieVoiceConfigs={magpieVoiceConfigs}
-            magpieVoices={magpieVoices}
-            referenceVoices={referenceVoices}
-            removeEdgeVoiceConfig={removeEdgeVoiceConfig}
-            removeKokoroVoiceConfig={removeKokoroVoiceConfig}
-            removeMagpieVoiceConfig={removeMagpieVoiceConfig}
-            removeSupertonicVoiceConfig={removeSupertonicVoiceConfig}
-            settings={settings}
-            stepAudioVoices={stepAudioVoices}
-            supertonicVoiceConfigs={supertonicVoiceConfigs}
-            supertonicVoices={supertonicVoices}
-            update={update}
-            updateEdgeVoiceConfig={updateEdgeVoiceConfig}
-            updateKokoroVoiceConfig={updateKokoroVoiceConfig}
-            updateMagpieVoiceConfig={updateMagpieVoiceConfig}
-            updateSupertonicVoiceConfig={updateSupertonicVoiceConfig}
-          />
+          {!isDirectVoiceMode && (
+            <NarrationVoiceProviderSettings
+              addEdgeVoiceConfig={addEdgeVoiceConfig}
+              addKokoroVoiceConfig={addKokoroVoiceConfig}
+              addMagpieVoiceConfig={addMagpieVoiceConfig}
+              addSupertonicVoiceConfig={addSupertonicVoiceConfig}
+              availableEdgeVoiceLanguages={availableEdgeVoiceLanguages}
+              availableKokoroVoiceLanguages={availableKokoroVoiceLanguages}
+              availableMagpieVoiceLanguages={availableMagpieVoiceLanguages}
+              availableSupertonicLanguages={availableSupertonicLanguages}
+              edgeVoiceConfigs={edgeVoiceConfigs}
+              edgeVoiceState={metadata?.edgeVoiceState}
+              edgeVoicesByLanguage={edgeVoicesByLanguage}
+              effectiveTtsMethod={effectiveTtsMethod}
+              googleSpeedOptions={googleSpeedOptions}
+              kokoroVoiceConfigs={kokoroVoiceConfigs}
+              kokoroVoices={kokoroVoices}
+              magpieVoiceConfigs={magpieVoiceConfigs}
+              magpieVoices={magpieVoices}
+              referenceVoices={referenceVoices}
+              removeEdgeVoiceConfig={removeEdgeVoiceConfig}
+              removeKokoroVoiceConfig={removeKokoroVoiceConfig}
+              removeMagpieVoiceConfig={removeMagpieVoiceConfig}
+              removeSupertonicVoiceConfig={removeSupertonicVoiceConfig}
+              settings={settings}
+              stepAudioVoices={stepAudioVoices}
+              supertonicVoiceConfigs={supertonicVoiceConfigs}
+              supertonicVoices={supertonicVoices}
+              update={update}
+              updateEdgeVoiceConfig={updateEdgeVoiceConfig}
+              updateKokoroVoiceConfig={updateKokoroVoiceConfig}
+              updateMagpieVoiceConfig={updateMagpieVoiceConfig}
+              updateSupertonicVoiceConfig={updateSupertonicVoiceConfig}
+            />
+          )}
         </div>
+        )}
 
       </div>
     </PanelCard>

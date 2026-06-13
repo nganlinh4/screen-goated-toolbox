@@ -4,6 +4,7 @@
 
 mod audio_waveform;
 mod cursor_svg;
+mod gemini_translate_narration;
 mod hotkeys;
 pub mod media_server;
 mod narration;
@@ -404,6 +405,15 @@ pub fn handle_ipc_command(
         "start_s2s_narration" => s2s_narration::handle_start_s2s_narration(&args),
         "get_s2s_narration_status" => s2s_narration::handle_get_s2s_narration_status(&args),
         "cancel_s2s_narration" => s2s_narration::handle_cancel_s2s_narration(&args),
+        "start_gemini_translate_narration" => {
+            gemini_translate_narration::handle_start_gemini_translate_narration(&args)
+        }
+        "get_gemini_translate_narration_status" => {
+            gemini_translate_narration::handle_get_gemini_translate_narration_status(&args)
+        }
+        "cancel_gemini_translate_narration" => {
+            gemini_translate_narration::handle_cancel_gemini_translate_narration(&args)
+        }
         "get_narration_tts_metadata" => narration::handle_get_narration_tts_metadata(&args),
         "detect_narration_language" => narration::handle_detect_narration_language(&args),
         "get_hotkeys" => hotkeys::handle_get_hotkeys(),

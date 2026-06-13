@@ -15,6 +15,7 @@ import {
   mergeLiveNarrationSegments,
   useLiveNarrationState,
 } from "@/lib/liveNarrationStreamStore";
+import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { countFrontendRender } from "@/lib/frontendPerfDiagnostics";
 import {
   getTimelineTimingConflictIds,
@@ -146,7 +147,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
   const liveNarrationState = useLiveNarrationState(liveProjectId);
   const hasLiveNarration = liveNarrationState.segments.length > 0;
   const displayedSegments = useMemo(
-    () => mergeLiveNarrationSegments(segments, liveNarrationState),
+    () => materializeNarrationGroupTakes(mergeLiveNarrationSegments(segments, liveNarrationState)),
     [liveNarrationState, segments],
   );
   const segmentById = useMemo(
