@@ -54,6 +54,30 @@ pub(super) fn smooth_mouse_positions(
         let p2 = &positions[i + 2];
         let p3 = &positions[i + 3];
 
+        // WYSIWYG alignment to cursorDynamics.ts smoothMousePositions idle-skip:
+        // skip dense interpolation for static idle segments to avoid O(N) bloat. When
+        // p1->p2 moved < 2px AND the click state and cursor type are unchanged across
+        // the pair, the preview pushes a single copy of p1 (its x/y/timestamp/click/
+        // type) and advances. Export previously always interpolated, so a static-dwell
+        // track could diverge preview vs export. Distance/threshold/return must match TS.
+        let dx = p2.x - p1.x;
+        let dy = p2.y - p1.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist < 2.0 && p1.is_clicked == p2.is_clicked && p1.cursor_type == p2.cursor_type {
+            smoothed.push(Pos {
+                x: p1.x,
+                y: p1.y,
+                timestamp: p1.timestamp,
+                is_clicked: p1.is_clicked,
+                cursor_type: p1
+                    .cursor_type
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string()),
+                cursor_rotation: 0.0,
+            });
+            continue;
+        }
+
         let seg_dur = p2.timestamp - p1.timestamp;
         // WYSIWYG alignment to cursorDynamics.ts smoothMousePositions: clamp the
         // interpolated frame count to min(ceil(segDur*fps), 60). The preview caps
@@ -469,50 +493,56 @@ mod tests {
     #[test]
     fn smooth_mouse_positions_matches_golden() {
         // Full pipeline (Catmull-Rom interp -> 3-pass uniform box blur -> dedup) is
-        // now WYSIWYG-aligned with the TS preview and locked cross-language. The
-        // Rust export must reproduce the canonical smoothMousePositions output for
-        // each smoothness within 1e-6.
+        // WYSIWYG-aligned with the TS preview and locked cross-language. Two named
+        // tracks cover BOTH per-window branches of cursorDynamics.ts: "dense_interp"
+        // (every window interpolates) and "static_dwell" (sub-2px jitter trips the
+        // idle-skip short-circuit, with embedded counter-cases for the AND guard).
+        // The Rust export must reproduce the canonical output for each smoothness
+        // within 1e-6.
         let g: serde_json::Value = serde_json::from_str(GOLDEN).expect("golden parses");
         let tol = g["tolerance"].as_f64().unwrap();
         let sm = &g["cursorPrimitives"]["smoothMousePositions"];
 
-        let input: Vec<MousePosition> =
-            serde_json::from_value(sm["input"].clone()).expect("input positions parse");
+        for track in sm["tracks"].as_array().unwrap() {
+            let track_name = track["name"].as_str().unwrap();
+            let input: Vec<MousePosition> =
+                serde_json::from_value(track["input"].clone()).expect("input positions parse");
 
-        for case in sm["cases"].as_array().unwrap() {
-            let smoothness = case["smoothness"].as_f64().unwrap();
-            let bg = bg_with_smoothness(smoothness);
-            let got = smooth_mouse_positions(&input, Some(&bg));
-            let expected = case["output"].as_array().unwrap();
+            for case in track["cases"].as_array().unwrap() {
+                let smoothness = case["smoothness"].as_f64().unwrap();
+                let bg = bg_with_smoothness(smoothness);
+                let got = smooth_mouse_positions(&input, Some(&bg));
+                let expected = case["output"].as_array().unwrap();
 
-            assert_eq!(
-                got.len(),
-                expected.len(),
-                "output length mismatch at smoothness={smoothness}"
-            );
-            for (i, (g_pos, e)) in got.iter().zip(expected.iter()).enumerate() {
-                assert!(
-                    (g_pos.x - e["x"].as_f64().unwrap()).abs() <= tol,
-                    "x drift at smoothness={smoothness} idx={i}"
-                );
-                assert!(
-                    (g_pos.y - e["y"].as_f64().unwrap()).abs() <= tol,
-                    "y drift at smoothness={smoothness} idx={i}"
-                );
-                assert!(
-                    (g_pos.timestamp - e["timestamp"].as_f64().unwrap()).abs() <= tol,
-                    "timestamp drift at smoothness={smoothness} idx={i}"
-                );
                 assert_eq!(
-                    g_pos.is_clicked,
-                    e["isClicked"].as_bool().unwrap(),
-                    "isClicked mismatch at smoothness={smoothness} idx={i}"
+                    got.len(),
+                    expected.len(),
+                    "output length mismatch in track={track_name} at smoothness={smoothness}"
                 );
-                assert_eq!(
-                    g_pos.cursor_type,
-                    e["cursor_type"].as_str().unwrap(),
-                    "cursor_type mismatch at smoothness={smoothness} idx={i}"
-                );
+                for (i, (g_pos, e)) in got.iter().zip(expected.iter()).enumerate() {
+                    assert!(
+                        (g_pos.x - e["x"].as_f64().unwrap()).abs() <= tol,
+                        "x drift in track={track_name} at smoothness={smoothness} idx={i}"
+                    );
+                    assert!(
+                        (g_pos.y - e["y"].as_f64().unwrap()).abs() <= tol,
+                        "y drift in track={track_name} at smoothness={smoothness} idx={i}"
+                    );
+                    assert!(
+                        (g_pos.timestamp - e["timestamp"].as_f64().unwrap()).abs() <= tol,
+                        "timestamp drift in track={track_name} at smoothness={smoothness} idx={i}"
+                    );
+                    assert_eq!(
+                        g_pos.is_clicked,
+                        e["isClicked"].as_bool().unwrap(),
+                        "isClicked mismatch in track={track_name} at smoothness={smoothness} idx={i}"
+                    );
+                    assert_eq!(
+                        g_pos.cursor_type,
+                        e["cursor_type"].as_str().unwrap(),
+                        "cursor_type mismatch in track={track_name} at smoothness={smoothness} idx={i}"
+                    );
+                }
             }
         }
     }

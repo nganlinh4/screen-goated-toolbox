@@ -85,9 +85,11 @@ const blk = (over: Record<string, unknown>) => ({
 // fields match the Rust MousePosition deserializer (isClicked / cursor_type). It
 // mixes a fast diagonal sweep (>2px steps -> dense Catmull-Rom interp), a 0.6s
 // segment that trips the 60-frame clamp, a click toggle, and a cursor_type change
-// — covering the blur kernel and frame-clamp paths that are now aligned. All
-// windows take the dense-interp path (no two-consecutive-sample idle-skip fires),
-// so the box-blur + dedup output is what is locked cross-language.
+// — covering the blur kernel and frame-clamp paths. Crucially the only sub-2px pair
+// (idx 4->5, dist ~1.41) ALSO toggles isClicked, so the idle-skip does NOT fire
+// here: every window takes the dense Catmull-Rom interp path. The dedicated
+// STATIC_DWELL_INPUT below covers the idle-skip branch. This is the "above
+// threshold / dense interp" golden case for smoothMousePositions.
 const SMOOTH_MOUSE_INPUT: MousePosition[] = [
   { x: 100, y: 100, timestamp: 0.0, isClicked: false, cursor_type: "default" },
   { x: 180, y: 140, timestamp: 0.1, isClicked: false, cursor_type: "default" },
@@ -98,6 +100,29 @@ const SMOOTH_MOUSE_INPUT: MousePosition[] = [
   { x: 600, y: 420, timestamp: 1.35, isClicked: false, cursor_type: "pointer" },
   { x: 720, y: 600, timestamp: 1.6, isClicked: false, cursor_type: "default" },
   { x: 760, y: 660, timestamp: 1.8, isClicked: false, cursor_type: "default" },
+];
+
+// STATIC-DWELL track that exercises the <2px idle-skip branch of
+// smoothMousePositions (cursorDynamics.ts: `if (dist < 2 && p1.isClicked ===
+// p2.isClicked && p1.cursor_type === p2.cursor_type) { push {...p1}; continue; }`).
+// The cursor dwells around (400,300) with sub-2px jitter, so most windows hit the
+// idle-skip (single p1 copy, no dense interp). Deliberate counter-cases prove the
+// AND guard: idx 2->3 jitters <2px but TOGGLES isClicked (skip must NOT fire), and
+// idx 5->6 jitters <2px but CHANGES cursor_type (skip must NOT fire). The closing
+// pair makes a >2px move so a normal interpolated segment also appears. Locked
+// cross-language within 1e-6 so the Rust idle-skip port matches the preview exactly.
+const STATIC_DWELL_INPUT: MousePosition[] = [
+  { x: 400.0, y: 300.0, timestamp: 0.0, isClicked: false, cursor_type: "default" },
+  { x: 400.4, y: 300.3, timestamp: 0.1, isClicked: false, cursor_type: "default" },
+  { x: 401.0, y: 300.8, timestamp: 0.2, isClicked: false, cursor_type: "default" },
+  { x: 401.6, y: 301.2, timestamp: 0.3, isClicked: true, cursor_type: "default" },  // <2px from prev but click toggles -> no skip
+  { x: 402.1, y: 301.5, timestamp: 0.4, isClicked: true, cursor_type: "default" },  // <2px, same state -> skip fires
+  { x: 402.4, y: 301.8, timestamp: 0.5, isClicked: true, cursor_type: "default" },  // <2px, same state -> skip fires
+  { x: 402.9, y: 302.1, timestamp: 0.6, isClicked: true, cursor_type: "pointer" },  // <2px but cursor_type changes -> no skip
+  { x: 403.2, y: 302.4, timestamp: 0.7, isClicked: true, cursor_type: "pointer" },  // <2px, same state -> skip fires
+  { x: 460.0, y: 360.0, timestamp: 0.8, isClicked: true, cursor_type: "pointer" },  // >2px move -> dense interp
+  { x: 470.0, y: 372.0, timestamp: 0.9, isClicked: true, cursor_type: "pointer" },
+  { x: 475.0, y: 378.0, timestamp: 1.0, isClicked: true, cursor_type: "pointer" },
 ];
 
 describe("generate render-camera-cursor golden", () => {
@@ -282,17 +307,22 @@ describe("generate render-camera-cursor golden", () => {
     };
 
     // Full smoothMousePositions pipeline (Catmull-Rom interp -> 3-pass uniform box
-    // blur -> distance dedup). Now bit-aligned with the Rust export within 1e-6,
-    // so it is a shared cross-language golden. Cover smoothness 0 (identity-ish
-    // crisp, windowSize=1), a mid value, and the high end. The input mixes a static
-    // idle stretch (exercises the <2px skip) with curved motion (exercises dense
-    // interpolation + the 60-frame clamp on a long segment).
-    const smoothMouse = {
-      input: SMOOTH_MOUSE_INPUT,
-      cases: [0, 5, 10].map((smoothness) => ({
+    // blur -> distance dedup). Bit-aligned with the Rust export within 1e-6, so it
+    // is a shared cross-language golden. Two named tracks lock BOTH branches of the
+    // per-window dispatch in cursorDynamics.ts:
+    //   - "dense_interp": every window takes the Catmull-Rom interp path (covers the
+    //     blur kernel + 60-frame clamp; the lone <2px pair toggles isClicked so the
+    //     idle-skip is suppressed).
+    //   - "static_dwell": the cursor jitters <2px in place, so most windows take the
+    //     idle-skip short-circuit (push {...p1}; continue); embedded counter-cases
+    //     (click toggle / cursor_type change at <2px) prove the AND guard.
+    // Each track is sampled at smoothness 0 (crisp, windowSize=1), a mid value, and
+    // the high end.
+    const buildSmoothCases = (input: MousePosition[]) =>
+      [0, 5, 10].map((smoothness) => ({
         smoothness,
         output: smoothMousePositions(
-          SMOOTH_MOUSE_INPUT.map((p) => ({ ...p })),
+          input.map((p) => ({ ...p })),
           120,
           smoothnessBg(smoothness),
         ).map((p) => ({
@@ -302,7 +332,12 @@ describe("generate render-camera-cursor golden", () => {
           isClicked: Boolean(p.isClicked),
           cursor_type: p.cursor_type ?? "default",
         })),
-      })),
+      }));
+    const smoothMouse = {
+      tracks: [
+        { name: "dense_interp", input: SMOOTH_MOUSE_INPUT, cases: buildSmoothCases(SMOOTH_MOUSE_INPUT) },
+        { name: "static_dwell", input: STATIC_DWELL_INPUT, cases: buildSmoothCases(STATIC_DWELL_INPUT) },
+      ],
     };
 
     const fixture = {

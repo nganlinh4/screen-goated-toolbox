@@ -35,7 +35,7 @@ reproduce it exactly.
   overshoot-clamp), `springStepScalar` (under/critical/over damped), and
   `springStepAngle` (across the +-PI seam). Both languages step the same recurrence
   and must match each recorded step within 1e-6.
-- **`smoothMousePositions` (the first pipeline stage) is now a shared
+- **`smoothMousePositions` (the first pipeline stage) is a shared
   golden.** The Rust blur was aligned to the canonical TS preview: a FIXED 3-pass
   UNIFORM box blur over the symmetric window `[max(0,i-half), min(n-1,i+half)]` with
   `half = floor(windowSize/2)` and `windowSize = smoothness*2+1` (each sample
@@ -43,9 +43,19 @@ reproduce it exactly.
   frame clamp `min(ceil(dur*fps), 60)`. The export previously used an
   exponential-weight Gaussian blur, `passes = ceil(windowSize/2)`, a `±windowSize`
   (≈2× too wide) half, and no frame clamp — diverging from the preview by 20-34px
-  (worst at `smoothness=0`, where the preview is crisp/identity). The
-  `smoothMousePositions` golden case (smoothness 0 / 5 / 10 over a representative
-  track) locks both languages within 1e-6 and will catch any future regression.
+  (worst at `smoothness=0`, where the preview is crisp/identity).
+  - The per-window **idle-skip** short-circuit is also aligned: when the middle
+    control pair `p1->p2` moved `< 2px` AND `p1.isClicked == p2.isClicked` AND
+    `p1.cursor_type == p2.cursor_type`, the preview skips dense Catmull-Rom interp
+    and pushes a single copy of `p1` (its x/y/timestamp/click/type) before advancing.
+    The export previously always interpolated, so a static-dwell track could diverge.
+    Rust now mirrors the exact distance/threshold/AND-guard/return.
+  - The golden locks both branches with two named tracks (smoothness 0 / 5 / 10
+    each): `dense_interp` (every window interpolates; its lone `<2px` pair toggles
+    `isClicked` so the idle-skip is suppressed) and `static_dwell` (sub-2px jitter
+    trips the idle-skip on most windows, with embedded counter-cases — a click toggle
+    and a cursor_type change at `<2px` — that prove the AND guard). Both languages
+    match within 1e-6.
   (The spring/wiggle/tilt stages of `processCursorPositions` are exercised through
   the `springStep*`/`smoothDamp*` primitive goldens above.)
 - **The squish / click-fuse / release state machine is a Rust-only golden** (there
@@ -82,9 +92,10 @@ reproduce it exactly.
 
 ## Deviations
 - The cursor smoothing blur is now ALIGNED, not a deviation. `smoothMousePositions`
-  (3-pass uniform box blur + `min(ceil(dur*fps), 60)` frame clamp) is reproduced
-  bit-for-bit (within 1e-6) by the Rust export and golden-locked by the
-  `smoothMousePositions` fixture case. The previously documented box-blur-vs-Gaussian
-  /no-clamp divergence has been removed.
+  (3-pass uniform box blur + `min(ceil(dur*fps), 60)` frame clamp + the `<2px`
+  idle-skip short-circuit) is reproduced bit-for-bit (within 1e-6) by the Rust
+  export and golden-locked by the `smoothMousePositions` `dense_interp` /
+  `static_dwell` fixture tracks. The previously documented box-blur-vs-Gaussian
+  /no-clamp divergence, and the missing idle-skip branch, have both been removed.
 - The squish/click-fuse/release state machine has no single TS twin and is locked by
   Rust-only tests rather than the shared fixture.

@@ -1,8 +1,9 @@
 {
   "version": 1,
-  "description": "Cross-platform parity lock for the Gemini Live Translate (Translation Gummy) VAD numerics and session setup-payload constants. Rust is canonical (src/overlay/translation_gummy/runtime.rs + TranslationGummySocketProtocol fields). Android (Kotlin) asserts the same values. Do NOT change runtime values via this file; it only captures them.",
+  "description": "Cross-platform parity lock for the Gemini Live Translate (Translation Gummy) VAD numerics and session setup-payload constants. Rust is canonical (src/overlay/translation_gummy/runtime/audio.rs holds the VAD constants, runtime/setup.rs holds build_setup_payload + TranslationGummySocketProtocol fields). Android (Kotlin) asserts the same values. Do NOT change runtime values via this file; it only captures them.",
   "canonical_windows_files": [
-    "src/overlay/translation_gummy/runtime.rs"
+    "src/overlay/translation_gummy/runtime/audio.rs",
+    "src/overlay/translation_gummy/runtime/setup.rs"
   ],
   "vad": {
     "speechRms": 0.015,

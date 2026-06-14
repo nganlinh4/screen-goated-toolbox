@@ -31,6 +31,7 @@ import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
 import dev.screengoated.toolbox.mobile.service.preset.PresetAudioForegroundMode
+import dev.screengoated.toolbox.mobile.service.preset.resumePendingAudioLaunch
 import dev.screengoated.toolbox.mobile.service.tts.toRuntimeSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

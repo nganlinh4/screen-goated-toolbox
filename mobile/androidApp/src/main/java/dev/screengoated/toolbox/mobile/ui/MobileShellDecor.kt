@@ -2,13 +2,8 @@
 
 package dev.screengoated.toolbox.mobile.ui
 
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -47,24 +42,6 @@ internal fun GradientMaskedIcon(
             },
         tint = Color.White,
     )
-}
-
-@Composable
-internal fun StatusChip(
-    label: String,
-    accent: Color,
-) {
-    Surface(
-        shape = CircleShape,
-        color = accent.copy(alpha = 0.22f),
-    ) {
-        Text(
-            text = label,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLargeEmphasized,
-            color = accent,
-        )
-    }
 }
 
 internal fun methodLabel(
