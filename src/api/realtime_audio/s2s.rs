@@ -520,7 +520,7 @@ use transport::{open_fresh_socket_session, process_segment};
 mod output;
 use output::{coordinate_output, s2s_backlog_ms};
 
-mod utils;
+pub(crate) mod utils;
 use utils::*;
 
 #[cfg(test)]

@@ -17,6 +17,7 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import dev.screengoated.toolbox.mobile.service.preset.PresetAudioForegroundMode
 
 class PresetAudioForegroundService : Service() {
@@ -61,13 +62,14 @@ class PresetAudioForegroundService : Service() {
     }
 
     private fun ensureChannel() {
+        val l10n = uiLocalized()
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            getString(R.string.preset_audio_channel_name),
+            l10n.getString(R.string.preset_audio_channel_name),
             NotificationManager.IMPORTANCE_MIN,
         ).apply {
-            description = getString(R.string.preset_audio_channel_description)
+            description = l10n.getString(R.string.preset_audio_channel_description)
             setSound(null as Uri?, null as AudioAttributes?)
             enableVibration(false)
             setShowBadge(false)
@@ -83,14 +85,15 @@ class PresetAudioForegroundService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val l10n = uiLocalized()
         val text = when (mode) {
-            PresetAudioForegroundMode.MEDIA_PROJECTION -> getString(R.string.preset_audio_notification_device)
-            PresetAudioForegroundMode.MICROPHONE -> getString(R.string.preset_audio_notification_microphone)
-            PresetAudioForegroundMode.NONE -> getString(R.string.preset_audio_notification_idle)
+            PresetAudioForegroundMode.MEDIA_PROJECTION -> l10n.getString(R.string.preset_audio_notification_device)
+            PresetAudioForegroundMode.MICROPHONE -> l10n.getString(R.string.preset_audio_notification_microphone)
+            PresetAudioForegroundMode.NONE -> l10n.getString(R.string.preset_audio_notification_idle)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(getString(R.string.preset_audio_notification_title))
+            .setContentTitle(l10n.getString(R.string.preset_audio_notification_title))
             .setContentText(text)
             .setContentIntent(openAppIntent)
             .setOngoing(true)

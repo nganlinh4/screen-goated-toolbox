@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
+use super::super::job_registry::{self, JobHandle, JobState};
 use super::audio::{MIN_SUBTITLE_DURATION_SEC, compact_to_source_time};
 use super::media::prepare_clip_media;
 use super::postprocess::sanitize_segments;
@@ -13,23 +14,17 @@ use super::types::{
     SubtitleJobSnapshot, SubtitleSegmentResult, SubtitleSkippedClip,
 };
 
-#[derive(Clone)]
-struct SubtitleJobHandle {
-    snapshot: Arc<Mutex<SubtitleJobSnapshot>>,
-    cancelled: Arc<AtomicBool>,
+impl JobState for SubtitleJobSnapshot {
+    fn state(&self) -> &str {
+        &self.state
+    }
 }
 
-static SUBTITLE_JOBS: OnceLock<Mutex<HashMap<String, SubtitleJobHandle>>> = OnceLock::new();
+static SUBTITLE_JOBS: OnceLock<Mutex<HashMap<String, JobHandle<SubtitleJobSnapshot>>>> =
+    OnceLock::new();
 
-fn subtitle_jobs() -> &'static Mutex<HashMap<String, SubtitleJobHandle>> {
-    SUBTITLE_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn find_active_subtitle_job_id(jobs: &HashMap<String, SubtitleJobHandle>) -> Option<String> {
-    jobs.iter().find_map(|(job_id, handle)| {
-        let snapshot = handle.snapshot.lock().ok()?;
-        matches!(snapshot.state.as_str(), "queued" | "running").then(|| job_id.clone())
-    })
+fn subtitle_jobs() -> &'static Mutex<HashMap<String, JobHandle<SubtitleJobSnapshot>>> {
+    job_registry::registry(&SUBTITLE_JOBS)
 }
 
 pub fn handle_start_subtitle_generation(
@@ -40,12 +35,12 @@ pub fn handle_start_subtitle_generation(
     let mut jobs = subtitle_jobs()
         .lock()
         .map_err(|_| "Subtitle jobs lock poisoned".to_string())?;
-    if let Some(active_job_id) = find_active_subtitle_job_id(&jobs) {
+    if let Some(active_job_id) = job_registry::find_active(&jobs) {
         return Err(format!(
             "Subtitle generation already running (job={active_job_id})"
         ));
     }
-    let job_id = uuid();
+    let job_id = job_registry::uuid("subtitle");
     let snapshot = Arc::new(Mutex::new(SubtitleJobSnapshot {
         state: "queued".to_string(),
         message: "Queued".to_string(),
@@ -56,7 +51,7 @@ pub fn handle_start_subtitle_generation(
     let cancelled = Arc::new(AtomicBool::new(false));
     jobs.insert(
         job_id.clone(),
-        SubtitleJobHandle {
+        JobHandle {
             snapshot: snapshot.clone(),
             cancelled: cancelled.clone(),
         },
@@ -536,12 +531,4 @@ fn push_skipped(
         reason,
     });
     Ok(())
-}
-
-fn uuid() -> String {
-    format!(
-        "subtitle-{}-{}",
-        chrono::Utc::now().timestamp_millis(),
-        std::process::id()
-    )
 }

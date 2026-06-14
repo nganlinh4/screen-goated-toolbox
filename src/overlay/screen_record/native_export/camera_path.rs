@@ -104,8 +104,6 @@ fn calculate_zoom_state(
         let path = &segment.smooth_motion_path;
         let vid_full_w = cropped_w / crop_w_frac;
         let vid_full_h = cropped_h / crop_h_frac;
-        let default_x = vid_full_w * crop_x + cropped_w / 2.0;
-        let default_y = vid_full_h * crop_y + cropped_h / 2.0;
 
         // Binary search: find first path point with time >= current_time
         let (mut cam_x, mut cam_y, mut cam_zoom) =
@@ -160,7 +158,6 @@ fn calculate_zoom_state(
             cam_x = center_x + (cam_x - center_x) * influence;
             cam_y = center_y + (cam_y - center_y) * influence;
         }
-        let _ = (default_x, default_y); // suppress unused
 
         // Convert video pixel coords → posX/posY [0,1] anchor space.
         // For export: srcCropW = viewW = croppedW → contain-fit is identity → posX = relX.

@@ -235,7 +235,6 @@ export function AppView(props: AppViewProps) {
         onExport={exportHook.handleExport}
         onOpenProjects={handleToggleProjects}
         projectsButtonDisabled={isProjectInteractionShieldVisible}
-        onOpenCursorLab={() => { window.location.hash = "cursor-lab"; }}
         hideExport={isOverlayMode}
         hideRawVideo={projects.showProjectsDialog}
         captureSource={captureSource}

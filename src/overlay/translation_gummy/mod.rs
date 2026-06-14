@@ -18,10 +18,7 @@ use crate::win_types::SendHwnd;
 
 pub use runtime::{TranslationGummyConnectionState, TranslationGummyTranscriptItem};
 
-const MOD_ALT: u32 = 0x0001;
-const MOD_CONTROL: u32 = 0x0002;
-const MOD_SHIFT: u32 = 0x0004;
-const MOD_WIN: u32 = 0x0008;
+use crate::hotkey::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 321;
 pub(super) const WM_APP_SYNC: u32 = WM_USER + 322;

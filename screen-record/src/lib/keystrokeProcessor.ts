@@ -1,4 +1,5 @@
 import { KeystrokeEvent, RawInputEvent, InputModifiers } from '@/types/video';
+import { clamp } from '@/lib/mathUtils';
 
 const DEFAULT_DISPLAY_DURATION_SEC = 1.2;
 const HOLD_MIN_DURATION_SEC = 0.2;
@@ -50,10 +51,6 @@ function formatLabel(event: RawInputEvent, mods: InputModifiers): string {
 
   const key = event.key || `VK_${event.vk ?? 0}`;
   return prefix ? `${prefix} + ${key}` : key;
-}
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v));
 }
 
 function keyboardToken(event: RawInputEvent): string {

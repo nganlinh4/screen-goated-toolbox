@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn merge_segment_text(existing: &mut String, incoming: &str) {
+pub(crate) fn merge_segment_text(existing: &mut String, incoming: &str) {
     let incoming = incoming.trim();
     if incoming.is_empty() {
         return;
@@ -33,23 +33,38 @@ pub(super) fn merge_segment_text(existing: &mut String, incoming: &str) {
     existing.push_str(incoming);
 }
 
-pub(super) fn largest_suffix_prefix_overlap(existing: &str, incoming: &str) -> usize {
+/// Largest suffix-of-`existing` that equals a prefix-of-`incoming`, with NO
+/// meaningfulness filter. This is the pure string-overlap primitive shared by
+/// the canonical merge here and the Gemini Translate narration merge in
+/// `overlay::screen_record::ipc::gemini_translate_narration::text_delta`.
+pub(crate) fn raw_suffix_prefix_overlap(existing: &str, incoming: &str) -> usize {
     let max = existing.len().min(incoming.len());
     incoming
         .char_indices()
         .map(|(idx, _)| idx)
         .chain(std::iter::once(incoming.len()))
-        .filter(|&len| {
-            len > 0
-                && len <= max
-                && existing.ends_with(&incoming[..len])
-                && is_meaningful_text_overlap(&incoming[..len])
-        })
+        .filter(|&len| len > 0 && len <= max && existing.ends_with(&incoming[..len]))
         .max()
         .unwrap_or(0)
 }
 
-pub(super) fn is_meaningful_text_overlap(overlap: &str) -> bool {
+/// Canonical incremental-transcript overlap: the largest *meaningful*
+/// suffix/prefix overlap. Because `is_meaningful_text_overlap` is monotonic over
+/// nested prefixes of `incoming` (char count and whitespace presence only grow
+/// with length), the largest meaningful overlap is simply the raw largest
+/// overlap when that prefix is meaningful, and 0 otherwise. This is behavior
+/// identical to filtering every candidate length and taking the max, but reuses
+/// the shared `raw_suffix_prefix_overlap` primitive.
+pub(crate) fn largest_suffix_prefix_overlap(existing: &str, incoming: &str) -> usize {
+    let raw = raw_suffix_prefix_overlap(existing, incoming);
+    if raw > 0 && is_meaningful_text_overlap(&incoming[..raw]) {
+        raw
+    } else {
+        0
+    }
+}
+
+pub(crate) fn is_meaningful_text_overlap(overlap: &str) -> bool {
     overlap.chars().any(char::is_whitespace) || overlap.chars().count() >= MIN_TEXT_OVERLAP_CHARS
 }
 
@@ -227,11 +242,19 @@ pub(super) fn samples_to_ms(samples: usize) -> usize {
     samples.saturating_mul(1000) / 16_000
 }
 
-pub(super) fn pcm_bytes_to_i16(bytes: &[u8]) -> Vec<i16> {
-    bytes
-        .chunks_exact(2)
-        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect()
+pub(super) use crate::api::realtime_audio::websocket::pcm_bytes_to_i16;
+
+/// Normalize a tungstenite frame into its UTF-8 text payload, if any. `Text`
+/// frames map directly; `Binary` frames are decoded as UTF-8 and skipped when
+/// non-UTF-8 (matching the previous per-arm behavior); all other frames yield
+/// `None`. `Close` frames are intentionally returned as `None`, so callers that
+/// need bespoke close handling must match `Message::Close` before delegating.
+pub(super) fn s2s_message_to_text(message: Message) -> Option<String> {
+    match message {
+        Message::Text(text) => Some(text.to_string()),
+        Message::Binary(bytes) => String::from_utf8(bytes.to_vec()).ok(),
+        _ => None,
+    }
 }
 
 pub(super) fn speed_instruction(speed: &str) -> &'static str {

@@ -1,8 +1,7 @@
 // --- GROQ TRANSLATE PROVIDERS ---
 // Groq compound and standard API translation handlers.
 
-use crate::APP;
-use crate::api::client::UREQ_AGENT;
+use crate::api::client::{UREQ_AGENT, record_usage_simple};
 use crate::api::types::{ChatCompletionResponse, StreamChunk};
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
@@ -71,22 +70,7 @@ where
             }
         })?;
 
-    if let Some(remaining) = resp
-        .headers()
-        .get("x-ratelimit-remaining-requests")
-        .and_then(|v| v.to_str().ok())
-    {
-        let limit = resp
-            .headers()
-            .get("x-ratelimit-limit-requests")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("?");
-        let usage_str = format!("{} / {}", remaining, limit);
-
-        if let Ok(mut app) = APP.lock() {
-            app.model_usage_stats.insert(model.to_string(), usage_str);
-        }
-    }
+    record_usage_simple(resp.headers(), model);
 
     let json: serde_json::Value = resp
         .into_body()
@@ -285,22 +269,7 @@ where
             }
         })?;
 
-    if let Some(remaining) = resp
-        .headers()
-        .get("x-ratelimit-remaining-requests")
-        .and_then(|v| v.to_str().ok())
-    {
-        let limit = resp
-            .headers()
-            .get("x-ratelimit-limit-requests")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("?");
-        let usage_str = format!("{} / {}", remaining, limit);
-
-        if let Ok(mut app) = APP.lock() {
-            app.model_usage_stats.insert(model.to_string(), usage_str);
-        }
-    }
+    record_usage_simple(resp.headers(), model);
 
     let mut full_content = String::new();
 

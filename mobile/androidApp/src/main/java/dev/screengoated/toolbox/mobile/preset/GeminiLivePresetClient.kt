@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.core.graphics.scale
+import dev.screengoated.toolbox.mobile.model.TtsDefaults
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -180,7 +181,7 @@ private fun buildGeminiLiveSetup(
                 "voiceConfig",
                 JSONObject().put(
                     "prebuiltVoiceConfig",
-                    JSONObject().put("voiceName", "Aoede"),
+                    JSONObject().put("voiceName", TtsDefaults.DEFAULT_TTS_GEMINI_VOICE),
                 ),
             ),
         )

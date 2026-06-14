@@ -154,17 +154,7 @@ pub(super) unsafe fn internal_create_sr_loop() {
                 app.config.theme_mode.clone(),
             )
         };
-        let init_theme = match init_theme_mode {
-            crate::config::ThemeMode::Dark => "dark",
-            crate::config::ThemeMode::Light => "light",
-            crate::config::ThemeMode::System => {
-                if crate::gui::utils::is_system_in_dark_mode() {
-                    "dark"
-                } else {
-                    "light"
-                }
-            }
-        };
+        let init_theme = init_theme_mode.as_web_str();
         let webview_background_rgba = if init_theme == "dark" {
             (9, 9, 11, 255)
         } else {
@@ -358,13 +348,7 @@ fn handle_ipc_message(msg: wry::http::Request<String>, send_hwnd: SendHwnd) {
     let hwnd = send_hwnd.0;
     unsafe {
         if body == "drag_window" {
-            let _ = ReleaseCapture();
-            let _ = SendMessageW(
-                hwnd,
-                WM_NCLBUTTONDOWN,
-                Some(WPARAM(HTCAPTION as usize)),
-                Some(LPARAM(0)),
-            );
+            crate::overlay::utils::begin_window_drag(hwnd);
         } else if let Some(dir) = body.strip_prefix("resize_") {
             let ht = match dir {
                 "n" => HTTOP as usize,

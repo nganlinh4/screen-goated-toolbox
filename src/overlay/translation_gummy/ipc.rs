@@ -1,9 +1,8 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    HTCAPTION, PostMessageW, SW_MINIMIZE, SendMessageW, ShowWindow, WM_CLOSE, WM_NCLBUTTONDOWN,
+    PostMessageW, SW_MINIMIZE, ShowWindow, WM_CLOSE,
 };
 
 #[derive(Deserialize)]
@@ -98,15 +97,7 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             Ok(Value::Null)
         }
         "drag_window" => {
-            unsafe {
-                let _ = ReleaseCapture();
-                let _ = SendMessageW(
-                    hwnd,
-                    WM_NCLBUTTONDOWN,
-                    Some(WPARAM(HTCAPTION as usize)),
-                    Some(LPARAM(0)),
-                );
-            }
+            crate::overlay::utils::begin_window_drag(hwnd);
             Ok(Value::Null)
         }
         "minimize_window" => {

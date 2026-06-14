@@ -3,6 +3,40 @@ use self::schema::*;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+// ── Background family-code contract (WYSIWYG export path) ────────────────────
+//
+// `family_code` is a magic float written into the GPU uniform's `bg_style` field
+// and decoded by the WGSL shader dispatch in `gpu_export/shader.rs` via a
+// `u.bg_style > N.5` chain. These two integer tables are hand-kept and MUST stay
+// in sync — do NOT change any numeric value here without updating the shader, or
+// preview/export WYSIWYG breaks (a value picks the wrong shader function).
+//
+//   code  family (this file)        shader fn (shader.rs)
+//   ----  ------------------------  ---------------------------------
+//   0.0   Linear                    (base gradient, bg_style <= 0.5)
+//   1.0   DiagonalGlow              diagonal_glow_color      (> 0.5)
+//   2.0   EdgeRibbons               edge_ribbons_color       (> 1.5)
+//   3.0   StackedRadial             stacked_radial_color     (> 2.5)
+//   4.0   PrismFold                 prism_fold_color         (> 3.5)
+//   5.0   TopographicFlow           topographic_flow_color   (> 4.5)
+//   6.0   WindowlightCaustics       windowlight_caustics_color (> 5.5)
+//   7.0   MatteCollage              matte_collage_color      (> 6.5)
+//   8.0   OrbitalArcs               orbital_arcs_color       (> 7.5)
+//   9.0   MeltedGlass               melted_glass_color       (> 8.5)
+//
+// The shader is a WGSL string, so it cannot share these symbols at compile time;
+// the comment block beside the shader dispatch documents the same contract.
+const BG_FAMILY_LINEAR: f32 = 0.0;
+const BG_FAMILY_DIAGONAL_GLOW: f32 = 1.0;
+const BG_FAMILY_EDGE_RIBBONS: f32 = 2.0;
+const BG_FAMILY_STACKED_RADIAL: f32 = 3.0;
+const BG_FAMILY_PRISM_FOLD: f32 = 4.0;
+const BG_FAMILY_TOPOGRAPHIC_FLOW: f32 = 5.0;
+const BG_FAMILY_WINDOWLIGHT_CAUSTICS: f32 = 6.0;
+const BG_FAMILY_MATTE_COLLAGE: f32 = 7.0;
+const BG_FAMILY_ORBITAL_ARCS: f32 = 8.0;
+const BG_FAMILY_MELTED_GLASS: f32 = 9.0;
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BuiltInBackgroundPreset {
     pub family_code: f32,
@@ -44,7 +78,7 @@ fn load_shared_background_presets() -> HashMap<String, BuiltInBackgroundPreset> 
 fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundPreset {
     match raw {
         BackgroundPresetFile::Linear { axis, colors } => BuiltInBackgroundPreset {
-            family_code: 0.0,
+            family_code: BG_FAMILY_LINEAR,
             gradient_color1: hex_string_to_linear(&colors.start),
             gradient_color2: hex_string_to_linear(&colors.end),
             bg_params1: [if axis == "vertical" { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
@@ -57,7 +91,7 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
             overlay_radius,
             overlay_opacity,
         } => BuiltInBackgroundPreset {
-            family_code: 3.0,
+            family_code: BG_FAMILY_STACKED_RADIAL,
             gradient_color1: hex_string_to_linear(&colors.start),
             gradient_color2: hex_string_to_linear(&colors.mid),
             gradient_color3: hex_string_to_linear(&colors.end),
@@ -97,7 +131,7 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
             vignette_strength,
             noise_intensity,
         } => BuiltInBackgroundPreset {
-            family_code: 1.0,
+            family_code: BG_FAMILY_DIAGONAL_GLOW,
             gradient_color1: hex_string_to_linear(&colors.start),
             gradient_color2: hex_string_to_linear(&colors.mid),
             gradient_color3: hex_string_to_linear(&colors.end),
@@ -147,7 +181,7 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
             vignette_strength,
             noise_intensity,
         } => BuiltInBackgroundPreset {
-            family_code: 2.0,
+            family_code: BG_FAMILY_EDGE_RIBBONS,
             gradient_color1: hex_string_to_linear(&colors.base),
             gradient_color2: hex_string_to_linear(&colors.depth),
             gradient_color3: hex_string_to_linear(&colors.ribbon_a),
@@ -200,7 +234,7 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
             vignette_strength,
             noise_intensity,
         } => BuiltInBackgroundPreset {
-            family_code: 4.0,
+            family_code: BG_FAMILY_PRISM_FOLD,
             gradient_color1: hex_string_to_linear(&colors.base),
             gradient_color2: hex_string_to_linear(&colors.pane_a),
             gradient_color3: hex_string_to_linear(&colors.pane_b),
@@ -234,7 +268,7 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
             vignette_strength,
             noise_intensity,
         } => BuiltInBackgroundPreset {
-            family_code: 5.0,
+            family_code: BG_FAMILY_TOPOGRAPHIC_FLOW,
             gradient_color1: hex_string_to_linear(&colors.base),
             gradient_color2: hex_string_to_linear(&colors.line_a),
             gradient_color3: hex_string_to_linear(&colors.line_b),
@@ -275,7 +309,7 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
             vignette_strength,
             noise_intensity,
         } => BuiltInBackgroundPreset {
-            family_code: 6.0,
+            family_code: BG_FAMILY_WINDOWLIGHT_CAUSTICS,
             gradient_color1: hex_string_to_linear(&colors.base),
             gradient_color2: hex_string_to_linear(&colors.beam_a),
             gradient_color3: hex_string_to_linear(&colors.beam_b),
@@ -329,7 +363,7 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
             vignette_strength,
             noise_intensity,
         } => BuiltInBackgroundPreset {
-            family_code: 8.0,
+            family_code: BG_FAMILY_ORBITAL_ARCS,
             gradient_color1: hex_string_to_linear(&colors.base_start),
             gradient_color2: hex_string_to_linear(&colors.base_end),
             gradient_color3: hex_string_to_linear(&colors.arc_a),
@@ -378,7 +412,7 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
             vignette_strength,
             noise_intensity,
         } => BuiltInBackgroundPreset {
-            family_code: 9.0,
+            family_code: BG_FAMILY_MELTED_GLASS,
             gradient_color1: hex_string_to_linear(&colors.base_start),
             gradient_color2: hex_string_to_linear(&colors.base_end),
             gradient_color3: hex_string_to_linear(&colors.pool_a),
@@ -425,7 +459,7 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
             vignette_end,
             vignette_strength,
         } => BuiltInBackgroundPreset {
-            family_code: 7.0,
+            family_code: BG_FAMILY_MATTE_COLLAGE,
             gradient_color1: hex_string_to_linear(&colors.base),
             gradient_color2: hex_string_to_linear(&colors.layer_a),
             gradient_color3: hex_string_to_linear(&colors.layer_b),

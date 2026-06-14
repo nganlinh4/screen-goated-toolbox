@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SGT Mobile</string>
+    <string name="live_translate_channel_name">Dịch trực tiếp</string>
+    <string name="live_translate_channel_description">Trạng thái phiên nền cho tính năng dịch trực tiếp của SGT mobile.</string>
+    <string name="live_translate_notification_title">SGT Dịch trực tiếp</string>
+    <string name="live_translate_notification_text">Đang lắng nghe giọng nói và dịch theo thời gian thực.</string>
+    <string name="live_translate_notification_waiting_permissions">Đang chờ cấp quyền</string>
+    <string name="live_translate_notification_running">Dịch trực tiếp đang chạy</string>
+    <string name="live_translate_notification_stopped">Đã dừng dịch trực tiếp</string>
+    <string name="notification_action_stop">Dừng</string>
+    <string name="preset_audio_channel_name">Âm thanh Preset SGT</string>
+    <string name="preset_audio_channel_description">Thông báo nền cho việc thu âm thanh preset</string>
+    <string name="preset_audio_notification_title">Preset Âm thanh SGT</string>
+    <string name="preset_audio_notification_device">Đang thu âm thanh thiết bị cho preset</string>
+    <string name="preset_audio_notification_microphone">Đang thu âm thanh micro cho preset</string>
+    <string name="preset_audio_notification_idle">Thu âm thanh preset đang chờ</string>
+    <string name="bubble_channel_name">SGT Bubble</string>
+    <string name="bubble_channel_description">Lớp phủ bong bóng nổi</string>
+    <string name="bubble_notification_title">SGT Bubble</string>
+    <string name="bubble_notification_text">Bong bóng nổi đang hoạt động</string>
+    <string name="bubble_overlay_permission_required">Cần quyền lớp phủ để sử dụng SGT bubble.</string>
+    <string name="bubble_start_failed">Không thể khởi động SGT bubble.</string>
+    <string name="bubble_panel_open_failed">Không thể mở bảng điều khiển bong bóng.</string>
+    <string name="help_assistant_overlay_permission_required">Cần quyền lớp phủ để sử dụng Trợ lý Trợ giúp.</string>
+    <string name="projection_realtime_preset_unavailable">Preset âm thanh thời gian thực được yêu cầu hiện không khả dụng.</string>
+    <string name="projection_audio_consent_cancelled">Đã hủy đồng ý thu âm thanh thiết bị.</string>
+    <string name="projection_unavailable">MediaProjection không khả dụng trên thiết bị này.</string>
+    <string name="dj_playback_channel_name">Phát nhạc DJ</string>
+    <string name="dj_playback_channel_description">Phát nhạc nền cho Be a DJ</string>
+    <string name="dj_notification_title">Be a DJ</string>
+    <string name="dj_notification_text">Đang phát nhạc</string>
+    <string name="accessibility_service_description">Screen Goated Toolbox sử dụng trợ năng để đọc văn bản đã chọn từ bất kỳ ứng dụng nào và dán kết quả AI trở lại. Bắt buộc cho các preset chọn văn bản.</string>
+    <string name="preset_image_selection_overlay_label">%1$s • %2$s</string>
+</resources>

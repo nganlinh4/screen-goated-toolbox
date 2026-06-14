@@ -253,12 +253,16 @@ fn restore_main_window_resize_pulse(width: i32, height: i32) {
     }
 }
 
-unsafe fn main_window_hwnd() -> windows::Win32::Foundation::HWND {
-    let class_name = w!("eframe");
-    let mut hwnd = unsafe { FindWindowW(class_name, None).unwrap_or_default() };
+/// Win32 window class of the eframe main window.
+pub(crate) const MAIN_WINDOW_CLASS: PCWSTR = w!("eframe");
+/// Title of the eframe main window.
+pub(crate) const MAIN_WINDOW_TITLE: PCWSTR = w!("Screen Goated Toolbox (SGT by nganlinh4)");
+
+/// Locate the eframe main window HWND (class first, falling back to title).
+pub(crate) unsafe fn main_window_hwnd() -> windows::Win32::Foundation::HWND {
+    let mut hwnd = unsafe { FindWindowW(MAIN_WINDOW_CLASS, None).unwrap_or_default() };
     if hwnd.is_invalid() {
-        let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
-        hwnd = unsafe { FindWindowW(None, title).unwrap_or_default() };
+        hwnd = unsafe { FindWindowW(None, MAIN_WINDOW_TITLE).unwrap_or_default() };
     }
     hwnd
 }

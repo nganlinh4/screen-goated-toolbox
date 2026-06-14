@@ -9,6 +9,7 @@ mod utils;
 pub use init::SettingsAppInit;
 pub use types::SettingsApp;
 pub use utils::{exit_app, request_open_downloaded_tools, restart_app, signal_restore_window};
+pub(crate) use utils::main_window_hwnd;
 
 use eframe::egui;
 
@@ -85,13 +86,7 @@ impl eframe::App for SettingsApp {
         // --- RESIZE SUBCLASS (once, after window is visible) ---
         if main_ui_ready && !self.resize_subclass_installed {
             unsafe {
-                use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
-                let class_name = windows::core::w!("eframe");
-                let mut hwnd = FindWindowW(class_name, None).unwrap_or_default();
-                if hwnd.is_invalid() {
-                    let title = windows::core::w!("Screen Goated Toolbox (SGT by nganlinh4)");
-                    hwnd = FindWindowW(None, title).unwrap_or_default();
-                }
+                let hwnd = utils::main_window_hwnd();
                 if !hwnd.is_invalid() {
                     crate::gui::resize_subclass::install(hwnd);
                     self.resize_subclass_installed = true;

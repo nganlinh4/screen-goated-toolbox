@@ -338,7 +338,7 @@ fn render_locked_model_row(
             ui.set_min_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 ui.label(
-                    egui::RichText::new(localized_model_name(model, ui_language))
+                    egui::RichText::new(model.localized_name(ui_language))
                         .color(theme.on_surface()),
                 );
                 ui.label(
@@ -817,14 +817,6 @@ fn ollama_status_text(ui_language: &str, state: &str, count: usize) -> String {
         ("vi", "done") => format!("Đã quét Ollama: {count} mô hình trong cache."),
         ("ko", "done") => format!("Ollama 검색 완료: 캐시된 모델 {count}개."),
         _ => format!("Ollama scan finished: {count} cached models."),
-    }
-}
-
-fn localized_model_name<'a>(model: &'a ModelConfig, ui_language: &str) -> &'a str {
-    match ui_language {
-        "vi" => &model.name_vi,
-        "ko" => &model.name_ko,
-        _ => &model.name_en,
     }
 }
 

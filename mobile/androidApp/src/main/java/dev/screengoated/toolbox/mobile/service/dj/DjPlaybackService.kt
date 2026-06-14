@@ -14,6 +14,7 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.MediaStyleNotificationHelper
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import dev.screengoated.toolbox.mobile.service.tryStartForegroundService
 
 /**
@@ -47,10 +48,11 @@ class DjPlaybackService : MediaSessionService() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val l10n = uiLocalized()
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(getString(R.string.dj_notification_title))
-            .setContentText(getString(R.string.dj_notification_text))
+            .setContentTitle(l10n.getString(R.string.dj_notification_title))
+            .setContentText(l10n.getString(R.string.dj_notification_text))
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setSilent(true)
@@ -86,12 +88,13 @@ class DjPlaybackService : MediaSessionService() {
     }
 
     private fun ensureNotificationChannel() {
+        val l10n = uiLocalized()
         val channel = NotificationChannel(
             CHANNEL_ID,
-            getString(R.string.dj_playback_channel_name),
+            l10n.getString(R.string.dj_playback_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = getString(R.string.dj_playback_channel_description)
+            description = l10n.getString(R.string.dj_playback_channel_description)
             setSound(null, null)
             enableVibration(false)
             setShowBadge(false)

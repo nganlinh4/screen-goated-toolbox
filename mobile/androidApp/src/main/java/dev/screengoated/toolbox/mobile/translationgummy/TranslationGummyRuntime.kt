@@ -4,9 +4,11 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
+import dev.screengoated.toolbox.mobile.model.TtsDefaults
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
 import dev.screengoated.toolbox.mobile.service.tts.BlockingWebSocketSession
 import dev.screengoated.toolbox.mobile.service.tts.WebSocketEvent
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
@@ -611,10 +613,10 @@ class TranslationGummyRuntime(
         return trim().replace('\n', ' ').take(DEBUG_TEXT_LIMIT)
     }
 
-    private companion object {
+    internal companion object {
         private const val TAG = "SGTTranslationGummy"
-        private const val MODEL_NAME = "gemini-3.1-flash-live-preview"
-        private const val DEFAULT_VOICE_NAME = "Aoede"
+        private const val MODEL_NAME = GeneratedLiveModelCatalog.DEFAULT_TTS_GEMINI_MODEL
+        private const val DEFAULT_VOICE_NAME = TtsDefaults.DEFAULT_TTS_GEMINI_VOICE
         private const val DEBUG_PLAYBACK_WINDOW_MS = 2_500L
         private const val OUTBOUND_MIC_SUPPRESSION_WINDOW_MS = 600L
         private const val INTERRUPT_MIC_COOLDOWN_MS = 250L
@@ -623,10 +625,13 @@ class TranslationGummyRuntime(
         private const val STUCK_PLAYBACK_LOG_MS = 2_000L
         private const val DEBUG_RMS_THRESHOLD = 0.015f
         private const val DEBUG_TEXT_LIMIT = 160
-        private const val LOCAL_INPUT_SPEECH_RMS = 0.015f
-        private const val LOCAL_INPUT_TRAILING_AUDIO_MS = 180L
-        private const val LOCAL_INPUT_END_SILENCE_MS = 420L
-        private const val LOCAL_INPUT_PREROLL_CHUNKS = 2
+        // Widened to internal so the cross-platform VAD parity test can assert
+        // against the real runtime constants. See .claude/parity/translation-gummy.md
+        // and parity-fixtures/translation-gummy/vad-contract.json.
+        internal const val LOCAL_INPUT_SPEECH_RMS = 0.015f
+        internal const val LOCAL_INPUT_TRAILING_AUDIO_MS = 180L
+        internal const val LOCAL_INPUT_END_SILENCE_MS = 420L
+        internal const val LOCAL_INPUT_PREROLL_CHUNKS = 2
         private const val SPEAKER_BARGE_IN_CONFIRMATION_CHUNKS = 2
         private const val BARGE_IN_CONFIRMATION_WINDOW_MS = 220L
     }

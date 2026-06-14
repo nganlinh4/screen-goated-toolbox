@@ -65,6 +65,24 @@ impl ModelConfig {
             supports_search_override: None,
         }
     }
+
+    /// Display name for the given UI language (`vi`/`ko`, else English).
+    pub fn localized_name(&self, lang: &str) -> &str {
+        match lang {
+            "vi" => &self.name_vi,
+            "ko" => &self.name_ko,
+            _ => &self.name_en,
+        }
+    }
+
+    /// Quota label for the given UI language (`vi`/`ko`, else English).
+    pub fn localized_quota(&self, lang: &str) -> &str {
+        match lang {
+            "vi" => &self.quota_limit_vi,
+            "ko" => &self.quota_limit_ko,
+            _ => &self.quota_limit_en,
+        }
+    }
 }
 
 include!(concat!(env!("OUT_DIR"), "/model_catalog_generated.rs"));

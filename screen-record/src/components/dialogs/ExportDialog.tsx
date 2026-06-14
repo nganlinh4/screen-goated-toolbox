@@ -29,6 +29,8 @@ import { useSettings } from '@/hooks/useSettings';
 
 const GIF_FPS_VALUES: readonly number[] = [10, 15, 24];
 
+const clampGifFps = (fps: number) => GIF_FPS_VALUES.includes(fps) ? fps : fps <= 10 ? 10 : fps <= 15 ? 15 : 24;
+
 interface ExportDialogProps {
   show: boolean;
   onClose: () => void;
@@ -269,11 +271,7 @@ export function ExportDialog({
       const allowed = gif ? GIF_FPS_VALUES : mp4FpsChoiceValues;
       if (allowed.includes(prev.fps)) return prev;
       const fps = gif
-        ? prev.fps <= 10
-          ? 10
-          : prev.fps <= 15
-            ? 15
-            : 24
+        ? clampGifFps(prev.fps)
         : sourceFpsValue;
       return { ...prev, fps };
     });
@@ -393,13 +391,7 @@ export function ExportDialog({
                         key={fmt}
                         onClick={() => setExportOptions(prev => {
                           if (fmt === 'gif') {
-                            const fps = GIF_FPS_VALUES.includes(prev.fps)
-                              ? prev.fps
-                              : prev.fps <= 10
-                                ? 10
-                                : prev.fps <= 15
-                                  ? 15
-                                  : 24;
+                            const fps = clampGifFps(prev.fps);
                             const gifOptions = computeGifResolutionOptions(baseW, baseH);
                             const def = gifOptions[0];
                             return { ...prev, format: fmt, fps, width: def?.width ?? GIF_MAX_WIDTH, height: def?.height ?? 540 };

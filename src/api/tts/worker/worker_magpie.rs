@@ -224,13 +224,7 @@ fn run_sidecar_once(
         .map_err(|err| anyhow!("Magpie sidecar timed out or stopped: {err}"))?;
     let response: MagpieSidecarResponse = serde_json::from_str(line.trim())
         .map_err(|err| anyhow!("Magpie sidecar returned invalid JSON: {err}. stdout={line}"))?;
-    if !response.id.is_empty() && response.id != request_id {
-        bail!(
-            "Magpie sidecar response id mismatch: expected {}, got {}",
-            request_id,
-            response.id
-        );
-    }
+    super::sidecar::check_response_id("Magpie", request_id, &response.id)?;
     Ok(response)
 }
 

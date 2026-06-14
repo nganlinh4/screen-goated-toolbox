@@ -10,7 +10,6 @@ use crate::api::realtime_audio::{
 };
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::Rect;
 
@@ -64,13 +63,7 @@ pub unsafe extern "system" fn realtime_wnd_proc(
     unsafe {
         match msg {
             WM_START_DRAG => {
-                let _ = ReleaseCapture();
-                let _ = SendMessageW(
-                    hwnd,
-                    WM_NCLBUTTONDOWN,
-                    Some(WPARAM(HTCAPTION as usize)),
-                    Some(LPARAM(0)),
-                );
+                crate::overlay::utils::begin_window_drag(hwnd);
                 LRESULT(0)
             }
             WM_TOGGLE_MIC => {

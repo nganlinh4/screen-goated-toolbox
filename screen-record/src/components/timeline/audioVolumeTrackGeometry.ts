@@ -104,10 +104,11 @@ export function generateVolumeTrackFillPath<T extends VolumeTrackPoint>({
 }: VolumeTrackPathParams<T>) {
   if (points.length === 0) return "";
 
+  const baselineY = geometry.viewBoxHeight;
   const sorted = sortPointsByTime(points);
   const x0 = timeToX(sorted[0].time, duration);
   const y0 = volumeToTrackY(sorted[0].volume, geometry);
-  let d = `M 0 40 L ${x0} 40 L ${x0} ${y0} `;
+  let d = `M 0 ${baselineY} L ${x0} ${baselineY} L ${x0} ${y0} `;
 
   for (let i = 1; i < sorted.length; i++) {
     const left = sorted[i - 1];
@@ -120,7 +121,7 @@ export function generateVolumeTrackFillPath<T extends VolumeTrackPoint>({
   }
 
   const xLast = timeToX(sorted[sorted.length - 1].time, duration);
-  d += `L ${xLast} 40 L 100 40 Z`;
+  d += `L ${xLast} ${baselineY} L 100 ${baselineY} Z`;
   return d;
 }
 
@@ -159,9 +160,10 @@ export function getHighlightedVolumeSegmentFillPath<T extends VolumeTrackPoint>(
   const right = sorted[rightIdx];
   if (!left || !right || right.time <= left.time) return "";
 
+  const baselineY = geometry.viewBoxHeight;
   const x1 = timeToX(left.time, duration);
   const y1 = volumeToTrackY(left.volume, geometry);
   const x2 = timeToX(right.time, duration);
   const y2 = volumeToTrackY(right.volume, geometry);
-  return `M ${x1} 40 L ${x1} ${y1} ${getCurveSegment(x1, y1, x2, y2)} L ${x2} 40 Z`;
+  return `M ${x1} ${baselineY} L ${x1} ${y1} ${getCurveSegment(x1, y1, x2, y2)} L ${x2} ${baselineY} Z`;
 }

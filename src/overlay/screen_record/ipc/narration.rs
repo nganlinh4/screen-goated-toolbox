@@ -21,6 +21,7 @@ use crate::config::{
 };
 use crate::model_config::tts_gemini_model_options;
 
+use super::job_registry::{self, JobHandle, JobState};
 use super::media_server;
 use super::subtitles::audio::snap_split_frames_to_silence;
 
@@ -166,26 +167,19 @@ impl Default for SubtitleNarrationJobSnapshot {
     }
 }
 
-#[derive(Clone)]
-struct SubtitleNarrationJobHandle {
-    snapshot: Arc<Mutex<SubtitleNarrationJobSnapshot>>,
-    cancelled: Arc<AtomicBool>,
+impl JobState for SubtitleNarrationJobSnapshot {
+    fn state(&self) -> &str {
+        &self.state
+    }
 }
 
-static SUBTITLE_NARRATION_JOBS: OnceLock<Mutex<HashMap<String, SubtitleNarrationJobHandle>>> =
-    OnceLock::new();
+static SUBTITLE_NARRATION_JOBS: OnceLock<
+    Mutex<HashMap<String, JobHandle<SubtitleNarrationJobSnapshot>>>,
+> = OnceLock::new();
 
-fn subtitle_narration_jobs() -> &'static Mutex<HashMap<String, SubtitleNarrationJobHandle>> {
-    SUBTITLE_NARRATION_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn find_active_narration_job_id(
-    jobs: &HashMap<String, SubtitleNarrationJobHandle>,
-) -> Option<String> {
-    jobs.iter().find_map(|(job_id, handle)| {
-        let snapshot = handle.snapshot.lock().ok()?;
-        matches!(snapshot.state.as_str(), "queued" | "running").then(|| job_id.clone())
-    })
+fn subtitle_narration_jobs()
+-> &'static Mutex<HashMap<String, JobHandle<SubtitleNarrationJobSnapshot>>> {
+    job_registry::registry(&SUBTITLE_NARRATION_JOBS)
 }
 
 pub fn handle_start_subtitle_narration(
@@ -253,13 +247,13 @@ pub fn handle_start_subtitle_narration(
     let mut jobs = subtitle_narration_jobs()
         .lock()
         .map_err(|_| "Subtitle narration jobs lock poisoned".to_string())?;
-    if let Some(active_job_id) = find_active_narration_job_id(&jobs) {
+    if let Some(active_job_id) = job_registry::find_active(&jobs) {
         return Err(format!(
             "Subtitle narration already running (job={active_job_id})"
         ));
     }
 
-    let job_id = uuid();
+    let job_id = job_registry::uuid("subtitle-narration");
     let snapshot = Arc::new(Mutex::new(SubtitleNarrationJobSnapshot {
         state: "queued".to_string(),
         message: "Queued subtitle narration".to_string(),
@@ -269,7 +263,7 @@ pub fn handle_start_subtitle_narration(
     let cancelled = Arc::new(AtomicBool::new(false));
     jobs.insert(
         job_id.clone(),
-        SubtitleNarrationJobHandle {
+        JobHandle {
             snapshot: snapshot.clone(),
             cancelled: cancelled.clone(),
         },
@@ -471,14 +465,6 @@ fn update_snapshot(
         .map_err(|_| "Subtitle narration snapshot lock poisoned".to_string())?;
     updater(&mut locked);
     Ok(())
-}
-
-fn uuid() -> String {
-    format!(
-        "subtitle-narration-{}-{}",
-        chrono::Utc::now().timestamp_millis(),
-        std::process::id()
-    )
 }
 
 #[cfg(test)]

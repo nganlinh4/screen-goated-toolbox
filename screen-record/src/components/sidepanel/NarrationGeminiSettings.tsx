@@ -1,6 +1,6 @@
-import { X } from '@/components/ui/MaterialIcon';
 import { PanelSelect } from '@/components/ui/PanelSelect';
 import { Slider } from '@/components/ui/Slider';
+import { LanguageConfigList } from './LanguageConfigList';
 import { useSettings } from '@/hooks/useSettings';
 import {
   useNarrationSettings,
@@ -135,51 +135,30 @@ export function NarrationGeminiSettings({
           className="narration-panel-instruction ui-input w-full resize-y rounded-lg px-2 py-1 text-[11px]"
         />
       </div>
-      <div className="narration-panel-conditions mb-1 flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium text-on-surface-variant">
-          {t.narrationTtsLanguageConditions}
-        </span>
-        {geminiLanguageConditions.map((condition, index) => (
-          <div key={`${condition.languageCode}-${index}`} className="narration-panel-condition flex items-center gap-1.5">
-            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-[var(--secondary-color)]">
-              {condition.languageName}
-            </span>
-            <input
-              value={condition.instruction}
-              onChange={(event) =>
-                updateLanguageCondition(index, { instruction: event.target.value })
-              }
-              placeholder={t.narrationTtsLanguageConditionHint}
-              className="narration-panel-condition-input ui-input flex-1 rounded-lg px-2 py-1 text-[11px]"
-            />
-            <button
-              type="button"
-              onClick={() => removeLanguageCondition(index)}
-              className="ui-icon-button h-6 w-6 rounded-full text-on-surface-variant hover:text-[var(--tertiary-color)]"
-              title={t.narrationTtsLanguageConditionRemove}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        ))}
-        {availableConditionLanguages.length > 0 && (
-          <PanelSelect
-            value={t.narrationTtsLanguageConditionAdd}
-            options={availableConditionLanguages.map((lang) => ({
-              value: lang.languageCode,
-              label: lang.languageName,
-            }))}
-            onChange={(value) => {
-              if (!value) return;
-              const lang = availableConditionLanguages.find((item) => item.languageCode === value);
-              if (lang) addLanguageCondition(lang.languageCode, lang.languageName);
-            }}
-            triggerClassName="narration-condition-add h-8 self-start rounded-lg px-2.5 text-[11px]"
-            contentClassName="narration-condition-add-menu"
-            searchable
+      <LanguageConfigList
+        className="narration-panel-conditions mb-1"
+        title={t.narrationTtsLanguageConditions}
+        items={geminiLanguageConditions}
+        removeTitle={t.narrationTtsLanguageConditionRemove}
+        availableLanguages={availableConditionLanguages}
+        addLabel={t.narrationTtsLanguageConditionAdd}
+        addTriggerClassName="narration-condition-add h-8 self-start rounded-lg px-2.5 text-[11px]"
+        addContentClassName="narration-condition-add-menu"
+        rowClassName="narration-panel-condition"
+        truncateLanguageName={false}
+        onAdd={addLanguageCondition}
+        onRemove={removeLanguageCondition}
+        renderControl={(condition, index) => (
+          <input
+            value={condition.instruction}
+            onChange={(event) =>
+              updateLanguageCondition(index, { instruction: event.target.value })
+            }
+            placeholder={t.narrationTtsLanguageConditionHint}
+            className="narration-panel-condition-input ui-input flex-1 rounded-lg px-2 py-1 text-[11px]"
           />
         )}
-      </div>
+      />
     </>
   );
 }

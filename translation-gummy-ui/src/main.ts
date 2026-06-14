@@ -26,7 +26,7 @@ const COLORS_LIGHT: Record<string, string[]> = {
 };
 
 const state = {
-  payload: window.__TG_INITIAL_STATE__ ?? window.__BR_INITIAL_STATE__ ?? null,
+  payload: window.__TG_INITIAL_STATE__ ?? null,
   hotkeyCaptureArmed: false,
   transcriptPinned: true,
   visualLevel: 0,
@@ -483,6 +483,5 @@ bindDraftInput(el.secondAccent, "second", "accent");
 bindDraftInput(el.secondTone, "second", "tone");
 
 window.__TG_SET_STATE = (payload: TranslationGummyState) => render(payload);
-window.__BR_SET_STATE = window.__TG_SET_STATE;
 if (state.payload) render(state.payload);
 requestAnimationFrame(drawVisualizer);

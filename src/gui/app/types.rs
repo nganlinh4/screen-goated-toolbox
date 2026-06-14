@@ -13,10 +13,7 @@ use tray_icon::{
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
 };
 
-pub const MOD_ALT: u32 = 0x0001;
-pub const MOD_CONTROL: u32 = 0x0002;
-pub const MOD_SHIFT: u32 = 0x0004;
-pub const MOD_WIN: u32 = 0x0008;
+pub use crate::hotkey::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
 /// A column the detail area can show (right of the preset-controls sidebar).
 /// As the window widens, more of these are shown side-by-side instead of being

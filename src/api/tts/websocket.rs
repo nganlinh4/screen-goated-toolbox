@@ -8,8 +8,8 @@ use tungstenite::WebSocket;
 /// Create TLS WebSocket connection to Gemini Live API for TTS
 pub fn connect_tts_websocket(api_key: &str) -> Result<WebSocket<TlsStream<TcpStream>>> {
     let ws_url = format!(
-        "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={}",
-        api_key
+        "{}?key={}",
+        crate::api::realtime_audio::websocket::GEMINI_LIVE_WS_BASE_URL, api_key
     );
 
     let url = url::Url::parse(&ws_url)?;

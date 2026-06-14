@@ -27,6 +27,7 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
 import dev.screengoated.toolbox.mobile.service.preset.PresetAudioForegroundMode
@@ -66,7 +67,7 @@ class BubbleService : Service() {
         startBubbleForeground()
 
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, getString(R.string.bubble_overlay_permission_required), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, uiLocalized().getString(R.string.bubble_overlay_permission_required), Toast.LENGTH_SHORT).show()
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 "package:$packageName".toUri(),
@@ -137,7 +138,7 @@ class BubbleService : Service() {
             isRunning = true
         }.onFailure {
             Log.e(TAG, "BubbleService failed to start", it)
-            Toast.makeText(this, getString(R.string.bubble_start_failed), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, uiLocalized().getString(R.string.bubble_start_failed), Toast.LENGTH_SHORT).show()
             stopSelf()
         }
     }
@@ -162,13 +163,14 @@ class BubbleService : Service() {
     }
 
     private fun ensureChannel() {
+        val l10n = uiLocalized()
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            getString(R.string.bubble_channel_name),
+            l10n.getString(R.string.bubble_channel_name),
             NotificationManager.IMPORTANCE_MIN,
         ).apply {
-            description = getString(R.string.bubble_channel_description)
+            description = l10n.getString(R.string.bubble_channel_description)
             setSound(null as Uri?, null as AudioAttributes?)
             enableVibration(false)
             setShowBadge(false)
@@ -190,10 +192,11 @@ class BubbleService : Service() {
             Intent(this, BubbleService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val l10n = uiLocalized()
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(getString(R.string.bubble_notification_title))
-            .setContentText(getString(R.string.bubble_notification_text))
+            .setContentTitle(l10n.getString(R.string.bubble_notification_title))
+            .setContentText(l10n.getString(R.string.bubble_notification_text))
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -202,7 +205,7 @@ class BubbleService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setLocalOnly(true)
             .setShowWhen(false)
-            .addAction(0, getString(R.string.notification_action_stop), stopIntent)
+            .addAction(0, l10n.getString(R.string.notification_action_stop), stopIntent)
             .build()
     }
 
@@ -307,7 +310,7 @@ class BubbleService : Service() {
             presetOverlayController?.togglePanel()
         }.onFailure {
             Log.e(TAG, "Bubble panel failed to open", it)
-            Toast.makeText(this@BubbleService, getString(R.string.bubble_panel_open_failed), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@BubbleService, uiLocalized().getString(R.string.bubble_panel_open_failed), Toast.LENGTH_SHORT).show()
         }
     }
 

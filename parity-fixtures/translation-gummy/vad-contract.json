@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "Cross-platform parity lock for the Gemini Live Translate (Translation Gummy) VAD numerics and session setup-payload constants. Rust is canonical (src/overlay/translation_gummy/runtime.rs + TranslationGummySocketProtocol fields). Android (Kotlin) asserts the same values. Do NOT change runtime values via this file; it only captures them.",
+  "canonical_windows_files": [
+    "src/overlay/translation_gummy/runtime.rs"
+  ],
+  "vad": {
+    "speechRms": 0.015,
+    "trailingAudioMs": 180,
+    "endSilenceMs": 420,
+    "prerollChunks": 2,
+    "_prerollBasis": "Windows canonical pre-roll is expressed in samples: LOCAL_INPUT_PREROLL_SAMPLES = 3200 (= 2 chunks of CHUNK_SAMPLES=1600). Android audio chunk size is device-dependent, so the cross-platform contract is the chunk count (2), not a raw sample count. Android asserts LOCAL_INPUT_PREROLL_CHUNKS == prerollChunks; Windows asserts LOCAL_INPUT_PREROLL_SAMPLES == prerollChunks * 1600.",
+    "_prerollSamplesWindows": 3200,
+    "_chunkSamplesWindows": 1600
+  },
+  "setup": {
+    "startSensitivity": "START_SENSITIVITY_HIGH",
+    "endSensitivity": "END_SENSITIVITY_HIGH",
+    "prefixPaddingMs": 80,
+    "silenceDurationMs": 320,
+    "thinkingBudget": 0,
+    "mediaResolution": "MEDIA_RESOLUTION_LOW",
+    "activityHandling": "START_OF_ACTIVITY_INTERRUPTS",
+    "turnCoverage": "TURN_INCLUDES_ONLY_ACTIVITY"
+  }
+}

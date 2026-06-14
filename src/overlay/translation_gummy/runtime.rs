@@ -214,7 +214,19 @@ fn send_setup(
     settings: &TranslationGummySettings,
 ) -> anyhow::Result<()> {
     let (model_name, voice_name) = current_gemini_tts_settings();
-    let payload = serde_json::json!({
+    let payload = build_setup_payload(&model_name, &voice_name, &settings.build_system_instruction());
+
+    socket.write(Message::Text(payload.to_string().into()))?;
+    socket.flush()?;
+    Ok(())
+}
+
+fn build_setup_payload(
+    model_name: &str,
+    voice_name: &str,
+    system_instruction: &str,
+) -> serde_json::Value {
+    serde_json::json!({
         "setup": {
             "model": format!("models/{}", model_name),
             "generationConfig": {
@@ -230,7 +242,7 @@ fn send_setup(
                 }
             },
             "systemInstruction": {
-                "parts": [{ "text": settings.build_system_instruction() }]
+                "parts": [{ "text": system_instruction }]
             },
             "realtimeInputConfig": {
                 "automaticActivityDetection": {
@@ -248,11 +260,7 @@ fn send_setup(
             "inputAudioTranscription": {},
             "outputAudioTranscription": {}
         }
-    });
-
-    socket.write(Message::Text(payload.to_string().into()))?;
-    socket.flush()?;
-    Ok(())
+    })
 }
 
 pub(super) fn current_gemini_tts_settings() -> (String, String) {
@@ -338,7 +346,6 @@ fn flush_audio(
         }
     }
 
-    const CHUNK_SAMPLES: usize = 1600;
     while pending_audio.len() >= CHUNK_SAMPLES {
         let chunk: Vec<i16> = pending_audio.drain(..CHUNK_SAMPLES).collect();
         let rms = calculate_rms(&chunk);
@@ -384,18 +391,7 @@ fn flush_audio(
 }
 
 fn calculate_audio_level(samples: &[i16]) -> f32 {
-    if samples.is_empty() {
-        return 0.0;
-    }
-    let sum_squares = samples
-        .iter()
-        .map(|sample| {
-            let normalized = *sample as f32 / i16::MAX as f32;
-            normalized * normalized
-        })
-        .sum::<f32>();
-    let rms = (sum_squares / samples.len() as f32).sqrt();
-    (rms * 5.5).clamp(0.0, 1.0)
+    (calculate_rms(samples) * 5.5).clamp(0.0, 1.0)
 }
 
 fn calculate_rms(samples: &[i16]) -> f32 {
@@ -571,6 +567,7 @@ fn parse_update(message: &str) -> ParsedUpdate {
     update
 }
 
+const CHUNK_SAMPLES: usize = 1600;
 const LOCAL_INPUT_SPEECH_RMS: f32 = 0.015;
 const LOCAL_INPUT_TRAILING_AUDIO_MS: u64 = 180;
 const LOCAL_INPUT_END_SILENCE_MS: u64 = 420;
@@ -578,4 +575,100 @@ const LOCAL_INPUT_PREROLL_SAMPLES: usize = 3200;
 
 pub fn next_transcript_id() -> u64 {
     TRANSCRIPT_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
+
+#[cfg(test)]
+mod vad_contract_tests {
+    use super::*;
+
+    // Cross-platform parity lock. Rust is canonical; the Android (Kotlin) runtime
+    // asserts the same file so the VAD + setup constants cannot drift.
+    // See .claude/parity/translation-gummy.md.
+    const FIXTURE: &str = include_str!("../../../parity-fixtures/translation-gummy/vad-contract.json");
+
+    #[test]
+    fn vad_constants_match_parity_fixture() {
+        let doc: serde_json::Value = serde_json::from_str(FIXTURE).expect("fixture parses");
+        let vad = &doc["vad"];
+
+        assert_eq!(
+            vad["speechRms"].as_f64().expect("speechRms") as f32,
+            LOCAL_INPUT_SPEECH_RMS,
+            "speech RMS threshold drifted from fixture",
+        );
+        assert_eq!(
+            vad["trailingAudioMs"].as_u64().expect("trailingAudioMs"),
+            LOCAL_INPUT_TRAILING_AUDIO_MS,
+            "trailing-audio grace window drifted from fixture",
+        );
+        assert_eq!(
+            vad["endSilenceMs"].as_u64().expect("endSilenceMs"),
+            LOCAL_INPUT_END_SILENCE_MS,
+            "end-of-speech silence window drifted from fixture",
+        );
+
+        // Windows expresses pre-roll in samples; the fixture locks the chunk count.
+        // Android (device-dependent chunk size) asserts the chunk count directly.
+        let preroll_chunks = vad["prerollChunks"].as_u64().expect("prerollChunks") as usize;
+        assert_eq!(
+            LOCAL_INPUT_PREROLL_SAMPLES,
+            preroll_chunks * CHUNK_SAMPLES,
+            "Windows pre-roll samples must equal prerollChunks * CHUNK_SAMPLES",
+        );
+        assert_eq!(
+            CHUNK_SAMPLES as u64,
+            vad["_chunkSamplesWindows"].as_u64().expect("_chunkSamplesWindows"),
+            "Windows chunk size drifted from fixture",
+        );
+        assert_eq!(
+            LOCAL_INPUT_PREROLL_SAMPLES as u64,
+            vad["_prerollSamplesWindows"].as_u64().expect("_prerollSamplesWindows"),
+            "Windows pre-roll samples drifted from fixture",
+        );
+    }
+
+    #[test]
+    fn setup_payload_matches_parity_fixture() {
+        let doc: serde_json::Value = serde_json::from_str(FIXTURE).expect("fixture parses");
+        let setup_fixture = &doc["setup"];
+
+        let payload = build_setup_payload("model-x", "VoiceX", "instruction");
+        let setup = &payload["setup"];
+        let generation = &setup["generationConfig"];
+        let realtime = &setup["realtimeInputConfig"];
+        let activity = &realtime["automaticActivityDetection"];
+
+        assert_eq!(
+            activity["startOfSpeechSensitivity"].as_str().unwrap(),
+            setup_fixture["startSensitivity"].as_str().unwrap(),
+        );
+        assert_eq!(
+            activity["endOfSpeechSensitivity"].as_str().unwrap(),
+            setup_fixture["endSensitivity"].as_str().unwrap(),
+        );
+        assert_eq!(
+            activity["prefixPaddingMs"].as_u64().unwrap(),
+            setup_fixture["prefixPaddingMs"].as_u64().unwrap(),
+        );
+        assert_eq!(
+            activity["silenceDurationMs"].as_u64().unwrap(),
+            setup_fixture["silenceDurationMs"].as_u64().unwrap(),
+        );
+        assert_eq!(
+            generation["thinkingConfig"]["thinkingBudget"].as_u64().unwrap(),
+            setup_fixture["thinkingBudget"].as_u64().unwrap(),
+        );
+        assert_eq!(
+            generation["mediaResolution"].as_str().unwrap(),
+            setup_fixture["mediaResolution"].as_str().unwrap(),
+        );
+        assert_eq!(
+            realtime["activityHandling"].as_str().unwrap(),
+            setup_fixture["activityHandling"].as_str().unwrap(),
+        );
+        assert_eq!(
+            realtime["turnCoverage"].as_str().unwrap(),
+            setup_fixture["turnCoverage"].as_str().unwrap(),
+        );
+    }
 }

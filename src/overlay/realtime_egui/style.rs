@@ -16,16 +16,17 @@ pub(super) struct RealtimeEguiTheme {
 
 impl RealtimeEguiTheme {
     pub fn new(dark: bool) -> Self {
+        let (pr, pg, pb) = crate::overlay::utils::ACCENT_PRIMARY_RGB;
         if dark {
             Self {
                 surface: egui::Color32::from_rgba_premultiplied(28, 27, 31, 242),
                 header: egui::Color32::from_rgba_premultiplied(44, 44, 48, 210),
                 control: egui::Color32::from_rgba_premultiplied(44, 44, 44, 220),
-                control_hover: egui::Color32::from_rgba_premultiplied(93, 95, 239, 55),
+                control_hover: egui::Color32::from_rgba_premultiplied(pr, pg, pb, 55),
                 text: egui::Color32::from_rgb(230, 225, 229),
                 muted: egui::Color32::from_rgb(147, 143, 153),
                 border: egui::Color32::from_rgba_premultiplied(0, 200, 255, 70),
-                primary: egui::Color32::from_rgb(93, 95, 239),
+                primary: egui::Color32::from_rgb(pr, pg, pb),
                 secondary: egui::Color32::from_rgb(41, 121, 255),
                 warning: egui::Color32::from_rgb(255, 180, 100),
             }
@@ -34,11 +35,11 @@ impl RealtimeEguiTheme {
                 surface: egui::Color32::from_rgba_premultiplied(254, 247, 255, 242),
                 header: egui::Color32::from_rgba_premultiplied(255, 255, 255, 230),
                 control: egui::Color32::from_rgba_premultiplied(234, 234, 234, 220),
-                control_hover: egui::Color32::from_rgba_premultiplied(93, 95, 239, 30),
+                control_hover: egui::Color32::from_rgba_premultiplied(pr, pg, pb, 30),
                 text: egui::Color32::from_rgb(28, 27, 31),
                 muted: egui::Color32::from_rgb(121, 116, 126),
                 border: egui::Color32::from_rgba_premultiplied(0, 200, 255, 45),
-                primary: egui::Color32::from_rgb(93, 95, 239),
+                primary: egui::Color32::from_rgb(pr, pg, pb),
                 secondary: egui::Color32::from_rgb(41, 121, 255),
                 warning: egui::Color32::from_rgb(170, 95, 0),
             }

@@ -1,7 +1,11 @@
 package dev.screengoated.toolbox.mobile.downloader
 
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.os.Environment
+import android.provider.MediaStore
 import androidx.core.content.edit
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
@@ -23,6 +27,11 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 // URL analysis + download execution helpers extracted from DownloaderRepository.
+internal data class DownloadExecutionResult(
+    val filePath: String?,
+    val contentUri: String? = null,
+)
+
 internal suspend fun DownloaderRepository.analyzeUrl(sessionIdx: Int, url: String) {
     val current = _state.value.sessions.getOrNull(sessionIdx) ?: return
     if (url == current.lastUrlAnalyzed) {
@@ -107,9 +116,14 @@ internal suspend fun DownloaderRepository.analyzeUrl(sessionIdx: Int, url: Strin
 // ── Download config ──
 
 
-internal fun DownloaderRepository.executeDownload(sessionIdx: Int, session: DownloadSessionState, processId: String): String? {
+internal fun DownloaderRepository.executeDownload(
+    sessionIdx: Int,
+    session: DownloadSessionState,
+    processId: String,
+): DownloadExecutionResult {
     val settings = _state.value.settings
-    val outputDir = getDownloadDir()
+    val usesPublicDefault = settings.customDownloadPath == null
+    val outputDir = if (usesPublicDefault) getStagingDownloadDir() else getDownloadDir()
     outputDir.mkdirs()
 
     val request = YoutubeDLRequest(session.inputUrl)
@@ -146,8 +160,8 @@ internal fun DownloaderRepository.executeDownload(sessionIdx: Int, session: Down
     // Format
     when (session.downloadType) {
         DownloadType.VIDEO -> {
-            val fmt = session.selectedFormat
-            if (fmt != null && fmt != "Best") {
+            val fmt = session.selectedFormat ?: settings.lastVideoFormat
+            if (fmt != null) {
                 val height = fmt.removeSuffix("p")
                 request.addOption("-f", "bestvideo[height<=$height]+bestaudio/best[height<=$height]")
             } else {
@@ -200,7 +214,91 @@ internal fun DownloaderRepository.executeDownload(sessionIdx: Int, session: Down
         throw Exception("Exit code: ${response.exitCode}")
     }
 
-    return finalPath
+    if (finalPath == null) return DownloadExecutionResult(null)
+    if (!usesPublicDefault) return DownloadExecutionResult(finalPath)
+    return publishToPublicDownloads(File(finalPath))
+}
+
+internal fun DownloaderRepository.getStagingDownloadDir(): File {
+    return File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "SGT")
+}
+
+internal fun DownloaderRepository.publishToPublicDownloads(source: File): DownloadExecutionResult {
+    if (!source.isFile) return DownloadExecutionResult(source.absolutePath)
+
+    val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/SGT/"
+    val resolver = context.contentResolver
+    val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+    deleteExistingPublicDownload(source.name, relativePath)
+
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, source.name)
+        put(MediaStore.MediaColumns.MIME_TYPE, source.guessMimeType())
+        put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+
+    var uri: Uri? = null
+    try {
+        uri = resolver.insert(collection, values) ?: error("Could not create Downloads/SGT entry")
+        resolver.openOutputStream(uri)?.use { output ->
+            source.inputStream().use { input -> input.copyTo(output) }
+        } ?: error("Could not open Downloads/SGT output")
+        resolver.update(
+            uri,
+            ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+            null,
+            null,
+        )
+        source.delete()
+        val publicPath = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "SGT/${source.name}",
+        ).absolutePath
+        return DownloadExecutionResult(publicPath, uri.toString())
+    } catch (e: Exception) {
+        if (uri != null) {
+            runCatching { resolver.delete(uri, null, null) }
+        }
+        throw e
+    }
+}
+
+private fun DownloaderRepository.deleteExistingPublicDownload(displayName: String, relativePath: String) {
+    val projection = arrayOf(MediaStore.MediaColumns._ID)
+    val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+    val args = arrayOf(displayName, relativePath)
+    runCatching {
+        context.contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            args,
+            null,
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            while (cursor.moveToNext()) {
+                val uri = ContentUris.withAppendedId(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    cursor.getLong(idColumn),
+                )
+                runCatching { context.contentResolver.delete(uri, null, null) }
+            }
+        }
+    }
+}
+
+private fun File.guessMimeType(): String {
+    return when (extension.lowercase()) {
+        "mp4" -> "video/mp4"
+        "mkv" -> "video/x-matroska"
+        "webm" -> "video/webm"
+        "mp3" -> "audio/mpeg"
+        "m4a" -> "audio/mp4"
+        "opus" -> "audio/opus"
+        "ogg" -> "audio/ogg"
+        else -> "application/octet-stream"
+    }
 }
 
 
@@ -303,5 +401,3 @@ internal fun DownloaderRepository.parseFilePath(line: String): String? {
     }
     return null
 }
-
-

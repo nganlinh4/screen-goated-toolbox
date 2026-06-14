@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
+use super::job_registry::{self, JobHandle, JobState};
 use super::subtitles::types::SubtitleClipRequest;
 
 #[derive(Clone, serde::Deserialize)]
@@ -107,16 +108,16 @@ impl Default for JobSnapshot {
     }
 }
 
-#[derive(Clone)]
-struct JobHandle {
-    snapshot: Arc<Mutex<JobSnapshot>>,
-    cancelled: Arc<AtomicBool>,
+impl JobState for JobSnapshot {
+    fn state(&self) -> &str {
+        &self.state
+    }
 }
 
-static JOBS: OnceLock<Mutex<HashMap<String, JobHandle>>> = OnceLock::new();
+static JOBS: OnceLock<Mutex<HashMap<String, JobHandle<JobSnapshot>>>> = OnceLock::new();
 
-fn jobs() -> &'static Mutex<HashMap<String, JobHandle>> {
-    JOBS.get_or_init(|| Mutex::new(HashMap::new()))
+fn jobs() -> &'static Mutex<HashMap<String, JobHandle<JobSnapshot>>> {
+    job_registry::registry(&JOBS)
 }
 
 pub fn handle_start_gemini_translate_narration(
@@ -130,15 +131,12 @@ pub fn handle_start_gemini_translate_narration(
     let mut jobs = jobs()
         .lock()
         .map_err(|_| "Gemini Translate narration jobs lock poisoned".to_string())?;
-    if let Some(active) = jobs.iter().find_map(|(id, handle)| {
-        let snapshot = handle.snapshot.lock().ok()?;
-        matches!(snapshot.state.as_str(), "queued" | "running").then(|| id.clone())
-    }) {
+    if let Some(active) = job_registry::find_active(&jobs) {
         return Err(format!(
             "Gemini Translate narration already running (job={active})"
         ));
     }
-    let job_id = uuid();
+    let job_id = job_registry::uuid("gemini-translate-narration");
     let snapshot = Arc::new(Mutex::new(JobSnapshot {
         total_clips: request.clips.len(),
         ..JobSnapshot::default()
@@ -262,13 +260,4 @@ fn run_job(
             );
         }
     }
-}
-
-fn uuid() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
-    format!("gemini-translate-narration-{millis}-{}", std::process::id())
 }

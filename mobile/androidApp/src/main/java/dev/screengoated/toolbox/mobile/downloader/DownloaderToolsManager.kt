@@ -136,6 +136,15 @@ internal fun DownloaderRepository.prepareYoutubeDlUpdate() {
     ensureInit()
 }
 
+internal fun DownloaderRepository.updateYoutubeDlNightly(): Boolean {
+    prepareYoutubeDlUpdate()
+    val status = YoutubeDL.getInstance().updateYoutubeDL(
+        context,
+        com.yausername.youtubedl_android.YoutubeDL.UpdateChannel.NIGHTLY,
+    )
+    return status == com.yausername.youtubedl_android.YoutubeDL.UpdateStatus.DONE
+}
+
 /** Delete downloaded zip files after extraction — they're just wasting disk space. */
 internal fun DownloaderRepository.cleanupNativeZips() {
     for (name in listOf("libpython.zip.so", "libffmpeg.zip.so")) {
@@ -177,4 +186,3 @@ internal fun DownloaderRepository.dirSizeMb(dir: File): Double {
 }
 
 /** Total size of all deletable downloaded dependencies. */
-

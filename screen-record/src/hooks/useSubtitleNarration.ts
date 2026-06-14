@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Translations } from '@/i18n';
 import { invoke } from '@/lib/ipc';
+import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
 import { overlapsRange, type TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import type {
   NarrationSegment,
@@ -294,99 +295,92 @@ export function useSubtitleNarration({
     scheduleApplyDrain();
   }, [scheduleApplyDrain]);
 
-  useEffect(() => {
-    if (!jobId) return;
-    let cancelled = false;
+  useAsyncJobPoll<SubtitleNarrationJobStatus>({
+    jobId,
+    fetchStatus: (activeJobId) =>
+      invoke<SubtitleNarrationJobStatus>('get_subtitle_narration_status', {
+        jobId: activeJobId,
+        knownResultsRevision: knownResultsRevisionRef.current,
+        knownErrorCount: allErrorItemsRef.current.length,
+      }),
+    isTerminal: (nextStatus) =>
+      nextStatus.state === 'completed'
+      || nextStatus.state === 'cancelled'
+      || nextStatus.state === 'error',
+    onTick: (nextStatus) => {
+      knownResultsRevisionRef.current = Math.max(
+        knownResultsRevisionRef.current,
+        nextStatus.resultsRevision ?? knownResultsRevisionRef.current,
+      );
+      if (nextStatus.results.length > 0) {
+        allResultItemsRef.current = [
+          ...allResultItemsRef.current,
+          ...nextStatus.results,
+        ];
+      }
+      if (nextStatus.errors.length > 0) {
+        allErrorItemsRef.current = [
+          ...allErrorItemsRef.current,
+          ...nextStatus.errors,
+        ];
+      }
+      publishStatus({
+        ...nextStatus,
+        results: [],
+        errors: allErrorItemsRef.current,
+      });
 
-    const poll = async () => {
-      try {
-        const nextStatus = await invoke<SubtitleNarrationJobStatus>(
-          'get_subtitle_narration_status',
-          {
-            jobId,
-            knownResultsRevision: knownResultsRevisionRef.current,
-            knownErrorCount: allErrorItemsRef.current.length,
-          },
-        );
-        if (cancelled) return;
-        knownResultsRevisionRef.current = Math.max(
-          knownResultsRevisionRef.current,
-          nextStatus.resultsRevision ?? knownResultsRevisionRef.current,
-        );
-        if (nextStatus.results.length > 0) {
-          allResultItemsRef.current = [
-            ...allResultItemsRef.current,
-            ...nextStatus.results,
-          ];
-        }
-        if (nextStatus.errors.length > 0) {
-          allErrorItemsRef.current = [
-            ...allErrorItemsRef.current,
-            ...nextStatus.errors,
-          ];
-        }
+      const newResults = nextStatus.results.filter((result) => {
+        if (appliedResultIdsRef.current.has(result.subtitleId)) return false;
+        appliedResultIdsRef.current.add(result.subtitleId);
+        return true;
+      });
+      queueApplyResults(newResults);
+    },
+    onComplete: async (nextStatus) => {
+      if (nextStatus.state === 'completed') {
+        await waitForApplyDrain();
+        const overlaps = countNarrationOverlaps(allResultItemsRef.current);
         publishStatus({
           ...nextStatus,
           results: [],
           errors: allErrorItemsRef.current,
-        });
-
-        const newResults = nextStatus.results.filter((result) => {
-          if (appliedResultIdsRef.current.has(result.subtitleId)) return false;
-          appliedResultIdsRef.current.add(result.subtitleId);
-          return true;
-        });
-        queueApplyResults(newResults);
-
-        if (nextStatus.state === 'completed') {
-          await waitForApplyDrain();
-          const overlaps = countNarrationOverlaps(allResultItemsRef.current);
-          publishStatus({
-            ...nextStatus,
-            results: [],
-            errors: allErrorItemsRef.current,
-            message: overlaps > 0
-              ? t.subtitleNarrationStatusCompleteWithOverlaps.replace('{count}', String(overlaps))
-              : t.subtitleNarrationStatusComplete,
-          }, { immediate: true });
-          setJobId(null);
-          await finalizeNarration();
-          return;
-        }
-        if (nextStatus.state === 'cancelled' || nextStatus.state === 'error') {
-          setJobId(null);
-          await waitForApplyDrain();
-          publishStatus({
-            ...nextStatus,
-            results: [],
-            errors: allErrorItemsRef.current,
-          }, { immediate: true });
-          await finalizeNarration();
-          return;
-        }
-        window.setTimeout(poll, nextStatus.results.length > 0 ? 250 : 500);
-      } catch (error) {
-        if (cancelled) return;
-        publishStatus({
-          state: 'error',
-          message: error instanceof Error ? error.message : t.subtitleNarrationStatusFailed,
-          progress: 0,
-          totalItems: 0,
-          completedItems: 0,
-          activeSubtitleId: null,
-          results: [],
-          errors: [],
-          error: error instanceof Error ? error.message : String(error),
+          message: overlaps > 0
+            ? t.subtitleNarrationStatusCompleteWithOverlaps.replace('{count}', String(overlaps))
+            : t.subtitleNarrationStatusComplete,
         }, { immediate: true });
         setJobId(null);
-        await flushPendingApplyResults();
         await finalizeNarration();
+        return;
       }
-    };
-
-    void poll();
-    return () => {
-      cancelled = true;
+      // cancelled or error terminal state
+      setJobId(null);
+      await waitForApplyDrain();
+      publishStatus({
+        ...nextStatus,
+        results: [],
+        errors: allErrorItemsRef.current,
+      }, { immediate: true });
+      await finalizeNarration();
+    },
+    onError: async (error) => {
+      publishStatus({
+        state: 'error',
+        message: error instanceof Error ? error.message : t.subtitleNarrationStatusFailed,
+        progress: 0,
+        totalItems: 0,
+        completedItems: 0,
+        activeSubtitleId: null,
+        results: [],
+        errors: [],
+        error: error instanceof Error ? error.message : String(error),
+      }, { immediate: true });
+      setJobId(null);
+      await flushPendingApplyResults();
+      await finalizeNarration();
+    },
+    intervalFor: (nextStatus) => (nextStatus.results.length > 0 ? 250 : 500),
+    onCleanup: () => {
       if (pendingApplyTimerRef.current !== null) {
         window.clearTimeout(pendingApplyTimerRef.current);
         pendingApplyTimerRef.current = null;
@@ -395,18 +389,8 @@ export function useSubtitleNarration({
         window.clearTimeout(pendingStatusTimerRef.current);
         pendingStatusTimerRef.current = null;
       }
-    };
-  }, [
-    finalizeNarration,
-    flushPendingApplyResults,
-    jobId,
-    publishStatus,
-    queueApplyResults,
-    waitForApplyDrain,
-    t.subtitleNarrationStatusComplete,
-    t.subtitleNarrationStatusCompleteWithOverlaps,
-    t.subtitleNarrationStatusFailed,
-  ]);
+    },
+  });
 
   const handleGenerateNarration = useCallback(async () => {
     if (jobId || isStarting) return;
@@ -483,17 +467,22 @@ export function useSubtitleNarration({
     t.subtitleNarrationStatusStarting,
   ]);
 
-  const handleCancelNarration = useCallback(async () => {
-    if (!jobId) return;
-    await invoke('cancel_subtitle_narration', { jobId });
-    setStatus((prev) => prev ? {
-      ...prev,
-      state: 'cancelled',
-      message: t.subtitleNarrationStatusCancelled,
-    } : prev);
-    setJobId(null);
-    await finalizeNarration();
-  }, [finalizeNarration, jobId, t.subtitleNarrationStatusCancelled]);
+  const handleCancelNarration = useCallback(
+    buildCancelHandler({
+      jobId,
+      cancelCommand: 'cancel_subtitle_narration',
+      onCancelled: async () => {
+        setStatus((prev) => prev ? {
+          ...prev,
+          state: 'cancelled',
+          message: t.subtitleNarrationStatusCancelled,
+        } : prev);
+        setJobId(null);
+        await finalizeNarration();
+      },
+    }),
+    [finalizeNarration, jobId, t.subtitleNarrationStatusCancelled],
+  );
 
   return {
     canGenerateNarration: requestItems.length > 0 && !jobId && !isStarting,

@@ -7,12 +7,7 @@ import {
   Volume2,
   VolumeX,
 } from '@/components/ui/MaterialIcon';
-
-function fmtTime(s: number) {
-  if (!isFinite(s) || s < 0) return "0:00";
-  const m = Math.floor(s / 60);
-  return `${m}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
-}
+import { formatTime as fmtTime } from "@/utils/helpers";
 
 export function CustomVideoPlayer({
   src,

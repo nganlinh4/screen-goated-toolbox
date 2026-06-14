@@ -7,7 +7,7 @@ use tungstenite::Message;
 
 use crate::api::realtime_audio::s2s::transport::parse_s2s_update;
 use crate::api::realtime_audio::websocket::{
-    is_recoverable_socket_error, is_transient_socket_read_error,
+    is_recoverable_socket_error, is_transient_socket_read_error, pcm_bytes_to_i16,
 };
 
 use super::output_vad::{OutputRegion, OutputVad};
@@ -143,11 +143,4 @@ fn message_to_text(message: Message) -> Option<String> {
         Message::Binary(bytes) => String::from_utf8(bytes.to_vec()).ok(),
         _ => None,
     }
-}
-
-fn pcm_bytes_to_i16(bytes: &[u8]) -> Vec<i16> {
-    bytes
-        .chunks_exact(2)
-        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect()
 }

@@ -99,3 +99,64 @@ pub const SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES: &[(&str, &str)] = &[
     ("yid", "Yiddish"),
     ("zho", "Chinese"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::{GEMINI_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES};
+    use serde::Deserialize;
+
+    // Shared cross-platform parity fixture. Rust is canonical; the Android
+    // (Kotlin) catalog asserts against the same file so the two cannot drift.
+    // See .claude/parity/gemini-voice-catalog.md.
+    const FIXTURE: &str =
+        include_str!("../../parity-fixtures/gemini-voice-catalog/catalog.json");
+
+    #[derive(Deserialize)]
+    struct Catalog {
+        voices: Vec<Voice>,
+        #[serde(rename = "instructionLanguages")]
+        instruction_languages: Vec<Language>,
+    }
+
+    #[derive(Deserialize)]
+    struct Voice {
+        name: String,
+        gender: String,
+    }
+
+    #[derive(Deserialize)]
+    struct Language {
+        code: String,
+        name: String,
+    }
+
+    #[test]
+    fn gemini_voices_match_parity_fixture() {
+        let catalog: Catalog = serde_json::from_str(FIXTURE).expect("fixture parses");
+        let fixture: Vec<(&str, &str)> = catalog
+            .voices
+            .iter()
+            .map(|v| (v.name.as_str(), v.gender.as_str()))
+            .collect();
+        assert_eq!(
+            GEMINI_VOICES.to_vec(),
+            fixture,
+            "GEMINI_VOICES drifted from the shared parity fixture (same entries, same order)"
+        );
+    }
+
+    #[test]
+    fn gemini_instruction_languages_match_parity_fixture() {
+        let catalog: Catalog = serde_json::from_str(FIXTURE).expect("fixture parses");
+        let fixture: Vec<(&str, &str)> = catalog
+            .instruction_languages
+            .iter()
+            .map(|l| (l.code.as_str(), l.name.as_str()))
+            .collect();
+        assert_eq!(
+            SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES.to_vec(),
+            fixture,
+            "SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES drifted from the shared parity fixture (same entries, same order)"
+        );
+    }
+}

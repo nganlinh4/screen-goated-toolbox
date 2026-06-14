@@ -1,12 +1,9 @@
 import type { MicAudioPoint } from "@/types/video";
+import { clamp } from "@/lib/mathUtils";
 
 export const MIN_MIC_AUDIO_VOLUME = 0;
 export const MAX_MIC_AUDIO_VOLUME = 1;
 export const DEFAULT_MIC_AUDIO_VOLUME = 0;
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
 
 export function clampMicAudioVolume(volume: number) {
   return clamp(

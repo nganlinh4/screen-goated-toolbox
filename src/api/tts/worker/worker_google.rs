@@ -6,8 +6,8 @@ use std::sync::{Arc, atomic::Ordering};
 
 use super::super::manager::TtsManager;
 use super::super::types::AudioEvent;
-use super::super::utils::{clear_tts_loading_state, clear_tts_state};
-use super::resample_audio;
+use super::super::utils::clear_tts_state;
+use super::open_weights::stream_pcm_samples;
 use crate::api::client::UREQ_AGENT;
 use isolang::Language;
 
@@ -115,38 +115,5 @@ pub(super) fn handle_google_tts(
         }
     }
 
-    if all_samples.is_empty() {
-        let _ = tx.send(AudioEvent::End);
-        clear_tts_state(request.req.hwnd);
-        return;
-    }
-
-    clear_tts_loading_state(request.req.hwnd);
-
-    // Resample if needed to 24kHz
-    let audio_bytes = if source_sample_rate != 24000 {
-        let resampled = resample_audio(&all_samples, source_sample_rate, 24000);
-        let mut bytes = Vec::with_capacity(resampled.len() * 2);
-        for sample in resampled {
-            bytes.extend_from_slice(&sample.to_le_bytes());
-        }
-        bytes
-    } else {
-        let mut bytes = Vec::with_capacity(all_samples.len() * 2);
-        for sample in all_samples {
-            bytes.extend_from_slice(&sample.to_le_bytes());
-        }
-        bytes
-    };
-
-    let chunk_size = 24000;
-    for chunk in audio_bytes.chunks(chunk_size) {
-        if request.generation < manager.interrupt_generation.load(Ordering::SeqCst) {
-            break;
-        }
-        let _ = tx.send(AudioEvent::Data(chunk.to_vec()));
-    }
-
-    let _ = tx.send(AudioEvent::End);
-    clear_tts_state(request.req.hwnd);
+    stream_pcm_samples(&manager, &request, &tx, all_samples, source_sample_rate);
 }

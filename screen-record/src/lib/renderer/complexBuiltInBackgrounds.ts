@@ -4,7 +4,7 @@ import {
   type TopographicFlowBackgroundPreset,
   type WindowlightCausticsBackgroundPreset,
 } from '@/lib/backgroundPresets';
-import { clamp01, hexToLinear, linearToSrgb, mix, smoothstep } from './gradientMath';
+import { clamp01, hashNoise, hexToLinear, linearToSrgb, mix, smoothstep } from './gradientMath';
 
 const PRISM_FOLD_ROLE_POINTS: ReadonlyArray<[number, number]> = [
   [0.02, 0.02],
@@ -45,11 +45,6 @@ function samplePrismPane(
   const body = smoothstep(softness * 1.4, softness * 7.5, inside);
   const glow = body * (1 - smoothstep(softness * 7.5, softness * 15.0, inside));
   return { mask, glow };
-}
-
-function hashNoise(x: number, y: number): number {
-  const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
-  return noiseSeed - Math.floor(noiseSeed);
 }
 
 function rotatePoint(x: number, y: number, angle: number): [number, number] {

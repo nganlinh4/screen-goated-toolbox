@@ -14,11 +14,7 @@ pub fn generate_html() -> String {
         let app = APP.lock().unwrap();
         let lang = app.config.ui_language.as_str();
         let locale = crate::gui::locale::LocaleText::get(lang);
-        let is_dark = match app.config.theme_mode {
-            crate::config::ThemeMode::Dark => true,
-            crate::config::ThemeMode::Light => false,
-            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        };
+        let is_dark = app.config.theme_mode.is_dark();
         // Store initial theme state
         LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
         (

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
+import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
 import {
   getEffectiveCompositionMode,
   updateCompositionClip,
@@ -110,51 +111,27 @@ export function useSubtitleTranslation({
   const lastProjectResetKeyRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
-    try {
-      persistTranslationLanguage(targetLanguage);
-    } catch {
-      // ignore persistence failures
-    }
+    persistTranslationLanguage(targetLanguage);
   }, [targetLanguage]);
 
   useEffect(() => {
-    try {
-      persistTranslationChunkCount(chunkCountOverride);
-    } catch {
-      // ignore persistence failures
-    }
+    persistTranslationChunkCount(chunkCountOverride);
   }, [chunkCountOverride]);
 
   useEffect(() => {
-    try {
-      persistTranslationInstructions(instructions);
-    } catch {
-      // ignore persistence failures
-    }
+    persistTranslationInstructions(instructions);
   }, [instructions]);
 
   useEffect(() => {
-    try {
-      persistTranslationSource(translationSource);
-    } catch {
-      // ignore persistence failures
-    }
+    persistTranslationSource(translationSource);
   }, [translationSource]);
 
   useEffect(() => {
-    try {
-      persistTranslationModelId(selectedModelId);
-    } catch {
-      // ignore persistence failures
-    }
+    persistTranslationModelId(selectedModelId);
   }, [selectedModelId]);
 
   useEffect(() => {
-    try {
-      persistTranslationSmartFallback(smartFallback);
-    } catch {
-      // ignore persistence failures
-    }
+    persistTranslationSmartFallback(smartFallback);
   }, [smartFallback]);
 
   useEffect(() => {
@@ -376,57 +353,53 @@ export function useSubtitleTranslation({
     });
   }, [composition, setComposition, setSegment]);
 
-  useEffect(() => {
-    if (!jobId || !jobContext) return;
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const nextStatus = await invoke<SubtitleTranslationJobStatus>(
-          'get_subtitle_translation_status',
-          { jobId },
-        );
-        if (cancelled) return;
-        setStatus(nextStatus);
-        if (nextStatus.state === 'completed') {
-          applySubtitleTranslationResults(nextStatus.results, jobContext);
-          setJobId(null);
-          setJobContext(null);
-          setActivePanel('subtitles');
-          return;
-        }
-        if (nextStatus.state === 'cancelled' || nextStatus.state === 'error') {
-          if (nextStatus.state === 'error' && nextStatus.results.length > 0) {
-            applySubtitleTranslationResults(nextStatus.results, jobContext);
-            setActivePanel('subtitles');
-          }
-          setJobId(null);
-          setJobContext(null);
-          return;
-        }
-        window.setTimeout(poll, 450);
-      } catch (error) {
-        if (cancelled) return;
-        setStatus({
-          state: 'error',
-          message: error instanceof Error ? error.message : t.subtitleTranslationStatusFailed,
-          progress: 0,
-          currentChunkCount: 0,
-          currentChunkIndex: 0,
-          totalChunks: 0,
-          results: [],
-          error: error instanceof Error ? error.message : String(error),
-        });
+  useAsyncJobPoll<SubtitleTranslationJobStatus>({
+    jobId,
+    enabled: !!jobContext,
+    fetchStatus: (activeJobId) =>
+      invoke<SubtitleTranslationJobStatus>('get_subtitle_translation_status', {
+        jobId: activeJobId,
+      }),
+    isTerminal: (nextStatus) =>
+      nextStatus.state === 'completed'
+      || nextStatus.state === 'cancelled'
+      || nextStatus.state === 'error',
+    onTick: (nextStatus) => {
+      setStatus(nextStatus);
+    },
+    onComplete: (nextStatus) => {
+      if (!jobContext) return;
+      if (nextStatus.state === 'completed') {
+        applySubtitleTranslationResults(nextStatus.results, jobContext);
         setJobId(null);
         setJobContext(null);
+        setActivePanel('subtitles');
+        return;
       }
-    };
-
-    void poll();
-    return () => {
-      cancelled = true;
-    };
-  }, [applySubtitleTranslationResults, jobContext, jobId, setActivePanel, t.subtitleTranslationStatusFailed]);
+      // cancelled or error terminal state
+      if (nextStatus.state === 'error' && nextStatus.results.length > 0) {
+        applySubtitleTranslationResults(nextStatus.results, jobContext);
+        setActivePanel('subtitles');
+      }
+      setJobId(null);
+      setJobContext(null);
+    },
+    onError: (error) => {
+      setStatus({
+        state: 'error',
+        message: error instanceof Error ? error.message : t.subtitleTranslationStatusFailed,
+        progress: 0,
+        currentChunkCount: 0,
+        currentChunkIndex: 0,
+        totalChunks: 0,
+        results: [],
+        error: error instanceof Error ? error.message : String(error),
+      });
+      setJobId(null);
+      setJobContext(null);
+    },
+    intervalFor: () => 450,
+  });
 
   const handleTranslateSubtitles = useCallback(async () => {
     if (!segment) return;
@@ -508,19 +481,24 @@ export function useSubtitleTranslation({
     targetLanguage,
   ]);
 
-  const handleCancelSubtitleTranslation = useCallback(async () => {
-    if (!jobId) return;
-    await invoke('cancel_subtitle_translation', { jobId });
-    setStatus((prev) => (prev ? {
-      ...prev,
-      state: 'cancelled',
-      message: t.subtitleTranslationStatusCancelled,
-      messageKey: 'subtitleTranslationStatusCancelled',
-      messageParams: {},
-    } : prev));
-    setJobId(null);
-    setJobContext(null);
-  }, [jobId, t.subtitleTranslationStatusCancelled]);
+  const handleCancelSubtitleTranslation = useCallback(
+    buildCancelHandler({
+      jobId,
+      cancelCommand: 'cancel_subtitle_translation',
+      onCancelled: () => {
+        setStatus((prev) => (prev ? {
+          ...prev,
+          state: 'cancelled',
+          message: t.subtitleTranslationStatusCancelled,
+          messageKey: 'subtitleTranslationStatusCancelled',
+          messageParams: {},
+        } : prev));
+        setJobId(null);
+        setJobContext(null);
+      },
+    }),
+    [jobId, t.subtitleTranslationStatusCancelled],
+  );
 
   return {
     subtitleTracks,

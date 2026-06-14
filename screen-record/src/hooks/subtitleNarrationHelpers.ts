@@ -1,5 +1,6 @@
 import type { NarrationSegment, TtsProfileSnapshot } from "@/types/video";
 import type { NarrationProfilePayload } from "@/hooks/useNarrationSettings";
+import type { BaseAsyncJobStatus } from "@/hooks/asyncJobTypes";
 
 export interface SubtitleNarrationRequestItem {
   id: string;
@@ -29,17 +30,13 @@ export interface SubtitleNarrationResultItem {
   replaceSubtitleIds?: string[];
 }
 
-export interface SubtitleNarrationJobStatus {
-  state: "queued" | "running" | "completed" | "cancelled" | "error";
-  message: string;
-  progress: number;
+export interface SubtitleNarrationJobStatus extends BaseAsyncJobStatus {
   totalItems: number;
   completedItems: number;
   activeSubtitleId?: string | null;
   resultsRevision?: number;
   results: SubtitleNarrationResultItem[];
   errors: Array<{ subtitleId: string; message: string }>;
-  error?: string | null;
 }
 
 export interface SubtitleNarrationGroupPreview {

@@ -90,11 +90,7 @@ pub fn create_realtime_webview(
     };
 
     let is_dark = if let Ok(app) = crate::APP.lock() {
-        match app.config.theme_mode {
-            crate::config::ThemeMode::Dark => true,
-            crate::config::ThemeMode::Light => false,
-            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        }
+        app.config.theme_mode.is_dark()
     } else {
         true
     };
@@ -444,13 +440,8 @@ pub fn sync_visibility_to_webviews() {
 pub fn update_webview_text(hwnd: HWND, old_text: &str, new_text: &str) {
     let hwnd_key = hwnd.0 as isize;
 
-    // Escape the text for JavaScript
-    fn escape_js(text: &str) -> String {
-        text.replace('\\', "\\\\")
-            .replace('\'', "\\'")
-            .replace('\n', "\\n")
-            .replace('\r', "")
-    }
+    // Escape the text for JavaScript (single-quoted string literals below)
+    use crate::overlay::utils::escape_js_single_quoted as escape_js;
 
     let escaped_old = escape_js(old_text);
     let escaped_new = escape_js(new_text);
@@ -480,11 +471,7 @@ pub fn update_webview_theme(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
 
     let is_dark = if let Ok(app) = crate::APP.lock() {
-        match app.config.theme_mode {
-            crate::config::ThemeMode::Dark => true,
-            crate::config::ThemeMode::Light => false,
-            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        }
+        app.config.theme_mode.is_dark()
     } else {
         true
     };
@@ -497,7 +484,7 @@ pub fn update_webview_theme(hwnd: HWND) {
 
     // Determine glow color based on whether this is a translation window
     let is_translation = unsafe { hwnd == TRANSLATION_HWND };
-    let glow_color = if is_translation { "#ff9633" } else { "#00c8ff" };
+    let glow_color = crate::overlay::utils::glow_color(is_translation);
 
     let css = format!(
         "{}{}",

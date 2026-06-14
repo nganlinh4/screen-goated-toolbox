@@ -65,8 +65,6 @@ declare global {
   interface Window {
     __TG_INITIAL_STATE__?: TranslationGummyState;
     __TG_SET_STATE?: (payload: TranslationGummyState) => void;
-    __BR_INITIAL_STATE__?: TranslationGummyState;
-    __BR_SET_STATE?: (payload: TranslationGummyState) => void;
     invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
   }
 }

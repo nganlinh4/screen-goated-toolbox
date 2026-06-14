@@ -525,7 +525,7 @@ const ko: Translations = {
   tryAgain: '다시 시도',
   cancelInstallation: '설치 취소',
   closeApp: '앱 닫기',
-  recorderEssentials: 'Recorder Essentials',
+  recorderEssentials: '녹화 필수 구성 요소',
   downloaded: '다운로드됨',
 
   // Timeline

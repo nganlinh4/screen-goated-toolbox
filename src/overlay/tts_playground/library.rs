@@ -136,7 +136,7 @@ pub(super) fn decode_wav_to_24khz_mono(wav_data: &[u8]) -> Result<Vec<i16>, Stri
     if spec.sample_rate == crate::api::tts::types::SOURCE_SAMPLE_RATE {
         Ok(mono)
     } else {
-        Ok(resample_linear(
+        Ok(crate::api::tts::worker::resample_audio(
             &mono,
             spec.sample_rate,
             crate::api::tts::types::SOURCE_SAMPLE_RATE,
@@ -152,28 +152,6 @@ fn paths() -> (PathBuf, PathBuf, PathBuf) {
     let db_path = dir.join("clips.json");
     let _ = std::fs::create_dir_all(&dir);
     (config_dir, db_path, dir)
-}
-
-fn resample_linear(samples: &[i16], from_rate: u32, to_rate: u32) -> Vec<i16> {
-    if samples.is_empty() || from_rate == to_rate {
-        return samples.to_vec();
-    }
-    let ratio = to_rate as f32 / from_rate as f32;
-    let new_len = (samples.len() as f32 * ratio) as usize;
-    let mut output = Vec::with_capacity(new_len);
-    for i in 0..new_len {
-        let src = i as f32 / ratio;
-        let idx = src as usize;
-        if idx >= samples.len().saturating_sub(1) {
-            output.push(*samples.last().unwrap_or(&0));
-        } else {
-            let frac = src - idx as f32;
-            let a = samples[idx] as f32;
-            let b = samples[idx + 1] as f32;
-            output.push((a + (b - a) * frac) as i16);
-        }
-    }
-    output
 }
 
 fn safe_file_stem(value: &str) -> String {

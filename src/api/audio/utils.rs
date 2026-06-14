@@ -66,23 +66,8 @@ pub fn extract_pcm_from_wav(wav_data: &[u8]) -> anyhow::Result<Vec<i16>> {
         samples
     };
 
-    // Resample to 16kHz if needed
-    let target_rate = 16000;
-    if spec.sample_rate != target_rate {
-        let ratio = target_rate as f64 / spec.sample_rate as f64;
-        let new_len = (mono_samples.len() as f64 * ratio) as usize;
-        let mut resampled = Vec::with_capacity(new_len);
-
-        for i in 0..new_len {
-            let src_idx = (i as f64 / ratio) as usize;
-            if src_idx < mono_samples.len() {
-                resampled.push(mono_samples[src_idx]);
-            }
-        }
-        Ok(resampled)
-    } else {
-        Ok(mono_samples)
-    }
+    // Resample to 16kHz if needed (nearest-neighbor; shared with resample_to_16khz)
+    Ok(resample_to_16khz(&mono_samples, spec.sample_rate))
 }
 
 /// Simple nearest-neighbor resampling to 16kHz
@@ -133,44 +118,7 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
     let preset_for_thread = preset.clone();
 
     std::thread::spawn(move || {
-        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-        let (rect, _) = if preset_for_thread.blocks.len() > 1 {
-            let w = 600;
-            let h = 300;
-            let gap = 20;
-            let total = w * 2 + gap;
-            let x = (screen_w - total) / 2;
-            let y = (screen_h - h) / 2;
-            (
-                RECT {
-                    left: x,
-                    top: y,
-                    right: x + w,
-                    bottom: y + h,
-                },
-                Some(RECT {
-                    left: x + w + gap,
-                    top: y,
-                    right: x + w + gap + w,
-                    bottom: y + h,
-                }),
-            )
-        } else {
-            let w = 700;
-            let h = 300;
-            let x = (screen_w - w) / 2;
-            let y = (screen_h - h) / 2;
-            (
-                RECT {
-                    left: x,
-                    top: y,
-                    right: x + w,
-                    bottom: y + h,
-                },
-                None,
-            )
-        };
+        let (rect, _) = calculate_result_rects(&preset_for_thread);
 
         let active_block = preset_for_thread
             .blocks

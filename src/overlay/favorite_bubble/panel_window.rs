@@ -16,10 +16,9 @@ use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GetClientRect, HTCAPTION, IDC_ARROW, LoadCursorW,
-    RegisterClassW, SendMessageW, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_KILLFOCUS, WM_NCCALCSIZE,
-    WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_POPUP, WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, GetClientRect, IDC_ARROW, LoadCursorW, RegisterClassW,
+    WM_ACTIVATE, WM_APP, WM_CLOSE, WM_KILLFOCUS, WM_NCCALCSIZE, WNDCLASSW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
 use windows::core::w;
 use wry::{Rect, WebContext, WebViewBuilder};
@@ -93,11 +92,7 @@ pub(super) fn create_panel_webview(panel_hwnd: HWND) {
     }
 
     let html = if let Ok(app) = APP.lock() {
-        let is_dark = match app.config.theme_mode {
-            crate::config::ThemeMode::Dark => true,
-            crate::config::ThemeMode::Light => false,
-            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        };
+        let is_dark = app.config.theme_mode.is_dark();
         // Update static state to match initial generation
         LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
         generate_panel_html(
@@ -180,16 +175,7 @@ pub(super) fn create_panel_webview(panel_hwnd: HWND) {
 
 fn handle_ipc_message(body: &str, panel_hwnd: HWND) {
     if body == "drag" {
-        unsafe {
-            use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-            let _ = ReleaseCapture();
-            SendMessageW(
-                panel_hwnd,
-                WM_NCLBUTTONDOWN,
-                Some(WPARAM(HTCAPTION as usize)),
-                Some(LPARAM(0)),
-            );
-        }
+        crate::overlay::utils::begin_window_drag(panel_hwnd);
     } else if body == "close" {
         close_panel();
     } else if body == "close_now" {
@@ -272,13 +258,7 @@ pub(super) unsafe extern "system" fn panel_wnd_proc(
                 let bubble_hwnd = HWND(BUBBLE_HWND.load(Ordering::SeqCst) as *mut std::ffi::c_void);
 
                 if let Ok(app) = APP.lock() {
-                    let is_dark = match app.config.theme_mode {
-                        crate::config::ThemeMode::Dark => true,
-                        crate::config::ThemeMode::Light => false,
-                        crate::config::ThemeMode::System => {
-                            crate::gui::utils::is_system_in_dark_mode()
-                        }
-                    };
+                    let is_dark = app.config.theme_mode.is_dark();
 
                     // Set expanded to true so it moves with bubble
                     IS_EXPANDED.store(true, Ordering::SeqCst);

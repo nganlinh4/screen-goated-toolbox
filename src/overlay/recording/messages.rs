@@ -101,13 +101,7 @@ pub unsafe extern "system" fn recording_wnd_proc(
 
                     // Check for theme changes
                     if let Ok(app) = APP.try_lock() {
-                        let current_is_dark = match app.config.theme_mode {
-                            crate::config::ThemeMode::Dark => true,
-                            crate::config::ThemeMode::Light => false,
-                            crate::config::ThemeMode::System => {
-                                crate::gui::utils::is_system_in_dark_mode()
-                            }
-                        };
+                        let current_is_dark = app.config.theme_mode.is_dark();
                         let last_dark = LAST_THEME_IS_DARK.load(Ordering::SeqCst);
 
                         if current_is_dark != last_dark {

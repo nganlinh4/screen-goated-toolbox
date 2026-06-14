@@ -1,9 +1,6 @@
 //! WebView creation and management for markdown view
 
-use raw_window_handle::{
-    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
-};
-use std::num::NonZeroIsize;
+use crate::win_types::HwndWrapper;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebViewBuilder};
@@ -12,25 +9,6 @@ use super::conversion::markdown_to_html;
 use super::ipc::handle_markdown_ipc;
 use super::navigation::update_markdown_content_ex;
 use super::{SHARED_WEB_CONTEXT, SKIP_NEXT_NAVIGATION, WEBVIEW_STATES, WEBVIEWS};
-
-/// Wrapper for HWND to implement HasWindowHandle
-struct HwndWrapper(HWND);
-
-impl HasWindowHandle for HwndWrapper {
-    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0.0 as isize;
-        if let Some(non_zero) = NonZeroIsize::new(hwnd) {
-            let mut handle = Win32WindowHandle::new(non_zero);
-            // hinstance is optional, can be null
-            handle.hinstance = None;
-            let raw = RawWindowHandle::Win32(handle);
-            // Safety: the handle is valid for the lifetime of HwndWrapper
-            Ok(unsafe { WindowHandle::borrow_raw(raw) })
-        } else {
-            Err(HandleError::Unavailable)
-        }
-    }
-}
 
 /// Create a WebView child window for markdown rendering
 /// Must be called from the main thread!

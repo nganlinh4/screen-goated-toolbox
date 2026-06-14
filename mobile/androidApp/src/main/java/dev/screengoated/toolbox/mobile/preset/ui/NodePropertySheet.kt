@@ -9,12 +9,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -56,19 +54,8 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
-
-// ---------------------------------------------------------------------------
-// Localization helpers
-// ---------------------------------------------------------------------------
-
-private fun l(lang: String, en: String, vi: String, ko: String): String = when (lang) {
-    "vi" -> vi
-    "ko" -> ko
-    else -> en
-}
 
 // ---------------------------------------------------------------------------
 // Render mode model
@@ -81,10 +68,10 @@ private data class RenderModeOption(
 )
 
 private fun renderModeOptions(lang: String): List<RenderModeOption> = listOf(
-    RenderModeOption(l(lang, "Normal", "Thường", "일반"), "plain", false),
-    RenderModeOption(l(lang, "Stream", "Luồng", "스트림"), "stream", true),
-    RenderModeOption(l(lang, "Markdown", "Đẹp", "마크다운"), "markdown", false),
-    RenderModeOption(l(lang, "MD+Stream", "Đẹp+Luồng", "마크+스트림"), "markdown_stream", true),
+    RenderModeOption(nodeGraphLocalized(lang, "Normal", "Thường", "일반"), "plain", false),
+    RenderModeOption(nodeGraphLocalized(lang, "Stream", "Luồng", "스트림"), "stream", true),
+    RenderModeOption(nodeGraphLocalized(lang, "Markdown", "Đẹp", "마크다운"), "markdown", false),
+    RenderModeOption(nodeGraphLocalized(lang, "MD+Stream", "Đẹp+Luồng", "마크+스트림"), "markdown_stream", true),
 )
 
 private fun currentRenderModeIndex(block: ProcessingBlock): Int {
@@ -159,10 +146,10 @@ private fun NodeSheetHeader(block: ProcessingBlock, lang: String) {
         BlockType.AUDIO -> Color(0xFFAB47BC)
     }
     val typeLabel = when (block.blockType) {
-        BlockType.INPUT_ADAPTER -> l(lang, "Input Node", "Nút đầu vào", "입력 노드")
-        BlockType.IMAGE -> l(lang, "Special Node (Image)", "Nút đặc biệt (Ảnh)", "특수 노드 (이미지)")
-        BlockType.TEXT -> l(lang, "Process Node", "Nút xử lý", "처리 노드")
-        BlockType.AUDIO -> l(lang, "Special Node (Audio)", "Nút đặc biệt (Âm thanh)", "특수 노드 (오디오)")
+        BlockType.INPUT_ADAPTER -> nodeGraphLocalized(lang, "Input Node", "Nút đầu vào", "입력 노드")
+        BlockType.IMAGE -> nodeGraphLocalized(lang, "Special Node (Image)", "Nút đặc biệt (Ảnh)", "특수 노드 (이미지)")
+        BlockType.TEXT -> nodeGraphLocalized(lang, "Process Node", "Nút xử lý", "처리 노드")
+        BlockType.AUDIO -> nodeGraphLocalized(lang, "Special Node (Audio)", "Nút đặc biệt (Âm thanh)", "특수 노드 (오디오)")
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -202,7 +189,7 @@ internal fun InputNodeBody(
     // Show overlay toggle
     SheetSwitchRow(
         icon = R.drawable.ms_visibility,
-        label = l(lang, "Show overlay", "Hiện overlay", "오버레이 표시"),
+        label = nodeGraphLocalized(lang, "Show overlay", "Hiện overlay", "오버레이 표시"),
         checked = block.showOverlay,
         onCheckedChange = { onUpdate(block.copy(showOverlay = it)) },
     )
@@ -223,9 +210,9 @@ internal fun InputNodeBody(
         SheetSwitchRow(
             icon = R.drawable.ms_content_copy,
             label = if (isTextInput) {
-                l(lang, "Auto-copy (always on)", "Tự sao chép (luôn bật)", "자동 복사 (항상 켜짐)")
+                nodeGraphLocalized(lang, "Auto-copy (always on)", "Tự sao chép (luôn bật)", "자동 복사 (항상 켜짐)")
             } else {
-                l(lang, "Auto-copy", "Tự sao chép", "자동 복사")
+                nodeGraphLocalized(lang, "Auto-copy", "Tự sao chép", "자동 복사")
             },
             checked = if (isTextInput) true else block.autoCopy,
             onCheckedChange = {
@@ -240,7 +227,7 @@ internal fun InputNodeBody(
     if (isTextInput) {
         SheetSwitchRow(
             icon = R.drawable.ms_volume_up,
-            label = l(lang, "Auto-speak", "Tự phát âm", "자동 말하기"),
+            label = nodeGraphLocalized(lang, "Auto-speak", "Tự phát âm", "자동 말하기"),
             checked = block.autoSpeak,
             onCheckedChange = { onUpdate(block.copy(autoSpeak = it)) },
         )
@@ -254,13 +241,13 @@ internal fun InputRenderModeSelector(
     onUpdate: (ProcessingBlock) -> Unit,
 ) {
     val options = listOf(
-        RenderModeOption(l(lang, "Normal", "Thường", "일반"), "plain", false),
-        RenderModeOption(l(lang, "Markdown", "Đẹp", "마크다운"), "markdown", false),
+        RenderModeOption(nodeGraphLocalized(lang, "Normal", "Thường", "일반"), "plain", false),
+        RenderModeOption(nodeGraphLocalized(lang, "Markdown", "Đẹp", "마크다운"), "markdown", false),
     )
     val currentIdx = if (block.renderMode == "markdown" || block.renderMode == "markdown_stream") 1 else 0
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SheetLabel(l(lang, "Render mode", "Chế độ hiển thị", "렌더링 모드"))
+        SheetLabel(nodeGraphLocalized(lang, "Render mode", "Chế độ hiển thị", "렌더링 모드"))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
@@ -311,11 +298,11 @@ internal fun ProcessNodeBody(
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
     // --- Display settings ---
-    SheetLabel(l(lang, "Display", "Hiển thị", "표시"))
+    SheetLabel(nodeGraphLocalized(lang, "Display", "Hiển thị", "표시"))
 
     SheetSwitchRow(
         icon = R.drawable.ms_visibility,
-        label = l(lang, "Show overlay", "Hiện overlay", "오버레이 표시"),
+        label = nodeGraphLocalized(lang, "Show overlay", "Hiện overlay", "오버레이 표시"),
         checked = block.showOverlay,
         onCheckedChange = { onUpdate(block.copy(showOverlay = it)) },
     )
@@ -332,18 +319,18 @@ internal fun ProcessNodeBody(
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
     // --- Auto behaviors ---
-    SheetLabel(l(lang, "Auto behaviors", "Hành vi tự động", "자동 동작"))
+    SheetLabel(nodeGraphLocalized(lang, "Auto behaviors", "Hành vi tự động", "자동 동작"))
 
     SheetSwitchRow(
         icon = R.drawable.ms_content_copy,
-        label = l(lang, "Auto-copy", "Tự sao chép", "자동 복사"),
+        label = nodeGraphLocalized(lang, "Auto-copy", "Tự sao chép", "자동 복사"),
         checked = block.autoCopy,
         onCheckedChange = { onUpdate(block.copy(autoCopy = it)) },
     )
 
     SheetSwitchRow(
         icon = R.drawable.ms_volume_up,
-        label = l(lang, "Auto-speak", "Tự phát âm", "자동 말하기"),
+        label = nodeGraphLocalized(lang, "Auto-speak", "Tự phát âm", "자동 말하기"),
         checked = block.autoSpeak,
         onCheckedChange = { onUpdate(block.copy(autoSpeak = it)) },
     )
@@ -367,7 +354,7 @@ internal fun ModelSelectorSection(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SheetLabel(l(lang, "Model", "Mô hình", "모델"))
+        SheetLabel(nodeGraphLocalized(lang, "Model", "Mô hình", "모델"))
 
         // Current model chip
         Surface(
@@ -410,7 +397,7 @@ internal fun ModelSelectorSection(
                     onValueChange = { searchQuery = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    placeholder = { Text(l(lang, "Search models...", "Tìm model...", "모델 검색...")) },
+                    placeholder = { Text(nodeGraphLocalized(lang, "Search models...", "Tìm model...", "모델 검색...")) },
                     leadingIcon = {
                         Icon(painterResource(R.drawable.ms_search), contentDescription = null, modifier = Modifier.size(18.dp))
                     },
@@ -504,7 +491,7 @@ internal fun PromptEditorSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SheetLabel(l(lang, "Prompt", "Lệnh", "프롬프트"))
+            SheetLabel(nodeGraphLocalized(lang, "Prompt", "Lệnh", "프롬프트"))
             Spacer(Modifier.weight(1f))
             TextButton(
                 onClick = {
@@ -523,7 +510,7 @@ internal fun PromptEditorSection(
                 Icon(painterResource(R.drawable.ms_add), contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    l(lang, "+ Language", "+ Ngôn ngữ", "+ 언어"),
+                    nodeGraphLocalized(lang, "+ Language", "+ Ngôn ngữ", "+ 언어"),
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
@@ -536,7 +523,7 @@ internal fun PromptEditorSection(
             minLines = 2,
             maxLines = 5,
             placeholder = {
-                Text(l(lang, "Enter prompt...", "Nhập lệnh...", "프롬프트 입력..."))
+                Text(nodeGraphLocalized(lang, "Enter prompt...", "Nhập lệnh...", "프롬프트 입력..."))
             },
         )
 
@@ -562,7 +549,7 @@ internal fun LanguageVariablesSection(
                 tint = MaterialTheme.colorScheme.tertiary,
             )
             Spacer(Modifier.width(6.dp))
-            SheetLabel(l(lang, "Language variables", "Biến ngôn ngữ", "언어 변수"))
+            SheetLabel(nodeGraphLocalized(lang, "Language variables", "Biến ngôn ngữ", "언어 변수"))
         }
 
         block.languageVars.entries.sortedBy { it.key }.forEach { (varName, varValue) ->
@@ -631,7 +618,7 @@ internal fun LanguageVariableRow(
             IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
                 Icon(
                     painterResource(R.drawable.ms_close),
-                    contentDescription = l(lang, "Remove", "Xóa", "삭제"),
+                    contentDescription = nodeGraphLocalized(lang, "Remove", "Xóa", "삭제"),
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.error,
                 )
@@ -652,15 +639,15 @@ internal fun LanguageVariableRow(
                     onValueChange = { searchQuery = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    placeholder = { Text(l(lang, "Search languages...", "Tìm ngôn ngữ...", "언어 검색...")) },
+                    placeholder = { Text(nodeGraphLocalized(lang, "Search languages...", "Tìm ngôn ngữ...", "언어 검색...")) },
                     leadingIcon = {
                         Icon(painterResource(R.drawable.ms_search), contentDescription = null, modifier = Modifier.size(16.dp))
                     },
                 )
 
                 val filtered = remember(searchQuery) {
-                    if (searchQuery.isBlank()) LanguageCatalog.names
-                    else LanguageCatalog.names.filter {
+                    if (searchQuery.isBlank()) ALL_ISO_LANGUAGES
+                    else ALL_ISO_LANGUAGES.filter {
                         it.contains(searchQuery, ignoreCase = true)
                     }
                 }
@@ -717,7 +704,7 @@ internal fun RenderModeSelector(
     val currentIdx = currentRenderModeIndex(block)
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SheetLabel(l(lang, "Render mode", "Chế độ hiển thị", "렌더링 모드"))
+        SheetLabel(nodeGraphLocalized(lang, "Render mode", "Chế độ hiển thị", "렌더링 모드"))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),

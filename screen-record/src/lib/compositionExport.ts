@@ -1,19 +1,19 @@
 import { invoke } from "@/lib/ipc";
 import {
-  clamp,
   computeSuggestedVideoBitrateKbps,
   getCanvasBaseDimensions,
   MAX_VIDEO_BITRATE_KBPS,
   MIN_VIDEO_BITRATE_KBPS,
   resolveExportDimensions,
 } from "@/lib/exportEstimator";
+import { clamp } from "@/lib/mathUtils";
 import {
   getCompositionAutoSourceClipId,
   getCompositionClip,
   getCompositionResolvedBackgroundConfig,
 } from "@/lib/projectComposition";
-import { getCursorAssetUrl } from "@/lib/renderer/cursorAssets";
-import { getCursorPack } from "@/lib/renderer/cursorTypes";
+import { stageBrowserCursorSlotTiles } from "@/lib/exporterCursorTiles";
+import { stageFramesInChunks } from "@/lib/exportStaging";
 import { buildSequenceTimeline, mergeCompositionSegmentsToSequence } from "@/lib/sequenceTimeline";
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from "@/lib/trimSegments";
 import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
@@ -27,52 +27,6 @@ import type {
   VideoSegment,
   WebcamConfig,
 } from "@/types/video";
-
-type CursorPackSlug =
-  | "screenstudio"
-  | "macos26"
-  | "sgtcute"
-  | "sgtcool"
-  | "sgtai"
-  | "sgtpixel"
-  | "jepriwin11"
-  | "sgtwatermelon"
-  | "sgtfastfood"
-  | "sgtveggie"
-  | "sgtvietnam"
-  | "sgtkorea";
-
-const CURSOR_TYPES_ORDER = [
-  "default",
-  "text",
-  "pointer",
-  "openhand",
-  "closehand",
-  "wait",
-  "appstarting",
-  "crosshair",
-  "resize-ns",
-  "resize-we",
-  "resize-nwse",
-  "resize-nesw",
-] as const;
-
-const CURSOR_PACK_ORDER: CursorPackSlug[] = [
-  "screenstudio",
-  "macos26",
-  "sgtcute",
-  "sgtcool",
-  "sgtai",
-  "sgtpixel",
-  "jepriwin11",
-  "sgtwatermelon",
-  "sgtfastfood",
-  "sgtveggie",
-  "sgtvietnam",
-  "sgtkorea",
-];
-
-const CURSOR_TILE_SIZE = 512;
 
 interface NativeVideoMetadataProbe {
   width: number;
@@ -158,88 +112,6 @@ async function probeVideoMetadata(
   path: string,
 ): Promise<NativeVideoMetadataProbe> {
   return invoke<NativeVideoMetadataProbe>("probe_video_metadata", { path });
-}
-
-function buildCursorSlotId(pack: CursorPackSlug, typeIndex: number): number {
-  const packIndex = CURSOR_PACK_ORDER.indexOf(pack);
-  if (packIndex < 0) return -1;
-  return packIndex * CURSOR_TYPES_ORDER.length + typeIndex;
-}
-
-async function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(`Failed to load ${src}`));
-    image.src = src;
-  });
-}
-
-async function buildCursorSlotTilePayload(
-  pack: CursorPackSlug,
-  typeName: (typeof CURSOR_TYPES_ORDER)[number],
-  typeIndex: number,
-): Promise<{ slotId: number; pngBase64: string } | null> {
-  const slotId = buildCursorSlotId(pack, typeIndex);
-  if (slotId < 0) return null;
-
-  let image: HTMLImageElement;
-  try {
-    image = await loadImage(getCursorAssetUrl(`cursor-${typeName}-${pack}`));
-  } catch {
-    return null;
-  }
-
-  if (!image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-    return null;
-  }
-
-  const tileCanvas = document.createElement("canvas");
-  tileCanvas.width = CURSOR_TILE_SIZE;
-  tileCanvas.height = CURSOR_TILE_SIZE;
-  const tileCtx = tileCanvas.getContext("2d");
-  if (!tileCtx) return null;
-
-  tileCtx.clearRect(0, 0, CURSOR_TILE_SIZE, CURSOR_TILE_SIZE);
-  tileCtx.imageSmoothingEnabled = true;
-  tileCtx.imageSmoothingQuality = "high";
-
-  const targetMax = Math.max(image.naturalWidth, image.naturalHeight, 1);
-  const tileScale = CURSOR_TILE_SIZE / targetMax;
-  const tileW = image.naturalWidth * tileScale;
-  const tileH = image.naturalHeight * tileScale;
-  const x = (CURSOR_TILE_SIZE - tileW) * 0.5;
-  const y = (CURSOR_TILE_SIZE - tileH) * 0.5;
-  tileCtx.drawImage(image, x, y, tileW, tileH);
-
-  return {
-    slotId,
-    pngBase64: tileCanvas.toDataURL("image/png"),
-  };
-}
-
-async function stageBrowserCursorSlotTiles(
-  sessionId: string,
-  jobId: string,
-  backgroundConfig: BackgroundConfig,
-) {
-  const pack = getCursorPack(backgroundConfig) as CursorPackSlug;
-  const tiles = (
-    await Promise.all(
-      CURSOR_TYPES_ORDER.map((typeName, typeIndex) =>
-        buildCursorSlotTilePayload(pack, typeName, typeIndex),
-      ),
-    )
-  ).filter((tile): tile is { slotId: number; pngBase64: string } => Boolean(tile));
-
-  if (tiles.length === 0) return;
-
-  await invoke("stage_export_data", {
-    sessionId,
-    jobId,
-    dataType: "cursor_slots_png",
-    data: tiles,
-  });
 }
 
 function getAuthorityClip(
@@ -387,7 +259,7 @@ export async function exportCompositionAndDownload(
         metadata.duration || normalizedSegment.trimEnd,
       );
 
-      await stageBrowserCursorSlotTiles(sessionId, jobId, backgroundConfig);
+      await stageBrowserCursorSlotTiles(backgroundConfig, { sessionId, jobId });
 
       const overlayPayload = await videoRenderer.bakeOverlayAtlasAndPaths(
         normalizedSegment,
@@ -404,22 +276,10 @@ export async function exportCompositionAndDownload(
           width: overlayPayload.atlasWidth,
           height: overlayPayload.atlasHeight,
         });
-        const frameChunkSize = 1500;
-        for (
-          let frameIndex = 0;
-          frameIndex < overlayPayload.frames.length;
-          frameIndex += frameChunkSize
-        ) {
-          await invoke("stage_export_data", {
-            sessionId,
-            jobId,
-            dataType: "overlay_frames_chunk",
-            data: overlayPayload.frames.slice(
-              frameIndex,
-              frameIndex + frameChunkSize,
-            ),
-          });
-        }
+        await stageFramesInChunks(overlayPayload.frames, "overlay_frames_chunk", {
+          sessionId,
+          jobId,
+        });
       }
       if (webcamVideoPath) {
         const webcamMetadata = await probeVideoMetadata(webcamVideoPath).catch(() => null);
@@ -433,22 +293,10 @@ export async function exportCompositionAndDownload(
             : undefined,
           fps,
         );
-        const frameChunkSize = 1500;
-        for (
-          let frameIndex = 0;
-          frameIndex < bakedWebcamFrames.length;
-          frameIndex += frameChunkSize
-        ) {
-          await invoke("stage_export_data", {
-            sessionId,
-            jobId,
-            dataType: "webcam",
-            data: bakedWebcamFrames.slice(
-              frameIndex,
-              frameIndex + frameChunkSize,
-            ),
-          });
-        }
+        await stageFramesInChunks(bakedWebcamFrames, "webcam", {
+          sessionId,
+          jobId,
+        });
       }
 
       clipJobs.push({

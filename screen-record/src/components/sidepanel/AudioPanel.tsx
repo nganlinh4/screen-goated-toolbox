@@ -234,10 +234,6 @@ export function AudioPanel({
     if (targets.some((segment) => segment.kind === 'narration')) onCommitNarrationSegments?.();
   };
 
-  const finishPanelInteraction = (commit: () => void) => {
-    commit();
-  };
-
   const handleRateChange = (segment: AudioPanelSegment, rate: number) => {
     const patch = { playbackRate: clampRate(rate) };
     setSegmentDraft(segment, patch);
@@ -486,10 +482,10 @@ export function AudioPanel({
             max={segment.duration}
             step={0.01}
             value={segment.inPoint}
-            onPointerUp={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
-            onPointerCancel={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
-            onKeyUp={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
-            onBlur={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
+            onPointerUp={() => commitSegmentDraft(segment)}
+            onPointerCancel={() => commitSegmentDraft(segment)}
+            onKeyUp={() => commitSegmentDraft(segment)}
+            onBlur={() => commitSegmentDraft(segment)}
             onChange={(event) =>
               handleTrimChange(segment, {
                 inPoint: Math.min(parseFloat(event.target.value), segment.outPoint - minGap),
@@ -503,10 +499,10 @@ export function AudioPanel({
             max={segment.duration}
             step={0.01}
             value={segment.outPoint}
-            onPointerUp={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
-            onPointerCancel={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
-            onKeyUp={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
-            onBlur={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
+            onPointerUp={() => commitSegmentDraft(segment)}
+            onPointerCancel={() => commitSegmentDraft(segment)}
+            onKeyUp={() => commitSegmentDraft(segment)}
+            onBlur={() => commitSegmentDraft(segment)}
             onChange={(event) =>
               handleTrimChange(segment, {
                 outPoint: Math.max(parseFloat(event.target.value), segment.inPoint + minGap),
@@ -562,7 +558,7 @@ export function AudioPanel({
                 {renderSpeedControl(
                   bulkRate,
                   handleApplyRateToAll,
-                  () => finishPanelInteraction(commitApplyRateToAll),
+                  () => commitApplyRateToAll(),
                   t.audioPanelBulkSpeed,
                 )}
               </div>
@@ -579,7 +575,7 @@ export function AudioPanel({
                 {renderSpeedControl(
                   getEffectiveSegment(selected[0]).playbackRate ?? 1,
                   (rate) => handleRateChange(selected[0], rate),
-                  () => finishPanelInteraction(() => commitSegmentDraft(selected[0])),
+                  () => commitSegmentDraft(selected[0]),
                   t.audioPanelSpeed,
                 )}
                 {renderTrimRange(getEffectiveSegment(selected[0]))}

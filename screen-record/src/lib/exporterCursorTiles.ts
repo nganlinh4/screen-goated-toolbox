@@ -63,6 +63,11 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+// Canonical cursor atlas slot formula (packIdx * 12 + typeIdx). This is the
+// single source for slot IDs in the frontend — consumed by the export staging
+// here and by cursorAnimationCapture's CURSOR_TYPE_TO_SLOT. It MUST stay aligned
+// with the Rust mirror `cursor_type_to_id` in
+// src/overlay/screen_record/native_export/cursor.rs (same pack/type ordering).
 export function buildCursorSlotId(pack: CursorPackSlug, typeIndex: number): number {
   const packIndex = CURSOR_PACK_ORDER.indexOf(pack);
   if (packIndex < 0) return -1;
@@ -122,7 +127,10 @@ export async function buildCursorSlotTilePayload(
   };
 }
 
-export async function stageBrowserCursorSlotTiles(backgroundConfig?: BackgroundConfig) {
+export async function stageBrowserCursorSlotTiles(
+  backgroundConfig?: BackgroundConfig,
+  staging?: { sessionId: string; jobId: string },
+) {
   const pack = getCursorPack(backgroundConfig) as CursorPackSlug;
   const staged = (await Promise.all(
     CURSOR_TYPES_ORDER.map((typeName, idx) =>
@@ -130,6 +138,7 @@ export async function stageBrowserCursorSlotTiles(backgroundConfig?: BackgroundC
   )).filter((payload): payload is CursorSlotPngPayload => payload !== null);
   if (staged.length === 0) return;
   await invoke('stage_export_data', {
+    ...(staging ? { sessionId: staging.sessionId, jobId: staging.jobId } : {}),
     dataType: 'cursor_slots_png',
     data: staged,
   });

@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.preset.triLang
 import dev.screengoated.toolbox.mobile.service.overlay.overlayFontCss
 
 internal data class PresetButtonCanvasHtmlSettings(
@@ -90,11 +91,7 @@ private fun buttonCanvasIconsJson(): String {
     return org.json.JSONObject(icons).toString()
 }
 
-private fun localize(lang: String, en: String, vi: String, ko: String): String = when (lang) {
-    "vi" -> vi
-    "ko" -> ko
-    else -> en
-}
+private fun localize(lang: String, en: String, vi: String, ko: String): String = triLang(lang, en, vi, ko)
 
 private fun windowsCanvasIconSvg(name: String): String = when (name) {
     "mic" ->

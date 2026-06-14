@@ -1,5 +1,4 @@
-use crate::APP;
-use crate::api::client::UREQ_AGENT;
+use crate::api::client::{UREQ_AGENT, record_usage_simple};
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
 use anyhow::Result;
@@ -47,21 +46,7 @@ where
         .send_json(payload)
         .map_err(|e| anyhow::anyhow!("Groq Compound Refine Error: {}", e))?;
 
-    if let Some(remaining) = resp
-        .headers()
-        .get("x-ratelimit-remaining-requests")
-        .and_then(|v| v.to_str().ok())
-    {
-        let limit = resp
-            .headers()
-            .get("x-ratelimit-limit-requests")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("?");
-        let usage_str = format!("{} / {}", remaining, limit);
-        if let Ok(mut app) = APP.lock() {
-            app.model_usage_stats.insert(p_model.to_string(), usage_str);
-        }
-    }
+    record_usage_simple(resp.headers(), p_model);
 
     let json: serde_json::Value = resp.into_body().read_json()?;
     let mut full_content = String::new();

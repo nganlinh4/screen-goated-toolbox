@@ -415,7 +415,7 @@ internal class PresetOverlayController(
             } else {
                 // Click system "Copy" button to put selection into clipboard
                 svc?.eagerCaptureSelection()
-                processingIndicator.show(androidx.compose.ui.graphics.Color(0xFF5DB882))
+                processingIndicator.show(uiPreferencesProvider().themeMode, PresetStatusAccent.SUCCESS)
 
                 // Try reading clipboard via accessibility overlay (no visual artifact)
                 svc?.readClipboardAsync { overlayResult ->
@@ -629,18 +629,18 @@ internal class PresetOverlayController(
         }
         if (state.isExecuting && !hasAnyResultWindow) {
             if (!processingIndicator.isShowing) {
-                val accentColor = when (activePreset?.preset?.presetType) {
+                val accent = when (activePreset?.preset?.presetType) {
                     dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE ->
-                        androidx.compose.ui.graphics.Color(0xFF5C9CE6)
+                        PresetStatusAccent.PROCESSING
                     dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT,
                     dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT ->
-                        androidx.compose.ui.graphics.Color(0xFF5DB882)
+                        PresetStatusAccent.SUCCESS
                     dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC,
                     dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO ->
-                        androidx.compose.ui.graphics.Color(0xFFDCA850)
-                    else -> androidx.compose.ui.graphics.Color(0xFF5C9CE6)
+                        PresetStatusAccent.WARNING
+                    else -> PresetStatusAccent.PROCESSING
                 }
-                processingIndicator.show(accentColor)
+                processingIndicator.show(uiPreferencesProvider().themeMode, accent)
             }
         } else {
             processingIndicator.dismiss()

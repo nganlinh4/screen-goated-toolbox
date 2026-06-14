@@ -11,10 +11,7 @@ const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
 const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
 const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
 
-const MOD_ALT: u32 = 0x0001;
-const MOD_CONTROL: u32 = 0x0002;
-const MOD_SHIFT: u32 = 0x0004;
-const MOD_WIN: u32 = 0x0008;
+use crate::hotkey::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
 pub(super) fn trigger_hotkey_reload() {
     unsafe {

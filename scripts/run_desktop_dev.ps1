@@ -47,6 +47,7 @@ try {
         Build-And-CopyFrontend ".\promptdj-midi" ".\src\overlay\prompt_dj\dist"
         Build-And-CopyFrontend ".\translation-gummy-ui" ".\src\overlay\translation_gummy\dist"
         Build-And-CopyFrontend ".\screen-record" ".\src\overlay\screen_record\dist"
+        Build-And-CopyFrontend ".\tts-playground-ui" ".\src\overlay\tts_playground\dist"
     }
 
     cargo run

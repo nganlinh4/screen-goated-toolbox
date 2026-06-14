@@ -118,6 +118,25 @@ export function getCosineInterpolatedValueAtTime<T extends TimePoint>({
   return getValue(left) + (getValue(right) - getValue(left)) * cosT;
 }
 
+/**
+ * Samples a volume envelope (cosine-interpolated control points) at `time`,
+ * preserving the semantics shared by the audio track waveforms and the audio
+ * playback engine: an empty envelope is treated as full volume (1), and the
+ * sampled value is clamped to [0, 1].
+ */
+export function getVolumeEnvelopeAtTime(
+  time: number,
+  points: Array<{ time: number; volume: number }> | undefined | null,
+): number {
+  if (!points || points.length === 0) return 1;
+  const value = getCosineInterpolatedValueAtTime({
+    points,
+    time,
+    getValue: (point) => point.volume,
+  });
+  return clamp(value, 0, 1);
+}
+
 export function getAdjacentSegmentIndicesAtTime<T extends TimePoint>({
   points,
   time,

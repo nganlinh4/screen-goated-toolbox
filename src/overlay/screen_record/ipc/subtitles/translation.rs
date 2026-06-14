@@ -1,6 +1,7 @@
 mod chunking;
 mod diagnostics;
 mod models;
+mod retry;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,15 +10,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::config::Config;
 use crate::model_config::ModelConfig;
 
-use self::chunking::{
-    initial_translation_chunk_count, sleep_cancelable, split_translation_items,
-    translation_retry_delay,
-};
+use self::chunking::{initial_translation_chunk_count, split_translation_items};
 use self::diagnostics::{TranslationDiagnostics, TranslationStartLog};
 use self::models::{
     collect_prioritized_translation_models, collect_translation_models, current_config,
     localized_model_label,
 };
+use self::retry::{AttemptModelArgs, AttemptOutcome, attempt_model};
+use super::super::job_registry::{self, JobHandle};
 use super::translation_providers::{
     TranslationConversationTurn, translate_subtitle_chunk, translate_subtitle_chunk_with_gtx,
 };
@@ -32,17 +32,13 @@ const TRANSLATION_RETRY_BASE_DELAY_MS: u64 = 3_000;
 const GTX_TRANSLATION_MODEL_ID: &str = "gtx";
 const GTX_TRANSLATION_MODEL_LABEL: &str = "GTX";
 
-#[derive(Clone)]
-struct SubtitleTranslationJobHandle {
-    snapshot: Arc<Mutex<SubtitleTranslationJobSnapshot>>,
-    cancelled: Arc<AtomicBool>,
-}
+static SUBTITLE_TRANSLATION_JOBS: OnceLock<
+    Mutex<HashMap<String, JobHandle<SubtitleTranslationJobSnapshot>>>,
+> = OnceLock::new();
 
-static SUBTITLE_TRANSLATION_JOBS: OnceLock<Mutex<HashMap<String, SubtitleTranslationJobHandle>>> =
-    OnceLock::new();
-
-fn subtitle_translation_jobs() -> &'static Mutex<HashMap<String, SubtitleTranslationJobHandle>> {
-    SUBTITLE_TRANSLATION_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
+fn subtitle_translation_jobs()
+-> &'static Mutex<HashMap<String, JobHandle<SubtitleTranslationJobSnapshot>>> {
+    job_registry::registry(&SUBTITLE_TRANSLATION_JOBS)
 }
 
 pub fn handle_start_subtitle_translation(
@@ -50,7 +46,7 @@ pub fn handle_start_subtitle_translation(
 ) -> Result<serde_json::Value, String> {
     let request: SubtitleTranslationRequest = serde_json::from_value(args.clone())
         .map_err(|error| format!("Invalid subtitle translation request: {error}"))?;
-    let job_id = uuid();
+    let job_id = job_registry::uuid("subtitle-translation");
     let snapshot = Arc::new(Mutex::new(SubtitleTranslationJobSnapshot {
         state: "queued".to_string(),
         message: "Queued subtitle translation".to_string(),
@@ -64,7 +60,7 @@ pub fn handle_start_subtitle_translation(
         .map_err(|_| "Subtitle translation jobs lock poisoned".to_string())?
         .insert(
             job_id.clone(),
-            SubtitleTranslationJobHandle {
+            JobHandle {
                 snapshot: snapshot.clone(),
                 cancelled: cancelled.clone(),
             },
@@ -334,91 +330,29 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
             .to_string();
 
     if gtx_selected {
-        update_translation_snapshot(snapshot, |locked| {
-            locked.current_model_id = Some(GTX_TRANSLATION_MODEL_ID.to_string());
-            locked.current_model_label = Some(GTX_TRANSLATION_MODEL_LABEL.to_string());
-            locked.current_chunk_count = *total_groups;
-            locked.current_chunk_index = *completed_groups + 1;
-            locked.total_chunks = *total_groups;
-            locked.progress = translated_results.len() as f64 / total_items.max(1) as f64;
-            locked.results = translated_results.clone();
-            locked.message = format!(
-                "Translating subtitles with {} ({}/{})",
-                GTX_TRANSLATION_MODEL_LABEL,
-                *completed_groups + 1,
-                *total_groups
-            );
-            locked.message_key = Some("subtitleTranslationStatusChunk".to_string());
-            locked.message_params = HashMap::from([
-                ("model".to_string(), GTX_TRANSLATION_MODEL_LABEL.to_string()),
-                ("current".to_string(), (*completed_groups + 1).to_string()),
-                ("total".to_string(), total_groups.to_string()),
-            ]);
-        })?;
-        for attempt_index in 0..TRANSLATION_MODEL_ATTEMPTS {
-            if cancelled.load(Ordering::SeqCst) {
-                return Ok(());
-            }
-            if attempt_index > 0 {
-                let delay = translation_retry_delay(attempt_index);
-                update_translation_snapshot(snapshot, |locked| {
-                    locked.message = format!(
-                        "Retrying subtitle translation with {} ({}/{}, attempt {}/{})",
-                        GTX_TRANSLATION_MODEL_LABEL,
-                        *completed_groups + 1,
-                        *total_groups,
-                        attempt_index + 1,
-                        TRANSLATION_MODEL_ATTEMPTS
-                    );
-                    locked.message_key = Some("subtitleTranslationStatusRetry".to_string());
-                    locked.message_params = HashMap::from([
-                        ("model".to_string(), GTX_TRANSLATION_MODEL_LABEL.to_string()),
-                        ("current".to_string(), (*completed_groups + 1).to_string()),
-                        ("total".to_string(), total_groups.to_string()),
-                        ("attempt".to_string(), (attempt_index + 1).to_string()),
-                        (
-                            "attempts".to_string(),
-                            TRANSLATION_MODEL_ATTEMPTS.to_string(),
-                        ),
-                    ]);
-                })?;
-                sleep_cancelable(cancelled, delay);
-                if cancelled.load(Ordering::SeqCst) {
-                    return Ok(());
-                }
-            }
-            match translate_subtitle_chunk_with_gtx(target_language, &group) {
-                Ok(response) => {
-                    diagnostics.record_success(
-                        GTX_TRANSLATION_MODEL_ID,
-                        group.len(),
-                        attempt_index + 1,
-                    );
-                    history.push(TranslationConversationTurn {
-                        user_payload: response.user_payload,
-                        assistant_payload: response.assistant_payload,
-                    });
-                    translated_results.extend(response.items);
-                    *completed_groups += 1;
-                    update_translation_snapshot(snapshot, |locked| {
-                        locked.progress =
-                            translated_results.len() as f64 / total_items.max(1) as f64;
-                        locked.results = translated_results.clone();
-                    })?;
-                    return Ok(());
-                }
-                Err(error) => {
-                    diagnostics.record_failure(
-                        GTX_TRANSLATION_MODEL_ID,
-                        GTX_TRANSLATION_MODEL_LABEL,
-                        attempt_index + 1,
-                        group.len(),
-                        history.len(),
-                        &error,
-                    );
-                    last_error = error;
-                }
-            }
+        let mut gtx_fn =
+            |group: &[SubtitleTranslationItemRequest], _history: &[TranslationConversationTurn]| {
+                translate_subtitle_chunk_with_gtx(target_language, group)
+            };
+        match attempt_model(
+            AttemptModelArgs {
+                model_id: GTX_TRANSLATION_MODEL_ID,
+                model_label: GTX_TRANSLATION_MODEL_LABEL,
+                group: &group,
+                history,
+                translated_results,
+                snapshot,
+                cancelled,
+                total_items,
+                total_groups: *total_groups,
+                completed_groups,
+                diagnostics,
+                last_error: &mut last_error,
+            },
+            &mut gtx_fn,
+        )? {
+            AttemptOutcome::Succeeded | AttemptOutcome::Cancelled => return Ok(()),
+            AttemptOutcome::Failed => {}
         }
         if !smart_fallback {
             // Keep retry/split behavior, but do not switch away from the chosen GTX model.
@@ -434,96 +368,36 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         }
 
         let model_label = localized_model_label(model, &config.ui_language);
-        update_translation_snapshot(snapshot, |locked| {
-            locked.current_model_id = Some(model.id.clone());
-            locked.current_model_label = Some(model_label.clone());
-            locked.current_chunk_count = *total_groups;
-            locked.current_chunk_index = *completed_groups + 1;
-            locked.total_chunks = *total_groups;
-            locked.progress = translated_results.len() as f64 / total_items.max(1) as f64;
-            locked.results = translated_results.clone();
-            locked.message = format!(
-                "Translating subtitles with {} ({}/{})",
-                model_label,
-                *completed_groups + 1,
-                *total_groups
-            );
-            locked.message_key = Some("subtitleTranslationStatusChunk".to_string());
-            locked.message_params = HashMap::from([
-                ("model".to_string(), model_label.clone()),
-                ("current".to_string(), (*completed_groups + 1).to_string()),
-                ("total".to_string(), total_groups.to_string()),
-            ]);
-        })?;
-
-        for attempt_index in 0..TRANSLATION_MODEL_ATTEMPTS {
-            if cancelled.load(Ordering::SeqCst) {
-                return Ok(());
-            }
-            if attempt_index > 0 {
-                let delay = translation_retry_delay(attempt_index);
-                update_translation_snapshot(snapshot, |locked| {
-                    locked.message = format!(
-                        "Retrying subtitle translation with {} ({}/{}, attempt {}/{})",
-                        model_label,
-                        *completed_groups + 1,
-                        *total_groups,
-                        attempt_index + 1,
-                        TRANSLATION_MODEL_ATTEMPTS
-                    );
-                    locked.message_key = Some("subtitleTranslationStatusRetry".to_string());
-                    locked.message_params = HashMap::from([
-                        ("model".to_string(), model_label.clone()),
-                        ("current".to_string(), (*completed_groups + 1).to_string()),
-                        ("total".to_string(), total_groups.to_string()),
-                        ("attempt".to_string(), (attempt_index + 1).to_string()),
-                        (
-                            "attempts".to_string(),
-                            TRANSLATION_MODEL_ATTEMPTS.to_string(),
-                        ),
-                    ]);
-                })?;
-                sleep_cancelable(cancelled, delay);
-                if cancelled.load(Ordering::SeqCst) {
-                    return Ok(());
-                }
-            }
-
-            match translate_subtitle_chunk(
-                config,
-                model,
-                target_language,
-                instructions,
-                &group,
+        let mut model_fn =
+            |group: &[SubtitleTranslationItemRequest], history: &[TranslationConversationTurn]| {
+                translate_subtitle_chunk(
+                    config,
+                    model,
+                    target_language,
+                    instructions,
+                    group,
+                    history,
+                )
+            };
+        match attempt_model(
+            AttemptModelArgs {
+                model_id: &model.id,
+                model_label: &model_label,
+                group: &group,
                 history,
-            ) {
-                Ok(response) => {
-                    diagnostics.record_success(&model.id, group.len(), attempt_index + 1);
-                    history.push(TranslationConversationTurn {
-                        user_payload: response.user_payload,
-                        assistant_payload: response.assistant_payload,
-                    });
-                    translated_results.extend(response.items);
-                    *completed_groups += 1;
-                    update_translation_snapshot(snapshot, |locked| {
-                        locked.progress =
-                            translated_results.len() as f64 / total_items.max(1) as f64;
-                        locked.results = translated_results.clone();
-                    })?;
-                    return Ok(());
-                }
-                Err(error) => {
-                    diagnostics.record_failure(
-                        &model.id,
-                        &model_label,
-                        attempt_index + 1,
-                        group.len(),
-                        history.len(),
-                        &error,
-                    );
-                    last_error = error;
-                }
-            }
+                translated_results,
+                snapshot,
+                cancelled,
+                total_items,
+                total_groups: *total_groups,
+                completed_groups,
+                diagnostics,
+                last_error: &mut last_error,
+            },
+            &mut model_fn,
+        )? {
+            AttemptOutcome::Succeeded | AttemptOutcome::Cancelled => return Ok(()),
+            AttemptOutcome::Failed => {}
         }
     }
 
@@ -582,12 +456,4 @@ fn update_translation_snapshot(
         .map_err(|_| "Subtitle translation snapshot lock poisoned".to_string())?;
     updater(&mut locked);
     Ok(())
-}
-
-fn uuid() -> String {
-    format!(
-        "subtitle-translation-{}-{}",
-        chrono::Utc::now().timestamp_millis(),
-        std::process::id()
-    )
 }

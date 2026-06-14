@@ -10,36 +10,23 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.annotation.DrawableRes
 import androidx.compose.ui.res.painterResource
 import dev.screengoated.toolbox.mobile.R
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -54,9 +41,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
-import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
-import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
-import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 private data class ProviderDef(
@@ -355,263 +339,5 @@ internal fun VoiceSettingsCard(
                 accent = accent,
             )
         }
-    }
-}
-
-@Composable
-internal fun PresetRuntimeCard(
-    settings: PresetRuntimeSettings,
-    locale: MobileLocaleText,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-        ) {
-            GradientMaskedIcon(
-                R.drawable.ms_settings,
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.tertiary,
-                        MaterialTheme.colorScheme.primary,
-                    ),
-                ),
-                modifier = Modifier.size(22.dp),
-            )
-            Text(
-                text = locale.presetRuntimeButton,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            FilledTonalButton(
-                onClick = onClick,
-                shape = CircleShape,
-            ) {
-                Text(
-                    text = locale.presetRuntimeSettingsAction,
-                    style = MaterialTheme.typography.labelMediumEmphasized,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-internal fun LiveControlCard(
-    state: LiveSessionState,
-    locale: MobileLocaleText,
-    onSessionToggle: () -> Unit,
-    canToggle: Boolean,
-) {
-    val isRunning = state.phase in setOf(
-        SessionPhase.STARTING,
-        SessionPhase.LISTENING,
-        SessionPhase.TRANSLATING,
-    )
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = if (isRunning) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
-            },
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-        ) {
-            GradientMaskedIcon(
-                LiveTranslateVisuals.icon,
-                if (isRunning) {
-                    Brush.linearGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.secondary,
-                            MaterialTheme.colorScheme.tertiary,
-                        ),
-                    )
-                } else {
-                    Brush.linearGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.tertiary,
-                            MaterialTheme.colorScheme.primary,
-                        ),
-                    )
-                },
-                modifier = Modifier.size(24.dp),
-            )
-            Text(
-                text = locale.shellLiveTitle,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (isRunning) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                modifier = Modifier.weight(1f),
-            )
-            Button(
-                onClick = onSessionToggle,
-                enabled = canToggle,
-                shape = CircleShape,
-                colors = if (isRunning) {
-                    ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                    )
-                } else {
-                    ButtonDefaults.buttonColors()
-                },
-            ) {
-                Icon(
-                    painterResource(if (isRunning) R.drawable.ms_stop else R.drawable.ms_play_arrow),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.padding(start = ButtonDefaults.IconSpacing))
-                Text(
-                    text = if (state.phase in setOf(SessionPhase.STOPPED, SessionPhase.IDLE, SessionPhase.ERROR, SessionPhase.AWAITING_PERMISSIONS)) locale.turnOn else locale.turnOff,
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-internal fun UsageStatsCard(
-    locale: MobileLocaleText,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-        ) {
-            GradientMaskedIcon(
-                R.drawable.ms_bar_chart,
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.secondary,
-                    ),
-                ),
-                modifier = Modifier.size(22.dp),
-            )
-            Text(
-                text = locale.usageStatsButton,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            FilledTonalButton(
-                onClick = onClick,
-                shape = CircleShape,
-            ) {
-                Text(
-                    text = locale.usageStatsSettingsAction,
-                    style = MaterialTheme.typography.labelMediumEmphasized,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-internal fun ResetDefaultsCard(
-    locale: MobileLocaleText,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var showConfirm by remember { mutableStateOf(false) }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val doneMsg = locale.resetDefaultsDoneMessage()
-
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-        ) {
-            Icon(
-                painterResource(R.drawable.ms_settings_backup_restore),
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-                tint = MaterialTheme.colorScheme.error,
-            )
-            Text(
-                text = locale.resetDefaultsButton,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            FilledTonalButton(
-                onClick = {
-                    showConfirm = true
-                },
-                shape = CircleShape,
-            ) {
-                Text(
-                    text = locale.resetDefaultsAction,
-                    style = MaterialTheme.typography.labelMediumEmphasized,
-                )
-            }
-        }
-    }
-
-    if (showConfirm) {
-        AlertDialog(
-            onDismissRequest = { showConfirm = false },
-            title = { Text(locale.resetDefaultsConfirmTitle) },
-            text = { Text(locale.resetDefaultsConfirmMessage) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showConfirm = false
-                        onClick()
-                        android.widget.Toast.makeText(context, doneMsg, android.widget.Toast.LENGTH_SHORT).show()
-                    },
-                ) {
-                    Text(locale.resetDefaultsAction)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showConfirm = false }) {
-                    Text(locale.closeLabel)
-                }
-            },
-        )
     }
 }

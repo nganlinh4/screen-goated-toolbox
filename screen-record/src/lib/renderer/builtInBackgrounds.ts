@@ -9,7 +9,7 @@ import {
   type LinearBackgroundPreset,
   type StackedRadialBackgroundPreset,
 } from '@/lib/backgroundPresets';
-import { clamp01, hexToLinear, linearToSrgb, mix, smoothstep } from './gradientMath';
+import { clamp01, hashNoise, hexToLinear, linearToSrgb, mix, parseHexChannels, smoothstep } from './gradientMath';
 import { getBuiltInBackgroundRenderSize, setCachedBuiltInBackground } from './builtInBackgroundPreview';
 import {
   fillMatteCollageBackgroundPixels,
@@ -54,10 +54,7 @@ function fillLinearBackground(
 }
 
 function hexToRgba(hex: string, alpha: number): string {
-  const raw = hex.replace('#', '');
-  const r = parseInt(raw.slice(0, 2), 16);
-  const g = parseInt(raw.slice(2, 4), 16);
-  const b = parseInt(raw.slice(4, 6), 16);
+  const [r, g, b] = parseHexChannels(hex);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
@@ -144,9 +141,7 @@ function fillDiagonalGlowBackgroundPixels(
       litB = mix(litB, litB * 0.82, vignette);
 
       if (preset.noiseIntensity > 0) {
-        const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
-        const noiseUnit = noiseSeed - Math.floor(noiseSeed);
-        const noise = (noiseUnit - 0.5) * (preset.noiseIntensity / 255.0);
+        const noise = (hashNoise(x, y) - 0.5) * (preset.noiseIntensity / 255.0);
         litR += noise;
         litG += noise;
         litB += noise;
@@ -261,9 +256,7 @@ function fillEdgeRibbonBackgroundPixels(
       litB = mix(litB, litB * 0.82, vignette);
 
       if (preset.noiseIntensity > 0) {
-        const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
-        const noiseUnit = noiseSeed - Math.floor(noiseSeed);
-        const noise = (noiseUnit - 0.5) * (preset.noiseIntensity / 255.0);
+        const noise = (hashNoise(x, y) - 0.5) * (preset.noiseIntensity / 255.0);
         litR += noise;
         litG += noise;
         litB += noise;

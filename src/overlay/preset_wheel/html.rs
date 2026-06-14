@@ -3,14 +3,7 @@
 use super::script::get_js;
 use super::state::WheelEntry;
 use super::styles::generate_css;
-
-fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
-}
+use crate::overlay::utils::escape_html;
 
 fn calculate_row_distribution(n: usize) -> Vec<usize> {
     if n == 0 {

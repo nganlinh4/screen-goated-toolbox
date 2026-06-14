@@ -292,10 +292,10 @@ pub fn are_modifiers_still_held() -> bool {
     if let Some((modifiers, _vk_code)) = hotkey {
         unsafe {
             // Check each modifier
-            let alt_required = (modifiers & 0x0001) != 0; // MOD_ALT
-            let ctrl_required = (modifiers & 0x0002) != 0; // MOD_CONTROL
-            let shift_required = (modifiers & 0x0004) != 0; // MOD_SHIFT
-            let win_required = (modifiers & 0x0008) != 0; // MOD_WIN
+            let alt_required = (modifiers & crate::hotkey::MOD_ALT) != 0;
+            let ctrl_required = (modifiers & crate::hotkey::MOD_CONTROL) != 0;
+            let shift_required = (modifiers & crate::hotkey::MOD_SHIFT) != 0;
+            let win_required = (modifiers & crate::hotkey::MOD_WIN) != 0;
 
             let alt_held = (GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0;
             let ctrl_held = (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;

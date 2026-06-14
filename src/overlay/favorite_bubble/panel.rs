@@ -72,11 +72,7 @@ pub fn show_panel(bubble_hwnd: HWND) {
                 }
             });
         } else if let Ok(app) = APP.lock() {
-            let is_dark = match app.config.theme_mode {
-                crate::config::ThemeMode::Dark => true,
-                crate::config::ThemeMode::Light => false,
-                crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-            };
+            let is_dark = app.config.theme_mode.is_dark();
 
             refresh_panel_layout_and_content(
                 bubble_hwnd,

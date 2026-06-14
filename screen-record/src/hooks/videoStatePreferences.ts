@@ -3,6 +3,7 @@ import {
   AutoZoomConfig,
   DEFAULT_AUTO_ZOOM_CONFIG,
 } from "@/types/video";
+import { createPersistedSetting } from "@/lib/persistedState";
 
 export const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const KEYSTROKE_DELAY_KEY = "screen-record-keystroke-delay-v1";
@@ -45,47 +46,75 @@ export function summarizeLoadedBackground(backgroundConfig: BackgroundConfig | n
     : null;
 }
 
-export function getSavedKeystrokeDelaySec(): number {
-  try {
-    const raw = localStorage.getItem(KEYSTROKE_DELAY_KEY);
+const keystrokeDelaySetting = createPersistedSetting<number>(KEYSTROKE_DELAY_KEY, {
+  parse: (raw) => {
     if (raw === null) return DEFAULT_KEYSTROKE_DELAY_SEC;
     const n = Number(raw);
     if (!Number.isFinite(n)) return DEFAULT_KEYSTROKE_DELAY_SEC;
     return Math.max(-1, Math.min(1, n));
-  } catch {
-    return DEFAULT_KEYSTROKE_DELAY_SEC;
-  }
-}
+  },
+  serialize: (value) => String(value),
+  fallback: DEFAULT_KEYSTROKE_DELAY_SEC,
+});
 
-export function getSavedKeystrokeLanguage(): KeystrokeLanguage {
-  try {
-    const raw = localStorage.getItem(KEYSTROKE_LANGUAGE_KEY);
+const keystrokeLanguageSetting = createPersistedSetting<KeystrokeLanguage>(KEYSTROKE_LANGUAGE_KEY, {
+  parse: (raw) => {
     if (raw && (VALID_KEYSTROKE_LANGUAGES as readonly string[]).includes(raw)) {
       return raw as KeystrokeLanguage;
     }
-  } catch {
-    /* ignore */
-  }
-  return "en";
+    return "en";
+  },
+  serialize: (value) => value,
+  fallback: "en",
+});
+
+const keystrokeModeSetting = createPersistedSetting<"off" | "keyboard" | "keyboardMouse">(
+  KEYSTROKE_MODE_PREF_KEY,
+  {
+    parse: (raw) => {
+      if (raw === "keyboard" || raw === "keyboardMouse" || raw === "off") return raw;
+      return "off";
+    },
+    serialize: (value) => value,
+    fallback: "off",
+  },
+);
+
+const keystrokeOverlaySetting = createPersistedSetting<{ x: number; y: number; scale: number }>(
+  KEYSTROKE_OVERLAY_PREF_KEY,
+  {
+    parse: (raw) => {
+      if (raw) {
+        const p = JSON.parse(raw) as Partial<{ x: number; y: number; scale: number }>;
+        if (typeof p === "object" && p !== null) {
+          return {
+            x: typeof p.x === "number" ? p.x : 50,
+            y: typeof p.y === "number" ? p.y : 100,
+            scale: typeof p.scale === "number" ? p.scale : 1,
+          };
+        }
+      }
+      return { x: 50, y: 100, scale: 1 };
+    },
+    serialize: (value) => JSON.stringify(value),
+    fallback: { x: 50, y: 100, scale: 1 },
+  },
+);
+
+export function getSavedKeystrokeDelaySec(): number {
+  return keystrokeDelaySetting.getInitial();
+}
+
+export function getSavedKeystrokeLanguage(): KeystrokeLanguage {
+  return keystrokeLanguageSetting.getInitial();
 }
 
 export function saveKeystrokeLanguage(lang: KeystrokeLanguage): void {
-  try {
-    localStorage.setItem(KEYSTROKE_LANGUAGE_KEY, lang);
-  } catch {
-    /* ignore */
-  }
+  keystrokeLanguageSetting.persist(lang);
 }
 
 export function getSavedKeystrokeModePref(): "off" | "keyboard" | "keyboardMouse" {
-  try {
-    const raw = localStorage.getItem(KEYSTROKE_MODE_PREF_KEY);
-    if (raw === "keyboard" || raw === "keyboardMouse" || raw === "off")
-      return raw;
-  } catch {
-    /* ignore */
-  }
-  return "off";
+  return keystrokeModeSetting.getInitial();
 }
 
 export function getSavedKeystrokeOverlayPref(): {
@@ -93,26 +122,7 @@ export function getSavedKeystrokeOverlayPref(): {
   y: number;
   scale: number;
 } {
-  try {
-    const raw = localStorage.getItem(KEYSTROKE_OVERLAY_PREF_KEY);
-    if (raw) {
-      const p = JSON.parse(raw) as Partial<{
-        x: number;
-        y: number;
-        scale: number;
-      }>;
-      if (typeof p === "object" && p !== null) {
-        return {
-          x: typeof p.x === "number" ? p.x : 50,
-          y: typeof p.y === "number" ? p.y : 100,
-          scale: typeof p.scale === "number" ? p.scale : 1,
-        };
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return { x: 50, y: 100, scale: 1 };
+  return keystrokeOverlaySetting.getInitial();
 }
 
 export function normalizeCropRect(
@@ -143,51 +153,28 @@ export function normalizeCropRect(
   return { x, y, width, height };
 }
 
-export function getSavedCropPref(): CropRect | undefined {
-  try {
-    const raw = localStorage.getItem(CROP_PREF_KEY);
+const cropPrefSetting = createPersistedSetting<CropRect | undefined>(CROP_PREF_KEY, {
+  parse: (raw) => {
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as Partial<CropRect>;
     return normalizeCropRect(parsed);
-  } catch {
-    return undefined;
-  }
-}
-
-export function saveCropPref(crop: CropRect | undefined): void {
-  try {
+  },
+  serialize: (crop) => {
     const normalized = normalizeCropRect(crop);
-    if (!normalized) {
-      localStorage.removeItem(CROP_PREF_KEY);
-      return;
-    }
-    localStorage.setItem(CROP_PREF_KEY, JSON.stringify(normalized));
-  } catch {
-    // ignore persistence failures
-  }
-}
+    return normalized ? JSON.stringify(normalized) : null;
+  },
+  fallback: undefined,
+});
 
-export function getSavedAutoZoomPref(): boolean {
-  try {
-    const raw = localStorage.getItem(AUTO_ZOOM_PREF_KEY);
-    if (raw !== null) return raw === "1";
-  } catch {
-    /* ignore */
-  }
-  return true; // default ON for first-time users
-}
+const autoZoomPrefSetting = createPersistedSetting<boolean>(AUTO_ZOOM_PREF_KEY, {
+  // default ON for first-time users
+  parse: (raw) => (raw !== null ? raw === "1" : true),
+  serialize: (enabled) => (enabled ? "1" : "0"),
+  fallback: true,
+});
 
-export function saveAutoZoomPref(enabled: boolean): void {
-  try {
-    localStorage.setItem(AUTO_ZOOM_PREF_KEY, enabled ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
-}
-
-export function getSavedAutoZoomConfig(): AutoZoomConfig {
-  try {
-    const raw = localStorage.getItem(AUTO_ZOOM_CONFIG_KEY);
+const autoZoomConfigSetting = createPersistedSetting<AutoZoomConfig>(AUTO_ZOOM_CONFIG_KEY, {
+  parse: (raw) => {
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
@@ -196,37 +183,21 @@ export function getSavedAutoZoomConfig(): AutoZoomConfig {
         speedSensitivity: typeof parsed.speedSensitivity === "number" ? parsed.speedSensitivity : DEFAULT_AUTO_ZOOM_CONFIG.speedSensitivity,
       };
     }
-  } catch { /* ignore */ }
-  return { ...DEFAULT_AUTO_ZOOM_CONFIG };
-}
+    return { ...DEFAULT_AUTO_ZOOM_CONFIG };
+  },
+  serialize: (config) => JSON.stringify(config),
+  fallback: { ...DEFAULT_AUTO_ZOOM_CONFIG },
+});
 
-export function saveAutoZoomConfig(config: AutoZoomConfig): void {
-  try {
-    localStorage.setItem(AUTO_ZOOM_CONFIG_KEY, JSON.stringify(config));
-  } catch { /* ignore */ }
-}
+const smartPointerPrefSetting = createPersistedSetting<boolean>(SMART_POINTER_PREF_KEY, {
+  // default ON for first-time users
+  parse: (raw) => (raw !== null ? raw === "1" : true),
+  serialize: (enabled) => (enabled ? "1" : "0"),
+  fallback: true,
+});
 
-export function getSavedSmartPointerPref(): boolean {
-  try {
-    const raw = localStorage.getItem(SMART_POINTER_PREF_KEY);
-    if (raw !== null) return raw === "1";
-  } catch {
-    /* ignore */
-  }
-  return true; // default ON for first-time users
-}
-
-export function saveSmartPointerPref(enabled: boolean): void {
-  try {
-    localStorage.setItem(SMART_POINTER_PREF_KEY, enabled ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
-}
-
-export function getSavedExportFpsPref(): number {
-  try {
-    const raw = localStorage.getItem(EXPORT_FPS_PREF_KEY);
+const exportFpsPrefSetting = createPersistedSetting<number>(EXPORT_FPS_PREF_KEY, {
+  parse: (raw) => {
     if (raw === null) return DEFAULT_EXPORT_FPS;
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return DEFAULT_EXPORT_FPS;
@@ -235,7 +206,43 @@ export function getSavedExportFpsPref(): number {
       return DEFAULT_EXPORT_FPS;
     }
     return rounded;
-  } catch {
-    return DEFAULT_EXPORT_FPS;
-  }
+  },
+  serialize: (value) => String(value),
+  fallback: DEFAULT_EXPORT_FPS,
+});
+
+export function getSavedCropPref(): CropRect | undefined {
+  return cropPrefSetting.getInitial();
+}
+
+export function saveCropPref(crop: CropRect | undefined): void {
+  cropPrefSetting.persist(crop);
+}
+
+export function getSavedAutoZoomPref(): boolean {
+  return autoZoomPrefSetting.getInitial();
+}
+
+export function saveAutoZoomPref(enabled: boolean): void {
+  autoZoomPrefSetting.persist(enabled);
+}
+
+export function getSavedAutoZoomConfig(): AutoZoomConfig {
+  return autoZoomConfigSetting.getInitial();
+}
+
+export function saveAutoZoomConfig(config: AutoZoomConfig): void {
+  autoZoomConfigSetting.persist(config);
+}
+
+export function getSavedSmartPointerPref(): boolean {
+  return smartPointerPrefSetting.getInitial();
+}
+
+export function saveSmartPointerPref(enabled: boolean): void {
+  smartPointerPrefSetting.persist(enabled);
+}
+
+export function getSavedExportFpsPref(): number {
+  return exportFpsPrefSetting.getInitial();
 }

@@ -205,7 +205,7 @@ fn synthesize_step_audio(
             "Step Audio cloned voice needs the exact reference transcript. Use Auto recognize in the Reference voice library or enter it manually."
         );
     }
-    let output_wav_path = step_audio_temp_wav_path(request.req._id)?;
+    let output_wav_path = super::sidecar::temp_wav_path("step-audio", request.req._id)?;
     let sidecar_request = StepAudioSidecarRequest {
         id: request.req._id.to_string(),
         operation: "clone".to_string(),
@@ -266,7 +266,7 @@ pub fn synthesize_step_audio_edit_to_wav(
 ) -> Result<crate::api::tts::types::TtsCollectedAudio> {
     ensure_step_audio_ready()?;
     let request_id = crate::api::tts::manager::next_request_id_for_internal_use();
-    let output_wav_path = step_audio_temp_wav_path(request_id)?;
+    let output_wav_path = super::sidecar::temp_wav_path("step-audio", request_id)?;
     let sidecar_request = StepAudioSidecarRequest {
         id: request_id.to_string(),
         operation: "edit".to_string(),
@@ -405,13 +405,7 @@ fn run_sidecar_once(
     };
     let response: StepAudioSidecarResponse = serde_json::from_str(line.trim())
         .map_err(|err| anyhow!("Step Audio sidecar returned invalid JSON: {err}. stdout={line}"))?;
-    if !response.id.is_empty() && response.id != request_id {
-        bail!(
-            "Step Audio sidecar response id mismatch: expected {}, got {}",
-            request_id,
-            response.id
-        );
-    }
+    super::sidecar::check_response_id("Step Audio", request_id, &response.id)?;
     Ok(response)
 }
 
@@ -502,15 +496,6 @@ fn format_step_audio_stderr_tail(stderr_tail: &Arc<Mutex<VecDeque<String>>>) -> 
         let _ = write!(out, "\n  {line}");
     }
     out
-}
-
-fn step_audio_temp_wav_path(req_id: u64) -> Result<std::path::PathBuf> {
-    let dir = std::env::temp_dir()
-        .join("screen-goated-toolbox")
-        .join("tts");
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create temp dir '{}'", dir.display()))?;
-    Ok(dir.join(format!("step-audio-{req_id}.wav")))
 }
 
 fn read_wav_i16(path: &std::path::Path) -> Result<(Vec<i16>, u32)> {

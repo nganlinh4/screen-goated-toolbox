@@ -72,22 +72,7 @@ const BADGE_WIDTH: i32 = 1200; // Super wide
 const BADGE_HEIGHT: i32 = 400; // Taller for stacking
 
 /// Wrapper for HWND to implement HasWindowHandle
-struct HwndWrapper(HWND);
-unsafe impl Send for HwndWrapper {}
-unsafe impl Sync for HwndWrapper {}
-
-impl raw_window_handle::HasWindowHandle for HwndWrapper {
-    fn window_handle(
-        &self,
-    ) -> std::result::Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError>
-    {
-        let raw = raw_window_handle::Win32WindowHandle::new(
-            std::num::NonZeroIsize::new(self.0.0 as isize).expect("HWND cannot be null"),
-        );
-        let handle = raw_window_handle::RawWindowHandle::Win32(raw);
-        unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }
-    }
-}
+use crate::win_types::HwndWrapper;
 
 pub fn enqueue_notification_with_duration(
     title: String,
@@ -454,11 +439,7 @@ unsafe extern "system" fn badge_wnd_proc(
         match msg {
             WM_APP_PROCESS_QUEUE => {
                 let app = APP.lock().unwrap();
-                let is_dark = match app.config.theme_mode {
-                    crate::config::ThemeMode::Dark => true,
-                    crate::config::ThemeMode::Light => false,
-                    crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-                };
+                let is_dark = app.config.theme_mode.is_dark();
                 drop(app);
 
                 // Update badge position (if screen changed?)
@@ -529,11 +510,7 @@ unsafe extern "system" fn badge_wnd_proc(
             }
             WM_APP_UPDATE_PROGRESS => {
                 let app = APP.lock().unwrap();
-                let is_dark = match app.config.theme_mode {
-                    crate::config::ThemeMode::Dark => true,
-                    crate::config::ThemeMode::Light => false,
-                    crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-                };
+                let is_dark = app.config.theme_mode.is_dark();
                 drop(app);
 
                 let screen_w = GetSystemMetrics(SM_CXSCREEN);

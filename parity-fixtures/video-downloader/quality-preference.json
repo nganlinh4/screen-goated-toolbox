@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "name": "remembered quality applies before scan",
+      "settings": {
+        "lastVideoFormat": "720p"
+      },
+      "session": {
+        "downloadType": "VIDEO",
+        "selectedFormat": null,
+        "availableFormats": [],
+        "isAnalyzing": true
+      },
+      "expected": {
+        "dropdownSelected": "720p",
+        "formatSelector": "bestvideo[height<=720]+bestaudio/best[height<=720]",
+        "startNowLabelVi": "TẢI VỀ NGAY (ưu tiên 720p hoặc thấp hơn)"
+      }
+    },
+    {
+      "name": "explicit quality overrides remembered quality",
+      "settings": {
+        "lastVideoFormat": "720p"
+      },
+      "session": {
+        "downloadType": "VIDEO",
+        "selectedFormat": "480p",
+        "availableFormats": ["1080p", "720p", "480p"],
+        "isAnalyzing": false
+      },
+      "expected": {
+        "dropdownSelected": "480p",
+        "formatSelector": "bestvideo[height<=480]+bestaudio/best[height<=480]"
+      }
+    },
+    {
+      "name": "best clears height restriction",
+      "settings": {
+        "lastVideoFormat": null
+      },
+      "session": {
+        "downloadType": "VIDEO",
+        "selectedFormat": null,
+        "availableFormats": ["1080p", "720p"],
+        "isAnalyzing": true
+      },
+      "expected": {
+        "dropdownSelected": "Best",
+        "formatSelector": "bestvideo+bestaudio/best"
+      }
+    }
+  ]
+}

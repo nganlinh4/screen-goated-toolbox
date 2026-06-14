@@ -76,6 +76,12 @@ pub struct LocaleText {
     pub text_mode_select: &'static str,
     pub text_mode_type: &'static str,
     pub continuous_input_label: &'static str, // Checkbox for continuous input mode
+    pub audio_mode_label: &'static str, // "Mode:" for audio preset operation mode
+    pub audio_mode_record_then_process: &'static str, // "Record then Process"
+    pub audio_mode_realtime: &'static str, // "Realtime Processing"
+    pub realtime_interface_label: &'static str, // "Interface:" for realtime audio window mode
+    pub realtime_interface_standard: &'static str, // "Standard"
+    pub realtime_interface_minimal: &'static str, // "Minimal"
     pub command_mode_label: &'static str, // For prompt mode in text/image presets (different from text_input_mode_label)
     pub text_input_title_default: &'static str,
     pub text_input_placeholder: &'static str,

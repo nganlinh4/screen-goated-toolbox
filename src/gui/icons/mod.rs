@@ -57,7 +57,6 @@ pub enum Icon {
     Sun,             // Light mode
     Moon,            // Dark mode
     Device,          // Monitor/Device (system theme)
-    DragHandle,      // Drag handle for reordering
     History,         // History (clock)
     Priority,        // Model priority chain
     Pointer,         // Mouse pointer/cursor
@@ -130,7 +129,6 @@ fn icon_svg_bytes(icon: Icon) -> &'static [u8] {
         Icon::Sun => include_bytes!("svg/sun.svg"),
         Icon::Moon => include_bytes!("svg/moon.svg"),
         Icon::Device => include_bytes!("svg/device.svg"),
-        Icon::DragHandle => include_bytes!("svg/drag_handle.svg"),
         Icon::History => include_bytes!("svg/history.svg"),
         Icon::Priority => include_bytes!("svg/priority.svg"),
         Icon::Pointer => include_bytes!("svg/pointer.svg"),

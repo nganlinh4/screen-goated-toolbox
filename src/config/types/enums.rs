@@ -21,28 +21,22 @@ pub enum ThemeMode {
     Light,
 }
 
-// ============================================================================
-// BLOCK TYPE - Used by ProcessingBlock for type checking
-// ============================================================================
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum BlockType {
-    InputAdapter, // Pass-through node for input
-    Image,
-    #[default]
-    Text,
-    Audio,
-}
-
-impl BlockType {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "input_adapter" => BlockType::InputAdapter,
-            "image" => BlockType::Image,
-            "audio" => BlockType::Audio,
-            _ => BlockType::Text,
+impl ThemeMode {
+    /// Resolve to a concrete dark/light boolean, querying the OS for `System`.
+    /// Canonical theme resolver — replaces the inline match scattered across
+    /// every overlay/window. For hot per-frame paths that cache the OS lookup,
+    /// prefer the cached `system_dark` flags in app/init.rs / app/logic.rs.
+    pub fn is_dark(&self) -> bool {
+        match self {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
         }
+    }
+
+    /// Web/WebView theme string ("dark"/"light"), resolving `System` against the OS.
+    pub fn as_web_str(&self) -> &'static str {
+        if self.is_dark() { "dark" } else { "light" }
     }
 }
 

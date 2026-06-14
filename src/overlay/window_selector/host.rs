@@ -1,10 +1,7 @@
-use std::num::NonZeroIsize;
 use std::sync::Once;
 use std::sync::atomic::{AtomicIsize, AtomicU8, Ordering};
 
-use raw_window_handle::{
-    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
-};
+use crate::win_types::HwndWrapper;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::HBRUSH;
@@ -27,26 +24,6 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
     static SELECTOR_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> =
         const { std::cell::RefCell::new(None) };
-}
-
-struct HwndWrapper(HWND);
-
-impl HasWindowHandle for HwndWrapper {
-    fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0.0 as isize;
-        if hwnd == 0 {
-            return Err(HandleError::Unavailable);
-        }
-
-        if let Some(non_zero) = NonZeroIsize::new(hwnd) {
-            let mut handle = Win32WindowHandle::new(non_zero);
-            handle.hinstance = None;
-            let raw = RawWindowHandle::Win32(handle);
-            Ok(unsafe { WindowHandle::borrow_raw(raw) })
-        } else {
-            Err(HandleError::Unavailable)
-        }
-    }
 }
 
 unsafe extern "system" fn selector_wnd_proc(

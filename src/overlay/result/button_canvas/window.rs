@@ -5,7 +5,6 @@ use super::{
     html::generate_canvas_html, ipc::handle_ipc_message, wnd_proc::canvas_wnd_proc,
 };
 use std::sync::atomic::Ordering;
-use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::*;
@@ -19,20 +18,7 @@ use wry::{Rect, WebContext, WebViewBuilder};
 pub use super::wnd_proc::send_windows_update;
 
 // HWND wrapper for wry
-struct HwndWrapper(HWND);
-unsafe impl Send for HwndWrapper {}
-unsafe impl Sync for HwndWrapper {}
-impl raw_window_handle::HasWindowHandle for HwndWrapper {
-    fn window_handle(
-        &self,
-    ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        let raw = raw_window_handle::Win32WindowHandle::new(
-            std::num::NonZeroIsize::new(self.0.0 as isize).expect("HWND cannot be null"),
-        );
-        let handle = raw_window_handle::RawWindowHandle::Win32(raw);
-        unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }
-    }
-}
+use crate::win_types::HwndWrapper;
 
 /// Create the fullscreen transparent canvas window
 pub fn create_canvas_window() {

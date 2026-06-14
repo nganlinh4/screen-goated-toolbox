@@ -12,6 +12,15 @@ import {
   sortPointsByTime,
   subscribeToAdjustableLineDragVisualMode,
 } from "./adjustableLineUtils";
+import {
+  generateVolumeTrackPath,
+  getHighlightedVolumeSegmentPath,
+  type VolumeTrackGeometry,
+  volumeToTrackY,
+  volumeToTrackYPercent,
+  volumeToY,
+  yToVolume,
+} from "./audioVolumeTrackGeometry";
 import { useSettings } from "@/hooks/useSettings";
 
 const TRACK_TOP_PX = 5;
@@ -26,21 +35,13 @@ function clampVolume(value: number) {
   return value;
 }
 
-function volumeToY(volume: number) {
-  return 1 - clampVolume(volume);
-}
-
-function yToVolume(y: number) {
-  return clampVolume(1 - y);
-}
-
-function volumeToTrackY(volume: number) {
-  return TRACK_TOP_PX + volumeToY(volume) * TRACK_RANGE_PX;
-}
-
-function volumeToTrackYPercent(volume: number) {
-  return `${(volumeToTrackY(volume) / TRACK_VIEWBOX_HEIGHT) * 100}%`;
-}
+const TRACK_GEOMETRY = {
+  topPx: TRACK_TOP_PX,
+  bottomPx: TRACK_BOTTOM_PX,
+  viewBoxHeight: TRACK_VIEWBOX_HEIGHT,
+  emptyPathY: TRACK_TOP_PX,
+  clampVolume,
+} satisfies VolumeTrackGeometry;
 
 function buildFlatPoints(duration: number): AudioGainPoint[] {
   const safe = Math.max(duration, 0.0001);
@@ -151,41 +152,24 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
 
   const toX = (time: number) => Math.max(0, Math.min(100, (time / safeDuration) * 100));
 
-  const generatePath = () => {
-    if (sorted.length === 0) return `M 0 ${TRACK_TOP_PX} L 100 ${TRACK_TOP_PX}`;
-    const x0 = toX(sorted[0].time);
-    const y0 = volumeToTrackY(sorted[0].volume);
-    let d = `M 0 ${y0} `;
-    if (x0 > 0) d += `L ${x0} ${y0} `;
-    for (let i = 1; i < sorted.length; i += 1) {
-      const left = sorted[i - 1];
-      const right = sorted[i];
-      const x1 = toX(left.time);
-      const y1 = volumeToTrackY(left.volume);
-      const x2 = toX(right.time);
-      const y2 = volumeToTrackY(right.volume);
-      const dx = x2 - x1;
-      d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
-    }
-    const last = sorted[sorted.length - 1];
-    const xLast = toX(last.time);
-    const yLast = volumeToTrackY(last.volume);
-    if (xLast < 100) d += `L 100 ${yLast} `;
-    return d;
-  };
-
+  // NOTE: the fill baseline here is `TRACK_BOTTOM_PX` (35), which differs from
+  // the shared `generateVolumeTrackFillPath` baseline (`viewBoxHeight`, 40) used
+  // by MicTrack/DeviceAudioTrack. The fill path is therefore kept local to
+  // preserve this track's exact rendered output (WYSIWYG). The stroke path and
+  // highlighted-segment path are byte-identical to the shared helpers, so those
+  // are imported.
   const generateFillPath = () => {
     if (sorted.length === 0) return "";
     const x0 = toX(sorted[0].time);
-    const y0 = volumeToTrackY(sorted[0].volume);
+    const y0 = volumeToTrackY(sorted[0].volume, TRACK_GEOMETRY);
     let d = `M 0 ${TRACK_BOTTOM_PX} L ${x0} ${TRACK_BOTTOM_PX} L ${x0} ${y0} `;
     for (let i = 1; i < sorted.length; i += 1) {
       const left = sorted[i - 1];
       const right = sorted[i];
       const x1 = toX(left.time);
-      const y1 = volumeToTrackY(left.volume);
+      const y1 = volumeToTrackY(left.volume, TRACK_GEOMETRY);
       const x2 = toX(right.time);
-      const y2 = volumeToTrackY(right.volume);
+      const y2 = volumeToTrackY(right.volume, TRACK_GEOMETRY);
       const dx = x2 - x1;
       d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
     }
@@ -193,20 +177,6 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
     const xLast = toX(last.time);
     d += `L ${xLast} ${TRACK_BOTTOM_PX} L 100 ${TRACK_BOTTOM_PX} Z`;
     return d;
-  };
-
-  const getHighlightedSegmentPath = (segmentIndices: AdjacentSegmentIndices | null) => {
-    if (!segmentIndices) return "";
-    const [leftIdx, rightIdx] = segmentIndices;
-    const left = sorted[leftIdx];
-    const right = sorted[rightIdx];
-    if (!left || !right || right.time <= left.time) return "";
-    const x1 = toX(left.time);
-    const y1 = volumeToTrackY(left.volume);
-    const x2 = toX(right.time);
-    const y2 = volumeToTrackY(right.volume);
-    const dx = x2 - x1;
-    return `M ${x1} ${y1} C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2}`;
   };
 
   const startDraggingPoint = (
@@ -222,7 +192,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
     if (!start) return;
     const startTime = start.time;
     const startVolume = start.volume;
-    const startVolumeY = volumeToY(startVolume);
+    const startVolumeY = volumeToY(startVolume, TRACK_GEOMETRY);
     const valueRangePx = Math.max(1, TRACK_RANGE_PX);
     setActiveSegmentIndices(null);
     setActiveDragIdx(activeIdx);
@@ -251,7 +221,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
       t = Math.max(0, Math.min(safeDuration, t));
       let newY = startVolumeY + dy / valueRangePx;
       newY = Math.max(0, Math.min(1, newY));
-      let volume = yToVolume(newY);
+      let volume = yToVolume(newY, TRACK_GEOMETRY);
 
       if (lockMode === "horizontal") volume = startVolume;
       if (lockMode === "vertical") t = startTime;
@@ -306,7 +276,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
   ) => {
     pointsRef.current = initialPoints;
     const valueRangePx = Math.max(1, TRACK_RANGE_PX);
-    const startVolumeY = volumeToY(startVolume);
+    const startVolumeY = volumeToY(startVolume, TRACK_GEOMETRY);
     setActiveSegmentIndices([
       activeIndices[0],
       activeIndices[activeIndices.length - 1],
@@ -317,7 +287,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
       const dy = e.clientY - startClientY;
       let newY = startVolumeY + dy / valueRangePx;
       newY = Math.max(0, Math.min(1, newY));
-      const volume = yToVolume(newY);
+      const volume = yToVolume(newY, TRACK_GEOMETRY);
 
       const next = [...pointsRef.current];
       activeIndices.forEach((index, i) => {
@@ -428,7 +398,12 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
   const highlightedSegmentIndices =
     activeSegmentIndices
     ?? (globalDragVisualMode === null && isCtrlPressed ? hoveredSegmentIndices : null);
-  const highlightedSegmentPath = getHighlightedSegmentPath(highlightedSegmentIndices);
+  const highlightedSegmentPath = getHighlightedVolumeSegmentPath({
+    points: sorted,
+    duration: safeDuration,
+    geometry: TRACK_GEOMETRY,
+    segmentIndices: highlightedSegmentIndices,
+  });
 
   return (
     <div
@@ -463,7 +438,11 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
           fill={`color-mix(in srgb, var(${colorVar}) 12%, transparent)`}
         />
         <path
-          d={generatePath()}
+          d={generateVolumeTrackPath({
+            points: sorted,
+            duration: safeDuration,
+            geometry: TRACK_GEOMETRY,
+          })}
           fill="none"
           stroke={`var(${colorVar})`}
           strokeWidth="1.5"
@@ -492,7 +471,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
           data-state={hoveredIdx === i || activeDragIdx === i ? "active" : "idle"}
           style={{
             left: `${toX(point.time)}%`,
-            top: volumeToTrackYPercent(point.volume),
+            top: volumeToTrackYPercent(point.volume, TRACK_GEOMETRY),
             background: `var(${colorVar})`,
             color: `var(${colorVar})`,
           }}

@@ -8,12 +8,9 @@ mod raw_video;
 mod webview_setup;
 mod window_proc;
 
-use raw_window_handle::{
-    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
-};
+use crate::win_types::HwndWrapper;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::num::NonZeroIsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Once, OnceLock};
 use windows::Win32::Foundation::*;
@@ -93,7 +90,7 @@ fn is_repo_root(path: &Path) -> bool {
         && path.join("src").exists()
 }
 
-fn repo_root() -> Option<PathBuf> {
+pub(crate) fn repo_root() -> Option<PathBuf> {
     REPO_ROOT_CACHE
         .get_or_init(|| {
             let mut dir = std::env::current_dir().ok()?;
@@ -108,6 +105,22 @@ fn repo_root() -> Option<PathBuf> {
             None
         })
         .clone()
+}
+
+/// Resolve the dist/public mirror pair for a relative cursor asset path.
+/// Returns `[dist, public]` (dist first) — the read side returns the first
+/// readable file and the write side updates all that exist, so this order is
+/// the source of truth for both.
+pub(crate) fn cursor_asset_target_paths(repo_root: &Path, rel: &str) -> [PathBuf; 2] {
+    [
+        repo_root
+            .join("src")
+            .join("overlay")
+            .join("screen_record")
+            .join("dist")
+            .join(rel),
+        repo_root.join("screen-record").join("public").join(rel),
+    ]
 }
 
 /// Serve downloaded background images from %LOCALAPPDATA%/screen-goated-toolbox/backgrounds/
@@ -156,14 +169,7 @@ fn try_read_runtime_cursor_svg(path: &str) -> Option<Vec<u8>> {
     }
 
     let root = repo_root()?;
-    let candidates = [
-        root.join("src")
-            .join("overlay")
-            .join("screen_record")
-            .join("dist")
-            .join(rel),
-        root.join("screen-record").join("public").join(rel),
-    ];
+    let candidates = cursor_asset_target_paths(&root, rel);
 
     for candidate in candidates {
         if let Ok(bytes) = std::fs::read(&candidate) {
@@ -182,25 +188,6 @@ struct IpcRequest {
 }
 
 // --- HWND WRAPPER ---
-
-struct HwndWrapper(HWND);
-
-impl HasWindowHandle for HwndWrapper {
-    fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0.0 as isize;
-        if hwnd == 0 {
-            return Err(HandleError::Unavailable);
-        }
-        if let Some(non_zero) = NonZeroIsize::new(hwnd) {
-            let mut handle = Win32WindowHandle::new(non_zero);
-            handle.hinstance = None;
-            let raw = RawWindowHandle::Win32(handle);
-            Ok(unsafe { WindowHandle::borrow_raw(raw) })
-        } else {
-            Err(HandleError::Unavailable)
-        }
-    }
-}
 
 fn wnd_http_response(
     status: u16,
@@ -385,17 +372,7 @@ fn push_settings_to_webview() {
         )
     };
 
-    let theme_str = match theme_mode {
-        crate::config::ThemeMode::Dark => "dark",
-        crate::config::ThemeMode::Light => "light",
-        crate::config::ThemeMode::System => {
-            if crate::gui::utils::is_system_in_dark_mode() {
-                "dark"
-            } else {
-                "light"
-            }
-        }
-    };
+    let theme_str = theme_mode.as_web_str();
 
     // Update window icon based on theme
     unsafe {

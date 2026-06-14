@@ -2,7 +2,6 @@
 
 package dev.screengoated.toolbox.mobile.preset.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -14,12 +13,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,38 +31,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
-import kotlin.math.roundToInt
 
 // Node colors use Material 3 dynamic accent (Material You) — 3 tonal variants.
 private data class NodeColors(
@@ -505,184 +488,124 @@ internal fun NodeCard(
                     }
 
                     // Bottom icon toolbar row
-                    var showRenderModeMenu by remember { mutableStateOf(false) }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        // Eye toggle
-                        androidx.compose.material3.IconToggleButton(
-                            checked = block.showOverlay,
-                            onCheckedChange = { onBlockUpdated(block.copy(showOverlay = it)) },
-                            modifier = Modifier.size(24.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(if (block.showOverlay) R.drawable.ms_visibility else R.drawable.ms_visibility_off),
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
-
-                        // Stream mode toggle pill (mobile always uses markdown)
-                        if (block.showOverlay) {
-                            val isStreaming = block.streamingEnabled
-                            val streamLabel = nodeGraphStreamLabel(lang, isStreaming)
-                            Box {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = pillBg,
-                                    modifier = Modifier.height(20.dp)
-                                        .pointerInput(Unit) { detectTapGestures { showRenderModeMenu = true } },
-                                ) {
-                                    Text(
-                                        streamLabel,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontSize = 9.sp,
-                                        color = contentCol,
-                                    )
-                                }
-                                androidx.compose.material3.DropdownMenu(
-                                    expanded = showRenderModeMenu,
-                                    onDismissRequest = { showRenderModeMenu = false },
-                                ) {
-                                    listOf(
-                                        nodeGraphStreamLabel(lang, false) to false,
-                                        nodeGraphStreamLabel(lang, true) to true,
-                                    ).forEach { (label, streaming) ->
-                                        androidx.compose.material3.DropdownMenuItem(
-                                            text = { Text(label, style = MaterialTheme.typography.bodySmall) },
-                                            onClick = {
-                                                val mode = if (streaming) "markdown_stream" else "markdown"
-                                                onBlockUpdated(block.copy(renderMode = mode, streamingEnabled = streaming))
-                                                showRenderModeMenu = false
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.weight(1f))
-
-                        // Copy toggle (distinct icons for on/off like eye)
-                        androidx.compose.material3.IconToggleButton(
-                            checked = block.autoCopy,
-                            onCheckedChange = { onBlockUpdated(block.copy(autoCopy = it)) },
-                            modifier = Modifier.size(24.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (block.autoCopy) FileCopyIcon
-                                    else FileCopyOffIcon,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
-
-                        // Speak toggle (distinct icons for on/off like eye)
-                        androidx.compose.material3.IconToggleButton(
-                            checked = block.autoSpeak,
-                            onCheckedChange = { onBlockUpdated(block.copy(autoSpeak = it)) },
-                            modifier = Modifier.size(24.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(if (block.autoSpeak) R.drawable.ms_volume_up else R.drawable.ms_volume_off),
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
-                    }
+                    NodeToolbarRow(
+                        block = block,
+                        lang = lang,
+                        contentCol = contentCol,
+                        pillBg = pillBg,
+                        streamingActive = block.streamingEnabled,
+                        onBlockUpdated = onBlockUpdated,
+                    )
                 } else {
                     // Input node: eye + render mode + copy + speak (like Windows)
-                    var showInputRenderMenu by remember { mutableStateOf(false) }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        // Eye toggle
-                        androidx.compose.material3.IconToggleButton(
-                            checked = block.showOverlay,
-                            onCheckedChange = { onBlockUpdated(block.copy(showOverlay = it)) },
-                            modifier = Modifier.size(24.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(if (block.showOverlay) R.drawable.ms_visibility else R.drawable.ms_visibility_off),
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
+                    NodeToolbarRow(
+                        block = block,
+                        lang = lang,
+                        contentCol = contentCol,
+                        pillBg = pillBg,
+                        streamingActive = block.streamingEnabled || block.renderMode == "markdown_stream",
+                        onBlockUpdated = onBlockUpdated,
+                    )
+                }
+            }
+        }
+    }
+}
 
-                        // Stream mode pill for input node
-                        if (block.showOverlay) {
-                            val isStreaming = block.streamingEnabled || block.renderMode == "markdown_stream"
-                            val streamLabel = nodeGraphStreamLabel(lang, isStreaming)
-                            Box {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = pillBg,
-                                    modifier = Modifier.height(20.dp)
-                                        .pointerInput(Unit) { detectTapGestures { showInputRenderMenu = true } },
-                                ) {
-                                    Text(
-                                        streamLabel,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontSize = 9.sp,
-                                        color = contentCol,
-                                    )
-                                }
-                                androidx.compose.material3.DropdownMenu(
-                                    expanded = showInputRenderMenu,
-                                    onDismissRequest = { showInputRenderMenu = false },
-                                ) {
-                                    listOf(
-                                        nodeGraphStreamLabel(lang, false) to false,
-                                        nodeGraphStreamLabel(lang, true) to true,
-                                    ).forEach { (label, streaming) ->
-                                        androidx.compose.material3.DropdownMenuItem(
-                                            text = { Text(label, style = MaterialTheme.typography.bodySmall) },
-                                            onClick = {
-                                                val mode = if (streaming) "markdown_stream" else "markdown"
-                                                onBlockUpdated(block.copy(renderMode = mode, streamingEnabled = streaming))
-                                                showInputRenderMenu = false
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                        }
+@Composable
+private fun NodeToolbarRow(
+    block: ProcessingBlock,
+    lang: String,
+    contentCol: Color,
+    pillBg: Color,
+    streamingActive: Boolean,
+    onBlockUpdated: (ProcessingBlock) -> Unit,
+) {
+    var showRenderModeMenu by remember { mutableStateOf(false) }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        // Eye toggle
+        androidx.compose.material3.IconToggleButton(
+            checked = block.showOverlay,
+            onCheckedChange = { onBlockUpdated(block.copy(showOverlay = it)) },
+            modifier = Modifier.size(24.dp),
+        ) {
+            Icon(
+                painter = painterResource(if (block.showOverlay) R.drawable.ms_visibility else R.drawable.ms_visibility_off),
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+            )
+        }
 
-                        Spacer(Modifier.weight(1f))
-
-                        // Copy toggle (distinct icons for on/off)
-                        androidx.compose.material3.IconToggleButton(
-                            checked = block.autoCopy,
-                            onCheckedChange = { onBlockUpdated(block.copy(autoCopy = it)) },
-                            modifier = Modifier.size(24.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (block.autoCopy) FileCopyIcon
-                                    else FileCopyOffIcon,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
-
-                        // Speak toggle (distinct icons for on/off)
-                        androidx.compose.material3.IconToggleButton(
-                            checked = block.autoSpeak,
-                            onCheckedChange = { onBlockUpdated(block.copy(autoSpeak = it)) },
-                            modifier = Modifier.size(24.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(if (block.autoSpeak) R.drawable.ms_volume_up else R.drawable.ms_volume_off),
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
+        // Stream mode toggle pill (mobile always uses markdown)
+        if (block.showOverlay) {
+            val isStreaming = streamingActive
+            val streamLabel = nodeGraphStreamLabel(lang, isStreaming)
+            Box {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = pillBg,
+                    modifier = Modifier.height(20.dp)
+                        .pointerInput(Unit) { detectTapGestures { showRenderModeMenu = true } },
+                ) {
+                    Text(
+                        streamLabel,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 9.sp,
+                        color = contentCol,
+                    )
+                }
+                androidx.compose.material3.DropdownMenu(
+                    expanded = showRenderModeMenu,
+                    onDismissRequest = { showRenderModeMenu = false },
+                ) {
+                    listOf(
+                        nodeGraphStreamLabel(lang, false) to false,
+                        nodeGraphStreamLabel(lang, true) to true,
+                    ).forEach { (label, streaming) ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(label, style = MaterialTheme.typography.bodySmall) },
+                            onClick = {
+                                val mode = if (streaming) "markdown_stream" else "markdown"
+                                onBlockUpdated(block.copy(renderMode = mode, streamingEnabled = streaming))
+                                showRenderModeMenu = false
+                            },
+                        )
                     }
                 }
             }
+        }
+
+        Spacer(Modifier.weight(1f))
+
+        // Copy toggle (distinct icons for on/off like eye)
+        androidx.compose.material3.IconToggleButton(
+            checked = block.autoCopy,
+            onCheckedChange = { onBlockUpdated(block.copy(autoCopy = it)) },
+            modifier = Modifier.size(24.dp),
+        ) {
+            Icon(
+                imageVector = if (block.autoCopy) FileCopyIcon
+                    else FileCopyOffIcon,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+
+        // Speak toggle (distinct icons for on/off like eye)
+        androidx.compose.material3.IconToggleButton(
+            checked = block.autoSpeak,
+            onCheckedChange = { onBlockUpdated(block.copy(autoSpeak = it)) },
+            modifier = Modifier.size(24.dp),
+        ) {
+            Icon(
+                painter = painterResource(if (block.autoSpeak) R.drawable.ms_volume_up else R.drawable.ms_volume_off),
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+            )
         }
     }
 }

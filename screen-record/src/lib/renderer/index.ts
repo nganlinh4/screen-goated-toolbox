@@ -3,23 +3,10 @@ import {
   MousePosition,
   VideoSegment,
   ZoomKeyframe,
-  BakedCameraFrame,
-  BakedCursorFrame,
   BakedOverlayPayload,
   BakedWebcamFrame,
   WebcamConfig,
 } from '@/types/video';
-import { getCursorVisibility } from '@/lib/cursorHiding';
-import { getTrimSegments } from '@/lib/trimSegments';
-import {
-  getCursorMovementDelaySec,
-  processCursorPositions,
-  interpolateCursorPositionInternal,
-  shouldCursorRotate,
-} from './cursorDynamics';
-import {
-  resolveCursorRenderType,
-} from './cursorGraphics';
 import {
   KeystrokeOverlayEditBounds,
   getKeystrokeOverlayConfig,
@@ -37,7 +24,6 @@ import {
 import { calculateCurrentZoomStateInternal } from './cameraZoom';
 import { createCursorImageSet, ensureCursorAnimations } from './cursorAssets';
 import { drawFrame as drawFrameImpl, type RendererState } from './drawFrame';
-import { normalizeMousePositionsToVideoSpace } from '@/lib/dynamicCapture';
 import { buildBakedWebcamFrames, cloneWebcamConfig } from '@/lib/webcam';
 
 // ---------------------------------------------------------------------------
@@ -80,11 +66,6 @@ class VideoRenderer {
 
   // --- Zoom state ---
   private lastCalculatedState: ZoomKeyframe | null = null;
-
-  // --- Squish animation constants ---
-  private readonly CLICK_FUSE_THRESHOLD = 0.15;
-  private readonly SQUISH_SPEED = 0.015;
-  private readonly RELEASE_SPEED = 0.01;
 
   // --- Text drag state ---
   private textDragState: TextDragState;
@@ -189,142 +170,6 @@ class VideoRenderer {
     // Lazy-init animated cursor frames only when the project has wait/appstarting moments.
     const pack = context.backgroundConfig.cursorPack ?? 'screenstudio';
     ensureCursorAnimations(pack, context.mousePositions, this.state.cursorImages);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Camera path generation (public, delegates to extracted cameraZoom module)
-  // ---------------------------------------------------------------------------
-
-  public generateBakedCursorPath(
-    segment: VideoSegment,
-    mousePositions: MousePosition[],
-    backgroundConfig?: BackgroundConfig,
-    fps: number = 60
-  ): BakedCursorFrame[] {
-    if (segment.useCustomCursor === false) {
-      return [];
-    }
-
-    const baked: BakedCursorFrame[] = [];
-    const step = 1 / fps;
-    const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
-    const trimSegments = getTrimSegments(segment, duration);
-
-    const normalizedMousePositions = normalizeMousePositionsToVideoSpace(
-      mousePositions,
-      this.activeRenderContext?.video.videoWidth || 0,
-      this.activeRenderContext?.video.videoHeight || 0
-    );
-    const processed = processCursorPositions(normalizedMousePositions, backgroundConfig);
-
-    let simSquishScale = 1.0;
-    let simLastHoldTime = -1;
-    const simRatio = 2.0;
-
-    const cursorOffsetSec = getCursorMovementDelaySec(backgroundConfig);
-
-    const fullStart = trimSegments[0].startTime;
-    const fullEnd = trimSegments[trimSegments.length - 1].endTime;
-
-    for (let t = fullStart; t <= fullEnd + 0.00001; t += step) {
-      const cursorT = t + cursorOffsetSec;
-      const pos = interpolateCursorPositionInternal(cursorT, processed);
-
-      if (!pos) {
-        if (baked.length > 0) {
-          const last = baked[baked.length - 1];
-          baked.push({ ...last, time: t });
-        } else {
-          baked.push({
-            time: t,
-            x: 0,
-            y: 0,
-            scale: 1,
-            isClicked: false,
-            type: resolveCursorRenderType('default', backgroundConfig, false),
-            opacity: 1
-          });
-        }
-        continue;
-      }
-
-      const isClicked = pos.isClicked;
-      const timeSinceLastHold = cursorT - simLastHoldTime;
-      const shouldBeSquished = isClicked || (simLastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
-
-      if (isClicked) {
-        simLastHoldTime = cursorT;
-      }
-
-      const targetScale = shouldBeSquished ? 0.75 : 1.0;
-
-      if (simSquishScale > targetScale) {
-        simSquishScale = Math.max(targetScale, simSquishScale - this.SQUISH_SPEED * simRatio);
-      } else if (simSquishScale < targetScale) {
-        simSquishScale = Math.min(targetScale, simSquishScale + this.RELEASE_SPEED * simRatio);
-      }
-
-      const cursorVis = getCursorVisibility(t, segment.cursorVisibilitySegments);
-      const resolvedCursorType = resolveCursorRenderType(pos.cursor_type || 'default', backgroundConfig, Boolean(pos.isClicked));
-
-      baked.push({
-        time: t,
-        x: pos.x,
-        y: pos.y,
-        scale: Number((simSquishScale * cursorVis.scale).toFixed(3)),
-        isClicked: isClicked,
-        type: resolvedCursorType,
-        opacity: Number(cursorVis.opacity.toFixed(3)),
-        rotation: shouldCursorRotate(resolvedCursorType) ? Number((pos.cursor_rotation || 0).toFixed(4)) : 0,
-      });
-    }
-
-    return baked;
-  }
-
-  // --- BAKED CAMERA PATH GENERATION ---
-  public generateBakedPath(
-    segment: VideoSegment,
-    videoWidth: number,
-    videoHeight: number,
-    fps: number = 60,
-    srcCropW?: number,
-    srcCropH?: number,
-    videoScale?: number
-  ): BakedCameraFrame[] {
-    const t0 = performance.now();
-    const bakedPath: BakedCameraFrame[] = [];
-    const step = 1 / fps;
-    const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
-    const trimSegments = getTrimSegments(segment, duration);
-
-    const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-    const croppedW = videoWidth * crop.width;
-    const croppedH = videoHeight * crop.height;
-    const cropOffsetX = videoWidth * crop.x;
-    const cropOffsetY = videoHeight * crop.y;
-
-    // Span the full source time range including hidden parts so the spring
-    // physics transitions naturally through gaps — no abrupt camera jumps.
-    const fullStart = trimSegments[0].startTime;
-    const fullEnd = trimSegments[trimSegments.length - 1].endTime;
-
-    for (let t = fullStart; t <= fullEnd + 0.00001; t += step) {
-      const state = calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH, srcCropW, srcCropH, videoScale);
-
-      const globalX = cropOffsetX + (state.positionX * croppedW);
-      const globalY = cropOffsetY + (state.positionY * croppedH);
-
-      bakedPath.push({
-        time: t,
-        x: globalX,
-        y: globalY,
-        zoom: state.zoomFactor
-      });
-    }
-
-    if (performance.now() - t0 > 50) console.warn(`[BakedPath] generateBakedPath: ${(performance.now() - t0).toFixed(1)}ms (${bakedPath.length} frames, ${duration.toFixed(1)}s)`);
-    return bakedPath;
   }
 
   public generateBakedWebcamFrames(

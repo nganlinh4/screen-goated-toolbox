@@ -10,15 +10,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.LoadingIndicatorDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import dev.screengoated.toolbox.mobile.model.MobileThemeMode
+import dev.screengoated.toolbox.mobile.ui.theme.SgtMobileTheme
+import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
+
+/** Semantic status accent for the processing indicator, resolved from the active theme. */
+internal enum class PresetStatusAccent { PROCESSING, SUCCESS, WARNING }
 
 /** Minimal lifecycle owner for hosting ComposeView in a service overlay. */
 private class OverlayLifecycleOwner : androidx.lifecycle.LifecycleOwner,
@@ -51,7 +56,10 @@ internal class PresetProcessingIndicator(
     private var composeView: ComposeView? = null
     private var lifecycleOwner: OverlayLifecycleOwner? = null
 
-    fun show(accentColor: Color = Color(0xFF5C9CE6)) {
+    fun show(
+        themeMode: MobileThemeMode,
+        accent: PresetStatusAccent = PresetStatusAccent.PROCESSING,
+    ) {
         if (composeView != null) return
 
         val lifecycleOwner = OverlayLifecycleOwner()
@@ -59,7 +67,9 @@ internal class PresetProcessingIndicator(
             setViewTreeLifecycleOwner(lifecycleOwner)
             setViewTreeSavedStateRegistryOwner(lifecycleOwner)
             setContent {
-                ProcessingIndicatorContent(accentColor)
+                SgtMobileTheme(themeMode = themeMode) {
+                    ProcessingIndicatorContent(accent)
+                }
             }
         }
         lifecycleOwner.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_CREATE)
@@ -102,7 +112,12 @@ internal class PresetProcessingIndicator(
 }
 
 @Composable
-private fun ProcessingIndicatorContent(accentColor: Color) {
+private fun ProcessingIndicatorContent(accent: PresetStatusAccent) {
+    val accentColor = when (accent) {
+        PresetStatusAccent.PROCESSING -> MaterialTheme.sgtColors.statusProcessing
+        PresetStatusAccent.SUCCESS -> MaterialTheme.sgtColors.statusSuccess
+        PresetStatusAccent.WARNING -> MaterialTheme.sgtColors.statusWarning
+    }
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier.size(160.dp),

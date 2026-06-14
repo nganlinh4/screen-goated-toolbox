@@ -2,11 +2,7 @@
 //! shape: single-instance window, popup chrome with rounded corners, embeds
 //! a WebView2 surface that loads the inlined frontend bundle.
 
-use std::num::NonZeroIsize;
-
-use raw_window_handle::{
-    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
-};
+use crate::win_types::HwndWrapper;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmExtendFrameIntoClientArea,
@@ -336,14 +332,3 @@ fn resize_webview(hwnd: HWND) {
     });
 }
 
-struct HwndWrapper(HWND);
-
-impl HasWindowHandle for HwndWrapper {
-    fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0.0 as isize;
-        let non_zero = NonZeroIsize::new(hwnd).ok_or(HandleError::Unavailable)?;
-        let mut handle = Win32WindowHandle::new(non_zero);
-        handle.hinstance = None;
-        Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::Win32(handle)) })
-    }
-}

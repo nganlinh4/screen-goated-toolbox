@@ -1,19 +1,6 @@
 package dev.screengoated.toolbox.mobile.service
 
-import android.util.Base64
 import android.util.Log
-import dev.screengoated.toolbox.mobile.model.LanguageCatalog
-import dev.screengoated.toolbox.mobile.preset.ApiKeys
-import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
-import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
-import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
-import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
-import dev.screengoated.toolbox.mobile.preset.providerIsAvailable
-import dev.screengoated.toolbox.mobile.preset.streamGeminiLiveText
-import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
-import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
-import dev.screengoated.toolbox.mobile.shared.live.TranslationResponse
-import dev.screengoated.toolbox.mobile.shared.live.TranslationPatch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -32,7 +19,6 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
-import org.json.JSONException
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -285,12 +271,14 @@ class GeminiLiveSocketClient(
             return
         }
 
-        parseError(message)?.let { error ->
+        val update = parseGeminiS2sUpdate(message)
+
+        update.error?.let { error ->
             events.offer(LiveSocketEvent.Error(error))
             return
         }
 
-        parseInputTranscription(message)?.let { transcript ->
+        update.inputText.takeIf(String::isNotBlank)?.let { transcript ->
             events.offer(LiveSocketEvent.Transcript(transcript))
             return
         }
@@ -335,7 +323,7 @@ class GeminiLiveSocketClient(
         while (offset < samples.size) {
             val end = minOf(offset + chunkSize, samples.size)
             val chunk = samples.copyOfRange(offset, end)
-            if (!socket.send(buildAudioChunkPayload(chunk))) {
+            if (!socket.send(buildGeminiS2sAudioPayload(chunk))) {
                 return false
             }
             offset = end
@@ -361,49 +349,7 @@ class GeminiLiveSocketClient(
         return setup.toString()
     }
 
-    private fun buildAudioChunkPayload(chunk: ShortArray): String {
-        val bytes = ByteArray(chunk.size * 2)
-        chunk.forEachIndexed { index, sample ->
-            val byteIndex = index * 2
-            bytes[byteIndex] = (sample.toInt() and 0xFF).toByte()
-            bytes[byteIndex + 1] = ((sample.toInt() shr 8) and 0xFF).toByte()
-        }
-        val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        return JSONObject()
-            .put(
-                "realtimeInput",
-                JSONObject().put(
-                    "audio",
-                    JSONObject()
-                        .put("data", encoded)
-                        .put("mimeType", "audio/pcm;rate=16000"),
-                ),
-            )
-            .toString()
-    }
-
-    private fun parseInputTranscription(message: String): String? {
-        return runCatching {
-            JSONObject(message)
-                .optJSONObject("serverContent")
-                ?.optJSONObject("inputTranscription")
-                ?.optString("text")
-                ?.takeIf(String::isNotBlank)
-        }.getOrNull()
-    }
-
-    private fun parseError(message: String): String? {
-        return runCatching {
-            JSONObject(message)
-                .optJSONObject("error")
-                ?.optString("message")
-                ?.takeIf(String::isNotBlank)
-        }.getOrNull()
-    }
-
     private companion object {
-        private const val LIVE_WS_ENDPOINT =
-            "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
         private const val NORMAL_DURATION_MS = 20_000L
         private const val SILENCE_DURATION_MS = 2_000L
         private const val SAMPLES_PER_100MS = 1_600

@@ -68,7 +68,7 @@ data class MobileEdgeTtsSettings(
 data class MobileGlobalTtsSettings(
     val method: MobileTtsMethod = MobileTtsMethod.GEMINI_LIVE,
     val geminiModel: String = GeneratedLiveModelCatalog.DEFAULT_TTS_GEMINI_MODEL,
-    val voice: String = "Aoede",
+    val voice: String = TtsDefaults.DEFAULT_TTS_GEMINI_VOICE,
     val speedPreset: MobileTtsSpeedPreset = MobileTtsSpeedPreset.FAST,
     val languageConditions: List<MobileTtsLanguageCondition> = defaultTtsLanguageConditions(),
     val edgeSettings: MobileEdgeTtsSettings = MobileEdgeTtsSettings(),

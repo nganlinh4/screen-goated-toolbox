@@ -5,6 +5,7 @@ import type {
 import type { Translations } from '@/i18n';
 import type { PersistOptions } from '@/hooks/useSequenceComposition';
 import type { ProjectComposition, VideoSegment } from '@/types/video';
+import type { BaseAsyncJobStatus } from '@/hooks/asyncJobTypes';
 
 export type SubtitleMethod =
   | 'groq-whisper-accurate'
@@ -60,19 +61,13 @@ export interface PrepareParakeetTdtResult {
   reason?: string | null;
 }
 
-export interface SubtitleJobStatus {
-  state: 'queued' | 'running' | 'completed' | 'cancelled' | 'error';
-  message: string;
-  messageKey?: string | null;
-  messageParams?: Record<string, string> | null;
-  progress: number;
+export interface SubtitleJobStatus extends BaseAsyncJobStatus {
   activeClipId?: string | null;
   totalClips: number;
   completedClips: number;
   resultsRevision: number;
   results: SubtitleClipResult[];
   skipped: SubtitleSkippedClip[];
-  error?: string | null;
 }
 
 export type SubtitleJobViewStatus = Omit<SubtitleJobStatus, 'results'>;

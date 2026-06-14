@@ -15,38 +15,6 @@ const STILL_FRAME_STREAM_COUNT: usize = 4;
 const STILL_FRAME_INTERVAL_MS: u64 = 500;
 const STILL_FRAME_JPEG_QUALITY: u8 = 90;
 
-/// Create TLS WebSocket connection to Gemini Live API
-pub fn connect_live_websocket(api_key: &str) -> Result<WebSocket<TlsStream<TcpStream>>> {
-    let ws_url = format!(
-        "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={}",
-        api_key
-    );
-
-    let url = url::Url::parse(&ws_url)?;
-    let host = url
-        .host_str()
-        .ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
-    let port = 443;
-
-    use std::net::ToSocketAddrs;
-    let addr = format!("{}:{}", host, port)
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Failed to resolve hostname: {}", host))?;
-
-    let tcp_stream = TcpStream::connect_timeout(&addr, Duration::from_secs(10))?;
-    tcp_stream.set_read_timeout(Some(Duration::from_secs(30)))?;
-    tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
-    tcp_stream.set_nodelay(true)?;
-
-    let connector = native_tls::TlsConnector::new()?;
-    let tls_stream = connector.connect(host, tcp_stream)?;
-
-    let (socket, _response) = tungstenite::client::client(&ws_url, tls_stream)?;
-
-    Ok(socket)
-}
-
 /// Send setup message for text-output mode.
 /// We request native AUDIO responses and consume `outputAudioTranscription`
 /// so both Gemini 2.5 native-audio and Gemini 3.1 Flash Live can be used

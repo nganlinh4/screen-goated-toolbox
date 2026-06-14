@@ -15,6 +15,9 @@ import {
 } from '@/lib/subtitleTracks';
 import type { Translations } from '@/i18n';
 import type { ProjectComposition, VideoSegment } from '@/types/video';
+import type { BaseAsyncJobStatus } from '@/hooks/asyncJobTypes';
+import { localizeMessageKey } from '@/lib/statusFormat';
+import { createPersistedSetting } from '@/lib/persistedState';
 
 const SUBTITLE_TRANSLATION_LANGUAGE_KEY =
   'screen-record-subtitle-translation-language-v1';
@@ -42,12 +45,7 @@ export interface SubtitleTranslationResultItem {
   translatedText: string;
 }
 
-export interface SubtitleTranslationJobStatus {
-  state: 'queued' | 'running' | 'completed' | 'cancelled' | 'error';
-  message: string;
-  messageKey?: string | null;
-  messageParams?: Record<string, string> | null;
-  progress: number;
+export interface SubtitleTranslationJobStatus extends BaseAsyncJobStatus {
   currentModelId?: string | null;
   currentModelLabel?: string | null;
   currentChunkCount: number;
@@ -55,7 +53,6 @@ export interface SubtitleTranslationJobStatus {
   totalChunks: number;
   targetLanguage?: string | null;
   results: SubtitleTranslationResultItem[];
-  error?: string | null;
 }
 
 export interface SubtitleTranslationCapabilities {
@@ -74,132 +71,130 @@ export interface SubtitleTranslationJobContext {
   targetTrackId: string | null;
 }
 
+const translationLanguageSetting = createPersistedSetting<string>(
+  SUBTITLE_TRANSLATION_LANGUAGE_KEY,
+  {
+    parse: (raw) => (raw && raw.trim() ? raw : 'en'),
+    serialize: (value) => value,
+    fallback: 'en',
+  },
+);
+
+const translationChunkCountSetting = createPersistedSetting<number | null>(
+  SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY,
+  {
+    parse: (raw) => {
+      const value = Number(raw);
+      if (Number.isFinite(value) && value >= 1) {
+        return Math.round(value);
+      }
+      return null;
+    },
+    serialize: (value) => (value === null ? null : String(value)),
+    fallback: null,
+  },
+);
+
+const translationInstructionsSetting = createPersistedSetting<string>(
+  SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY,
+  {
+    parse: (raw) => raw ?? '',
+    serialize: (value) => value,
+    fallback: '',
+  },
+);
+
+const translationSourceSetting = createPersistedSetting<SubtitleTranslationSource>(
+  SUBTITLE_TRANSLATION_SOURCE_KEY,
+  {
+    parse: (raw) => {
+      if (
+        raw === 'current' ||
+        raw === 'all' ||
+        raw === 'video' ||
+        raw === 'mic' ||
+        raw === 'audio'
+      ) {
+        return raw as SubtitleTranslationSource;
+      }
+      if (raw?.startsWith('audio:')) {
+        return 'audio';
+      }
+      return 'current';
+    },
+    serialize: (value) => value,
+    fallback: 'current',
+  },
+);
+
+const translationModelIdSetting = createPersistedSetting<string>(
+  SUBTITLE_TRANSLATION_MODEL_KEY,
+  {
+    parse: (raw) => (raw && raw.trim() ? raw : GTX_TRANSLATION_MODEL_ID),
+    serialize: (value) => value,
+    fallback: GTX_TRANSLATION_MODEL_ID,
+  },
+);
+
+const translationSmartFallbackSetting = createPersistedSetting<boolean>(
+  SUBTITLE_TRANSLATION_SMART_FALLBACK_KEY,
+  {
+    parse: (raw) => raw === 'true',
+    serialize: (value) => String(value),
+    fallback: false,
+  },
+);
+
 export function getInitialTranslationLanguage(): string {
-  try {
-    const raw = localStorage.getItem(SUBTITLE_TRANSLATION_LANGUAGE_KEY);
-    if (raw && raw.trim()) {
-      return raw;
-    }
-  } catch {
-    // ignore persistence failures
-  }
-  return 'en';
+  return translationLanguageSetting.getInitial();
 }
 
 export function getInitialTranslationChunkCount(): number | null {
-  try {
-    const raw = Number(
-      localStorage.getItem(SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY),
-    );
-    if (Number.isFinite(raw) && raw >= 1) {
-      return Math.round(raw);
-    }
-  } catch {
-    // ignore persistence failures
-  }
-  return null;
+  return translationChunkCountSetting.getInitial();
 }
 
 export function getInitialTranslationInstructions(): string {
-  try {
-    return localStorage.getItem(SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY) ?? '';
-  } catch {
-    // ignore persistence failures
-  }
-  return '';
+  return translationInstructionsSetting.getInitial();
 }
 
 export function getInitialTranslationSource(): SubtitleTranslationSource {
-  try {
-    const raw = localStorage.getItem(SUBTITLE_TRANSLATION_SOURCE_KEY);
-    if (
-      raw === 'current' ||
-      raw === 'all' ||
-      raw === 'video' ||
-      raw === 'mic' ||
-      raw === 'audio'
-    ) {
-      return raw as SubtitleTranslationSource;
-    }
-    if (raw?.startsWith('audio:')) {
-      return 'audio';
-    }
-  } catch {
-    // ignore persistence failures
-  }
-  return 'current';
+  return translationSourceSetting.getInitial();
 }
 
 export function getInitialTranslationModelId(): string {
-  try {
-    const raw = localStorage.getItem(SUBTITLE_TRANSLATION_MODEL_KEY);
-    if (raw && raw.trim()) {
-      return raw;
-    }
-  } catch {
-    // ignore persistence failures
-  }
-  return GTX_TRANSLATION_MODEL_ID;
+  return translationModelIdSetting.getInitial();
 }
 
 export function getInitialSmartFallback(): boolean {
-  try {
-    return (
-      localStorage.getItem(SUBTITLE_TRANSLATION_SMART_FALLBACK_KEY) === 'true'
-    );
-  } catch {
-    // ignore persistence failures
-  }
-  return false;
+  return translationSmartFallbackSetting.getInitial();
 }
 
 export function persistTranslationLanguage(targetLanguage: string): void {
-  localStorage.setItem(SUBTITLE_TRANSLATION_LANGUAGE_KEY, targetLanguage);
+  translationLanguageSetting.persist(targetLanguage);
 }
 
 export function persistTranslationChunkCount(
   chunkCountOverride: number | null,
 ): void {
-  if (chunkCountOverride === null) {
-    localStorage.removeItem(SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY);
-    return;
-  }
-  localStorage.setItem(
-    SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY,
-    String(chunkCountOverride),
-  );
+  translationChunkCountSetting.persist(chunkCountOverride);
 }
 
 export function persistTranslationInstructions(instructions: string): void {
-  localStorage.setItem(SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY, instructions);
+  translationInstructionsSetting.persist(instructions);
 }
 
 export function persistTranslationSource(
   translationSource: SubtitleTranslationSource,
 ): void {
-  localStorage.setItem(SUBTITLE_TRANSLATION_SOURCE_KEY, translationSource);
+  translationSourceSetting.persist(translationSource);
 }
 
 export function persistTranslationModelId(selectedModelId: string): void {
-  localStorage.setItem(SUBTITLE_TRANSLATION_MODEL_KEY, selectedModelId);
+  translationModelIdSetting.persist(selectedModelId);
 }
 
 export function persistTranslationSmartFallback(smartFallback: boolean): void {
-  localStorage.setItem(
-    SUBTITLE_TRANSLATION_SMART_FALLBACK_KEY,
-    String(smartFallback),
-  );
-}
-
-function formatTemplate(
-  template: string,
-  params?: Record<string, string> | null,
-) {
-  let formatted = template;
-  for (const [key, value] of Object.entries(params ?? {})) {
-    formatted = formatted.split(`{${key}}`).join(value);
-  }
-  return formatted;
+  translationSmartFallbackSetting.persist(smartFallback);
 }
 
 export function localizeStatus(
@@ -210,14 +205,7 @@ export function localizeStatus(
   > | null,
 ) {
   if (!status) return null;
-  const key = status.messageKey;
-  if (key && key in t) {
-    return formatTemplate(
-      t[key as keyof Translations] as string,
-      status.messageParams,
-    );
-  }
-  return status.message;
+  return localizeMessageKey(t, status);
 }
 
 export function buildTranslationItems(

@@ -9,8 +9,8 @@ import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from '.
 import { invoke } from '@/lib/ipc';
 import { normalizeBackgroundConfig } from './backgroundConfig';
 
+import { clamp } from './mathUtils';
 import {
-  clamp,
   DEFAULT_AUDIO_BITRATE_KBPS,
   MIN_VIDEO_BITRATE_KBPS,
   MAX_VIDEO_BITRATE_KBPS,
@@ -24,6 +24,7 @@ import {
 } from './exportEstimator';
 
 import { stageBrowserCursorSlotTiles } from './exporterCursorTiles';
+import { stageFramesInChunks } from './exportStaging';
 import {
   buildTimeSegmentStamp,
   buildJsonHash,
@@ -413,24 +414,11 @@ export class VideoExporter {
           });
         } else {
           // Fallback: send pre-computed frame chunks (old path)
-          const FRAME_CHUNK = 1500;
-          const frames = prepared.overlayPayload.frames;
-          for (let i = 0; i < frames.length; i += FRAME_CHUNK) {
-            await invoke('stage_export_data', {
-              dataType: 'overlay_frames_chunk',
-              data: frames.slice(i, i + FRAME_CHUNK),
-            });
-          }
+          await stageFramesInChunks(prepared.overlayPayload.frames, 'overlay_frames_chunk');
         }
       }
       if (prepared.bakedWebcamFrames.length > 0) {
-        const FRAME_CHUNK = 1500;
-        for (let i = 0; i < prepared.bakedWebcamFrames.length; i += FRAME_CHUNK) {
-          await invoke('stage_export_data', {
-            dataType: 'webcam',
-            data: prepared.bakedWebcamFrames.slice(i, i + FRAME_CHUNK),
-          });
-        }
+        await stageFramesInChunks(prepared.bakedWebcamFrames, 'webcam');
       }
 
       // Animated cursor frames are pre-staged to Rust's persistent store

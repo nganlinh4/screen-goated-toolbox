@@ -8,15 +8,12 @@ import {
   clampVisibilitySegmentsToDuration,
   mergePointerSegments,
 } from "@/lib/cursorHiding";
+import { clamp } from "@/lib/mathUtils";
 
 export const KEYSTROKE_VISIBILITY_MARGIN_BEFORE = 0.04;
 export const KEYSTROKE_VISIBILITY_MARGIN_AFTER = 0.08;
 const MIN_GAP_TO_MERGE = 0.2;
 type ActiveKeystrokeMode = Exclude<KeystrokeMode, "off">;
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v));
-}
 
 interface KeystrokeVisibilityBuildOptions {
   mode?: ActiveKeystrokeMode;

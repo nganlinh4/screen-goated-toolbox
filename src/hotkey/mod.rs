@@ -17,11 +17,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
 
-// Modifier Constants for Hook
-const MOD_ALT: u32 = 0x0001;
-const MOD_CONTROL: u32 = 0x0002;
-const MOD_SHIFT: u32 = 0x0004;
-const MOD_WIN: u32 = 0x0008;
+// Windows RegisterHotKey modifier bits (MOD_ALT/CONTROL/SHIFT/WIN). Canonical
+// definition for the whole crate — imported by gui/app, translation_gummy, and
+// the screen-record IPC hotkey parser. NOTE: distinct from the u8 wire encoding
+// in screen_record/input_capture.rs.
+pub const MOD_ALT: u32 = 0x0001;
+pub const MOD_CONTROL: u32 = 0x0002;
+pub const MOD_SHIFT: u32 = 0x0004;
+pub const MOD_WIN: u32 = 0x0008;
 
 // Message constants
 pub const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;

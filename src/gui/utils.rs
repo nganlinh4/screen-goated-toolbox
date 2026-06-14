@@ -12,11 +12,9 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIcon, FindWindowW, GetSystemMetrics, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CXSMICON,
-    SM_CYICON, SM_CYSMICON, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
-    WM_SETICON,
+    CreateIcon, GetSystemMetrics, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CXSMICON, SM_CYICON,
+    SM_CYSMICON, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_SETICON,
 };
-use windows::core::w;
 use windows_core::BOOL;
 
 // --- Monitor Enumeration (Existing Code) ---
@@ -194,6 +192,23 @@ pub fn configure_fonts(ctx: &egui::Context) {
 
 const TASK_NAME: &str = "ScreenGoatedToolbox_AutoStart";
 
+/// CREATE_NO_WINDOW - prevents console window flash when spawning child processes.
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+/// Run `schtasks` with the given args, hidden, returning whether it succeeded.
+/// Used for the bool-returning task-scheduler operations (create/delete/query).
+fn run_schtasks(args: &[&str]) -> bool {
+    let mut cmd = Command::new("schtasks");
+    cmd.args(args);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    match cmd.output() {
+        Ok(o) => o.status.success(),
+        Err(_) => false,
+    }
+}
+
 pub fn set_admin_startup(enable: bool) -> bool {
     if enable {
         let exe_path = match std::env::current_exe() {
@@ -210,57 +225,18 @@ pub fn set_admin_startup(enable: bool) -> bool {
             return false;
         }
 
-        let mut cmd = Command::new("schtasks");
-        cmd.args([
-            "/create",
-            "/tn",
-            TASK_NAME,
-            "/tr",
-            &format!("\"{}\"", exe_str),
-            "/sc",
-            "onlogon",
-            "/rl",
-            "highest",
-            "/f",
-        ]);
-        // CREATE_NO_WINDOW = 0x08000000 - prevents console window flash
-        #[cfg(windows)]
-        cmd.creation_flags(0x08000000);
-
-        let output = cmd.output();
-
-        match output {
-            Ok(o) => o.status.success(),
-            Err(_) => false,
-        }
+        let tr = format!("\"{}\"", exe_str);
+        run_schtasks(&[
+            "/create", "/tn", TASK_NAME, "/tr", &tr, "/sc", "onlogon", "/rl", "highest", "/f",
+        ])
     } else {
-        let mut cmd = Command::new("schtasks");
-        cmd.args(["/delete", "/tn", TASK_NAME, "/f"]);
-        // CREATE_NO_WINDOW = 0x08000000 - prevents console window flash
-        #[cfg(windows)]
-        cmd.creation_flags(0x08000000);
-
-        let output = cmd.output();
-
-        match output {
-            Ok(o) => o.status.success(),
-            Err(_) => false,
-        }
+        run_schtasks(&["/delete", "/tn", TASK_NAME, "/f"])
     }
 }
 
 pub fn is_admin_startup_enabled() -> bool {
     // 1. Check if ANY task with our name exists
-    let mut cmd = Command::new("schtasks");
-    cmd.args(["/query", "/tn", TASK_NAME]);
-    #[cfg(windows)]
-    cmd.creation_flags(0x08000000);
-
-    let output = cmd.output();
-    let exists = match output {
-        Ok(o) => o.status.success(),
-        Err(_) => false,
-    };
+    let exists = run_schtasks(&["/query", "/tn", TASK_NAME]);
 
     if !exists {
         return false;
@@ -283,9 +259,8 @@ pub fn is_admin_startup_pointing_to_current_exe() -> bool {
 
     let mut cmd = Command::new("schtasks");
     cmd.args(["/query", "/tn", TASK_NAME, "/xml"]);
-    // CREATE_NO_WINDOW = 0x08000000
     #[cfg(windows)]
-    cmd.creation_flags(0x08000000);
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     if let Ok(output) = cmd.output()
         && output.status.success()
@@ -388,14 +363,7 @@ pub fn set_window_icon(hwnd: HWND, is_dark_mode: bool) {
 
 pub fn update_window_icon_native(is_dark_mode: bool) {
     unsafe {
-        let class_name = w!("eframe");
-        let title_name = w!("Screen Goated Toolbox (SGT by nganlinh4)");
-
-        let mut hwnd = FindWindowW(class_name, title_name).unwrap_or_default();
-
-        if hwnd.is_invalid() {
-            hwnd = FindWindowW(None, title_name).unwrap_or_default();
-        }
+        let hwnd = crate::gui::app::main_window_hwnd();
 
         if !hwnd.is_invalid() {
             set_window_icon(hwnd, is_dark_mode);

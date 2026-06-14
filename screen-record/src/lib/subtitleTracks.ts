@@ -6,6 +6,7 @@ import type {
   VideoSegment,
 } from '@/types/video';
 import { getSubtitleLanguageLabel } from '@/lib/subtitleLanguageOptions';
+import { cloneSubtitleSegment, cloneSubtitleSegments } from '@/lib/subtitleTrackFragments';
 
 export const ORIGINAL_SUBTITLE_TRACK_ID = 'subtitle-track-original';
 
@@ -54,20 +55,6 @@ export function createSubtitleTrackStateFromSegments(
     subtitleCustomChain: buildDefaultSubtitleCustomChain(),
     subtitleSegments: cloneSubtitleSegments(originalTrack.segments),
   };
-}
-
-function cloneSubtitleSegment(segment: SubtitleSegment): SubtitleSegment {
-  return {
-    ...segment,
-    style: JSON.parse(JSON.stringify(segment.style)),
-    sourceGroup: segment.sourceGroup
-      ? JSON.parse(JSON.stringify(segment.sourceGroup))
-      : undefined,
-  };
-}
-
-function cloneSubtitleSegments(segments: readonly SubtitleSegment[]): SubtitleSegment[] {
-  return segments.map(cloneSubtitleSegment);
 }
 
 function sortSubtitleTracks(tracks: readonly SubtitleTrack[]): SubtitleTrack[] {
@@ -287,20 +274,6 @@ export function setActiveSubtitleCustomView(segment: VideoSegment): VideoSegment
   return normalizeSubtitleTrackState({
     ...segment,
     activeSubtitleView: { kind: 'custom' },
-  });
-}
-
-export function updateSubtitleTrack(
-  segment: VideoSegment,
-  trackId: string,
-  updater: (track: SubtitleTrack) => SubtitleTrack,
-): VideoSegment {
-  const normalized = normalizeSubtitleTrackState(segment);
-  return normalizeSubtitleTrackState({
-    ...normalized,
-    subtitleTracks: normalized.subtitleTracks?.map((track) =>
-      track.id === trackId ? updater(track) : track,
-    ),
   });
 }
 

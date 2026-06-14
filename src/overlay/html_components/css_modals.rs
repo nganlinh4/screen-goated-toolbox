@@ -1,4 +1,12 @@
 pub fn get(is_dark: bool) -> String {
+    // Shared overlay accent colors (kept byte-identical to the previous inline literals).
+    let glow_translation = crate::overlay::utils::GLOW_TRANSLATION; // "#ff9633"
+    let glow_transcription = crate::overlay::utils::GLOW_TRANSCRIPTION; // "#00c8ff"
+    let border_focus_dark = format!("{glow_transcription}80");
+    let border_focus_light = format!("{glow_transcription}50");
+    let shadow_sm_dark = format!("{glow_translation}30");
+    let shadow_sm_light = format!("{glow_translation}20");
+
     let (
         bg_color,
         text_color,
@@ -15,26 +23,26 @@ pub fn get(is_dark: bool) -> String {
         shadow_sm,
     ) = if is_dark {
         (
-            "rgba(30, 30, 30, 0.98)",  // bg_color
-            "#ccc",                    // text_color (general)
-            "rgba(255, 150, 51, 0.5)", // border_color (default orange)
-            "#00c8ff80",               // border_focus_color (blue)
-            "#aaa",                    // label_color
-            "#444",                    // slider_bg
-            "#444",                    // switch_bg
-            "#4caf50",                 // switch_on_bg
-            "#ff9633",                 // slider_thumb
-            "rgba(0, 200, 255, 0.15)", // hover_bg
-            "#555",                    // divider_color
-            "rgba(0,0,0,0.5)",         // shadow_lg
-            "#ff963330",               // shadow_sm (orange glow)
+            "rgba(30, 30, 30, 0.98)",          // bg_color
+            "#ccc",                            // text_color (general)
+            "rgba(255, 150, 51, 0.5)",         // border_color (default orange)
+            border_focus_dark.as_str(),        // border_focus_color (blue)
+            "#aaa",                            // label_color
+            "#444",                            // slider_bg
+            "#444",                            // switch_bg
+            "#4caf50",                         // switch_on_bg
+            glow_translation,                  // slider_thumb
+            "rgba(0, 200, 255, 0.15)",         // hover_bg
+            "#555",                            // divider_color
+            "rgba(0,0,0,0.5)",                 // shadow_lg
+            shadow_sm_dark.as_str(),           // shadow_sm (orange glow)
         )
     } else {
         (
             "rgba(255, 255, 255, 0.98)",
             "#202124",
             "rgba(255, 150, 51, 0.3)", // Lighter orange border
-            "#00c8ff50",
+            border_focus_light.as_str(),
             "#5f6368",
             "#e0e0e0",
             "#dadce0",
@@ -43,12 +51,12 @@ pub fn get(is_dark: bool) -> String {
             "rgba(0, 200, 255, 0.08)",
             "#dadce0",
             "rgba(0,0,0,0.15)",
-            "#ff963320",
+            shadow_sm_light.as_str(),
         )
     };
 
-    let title_color_tts = "#ff9633"; // Orange
-    let title_color_app = "#00c8ff"; // Blue
+    let title_color_tts = glow_translation; // Orange
+    let title_color_app = glow_transcription; // Blue
 
     format!(
         r###"

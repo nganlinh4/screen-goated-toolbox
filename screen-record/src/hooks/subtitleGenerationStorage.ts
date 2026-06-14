@@ -1,5 +1,6 @@
 import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
 import { DEFAULT_GEMINI_SUBTITLE_PROMPT } from '@/lib/geminiSubtitlePrompt';
+import { createPersistedSetting } from '@/lib/persistedState';
 import type { SubtitleMethod, SubtitleMethodCapability } from './subtitleGenerationTypes';
 
 const SUBTITLE_SOURCE_KEY = 'screen-record-subtitle-source-v1';
@@ -35,18 +36,6 @@ function normalizeLegacySubtitleSource(value: string | null): string | null {
   return value;
 }
 
-export function getInitialSubtitleSource(): SubtitleSource {
-  try {
-    const raw = normalizeLegacySubtitleSource(localStorage.getItem(SUBTITLE_SOURCE_KEY));
-    if (isSubtitleSource(raw)) {
-      return raw;
-    }
-  } catch {
-    // ignore persistence failures
-  }
-  return 'video';
-}
-
 function isSubtitleMethod(value: string): value is SubtitleMethod {
   return (
     value === 'groq-whisper-accurate' ||
@@ -71,100 +60,118 @@ export function isParakeetTdtSubtitleMethod(method: SubtitleMethod) {
   return method === 'parakeet-tdt-0-6b-v3';
 }
 
-export function getInitialSubtitleMethod(): SubtitleMethod {
-  try {
-    const normalized = normalizeStoredSubtitleMethod(localStorage.getItem(SUBTITLE_METHOD_KEY));
-    if (normalized) {
-      return normalized;
-    }
-  } catch {
-    // ignore persistence failures
-  }
-  return 'groq-whisper-accurate';
-}
+const subtitleSourceSetting = createPersistedSetting<SubtitleSource>(SUBTITLE_SOURCE_KEY, {
+  parse: (raw) => {
+    const normalized = normalizeLegacySubtitleSource(raw);
+    return isSubtitleSource(normalized) ? normalized : 'video';
+  },
+  serialize: (value) => value,
+  fallback: 'video',
+});
 
-export function getInitialSubtitleLanguageHint(): string {
-  try {
-    const raw = localStorage.getItem(SUBTITLE_LANGUAGE_HINT_KEY);
-    if (raw && raw.trim()) {
-      return raw;
-    }
-  } catch {
-    // ignore persistence failures
-  }
-  return 'auto';
-}
+const subtitleMethodSetting = createPersistedSetting<SubtitleMethod>(SUBTITLE_METHOD_KEY, {
+  parse: (raw) => normalizeStoredSubtitleMethod(raw) ?? 'groq-whisper-accurate',
+  serialize: (value) => value,
+  fallback: 'groq-whisper-accurate',
+});
 
-export function getInitialGeminiPrompt(): string {
-  try {
-    const storedPrompt = localStorage.getItem(SUBTITLE_GEMINI_PROMPT_KEY);
-    return storedPrompt?.trim() ? storedPrompt : DEFAULT_GEMINI_SUBTITLE_PROMPT;
-  } catch {
-    // ignore persistence failures
-  }
-  return DEFAULT_GEMINI_SUBTITLE_PROMPT;
-}
+const subtitleLanguageHintSetting = createPersistedSetting<string>(SUBTITLE_LANGUAGE_HINT_KEY, {
+  parse: (raw) => (raw && raw.trim() ? raw : 'auto'),
+  serialize: (value) => value.trim() || 'auto',
+  fallback: 'auto',
+});
 
-export function getInitialGroqVocabulary(): string[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(SUBTITLE_GROQ_VOCABULARY_KEY) ?? '[]');
+const geminiPromptSetting = createPersistedSetting<string>(SUBTITLE_GEMINI_PROMPT_KEY, {
+  parse: (raw) => (raw?.trim() ? raw : DEFAULT_GEMINI_SUBTITLE_PROMPT),
+  serialize: (value) => value,
+  fallback: DEFAULT_GEMINI_SUBTITLE_PROMPT,
+});
+
+const groqVocabularySetting = createPersistedSetting<string[]>(SUBTITLE_GROQ_VOCABULARY_KEY, {
+  parse: (raw) => {
+    const parsed = JSON.parse(raw ?? '[]');
     if (Array.isArray(parsed)) {
       return parsed
         .filter((entry): entry is string => typeof entry === 'string')
         .map((entry) => entry.trim())
         .filter(Boolean);
     }
-  } catch {
-    // ignore persistence failures
-  }
-  return [];
+    return [];
+  },
+  serialize: (value) => JSON.stringify(value),
+  fallback: [],
+});
+
+const autoSplitEnabledSetting = createPersistedSetting<boolean>(SUBTITLE_AUTO_SPLIT_KEY, {
+  parse: (raw) => (raw === null ? true : raw === 'true'),
+  serialize: (value) => String(value),
+  fallback: true,
+});
+
+const autoSplitMaxUnitsSetting = createPersistedSetting<number>(SUBTITLE_AUTO_SPLIT_MAX_UNITS_KEY, {
+  parse: (raw) => {
+    const value = Number(raw);
+    if (Number.isFinite(value) && value >= 3 && value <= 24) {
+      return Math.round(value);
+    }
+    return DEFAULT_SUBTITLE_AUTO_SPLIT_MAX_UNITS;
+  },
+  serialize: (value) => String(value),
+  fallback: DEFAULT_SUBTITLE_AUTO_SPLIT_MAX_UNITS,
+});
+
+export function getInitialSubtitleSource(): SubtitleSource {
+  return subtitleSourceSetting.getInitial();
+}
+
+export function getInitialSubtitleMethod(): SubtitleMethod {
+  return subtitleMethodSetting.getInitial();
+}
+
+export function getInitialSubtitleLanguageHint(): string {
+  return subtitleLanguageHintSetting.getInitial();
+}
+
+export function getInitialGeminiPrompt(): string {
+  return geminiPromptSetting.getInitial();
+}
+
+export function getInitialGroqVocabulary(): string[] {
+  return groqVocabularySetting.getInitial();
 }
 
 export function getInitialAutoSplitEnabled() {
-  try {
-    const raw = localStorage.getItem(SUBTITLE_AUTO_SPLIT_KEY);
-    return raw === null ? true : raw === 'true';
-  } catch {
-    return true;
-  }
+  return autoSplitEnabledSetting.getInitial();
 }
 
 export function getInitialAutoSplitMaxUnits() {
-  try {
-    const raw = Number(localStorage.getItem(SUBTITLE_AUTO_SPLIT_MAX_UNITS_KEY));
-    if (Number.isFinite(raw) && raw >= 3 && raw <= 24) {
-      return Math.round(raw);
-    }
-  } catch {
-    // ignore persistence failures
-  }
-  return DEFAULT_SUBTITLE_AUTO_SPLIT_MAX_UNITS;
+  return autoSplitMaxUnitsSetting.getInitial();
 }
 
 export function persistSubtitleSource(value: SubtitleSource) {
-  localStorage.setItem(SUBTITLE_SOURCE_KEY, value);
+  subtitleSourceSetting.persist(value);
 }
 
 export function persistSubtitleMethod(value: SubtitleMethod) {
-  localStorage.setItem(SUBTITLE_METHOD_KEY, value);
+  subtitleMethodSetting.persist(value);
 }
 
 export function persistSubtitleLanguageHint(value: string) {
-  localStorage.setItem(SUBTITLE_LANGUAGE_HINT_KEY, value.trim() || 'auto');
+  subtitleLanguageHintSetting.persist(value);
 }
 
 export function persistGeminiPrompt(value: string) {
-  localStorage.setItem(SUBTITLE_GEMINI_PROMPT_KEY, value);
+  geminiPromptSetting.persist(value);
 }
 
 export function persistGroqVocabulary(value: string[]) {
-  localStorage.setItem(SUBTITLE_GROQ_VOCABULARY_KEY, JSON.stringify(value));
+  groqVocabularySetting.persist(value);
 }
 
 export function persistAutoSplitEnabled(value: boolean) {
-  localStorage.setItem(SUBTITLE_AUTO_SPLIT_KEY, String(value));
+  autoSplitEnabledSetting.persist(value);
 }
 
 export function persistAutoSplitMaxUnits(value: number) {
-  localStorage.setItem(SUBTITLE_AUTO_SPLIT_MAX_UNITS_KEY, String(value));
+  autoSplitMaxUnitsSetting.persist(value);
 }

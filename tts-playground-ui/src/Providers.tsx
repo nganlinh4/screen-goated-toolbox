@@ -12,8 +12,6 @@ import {
 } from "./components";
 import type {
   CatalogOption,
-  EdgeVoiceConfig,
-  LocalVoiceConfig,
   TtsMethod,
   TtsMode,
 } from "./types";
@@ -193,80 +191,14 @@ function EdgePanel() {
           onChange={(rate) => void ttsApi.patchEdge({ rate })}
         />
       </FormRow>
-      <VoicePerLanguageEdge voices={e.voices} />
-    </Card>
-  );
-}
-
-function VoicePerLanguageEdge({ voices }: { voices: EdgeVoiceConfig[] }) {
-  const s = useTtsState();
-  return (
-    <div className="tts-voice-grid tts-voice-grid-edge flex flex-col gap-1.5">
-      <div className="tts-voice-grid-title text-xs font-medium uppercase tracking-wide text-muted">
-        {s.strings.voicePerLanguage}
-      </div>
-      <ul className="tts-voice-list flex max-h-44 flex-col gap-1 overflow-y-auto">
-        {voices.map((v) => {
-          const opts =
-            s.catalogs.edgeVoicesByLanguage[v.language] ??
-            ([] as CatalogOption[]);
-          return (
-            <li
-              key={v.language}
-              className="tts-voice-row grid grid-cols-[72px,1fr,auto,24px] items-center gap-2 rounded-md bg-surface px-2 py-1.5"
-            >
-              <span className="tts-voice-lang font-mono text-xs text-muted">
-                {v.language}
-              </span>
-              <Select
-                value={v.voice}
-                options={opts}
-                onChange={(voice) => {
-                  const next = voices.map((existing) =>
-                    existing.language === v.language
-                      ? { ...existing, voice }
-                      : existing,
-                  );
-                  void ttsApi.patchEdge({ voices: next });
-                }}
-              />
-              <SmallButton onClick={() => void ttsApi.previewVoice(v.voice)}>
-                {s.strings.preview}
-              </SmallButton>
-              <button
-                onClick={() => {
-                  const next = voices.filter((x) => x.language !== v.language);
-                  void ttsApi.patchEdge({ voices: next });
-                }}
-                className="tts-voice-remove text-muted hover:text-danger"
-                aria-label="Remove"
-              >
-                <svg viewBox="0 0 16 16" className="h-3.5 w-3.5">
-                  <path
-                    d="M5 5 L11 11 M11 5 L5 11"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      <AddLanguageRow
-        languages={s.catalogs.edgeAvailableLanguages.filter(
-          (l) => !voices.some((v) => v.language === l.value),
-        )}
-        onAdd={(language) => {
-          const opts = s.catalogs.edgeVoicesByLanguage[language] ?? [];
-          const voice = opts[0]?.value ?? "";
-          void ttsApi.patchEdge({
-            voices: [...voices, { language, voice }],
-          });
-        }}
+      <VoicePerLanguage
+        variant="edge"
+        voices={e.voices}
+        voicesByLanguage={s.catalogs.edgeVoicesByLanguage}
+        availableLanguages={s.catalogs.edgeAvailableLanguages}
+        onChange={(voices) => void ttsApi.patchEdge({ voices })}
       />
-    </div>
+    </Card>
   );
 }
 
@@ -397,7 +329,8 @@ function LocalProviderPanelView({
           />
         </FormRow>
       )}
-      <VoicePerLanguageLocal
+      <VoicePerLanguage
+        variant="local"
         voices={settings.voices}
         voicesByLanguage={voicesByLang}
         availableLanguages={availableLangs}
@@ -407,20 +340,26 @@ function LocalProviderPanelView({
   );
 }
 
-function VoicePerLanguageLocal({
+type VoicePerLanguageEntry = { language: string; voice: string };
+
+function VoicePerLanguage({
+  variant,
   voices,
   voicesByLanguage,
   availableLanguages,
   onChange,
 }: {
-  voices: LocalVoiceConfig[];
+  variant: "edge" | "local";
+  voices: VoicePerLanguageEntry[];
   voicesByLanguage: Record<string, CatalogOption[]>;
   availableLanguages: CatalogOption[];
-  onChange: (next: LocalVoiceConfig[]) => void;
+  onChange: (next: VoicePerLanguageEntry[]) => void;
 }) {
   const s = useTtsState();
   return (
-    <div className="tts-voice-grid tts-voice-grid-local flex flex-col gap-1.5">
+    <div
+      className={`tts-voice-grid tts-voice-grid-${variant} flex flex-col gap-1.5`}
+    >
       <div className="tts-voice-grid-title text-xs font-medium uppercase tracking-wide text-muted">
         {s.strings.voicePerLanguage}
       </div>

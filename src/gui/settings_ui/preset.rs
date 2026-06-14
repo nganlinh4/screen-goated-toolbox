@@ -272,23 +272,10 @@ pub fn render_preset_editor(
                         changed = true;
                     }
                 } else if preset.preset_type == "audio" && !preset.show_controller_ui {
-                    let mode_label = match config.ui_language.as_str() {
-                        "vi" => "Phương thức:",
-                        "ko" => "작동 방식:",
-                        _ => "Mode:",
-                    };
-                    ui.label(mode_label);
+                    ui.label(text.audio_mode_label);
 
-                    let mode_record = match config.ui_language.as_str() {
-                        "vi" => "Thu âm rồi xử lý",
-                        "ko" => "녹음 후 처리",
-                        _ => "Record then Process",
-                    };
-                    let mode_realtime = match config.ui_language.as_str() {
-                        "vi" => "Xử lý thời gian thực",
-                        "ko" => "실시간 처리",
-                        _ => "Realtime Processing",
-                    };
+                    let mode_record = text.audio_mode_record_then_process;
+                    let mode_realtime = text.audio_mode_realtime;
 
                     let selected_mode_text = if preset.audio_processing_mode == "realtime" {
                         mode_realtime
@@ -330,23 +317,10 @@ pub fn render_preset_editor(
             {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    let window_mode_label = match config.ui_language.as_str() {
-                        "vi" => "Giao diện:",
-                        "ko" => "인터페이스:",
-                        _ => "Interface:",
-                    };
-                    ui.label(window_mode_label);
+                    ui.label(text.realtime_interface_label);
 
-                    let mode_standard = match config.ui_language.as_str() {
-                        "vi" => "Tiêu chuẩn",
-                        "ko" => "표준",
-                        _ => "Standard",
-                    };
-                    let mode_minimal = match config.ui_language.as_str() {
-                        "vi" => "Tối giản",
-                        "ko" => "최소",
-                        _ => "Minimal",
-                    };
+                    let mode_standard = text.realtime_interface_standard;
+                    let mode_minimal = text.realtime_interface_minimal;
 
                     let selected_window_mode = if preset.realtime_window_mode == "minimal" {
                         mode_minimal

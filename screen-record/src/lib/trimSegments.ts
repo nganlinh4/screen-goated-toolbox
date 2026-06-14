@@ -1,12 +1,9 @@
 import type { SpeedPoint, TrimSegment, VideoSegment } from '@/types/video';
 import { zoomKeyframesToBlocks } from '@/lib/renderer/cameraZoom';
+import { clamp } from '@/lib/mathUtils';
 
 const MIN_SEGMENT_DURATION = 0.1;
 const EPSILON = 0.0001;
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v));
-}
 
 export function mergeTrimSegments(segments: TrimSegment[]): TrimSegment[] {
   if (segments.length <= 1) return segments.map(s => ({ ...s }));

@@ -16,7 +16,8 @@ function parseFlat(content, { sep, quote }) {
   const sepRe = sep === '=' ? '\\s*=\\s*' : '\\s*:\\s*';
   const q = quote;
   // value: quote, then (non-quote | escaped) *, then quote, then optional comma
-  const re = new RegExp(`^\\s*([A-Za-z_][A-Za-z0-9_]*)${sepRe}${q}((?:[^${q}\\\\]|\\\\.)*)${q}\\s*,?\\s*$`);
+  // allow optional trailing comma and optional line comment (// ...) after the value
+  const re = new RegExp(`^\\s*([A-Za-z_][A-Za-z0-9_]*)${sepRe}${q}((?:[^${q}\\\\]|\\\\.)*)${q}\\s*,?\\s*(?://.*)?$`);
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(re);
     if (m) {

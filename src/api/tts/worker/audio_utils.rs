@@ -1,4 +1,6 @@
-pub(super) fn resample_audio(samples: &[i16], from_rate: u32, to_rate: u32) -> Vec<i16> {
+/// Linear-interpolation resampler for mono PCM16. Shared by the TTS workers and
+/// the TTS playground; both previously carried byte-identical copies.
+pub(crate) fn resample_audio(samples: &[i16], from_rate: u32, to_rate: u32) -> Vec<i16> {
     if samples.is_empty() || from_rate == to_rate {
         return samples.to_vec();
     }

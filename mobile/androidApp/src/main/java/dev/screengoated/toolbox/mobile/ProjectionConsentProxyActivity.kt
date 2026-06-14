@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
@@ -30,7 +31,7 @@ class ProjectionConsentProxyActivity : ComponentActivity() {
                             appContainer.audioPresetLaunchStore.clear()
                             Toast.makeText(
                                 this,
-                                getString(R.string.projection_realtime_preset_unavailable),
+                                uiLocalized().getString(R.string.projection_realtime_preset_unavailable),
                                 Toast.LENGTH_SHORT,
                             ).show()
                         } else {
@@ -55,7 +56,7 @@ class ProjectionConsentProxyActivity : ComponentActivity() {
             }
             Toast.makeText(
                 this,
-                getString(R.string.projection_audio_consent_cancelled),
+                uiLocalized().getString(R.string.projection_audio_consent_cancelled),
                 Toast.LENGTH_SHORT,
             ).show()
         }
@@ -72,7 +73,7 @@ class ProjectionConsentProxyActivity : ComponentActivity() {
     private fun launchProjectionConsent() {
         val projectionManager = getSystemService(MediaProjectionManager::class.java)
         if (projectionManager == null) {
-            Toast.makeText(this, getString(R.string.projection_unavailable), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, uiLocalized().getString(R.string.projection_unavailable), Toast.LENGTH_SHORT).show()
             finishProxy()
             return
         }

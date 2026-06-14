@@ -69,7 +69,6 @@ windows-core = "0.62"
 parakeet-rs = { version = "=0.3.5", features = ["directml"] }
 ort = { version = "=2.0.0-rc.12", features = ["directml", "load-dynamic"] }
 ringbuf = "0.4.8"
-dark-light = "2.0.0"
 windows-capture = "1.5.0"
 rdev = "0.5.3"
 tiny_http = "0.12"

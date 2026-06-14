@@ -6,6 +6,7 @@ mod audio_waveform;
 mod cursor_svg;
 mod gemini_translate_narration;
 mod hotkeys;
+mod job_registry;
 pub mod media_server;
 mod narration;
 mod recording;
@@ -207,9 +208,7 @@ pub fn handle_ipc_command(
             super::take_pending_subtitle_drop_actions(),
         )
         .unwrap_or_else(|_| serde_json::json!([]))),
-        "read_subtitle_file_path" | "read_subtitle_srt_path" => {
-            handle_read_subtitle_file_path(&args)
-        }
+        "read_subtitle_file_path" => handle_read_subtitle_file_path(&args),
         "generate_thumbnails" => {
             let path = args["path"].as_str().ok_or("Missing path")?;
             let count = args["count"].as_u64().unwrap_or(20) as u32;
@@ -333,11 +332,7 @@ pub fn handle_ipc_command(
             let window_infos = window_monitor::gather_window_metadata()?;
             let (is_dark, lang) = {
                 let app = crate::APP.lock().unwrap();
-                let is_dark = match app.config.theme_mode {
-                    crate::config::ThemeMode::Dark => true,
-                    crate::config::ThemeMode::Light => false,
-                    crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-                };
+                let is_dark = app.config.theme_mode.is_dark();
                 let lang = app.config.ui_language.clone();
                 (is_dark, lang)
             };
@@ -370,11 +365,7 @@ pub fn handle_ipc_command(
         "show_recording_audio_app_selector" => {
             let (is_dark, lang) = {
                 let app = crate::APP.lock().unwrap();
-                let is_dark = match app.config.theme_mode {
-                    crate::config::ThemeMode::Dark => true,
-                    crate::config::ThemeMode::Light => false,
-                    crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-                };
+                let is_dark = app.config.theme_mode.is_dark();
                 let lang = app.config.ui_language.clone();
                 (is_dark, lang)
             };

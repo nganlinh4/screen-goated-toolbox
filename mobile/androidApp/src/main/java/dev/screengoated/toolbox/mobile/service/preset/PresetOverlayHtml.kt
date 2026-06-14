@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
+import dev.screengoated.toolbox.mobile.preset.triLang
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
@@ -197,10 +198,6 @@ private fun localized(
     en: String,
     vi: String,
     ko: String,
-): String = when (lang) {
-    "vi" -> vi
-    "ko" -> ko
-    else -> en
-}
+): String = triLang(lang, en, vi, ko)
 
 internal fun PresetResultWindowId.wireValue(): String = "$sessionId:$blockIdx"

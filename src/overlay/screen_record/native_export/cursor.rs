@@ -1,4 +1,5 @@
 use super::config::{BakedCursorFrame, ParsedBakedCursorFrame};
+use crate::overlay::screen_record::embedded_assets::CURSOR_ATLAS_SLOT_COUNT;
 
 pub fn cursor_type_to_id(c_type: &str) -> f32 {
     match c_type {
@@ -155,7 +156,7 @@ pub fn cursor_type_to_id(c_type: &str) -> f32 {
 }
 
 pub fn collect_used_cursor_slots(baked_cursor: &[BakedCursorFrame]) -> Vec<u32> {
-    let mut seen = [false; 144];
+    let mut seen = [false; CURSOR_ATLAS_SLOT_COUNT as usize];
     let mut slots = Vec::new();
     for frame in baked_cursor {
         let slot = cursor_type_to_id(&frame.cursor_type) as u32;
@@ -174,17 +175,21 @@ pub fn collect_used_cursor_slots(baked_cursor: &[BakedCursorFrame]) -> Vec<u32> 
 pub fn parse_baked_cursor_frames(baked_cursor: &[BakedCursorFrame]) -> Vec<ParsedBakedCursorFrame> {
     baked_cursor
         .iter()
-        .map(|frame| ParsedBakedCursorFrame {
-            time: {
-                let _ = frame.is_clicked;
-                frame.time
-            },
-            x: frame.x,
-            y: frame.y,
-            scale: frame.scale,
-            type_id: cursor_type_to_id(frame.cursor_type.as_str()),
-            opacity: frame.opacity,
-            rotation: frame.rotation,
+        .map(|frame| {
+            // `is_clicked` is part of the baked-cursor wire/data model (set during
+            // path generation and deserialized from the export config) but the parsed
+            // export pipeline does not consume it. Reference it so the model field
+            // stays warning-free without dropping it from the contract.
+            let _ = frame.is_clicked;
+            ParsedBakedCursorFrame {
+                time: frame.time,
+                x: frame.x,
+                y: frame.y,
+                scale: frame.scale,
+                type_id: cursor_type_to_id(frame.cursor_type.as_str()),
+                opacity: frame.opacity,
+                rotation: frame.rotation,
+            }
         })
         .collect()
 }

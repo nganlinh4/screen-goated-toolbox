@@ -32,20 +32,10 @@ fn build_s2s_setup_payload(
     context: &S2sContextSnapshot,
 ) -> serde_json::Value {
     if settings.mode == S2sMode::LiveTranslate {
-        return serde_json::json!({
-            "setup": {
-                "model": format!("models/{}", settings.model),
-                "generationConfig": {
-                    "responseModalities": ["AUDIO"],
-                    "translationConfig": {
-                        "targetLanguageCode": crate::api::realtime_audio::websocket::live_translate_target_language_code(&settings.target_language),
-                        "echoTargetLanguage": true
-                    }
-                },
-                "inputAudioTranscription": {},
-                "outputAudioTranscription": {}
-            }
-        });
+        return crate::api::realtime_audio::websocket::build_live_translate_setup_value(
+            &settings.model,
+            &settings.target_language,
+        );
     }
 
     let instruction = format!(
@@ -171,17 +161,11 @@ fn wait_for_setup(
     let started = Instant::now();
     while !stop_signal.load(Ordering::SeqCst) {
         match socket.read() {
-            Ok(Message::Text(msg)) => {
-                let update = parse_s2s_update(msg.as_str());
-                if let Some(error) = update.error {
-                    return Err(anyhow::anyhow!(error));
-                }
-                if update.setup_complete {
-                    return Ok(());
-                }
+            Ok(Message::Close(frame)) => {
+                return Err(anyhow::anyhow!("S2S setup socket closed: {:?}", frame));
             }
-            Ok(Message::Binary(data)) => {
-                if let Ok(text) = String::from_utf8(data.to_vec()) {
+            Ok(message) => {
+                if let Some(text) = s2s_message_to_text(message) {
                     let update = parse_s2s_update(&text);
                     if let Some(error) = update.error {
                         return Err(anyhow::anyhow!(error));
@@ -191,10 +175,6 @@ fn wait_for_setup(
                     }
                 }
             }
-            Ok(Message::Close(frame)) => {
-                return Err(anyhow::anyhow!("S2S setup socket closed: {:?}", frame));
-            }
-            Ok(_) => {}
             Err(error) if is_transient_socket_read_error(&error) => {
                 if started.elapsed() > Duration::from_secs(15) {
                     return Err(anyhow::anyhow!("S2S setup timeout"));
@@ -248,39 +228,29 @@ pub(super) fn process_segment(
     let mut text_updates = 0usize;
     while !s2s_should_stop(stop_signal, cancel_signal) {
         match socket.read() {
-            Ok(Message::Text(msg)) => {
-                let message_update = handle_s2s_message(segment_id, msg.as_str(), event_tx)?;
-                let new_chunks = message_update.audio_chunks;
-                text_updates += message_update.text_updates;
-                if new_chunks > 0 && first_audio_ms.is_none() {
-                    last_audio_at = Some(Instant::now());
-                    first_audio_ms = Some(started.elapsed().as_millis());
-                }
-                if new_chunks > 0 {
-                    last_audio_at = Some(Instant::now());
-                }
-                audio_chunks += new_chunks;
-                last_update = Instant::now();
-                if parse_s2s_update(msg.as_str()).turn_complete {
-                    if audio_chunks == 0 && !final_attempt {
-                        return Ok(if text_updates == 0 {
-                            SegmentOutcome::EmptyNoInput
-                        } else {
-                            SegmentOutcome::RetryFresh
-                        });
-                    }
+            Ok(Message::Close(frame)) => {
+                let detail = frame
+                    .map(|f| format!("connection closed ({}: {})", f.code, f.reason))
+                    .unwrap_or_else(|| "connection closed".to_string());
+                eprintln!(
+                    "[{}] socket-close segment={} session={} gen={} elapsed_ms={} detail={} chunks={} text_updates={}",
+                    log_tag,
+                    segment_id,
+                    session_index,
+                    generation,
+                    started.elapsed().as_millis(),
+                    detail,
+                    audio_chunks,
+                    text_updates
+                );
+                if audio_chunks > 0 {
                     let _ = event_tx.send(S2sEvent::Done { id: segment_id });
-                    return Ok(if audio_chunks > 0 {
-                        SegmentOutcome::Healthy
-                    } else if text_updates == 0 {
-                        SegmentOutcome::EmptyNoInput
-                    } else {
-                        SegmentOutcome::RetryFresh
-                    });
+                    return Ok(SegmentOutcome::Healthy);
                 }
+                return Ok(SegmentOutcome::RetryFresh);
             }
-            Ok(Message::Binary(data)) => {
-                if let Ok(text) = String::from_utf8(data.to_vec()) {
+            Ok(message) => {
+                if let Some(text) = s2s_message_to_text(message) {
                     let message_update = handle_s2s_message(segment_id, &text, event_tx)?;
                     let new_chunks = message_update.audio_chunks;
                     text_updates += message_update.text_updates;
@@ -312,28 +282,6 @@ pub(super) fn process_segment(
                     }
                 }
             }
-            Ok(Message::Close(frame)) => {
-                let detail = frame
-                    .map(|f| format!("connection closed ({}: {})", f.code, f.reason))
-                    .unwrap_or_else(|| "connection closed".to_string());
-                eprintln!(
-                    "[{}] socket-close segment={} session={} gen={} elapsed_ms={} detail={} chunks={} text_updates={}",
-                    log_tag,
-                    segment_id,
-                    session_index,
-                    generation,
-                    started.elapsed().as_millis(),
-                    detail,
-                    audio_chunks,
-                    text_updates
-                );
-                if audio_chunks > 0 {
-                    let _ = event_tx.send(S2sEvent::Done { id: segment_id });
-                    return Ok(SegmentOutcome::Healthy);
-                }
-                return Ok(SegmentOutcome::RetryFresh);
-            }
-            Ok(_) => {}
             Err(error) if is_transient_socket_read_error(&error) => {
                 if audio_chunks > 0
                     && last_audio_at

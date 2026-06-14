@@ -52,6 +52,7 @@ import type {
   UseSubtitleGenerationParams,
 } from './subtitleGenerationTypes';
 import { useSubtitleResultApplication } from './useSubtitleResultApplication';
+import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
 
 export type { SubtitleMethod } from './subtitleGenerationTypes';
 
@@ -107,27 +108,15 @@ export function useSubtitleGeneration({
   });
 
   useEffect(() => {
-    try {
-      persistSubtitleSource(sourceType);
-    } catch {
-      // ignore persistence failures
-    }
+    persistSubtitleSource(sourceType);
   }, [sourceType]);
 
   useEffect(() => {
-    try {
-      persistSubtitleMethod(subtitleMethod);
-    } catch {
-      // ignore persistence failures
-    }
+    persistSubtitleMethod(subtitleMethod);
   }, [subtitleMethod]);
 
   useEffect(() => {
-    try {
-      persistSubtitleLanguageHint(languageHint);
-    } catch {
-      // ignore persistence failures
-    }
+    persistSubtitleLanguageHint(languageHint);
   }, [languageHint]);
 
   useEffect(() => {
@@ -138,28 +127,16 @@ export function useSubtitleGeneration({
   }, [languageHint, subtitleMethod]);
 
   useEffect(() => {
-    try {
-      persistGeminiPrompt(geminiPrompt);
-    } catch {
-      // ignore persistence failures
-    }
+    persistGeminiPrompt(geminiPrompt);
   }, [geminiPrompt]);
 
   useEffect(() => {
-    try {
-      persistGroqVocabulary(groqVocabulary);
-    } catch {
-      // ignore persistence failures
-    }
+    persistGroqVocabulary(groqVocabulary);
   }, [groqVocabulary]);
 
   useEffect(() => {
     autoSplitSubtitlesRef.current = autoSplitSubtitles;
-    try {
-      persistAutoSplitEnabled(autoSplitSubtitles);
-    } catch {
-      // ignore persistence failures
-    }
+    persistAutoSplitEnabled(autoSplitSubtitles);
   }, [autoSplitSubtitles]);
 
   const setAutoSplitMaxUnits = useCallback((value: number) => {
@@ -169,11 +146,7 @@ export function useSubtitleGeneration({
 
   useEffect(() => {
     autoSplitMaxUnitsRef.current = autoSplitMaxUnits;
-    try {
-      persistAutoSplitMaxUnits(autoSplitMaxUnits);
-    } catch {
-      // ignore persistence failures
-    }
+    persistAutoSplitMaxUnits(autoSplitMaxUnits);
   }, [autoSplitMaxUnits]);
 
   useEffect(() => {
@@ -315,107 +288,92 @@ export function useSubtitleGeneration({
     setSegment(mergeCompositionSegmentsToSequence(timeline));
   }, [composition, setSegment]);
 
-  useEffect(() => {
-    if (!jobId) return;
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const nextStatus = await invoke<SubtitleJobStatus>(
-          'get_subtitle_generation_status',
-          {
-            jobId,
-            knownResultsRevision: lastKnownResultsRevisionRef.current,
-          },
+  useAsyncJobPoll<SubtitleJobStatus>({
+    jobId,
+    fetchStatus: (activeJobId) =>
+      invoke<SubtitleJobStatus>('get_subtitle_generation_status', {
+        jobId: activeJobId,
+        knownResultsRevision: lastKnownResultsRevisionRef.current,
+      }),
+    isTerminal: (nextStatus) =>
+      nextStatus.state === 'completed'
+      || nextStatus.state === 'cancelled'
+      || nextStatus.state === 'error',
+    onTick: (nextStatus) => {
+      const nextViewStatus = stripSubtitleJobResults(nextStatus);
+      const nextStatusViewKey = buildSubtitleStatusViewKey(nextViewStatus);
+      if (nextStatusViewKey !== lastStatusViewKeyRef.current) {
+        lastStatusViewKeyRef.current = nextStatusViewKey;
+        setStatus(nextViewStatus);
+      }
+      const generatedResults = splitGeneratedSubtitleResults(
+        nextStatus.results,
+        autoSplitSubtitlesRef.current,
+        autoSplitMaxUnitsRef.current,
+      );
+      const nextAppliedResultsKey = buildAppliedResultsKey(generatedResults);
+      if (nextStatus.results.length > 0 || nextStatus.state === 'completed') {
+        const resultSummary = generatedResults
+          .map((result) => `${result.clipId}:${result.isPartial ? 'p' : 'f'}:${summarizeSubtitleRanges(result.segments)}`)
+          .join(' | ');
+        console.log(
+          `[SubtitleGen][Diag][poll] state=${nextStatus.state} rev=${nextStatus.resultsRevision} known=${lastKnownResultsRevisionRef.current} `
+          + `results=${nextStatus.results.length} ${resultSummary || 'empty-results'}`,
         );
-        if (cancelled) return;
-        const nextViewStatus = stripSubtitleJobResults(nextStatus);
-        const nextStatusViewKey = buildSubtitleStatusViewKey(nextViewStatus);
-        if (nextStatusViewKey !== lastStatusViewKeyRef.current) {
-          lastStatusViewKeyRef.current = nextStatusViewKey;
-          setStatus(nextViewStatus);
-        }
-        const generatedResults = splitGeneratedSubtitleResults(
-          nextStatus.results,
-          autoSplitSubtitlesRef.current,
-          autoSplitMaxUnitsRef.current,
-        );
-        const nextAppliedResultsKey = buildAppliedResultsKey(generatedResults);
-        if (nextStatus.results.length > 0 || nextStatus.state === 'completed') {
-          const resultSummary = generatedResults
-            .map((result) => `${result.clipId}:${result.isPartial ? 'p' : 'f'}:${summarizeSubtitleRanges(result.segments)}`)
-            .join(' | ');
-          console.log(
-            `[SubtitleGen][Diag][poll] state=${nextStatus.state} rev=${nextStatus.resultsRevision} known=${lastKnownResultsRevisionRef.current} `
-            + `results=${nextStatus.results.length} ${resultSummary || 'empty-results'}`,
-          );
-        }
-        if (
-          generatedResults.length > 0
-          && nextAppliedResultsKey !== lastAppliedResultsKeyRef.current
-        ) {
-          if (nextStatus.state === 'completed') {
-            clearQueuedSubtitleResults();
-          }
-          lastKnownResultsRevisionRef.current = nextStatus.resultsRevision;
-          lastAppliedResultsKeyRef.current = nextAppliedResultsKey;
-          queueSubtitleResults(generatedResults, hasFinalSubtitleResult(generatedResults));
-        }
+      }
+      if (
+        generatedResults.length > 0
+        && nextAppliedResultsKey !== lastAppliedResultsKeyRef.current
+      ) {
         if (nextStatus.state === 'completed') {
-          flushQueuedSubtitleResults();
-          markCompletedJobForPersist();
-          lastAppliedResultsKeyRef.current = '';
-          lastKnownResultsRevisionRef.current = 0;
-          lastStatusViewKeyRef.current = '';
-          setJobId(null);
-          setJobContext(null);
-          setActivePanel('subtitles');
-          return;
-        }
-        if (nextStatus.state === 'cancelled' || nextStatus.state === 'error') {
           clearQueuedSubtitleResults();
-          lastAppliedResultsKeyRef.current = '';
-          lastKnownResultsRevisionRef.current = 0;
-          lastStatusViewKeyRef.current = '';
-          setJobId(null);
-          setJobContext(null);
-          return;
         }
-        window.setTimeout(poll, nextStatus.results.length > 0 ? 120 : 250);
-      } catch (error) {
-        if (cancelled) return;
-        setStatus({
-          state: 'error',
-          message: error instanceof Error ? error.message : t.subtitleStatusFailed,
-          progress: 0,
-          activeClipId: null,
-          totalClips: 0,
-          completedClips: 0,
-          resultsRevision: 0,
-          skipped: [],
-          error: error instanceof Error ? error.message : String(error),
-        });
+        lastKnownResultsRevisionRef.current = nextStatus.resultsRevision;
+        lastAppliedResultsKeyRef.current = nextAppliedResultsKey;
+        queueSubtitleResults(generatedResults, hasFinalSubtitleResult(generatedResults));
+      }
+    },
+    onComplete: (nextStatus) => {
+      if (nextStatus.state === 'completed') {
+        flushQueuedSubtitleResults();
+        markCompletedJobForPersist();
         lastAppliedResultsKeyRef.current = '';
         lastKnownResultsRevisionRef.current = 0;
         lastStatusViewKeyRef.current = '';
-        clearQueuedSubtitleResults();
         setJobId(null);
         setJobContext(null);
+        setActivePanel('subtitles');
+        return;
       }
-    };
-
-    void poll();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    clearQueuedSubtitleResults,
-    flushQueuedSubtitleResults,
-    jobId,
-    queueSubtitleResults,
-    setActivePanel,
-    t.subtitleStatusFailed,
-  ]);
+      // cancelled or error terminal state
+      clearQueuedSubtitleResults();
+      lastAppliedResultsKeyRef.current = '';
+      lastKnownResultsRevisionRef.current = 0;
+      lastStatusViewKeyRef.current = '';
+      setJobId(null);
+      setJobContext(null);
+    },
+    onError: (error) => {
+      setStatus({
+        state: 'error',
+        message: error instanceof Error ? error.message : t.subtitleStatusFailed,
+        progress: 0,
+        activeClipId: null,
+        totalClips: 0,
+        completedClips: 0,
+        resultsRevision: 0,
+        skipped: [],
+        error: error instanceof Error ? error.message : String(error),
+      });
+      lastAppliedResultsKeyRef.current = '';
+      lastKnownResultsRevisionRef.current = 0;
+      lastStatusViewKeyRef.current = '';
+      clearQueuedSubtitleResults();
+      setJobId(null);
+      setJobContext(null);
+    },
+    intervalFor: (nextStatus) => (nextStatus.results.length > 0 ? 120 : 250),
+  });
 
   const handleGenerateSubtitles = useCallback(async (selectedRange?: TrackSelectionRange | null) => {
     if (jobId || isStartingSubtitleJob) {
@@ -547,23 +505,28 @@ export function useSubtitleGeneration({
     subtitleMethod,
   ]);
 
-  const handleCancelSubtitleGeneration = useCallback(async () => {
-    if (!jobId) return;
-    await invoke('cancel_subtitle_generation', { jobId });
-    clearQueuedSubtitleResults();
-    setStatus((prev) => (prev ? {
-      ...prev,
-      state: 'cancelled',
-      message: t.subtitleStatusCancelled,
-      messageKey: 'subtitleStatusCancelled',
-      messageParams: {},
-    } : prev));
-    lastAppliedResultsKeyRef.current = '';
-    lastKnownResultsRevisionRef.current = 0;
-    lastStatusViewKeyRef.current = '';
-    setJobId(null);
-    setJobContext(null);
-  }, [clearQueuedSubtitleResults, jobId, t.subtitleStatusCancelled]);
+  const handleCancelSubtitleGeneration = useCallback(
+    buildCancelHandler({
+      jobId,
+      cancelCommand: 'cancel_subtitle_generation',
+      onCancelled: () => {
+        clearQueuedSubtitleResults();
+        setStatus((prev) => (prev ? {
+          ...prev,
+          state: 'cancelled',
+          message: t.subtitleStatusCancelled,
+          messageKey: 'subtitleStatusCancelled',
+          messageParams: {},
+        } : prev));
+        lastAppliedResultsKeyRef.current = '';
+        lastKnownResultsRevisionRef.current = 0;
+        lastStatusViewKeyRef.current = '';
+        setJobId(null);
+        setJobContext(null);
+      },
+    }),
+    [clearQueuedSubtitleResults, jobId, t.subtitleStatusCancelled],
+  );
 
   return {
     editingSubtitleId,

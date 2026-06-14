@@ -1,8 +1,14 @@
 import React, { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import type { AudioGainPoint, NarrationSegment } from "@/types/video";
 import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
 import { useTrackRangeSelect } from "./useTrackRangeSelect";
+import { getVolumeEnvelopeAtTime } from "./adjustableLineUtils";
+import {
+  buildContentMaskStyle,
+  getOverlapRange,
+  isSegmentStackedAbove,
+  rangesOverlap,
+} from "./subtitleTrackLayout";
 import { TrackVolumeCurve } from "./TrackVolumeCurve";
 import { useAudioSegmentTimelineEdit } from "./useAudioSegmentTimelineEdit";
 import { AudioWaveformLayer } from "./AudioWaveformLayer";
@@ -51,66 +57,6 @@ const MIN_VISIBLE_SEC = 0.05;
 const DENSE_SEGMENT_COUNT = 120;
 const MIN_INTERACTIVE_SEGMENT_PX = 8;
 const MIN_WAVEFORM_SEGMENT_PX = 28;
-
-function rangesOverlap(
-  a: { startTime: number; endTime: number },
-  b: { startTime: number; endTime: number },
-) {
-  return a.startTime < b.endTime && b.startTime < a.endTime;
-}
-
-function getOverlapRange(
-  segment: { startTime: number; endTime: number },
-  elevated: { startTime: number; endTime: number } | null,
-) {
-  if (!elevated || !rangesOverlap(segment, elevated)) return null;
-  const start = Math.max(segment.startTime, elevated.startTime);
-  const end = Math.min(segment.endTime, elevated.endTime);
-  const duration = Math.max(segment.endTime - segment.startTime, 0.0001);
-  return {
-    startPct: ((start - segment.startTime) / duration) * 100,
-    endPct: ((end - segment.startTime) / duration) * 100,
-  };
-}
-
-function buildContentMaskStyle(
-  ranges: Array<{ startPct: number; endPct: number }>,
-): CSSProperties | undefined {
-  if (ranges.length === 0) return undefined;
-  const merged = [...ranges]
-    .sort((a, b) => a.startPct - b.startPct)
-    .reduce<Array<{ startPct: number; endPct: number }>>((acc, range) => {
-      const startPct = Math.max(0, Math.min(100, range.startPct));
-      const endPct = Math.max(startPct, Math.min(100, range.endPct));
-      const last = acc[acc.length - 1];
-      if (last && startPct <= last.endPct) {
-        last.endPct = Math.max(last.endPct, endPct);
-      } else if (endPct > startPct) {
-        acc.push({ startPct, endPct });
-      }
-      return acc;
-    }, []);
-  if (merged.length === 0) return undefined;
-  const stops: string[] = ["black 0%"];
-  for (const range of merged) {
-    stops.push(`black ${range.startPct}%`);
-    stops.push(`transparent ${range.startPct}%`);
-    stops.push(`transparent ${range.endPct}%`);
-    stops.push(`black ${range.endPct}%`);
-  }
-  stops.push("black 100%");
-  const maskImage = `linear-gradient(to right, ${stops.join(", ")})`;
-  return { maskImage, WebkitMaskImage: maskImage };
-}
-
-function isSegmentStackedAbove(
-  index: number,
-  rank: number,
-  otherIndex: number,
-  otherRank: number,
-) {
-  return otherRank > rank || (otherRank === rank && otherIndex > index);
-}
 
 interface SelectableSegment {
   id: string;
@@ -244,18 +190,6 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
     : "0%";
   const rangePillClassName =
     "narration-track-range-pill pointer-events-none absolute inset-y-0 overflow-hidden rounded-md border border-[color:color-mix(in_srgb,var(--secondary-color)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--secondary-color)_18%,transparent)]";
-  const getTrackVolumeAtTime = (_time: number, points: AudioGainPoint[] | undefined | null) => {
-    if (!points || points.length === 0) return 1;
-    const sorted = [...points].sort((a, b) => a.time - b.time);
-    const idx = sorted.findIndex((point) => point.time >= _time);
-    if (idx === -1) return sorted[sorted.length - 1]?.volume ?? 1;
-    if (idx === 0) return sorted[0]?.volume ?? 1;
-    const left = sorted[idx - 1];
-    const right = sorted[idx];
-    const ratio = Math.max(0, Math.min(1, (_time - left.time) / Math.max(0.0001, right.time - left.time)));
-    const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
-    return Math.max(0, Math.min(1, left.volume + (right.volume - left.volume) * cosT));
-  };
   const findSegmentAtTime = (time: number) => {
     const hit = renderWindow.index.hitTest(time);
     return hit ? segmentById.get(hit.id) ?? null : null;
@@ -402,7 +336,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
                 sourcePath={seg.rawAudioPath}
                 duration={visible}
                 gainPoints={volumePoints}
-                getVolumeAtTime={getTrackVolumeAtTime}
+                getVolumeAtTime={getVolumeEnvelopeAtTime}
                 colorVariable="--secondary-color"
                 topPx={4}
                 bottomPx={24}

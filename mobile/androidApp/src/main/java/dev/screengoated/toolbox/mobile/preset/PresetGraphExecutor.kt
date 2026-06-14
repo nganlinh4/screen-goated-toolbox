@@ -244,23 +244,17 @@ internal class PresetGraphExecutor(
         }
     }
 
-    private suspend fun executeTextBlock(
+    private suspend fun executeStreamingBlock(
         preset: Preset,
-        inputText: String,
         index: Int,
-        incoming: List<List<Int>>,
         outputs: MutableMap<Int, String>,
         overlayOrder: Map<Int, Int>,
         shouldSurfaceOverlay: Boolean,
         sessionId: String,
+        recordResult: (finalResult: String) -> Unit,
+        attempt: suspend (modelId: String, apiKeys: ApiKeys, onChunk: (String) -> Unit) -> Result<String>,
     ) {
         val block = preset.blocks[index]
-        val sourceText = incoming[index]
-            .mapNotNull(outputs::get)
-            .filter { it.isNotBlank() }
-            .joinToString(separator = "\n\n")
-            .ifBlank { inputText }
-
         val blockBuffer = StringBuilder()
         val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
         val actualStreamingEnabled = if (block.renderMode == "markdown") {
@@ -319,43 +313,33 @@ internal class PresetGraphExecutor(
                 continue
             }
 
-            val attempt = textApiClient.executeStreaming(
-                modelId = currentModelId,
-                prompt = block.resolvePrompt(),
-                inputText = sourceText,
-                apiKeys = currentApiKeys,
-                uiLanguage = uiLanguage(),
-                searchLabel = preset.name(uiLanguage()),
-                streamingEnabled = actualStreamingEnabled,
-                targetLanguage = block.gtxTargetLanguage(),
-                onChunk = { chunk ->
-                    if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
-                        blockBuffer.clear()
-                        blockBuffer.append(chunk.removePrefix(TextApiClient.WIPE_SIGNAL))
-                    } else {
-                        blockBuffer.append(chunk)
+            val attemptResult = attempt(currentModelId, currentApiKeys) { chunk ->
+                if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
+                    blockBuffer.clear()
+                    blockBuffer.append(chunk.removePrefix(TextApiClient.WIPE_SIGNAL))
+                } else {
+                    blockBuffer.append(chunk)
+                }
+                if (shouldSurfaceStreaming) {
+                    executionState.update {
+                        it.withWindowState(
+                            PresetResultWindowState(
+                                id = resultWindowId,
+                                blockIdx = index,
+                                title = preset.nameEn,
+                                markdownText = blockBuffer.toString(),
+                                isLoading = false,
+                                loadingStatusText = null,
+                                isStreaming = true,
+                                renderMode = block.renderMode,
+                                overlayOrder = overlayOrder.getValue(index),
+                            ),
+                        )
                     }
-                    if (shouldSurfaceStreaming) {
-                        executionState.update {
-                            it.withWindowState(
-                                PresetResultWindowState(
-                                    id = resultWindowId,
-                                    blockIdx = index,
-                                    title = preset.nameEn,
-                                    markdownText = blockBuffer.toString(),
-                                    isLoading = false,
-                                    loadingStatusText = null,
-                                    isStreaming = true,
-                                    renderMode = block.renderMode,
-                                    overlayOrder = overlayOrder.getValue(index),
-                                ),
-                            )
-                        }
-                    }
-                },
-            )
+                }
+            }
 
-            val error = attempt.exceptionOrNull()
+            val error = attemptResult.exceptionOrNull()
             if (error != null) {
                 val message = error.message ?: "Execution failed"
                 if (!shouldAdvanceRetryChain(message)) {
@@ -388,16 +372,12 @@ internal class PresetGraphExecutor(
                 continue
             }
 
-            result = attempt.getOrThrow()
+            result = attemptResult.getOrThrow()
         }
 
         val finalResult = requireNotNull(result)
         outputs[index] = finalResult
-        historyRecorder.recordTextResult(
-            block = block,
-            sourceText = sourceText,
-            resultText = finalResult,
-        )
+        recordResult(finalResult)
 
         if (!shouldSurfaceOverlay) {
             return
@@ -417,6 +397,53 @@ internal class PresetGraphExecutor(
                 ),
             )
         }
+    }
+
+    private suspend fun executeTextBlock(
+        preset: Preset,
+        inputText: String,
+        index: Int,
+        incoming: List<List<Int>>,
+        outputs: MutableMap<Int, String>,
+        overlayOrder: Map<Int, Int>,
+        shouldSurfaceOverlay: Boolean,
+        sessionId: String,
+    ) {
+        val block = preset.blocks[index]
+        val sourceText = incoming[index]
+            .mapNotNull(outputs::get)
+            .filter { it.isNotBlank() }
+            .joinToString(separator = "\n\n")
+            .ifBlank { inputText }
+
+        executeStreamingBlock(
+            preset = preset,
+            index = index,
+            outputs = outputs,
+            overlayOrder = overlayOrder,
+            shouldSurfaceOverlay = shouldSurfaceOverlay,
+            sessionId = sessionId,
+            recordResult = { finalResult ->
+                historyRecorder.recordTextResult(
+                    block = block,
+                    sourceText = sourceText,
+                    resultText = finalResult,
+                )
+            },
+            attempt = { modelId, attemptApiKeys, onChunk ->
+                textApiClient.executeStreaming(
+                    modelId = modelId,
+                    prompt = block.resolvePrompt(),
+                    inputText = sourceText,
+                    apiKeys = attemptApiKeys,
+                    uiLanguage = uiLanguage(),
+                    searchLabel = preset.name(uiLanguage()),
+                    streamingEnabled = if (block.renderMode == "markdown") false else block.streamingEnabled,
+                    targetLanguage = block.gtxTargetLanguage(),
+                    onChunk = onChunk,
+                )
+            },
+        )
     }
 
     private suspend fun executeImageBlock(
@@ -442,147 +469,32 @@ internal class PresetGraphExecutor(
             block.resolvePrompt()
         }
 
-        val blockBuffer = StringBuilder()
-        val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
-        val actualStreamingEnabled = if (block.renderMode == "markdown") false else block.streamingEnabled
-        val shouldSurfaceStreaming = shouldSurfaceOverlay && actualStreamingEnabled && !block.requestsHtmlOutput()
-        val retryChainKind = retryChainKindForBlockType(block.blockType)
-            ?.takeUnless { PresetModelCatalog.isNonLlm(block.model) }
-        var currentModelId = block.model
-        val failedModelIds = mutableListOf<String>()
-        val blockedProviders = linkedSetOf<PresetModelProvider>()
-        val currentApiKeys = apiKeys()
-        val currentRuntimeSettings = runtimeSettings()
-        var result: String? = null
-
-        while (result == null) {
-            val descriptor = PresetModelCatalog.getById(currentModelId)
-                ?: error("Unknown model config: $currentModelId")
-
-            val preflight = preflightSkipReason(
-                modelId = currentModelId,
-                provider = descriptor.provider,
-                apiKeys = currentApiKeys,
-                blockedProviders = blockedProviders,
-                settings = currentRuntimeSettings,
-            )
-            if (preflight != null) {
-                if (shouldBlockRetryProvider(preflight)) {
-                    blockedProviders += descriptor.provider
-                }
-                failedModelIds += currentModelId
-                val next = resolveNextRetryModel(
-                    currentModelId = currentModelId,
-                    failedModelIds = failedModelIds,
-                    blockedProviders = blockedProviders,
-                    chainKind = retryChainKind ?: throw IllegalStateException(preflight),
-                    apiKeys = currentApiKeys,
-                    settings = currentRuntimeSettings,
-                ) ?: throw IllegalStateException(preflight)
-                currentModelId = next.id
-                if (shouldSurfaceOverlay) {
-                    emitRetryingWindowState(
-                        preset = preset,
-                        resultWindowId = resultWindowId,
-                        blockIndex = index,
-                        overlayOrder = overlayOrder.getValue(index),
-                        renderMode = block.renderMode,
-                        modelName = next.fullName,
-                    )
-                }
-                continue
-            }
-
-            val attempt = visionApiClient.executeStreaming(
-                modelId = currentModelId,
-                prompt = finalPrompt,
-                imageBytes = imageBytes,
-                apiKeys = currentApiKeys,
-                uiLanguage = uiLanguage(),
-                streamingEnabled = actualStreamingEnabled,
-                onChunk = { chunk ->
-                    if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
-                        blockBuffer.clear()
-                        blockBuffer.append(chunk.removePrefix(TextApiClient.WIPE_SIGNAL))
-                    } else {
-                        blockBuffer.append(chunk)
-                    }
-                    if (shouldSurfaceStreaming) {
-                        executionState.update {
-                            it.withWindowState(
-                                PresetResultWindowState(
-                                    id = resultWindowId,
-                                    blockIdx = index,
-                                    title = preset.nameEn,
-                                    markdownText = blockBuffer.toString(),
-                                    isLoading = false,
-                                    loadingStatusText = null,
-                                    isStreaming = true,
-                                    renderMode = block.renderMode,
-                                    overlayOrder = overlayOrder.getValue(index),
-                                ),
-                            )
-                        }
-                    }
-                },
-            )
-
-            val error = attempt.exceptionOrNull()
-            if (error != null) {
-                val message = error.message ?: "Execution failed"
-                if (!shouldAdvanceRetryChain(message)) throw error
-                if (shouldBlockRetryProvider(message)) blockedProviders += descriptor.provider
-                failedModelIds += currentModelId
-                val next = resolveNextRetryModel(
-                    currentModelId = currentModelId,
-                    failedModelIds = failedModelIds,
-                    blockedProviders = blockedProviders,
-                    chainKind = retryChainKind ?: throw error,
-                    apiKeys = currentApiKeys,
-                    settings = currentRuntimeSettings,
-                ) ?: throw error
-                currentModelId = next.id
-                blockBuffer.clear()
-                if (shouldSurfaceOverlay) {
-                    emitRetryingWindowState(
-                        preset = preset,
-                        resultWindowId = resultWindowId,
-                        blockIndex = index,
-                        overlayOrder = overlayOrder.getValue(index),
-                        renderMode = block.renderMode,
-                        modelName = next.fullName,
-                    )
-                }
-                continue
-            }
-
-            result = attempt.getOrThrow()
-        }
-
-        val finalResult = requireNotNull(result)
-        outputs[index] = finalResult
-        historyRecorder.recordImageResult(
-            block = block,
-            imageBytes = imageBytes,
-            resultText = finalResult,
+        executeStreamingBlock(
+            preset = preset,
+            index = index,
+            outputs = outputs,
+            overlayOrder = overlayOrder,
+            shouldSurfaceOverlay = shouldSurfaceOverlay,
+            sessionId = sessionId,
+            recordResult = { finalResult ->
+                historyRecorder.recordImageResult(
+                    block = block,
+                    imageBytes = imageBytes,
+                    resultText = finalResult,
+                )
+            },
+            attempt = { modelId, attemptApiKeys, onChunk ->
+                visionApiClient.executeStreaming(
+                    modelId = modelId,
+                    prompt = finalPrompt,
+                    imageBytes = imageBytes,
+                    apiKeys = attemptApiKeys,
+                    uiLanguage = uiLanguage(),
+                    streamingEnabled = if (block.renderMode == "markdown") false else block.streamingEnabled,
+                    onChunk = onChunk,
+                )
+            },
         )
-
-        if (!shouldSurfaceOverlay) return
-        executionState.update {
-            it.withWindowState(
-                PresetResultWindowState(
-                    id = resultWindowId,
-                    blockIdx = index,
-                    title = preset.nameEn,
-                    markdownText = finalResult,
-                    isLoading = false,
-                    loadingStatusText = null,
-                    isStreaming = false,
-                    renderMode = block.renderMode,
-                    overlayOrder = overlayOrder.getValue(index),
-                ),
-            )
-        }
     }
 
     private fun emitRetryingWindowState(

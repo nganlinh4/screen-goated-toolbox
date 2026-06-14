@@ -202,11 +202,7 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
     let webview_h = h;
 
     let is_dark = if let Ok(app) = crate::APP.lock() {
-        match app.config.theme_mode {
-            crate::config::ThemeMode::Dark => true,
-            crate::config::ThemeMode::Light => false,
-            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        }
+        app.config.theme_mode.is_dark()
     } else {
         true
     };
@@ -348,16 +344,8 @@ fn handle_ipc_message(body: &str) {
     } else if body == "drag_window" {
         let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
         if hwnd_val != 0 {
-            unsafe {
-                let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-                let _ = windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture();
-                let _ = windows::Win32::UI::WindowsAndMessaging::SendMessageW(
-                    hwnd,
-                    WM_NCLBUTTONDOWN,
-                    Some(WPARAM(HTCAPTION as usize)),
-                    Some(LPARAM(0)),
-                );
-            }
+            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+            crate::overlay::utils::begin_window_drag(hwnd);
         }
     } else if body == "close_window" {
         super::cancel_input();

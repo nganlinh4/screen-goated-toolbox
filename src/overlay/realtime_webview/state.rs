@@ -1,11 +1,8 @@
 //! Shared state for realtime transcription overlay
 
 use crate::api::realtime_audio::{RealtimeState, SharedRealtimeState};
-use raw_window_handle::{
-    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
-};
+pub use crate::win_types::HwndWrapper;
 use std::collections::HashMap;
-use std::num::NonZeroIsize;
 use std::sync::{Arc, Mutex, Once, atomic::AtomicBool};
 use windows::Win32::Foundation::*;
 pub const WM_APP_REALTIME_START: u32 = 0x0400 + 500; // WM_USER + 500
@@ -97,19 +94,3 @@ thread_local! {
     pub static REALTIME_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Wrapper for HWND to implement HasWindowHandle
-pub struct HwndWrapper(pub HWND);
-
-impl HasWindowHandle for HwndWrapper {
-    fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0.0 as isize;
-        if let Some(non_zero) = NonZeroIsize::new(hwnd) {
-            let mut handle = Win32WindowHandle::new(non_zero);
-            handle.hinstance = None;
-            let raw = RawWindowHandle::Win32(handle);
-            Ok(unsafe { WindowHandle::borrow_raw(raw) })
-        } else {
-            Err(HandleError::Unavailable)
-        }
-    }
-}

@@ -27,7 +27,6 @@ import { RecordingAudioSourceDropdown } from '@/components/header/RecordingAudio
 
 type CaptureMenuStep = 'root' | 'display-monitors' | 'display-fps' | 'window-fps';
 type HeaderDropdown = 'recordingAudio' | 'recordingMode' | 'captureSource' | null;
-const HEADER_DROPDOWN_DEBUG = false;
 
 interface HeaderProps {
   isRecording: boolean;
@@ -52,7 +51,6 @@ interface HeaderProps {
   onOpenRawVideoDialog: () => void;
   onOpenProjects: () => void;
   projectsButtonDisabled?: boolean;
-  onOpenCursorLab: () => void;
   hideExport?: boolean;
   hideRawVideo?: boolean;
   captureSource: 'monitor' | 'window';
@@ -87,7 +85,6 @@ export function Header({
   onOpenRawVideoDialog,
   onOpenProjects,
   projectsButtonDisabled = false,
-  onOpenCursorLab: _onOpenCursorLab,
   hideExport = false,
   hideRawVideo = false,
   captureSource,
@@ -139,20 +136,6 @@ export function Header({
     setActiveDropdown((prev) => (prev === 'captureSource' ? null : prev));
   };
 
-  const logHeaderDropdown = (
-    event: string,
-    details: Record<string, unknown> = {},
-  ) => {
-    if (!HEADER_DROPDOWN_DEBUG) return;
-    console.log('[HeaderDropdown]', {
-      event,
-      activeDropdown,
-      pendingDropdown: pendingDropdownRef.current,
-      menuStep,
-      ...details,
-    });
-  };
-
   const clearPendingHandoff = () => {
     if (handoffTimerRef.current !== null) {
       window.clearTimeout(handoffTimerRef.current);
@@ -164,7 +147,6 @@ export function Header({
     target: Exclude<HeaderDropdown, null>,
   ) => (e: React.PointerEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    logHeaderDropdown('trigger-pointerdown', { target });
     if (activeDropdown === target) return;
     if (activeDropdown && activeDropdown !== target) {
       pendingDropdownRef.current = target;
@@ -174,7 +156,6 @@ export function Header({
         handoffTimerRef.current = null;
         const pendingTarget = pendingDropdownRef.current;
         if (!pendingTarget) {
-          logHeaderDropdown('handoff-cancelled', { target });
           return;
         }
         pendingDropdownRef.current = null;
@@ -187,7 +168,6 @@ export function Header({
             suppressedCloseRef.current = null;
           }
         }, 0);
-        logHeaderDropdown('handoff-open', { target: pendingTarget });
         setActiveDropdown(pendingTarget);
       }, 0);
       e.preventDefault();
@@ -197,10 +177,6 @@ export function Header({
   useEffect(() => {
     invoke<boolean>('is_maximized').then(setIsWindowMaximized).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    logHeaderDropdown('state-change');
-  }, [activeDropdown, menuStep]);
 
   useEffect(() => () => clearPendingHandoff(), []);
 
@@ -297,7 +273,6 @@ export function Header({
           <RecordingAudioSourceDropdown
             open={isRecordingAudioMenuOpen}
             onOpenChange={(open) => {
-              logHeaderDropdown('recording-audio-open-change', { open });
               if (open) {
                 pendingDropdownRef.current = null;
                 clearPendingHandoff();
@@ -306,7 +281,6 @@ export function Header({
                 return;
               }
               if (suppressedCloseRef.current === 'recordingAudio') {
-                logHeaderDropdown('recording-audio-close-suppressed');
                 suppressedCloseRef.current = null;
                 return;
               }
@@ -327,7 +301,6 @@ export function Header({
           />
           <div className="recording-mode-dropdown relative flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
             <DropdownMenu open={isRecordingModeMenuOpen} onOpenChange={(open) => {
-              logHeaderDropdown('recording-mode-open-change', { open });
               if (open) {
                 pendingDropdownRef.current = null;
                 clearPendingHandoff();
@@ -336,7 +309,6 @@ export function Header({
                 return;
               }
               if (suppressedCloseRef.current === 'recordingMode') {
-                logHeaderDropdown('recording-mode-close-suppressed');
                 suppressedCloseRef.current = null;
                 return;
               }
@@ -375,7 +347,6 @@ export function Header({
           </div>
           <div className="capture-source-dropdown relative flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
             <DropdownMenu open={isCaptureSourceMenuOpen} onOpenChange={(open) => {
-              logHeaderDropdown('capture-source-open-change', { open });
               if (open) {
                 pendingDropdownRef.current = null;
                 clearPendingHandoff();
@@ -384,7 +355,6 @@ export function Header({
                 return;
               }
               if (suppressedCloseRef.current === 'captureSource') {
-                logHeaderDropdown('capture-source-close-suppressed');
                 suppressedCloseRef.current = null;
                 return;
               }

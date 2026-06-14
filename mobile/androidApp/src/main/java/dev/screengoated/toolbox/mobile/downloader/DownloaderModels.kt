@@ -43,6 +43,7 @@ data class DownloadSessionState(
     val selectedSubtitle: String? = null,
     val analysisError: String? = null,
     val finishedFilePath: String? = null,
+    val finishedFileUri: String? = null,
     val errorMessage: String? = null,
     val logs: List<String> = emptyList(),
     val showErrorLog: Boolean = false,
@@ -60,6 +61,7 @@ data class DownloaderSettings(
     val useSubtitles: Boolean = false,
     val usePlaylist: Boolean = false,
     val downloadType: DownloadType = DownloadType.VIDEO,
+    val lastVideoFormat: String? = null,
     val selectedSubtitle: String? = null,
 )
 

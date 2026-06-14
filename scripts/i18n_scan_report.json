@@ -10,7 +10,7 @@
           "missingCount": 0,
           "extraCount": 0,
           "placeholderMismatchCount": 0,
-          "identicalCount": 24,
+          "identicalCount": 23,
           "missing": [],
           "extra": [],
           "placeholderMismatch": [],
@@ -121,11 +121,6 @@
               "line": 441
             },
             {
-              "key": "recorderEssentials",
-              "value": "Recorder Essentials",
-              "line": 528
-            },
-            {
               "key": "dimFullHD",
               "value": "Full HD (1080p)",
               "line": 587
@@ -142,7 +137,7 @@
           "missingCount": 0,
           "extraCount": 0,
           "placeholderMismatchCount": 0,
-          "identicalCount": 39,
+          "identicalCount": 34,
           "missing": [],
           "extra": [],
           "placeholderMismatch": [],
@@ -171,11 +166,6 @@
               "key": "cursorLabScale",
               "value": "Scale",
               "line": 133
-            },
-            {
-              "key": "cursorLabOffset",
-              "value": "offset",
-              "line": 134
             },
             {
               "key": "subtitleMethodGroqWhisperAccurate",
@@ -211,21 +201,6 @@
               "key": "subtitleMethodParakeetTdt0_6BV3",
               "value": "Parakeet TDT 0.6B v3",
               "line": 201
-            },
-            {
-              "key": "subtitleMethodHelpRuntimeCloud",
-              "value": "Cloud",
-              "line": 204
-            },
-            {
-              "key": "subtitleMethodHelpRuntimeLocal",
-              "value": "Local",
-              "line": 205
-            },
-            {
-              "key": "subtitleTranslationModel",
-              "value": "Model",
-              "line": 271
             },
             {
               "key": "narrationModeGeminiTranslate",
@@ -313,11 +288,6 @@
               "line": 494
             },
             {
-              "key": "recorderEssentials",
-              "value": "Recorder Essentials",
-              "line": 528
-            },
-            {
               "key": "trackVideo",
               "value": "Video",
               "line": 540
@@ -376,17 +346,15 @@
     },
     {
       "system": "src/gui/locale (Rust)",
-      "enKeyCount": 589,
+      "enKeyCount": 590,
       "locales": {
         "ko": {
-          "keyCount": 588,
-          "missingCount": 1,
+          "keyCount": 590,
+          "missingCount": 0,
           "extraCount": 0,
           "placeholderMismatchCount": 0,
-          "identicalCount": 19,
-          "missing": [
-            "overlay_refine_placeholder"
-          ],
+          "identicalCount": 18,
+          "missing": [],
           "extra": [],
           "placeholderMismatch": [],
           "identical": [
@@ -409,11 +377,6 @@
               "key": "use_cerebras_checkbox",
               "value": "Cerebras",
               "line": 24
-            },
-            {
-              "key": "tts_google_translate_title",
-              "value": "Google Translate TTS",
-              "line": 203
             },
             {
               "key": "tts_edge_title",
@@ -488,11 +451,11 @@
           ]
         },
         "vi": {
-          "keyCount": 589,
+          "keyCount": 590,
           "missingCount": 0,
           "extraCount": 0,
           "placeholderMismatchCount": 0,
-          "identicalCount": 28,
+          "identicalCount": 26,
           "missing": [],
           "extra": [],
           "placeholderMismatch": [],
@@ -523,11 +486,6 @@
               "line": 42
             },
             {
-              "key": "add_text_preset_btn",
-              "value": "+ Text",
-              "line": 95
-            },
-            {
               "key": "node_process_title",
               "value": "Text -> Text",
               "line": 102
@@ -546,11 +504,6 @@
               "key": "model_priority_text_chain_title",
               "value": "Text -> Text",
               "line": 172
-            },
-            {
-              "key": "tts_google_translate_title",
-              "value": "Google Translate TTS",
-              "line": 203
             },
             {
               "key": "tts_edge_title",
@@ -650,7 +603,7 @@
           "missingCount": 0,
           "extraCount": 0,
           "placeholderMismatchCount": 0,
-          "identicalCount": 10,
+          "identicalCount": 8,
           "missing": [],
           "extra": [],
           "placeholderMismatch": [],
@@ -671,11 +624,6 @@
               "line": 109
             },
             {
-              "key": "presetRuntimeTextChainLabel",
-              "value": "Text → Text",
-              "line": 166
-            },
-            {
               "key": "geminiS2sTitle",
               "value": "Gemini S2S",
               "line": 212
@@ -684,11 +632,6 @@
               "key": "llmLabel",
               "value": "LLM",
               "line": 213
-            },
-            {
-              "key": "ttsGoogleTranslateTitle",
-              "value": "Google Translate TTS",
-              "line": 243
             },
             {
               "key": "ttsEdgeTitle",
@@ -712,7 +655,7 @@
           "missingCount": 0,
           "extraCount": 0,
           "placeholderMismatchCount": 0,
-          "identicalCount": 11,
+          "identicalCount": 10,
           "missing": [],
           "extra": [],
           "placeholderMismatch": [],
@@ -746,11 +689,6 @@
               "key": "llmLabel",
               "value": "LLM",
               "line": 213
-            },
-            {
-              "key": "ttsGoogleTranslateTitle",
-              "value": "Google Translate TTS",
-              "line": 243
             },
             {
               "key": "ttsEdgeTitle",

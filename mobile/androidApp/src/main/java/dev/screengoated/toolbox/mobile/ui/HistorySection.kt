@@ -120,92 +120,27 @@ internal fun HistorySection(
                                     )
                                     HistoryMetricChip(value = state.maxItems)
                                 }
-                                HistoryInsetCard(accent = MaterialTheme.colorScheme.primary) {
-                                    Column(
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                                    ) {
-                                        Slider(
-                                            value = state.maxItems.toFloat(),
-                                            onValueChange = { onMaxItemsChanged(it.roundToInt()) },
-                                            valueRange = MIN_HISTORY_LIMIT.toFloat()..MAX_HISTORY_LIMIT.toFloat(),
-                                        )
-                                        Text(
-                                            text = locale.historyRetentionHint,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
+                                HistoryRetentionSlider(
+                                    maxItems = state.maxItems,
+                                    locale = locale,
+                                    onMaxItemsChanged = onMaxItemsChanged,
+                                )
                             }
                             Column(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    OutlinedTextField(
-                                        modifier = Modifier.weight(1f),
-                                        value = searchQuery,
-                                        onValueChange = onSearchQueryChanged,
-                                        singleLine = true,
-                                        label = { Text(locale.historySearchLabel) },
-                                        placeholder = { Text(locale.historySearchPlaceholder) },
-                                    )
-                                    if (searchQuery.isNotBlank()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .background(
-                                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                                    shape = MaterialTheme.shapes.medium,
-                                                ),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            IconButton(onClick = onClearSearchQuery) {
-                                                Icon(painterResource(R.drawable.ms_close), contentDescription = locale.historyClearSearch)
-                                            }
-                                        }
-                                    }
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    HistoryActionButton(
-                                        text = locale.historyOpenFolder,
-                                        icon = R.drawable.ms_folder,
-                                        role = HistoryActionRole.FOLDER,
-                                        badgeRotationDegrees = -90f,
-                                        iconRotationDegrees = -90f,
-                                        onClick = {
-                                            val opened = HistoryExternalActions.openFolder(
-                                                context = context,
-                                                folder = File(state.mediaDirectoryPath.orEmpty()),
-                                                supportsFolderOpen = state.supportsFolderOpen,
-                                            )
-                                            if (!opened) {
-                                                Toast.makeText(
-                                                    context,
-                                                    locale.historyFolderUnavailable,
-                                                    Toast.LENGTH_SHORT,
-                                                ).show()
-                                            }
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    HistoryActionButton(
-                                        text = locale.historyClearAll,
-                                        icon = R.drawable.ms_delete,
-                                        role = HistoryActionRole.DELETE,
-                                        onClick = onClearAll,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
+                                HistorySearchField(
+                                    searchQuery = searchQuery,
+                                    locale = locale,
+                                    onSearchQueryChanged = onSearchQueryChanged,
+                                    onClearSearchQuery = onClearSearchQuery,
+                                )
+                                HistoryActionRow(
+                                    state = state,
+                                    locale = locale,
+                                    onClearAll = onClearAll,
+                                )
                             }
                         }
                     } else {
@@ -238,89 +173,24 @@ internal fun HistorySection(
                             }
                         }
 
-                        HistoryInsetCard(accent = MaterialTheme.colorScheme.primary) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Slider(
-                                    value = state.maxItems.toFloat(),
-                                    onValueChange = { onMaxItemsChanged(it.roundToInt()) },
-                                    valueRange = MIN_HISTORY_LIMIT.toFloat()..MAX_HISTORY_LIMIT.toFloat(),
-                                )
-                                Text(
-                                    text = locale.historyRetentionHint,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                        HistoryRetentionSlider(
+                            maxItems = state.maxItems,
+                            locale = locale,
+                            onMaxItemsChanged = onMaxItemsChanged,
+                        )
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            OutlinedTextField(
-                                modifier = Modifier.weight(1f),
-                                value = searchQuery,
-                                onValueChange = onSearchQueryChanged,
-                                singleLine = true,
-                                label = { Text(locale.historySearchLabel) },
-                                placeholder = { Text(locale.historySearchPlaceholder) },
-                            )
-                            if (searchQuery.isNotBlank()) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .background(
-                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                            shape = MaterialTheme.shapes.medium,
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    IconButton(onClick = onClearSearchQuery) {
-                                        Icon(painterResource(R.drawable.ms_close), contentDescription = locale.historyClearSearch)
-                                    }
-                                }
-                            }
-                        }
+                        HistorySearchField(
+                            searchQuery = searchQuery,
+                            locale = locale,
+                            onSearchQueryChanged = onSearchQueryChanged,
+                            onClearSearchQuery = onClearSearchQuery,
+                        )
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            HistoryActionButton(
-                                text = locale.historyOpenFolder,
-                                icon = R.drawable.ms_folder,
-                                role = HistoryActionRole.FOLDER,
-                                badgeRotationDegrees = -90f,
-                                iconRotationDegrees = -90f,
-                                onClick = {
-                                    val opened = HistoryExternalActions.openFolder(
-                                        context = context,
-                                        folder = File(state.mediaDirectoryPath.orEmpty()),
-                                        supportsFolderOpen = state.supportsFolderOpen,
-                                    )
-                                    if (!opened) {
-                                        Toast.makeText(
-                                            context,
-                                            locale.historyFolderUnavailable,
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                            HistoryActionButton(
-                                text = locale.historyClearAll,
-                                icon = R.drawable.ms_delete,
-                                role = HistoryActionRole.DELETE,
-                                onClick = onClearAll,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
+                        HistoryActionRow(
+                            state = state,
+                            locale = locale,
+                            onClearAll = onClearAll,
+                        )
                     }
                 }
             }
@@ -403,6 +273,113 @@ internal fun HistorySection(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HistoryRetentionSlider(
+    maxItems: Int,
+    locale: MobileLocaleText,
+    onMaxItemsChanged: (Int) -> Unit,
+) {
+    HistoryInsetCard(accent = MaterialTheme.colorScheme.primary) {
+        Column(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Slider(
+                value = maxItems.toFloat(),
+                onValueChange = { onMaxItemsChanged(it.roundToInt()) },
+                valueRange = MIN_HISTORY_LIMIT.toFloat()..MAX_HISTORY_LIMIT.toFloat(),
+            )
+            Text(
+                text = locale.historyRetentionHint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HistorySearchField(
+    searchQuery: String,
+    locale: MobileLocaleText,
+    onSearchQueryChanged: (String) -> Unit,
+    onClearSearchQuery: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            modifier = Modifier.weight(1f),
+            value = searchQuery,
+            onValueChange = onSearchQueryChanged,
+            singleLine = true,
+            label = { Text(locale.historySearchLabel) },
+            placeholder = { Text(locale.historySearchPlaceholder) },
+        )
+        if (searchQuery.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        shape = MaterialTheme.shapes.medium,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                IconButton(onClick = onClearSearchQuery) {
+                    Icon(painterResource(R.drawable.ms_close), contentDescription = locale.historyClearSearch)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryActionRow(
+    state: HistoryUiState,
+    locale: MobileLocaleText,
+    onClearAll: () -> Unit,
+) {
+    val context = LocalContext.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        HistoryActionButton(
+            text = locale.historyOpenFolder,
+            icon = R.drawable.ms_folder,
+            role = HistoryActionRole.FOLDER,
+            badgeRotationDegrees = -90f,
+            iconRotationDegrees = -90f,
+            onClick = {
+                val opened = HistoryExternalActions.openFolder(
+                    context = context,
+                    folder = File(state.mediaDirectoryPath.orEmpty()),
+                    supportsFolderOpen = state.supportsFolderOpen,
+                )
+                if (!opened) {
+                    Toast.makeText(
+                        context,
+                        locale.historyFolderUnavailable,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+            modifier = Modifier.weight(1f),
+        )
+        HistoryActionButton(
+            text = locale.historyClearAll,
+            icon = R.drawable.ms_delete,
+            role = HistoryActionRole.DELETE,
+            onClick = onClearAll,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

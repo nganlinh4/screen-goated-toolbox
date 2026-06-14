@@ -164,8 +164,9 @@ export async function bakeOverlayAtlasAndPaths(
   }
 
   const actualAtlasHeight = Math.max(1, packY + rowH + 2);
-  // Extract raw RGBA for SharedBuffer zero-copy transfer.
-  // Also produce PNG base64 as fallback for older WebView2 runtimes.
+  // The atlas is transferred to the backend as a PNG base64 string over IPC and
+  // decoded in Rust; the raw RGBA bytes below are kept alongside it for callers
+  // that want the pre-encoded pixels without re-decoding the PNG.
   const atlasRgba = atlasCtx.getImageData(0, 0, MAX_ATLAS_SIZE, actualAtlasHeight).data;
   const finalCanvas = document.createElement('canvas');
   finalCanvas.width = MAX_ATLAS_SIZE;

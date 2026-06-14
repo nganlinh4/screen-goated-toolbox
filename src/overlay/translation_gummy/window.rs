@@ -1,8 +1,4 @@
-use std::num::NonZeroIsize;
-
-use raw_window_handle::{
-    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
-};
+use crate::win_types::HwndWrapper;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmExtendFrameIntoClientArea,
@@ -211,7 +207,6 @@ unsafe fn internal_create_loop() {
             const originalPostMessage = window.ipc.postMessage;
             window.isWry = true;
             window.__TG_INITIAL_STATE__ = {initial_payload};
-            window.__BR_INITIAL_STATE__ = window.__TG_INITIAL_STATE__;
             window.invoke = async (cmd, args = {{}}) => {{
                 return new Promise((resolve, reject) => {{
                     const id = Math.random().toString(36).slice(2);
@@ -329,14 +324,3 @@ fn resize_webview(hwnd: HWND) {
     });
 }
 
-struct HwndWrapper(HWND);
-
-impl HasWindowHandle for HwndWrapper {
-    fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0.0 as isize;
-        let non_zero = NonZeroIsize::new(hwnd).ok_or(HandleError::Unavailable)?;
-        let mut handle = Win32WindowHandle::new(non_zero);
-        handle.hinstance = None;
-        Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::Win32(handle)) })
-    }
-}
