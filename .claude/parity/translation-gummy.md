@@ -1,7 +1,7 @@
 # Translation Gummy Parity
 
 ## Canonical Source
-- Windows launcher and runtime: [src/overlay/translation_gummy/mod.rs](../../src/overlay/translation_gummy/mod.rs), [src/overlay/translation_gummy/runtime.rs](../../src/overlay/translation_gummy/runtime.rs)
+- Windows launcher and runtime: [src/overlay/translation_gummy/mod.rs](../../src/overlay/translation_gummy/mod.rs), [src/overlay/translation_gummy/runtime/mod.rs](../../src/overlay/translation_gummy/runtime/mod.rs) (session/reconnect loop; setup in runtime/setup.rs, VAD/audio in runtime/audio.rs, wire decode in runtime/protocol.rs)
 - Windows persisted settings: [src/config/types/translation_gummy.rs](../../src/config/types/translation_gummy.rs), [src/config/config.rs](../../src/config/config.rs)
 - Android runtime and foreground service: [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummyRuntime.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummyRuntime.kt), [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummyService.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummyService.kt)
 
@@ -78,7 +78,7 @@
 
 ## VAD + Setup Constant Lock
 - The Gemini Live VAD numerics and session setup-payload constants are locked by the shared fixture [parity-fixtures/translation-gummy/vad-contract.json](../../parity-fixtures/translation-gummy/vad-contract.json). Rust is canonical.
-- Canonical (Rust) values, from [src/overlay/translation_gummy/runtime.rs](../../src/overlay/translation_gummy/runtime.rs):
+- Canonical (Rust) values, from [src/overlay/translation_gummy/runtime/audio.rs](../../src/overlay/translation_gummy/runtime/audio.rs) (VAD) and [src/overlay/translation_gummy/runtime/setup.rs](../../src/overlay/translation_gummy/runtime/setup.rs) (setup payload):
   - `vad.speechRms = 0.015` (`LOCAL_INPUT_SPEECH_RMS`)
   - `vad.trailingAudioMs = 180` (`LOCAL_INPUT_TRAILING_AUDIO_MS`)
   - `vad.endSilenceMs = 420` (`LOCAL_INPUT_END_SILENCE_MS`)
@@ -88,7 +88,7 @@
   - `setup.thinkingBudget = 0`, `setup.mediaResolution = MEDIA_RESOLUTION_LOW`
   - `setup.activityHandling = START_OF_ACTIVITY_INTERRUPTS`, `setup.turnCoverage = TURN_INCLUDES_ONLY_ACTIVITY`
 - Per-platform assertions:
-  - Windows (Rust): `vad_contract_tests` in [src/overlay/translation_gummy/runtime.rs](../../src/overlay/translation_gummy/runtime.rs) `include_str!`s the fixture and asserts each `LOCAL_INPUT_*` constant + the rebuilt setup payload (`build_setup_payload`). Pre-roll is asserted in samples: `LOCAL_INPUT_PREROLL_SAMPLES == prerollChunks * CHUNK_SAMPLES`.
+  - Windows (Rust): the `vad_contract` tests in [src/overlay/translation_gummy/runtime/audio.rs](../../src/overlay/translation_gummy/runtime/audio.rs) and [src/overlay/translation_gummy/runtime/setup.rs](../../src/overlay/translation_gummy/runtime/setup.rs) `include_str!` the fixture and assert each `LOCAL_INPUT_*` constant + the rebuilt setup payload (`build_setup_payload`). Pre-roll is asserted in samples: `LOCAL_INPUT_PREROLL_SAMPLES == prerollChunks * CHUNK_SAMPLES`.
   - Android (Kotlin): [TranslationGummyVadContractTest](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/TranslationGummyVadContractTest.kt) loads the same fixture and asserts `TranslationGummyRuntime.LOCAL_INPUT_*` constants + the `buildTranslationGummySetupPayload` output. Pre-roll is asserted as chunks (`LOCAL_INPUT_PREROLL_CHUNKS == prerollChunks`), not raw samples, because the Android audio chunk size is device-dependent.
 
 ## Fixtures

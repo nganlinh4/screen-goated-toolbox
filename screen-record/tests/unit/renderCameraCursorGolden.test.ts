@@ -125,24 +125,26 @@ describe("render-camera-cursor golden (TS canonical side)", () => {
       }
     });
 
-    it("reproduces smoothMousePositions output (box blur + 60-frame clamp)", () => {
+    it("reproduces smoothMousePositions output (box blur + 60-frame clamp + idle-skip)", () => {
       const sm = FIXTURE.cursorPrimitives.smoothMousePositions;
-      const input = sm.input as MousePosition[];
-      for (const c of sm.cases) {
-        const bg = { cursorSmoothness: c.smoothness } as unknown as BackgroundConfig;
-        const out = smoothMousePositions(
-          input.map((p) => ({ ...p })),
-          120,
-          bg,
-        );
-        expect(out.length).toBe(c.output.length);
-        for (let i = 0; i < c.output.length; i++) {
-          const e = c.output[i];
-          expect(out[i].x).toBeCloseToAbs(e.x, TOL);
-          expect(out[i].y).toBeCloseToAbs(e.y, TOL);
-          expect(out[i].timestamp).toBeCloseToAbs(e.timestamp, TOL);
-          expect(Boolean(out[i].isClicked)).toBe(e.isClicked);
-          expect(out[i].cursor_type ?? "default").toBe(e.cursor_type);
+      for (const track of sm.tracks as any[]) {
+        const input = track.input as MousePosition[];
+        for (const c of track.cases) {
+          const bg = { cursorSmoothness: c.smoothness } as unknown as BackgroundConfig;
+          const out = smoothMousePositions(
+            input.map((p) => ({ ...p })),
+            120,
+            bg,
+          );
+          expect(out.length).toBe(c.output.length);
+          for (let i = 0; i < c.output.length; i++) {
+            const e = c.output[i];
+            expect(out[i].x).toBeCloseToAbs(e.x, TOL);
+            expect(out[i].y).toBeCloseToAbs(e.y, TOL);
+            expect(out[i].timestamp).toBeCloseToAbs(e.timestamp, TOL);
+            expect(Boolean(out[i].isClicked)).toBe(e.isClicked);
+            expect(out[i].cursor_type ?? "default").toBe(e.cursor_type);
+          }
         }
       }
     });

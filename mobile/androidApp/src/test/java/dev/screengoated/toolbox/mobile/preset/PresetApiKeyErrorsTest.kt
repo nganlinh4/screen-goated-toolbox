@@ -38,7 +38,12 @@ class PresetApiKeyErrorsTest {
         assertEquals("NO_API_KEY:google", case.getValue("raw_error").jsonPrimitive.content)
         assertEquals("preset_input_voice", case.getValue("surface").jsonPrimitive.content)
 
-        val source = File(repoRoot(), PRESET_OVERLAY_CONTROLLER_SOURCE).readText()
+        // PresetOverlayController was split into focused sibling files; read the
+        // controller and its siblings so the contract assertions resolve wherever
+        // the code lives.
+        val source = PRESET_OVERLAY_CONTROLLER_SOURCES.joinToString("\n") {
+            File(repoRoot(), it).readText()
+        }
         assertTrue(source.contains("apiKeyErrorToastText(error.message ?: error.toString(), uiLanguage())"))
         assertTrue(source.contains("?.let(appContainer.toastBus::show)"))
     }
@@ -63,7 +68,9 @@ class PresetApiKeyErrorsTest {
 
     private companion object {
         private const val FIXTURE_PATH = "parity-fixtures/api-key-notifications/triggers.json"
-        private const val PRESET_OVERLAY_CONTROLLER_SOURCE =
-            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetOverlayController.kt"
+        private val PRESET_OVERLAY_CONTROLLER_SOURCES = listOf(
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetOverlayController.kt",
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetOverlayControllerLaunch.kt",
+        )
     }
 }

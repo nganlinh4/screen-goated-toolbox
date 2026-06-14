@@ -269,6 +269,7 @@ class PresetRepositoryTest {
             "PresetOverlayControllerAudio.kt",
             "PresetOverlayControllerImage.kt",
             "PresetOverlayControllerClipboard.kt",
+            "PresetOverlayControllerLaunch.kt",
         ).joinToString("\n") {
             repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/$it")
         }
