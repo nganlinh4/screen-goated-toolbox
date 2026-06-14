@@ -2,8 +2,52 @@ import { useEffect, useRef } from "react";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
 import { installScreenRecordAppTestHarness } from "@/testHarness/appHarness";
+import type {
+  BackgroundConfig,
+  Dispatch,
+  EditorHistory,
+  MousePosition,
+  MutableRefObject,
+  Project,
+  ProjectComposition,
+  ProjectsState,
+  RecordingMode,
+  SetStateAction,
+  VideoSegment,
+  WebcamConfig,
+} from "@/hooks/appControllerTypes";
 
-type AppProjectHarnessArgs = Record<string, any>;
+export interface AppProjectHarnessArgs {
+  composition: ProjectComposition | null;
+  currentProjectData: Project | null;
+  currentProjectDataRef: MutableRefObject<Project | null>;
+  currentProjectIdRef: MutableRefObject<string | null>;
+  currentRawMicAudioPath: string;
+  currentRawVideoPath: string;
+  currentRawWebcamVideoPath: string;
+  currentRecordingMode: RecordingMode;
+  duration: number;
+  editorHistory: EditorHistory;
+  handleProjectRawVideoPathChange: (path: string) => void;
+  projects: ProjectsState;
+  rawSetComposition: Dispatch<SetStateAction<ProjectComposition | null>>;
+  rawSetCurrentRawMicAudioPath: Dispatch<SetStateAction<string>>;
+  rawSetCurrentRawWebcamVideoPath: Dispatch<SetStateAction<string>>;
+  rawSetSegment: Dispatch<SetStateAction<VideoSegment | null>>;
+  rawSetWebcamConfig: Dispatch<SetStateAction<WebcamConfig>>;
+  segment: VideoSegment | null;
+  segmentRef: MutableRefObject<VideoSegment | null>;
+  setBackgroundConfigState: Dispatch<SetStateAction<BackgroundConfig>>;
+  setCurrentAudio: (url: string | null) => void;
+  setCurrentMicAudio: (url: string | null) => void;
+  setCurrentProjectData: Dispatch<SetStateAction<Project | null>>;
+  setCurrentTime: (time: number) => void;
+  setCurrentVideo: (url: string | null) => void;
+  setCurrentWebcamVideo: (url: string | null) => void;
+  setMousePositions: (positions: MousePosition[]) => void;
+  setPreviewDuration: (duration: number) => void;
+  setThumbnails: (thumbnails: string[]) => void;
+}
 
 export function useAppProjectHarness(args: AppProjectHarnessArgs) {
   const {

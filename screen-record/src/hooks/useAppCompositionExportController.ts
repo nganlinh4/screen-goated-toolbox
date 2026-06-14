@@ -1,11 +1,101 @@
 import { useCallback, useState } from "react";
 import { useAudioDownload } from "@/hooks/useAudioDownload";
-import { useCompositionPipeline } from "@/hooks/useCompositionPipeline";
+import {
+  useCompositionPipeline,
+  type UseCompositionPipelineParams,
+} from "@/hooks/useCompositionPipeline";
 import { useDebugEffects } from "@/hooks/useDebugEffects";
 import { useTimelineAdaptiveThumbnails } from "@/hooks/useTimelineAdaptiveThumbnails";
 import { useExport } from "@/hooks/useVideoState";
+import type {
+  BackgroundConfig,
+  MousePosition,
+  MutableRefObject,
+  Project,
+  ProjectComposition,
+  RecordingMode,
+  RefObject,
+  VideoSegment,
+  WebcamConfig,
+} from "@/hooks/appControllerTypes";
 
-type AppCompositionExportControllerArgs = Record<string, any>;
+type PipelineArg<K extends keyof UseCompositionPipelineParams> =
+  UseCompositionPipelineParams[K];
+
+export interface AppCompositionExportControllerArgs {
+  applyLoadedBackgroundConfig: PipelineArg<"applyLoadedBackgroundConfig">;
+  audioFilePath: string;
+  audioRef: RefObject<HTMLAudioElement | null>;
+  backgroundConfig: BackgroundConfig;
+  backgroundMutationMetaRef: MutableRefObject<{ at: number; stack: string[] } | null>;
+  canvasRef: RefObject<HTMLCanvasElement | null>;
+  composition: ProjectComposition | null;
+  currentAudio: string | null;
+  currentMicAudio: string | null;
+  currentProjectData: Project | null;
+  currentProjectDataRef: MutableRefObject<Project | null>;
+  currentProjectId: string | null;
+  currentRawMicAudioPath: string;
+  currentRawVideoPath: string;
+  currentRawWebcamVideoPath: string;
+  currentRecordingMode: RecordingMode;
+  currentTime: number;
+  currentVideo: string | null;
+  currentWebcamVideo: string | null;
+  duration: number;
+  generateThumbnailsForSource: (options?: {
+    videoUrl?: string | null;
+    filePath?: string;
+    segment?: VideoSegment | null;
+    deferMs?: number;
+    thumbnailCount?: number;
+  }) => Promise<void>;
+  handleProjectRawVideoPathChange: (path: string) => void;
+  invalidateThumbnails: () => void;
+  isBatching: boolean;
+  isCropping: boolean;
+  isLoadingVideo: boolean;
+  isPlaying: boolean;
+  isProjectTransitionRef: MutableRefObject<boolean>;
+  isRecording: boolean;
+  isVideoReady: boolean;
+  lastRawSavedPath: string;
+  micAudioFilePath: string;
+  micAudioRef: RefObject<HTMLAudioElement | null>;
+  mousePositions: MousePosition[];
+  persistRef: PipelineArg<"persistRef">;
+  previewContainerRef: MutableRefObject<HTMLDivElement | null>;
+  rawSetCurrentRawMicAudioPath: (path: string) => void;
+  rawSetCurrentRawWebcamVideoPath: (path: string) => void;
+  rawSetCurrentRecordingMode: (mode: RecordingMode) => void;
+  rawSetWebcamConfig: (config: WebcamConfig) => void;
+  segment: VideoSegment | null;
+  seek: (time: number) => void;
+  setComposition: PipelineArg<"setComposition">;
+  setCompositionSilently: PipelineArg<"setCompositionSilently">;
+  setCurrentAudio: (url: string | null) => void;
+  setCurrentMicAudio: (url: string | null) => void;
+  setCurrentProjectData: (p: Project | null) => void;
+  setCurrentVideo: (url: string | null) => void;
+  setCurrentWebcamVideo: (url: string | null) => void;
+  setMousePositions: (positions: MousePosition[]) => void;
+  setPreviewDuration: (duration: number) => void;
+  setSegment: PipelineArg<"setSegment">;
+  setShowProjectsDialog: (show: boolean) => void;
+  setThumbnails: (thumbnails: string[]) => void;
+  showProjectsDialog: boolean;
+  tempCanvasRef: RefObject<HTMLCanvasElement | null>;
+  thumbnails: string[];
+  timelineCanvasWidthPx: number;
+  togglePlayback: () => void;
+  videoControllerRef: PipelineArg<"videoControllerRef">;
+  videoFilePath: string;
+  videoFilePathOwnerUrl: string;
+  videoRef: RefObject<HTMLVideoElement | null>;
+  webcamConfig: WebcamConfig;
+  webcamVideoFilePath: string;
+  webcamVideoRef: RefObject<HTMLVideoElement | null>;
+}
 
 export function useAppCompositionExportController(args: AppCompositionExportControllerArgs) {
   const {
@@ -165,7 +255,9 @@ export function useAppCompositionExportController(args: AppCompositionExportCont
     videoRef,
     webcamVideoRef,
     canvasRef,
-    tempCanvasRef,
+    // App's tempCanvasRef is `RefObject<HTMLCanvasElement | null>`; useExport's param
+    // is the non-null variant. Narrowing cast is typing-only (matches prior `any` flow).
+    tempCanvasRef: tempCanvasRef as RefObject<HTMLCanvasElement>,
     audioRef,
     micAudioRef,
     segment,

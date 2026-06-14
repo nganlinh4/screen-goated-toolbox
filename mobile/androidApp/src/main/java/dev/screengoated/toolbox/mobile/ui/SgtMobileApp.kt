@@ -57,7 +57,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyScreen
-import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
@@ -77,25 +76,15 @@ import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 @Composable
 fun SgtMobileApp(
     state: LiveSessionState,
-    apiKey: String,
-    cerebrasApiKey: String,
-    groqApiKey: String,
-    openRouterApiKey: String,
-    ollamaUrl: String,
+    providerKeys: ProviderKeysState,
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
     customModels: List<CustomPresetModelDefinition>,
     uiPreferences: MobileUiPreferences,
     locale: MobileLocaleText,
-    historyState: HistoryUiState,
-    historySearchQuery: String,
+    historyBundle: HistoryUiBundle,
     appUpdateState: AppUpdateUiState,
     edgeVoiceCatalogState: EdgeVoiceCatalogState,
-    onApiKeyChanged: (String) -> Unit,
-    onCerebrasApiKeyChanged: (String) -> Unit,
-    onGroqApiKeyChanged: (String) -> Unit,
-    onOpenRouterApiKeyChanged: (String) -> Unit,
-    onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsChanged: (PresetRuntimeSettings) -> Unit,
     onCustomModelsChanged: (List<CustomPresetModelDefinition>) -> Unit,
     onUiLanguageSelected: (String) -> Unit,
@@ -113,12 +102,7 @@ fun SgtMobileApp(
     onPreviewEdgeVoice: (String, String) -> Unit,
     onPreviewGoogleTranslate: () -> Unit,
     onSessionToggle: () -> Unit,
-    onHistorySearchQueryChanged: (String) -> Unit,
-    onClearHistorySearchQuery: () -> Unit,
-    onHistoryMaxItemsChanged: (Int) -> Unit,
     onResetHistoryDefaults: () -> Unit,
-    onDeleteHistoryItem: (Long) -> Unit,
-    onClearHistoryItems: () -> Unit,
     onCheckForAppUpdates: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit = {},
 ) {
@@ -196,7 +180,7 @@ fun SgtMobileApp(
     if (showCustomModels) {
         CustomModelsDialog(
             models = customModels,
-            openRouterApiKey = openRouterApiKey,
+            openRouterApiKey = providerKeys.openRouterApiKey,
             locale = locale,
             onDismiss = { showCustomModels = false },
             onSave = onCustomModelsChanged,
@@ -278,44 +262,44 @@ fun SgtMobileApp(
             ) {
                 MobileShellSurface(
                     state = state,
-                    apiKey = apiKey,
-                    cerebrasApiKey = cerebrasApiKey,
-                    groqApiKey = groqApiKey,
-                    openRouterApiKey = openRouterApiKey,
-                    ollamaUrl = ollamaUrl,
+                    providerKeys = providerKeys,
                     globalTtsSettings = globalTtsSettings,
                     presetRuntimeSettings = presetRuntimeSettings,
                     locale = locale,
-                    historyState = historyState,
-                    historySearchQuery = historySearchQuery,
+                    historyBundle = historyBundle,
                     appUpdateState = appUpdateState,
-                    onApiKeyChanged = onApiKeyChanged,
-                    onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
-                    onGroqApiKeyChanged = onGroqApiKeyChanged,
-                    onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
-                    onOllamaUrlChanged = onOllamaUrlChanged,
-                    onPresetRuntimeSettingsClick = { showPresetRuntimeSettings = true },
-                    onCustomModelsClick = { showCustomModels = true },
-                    onUsageStatsClick = { showUsageStats = true },
-                    onDownloadedToolsClick = { showDownloadedTools = true },
-                    onResetDefaults = {
-                        // Match Windows reset scope: reset everything except API keys and language
-                        presetRepository.resetAllToDefaults()
-                        onPresetRuntimeSettingsChanged(PresetRuntimeSettings())
-                        onOverlayOpacityChanged(85)
-                        onResetHistoryDefaults()
-                        // Reset TTS to defaults
-                        onGlobalTtsMethodChanged(dev.screengoated.toolbox.mobile.model.MobileTtsMethod.GEMINI_LIVE)
-                        onGlobalTtsSpeedPresetChanged(dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset.FAST)
-                        onGlobalTtsVoiceChanged(dev.screengoated.toolbox.mobile.model.TtsDefaults.DEFAULT_TTS_GEMINI_VOICE)
-                        onGlobalEdgeTtsSettingsChanged(dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings())
-                    },
-                    onVoiceSettingsClick = {
-                        onVoiceSettingsShown()
-                        showTtsSettings = true
-                    },
+                    settingsActions = SettingsActions(
+                        onPresetRuntimeSettingsClick = { showPresetRuntimeSettings = true },
+                        onCustomModelsClick = { showCustomModels = true },
+                        onUsageStatsClick = { showUsageStats = true },
+                        onDownloadedToolsClick = { showDownloadedTools = true },
+                        onResetDefaults = {
+                            // Match Windows reset scope: reset everything except API keys and language
+                            presetRepository.resetAllToDefaults()
+                            onPresetRuntimeSettingsChanged(PresetRuntimeSettings())
+                            onOverlayOpacityChanged(85)
+                            onResetHistoryDefaults()
+                            // Reset TTS to defaults
+                            onGlobalTtsMethodChanged(dev.screengoated.toolbox.mobile.model.MobileTtsMethod.GEMINI_LIVE)
+                            onGlobalTtsSpeedPresetChanged(dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset.FAST)
+                            onGlobalTtsVoiceChanged(dev.screengoated.toolbox.mobile.model.TtsDefaults.DEFAULT_TTS_GEMINI_VOICE)
+                            onGlobalEdgeTtsSettingsChanged(dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings())
+                        },
+                        onVoiceSettingsClick = {
+                            onVoiceSettingsShown()
+                            showTtsSettings = true
+                        },
+                        onOverlayOpacityChanged = onOverlayOpacityChanged,
+                        onCheckForAppUpdates = onCheckForAppUpdates,
+                    ),
+                    navActions = ShellNavActions(
+                        onSessionToggle = onSessionToggle,
+                        onDownloaderClick = { showDownloader = true },
+                        onDjClick = { showDj = true },
+                        onTranslationGummyClick = { showTranslationGummy = true },
+                        onPresetClick = { presetId -> activePresetId = presetId },
+                    ),
                     uiPreferences = uiPreferences,
-                    onOverlayOpacityChanged = onOverlayOpacityChanged,
                     showEmbeddedHeader = isLandscape,
                     appHeaderTitle = locale.appHeaderTitle,
                     uiLanguage = uiPreferences.uiLanguage,
@@ -323,17 +307,6 @@ fun SgtMobileApp(
                     onUiLanguageSelected = onUiLanguageSelected,
                     themeMode = uiPreferences.themeMode,
                     onThemeCycleRequested = onThemeCycleRequested,
-                    onSessionToggle = onSessionToggle,
-                    onDownloaderClick = { showDownloader = true },
-                    onDjClick = { showDj = true },
-                    onTranslationGummyClick = { showTranslationGummy = true },
-                    onPresetClick = { presetId -> activePresetId = presetId },
-                    onHistorySearchQueryChanged = onHistorySearchQueryChanged,
-                    onClearHistorySearchQuery = onClearHistorySearchQuery,
-                    onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
-                    onDeleteHistoryItem = onDeleteHistoryItem,
-                    onClearHistoryItems = onClearHistoryItems,
-                    onCheckForAppUpdates = onCheckForAppUpdates,
                 )
             }
         }
@@ -390,7 +363,7 @@ fun SgtMobileApp(
                     .background(MaterialTheme.colorScheme.surface),
             ) {
                 DjScreen(
-                    apiKey = apiKey,
+                    apiKey = providerKeys.apiKey,
                     isDark = isDjDark,
                     lang = uiPreferences.uiLanguage,
                     onBack = { showDj = false },

@@ -1,21 +1,46 @@
 import { invoke } from "@/lib/ipc";
 
-let mediaServerPortPromise: Promise<number> | null = null;
+interface MediaServerInfo {
+  port: number;
+  token: string;
+}
+
+let mediaServerInfoPromise: Promise<MediaServerInfo> | null = null;
 
 export function isNativeMediaUrl(url: string | null | undefined): boolean {
   if (!url) return false;
   return /^https?:\/\/(127\.0\.0\.1|localhost):\d+\/\?path=/.test(url);
 }
 
-export async function getMediaServerPort(): Promise<number> {
-  if (!mediaServerPortPromise) {
-    mediaServerPortPromise = invoke<number>("get_media_server_port");
+/**
+ * Resolves the local media-server port plus the per-process secret gate token.
+ * The token is delivered over the secure custom-IPC bridge (never HTTP) and is
+ * required on every server request: as an `X-SGT-Token` header on POST/fetch and
+ * as a `&token=` query param on GET media URLs (since <video>/<audio> `src`
+ * cannot send headers).
+ */
+export async function getMediaServerInfo(): Promise<MediaServerInfo> {
+  if (!mediaServerInfoPromise) {
+    mediaServerInfoPromise = invoke<MediaServerInfo>("get_media_server_port");
   }
-  const port = await mediaServerPortPromise;
-  if (!port) {
+  const info = await mediaServerInfoPromise;
+  if (!info || !info.port) {
+    // Reset so a later call can retry instead of caching the failure.
+    mediaServerInfoPromise = null;
     throw new Error("Media server unavailable");
   }
+  return info;
+}
+
+export async function getMediaServerPort(): Promise<number> {
+  const { port } = await getMediaServerInfo();
   return port;
+}
+
+/** Header object carrying the gate token for POST/fetch calls. */
+async function mediaServerAuthHeaders(): Promise<Record<string, string>> {
+  const { token } = await getMediaServerInfo();
+  return token ? { "X-SGT-Token": token } : {};
 }
 
 export async function getMediaServerUrl(path: string): Promise<string> {
@@ -23,14 +48,16 @@ export async function getMediaServerUrl(path: string): Promise<string> {
   if (!trimmedPath) {
     throw new Error("Media path is empty");
   }
-  const port = await getMediaServerPort();
-  return `http://127.0.0.1:${port}/?path=${encodeURIComponent(trimmedPath)}`;
+  const { port, token } = await getMediaServerInfo();
+  const base = `http://127.0.0.1:${port}/?path=${encodeURIComponent(trimmedPath)}`;
+  return token ? `${base}&token=${encodeURIComponent(token)}` : base;
 }
 
 export async function writeBlobToTempMediaFile(blob: Blob): Promise<string> {
-  const port = await getMediaServerPort();
+  const { port } = await getMediaServerInfo();
   const response = await fetch(`http://127.0.0.1:${port}/write-temp`, {
     method: "POST",
+    headers: await mediaServerAuthHeaders(),
     body: blob,
   });
   if (!response.ok) {
@@ -48,7 +75,7 @@ export async function importVideoToManagedMediaFile(
   fileName?: string,
   traceId?: string,
 ): Promise<{ path: string; hasAudio: boolean }> {
-  const port = await getMediaServerPort();
+  const { port } = await getMediaServerInfo();
   const params = new URLSearchParams();
   if (fileName) {
     params.set("filename", fileName);
@@ -59,6 +86,7 @@ export async function importVideoToManagedMediaFile(
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   const response = await fetch(`http://127.0.0.1:${port}/import-video${suffix}`, {
     method: "POST",
+    headers: await mediaServerAuthHeaders(),
     body: blob,
   });
   if (!response.ok) {
@@ -91,7 +119,7 @@ export async function importAudioToManagedMediaFile(
   fileName?: string,
   traceId?: string,
 ): Promise<{ path: string; duration: number }> {
-  const port = await getMediaServerPort();
+  const { port } = await getMediaServerInfo();
   const params = new URLSearchParams();
   if (fileName) {
     params.set("filename", fileName);
@@ -102,6 +130,7 @@ export async function importAudioToManagedMediaFile(
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   const response = await fetch(`http://127.0.0.1:${port}/import-audio${suffix}`, {
     method: "POST",
+    headers: await mediaServerAuthHeaders(),
     body: blob,
   });
   if (!response.ok) {

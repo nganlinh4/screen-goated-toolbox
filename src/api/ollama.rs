@@ -116,12 +116,37 @@ fn ollama_model_has_vision(model_name: &str, families: &[String], modelfile: &st
 
     let name_lower = model_name.to_lowercase();
     name_lower.contains("vision")
-        || name_lower.contains("-vl")
-        || name_lower.contains("/vl")
+        || name_has_vl_token(&name_lower)
         || name_lower.contains("llava")
         || name_lower.contains("bakllava")
         || name_lower.contains("moondream")
         || name_lower.contains("minicpm-v")
+}
+
+/// Detect a `vl` vision marker as a name token rather than a loose substring.
+///
+/// Matches glued suffixes like `qwen2.5vl`, `qwen2vl`, `qwenvl`, plus the
+/// classic `-vl` / `/vl` separators, while staying token-bounded so plain-text
+/// tags (e.g. `llama3.2`, `qwen2.5-coder`) never match. A `vl` qualifies when it
+/// is preceded by a digit, dot, `-`, `/`, or a letter, and followed by the end
+/// of a name token (string end or one of `:`, `-`, `.`, `/`, or a digit).
+fn name_has_vl_token(name_lower: &str) -> bool {
+    let bytes = name_lower.as_bytes();
+    let mut start = 0;
+    while let Some(rel) = name_lower[start..].find("vl") {
+        let idx = start + rel;
+        let prev_ok = idx == 0
+            || matches!(bytes[idx - 1], b'0'..=b'9' | b'.' | b'-' | b'/')
+            || bytes[idx - 1].is_ascii_alphabetic();
+        let after = idx + 2;
+        let next_ok = after >= bytes.len()
+            || matches!(bytes[after], b':' | b'-' | b'.' | b'/' | b'0'..=b'9');
+        if prev_ok && next_ok {
+            return true;
+        }
+        start = idx + 2;
+    }
+    false
 }
 
 /// Fetch models with their capabilities (vision/text)

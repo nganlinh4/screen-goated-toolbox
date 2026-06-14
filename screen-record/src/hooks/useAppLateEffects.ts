@@ -1,8 +1,107 @@
 import { useAppEffects } from "@/hooks/useAppEffects";
 import { useCloseProject } from "@/hooks/useCloseProject";
 import { useEditorInteractions } from "@/hooks/useEditorInteractions";
+import type { ActivePanel } from "@/components/sidepanel/index";
+import type {
+  BackgroundConfig,
+  Dispatch,
+  EditorHistory,
+  ExportHook,
+  MousePosition,
+  MutableRefObject,
+  Project,
+  ProjectComposition,
+  ProjectsState,
+  RecordingMode,
+  RefObject,
+  SegmentSetter,
+  SetStateAction,
+  VideoSegment,
+  WebcamConfig,
+} from "@/hooks/appControllerTypes";
+import type { PersistRef } from "@/hooks/appControllerTypes";
 
-type AppLateEffectsArgs = Record<string, any>;
+export interface AppLateEffectsArgs {
+  backgroundConfig: BackgroundConfig;
+  beginBatch: () => void;
+  canRedo: boolean;
+  canUndo: boolean;
+  canvasRef: RefObject<HTMLCanvasElement | null>;
+  commitBatch: () => void;
+  composition: ProjectComposition | null;
+  currentAudio: string | null;
+  currentMicAudio: string | null;
+  currentProjectId: string | null;
+  currentRawMicAudioPath: string;
+  currentRawVideoPath: string;
+  currentRawWebcamVideoPath: string;
+  currentRecordingMode: RecordingMode;
+  currentTime: number;
+  currentVideo: string | null;
+  currentWebcamVideo: string | null;
+  duration: number;
+  editingKeystrokeSegmentId: string | null;
+  editingKeyframeId: number | null;
+  editingPointerId: string | null;
+  editingSubtitleId: string | null;
+  editingTextId: string | null;
+  editorHistory: EditorHistory;
+  exportHook: ExportHook;
+  getKeystrokeTimelineDuration: (s: VideoSegment) => number;
+  handleDeleteKeystrokeSegment: () => void;
+  handleDeletePointerSegment: () => void;
+  handleDeleteSubtitle: () => void;
+  handleDeleteText: () => void;
+  handleOverlayDragMove: (
+    moves: Array<{ kind: "text" | "subtitle"; id: string; x: number; y: number }>,
+  ) => void;
+  handleStartRecording: () => void;
+  handleTogglePlayPause: () => void;
+  historyProjectResetRef: MutableRefObject<string | null>;
+  isCropping: boolean;
+  isDraggingKeystrokeOverlayRef: MutableRefObject<boolean>;
+  isRecording: boolean;
+  isResizingKeystrokeOverlayRef: MutableRefObject<boolean>;
+  mousePositions: MousePosition[];
+  onStopRecording: () => void;
+  persistRef: PersistRef;
+  projects: ProjectsState;
+  rawSetComposition: Dispatch<SetStateAction<ProjectComposition | null>>;
+  rawSetSegment: Dispatch<SetStateAction<VideoSegment | null>>;
+  redo: () => void;
+  seek: (time: number) => void;
+  segment: VideoSegment | null;
+  segmentRef: MutableRefObject<VideoSegment | null>;
+  selectedSubtitleIdsRef: MutableRefObject<string[]>;
+  selectedTextIdsRef: MutableRefObject<string[]>;
+  setActivePanel: (panel: ActivePanel) => void;
+  setCurrentAudio: Dispatch<SetStateAction<string | null>>;
+  setCurrentMicAudio: Dispatch<SetStateAction<string | null>>;
+  setCurrentProjectData: Dispatch<SetStateAction<Project | null>>;
+  setCurrentTime: Dispatch<SetStateAction<number>>;
+  setCurrentVideo: Dispatch<SetStateAction<string | null>>;
+  setCurrentWebcamVideo: Dispatch<SetStateAction<string | null>>;
+  setEditingKeyframeId: (id: number | null) => void;
+  setEditingSubtitleId: (id: string | null) => void;
+  setEditingTextId: (id: string | null) => void;
+  setIsKeystrokeOverlaySelected: (selected: boolean) => void;
+  setIsKeystrokeResizeDragging: (dragging: boolean) => void;
+  setIsKeystrokeResizeHandleHover: (hover: boolean) => void;
+  setIsPreviewDragging: (dragging: boolean) => void;
+  setLoadedClipId: (id: string | null) => void;
+  setMousePositions: Dispatch<SetStateAction<MousePosition[]>>;
+  setPreviewDuration: Dispatch<SetStateAction<number>>;
+  setSeekIndicatorDir: (dir: "left" | "right") => void;
+  setSeekIndicatorKey: (key: number) => void;
+  setSegment: SegmentSetter;
+  setThumbnails: Dispatch<SetStateAction<string[]>>;
+  showHotkeyDialog: boolean;
+  showRawVideoDialog: boolean;
+  tempCanvasRef: RefObject<HTMLCanvasElement | null>;
+  undo: () => void;
+  videoRef: RefObject<HTMLVideoElement | null>;
+  webcamConfig: WebcamConfig;
+}
 
 export function useAppLateEffects(args: AppLateEffectsArgs) {
   const {

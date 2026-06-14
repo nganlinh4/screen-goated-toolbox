@@ -34,7 +34,7 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
     case "pick_export_folder":
       return "C:\\Users\\user\\Downloads";
     case "get_media_server_port":
-      return 1420;
+      return { port: 1420, token: "test-harness-token" };
     case "is_maximized":
       return false;
     case "get_export_capabilities":

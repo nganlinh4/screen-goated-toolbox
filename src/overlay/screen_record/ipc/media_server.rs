@@ -3,11 +3,14 @@
 // range-request support, plus POST endpoints for staging atlas data.
 
 mod audio_import;
+mod gate;
 mod import_normalize;
 mod streaming;
 
-use super::super::SERVER_PORT;
 use super::super::native_export;
+use super::super::{MEDIA_SERVER_TOKEN, SERVER_PORT};
+
+use self::gate::{check_request_gate, mint_media_server_token, query_param};
 
 pub use self::audio_import::{
     create_audio_placeholder_video, import_audio_path_to_managed_media_file,
@@ -133,6 +136,9 @@ pub fn start_global_media_server() -> Result<u16, String> {
 
     let actual_port = port;
     SERVER_PORT.store(actual_port, std::sync::atomic::Ordering::SeqCst);
+    // Mint the per-process gate token exactly once. Subsequent restarts (the
+    // server is only started once per process) keep the original value.
+    let _ = MEDIA_SERVER_TOKEN.set(mint_media_server_token());
 
     thread::spawn(move || {
         for mut request in server.incoming_requests() {
@@ -152,9 +158,24 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 res.add_header(
                     tiny_http::Header::from_bytes(
                         &b"Access-Control-Allow-Headers"[..],
-                        &b"Range, Content-Type"[..],
+                        &b"Range, Content-Type, X-SGT-Token"[..],
                     )
                     .unwrap(),
+                );
+                let _ = request.respond(res);
+                continue;
+            }
+
+            // SECURITY GATE (OWASP A01): the server binds a scannable loopback
+            // port with CORS:* and serves/writes arbitrary disk paths. Before any
+            // filesystem work on a real request, require the per-process secret
+            // token AND a loopback Host header (defense-in-depth vs DNS
+            // rebinding). A failure responds 403 and skips all route handling.
+            if let Err(rejection) = check_request_gate(&request) {
+                let mut res = Response::from_string(rejection.body).with_status_code(403);
+                res.add_header(
+                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                        .unwrap(),
                 );
                 let _ = request.respond(res);
                 continue;
@@ -505,14 +526,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
             }
 
             let url = request.url();
-            let media_path_str = if let Some(idx) = url.find("?path=") {
-                let encoded = &url[idx + 6..];
-                urlencoding::decode(encoded)
-                    .unwrap_or(std::borrow::Cow::Borrowed(""))
-                    .into_owned()
-            } else {
-                String::new()
-            };
+            let media_path_str = query_param(url, "path").unwrap_or_default();
             if media_path_str.is_empty() || !Path::new(&media_path_str).exists() {
                 let mut res = Response::from_string("File not found").with_status_code(404);
                 res.add_header(
