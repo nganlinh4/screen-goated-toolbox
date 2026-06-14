@@ -531,39 +531,3 @@ internal fun SectionDetail(
         }
     }
 }
-
-@Composable
-internal fun PlaceholderSection(
-    label: String,
-    description: String,
-    locale: MobileLocaleText,
-) {
-    Card(shape = MaterialTheme.shapes.extraLarge) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(ShellSpacing.innerPad),
-            verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-        ) {
-            StatusChip(
-                label = locale.shellPlaceholderBadge,
-                accent = MaterialTheme.colorScheme.outline,
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleLargeEmphasized,
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            androidx.compose.material3.HorizontalDivider()
-            Text(
-                text = locale.shellPlaceholderMessage,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}

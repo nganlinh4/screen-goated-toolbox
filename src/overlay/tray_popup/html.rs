@@ -113,8 +113,6 @@ pub(super) fn get_popup_labels(
 
 /// Generate JavaScript to update popup state without reloading HTML
 pub(super) fn generate_popup_update_script() -> String {
-    use crate::config::ThemeMode;
-
     let mut ui_language = String::from("en");
     let (
         bubble_checked,
@@ -126,11 +124,7 @@ pub(super) fn generate_popup_update_script() -> String {
         quit_text,
     ) = if let Ok(app) = APP.lock() {
         ui_language = app.config.ui_language.clone();
-        let is_dark = match app.config.theme_mode {
-            ThemeMode::Dark => true,
-            ThemeMode::Light => false,
-            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        };
+        let is_dark = app.config.theme_mode.is_dark();
         let (settings, bubble, stop_tts, restore_overlay, quit) =
             get_popup_labels(&app.config.ui_language);
         (

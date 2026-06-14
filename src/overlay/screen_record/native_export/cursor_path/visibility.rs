@@ -29,12 +29,12 @@ fn ease_in_cubic(t: f64) -> f64 {
 }
 
 pub(super) fn squish_ease_down(t: f64) -> f64 {
-    1.0 - (1.0 - t).powi(3)
+    ease_out_cubic(t)
 }
 
 pub(super) fn squish_ease_up(t: f64, has_room: bool) -> f64 {
     if !has_room {
-        return 1.0 - (1.0 - t).powi(3);
+        return ease_out_cubic(t);
     }
     let c = 1.2_f64; // Preview overshoot profile.
     let tm1 = t - 1.0;

@@ -3,7 +3,7 @@ use crate::gui::theme::AppTheme;
 use crate::overlay::screen_record::bg_download;
 use eframe::egui;
 
-use super::utils::tool_card;
+use super::utils::{format_size, tool_card};
 
 pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &LocaleText) {
     let summary = bg_download::downloadable_background_summary();
@@ -81,9 +81,4 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
             });
         });
     });
-}
-
-fn format_size(bytes: u64) -> String {
-    let mb = bytes as f64 / 1024.0 / 1024.0;
-    format!("{:.1} MB", mb)
 }

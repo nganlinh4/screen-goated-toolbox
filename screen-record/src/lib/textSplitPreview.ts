@@ -1,10 +1,8 @@
+import { clamp } from "@/lib/mathUtils";
+
 export interface TextSplitPreview {
   leftText: string;
   rightText: string;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function distributeByUnits(

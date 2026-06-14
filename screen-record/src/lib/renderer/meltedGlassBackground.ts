@@ -1,10 +1,5 @@
 import type { MeltedGlassBackgroundPreset } from '@/lib/backgroundPresets';
-import { clamp01, hexToLinear, linearToSrgb, mix, smoothstep } from './gradientMath';
-
-function hashNoise(x: number, y: number): number {
-  const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
-  return noiseSeed - Math.floor(noiseSeed);
-}
+import { clamp01, hashNoise, hexToLinear, linearToSrgb, mix, smoothstep } from './gradientMath';
 
 function samplePoolField(
   point: [number, number],

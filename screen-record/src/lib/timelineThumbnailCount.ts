@@ -1,5 +1,6 @@
 import type { VideoSegment } from "@/types/video";
 import { getTotalTrimDuration } from "@/lib/trimSegments";
+import { clamp } from "@/lib/mathUtils";
 
 const MIN_TIMELINE_THUMBNAIL_COUNT = 6;
 const BASE_TIMELINE_THUMBNAIL_COUNT_CAP = 10;
@@ -9,10 +10,6 @@ const ADAPTIVE_TIMELINE_THUMBNAIL_COUNT_CAP = 240;
 // Super-zoomed timelines can exceed 30,000px, so keep the cap high enough
 // that thumbnail cells do not stretch into blurry blocks.
 const TARGET_PX_PER_THUMBNAIL = 150;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
 
 function getTimelineThumbnailWidthBucket(renderedWidthPx: number): number {
   return Math.ceil(renderedWidthPx / TARGET_PX_PER_THUMBNAIL);

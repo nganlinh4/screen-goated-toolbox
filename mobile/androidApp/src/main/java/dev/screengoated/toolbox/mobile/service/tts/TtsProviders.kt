@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Base64
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.service.LIVE_WS_ENDPOINT
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -93,7 +94,7 @@ internal class GeminiTtsProvider(
         android.util.Log.d("TTS-Timing", "  Warm socket check: ${if (warm != null) "AVAILABLE" else "not available"}")
         if (warm != null) {
             android.util.Log.d("TTS-Timing", "  Using WARM socket (connect already done)")
-            streamWithSession(warm, request, isStale, sink, t0)
+            streamFromOpenSession(warm, request, isStale, sink, t0, warmLabel = " (warm)")
             // warmUp is called by the worker loop after stream() returns
             return
         }
@@ -102,148 +103,30 @@ internal class GeminiTtsProvider(
             .url("$LIVE_WS_ENDPOINT?key=$apiKey")
             .build()
 
-        BlockingWebSocketSession(httpClient, socketRequest).use { session ->
-            val t1 = SystemClock.elapsedRealtime()
-            android.util.Log.d("TTS-Timing", "  WebSocket object created: ${t1 - t0}ms")
+        val session = BlockingWebSocketSession(httpClient, socketRequest)
+        val t1 = SystemClock.elapsedRealtime()
+        android.util.Log.d("TTS-Timing", "  WebSocket object created: ${t1 - t0}ms")
 
-            if (!session.awaitOpen(10_000)) {
-                sink.offer(ProviderAudioEvent.Error("Gemini TTS websocket failed to open."))
-                return
-            }
-            val t2 = SystemClock.elapsedRealtime()
-            android.util.Log.d("TTS-Timing", "  WebSocket OPEN: ${t2 - t0}ms (connect=${t2 - t1}ms)")
-
-            if (!session.sendText(buildSetupPayload(request))) {
-                sink.offer(ProviderAudioEvent.Error("Gemini TTS setup payload was rejected."))
-                return
-            }
-            val t3 = SystemClock.elapsedRealtime()
-            android.util.Log.d("TTS-Timing", "  Setup payload sent: ${t3 - t0}ms")
-
-            var setupComplete = false
-            val deadline = SystemClock.elapsedRealtime() + 10_000
-            while (!setupComplete && !isStale()) {
-                val event = session.poll(50)
-                when (event) {
-                    null -> {
-                        if (SystemClock.elapsedRealtime() >= deadline) {
-                            sink.offer(ProviderAudioEvent.Error("Gemini TTS setup timed out."))
-                            return
-                        }
-                    }
-
-                    is WebSocketEvent.Text -> {
-                        if (event.payload.contains("setupComplete")) {
-                            setupComplete = true
-                            android.util.Log.d("TTS-Timing", "  Setup COMPLETE: ${SystemClock.elapsedRealtime() - t0}ms")
-                        } else {
-                            parseError(event.payload)?.let {
-                                sink.offer(ProviderAudioEvent.Error(it))
-                                return
-                            }
-                        }
-                    }
-
-                    is WebSocketEvent.Binary -> {
-                        val text = event.payload.utf8()
-                        if (text.contains("setupComplete")) {
-                            setupComplete = true
-                            android.util.Log.d("TTS-Timing", "  Setup COMPLETE (binary): ${SystemClock.elapsedRealtime() - t0}ms")
-                        } else {
-                            parseError(text)?.let {
-                                sink.offer(ProviderAudioEvent.Error(it))
-                                return
-                            }
-                        }
-                    }
-
-                    is WebSocketEvent.Failure -> {
-                        sink.offer(ProviderAudioEvent.Error(event.throwable.message ?: "Gemini TTS websocket failed."))
-                        return
-                    }
-
-                    WebSocketEvent.Closed -> {
-                        sink.offer(ProviderAudioEvent.Error("Gemini TTS websocket closed before setup completed."))
-                        return
-                    }
-                }
-            }
-
-            if (isStale()) {
-                return
-            }
-
-            if (!session.sendText(buildTextPayload(request.text))) {
-                sink.offer(ProviderAudioEvent.Error("Gemini TTS text payload was rejected."))
-                return
-            }
-            val t4 = SystemClock.elapsedRealtime()
-            android.util.Log.d("TTS-Timing", "  Text payload sent: ${t4 - t0}ms")
-
-            var firstAudioLogged = false
-            while (!isStale()) {
-                when (val event = session.poll(250)) {
-                    null -> Unit
-                    is WebSocketEvent.Text -> {
-                        parseError(event.payload)?.let {
-                            sink.offer(ProviderAudioEvent.Error(it))
-                            return
-                        }
-                        parsePcmInlineData(event.payload)?.let {
-                            if (!firstAudioLogged) {
-                                firstAudioLogged = true
-                                android.util.Log.d("TTS-Timing", "  FIRST AUDIO chunk: ${SystemClock.elapsedRealtime() - t0}ms (since text=${SystemClock.elapsedRealtime() - t4}ms)")
-                            }
-                            sink.offer(ProviderAudioEvent.PcmData(it))
-                        }
-                        if (isTurnComplete(event.payload)) {
-                            sink.offer(ProviderAudioEvent.End)
-                            return
-                        }
-                    }
-
-                    is WebSocketEvent.Binary -> {
-                        val text = event.payload.utf8()
-                        parseError(text)?.let {
-                            sink.offer(ProviderAudioEvent.Error(it))
-                            return
-                        }
-                        parsePcmInlineData(text)?.let {
-                            if (!firstAudioLogged) {
-                                firstAudioLogged = true
-                                android.util.Log.d("TTS-Timing", "  FIRST AUDIO chunk (binary): ${SystemClock.elapsedRealtime() - t0}ms (since text=${SystemClock.elapsedRealtime() - t4}ms)")
-                            }
-                            sink.offer(ProviderAudioEvent.PcmData(it))
-                        }
-                        if (isTurnComplete(text)) {
-                            android.util.Log.d("TTS-Timing", "  TURN COMPLETE: ${SystemClock.elapsedRealtime() - t0}ms")
-                            sink.offer(ProviderAudioEvent.End)
-                            return
-                        }
-                    }
-
-                    is WebSocketEvent.Failure -> {
-                        sink.offer(ProviderAudioEvent.Error(event.throwable.message ?: "Gemini TTS websocket failed."))
-                        return
-                    }
-
-                    WebSocketEvent.Closed -> {
-                        sink.offer(ProviderAudioEvent.End)
-                        return
-                    }
-                }
-            }
+        if (!session.awaitOpen(10_000)) {
+            session.close()
+            sink.offer(ProviderAudioEvent.Error("Gemini TTS websocket failed to open."))
+            return
         }
+        val t2 = SystemClock.elapsedRealtime()
+        android.util.Log.d("TTS-Timing", "  WebSocket OPEN: ${t2 - t0}ms (connect=${t2 - t1}ms)")
+
+        streamFromOpenSession(session, request, isStale, sink, t0, warmLabel = "")
         // Warm-up is handled by the worker loop after stream() returns
     }
 
     /** Stream audio from an already-connected session. Setup remains request-specific. */
-    private fun streamWithSession(
+    private fun streamFromOpenSession(
         session: BlockingWebSocketSession,
         request: TtsRequest,
         isStale: () -> Boolean,
         sink: LinkedBlockingDeque<ProviderAudioEvent>,
         t0: Long,
+        warmLabel: String,
     ) {
         session.use {
             if (!session.sendText(buildSetupPayload(request))) {
@@ -251,7 +134,7 @@ internal class GeminiTtsProvider(
                 return
             }
             val t3 = SystemClock.elapsedRealtime()
-            android.util.Log.d("TTS-Timing", "  Setup payload sent (warm): ${t3 - t0}ms")
+            android.util.Log.d("TTS-Timing", "  Setup payload sent$warmLabel: ${t3 - t0}ms")
 
             var setupComplete = false
             val deadline = SystemClock.elapsedRealtime() + 10_000
@@ -267,7 +150,7 @@ internal class GeminiTtsProvider(
                     is WebSocketEvent.Text -> {
                         if (event.payload.contains("setupComplete")) {
                             setupComplete = true
-                            android.util.Log.d("TTS-Timing", "  Setup COMPLETE (warm): ${SystemClock.elapsedRealtime() - t0}ms")
+                            android.util.Log.d("TTS-Timing", "  Setup COMPLETE$warmLabel: ${SystemClock.elapsedRealtime() - t0}ms")
                         } else {
                             parseError(event.payload)?.let {
                                 sink.offer(ProviderAudioEvent.Error(it))
@@ -280,7 +163,7 @@ internal class GeminiTtsProvider(
                         val text = event.payload.utf8()
                         if (text.contains("setupComplete")) {
                             setupComplete = true
-                            android.util.Log.d("TTS-Timing", "  Setup COMPLETE (warm binary): ${SystemClock.elapsedRealtime() - t0}ms")
+                            android.util.Log.d("TTS-Timing", "  Setup COMPLETE$warmLabel (binary): ${SystemClock.elapsedRealtime() - t0}ms")
                         } else {
                             parseError(text)?.let {
                                 sink.offer(ProviderAudioEvent.Error(it))
@@ -310,7 +193,7 @@ internal class GeminiTtsProvider(
                 return
             }
             val t4 = SystemClock.elapsedRealtime()
-            android.util.Log.d("TTS-Timing", "  Text payload sent (warm): ${t4 - t0}ms")
+            android.util.Log.d("TTS-Timing", "  Text payload sent$warmLabel: ${t4 - t0}ms")
 
             var firstAudioLogged = false
             while (!isStale()) {
@@ -324,16 +207,17 @@ internal class GeminiTtsProvider(
                         parsePcmInlineData(event.payload)?.let {
                             if (!firstAudioLogged) {
                                 firstAudioLogged = true
-                                android.util.Log.d("TTS-Timing", "  FIRST AUDIO (warm): ${SystemClock.elapsedRealtime() - t0}ms")
+                                android.util.Log.d("TTS-Timing", "  FIRST AUDIO chunk$warmLabel: ${SystemClock.elapsedRealtime() - t0}ms (since text=${SystemClock.elapsedRealtime() - t4}ms)")
                             }
                             sink.offer(ProviderAudioEvent.PcmData(it))
                         }
                         if (isTurnComplete(event.payload)) {
-                            android.util.Log.d("TTS-Timing", "  TURN COMPLETE (warm): ${SystemClock.elapsedRealtime() - t0}ms")
+                            android.util.Log.d("TTS-Timing", "  TURN COMPLETE$warmLabel: ${SystemClock.elapsedRealtime() - t0}ms")
                             sink.offer(ProviderAudioEvent.End)
                             return
                         }
                     }
+
                     is WebSocketEvent.Binary -> {
                         val text = event.payload.utf8()
                         parseError(text)?.let {
@@ -343,20 +227,22 @@ internal class GeminiTtsProvider(
                         parsePcmInlineData(text)?.let {
                             if (!firstAudioLogged) {
                                 firstAudioLogged = true
-                                android.util.Log.d("TTS-Timing", "  FIRST AUDIO (warm binary): ${SystemClock.elapsedRealtime() - t0}ms")
+                                android.util.Log.d("TTS-Timing", "  FIRST AUDIO chunk$warmLabel (binary): ${SystemClock.elapsedRealtime() - t0}ms (since text=${SystemClock.elapsedRealtime() - t4}ms)")
                             }
                             sink.offer(ProviderAudioEvent.PcmData(it))
                         }
                         if (isTurnComplete(text)) {
-                            android.util.Log.d("TTS-Timing", "  TURN COMPLETE (warm): ${SystemClock.elapsedRealtime() - t0}ms")
+                            android.util.Log.d("TTS-Timing", "  TURN COMPLETE$warmLabel: ${SystemClock.elapsedRealtime() - t0}ms")
                             sink.offer(ProviderAudioEvent.End)
                             return
                         }
                     }
+
                     is WebSocketEvent.Failure -> {
                         sink.offer(ProviderAudioEvent.Error(event.throwable.message ?: "Gemini TTS websocket failed."))
                         return
                     }
+
                     WebSocketEvent.Closed -> {
                         sink.offer(ProviderAudioEvent.End)
                         return
@@ -473,11 +359,6 @@ internal class GeminiTtsProvider(
             MobileTtsSpeedPreset.FAST -> "Fast"
             MobileTtsSpeedPreset.NORMAL -> "Normal"
         }
-    }
-
-    private companion object {
-        private const val LIVE_WS_ENDPOINT =
-            "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
     }
 }
 

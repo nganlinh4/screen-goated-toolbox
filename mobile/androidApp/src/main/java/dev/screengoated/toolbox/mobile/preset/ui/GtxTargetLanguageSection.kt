@@ -42,12 +42,6 @@ import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
 
-private fun l(lang: String, en: String, vi: String, ko: String): String = when (lang) {
-    "vi" -> vi
-    "ko" -> ko
-    else -> en
-}
-
 @Composable
 internal fun GtxTargetLanguageSection(
     block: ProcessingBlock,
@@ -69,7 +63,7 @@ internal fun GtxTargetLanguageSection(
                 tint = MaterialTheme.colorScheme.tertiary,
             )
             Spacer(Modifier.width(6.dp))
-            SheetLabel(l(lang, "Target language", "Ngôn ngữ đích", "대상 언어"))
+            SheetLabel(nodeGraphLocalized(lang, "Target language", "Ngôn ngữ đích", "대상 언어"))
         }
 
         TargetLanguageRow(
@@ -124,7 +118,7 @@ private fun TargetLanguageRow(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     placeholder = {
-                        Text(l(lang, "Search languages...", "Tìm ngôn ngữ...", "언어 검색..."))
+                        Text(nodeGraphLocalized(lang, "Search languages...", "Tìm ngôn ngữ...", "언어 검색..."))
                     },
                     leadingIcon = {
                         Icon(

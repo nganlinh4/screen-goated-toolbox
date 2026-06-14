@@ -19,11 +19,7 @@ pub(super) fn current_config() -> Result<Config, String> {
 }
 
 pub(super) fn localized_model_label(model: &ModelConfig, ui_language: &str) -> String {
-    match ui_language {
-        "vi" => model.name_vi.clone(),
-        "ko" => model.name_ko.clone(),
-        _ => model.name_en.clone(),
-    }
+    model.localized_name(ui_language).to_string()
 }
 
 pub(super) fn collect_translation_models(config: &Config) -> Vec<ModelConfig> {

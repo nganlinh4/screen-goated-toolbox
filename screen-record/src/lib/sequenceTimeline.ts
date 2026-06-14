@@ -16,6 +16,7 @@ import {
   replaceProjectedSubtitleTrackState,
 } from "@/lib/sequenceSubtitleTracks";
 import { createSubtitleTrackStateFromSegments, normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
+import { clamp } from "@/lib/mathUtils";
 
 export interface SequenceTimelineClip {
   clipId: string;
@@ -30,10 +31,6 @@ export interface SequenceTimelineModel {
   clips: SequenceTimelineClip[];
   clipById: Record<string, SequenceTimelineClip>;
   totalDuration: number;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
 
 export function getClipSourceDuration(clip: ProjectCompositionClip): number {
@@ -147,6 +144,209 @@ function withSequenceBounds(
   };
 }
 
+/**
+ * Declarative table of the time-bearing array fields that must be carried
+ * (offset / filtered / merged) when projecting a segment between clip-space
+ * and sequence-space. Adding a new time-bearing field here makes ALL four
+ * projection functions handle it uniformly, so a field can no longer be
+ * carried in one direction and silently dropped in another.
+ *
+ * Subtitle track state (subtitleTracks/activeSubtitleView/subtitleCustomChain/
+ * subtitleSegments) is intentionally NOT listed here — it requires per-track
+ * merge semantics and is handled separately via sequenceSubtitleTracks.ts.
+ *
+ * `zoomKeyframes` is the deprecated point-keyframe model; `zoomBlocks` is
+ * intentionally NOT projected by these functions (matching pre-refactor
+ * behavior), so it is excluded from this table.
+ */
+type PointTimeField =
+  | "zoomKeyframes"
+  | "smoothMotionPath"
+  | "zoomInfluencePoints"
+  | "speedPoints"
+  | "deviceAudioPoints"
+  | "micAudioPoints";
+
+type StartEndTimeField =
+  | "textSegments"
+  | "cursorVisibilitySegments"
+  | "webcamVisibilitySegments"
+  | "keystrokeEvents"
+  | "keyboardVisibilitySegments"
+  | "keyboardMouseVisibilitySegments";
+
+type TimeFieldName = PointTimeField | StartEndTimeField;
+
+type TimeFieldDescriptor =
+  | { field: PointTimeField; kind: "point" }
+  | { field: StartEndTimeField; kind: "startEnd" };
+
+const TIME_FIELDS: readonly TimeFieldDescriptor[] = [
+  { field: "zoomKeyframes", kind: "point" },
+  { field: "smoothMotionPath", kind: "point" },
+  { field: "zoomInfluencePoints", kind: "point" },
+  { field: "textSegments", kind: "startEnd" },
+  { field: "cursorVisibilitySegments", kind: "startEnd" },
+  { field: "webcamVisibilitySegments", kind: "startEnd" },
+  { field: "keystrokeEvents", kind: "startEnd" },
+  { field: "keyboardVisibilitySegments", kind: "startEnd" },
+  { field: "keyboardMouseVisibilitySegments", kind: "startEnd" },
+  { field: "speedPoints", kind: "point" },
+  { field: "deviceAudioPoints", kind: "point" },
+  { field: "micAudioPoints", kind: "point" },
+];
+
+/** Minimal shape of a point-keyed element (e.g. zoom keyframes, audio points). */
+type PointItem = { time: number };
+/** Minimal shape of a start/end-keyed element (e.g. text/visibility ranges). */
+type StartEndItem = { startTime: number; endTime: number };
+
+/** Read a time field array off a segment, typed by descriptor kind. */
+function readTimeField(
+  segment: VideoSegment,
+  descriptor: { field: PointTimeField; kind: "point" },
+): PointItem[] | undefined;
+function readTimeField(
+  segment: VideoSegment,
+  descriptor: { field: StartEndTimeField; kind: "startEnd" },
+): StartEndItem[] | undefined;
+function readTimeField(
+  segment: VideoSegment,
+  descriptor: TimeFieldDescriptor,
+): (PointItem | StartEndItem)[] | undefined;
+function readTimeField(
+  segment: VideoSegment,
+  descriptor: TimeFieldDescriptor,
+): (PointItem | StartEndItem)[] | undefined {
+  return segment[descriptor.field] as
+    | (PointItem | StartEndItem)[]
+    | undefined;
+}
+
+/** Offset a single element's time key(s) using the supplied mapping. */
+function offsetItem<T extends PointItem | StartEndItem>(
+  descriptor: TimeFieldDescriptor,
+  item: T,
+  mapTime: (time: number) => number,
+): T {
+  if (descriptor.kind === "point") {
+    return { ...item, time: mapTime((item as PointItem).time) };
+  }
+  const range = item as StartEndItem;
+  return {
+    ...item,
+    startTime: mapTime(range.startTime),
+    endTime: mapTime(range.endTime),
+  };
+}
+
+/** Does an element overlap the clip window, per descriptor kind. */
+function itemOverlaps(
+  descriptor: TimeFieldDescriptor,
+  item: PointItem | StartEndItem,
+  overlapsClip: (startTime: number, endTime: number) => boolean,
+): boolean {
+  if (descriptor.kind === "point") {
+    const t = (item as PointItem).time;
+    return overlapsClip(t, t);
+  }
+  const range = item as StartEndItem;
+  return overlapsClip(range.startTime, range.endTime);
+}
+
+/** Sort comparator by the descriptor's primary time key (ascending). */
+function compareByTime(
+  descriptor: TimeFieldDescriptor,
+  a: PointItem | StartEndItem,
+  b: PointItem | StartEndItem,
+): number {
+  if (descriptor.kind === "point") {
+    return (a as PointItem).time - (b as PointItem).time;
+  }
+  return (a as StartEndItem).startTime - (b as StartEndItem).startTime;
+}
+
+/**
+ * Map + offset a time field. Preserves the source's undefined-vs-array
+ * shape exactly: an undefined source yields undefined (matching `?.map`),
+ * a present array yields a mapped array.
+ */
+function mapTimeField(
+  segment: VideoSegment,
+  descriptor: TimeFieldDescriptor,
+  mapTime: (time: number) => number,
+): (PointItem | StartEndItem)[] | undefined {
+  const items = readTimeField(segment, descriptor);
+  return items?.map((item) => offsetItem(descriptor, item, mapTime));
+}
+
+/**
+ * Filter to clip overlap, then offset into clip time. Preserves the source's
+ * undefined-vs-array shape exactly.
+ */
+function filterMapTimeField(
+  segment: VideoSegment,
+  descriptor: TimeFieldDescriptor,
+  overlapsClip: (startTime: number, endTime: number) => boolean,
+  mapTime: (time: number) => number,
+): (PointItem | StartEndItem)[] | undefined {
+  const items = readTimeField(segment, descriptor);
+  return items
+    ?.filter((item) => itemOverlaps(descriptor, item, overlapsClip))
+    .map((item) => offsetItem(descriptor, item, mapTime));
+}
+
+/**
+ * Replace the overlapping window of a base field with projected items:
+ * keep base items that do NOT overlap, append the projected items, sort by
+ * the descriptor's time key. Mirrors the original `[...filter, ...projected].sort()`.
+ */
+function replaceTimeField(
+  baseSegment: VideoSegment,
+  projectedSegment: VideoSegment,
+  descriptor: TimeFieldDescriptor,
+  overlapsClip: (startTime: number, endTime: number) => boolean,
+): (PointItem | StartEndItem)[] {
+  const base = readTimeField(baseSegment, descriptor) ?? [];
+  const projected = readTimeField(projectedSegment, descriptor) ?? [];
+  return [
+    ...base.filter((item) => !itemOverlaps(descriptor, item, overlapsClip)),
+    ...projected,
+  ].sort((a, b) => compareByTime(descriptor, a, b));
+}
+
+/**
+ * Assign each time field from `values` onto `target`. Values are written
+ * unconditionally (including `undefined`) so the result matches the original
+ * object literals, which explicitly set e.g. `smoothMotionPath: undefined`
+ * when the source field is absent.
+ */
+function assignTimeFields(
+  target: VideoSegment,
+  values: Record<TimeFieldName, (PointItem | StartEndItem)[] | undefined>,
+): void {
+  const sink = target as unknown as Record<string, unknown>;
+  for (const descriptor of TIME_FIELDS) {
+    sink[descriptor.field] = values[descriptor.field];
+  }
+}
+
+/** Build a per-field value map by applying `produce` to each descriptor. */
+function buildTimeFieldValues(
+  produce: (
+    descriptor: TimeFieldDescriptor,
+  ) => (PointItem | StartEndItem)[] | undefined,
+): Record<TimeFieldName, (PointItem | StartEndItem)[] | undefined> {
+  const values = {} as Record<
+    TimeFieldName,
+    (PointItem | StartEndItem)[] | undefined
+  >;
+  for (const descriptor of TIME_FIELDS) {
+    values[descriptor.field] = produce(descriptor);
+  }
+  return values;
+}
+
 export function projectClipSegmentToSequence(
   segment: VideoSegment,
   timelineClip: SequenceTimelineClip,
@@ -156,83 +356,29 @@ export function projectClipSegmentToSequence(
     clipSourceTimeToSequenceTime(time, timelineClip);
   const subtitleTrackState = projectSubtitleTrackState(segment, projectTime);
 
-  return withSequenceBounds(
-    {
-      ...segment,
-      trimStart: timelineClip.sequenceStart,
-      trimEnd: timelineClip.sequenceEnd,
-      trimSegments: getTrimSegments(segment, timelineClip.sourceDuration).map(
-        (trimSegment) => ({
-          ...trimSegment,
-          startTime: projectTime(trimSegment.startTime),
-          endTime: projectTime(trimSegment.endTime),
-        }),
-      ),
-      zoomKeyframes: segment.zoomKeyframes.map((keyframe) => ({
-        ...keyframe,
-        time: projectTime(keyframe.time),
-      })),
-      smoothMotionPath: segment.smoothMotionPath?.map((point) => ({
-        ...point,
-        time: projectTime(point.time),
-      })),
-      zoomInfluencePoints: segment.zoomInfluencePoints?.map((point) => ({
-        ...point,
-        time: projectTime(point.time),
-      })),
-      textSegments: segment.textSegments.map((textSegment) => ({
-        ...textSegment,
-        startTime: projectTime(textSegment.startTime),
-        endTime: projectTime(textSegment.endTime),
-      })),
-      ...subtitleTrackState,
-      cursorVisibilitySegments: segment.cursorVisibilitySegments?.map(
-        (range) => ({
-          ...range,
-          startTime: projectTime(range.startTime),
-          endTime: projectTime(range.endTime),
-        }),
-      ),
-      webcamVisibilitySegments: segment.webcamVisibilitySegments?.map(
-        (range) => ({
-          ...range,
-          startTime: projectTime(range.startTime),
-          endTime: projectTime(range.endTime),
-        }),
-      ),
-      keystrokeEvents: segment.keystrokeEvents?.map((event) => ({
-        ...event,
-        startTime: projectTime(event.startTime),
-        endTime: projectTime(event.endTime),
-      })),
-      keyboardVisibilitySegments: segment.keyboardVisibilitySegments?.map(
-        (range) => ({
-          ...range,
-          startTime: projectTime(range.startTime),
-          endTime: projectTime(range.endTime),
-        }),
-      ),
-      keyboardMouseVisibilitySegments:
-        segment.keyboardMouseVisibilitySegments?.map((range) => ({
-          ...range,
-          startTime: projectTime(range.startTime),
-          endTime: projectTime(range.endTime),
-        })),
-      speedPoints: segment.speedPoints?.map((point) => ({
-        ...point,
-        time: projectTime(point.time),
-      })),
-      deviceAudioPoints: segment.deviceAudioPoints?.map((point) => ({
-        ...point,
-        time: projectTime(point.time),
-      })),
-      micAudioPoints: segment.micAudioPoints?.map((point) => ({
-        ...point,
-        time: projectTime(point.time),
-      })),
-    },
-    sequenceDuration,
+  const projected: VideoSegment = {
+    ...segment,
+    trimStart: timelineClip.sequenceStart,
+    trimEnd: timelineClip.sequenceEnd,
+    trimSegments: getTrimSegments(segment, timelineClip.sourceDuration).map(
+      (trimSegment) => ({
+        ...trimSegment,
+        startTime: projectTime(trimSegment.startTime),
+        endTime: projectTime(trimSegment.endTime),
+      }),
+    ),
+  };
+  // All time-bearing array fields are offset uniformly into sequence space.
+  assignTimeFields(
+    projected,
+    buildTimeFieldValues((descriptor) =>
+      mapTimeField(segment, descriptor, projectTime),
+    ),
   );
+  // Subtitle track state is merged separately (per-track semantics).
+  Object.assign(projected, subtitleTrackState);
+
+  return withSequenceBounds(projected, sequenceDuration);
 }
 
 export function projectSequenceSegmentToClip(
@@ -250,96 +396,25 @@ export function projectSequenceSegmentToClip(
     toClipTime,
   );
 
-  return {
+  const projected: VideoSegment = {
     ...sequenceSegment,
     trimStart: timelineClip.clip.segment.trimStart,
     trimEnd: timelineClip.clip.segment.trimEnd,
     trimSegments: timelineClip.clip.segment.trimSegments,
     crop: timelineClip.clip.segment.crop,
     useCustomCursor: timelineClip.clip.segment.useCustomCursor,
-    zoomKeyframes: sequenceSegment.zoomKeyframes
-      .filter((keyframe) => overlapsClip(keyframe.time, keyframe.time))
-      .map((keyframe) => ({
-        ...keyframe,
-        time: toClipTime(keyframe.time),
-      })),
-    smoothMotionPath: sequenceSegment.smoothMotionPath
-      ?.filter((point) => overlapsClip(point.time, point.time))
-      .map((point) => ({
-        ...point,
-        time: toClipTime(point.time),
-      })),
-    zoomInfluencePoints: sequenceSegment.zoomInfluencePoints
-      ?.filter((point) => overlapsClip(point.time, point.time))
-      .map((point) => ({
-        ...point,
-        time: toClipTime(point.time),
-      })),
-    textSegments: sequenceSegment.textSegments
-      .filter((textSegment) =>
-        overlapsClip(textSegment.startTime, textSegment.endTime),
-      )
-      .map((textSegment) => ({
-        ...textSegment,
-        startTime: toClipTime(textSegment.startTime),
-        endTime: toClipTime(textSegment.endTime),
-      })),
-    ...subtitleTrackState,
-    cursorVisibilitySegments: sequenceSegment.cursorVisibilitySegments
-      ?.filter((range) => overlapsClip(range.startTime, range.endTime))
-      .map((range) => ({
-        ...range,
-        startTime: toClipTime(range.startTime),
-        endTime: toClipTime(range.endTime),
-      })),
-    webcamVisibilitySegments: sequenceSegment.webcamVisibilitySegments
-      ?.filter((range) => overlapsClip(range.startTime, range.endTime))
-      .map((range) => ({
-        ...range,
-        startTime: toClipTime(range.startTime),
-        endTime: toClipTime(range.endTime),
-      })),
-    keystrokeEvents: sequenceSegment.keystrokeEvents
-      ?.filter((event) => overlapsClip(event.startTime, event.endTime))
-      .map((event) => ({
-        ...event,
-        startTime: toClipTime(event.startTime),
-        endTime: toClipTime(event.endTime),
-      })),
-    keyboardVisibilitySegments: sequenceSegment.keyboardVisibilitySegments
-      ?.filter((range) => overlapsClip(range.startTime, range.endTime))
-      .map((range) => ({
-        ...range,
-        startTime: toClipTime(range.startTime),
-        endTime: toClipTime(range.endTime),
-      })),
-    keyboardMouseVisibilitySegments:
-      sequenceSegment.keyboardMouseVisibilitySegments
-        ?.filter((range) => overlapsClip(range.startTime, range.endTime))
-        .map((range) => ({
-          ...range,
-          startTime: toClipTime(range.startTime),
-          endTime: toClipTime(range.endTime),
-        })),
-    speedPoints: sequenceSegment.speedPoints
-      ?.filter((point) => overlapsClip(point.time, point.time))
-      .map((point) => ({
-        ...point,
-        time: toClipTime(point.time),
-      })),
-    deviceAudioPoints: sequenceSegment.deviceAudioPoints
-      ?.filter((point) => overlapsClip(point.time, point.time))
-      .map((point) => ({
-        ...point,
-        time: toClipTime(point.time),
-      })),
-    micAudioPoints: sequenceSegment.micAudioPoints
-      ?.filter((point) => overlapsClip(point.time, point.time))
-      .map((point) => ({
-        ...point,
-        time: toClipTime(point.time),
-      })),
   };
+  // Each time-bearing field is filtered to the clip window, then offset to
+  // clip-source time.
+  assignTimeFields(
+    projected,
+    buildTimeFieldValues((descriptor) =>
+      filterMapTimeField(sequenceSegment, descriptor, overlapsClip, toClipTime),
+    ),
+  );
+  Object.assign(projected, subtitleTrackState);
+
+  return projected;
 }
 
 export function mergeCompositionSegmentsToSequence(
@@ -382,30 +457,20 @@ export function mergeCompositionSegmentsToSequence(
       timelineClip,
       timeline.totalDuration,
     );
-    merged.zoomKeyframes.push(...projected.zoomKeyframes);
-    merged.smoothMotionPath?.push(...(projected.smoothMotionPath ?? []));
-    merged.zoomInfluencePoints?.push(...(projected.zoomInfluencePoints ?? []));
-    merged.textSegments.push(...projected.textSegments);
+    // `merged` initializes every time field as `[]`, so each can be appended
+    // uniformly from the (possibly undefined) projected field.
+    const mergedFields = merged as unknown as Record<string, unknown>;
+    for (const descriptor of TIME_FIELDS) {
+      const target = mergedFields[descriptor.field] as (
+        | PointItem
+        | StartEndItem
+      )[];
+      target.push(...(readTimeField(projected, descriptor) ?? []));
+    }
     Object.assign(
       merged,
       appendProjectedSubtitleTrackState(merged, projected),
     );
-    merged.cursorVisibilitySegments?.push(
-      ...(projected.cursorVisibilitySegments ?? []),
-    );
-    merged.webcamVisibilitySegments?.push(
-      ...(projected.webcamVisibilitySegments ?? []),
-    );
-    merged.keystrokeEvents?.push(...(projected.keystrokeEvents ?? []));
-    merged.keyboardVisibilitySegments?.push(
-      ...(projected.keyboardVisibilitySegments ?? []),
-    );
-    merged.keyboardMouseVisibilitySegments?.push(
-      ...(projected.keyboardMouseVisibilitySegments ?? []),
-    );
-    merged.speedPoints?.push(...(projected.speedPoints ?? []));
-    merged.deviceAudioPoints?.push(...(projected.deviceAudioPoints ?? []));
-    merged.micAudioPoints?.push(...(projected.micAudioPoints ?? []));
     merged.deviceAudioAvailable =
       merged.deviceAudioAvailable || projected.deviceAudioAvailable !== false;
     merged.micAudioAvailable =
@@ -454,7 +519,7 @@ export function replaceSequenceClipSegmentInGlobal(
     overlapsClip,
   );
 
-  return {
+  const result: VideoSegment = {
     ...globalSegment,
     trimStart: 0,
     trimEnd: sequenceDuration,
@@ -465,79 +530,21 @@ export function replaceSequenceClipSegmentInGlobal(
         endTime: sequenceDuration,
       },
     ],
-    zoomKeyframes: [
-      ...globalSegment.zoomKeyframes.filter(
-        (keyframe) => !overlapsClip(keyframe.time, keyframe.time),
-      ),
-      ...projectedClipSegment.zoomKeyframes,
-    ].sort((a, b) => a.time - b.time),
-    smoothMotionPath: [
-      ...(globalSegment.smoothMotionPath ?? []).filter(
-        (point) => !overlapsClip(point.time, point.time),
-      ),
-      ...(projectedClipSegment.smoothMotionPath ?? []),
-    ].sort((a, b) => a.time - b.time),
-    zoomInfluencePoints: [
-      ...(globalSegment.zoomInfluencePoints ?? []).filter(
-        (point) => !overlapsClip(point.time, point.time),
-      ),
-      ...(projectedClipSegment.zoomInfluencePoints ?? []),
-    ].sort((a, b) => a.time - b.time),
-    textSegments: [
-      ...globalSegment.textSegments.filter(
-        (textSegment) =>
-          !overlapsClip(textSegment.startTime, textSegment.endTime),
-      ),
-      ...projectedClipSegment.textSegments,
-    ].sort((a, b) => a.startTime - b.startTime),
-    ...subtitleTrackState,
-    cursorVisibilitySegments: [
-      ...(globalSegment.cursorVisibilitySegments ?? []).filter(
-        (range) => !overlapsClip(range.startTime, range.endTime),
-      ),
-      ...(projectedClipSegment.cursorVisibilitySegments ?? []),
-    ].sort((a, b) => a.startTime - b.startTime),
-    webcamVisibilitySegments: [
-      ...(globalSegment.webcamVisibilitySegments ?? []).filter(
-        (range) => !overlapsClip(range.startTime, range.endTime),
-      ),
-      ...(projectedClipSegment.webcamVisibilitySegments ?? []),
-    ].sort((a, b) => a.startTime - b.startTime),
-    keystrokeEvents: [
-      ...(globalSegment.keystrokeEvents ?? []).filter(
-        (event) => !overlapsClip(event.startTime, event.endTime),
-      ),
-      ...(projectedClipSegment.keystrokeEvents ?? []),
-    ].sort((a, b) => a.startTime - b.startTime),
-    keyboardVisibilitySegments: [
-      ...(globalSegment.keyboardVisibilitySegments ?? []).filter(
-        (range) => !overlapsClip(range.startTime, range.endTime),
-      ),
-      ...(projectedClipSegment.keyboardVisibilitySegments ?? []),
-    ].sort((a, b) => a.startTime - b.startTime),
-    keyboardMouseVisibilitySegments: [
-      ...(globalSegment.keyboardMouseVisibilitySegments ?? []).filter(
-        (range) => !overlapsClip(range.startTime, range.endTime),
-      ),
-      ...(projectedClipSegment.keyboardMouseVisibilitySegments ?? []),
-    ].sort((a, b) => a.startTime - b.startTime),
-    speedPoints: [
-      ...(globalSegment.speedPoints ?? []).filter(
-        (point) => !overlapsClip(point.time, point.time),
-      ),
-      ...(projectedClipSegment.speedPoints ?? []),
-    ].sort((a, b) => a.time - b.time),
-    deviceAudioPoints: [
-      ...(globalSegment.deviceAudioPoints ?? []).filter(
-        (point) => !overlapsClip(point.time, point.time),
-      ),
-      ...(projectedClipSegment.deviceAudioPoints ?? []),
-    ].sort((a, b) => a.time - b.time),
-    micAudioPoints: [
-      ...(globalSegment.micAudioPoints ?? []).filter(
-        (point) => !overlapsClip(point.time, point.time),
-      ),
-      ...(projectedClipSegment.micAudioPoints ?? []),
-    ].sort((a, b) => a.time - b.time),
   };
+  // For each time field: drop the global items overlapping this clip window,
+  // splice in the projected clip items, and re-sort by time.
+  assignTimeFields(
+    result,
+    buildTimeFieldValues((descriptor) =>
+      replaceTimeField(
+        globalSegment,
+        projectedClipSegment,
+        descriptor,
+        overlapsClip,
+      ),
+    ),
+  );
+  Object.assign(result, subtitleTrackState);
+
+  return result;
 }

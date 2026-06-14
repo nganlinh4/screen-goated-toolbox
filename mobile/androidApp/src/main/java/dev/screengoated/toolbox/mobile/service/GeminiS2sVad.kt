@@ -95,7 +95,7 @@ internal class AdaptiveS2sVadState {
                 consecutiveEmptyNoInput += 1
                 val highEnergy = segment.meanRms >= 0.025f ||
                     segment.peakRms >= 0.060f ||
-                    speechRatio(segment) >= 0.60f
+                    segmentSpeechRatio(segment) >= 0.60f
                 val step = if (highEnergy) 0.22f else 0.12f
                 strictness = (strictness + step).coerceAtMost(1f)
             }
@@ -103,31 +103,8 @@ internal class AdaptiveS2sVadState {
         }
         Log.i(
             TAG,
-            "adaptive-vad outcome=$outcome strictness=${"%.2f".format(Locale.US, strictness)} consecutive_empty=$consecutiveEmptyNoInput segment=${segment.id} confidence=${"%.2f".format(Locale.US, speechConfidence(segment))} speech_like_ratio=${"%.2f".format(Locale.US, speechLikeRatio(segment))} speech_ratio=${"%.2f".format(Locale.US, speechRatio(segment))} mean_rms=${"%.4f".format(Locale.US, segment.meanRms)} peak_rms=${"%.4f".format(Locale.US, segment.peakRms)}",
+            "adaptive-vad outcome=$outcome strictness=${"%.2f".format(Locale.US, strictness)} consecutive_empty=$consecutiveEmptyNoInput segment=${segment.id} confidence=${"%.2f".format(Locale.US, segmentSpeechConfidence(segment))} speech_like_ratio=${"%.2f".format(Locale.US, segmentSpeechLikeRatio(segment))} speech_ratio=${"%.2f".format(Locale.US, segmentSpeechRatio(segment))} mean_rms=${"%.4f".format(Locale.US, segment.meanRms)} peak_rms=${"%.4f".format(Locale.US, segment.peakRms)}",
         )
-    }
-
-    private fun speechRatio(segment: S2sSegment): Float {
-        val frameCount = ((segment.samples.size + FRAME_SAMPLES - 1) / FRAME_SAMPLES).coerceAtLeast(1)
-        return segment.speechFrames.toFloat() / frameCount.toFloat()
-    }
-
-    private fun speechLikeRatio(segment: S2sSegment): Float {
-        val frameCount = ((segment.samples.size + FRAME_SAMPLES - 1) / FRAME_SAMPLES).coerceAtLeast(1)
-        return segment.speechLikeFrames.toFloat() / frameCount.toFloat()
-    }
-
-    private fun energeticRatio(segment: S2sSegment): Float {
-        val frameCount = ((segment.samples.size + FRAME_SAMPLES - 1) / FRAME_SAMPLES).coerceAtLeast(1)
-        return segment.energeticFrames.toFloat() / frameCount.toFloat()
-    }
-
-    private fun speechConfidence(segment: S2sSegment): Float {
-        val energyScore = (segment.meanRms / 0.055f).coerceIn(0f, 1f)
-        return (speechLikeRatio(segment) * 0.45f) +
-            (speechRatio(segment) * 0.30f) +
-            (energeticRatio(segment) * 0.15f) +
-            (energyScore * 0.10f)
     }
 }
 

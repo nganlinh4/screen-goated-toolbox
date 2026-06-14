@@ -108,7 +108,7 @@ fun PresetExecutionScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            presetExecutionText(
+                            nodeGraphLocalized(
                                 lang = lang,
                                 en = "Coming soon - requires ${preset.presetType.name} capture",
                                 vi = "Sắp có - cần capture ${preset.presetType.name}",
@@ -145,9 +145,9 @@ private fun TextInputPresetContent(
             label = {
                 Text(
                     if (preset.promptMode == "dynamic") {
-                        presetExecutionText(lang, "Type your question...", "Nhập câu hỏi của bạn...", "질문을 입력하세요...")
+                        nodeGraphLocalized(lang, "Type your question...", "Nhập câu hỏi của bạn...", "질문을 입력하세요...")
                     } else {
-                        presetExecutionText(lang, "Input", "Đầu vào", "입력")
+                        nodeGraphLocalized(lang, "Input", "Đầu vào", "입력")
                     },
                 )
             },
@@ -162,7 +162,7 @@ private fun TextInputPresetContent(
                 ) {
                     Icon(
                         painterResource(R.drawable.ms_send),
-                        contentDescription = presetExecutionText(lang, "Send", "Gửi", "보내기"),
+                        contentDescription = nodeGraphLocalized(lang, "Send", "Gửi", "보내기"),
                     )
                 }
             },
@@ -196,7 +196,7 @@ private fun TextSelectPresetContent(
             onValueChange = { inputText = it },
             label = {
                 Text(
-                    presetExecutionText(
+                    nodeGraphLocalized(
                         lang,
                         "Paste or type text to process",
                         "Dán hoặc nhập văn bản để xử lý",
@@ -224,7 +224,7 @@ private fun TextSelectPresetContent(
                     }
                 },
             ) {
-                Text(presetExecutionText(lang, "Paste", "Dán", "붙여넣기"))
+                Text(nodeGraphLocalized(lang, "Paste", "Dán", "붙여넣기"))
             }
             FilledTonalButton(
                 onClick = { onExecute(inputText) },
@@ -232,7 +232,7 @@ private fun TextSelectPresetContent(
             ) {
                 Icon(painterResource(R.drawable.ms_send), contentDescription = null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(presetExecutionText(lang, "Process", "Xử lý", "처리"))
+                Text(nodeGraphLocalized(lang, "Process", "Xử lý", "처리"))
             }
         }
 
@@ -290,7 +290,7 @@ private fun ResultArea(
                         FilledTonalButton(onClick = onCancel) {
                             Icon(painterResource(R.drawable.ms_stop), contentDescription = null, Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(presetExecutionText(lang, "Stop", "Dừng", "중지"))
+                            Text(nodeGraphLocalized(lang, "Stop", "Dừng", "중지"))
                         }
                     }
                     if (state.isComplete || combinedText.isNotBlank()) {
@@ -299,7 +299,7 @@ private fun ResultArea(
                                 clipboard.setClipEntry(
                                     ClipEntry(
                                         ClipData.newPlainText(
-                                            presetExecutionText(lang, "Preset result", "Kết quả preset", "프리셋 결과"),
+                                            nodeGraphLocalized(lang, "Preset result", "Kết quả preset", "프리셋 결과"),
                                             combinedText,
                                         ),
                                     ),
@@ -308,17 +308,11 @@ private fun ResultArea(
                         }) {
                             Icon(painterResource(R.drawable.ms_content_copy), contentDescription = null, Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(presetExecutionText(lang, "Copy", "Sao chép", "복사"))
+                            Text(nodeGraphLocalized(lang, "Copy", "Sao chép", "복사"))
                         }
                     }
                 }
             }
         }
     }
-}
-
-private fun presetExecutionText(lang: String, en: String, vi: String, ko: String): String = when (lang) {
-    "vi" -> vi
-    "ko" -> ko
-    else -> en
 }

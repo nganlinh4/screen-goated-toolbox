@@ -117,11 +117,7 @@ internal class PresetAutoSpeakCoordinator(
         en: String,
         vi: String,
         ko: String,
-    ): String = when (uiLanguage()) {
-        "vi" -> vi
-        "ko" -> ko
-        else -> en
-    }
+    ): String = overlayLocalized(uiLanguage(), en, vi, ko)
 
     private fun isMissingGeminiKey(): Boolean {
         val settings = snapshotProvider()

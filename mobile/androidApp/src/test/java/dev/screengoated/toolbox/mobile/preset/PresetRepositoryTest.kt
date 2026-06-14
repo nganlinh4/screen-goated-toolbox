@@ -262,7 +262,16 @@ class PresetRepositoryTest {
         )
 
         val audioSession = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetAudioCaptureSession.kt")
-        val overlayController = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetOverlayController.kt")
+        // PresetOverlayController was split into focused sibling files; read them
+        // all so the behavior-contract assertions resolve wherever the code lives.
+        val overlayController = listOf(
+            "PresetOverlayController.kt",
+            "PresetOverlayControllerAudio.kt",
+            "PresetOverlayControllerImage.kt",
+            "PresetOverlayControllerClipboard.kt",
+        ).joinToString("\n") {
+            repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/$it")
+        }
         val buildGradle = repoFile("mobile/androidApp/build.gradle.kts")
         val recordingUi = repoFile("src/overlay/recording/ui.rs")
         val audioBlockExecutor = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetAudioBlockExecutor.kt")

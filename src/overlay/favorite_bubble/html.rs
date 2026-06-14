@@ -352,10 +352,7 @@ fn html_escape(s: &str) -> String {
 }
 
 pub fn escape_js(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "")
+    crate::overlay::utils::escape_js_double_quoted(text)
 }
 
 fn get_js() -> &'static str {

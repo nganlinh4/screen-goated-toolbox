@@ -6,14 +6,17 @@ use std::io;
 use std::net::TcpStream;
 use std::time::Duration;
 
+/// Base WebSocket URL for the Gemini Live BidiGenerateContent endpoint; the API
+/// key is appended as `?key=...`. Canonical for all Gemini Live sockets
+/// (realtime_audio, gemini_live, tts).
+pub const GEMINI_LIVE_WS_BASE_URL: &str =
+    "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+
 /// Create TLS WebSocket connection to Gemini Live API
 pub fn connect_websocket(
     api_key: &str,
 ) -> Result<tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>> {
-    let ws_url = format!(
-        "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={}",
-        api_key
-    );
+    let ws_url = format!("{GEMINI_LIVE_WS_BASE_URL}?key={api_key}");
 
     let url = url::Url::parse(&ws_url)?;
     let host = url
@@ -145,13 +148,11 @@ pub fn send_setup_message(
     Ok(())
 }
 
-/// Send session setup for Gemini Live Translate models.
-pub fn send_live_translate_setup_message(
-    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
-    model: &str,
-    target_language: &str,
-) -> Result<()> {
-    let setup = serde_json::json!({
+/// Build the Gemini Live Translate session-setup payload. Shared by the realtime
+/// send path and the S2S transport so the translationConfig contract
+/// (echoTargetLanguage + in/out audio transcription) lives in one place.
+pub fn build_live_translate_setup_value(model: &str, target_language: &str) -> serde_json::Value {
+    serde_json::json!({
         "setup": {
             "model": format!("models/{}", model),
             "generationConfig": {
@@ -164,7 +165,16 @@ pub fn send_live_translate_setup_message(
             "inputAudioTranscription": {},
             "outputAudioTranscription": {}
         }
-    });
+    })
+}
+
+/// Send session setup for Gemini Live Translate models.
+pub fn send_live_translate_setup_message(
+    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
+    model: &str,
+    target_language: &str,
+) -> Result<()> {
+    let setup = build_live_translate_setup_value(model, target_language);
 
     socket.write(tungstenite::Message::Text(setup.to_string().into()))?;
     socket.flush()?;
@@ -213,6 +223,15 @@ pub fn send_audio_chunk(
     socket.flush()?;
 
     Ok(())
+}
+
+/// Decode little-endian PCM16 bytes into i16 samples. Canonical helper shared by
+/// the S2S batch pipeline and the Gemini Translate narration socket reader.
+pub fn pcm_bytes_to_i16(bytes: &[u8]) -> Vec<i16> {
+    bytes
+        .chunks_exact(2)
+        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect()
 }
 
 /// Parse inputTranscription from WebSocket message (what the user said)

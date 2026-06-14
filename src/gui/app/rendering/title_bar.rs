@@ -13,10 +13,8 @@ use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetForegroundWindow, HTCAPTION, SendMessageW, WM_NCLBUTTONDOWN,
+    GetForegroundWindow, HTCAPTION, SendMessageW, WM_NCLBUTTONDOWN,
 };
-#[cfg(target_os = "windows")]
-use windows::core::w;
 
 impl SettingsApp {
     pub(crate) fn render_title_bar(&mut self, root_ui: &mut egui::Ui) {
@@ -446,14 +444,7 @@ fn start_native_window_drag_fallback() {
             if !fg.is_invalid() {
                 fg
             } else {
-                let class_name = w!("eframe");
-                let h = FindWindowW(class_name, None).unwrap_or_default();
-                if !h.is_invalid() {
-                    h
-                } else {
-                    let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
-                    FindWindowW(None, title).unwrap_or_default()
-                }
+                crate::gui::app::main_window_hwnd()
             }
         };
 

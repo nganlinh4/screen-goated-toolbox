@@ -176,11 +176,7 @@ pub fn show_audio_app_selector_overlay() {
 
     let (language, is_dark) = {
         let app = crate::APP.lock().unwrap();
-        let is_dark = match app.config.theme_mode {
-            crate::config::ThemeMode::Dark => true,
-            crate::config::ThemeMode::Light => false,
-            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        };
+        let is_dark = app.config.theme_mode.is_dark();
         (app.config.ui_language.clone(), is_dark)
     };
     let locale = LocaleText::get(&language);

@@ -1,49 +1,20 @@
+use crate::config::tts_catalog::{
+    GEMINI_VOICES, SUPERTONIC_LANGUAGE_SUMMARY, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES,
+};
 use crate::config::{Config, TtsMethod};
 use crate::gui::icons::{Icon, draw_icon_static, icon_button};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
-use std::collections::hash_map::RandomState;
-use std::hash::{BuildHasher, Hasher};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-static LAST_TTS_PREVIEW_IDX: AtomicUsize = AtomicUsize::new(9999);
-
+mod preview;
 mod providers;
 
+use preview::speak_settings_preview;
 use providers::{
-    SUPERTONIC_LANGUAGE_SUMMARY, render_kokoro_settings, render_magpie_settings,
-    render_step_audio_settings, render_supertonic_settings, render_vieneu_settings,
+    render_kokoro_settings, render_magpie_settings, render_step_audio_settings,
+    render_supertonic_settings, render_vieneu_settings,
 };
-
-fn speak_settings_preview(text: &LocaleText, speaker_name: &str) {
-    if !text.tts_preview_texts.is_empty() {
-        let s = RandomState::new();
-        let mut hasher = s.build_hasher();
-        hasher.write_usize(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .subsec_nanos() as usize,
-        );
-        let rand_val = hasher.finish();
-        let len = text.tts_preview_texts.len();
-        let mut idx = (rand_val as usize) % len;
-
-        let last = LAST_TTS_PREVIEW_IDX.load(Ordering::Relaxed);
-        if idx == last {
-            idx = (idx + 1) % len;
-        }
-        LAST_TTS_PREVIEW_IDX.store(idx, Ordering::Relaxed);
-
-        let preview_text = text.tts_preview_texts[idx].replace("{}", speaker_name);
-        crate::api::tts::TTS_MANAGER.speak_interrupt(&preview_text, 0);
-    } else {
-        let preview_text = format!("Hello, I am {}. This is a voice preview.", speaker_name);
-        crate::api::tts::TTS_MANAGER.speak_interrupt(&preview_text, 0);
-    }
-}
 
 pub fn render_tts_settings_modal(
     ui: &mut egui::Ui,
@@ -57,42 +28,12 @@ pub fn render_tts_settings_modal(
 
     let mut changed = false;
 
-    // List of voices (Name, Gender)
-    const VOICES: &[(&str, &str)] = &[
-        ("Achernar", "Female"),
-        ("Achird", "Male"),
-        ("Algenib", "Male"),
-        ("Algieba", "Male"),
-        ("Alnilam", "Male"),
-        ("Aoede", "Female"),
-        ("Autonoe", "Female"),
-        ("Callirrhoe", "Female"),
-        ("Charon", "Male"),
-        ("Despina", "Female"),
-        ("Enceladus", "Male"),
-        ("Erinome", "Female"),
-        ("Fenrir", "Male"),
-        ("Gacrux", "Female"),
-        ("Iapetus", "Male"),
-        ("Kore", "Female"),
-        ("Laomedeia", "Female"),
-        ("Leda", "Female"),
-        ("Orus", "Male"),
-        ("Pulcherrima", "Female"),
-        ("Puck", "Male"),
-        ("Rasalgethi", "Male"),
-        ("Sadachbia", "Male"),
-        ("Sadaltager", "Male"),
-        ("Schedar", "Male"),
-        ("Sulafat", "Female"),
-        ("Umbriel", "Male"),
-        ("Vindemiatrix", "Female"),
-        ("Zephyr", "Female"),
-        ("Zubenelgenubi", "Male"),
-    ];
-
-    let male_voices: Vec<_> = VOICES.iter().filter(|(_, g)| *g == "Male").collect();
-    let female_voices: Vec<_> = VOICES.iter().filter(|(_, g)| *g == "Female").collect();
+    // Canonical voice list (Name, Gender) lives in the shared TTS catalog.
+    let male_voices: Vec<_> = GEMINI_VOICES.iter().filter(|(_, g)| *g == "Male").collect();
+    let female_voices: Vec<_> = GEMINI_VOICES
+        .iter()
+        .filter(|(_, g)| *g == "Female")
+        .collect();
 
     let ctx = ui.ctx().clone();
     let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
@@ -223,7 +164,7 @@ pub fn render_tts_settings_modal(
                                 TtsMethod::MagpieMultilingual,
                                 "NVIDIA Magpie-Multilingual 357M",
                             )
-                            .on_hover_text("Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese.")
+                            .on_hover_text(text.tool_desc_magpie)
                             .clicked()
                         {
                             changed = true;
@@ -298,31 +239,9 @@ pub fn render_tts_settings_modal(
                     // Right column: Language-Specific Instructions
                     columns[1].label(egui::RichText::new(text.tts_instructions_label).strong());
 
-                    // Supported languages are mapped from ISO 639-3 codes
-                    let supported_languages = [
-                        ("afr", "Afrikaans"), ("ara", "Arabic"), ("aze", "Azerbaijani"),
-                        ("bel", "Belarusian"), ("ben", "Bengali"), ("bul", "Bulgarian"),
-                        ("cat", "Catalan"), ("ces", "Czech"), ("cmn", "Mandarin Chinese"),
-                        ("dan", "Danish"), ("deu", "German"), ("ell", "Greek"),
-                        ("eng", "English"), ("epo", "Esperanto"), ("est", "Estonian"),
-                        ("eus", "Basque"), ("fin", "Finnish"), ("fra", "French"),
-                        ("guj", "Gujarati"), ("heb", "Hebrew"), ("hin", "Hindi"),
-                        ("hrv", "Croatian"), ("hun", "Hungarian"), ("ind", "Indonesian"),
-                        ("ita", "Italian"), ("jpn", "Japanese"), ("kan", "Kannada"),
-                        ("kat", "Georgian"), ("kor", "Korean"), ("lat", "Latin"),
-                        ("lav", "Latvian"), ("lit", "Lithuanian"), ("mal", "Malayalam"),
-                        ("mar", "Marathi"), ("mkd", "Macedonian"), ("mya", "Burmese"),
-                        ("nep", "Nepali"), ("nld", "Dutch"), ("nno", "Norwegian Nynorsk"),
-                        ("nob", "Norwegian Bokmål"), ("ori", "Oriya"), ("pan", "Punjabi"),
-                        ("pes", "Persian"), ("pol", "Polish"), ("por", "Portuguese"),
-                        ("ron", "Romanian"), ("rus", "Russian"), ("sin", "Sinhala"),
-                        ("slk", "Slovak"), ("slv", "Slovenian"), ("som", "Somali"),
-                        ("spa", "Spanish"), ("sqi", "Albanian"), ("srp", "Serbian"),
-                        ("swe", "Swedish"), ("tam", "Tamil"), ("tel", "Telugu"),
-                        ("tgl", "Tagalog"), ("tha", "Thai"), ("tur", "Turkish"),
-                        ("ukr", "Ukrainian"), ("urd", "Urdu"), ("uzb", "Uzbek"),
-                        ("vie", "Vietnamese"), ("yid", "Yiddish"), ("zho", "Chinese"),
-                    ];
+                    // Supported languages (ISO 639-3 → display name) live in the
+                    // shared TTS catalog.
+                    let supported_languages = SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES;
 
                     // Show existing conditions
                     let mut to_remove: Option<usize> = None;

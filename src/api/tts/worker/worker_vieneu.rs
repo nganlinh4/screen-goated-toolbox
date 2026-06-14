@@ -168,7 +168,7 @@ fn synthesize_vieneu(
     {
         bail!("VieNeu standard/fast cloning needs the exact reference transcript.");
     }
-    let output_wav_path = temp_wav_path(request.req._id)?;
+    let output_wav_path = super::sidecar::temp_wav_path("vieneu", request.req._id)?;
     let text = normalize_vieneu_input_text(request);
     if text != request.req.text {
         eprintln!(
@@ -379,13 +379,7 @@ fn run_sidecar_once(
     };
     let response: VieneuSidecarResponse = serde_json::from_str(line.trim())
         .map_err(|err| anyhow!("VieNeu sidecar returned invalid JSON: {err}. stdout={line}"))?;
-    if !response.id.is_empty() && response.id != request_id {
-        bail!(
-            "VieNeu sidecar response id mismatch: expected {}, got {}",
-            request_id,
-            response.id
-        );
-    }
+    super::sidecar::check_response_id("VieNeu", request_id, &response.id)?;
     Ok(response)
 }
 
@@ -454,15 +448,6 @@ fn format_stderr_tail(stderr_tail: &Arc<Mutex<VecDeque<String>>>) -> String {
         out.push_str(line);
     }
     out
-}
-
-fn temp_wav_path(req_id: u64) -> Result<std::path::PathBuf> {
-    let dir = std::env::temp_dir()
-        .join("screen-goated-toolbox")
-        .join("tts");
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create temp dir '{}'", dir.display()))?;
-    Ok(dir.join(format!("vieneu-{req_id}.wav")))
 }
 
 fn read_wav_i16(path: &std::path::Path) -> Result<(Vec<i16>, u32)> {

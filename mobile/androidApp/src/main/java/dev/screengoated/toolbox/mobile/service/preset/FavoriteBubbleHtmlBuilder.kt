@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
+import dev.screengoated.toolbox.mobile.preset.triLang
 import dev.screengoated.toolbox.mobile.service.overlay.overlayFontCss
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 
@@ -88,11 +89,7 @@ private fun localize(
     en: String,
     vi: String,
     ko: String,
-): String = when (lang) {
-    "vi" -> vi
-    "ko" -> ko
-    else -> en
-}
+): String = triLang(lang, en, vi, ko)
 
 private const val WINDOWS_IMAGE_ICON =
     """<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4z"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>"""

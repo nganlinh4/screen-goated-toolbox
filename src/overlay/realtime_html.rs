@@ -32,7 +32,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     let is_s2s = crate::model_config::is_gemini_live_s2s_model_id(transcription_model);
     let is_live_translate =
         transcription_model == crate::model_config::GEMINI_LIVE_TRANSLATE_MODEL_ID;
-    let glow_color = if is_translation { "#ff9633" } else { "#00c8ff" };
+    let glow_color = crate::overlay::utils::glow_color(is_translation);
 
     // Volume canvas lives inside #controls so it scrolls with the header (matches Android)
     let title_content = String::new();

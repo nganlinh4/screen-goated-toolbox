@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize};
 use std::sync::{Mutex, Once};
 
-use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
 use wry::{WebContext, WebView};
 
@@ -51,19 +50,4 @@ impl WheelEntry {
     }
 }
 
-pub(crate) struct HwndWrapper(pub HWND);
-
-unsafe impl Send for HwndWrapper {}
-unsafe impl Sync for HwndWrapper {}
-
-impl raw_window_handle::HasWindowHandle for HwndWrapper {
-    fn window_handle(
-        &self,
-    ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        let raw = raw_window_handle::Win32WindowHandle::new(
-            std::num::NonZeroIsize::new(self.0.0 as isize).expect("HWND cannot be null"),
-        );
-        let handle = raw_window_handle::RawWindowHandle::Win32(raw);
-        unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }
-    }
-}
+pub(crate) use crate::win_types::HwndWrapper;

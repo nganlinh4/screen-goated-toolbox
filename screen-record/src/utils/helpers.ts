@@ -1,5 +1,4 @@
 import type { Translations } from '@/i18n';
-import { ZoomKeyframe } from '@/types/video';
 
 interface MonitorLike {
   name: string;
@@ -58,20 +57,8 @@ export const sortMonitorsByPosition = <T extends MonitorLike>(
     }));
 };
 
-export const getKeyframeRange = (
-  keyframes: ZoomKeyframe[],
-  index: number
-): { rangeStart: number; rangeEnd: number } => {
-  const keyframe = keyframes[index];
-  const prevKeyframe = index > 0 ? keyframes[index - 1] : null;
-  const rangeStart =
-    prevKeyframe && keyframe.time - prevKeyframe.time <= 1.0
-      ? prevKeyframe.time
-      : Math.max(0, keyframe.time - 1.0);
-  return { rangeStart, rangeEnd: keyframe.time };
-};
-
 export function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;

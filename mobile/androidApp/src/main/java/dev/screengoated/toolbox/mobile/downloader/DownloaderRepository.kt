@@ -116,6 +116,18 @@ class DownloaderRepository(
                     packagesDir.deleteRecursively()
 
                     ensureInit()
+                    _state.update {
+                        it.copy(
+                            ytdlp = ToolState(ToolInstallStatus.DOWNLOADING, version = "Updating yt-dlp..."),
+                            ytdlpUpdate = UpdateStatus.CHECKING,
+                        )
+                    }
+                    val updated = updateYoutubeDlNightly()
+                    _state.update {
+                        it.copy(
+                            ytdlpUpdate = if (updated) UpdateStatus.UPDATE_AVAILABLE else UpdateStatus.UP_TO_DATE,
+                        )
+                    }
                     // Clean up downloaded zips after successful extraction — they're no longer needed
                     cleanupNativeZips()
                     val extracted = isAlreadyExtracted()
@@ -195,9 +207,7 @@ class DownloaderRepository(
             _state.update { it.copy(ytdlpUpdate = UpdateStatus.CHECKING) }
             withContext(Dispatchers.IO) {
                 try {
-                    prepareYoutubeDlUpdate()
-                    val status = YoutubeDL.getInstance().updateYoutubeDL(context, com.yausername.youtubedl_android.YoutubeDL.UpdateChannel.NIGHTLY)
-                    val updated = status == com.yausername.youtubedl_android.YoutubeDL.UpdateStatus.DONE
+                    val updated = updateYoutubeDlNightly()
                     _state.update {
                         it.copy(
                             ytdlpUpdate = if (updated) UpdateStatus.UPDATE_AVAILABLE else UpdateStatus.UP_TO_DATE,
@@ -301,6 +311,7 @@ class DownloaderRepository(
     fun setFormat(format: String?) {
         val idx = _state.value.activeTabIndex
         updateSession(idx) { it.copy(selectedFormat = format) }
+        updateSettings { it.copy(lastVideoFormat = format) }
     }
 
     fun setSubtitle(subtitle: String?) {
@@ -334,6 +345,8 @@ class DownloaderRepository(
                 logs = emptyList(),
                 errorMessage = null,
                 processId = processId,
+                finishedFilePath = null,
+                finishedFileUri = null,
             )
         }
 
@@ -343,7 +356,12 @@ class DownloaderRepository(
                     val result = executeDownload(idx, session, processId)
                     activeDownloadPaths.remove(session.id)
                     updateSession(idx) {
-                        it.copy(phase = DownloadPhase.FINISHED, finishedFilePath = result, processId = null)
+                        it.copy(
+                            phase = DownloadPhase.FINISHED,
+                            finishedFilePath = result.filePath,
+                            finishedFileUri = result.contentUri,
+                            processId = null,
+                        )
                     }
                 } catch (e: Exception) {
                     if (isDownloadCancelled(session.id, e)) {
@@ -357,14 +375,21 @@ class DownloaderRepository(
 
                     // Auto-retry: update yt-dlp and try once more
                     try {
-                        prepareYoutubeDlUpdate()
-                        if (isDownloadCancelled(session.id)) throw CancellationException("Download cancelled")
-                        YoutubeDL.getInstance().updateYoutubeDL(context)
+                        _state.update { it.copy(ytdlpUpdate = UpdateStatus.CHECKING) }
+                        val updated = updateYoutubeDlNightly()
+                        _state.update {
+                            it.copy(ytdlpUpdate = if (updated) UpdateStatus.UPDATE_AVAILABLE else UpdateStatus.UP_TO_DATE)
+                        }
                         if (isDownloadCancelled(session.id)) throw CancellationException("Download cancelled")
                         val result = executeDownload(idx, session, processId)
                         activeDownloadPaths.remove(session.id)
                         updateSession(idx) {
-                            it.copy(phase = DownloadPhase.FINISHED, finishedFilePath = result, processId = null)
+                            it.copy(
+                                phase = DownloadPhase.FINISHED,
+                                finishedFilePath = result.filePath,
+                                finishedFileUri = result.contentUri,
+                                processId = null,
+                            )
                         }
                     } catch (retryError: Exception) {
                         if (isDownloadCancelled(session.id, retryError)) {
@@ -427,8 +452,10 @@ class DownloaderRepository(
         return if (custom != null) {
             File(custom)
         } else {
-            // Use app-specific external dir — accessible via file manager, survives app clear cache
-            val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "SGT")
+            val dir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                "SGT",
+            )
             dir.mkdirs()
             dir
         }

@@ -1,13 +1,10 @@
 import type { DeviceAudioPoint } from "@/types/video";
+import { clamp } from "@/lib/mathUtils";
 
 export const MIN_DEVICE_AUDIO_VOLUME = 0;
 export const MAX_DEVICE_AUDIO_VOLUME = 1;
 export const DEFAULT_DEVICE_AUDIO_VOLUME = 1;
 export const IMPLICIT_AUDIO_EDGE_FADE_SEC = 0.12;
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
 
 export function clampDeviceAudioVolume(volume: number) {
   return clamp(

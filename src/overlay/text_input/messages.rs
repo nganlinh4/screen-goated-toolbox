@@ -164,13 +164,7 @@ pub unsafe extern "system" fn input_wnd_proc(
 
                 // 3. Dynamic Update (Theme + Locales)
                 let is_dark = if let Ok(app) = crate::APP.lock() {
-                    match app.config.theme_mode {
-                        crate::config::ThemeMode::Dark => true,
-                        crate::config::ThemeMode::Light => false,
-                        crate::config::ThemeMode::System => {
-                            crate::gui::utils::is_system_in_dark_mode()
-                        }
-                    }
+                    app.config.theme_mode.is_dark()
                 } else {
                     true
                 };

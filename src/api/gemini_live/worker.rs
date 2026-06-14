@@ -8,10 +8,11 @@ use tungstenite::Message;
 use super::manager::GeminiLiveManager;
 use super::types::LiveEvent;
 use super::websocket::{
-    connect_live_websocket, is_setup_complete, parse_error, parse_live_response, send_live_content,
-    send_live_setup, set_live_read_timeout,
+    is_setup_complete, parse_error, parse_live_response, send_live_content, send_live_setup,
+    set_live_read_timeout,
 };
 use crate::APP;
+use crate::api::realtime_audio::websocket::connect_websocket;
 
 /// Run a worker thread for the Gemini Live connection pool
 /// Each worker handles one request at a time with its own WebSocket connection
@@ -74,7 +75,7 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         }
 
         // Connect to WebSocket
-        let socket_result = connect_live_websocket(&api_key);
+        let socket_result = connect_websocket(&api_key);
         let mut socket = match socket_result {
             Ok(s) => s,
             Err(e) => {

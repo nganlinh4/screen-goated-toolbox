@@ -1,4 +1,5 @@
 import type { Translations } from '@/i18n';
+import { localizeMessageKey } from '@/lib/statusFormat';
 import type { AudioSubtitleClipTransform } from '@/lib/subtitleGenerationPlan';
 import { smartSplitText, splitTimingByChunks } from '@/lib/segmentSmartSplit';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
@@ -22,14 +23,6 @@ function buildSubtitleId(
   return `subtitle-${clipId}-${Math.round(entry.startTime * 1000)}`;
 }
 
-function formatTemplate(template: string, params?: Record<string, string> | null) {
-  let formatted = template;
-  for (const [key, value] of Object.entries(params ?? {})) {
-    formatted = formatted.split(`{${key}}`).join(value);
-  }
-  return formatted;
-}
-
 export function localizeSubtitleStatus(
   t: Translations,
   status: Pick<SubtitleJobViewStatus, 'message' | 'messageKey' | 'messageParams'> | null,
@@ -37,11 +30,7 @@ export function localizeSubtitleStatus(
   if (!status) {
     return null;
   }
-  const key = status.messageKey;
-  if (key && key in t) {
-    return formatTemplate(t[key as keyof Translations] as string, status.messageParams);
-  }
-  return status.message;
+  return localizeMessageKey(t, status);
 }
 
 export function stripSubtitleJobResults(status: SubtitleJobStatus): SubtitleJobViewStatus {

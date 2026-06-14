@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
+import { createPersistedSetting } from '@/lib/persistedState';
 
 export type NarrationTtsMethod =
   | 'GeminiLive'
@@ -198,14 +199,17 @@ const FALLBACK_DEFAULTS: NarrationSettingsState = {
   vieneuReferenceVoiceId: '',
 };
 
+const narrationSettingsStore = createPersistedSetting<Partial<NarrationSettingsState> | null>(
+  STORAGE_KEY,
+  {
+    parse: (raw) => (raw ? (JSON.parse(raw) as Partial<NarrationSettingsState>) : null),
+    serialize: (value) => (value === null ? null : JSON.stringify(value)),
+    fallback: null,
+  },
+);
+
 function readStoredOverrides(): Partial<NarrationSettingsState> | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as Partial<NarrationSettingsState>;
-  } catch {
-    return null;
-  }
+  return narrationSettingsStore.getInitial();
 }
 
 function mergeWithDefaults(
@@ -293,11 +297,7 @@ export function useNarrationSettings() {
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-    } catch {
-      // ignore persistence failures
-    }
+    narrationSettingsStore.persist(settings);
   }, [settings]);
 
   const update = useCallback(<K extends keyof NarrationSettingsState>(

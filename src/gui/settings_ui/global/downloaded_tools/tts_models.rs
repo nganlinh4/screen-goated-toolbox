@@ -23,14 +23,13 @@ use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::thread;
 
+use super::model_card::{ModelRowSpec, render_model_row};
 use super::utils::{
-    cached_probe, cached_u64, format_size, get_dir_size, invalidate_probe_cache,
-    invalidate_size_cache, invalidate_u64_cache, tool_card,
+    cached_probe, cached_u64, format_size, invalidate_probe_cache, invalidate_u64_cache, tool_card,
 };
 
 const PROBE_STEP_AUDIO: &str = "downloaded-tools:step-audio-editx";
@@ -39,25 +38,10 @@ const PROBE_STEP_RUNTIME: &str = "downloaded-tools:step-audio-runtime";
 const PROBE_MAGPIE_RUNTIME: &str = "downloaded-tools:magpie-runtime";
 const PROBE_VIENEU_RUNTIME: &str = "downloaded-tools:vieneu-runtime";
 
-struct TtsCardSpec {
-    title: &'static str,
-    model_probe: &'static str,
-    description: &'static str,
-    model_title: &'static str,
-    model_download_title: &'static str,
-    model_notice: fn() -> Option<String>,
-    is_model_downloaded: fn() -> bool,
-    model_dir: fn() -> PathBuf,
-    download_model: fn(Arc<AtomicBool>, bool) -> anyhow::Result<()>,
-    remove_model: fn() -> anyhow::Result<()>,
-}
-
 pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
     tool_card(ui, |ui| {
-        let spec = TtsCardSpec {
-            title: "Step Audio EditX",
+        let spec = ModelRowSpec {
             model_probe: PROBE_STEP_AUDIO,
-            description: text.tool_desc_step_audio,
             model_title: "Step Audio AWQ model + tokenizer",
             model_download_title: text.step_audio_downloading_title,
             model_notice: current_step_audio_notice,
@@ -65,10 +49,12 @@ pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
             model_dir: get_step_audio_model_dir,
             download_model: download_step_audio_model,
             remove_model: remove_step_audio_model,
+            description: None,
+            space_before_notice: false,
         };
-        ui.heading(spec.title);
+        ui.heading("Step Audio EditX");
         ui.add_space(4.0);
-        ui.label(spec.description);
+        ui.label(text.tool_desc_step_audio);
         ui.add_space(6.0);
         render_model_row(ui, text, &spec);
         ui.add_space(4.0);
@@ -78,10 +64,8 @@ pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
 
 pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
     tool_card(ui, |ui| {
-        let spec = TtsCardSpec {
-            title: "NVIDIA Magpie-Multilingual 357M",
+        let spec = ModelRowSpec {
             model_probe: PROBE_MAGPIE,
-            description: text.tool_desc_magpie,
             model_title: "Magpie model + NanoCodec",
             model_download_title: text.magpie_downloading_title,
             model_notice: current_magpie_notice,
@@ -89,10 +73,12 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
             model_dir: get_magpie_model_dir,
             download_model: download_magpie_model,
             remove_model: remove_magpie_model,
+            description: None,
+            space_before_notice: false,
         };
-        ui.heading(spec.title);
+        ui.heading("NVIDIA Magpie-Multilingual 357M");
         ui.add_space(4.0);
-        ui.label(spec.description);
+        ui.label(text.tool_desc_magpie);
         ui.add_space(6.0);
         render_model_row(ui, text, &spec);
         ui.add_space(4.0);
@@ -224,56 +210,6 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
         }
         ui.label(text.tool_desc_vieneu_runtime);
     });
-}
-
-fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &TtsCardSpec) {
-    let theme = AppTheme::from_ui(ui);
-    let notice = (spec.model_notice)();
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(spec.model_title).strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let is_downloading = REALTIME_STATE
-                .lock()
-                .map(|s| s.is_downloading && s.download_title == spec.model_download_title)
-                .unwrap_or(false);
-            if is_downloading {
-                let progress = REALTIME_STATE
-                    .lock()
-                    .map(|s| s.download_progress)
-                    .unwrap_or(0.0);
-                ui.label(format!("{progress:.0}%"));
-                ui.spinner();
-            } else if cached_probe(spec.model_probe, spec.is_model_downloaded) {
-                if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
-                    .clicked()
-                {
-                    invalidate_size_cache(&(spec.model_dir)());
-                    invalidate_probe_cache(spec.model_probe);
-                    let _ = (spec.remove_model)();
-                }
-                let size = get_dir_size(&(spec.model_dir)());
-                ui.label(
-                    egui::RichText::new(
-                        text.tool_status_installed.replace("{}", &format_size(size)),
-                    )
-                    .color(theme.success()),
-                );
-            } else {
-                if ui.button(text.tool_action_download).clicked() {
-                    let stop_signal = Arc::new(AtomicBool::new(false));
-                    let download_model = spec.download_model;
-                    thread::spawn(move || {
-                        let _ = download_model(stop_signal, false);
-                    });
-                }
-                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
-            }
-        });
-    });
-    if let Some(message) = notice {
-        ui.label(egui::RichText::new(message).color(theme.danger_text()));
-    }
 }
 
 fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {

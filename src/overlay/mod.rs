@@ -250,9 +250,5 @@ pub fn is_dark_mode() -> bool {
         }
     };
 
-    match mode {
-        crate::config::ThemeMode::Dark => true,
-        crate::config::ThemeMode::Light => false,
-        crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-    }
+    mode.is_dark()
 }

@@ -122,6 +122,43 @@ else {
     exit 1
 }
 
+# --- Build TTS Playground Frontend ---
+Write-Host "Building TTS Playground Frontend..." -ForegroundColor Cyan
+$ttsDir = Join-Path $PSScriptRoot "tts-playground-ui"
+$ttsDist = Join-Path $ttsDir "dist"
+$ttsTargetDist = Join-Path $PSScriptRoot "src\overlay\tts_playground\dist"
+
+Push-Location $ttsDir
+try {
+    if (-not (Test-Path "node_modules")) {
+        npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAILED: TTS Playground npm install failed." -ForegroundColor Red
+            exit 1
+        }
+    }
+    npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: TTS Playground build failed." -ForegroundColor Red
+        exit 1
+    }
+}
+finally {
+    Pop-Location
+}
+
+if (Test-Path $ttsDist) {
+    if (-not (Test-Path $ttsTargetDist)) {
+        New-Item -ItemType Directory -Path $ttsTargetDist -Force | Out-Null
+    }
+    Copy-Item -Path "$ttsDist\*" -Destination $ttsTargetDist -Recurse -Force
+    Write-Host "TTS Playground assets synchronized." -ForegroundColor Green
+}
+else {
+    Write-Host "FAILED: TTS Playground build did not produce dist folder." -ForegroundColor Red
+    exit 1
+}
+
 # --- Continue Main Build ---
 # Extract version from Cargo.toml
 $cargoContent = Get-Content "Cargo.toml" -Raw

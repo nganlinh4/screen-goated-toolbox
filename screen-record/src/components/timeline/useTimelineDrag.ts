@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { TrimSegment, ZoomBlock } from '@/types/video';
 import { getTrimBounds, getTrimSegments, mergeTrimSegments } from '@/lib/trimSegments';
 import { TimelineDragState, UseTimelineDragOptions, ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC } from './useTimelineDragTypes';
+import { splitVisibilitySegmentAtTime } from './trackDragUtils';
 import { useTrackSegmentDrag } from './useTrackSegmentDrag';
 
 export type { TimelineDragState } from './useTimelineDragTypes';
@@ -257,25 +258,10 @@ export function useTimelineDrag({
   const handleTrimSplit = useCallback((id: string, splitTime: number) => {
     if (!segment) return;
     const trimSegments = getTrimSegments(segment, duration);
-    const seg = trimSegments.find(s => s.id === id);
-    if (!seg) return;
-
-    const SPLIT_GAP = 0.3;
-    const half = SPLIT_GAP / 2;
-    const leftEnd = splitTime - half;
-    const rightStart = splitTime + half;
-
-    if (leftEnd - seg.startTime < 0.15 || seg.endTime - rightStart < 0.15) return;
+    const nextSegs = splitVisibilitySegmentAtTime(trimSegments, id, splitTime);
+    if (!nextSegs) return;
 
     beginBatch();
-    const nextSegs = trimSegments
-      .filter(s => s.id !== id)
-      .concat([
-        { id: seg.id, startTime: seg.startTime, endTime: leftEnd },
-        { id: crypto.randomUUID(), startTime: rightStart, endTime: seg.endTime },
-      ])
-      .sort((a, b) => a.startTime - b.startTime);
-
     const bounds = getTrimBounds({ ...segment, trimSegments: nextSegs }, duration);
     setSegment({
       ...segment,

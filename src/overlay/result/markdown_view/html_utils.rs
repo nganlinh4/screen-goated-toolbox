@@ -2,11 +2,7 @@
 
 /// Minimal HTML escaping for text content
 pub fn escape_html_text(text: &str) -> String {
-    text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&#39;")
+    crate::overlay::utils::escape_html(text)
 }
 
 /// Check if content is already HTML (rather than Markdown)

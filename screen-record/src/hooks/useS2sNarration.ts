@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Translations } from '@/i18n';
 import { invoke, logToHost } from '@/lib/ipc';
+import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
 import {
   buildSubtitleGenerationPlan,
   type SubtitleGenerationPlan,
   type SubtitleSource,
 } from '@/lib/subtitleGenerationPlan';
-import { defaultSubtitleStyle } from '@/lib/subtitleDefaults';
 import {
   ORIGINAL_SUBTITLE_TRACK_ID,
   getTranslationSubtitleTrackId,
@@ -20,9 +20,14 @@ import type {
 } from '@/types/video';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import {
+  buildNarration,
+  buildSubtitle,
   cloneSubtitleSnapshot,
+  localizeS2sStatus,
   replaceS2sSubtitleSegments,
+  s2sSubtitleId,
   type PopulateS2sSubtitleTracksOptions,
+  type S2sNarrationStatus,
   type S2sSubtitleStateSnapshot,
 } from './s2sNarrationSubtitles';
 
@@ -30,46 +35,6 @@ export {
   populateEmptyS2sSubtitleTracks,
   type PopulateS2sSubtitleTracksOptions,
 } from './s2sNarrationSubtitles';
-
-interface S2sNarrationSegmentResult {
-  id: string;
-  clipId: string;
-  sourceText: string;
-  targetText: string;
-  startTime: number;
-  endTime: number;
-  narrationStartTime?: number;
-  path: string;
-  duration: number;
-  audioInPoint?: number;
-  audioOutPoint?: number;
-  narrationGroupTakeId?: string;
-  narrationGroupSourceStartTime?: number;
-  alignmentMode?: NarrationSegment['narrationAlignmentMode'];
-  alignmentConfidence?: number;
-  ttsProfileMethod?: string;
-}
-
-interface S2sNarrationClipResult {
-  clipId: string;
-  isPartial: boolean;
-  segments: S2sNarrationSegmentResult[];
-}
-
-interface S2sNarrationStatus {
-  state: 'queued' | 'running' | 'completed' | 'cancelled' | 'error';
-  message: string;
-  progress: number;
-  totalClips: number;
-  completedClips: number;
-  activeClipId?: string | null;
-  vadSegmentDone?: number;
-  vadSegmentTotal?: number;
-  vadNoSpeech?: boolean;
-  resultsRevision: number;
-  results: S2sNarrationClipResult[];
-  error?: string | null;
-}
 
 interface UseS2sNarrationParams {
   backendMode?: 's2s' | 'gemini-translate';
@@ -119,156 +84,6 @@ const BACKEND_COMMANDS = {
     ttsMethod: 'gemini-live-translate',
   },
 } as const;
-
-function mappedTime(
-  result: S2sNarrationSegmentResult,
-  plan: SubtitleGenerationPlan,
-  field: 'startTime' | 'endTime',
-) {
-  const transform = plan.clipTransformsByClip[result.clipId];
-  if (!transform) return result[field];
-  return result[field] + transform.timelineOffsetSec;
-}
-
-function s2sSubtitleId(result: S2sNarrationSegmentResult, kind: 'source' | 'target') {
-  return `${result.id}-${kind}`;
-}
-
-function buildSubtitle(
-  result: S2sNarrationSegmentResult,
-  plan: SubtitleGenerationPlan,
-  kind: 'source' | 'target',
-  text: string,
-): SubtitleSegment {
-  const transform = plan.clipTransformsByClip[result.clipId];
-  const startTime = mappedTime(result, plan, 'startTime');
-  const endTime = Math.max(startTime + 0.05, mappedTime(result, plan, 'endTime'));
-  const base: SubtitleSegment = {
-    id: s2sSubtitleId(result, kind),
-    startTime,
-    endTime,
-    text,
-    style: defaultSubtitleStyle(),
-    sourceGroup: {
-      kind: transform ? 'audio' : plan.sourceTypeForNative,
-      assignment: 'generated',
-      audioSegmentId: transform?.audioSegmentId,
-      sourceName: transform?.sourceName,
-      sourcePath: transform?.sourcePath,
-    },
-  };
-  if (!transform) return base;
-  return {
-    ...base,
-    provenance: {
-      sourceKind: 'audio',
-      audioSegmentId: transform.audioSegmentId,
-      sourceName: transform.sourceName,
-      sourcePath: transform.sourcePath,
-      sourceLocalStartTime: Math.max(0, result.startTime - transform.sourceLocalOffsetSec),
-      sourceLocalEndTime: Math.max(0, result.endTime - transform.sourceLocalOffsetSec),
-    },
-  };
-}
-
-function buildNarration(
-  result: S2sNarrationSegmentResult,
-  plan: SubtitleGenerationPlan,
-  batchId: string,
-  defaultTtsMethod: string,
-): NarrationSegment {
-  const startTime = Number.isFinite(result.narrationStartTime)
-    ? mappedTime({ ...result, startTime: result.narrationStartTime! }, plan, 'startTime')
-    : mappedTime(result, plan, 'startTime');
-  const name = result.targetText.trim() || result.sourceText.trim() || 'Gemini S2S';
-  const targetSubtitleId = s2sSubtitleId(result, 'target');
-  const inPoint = Math.max(0, result.audioInPoint ?? 0);
-  const outPoint = Math.max(inPoint + 0.05, result.audioOutPoint ?? result.duration);
-  return {
-    id: `${batchId}-${result.id}`,
-    rawAudioPath: result.path,
-    name: name.slice(0, 42),
-    duration: Math.max(0.05, result.duration),
-    startTime,
-    inPoint,
-    outPoint,
-    playbackRate: 1,
-    addedAt: Date.now(),
-    sourceSubtitleId: targetSubtitleId,
-    sourceSubtitleIds: [targetSubtitleId],
-    narrationBatchId: batchId,
-    narrationGroupTakeId: result.narrationGroupTakeId,
-    narrationGroupSourceStartTime: result.narrationGroupSourceStartTime,
-    narrationAlignmentMode: result.alignmentMode ?? 'single',
-    narrationAlignmentConfidence: result.alignmentConfidence ?? 1,
-    ttsProfileSnapshot: {
-      method: result.ttsProfileMethod ?? defaultTtsMethod,
-    },
-  };
-}
-
-function formatTemplate(template: string, values: Record<string, string | number>) {
-  return Object.entries(values).reduce(
-    (text, [key, value]) => text.split(`{${key}}`).join(String(value)),
-    template,
-  );
-}
-
-function localizeS2sStatus(
-  t: Translations,
-  status: S2sNarrationStatus,
-  backendMode: 's2s' | 'gemini-translate',
-) {
-  const totalClips = Math.max(1, status.totalClips || 1);
-  const activeClip = Math.min(totalClips, Math.max(1, status.completedClips + 1));
-  const strings = backendMode === 'gemini-translate'
-    ? {
-      queued: t.narrationGeminiTranslateQueued,
-      running: t.narrationGeminiTranslateRunning,
-      vad: t.narrationGeminiTranslateVadProgress,
-      noSpeech: t.narrationGeminiTranslateNoSpeech,
-      complete: t.narrationGeminiTranslateComplete,
-      failed: t.narrationGeminiTranslateFailed,
-      starting: t.narrationGeminiTranslateStarting,
-    }
-    : {
-      queued: t.narrationS2sQueued,
-      running: t.narrationS2sRunning,
-      vad: t.narrationS2sVadProgress,
-      noSpeech: t.narrationS2sNoSpeech,
-      complete: t.narrationS2sComplete,
-      failed: t.narrationS2sFailed,
-      starting: t.narrationS2sStarting,
-    };
-  if (status.state === 'queued') return strings.queued;
-  if (status.state === 'completed') return strings.complete;
-  if (status.state === 'cancelled') return t.subtitleNarrationStatusCancelled;
-  if (status.state === 'error') return status.error || status.message || strings.failed;
-  if (status.vadNoSpeech) {
-    return formatTemplate(strings.noSpeech, {
-      clip: activeClip,
-      clips: totalClips,
-    });
-  }
-  if (backendMode === 'gemini-translate' && (status.vadSegmentDone ?? 0) > 0) {
-    return formatTemplate(t.narrationGeminiTranslateLiveVadProgress, {
-      clip: activeClip,
-      clips: totalClips,
-      done: status.vadSegmentDone ?? 0,
-    });
-  }
-  if ((status.vadSegmentTotal ?? 0) > 0) {
-    return formatTemplate(strings.vad, {
-      clip: activeClip,
-      clips: totalClips,
-      done: status.vadSegmentDone ?? 0,
-      total: status.vadSegmentTotal ?? 0,
-    });
-  }
-  return status.state === 'running'
-    ? formatTemplate(strings.running, { clip: activeClip, clips: totalClips })
-    : strings.starting;
-}
 
 export function useS2sNarration({
   backendMode = 's2s',
@@ -322,141 +137,141 @@ export function useS2sNarration({
     };
   }, [onApplyNarrationSegments, onFinalize, onPopulateEmptySubtitles, t]);
 
-  useEffect(() => {
-    if (!jobId) return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const commands = BACKEND_COMMANDS[backendMode];
-        const next = await invoke<S2sNarrationStatus>(commands.status, {
-          jobId,
-          knownResultsRevision: revisionRef.current,
-        });
-        if (cancelled) return;
-        const progressSignature = [
-          next.state,
-          next.completedClips,
-          next.activeClipId ?? '',
-          next.vadSegmentDone ?? 0,
-          next.vadSegmentTotal ?? 0,
-          next.resultsRevision,
-        ].join(':');
-        const now = performance.now();
-        if (progressSignature !== lastProgressSignatureRef.current) {
-          lastProgressSignatureRef.current = progressSignature;
-          lastProgressAtRef.current = now;
-        } else if (
-          next.state === 'running' &&
-          now - lastProgressAtRef.current > 15_000 &&
-          now - lastStallLogAtRef.current > 15_000
-        ) {
-          lastStallLogAtRef.current = now;
-          logToHost(
-            `[${commands.stallTag}][FrontendStall] job=${jobId} state=${next.state} completed=${next.completedClips}/${next.totalClips} active=${next.activeClipId ?? ''} vad=${next.vadSegmentDone ?? 0}/${next.vadSegmentTotal ?? 0} revision=${next.resultsRevision} message=${next.message}`,
-          );
-        }
-        revisionRef.current = Math.max(revisionRef.current, next.resultsRevision);
-        const activeTargetLanguage = jobTargetLanguageRef.current;
-        const latest = latestRefs.current;
-        setStatus({ ...next, message: localizeS2sStatus(latest.t, next, backendMode), results: [] });
-        const plan = planRef.current;
-        if (plan && next.results.length > 0) {
-          const flat = next.results.flatMap((result) => result.segments);
-          const sourceSubtitles = flat.map((result) =>
-            buildSubtitle(result, plan, 'source', result.sourceText),
-          );
-          const targetSubtitles = flat.map((result) =>
-            buildSubtitle(result, plan, 'target', result.targetText),
-          );
-          const narrations = flat.map((result) =>
-            buildNarration(result, plan, batchIdRef.current, commands.ttsMethod),
-          );
-          const replaceIds = flat.map((result) => s2sSubtitleId(result, 'target'));
-          sourceSubtitleResultsRef.current = replaceS2sSubtitleSegments([
-            ...sourceSubtitleResultsRef.current,
-            ...sourceSubtitles,
-          ]);
-          targetSubtitleResultsRef.current = replaceS2sSubtitleSegments([
-            ...targetSubtitleResultsRef.current,
-            ...targetSubtitles,
-          ]);
-          latest.onPopulateEmptySubtitles(
-            sourceSubtitleResultsRef.current,
-            targetSubtitleResultsRef.current,
-            activeTargetLanguage,
-            {
-              preserveExistingOutside: true,
-              baseSourceSegments: baseSourceSubtitleResultsRef.current,
-              baseTargetSegments: baseTargetSubtitleResultsRef.current,
-              restoreSnapshot: baseSubtitleSnapshotRef.current,
-              debugPhase: 'live',
-              liveUpdate: true,
-            },
-          );
-          await latest.onApplyNarrationSegments(narrations, replaceIds);
-        }
-        if (next.state === 'completed') {
-          latest.onPopulateEmptySubtitles(
-            sourceSubtitleResultsRef.current,
-            targetSubtitleResultsRef.current,
-            activeTargetLanguage,
-            {
-              preserveExistingOutside: true,
-              baseSourceSegments: baseSourceSubtitleResultsRef.current,
-              baseTargetSegments: baseTargetSubtitleResultsRef.current,
-              restoreSnapshot: baseSubtitleSnapshotRef.current,
-              debugPhase: 'complete',
-            },
-          );
-          setJobId(null);
-          await latest.onFinalize();
-          return;
-        }
-        if (next.state === 'cancelled' || next.state === 'error') {
-          latest.onPopulateEmptySubtitles(
-            [],
-            [],
-            activeTargetLanguage,
-            {
-              restoreSnapshot: baseSubtitleSnapshotRef.current,
-              debugPhase: next.state,
-            },
-          );
-          setJobId(null);
-          await latest.onFinalize();
-          return;
-        }
-        window.setTimeout(poll, next.results.length > 0 ? 250 : 600);
-      } catch (error) {
-        if (cancelled) return;
-        setStatus({
-          state: 'error',
-          message: error instanceof Error ? error.message : String(error),
-          progress: 0,
-          totalClips: 0,
-          completedClips: 0,
-          resultsRevision: revisionRef.current,
-          results: [],
-          error: error instanceof Error ? error.message : String(error),
-        });
-        latestRefs.current.onPopulateEmptySubtitles(
-          [],
-          [],
-          jobTargetLanguageRef.current,
+  useAsyncJobPoll<S2sNarrationStatus>({
+    jobId,
+    restartKey: backendMode,
+    fetchStatus: (activeJobId) =>
+      invoke<S2sNarrationStatus>(BACKEND_COMMANDS[backendMode].status, {
+        jobId: activeJobId,
+        knownResultsRevision: revisionRef.current,
+      }),
+    isTerminal: (next) =>
+      next.state === 'completed'
+      || next.state === 'cancelled'
+      || next.state === 'error',
+    onTick: async (next) => {
+      const commands = BACKEND_COMMANDS[backendMode];
+      const progressSignature = [
+        next.state,
+        next.completedClips,
+        next.activeClipId ?? '',
+        next.vadSegmentDone ?? 0,
+        next.vadSegmentTotal ?? 0,
+        next.resultsRevision,
+      ].join(':');
+      const now = performance.now();
+      if (progressSignature !== lastProgressSignatureRef.current) {
+        lastProgressSignatureRef.current = progressSignature;
+        lastProgressAtRef.current = now;
+      } else if (
+        next.state === 'running' &&
+        now - lastProgressAtRef.current > 15_000 &&
+        now - lastStallLogAtRef.current > 15_000
+      ) {
+        lastStallLogAtRef.current = now;
+        logToHost(
+          `[${commands.stallTag}][FrontendStall] job=${jobId} state=${next.state} completed=${next.completedClips}/${next.totalClips} active=${next.activeClipId ?? ''} vad=${next.vadSegmentDone ?? 0}/${next.vadSegmentTotal ?? 0} revision=${next.resultsRevision} message=${next.message}`,
+        );
+      }
+      revisionRef.current = Math.max(revisionRef.current, next.resultsRevision);
+      const activeTargetLanguage = jobTargetLanguageRef.current;
+      const latest = latestRefs.current;
+      setStatus({ ...next, message: localizeS2sStatus(latest.t, next, backendMode), results: [] });
+      const plan = planRef.current;
+      if (plan && next.results.length > 0) {
+        const flat = next.results.flatMap((result) => result.segments);
+        const sourceSubtitles = flat.map((result) =>
+          buildSubtitle(result, plan, 'source', result.sourceText),
+        );
+        const targetSubtitles = flat.map((result) =>
+          buildSubtitle(result, plan, 'target', result.targetText),
+        );
+        const narrations = flat.map((result) =>
+          buildNarration(result, plan, batchIdRef.current, commands.ttsMethod),
+        );
+        const replaceIds = flat.map((result) => s2sSubtitleId(result, 'target'));
+        sourceSubtitleResultsRef.current = replaceS2sSubtitleSegments([
+          ...sourceSubtitleResultsRef.current,
+          ...sourceSubtitles,
+        ]);
+        targetSubtitleResultsRef.current = replaceS2sSubtitleSegments([
+          ...targetSubtitleResultsRef.current,
+          ...targetSubtitles,
+        ]);
+        latest.onPopulateEmptySubtitles(
+          sourceSubtitleResultsRef.current,
+          targetSubtitleResultsRef.current,
+          activeTargetLanguage,
           {
+            preserveExistingOutside: true,
+            baseSourceSegments: baseSourceSubtitleResultsRef.current,
+            baseTargetSegments: baseTargetSubtitleResultsRef.current,
             restoreSnapshot: baseSubtitleSnapshotRef.current,
-            debugPhase: 'poll-error',
+            debugPhase: 'live',
+            liveUpdate: true,
+          },
+        );
+        await latest.onApplyNarrationSegments(narrations, replaceIds);
+      }
+    },
+    onComplete: async (next) => {
+      const activeTargetLanguage = jobTargetLanguageRef.current;
+      const latest = latestRefs.current;
+      if (next.state === 'completed') {
+        latest.onPopulateEmptySubtitles(
+          sourceSubtitleResultsRef.current,
+          targetSubtitleResultsRef.current,
+          activeTargetLanguage,
+          {
+            preserveExistingOutside: true,
+            baseSourceSegments: baseSourceSubtitleResultsRef.current,
+            baseTargetSegments: baseTargetSubtitleResultsRef.current,
+            restoreSnapshot: baseSubtitleSnapshotRef.current,
+            debugPhase: 'complete',
           },
         );
         setJobId(null);
-        await latestRefs.current.onFinalize();
+        await latest.onFinalize();
+        return;
       }
-    };
-    void poll();
-    return () => {
-      cancelled = true;
-    };
-  }, [backendMode, jobId]);
+      // cancelled or error terminal state
+      latest.onPopulateEmptySubtitles(
+        [],
+        [],
+        activeTargetLanguage,
+        {
+          restoreSnapshot: baseSubtitleSnapshotRef.current,
+          debugPhase: next.state,
+        },
+      );
+      setJobId(null);
+      await latest.onFinalize();
+    },
+    onError: async (error) => {
+      setStatus({
+        state: 'error',
+        message: error instanceof Error ? error.message : String(error),
+        progress: 0,
+        totalClips: 0,
+        completedClips: 0,
+        resultsRevision: revisionRef.current,
+        results: [],
+        error: error instanceof Error ? error.message : String(error),
+      });
+      latestRefs.current.onPopulateEmptySubtitles(
+        [],
+        [],
+        jobTargetLanguageRef.current,
+        {
+          restoreSnapshot: baseSubtitleSnapshotRef.current,
+          debugPhase: 'poll-error',
+        },
+      );
+      setJobId(null);
+      await latestRefs.current.onFinalize();
+    },
+    intervalFor: (next) => (next.results.length > 0 ? 250 : 600),
+  });
 
   const handleGenerate = useCallback(async () => {
     if (jobId || isStarting) return;
@@ -562,22 +377,27 @@ export function useS2sNarration({
     targetLanguage,
   ]);
 
-  const handleCancel = useCallback(async () => {
-    if (!jobId) return;
-    await invoke(BACKEND_COMMANDS[backendMode].cancel, { jobId });
-    latestRefs.current.onPopulateEmptySubtitles(
-      [],
-      [],
-      jobTargetLanguageRef.current,
-      {
-        restoreSnapshot: baseSubtitleSnapshotRef.current,
-        debugPhase: 'manual-cancel',
+  const handleCancel = useCallback(
+    buildCancelHandler({
+      jobId,
+      cancelCommand: BACKEND_COMMANDS[backendMode].cancel,
+      onCancelled: async () => {
+        latestRefs.current.onPopulateEmptySubtitles(
+          [],
+          [],
+          jobTargetLanguageRef.current,
+          {
+            restoreSnapshot: baseSubtitleSnapshotRef.current,
+            debugPhase: 'manual-cancel',
+          },
+        );
+        setJobId(null);
+        setStatus((prev) => prev ? { ...prev, state: 'cancelled', message: 'Cancelled' } : prev);
+        await latestRefs.current.onFinalize();
       },
-    );
-    setJobId(null);
-    setStatus((prev) => prev ? { ...prev, state: 'cancelled', message: 'Cancelled' } : prev);
-    await latestRefs.current.onFinalize();
-  }, [backendMode, jobId]);
+    }),
+    [backendMode, jobId],
+  );
 
   return {
     canGenerate: !jobId && !isStarting,

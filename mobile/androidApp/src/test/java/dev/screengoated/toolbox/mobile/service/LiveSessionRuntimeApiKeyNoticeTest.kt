@@ -22,7 +22,7 @@ class LiveSessionRuntimeApiKeyNoticeTest {
         val serviceSource = File(repoRoot(), SERVICE_SOURCE).readText()
         val activitySource = File(repoRoot(), MAIN_ACTIVITY_SOURCE).readText()
 
-        assertTrue(runtimeSource.contains("private val toastBus: AppToastBus"))
+        assertTrue(runtimeSource.contains("internal val toastBus: AppToastBus"))
         assertTrue(runtimeSource.contains("apiKeyErrorToastText(\"NO_API_KEY:google\", repository.currentUiPreferences().uiLanguage)"))
         assertTrue(runtimeSource.contains("?.let(toastBus::show)"))
         assertTrue(serviceSource.contains("toastBus = container.toastBus"))

@@ -2,28 +2,9 @@
 // CSS and HTML generation for the text input WebView.
 
 use super::state::*;
-use raw_window_handle::{
-    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
-};
-use std::num::NonZeroIsize;
-use windows::Win32::Foundation::HWND;
 
 /// Wrapper for HWND to implement HasWindowHandle
-pub struct HwndWrapper(pub HWND);
-
-impl HasWindowHandle for HwndWrapper {
-    fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0.0 as isize;
-        if let Some(non_zero) = NonZeroIsize::new(hwnd) {
-            let mut handle = Win32WindowHandle::new(non_zero);
-            handle.hinstance = None;
-            let raw = RawWindowHandle::Win32(handle);
-            Ok(unsafe { WindowHandle::borrow_raw(raw) })
-        } else {
-            Err(HandleError::Unavailable)
-        }
-    }
-}
+pub use crate::win_types::HwndWrapper;
 
 /// CSS for the modern text input editor
 pub fn get_editor_css(is_dark: bool) -> String {

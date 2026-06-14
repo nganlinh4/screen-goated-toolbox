@@ -22,7 +22,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
@@ -40,7 +39,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import dev.screengoated.toolbox.mobile.model.GeminiVoiceOption
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
@@ -168,7 +166,11 @@ internal fun GeminiLiveSection(
             val stacked = maxWidth < 720.dp
             if (stacked) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    GeminiSpeedCard(settings.speedPreset, locale, onSpeedPresetChanged)
+                    GeminiSpeedCard(
+                        selected = settings.speedPreset,
+                        locale = locale,
+                        onChanged = onSpeedPresetChanged,
+                    )
                     GeminiConditionsCard(settings.languageConditions, locale, onConditionsChanged)
                 }
             } else {
@@ -221,21 +223,36 @@ private fun GeminiModelCard(
             title = locale.ttsGeminiModelLabel,
             accent = MaterialTheme.colorScheme.tertiary,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-            val modelOptions = MobileTtsCatalog.geminiModels
-            modelOptions.forEachIndexed { index, option ->
-                ToggleButton(
-                    checked = selected == option.apiModel,
-                    onCheckedChange = { onChanged(option.apiModel) },
-                    shapes = when (index) {
-                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                        modelOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                    },
-                    modifier = Modifier.semantics { role = Role.RadioButton },
-                ) {
-                    Text(option.label, style = MaterialTheme.typography.labelSmall)
-                }
+        val modelOptions = MobileTtsCatalog.geminiModels
+        SegmentedToggleRow(
+            options = modelOptions,
+            selectedIndex = modelOptions.indexOfFirst { selected == it.apiModel },
+            onSelect = { index -> onChanged(modelOptions[index].apiModel) },
+            labelOf = { it.label },
+        )
+    }
+}
+
+@Composable
+private fun <T> SegmentedToggleRow(
+    options: List<T>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    labelOf: (T) -> String,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+        options.forEachIndexed { index, option ->
+            ToggleButton(
+                checked = selectedIndex == index,
+                onCheckedChange = { onSelect(index) },
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+                modifier = Modifier.semantics { role = Role.RadioButton },
+            ) {
+                Text(labelOf(option), style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -257,27 +274,17 @@ private fun GeminiSpeedCard(
             title = locale.ttsSpeedLabel,
             accent = MaterialTheme.colorScheme.primary,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-            val speedOptions = listOf(
-                MobileTtsSpeedPreset.SLOW to locale.ttsSpeedSlow,
-                MobileTtsSpeedPreset.NORMAL to locale.ttsSpeedNormal,
-                MobileTtsSpeedPreset.FAST to locale.ttsSpeedFast,
-            )
-            speedOptions.forEachIndexed { index, (preset, label) ->
-                ToggleButton(
-                    checked = selected == preset,
-                    onCheckedChange = { onChanged(preset) },
-                    shapes = when (index) {
-                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                        speedOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                    },
-                    modifier = Modifier.semantics { role = Role.RadioButton },
-                ) {
-                    Text(label, style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        }
+        val speedOptions = listOf(
+            MobileTtsSpeedPreset.SLOW to locale.ttsSpeedSlow,
+            MobileTtsSpeedPreset.NORMAL to locale.ttsSpeedNormal,
+            MobileTtsSpeedPreset.FAST to locale.ttsSpeedFast,
+        )
+        SegmentedToggleRow(
+            options = speedOptions,
+            selectedIndex = speedOptions.indexOfFirst { selected == it.first },
+            onSelect = { index -> onChanged(speedOptions[index].first) },
+            labelOf = { it.second },
+        )
     }
 }
 
@@ -422,188 +429,4 @@ internal fun ConditionLanguageLabel(
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.tertiary,
     )
-}
-
-@Composable
-private fun GeminiVoiceGrid(
-    selectedVoice: String,
-    locale: MobileLocaleText,
-    onVoiceChanged: (String) -> Unit,
-    onPreviewVoice: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        BoxWithConstraints {
-            when {
-                maxWidth >= 900.dp -> FourColumnVoiceGrid(selectedVoice, locale, onVoiceChanged, onPreviewVoice)
-                maxWidth >= 600.dp -> TwoColumnVoiceGrid(selectedVoice, locale, onVoiceChanged, onPreviewVoice)
-                else -> SingleColumnVoiceGrid(selectedVoice, locale, onVoiceChanged, onPreviewVoice)
-            }
-        }
-    }
-}
-
-@Composable
-private fun FourColumnVoiceGrid(
-    selectedVoice: String,
-    locale: MobileLocaleText,
-    onVoiceChanged: (String) -> Unit,
-    onPreviewVoice: (String) -> Unit,
-) {
-    val maleVoices = MobileTtsCatalog.maleVoices
-    val femaleVoices = MobileTtsCatalog.femaleVoices
-    val maleMid = maleVoices.size.divCeil(2)
-    val femaleMid = femaleVoices.size.divCeil(2)
-
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        VoiceColumnCard(
-            title = locale.ttsMale,
-            voices = maleVoices.take(maleMid),
-            selectedVoice = selectedVoice,
-            locale = locale,
-            onVoiceChanged = onVoiceChanged,
-            onPreviewVoice = onPreviewVoice,
-            modifier = Modifier.weight(1f),
-        )
-        VoiceColumnCard(
-            title = null,
-            voices = maleVoices.drop(maleMid),
-            selectedVoice = selectedVoice,
-            locale = locale,
-            onVoiceChanged = onVoiceChanged,
-            onPreviewVoice = onPreviewVoice,
-            modifier = Modifier.weight(1f),
-        )
-        VoiceColumnCard(
-            title = locale.ttsFemale,
-            voices = femaleVoices.take(femaleMid),
-            selectedVoice = selectedVoice,
-            locale = locale,
-            onVoiceChanged = onVoiceChanged,
-            onPreviewVoice = onPreviewVoice,
-            modifier = Modifier.weight(1f),
-        )
-        VoiceColumnCard(
-            title = null,
-            voices = femaleVoices.drop(femaleMid),
-            selectedVoice = selectedVoice,
-            locale = locale,
-            onVoiceChanged = onVoiceChanged,
-            onPreviewVoice = onPreviewVoice,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-@Composable
-private fun TwoColumnVoiceGrid(
-    selectedVoice: String,
-    locale: MobileLocaleText,
-    onVoiceChanged: (String) -> Unit,
-    onPreviewVoice: (String) -> Unit,
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        VoiceColumnCard(
-            title = locale.ttsMale,
-            voices = MobileTtsCatalog.maleVoices,
-            selectedVoice = selectedVoice,
-            locale = locale,
-            onVoiceChanged = onVoiceChanged,
-            onPreviewVoice = onPreviewVoice,
-            modifier = Modifier.weight(1f),
-        )
-        VoiceColumnCard(
-            title = locale.ttsFemale,
-            voices = MobileTtsCatalog.femaleVoices,
-            selectedVoice = selectedVoice,
-            locale = locale,
-            onVoiceChanged = onVoiceChanged,
-            onPreviewVoice = onPreviewVoice,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-@Composable
-private fun SingleColumnVoiceGrid(
-    selectedVoice: String,
-    locale: MobileLocaleText,
-    onVoiceChanged: (String) -> Unit,
-    onPreviewVoice: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        VoiceColumnCard(
-            title = locale.ttsMale,
-            voices = MobileTtsCatalog.maleVoices,
-            selectedVoice = selectedVoice,
-            locale = locale,
-            onVoiceChanged = onVoiceChanged,
-            onPreviewVoice = onPreviewVoice,
-        )
-        VoiceColumnCard(
-            title = locale.ttsFemale,
-            voices = MobileTtsCatalog.femaleVoices,
-            selectedVoice = selectedVoice,
-            locale = locale,
-            onVoiceChanged = onVoiceChanged,
-            onPreviewVoice = onPreviewVoice,
-        )
-    }
-}
-
-@Composable
-private fun VoiceColumnCard(
-    title: String?,
-    voices: List<GeminiVoiceOption>,
-    selectedVoice: String,
-    locale: MobileLocaleText,
-    onVoiceChanged: (String) -> Unit,
-    onPreviewVoice: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val accent = if (title == locale.ttsMale) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.secondary
-    }
-
-    ExpressiveDialogSectionCard(
-        accent = accent,
-        modifier = modifier,
-    ) {
-        if (title != null) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = accent,
-            )
-        }
-        voices.forEach { voice ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(
-                    selected = selectedVoice == voice.name,
-                    onClick = { onVoiceChanged(voice.name) },
-                )
-                IconButton(
-                    onClick = {
-                        onVoiceChanged(voice.name)
-                        onPreviewVoice(voice.name)
-                    },
-                ) {
-                    Icon(
-                        painterResource(R.drawable.ms_volume_up),
-                        contentDescription = locale.ttsVoiceLabel,
-                    )
-                }
-                Text(
-                    text = voice.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-        }
-    }
 }

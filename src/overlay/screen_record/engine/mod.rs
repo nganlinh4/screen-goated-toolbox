@@ -45,23 +45,14 @@ lazy_static::lazy_static! {
 pub struct CaptureHandler {
     encoder: Arc<Mutex<Option<VideoEncoder>>>,
     target_fps: u32,
-    frame_interval_100ns: i64,
-    start: Instant,
     cursor_sampler_stop: Arc<AtomicBool>,
     cursor_sampler_thread: Option<JoinHandle<()>>,
-    next_submit_timestamp_100ns: Option<i64>,
-    last_pending_frames: usize,
     frame_count: u64,
     window_arrivals: u32,
     window_enqueued: u32,
-    window_dropped: u32,
-    window_paced_skips: u32,
     stats_window_start: Instant,
     enc_w: u32,
     enc_h: u32,
-    /// When true, frames are submitted by a background pump thread at
-    /// constant FPS instead of directly from on_frame_arrived.
-    uses_frame_pump: bool,
     is_window_capture: bool,
     /// Pre-allocated VRAM ring buffer used for zero-copy window capture pumping
     /// and GPU resize fallback when the source dimensions do not match the encoder canvas.
@@ -94,12 +85,8 @@ pub struct CaptureHandler {
 impl CaptureHandler {
     fn shutdown_and_finalize(&mut self) {
         eprintln!(
-            "[CaptureBackend][Finalize] begin pump={} window_capture={} submitted={} dropped={} max_pending={}",
-            self.uses_frame_pump,
-            self.is_window_capture,
-            self.window_enqueued,
-            self.window_dropped,
-            self.max_pending_frames
+            "[CaptureBackend][Finalize] begin window_capture={} submitted={} max_pending={}",
+            self.is_window_capture, self.window_enqueued, self.max_pending_frames
         );
         ENCODER_ACTIVE.store(false, Ordering::SeqCst);
         SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
@@ -222,54 +209,27 @@ impl CaptureHandler {
         let elapsed = self.stats_window_start.elapsed().as_secs_f64();
         if elapsed >= CAPTURE_STATS_WINDOW_SECS {
             let capture_fps = self.window_arrivals as f64 / elapsed.max(0.001);
-            let queued_fps = self.window_enqueued as f64 / elapsed.max(0.001);
-            let pending_now = self
-                .encoder
-                .lock()
-                .as_ref()
-                .map(|encoder| encoder.pending_video_frames())
-                .unwrap_or(self.last_pending_frames);
-            let encoded_window = (self.last_pending_frames + self.window_enqueued as usize)
-                .saturating_sub(pending_now);
-            self.last_pending_frames = pending_now;
-            let encoded_fps = encoded_window as f64 / elapsed.max(0.001);
-            if self.uses_frame_pump {
-                let ps = self.pump_submitted.swap(0, Ordering::Relaxed);
-                let pd = self.pump_dropped.swap(0, Ordering::Relaxed);
-                let pump_fps = ps as f64 / elapsed.max(0.001);
-                let backend = if self.is_window_capture {
-                    "window(pump)"
-                } else {
-                    "display(pump)"
-                };
-                eprintln!(
-                    "[CaptureStats] backend={} wgc_fps={:.1} cached={} pump_fps={:.1} pump_submitted={} pump_dropped={} queue_depth={} dropped_total={}",
-                    backend,
-                    capture_fps,
-                    self.window_enqueued,
-                    pump_fps,
-                    ps,
-                    pd,
-                    queue_depth,
-                    dropped_total
-                );
+            let ps = self.pump_submitted.swap(0, Ordering::Relaxed);
+            let pd = self.pump_dropped.swap(0, Ordering::Relaxed);
+            let pump_fps = ps as f64 / elapsed.max(0.001);
+            let backend = if self.is_window_capture {
+                "window(pump)"
             } else {
-                eprintln!(
-                    "[CaptureStats] backend=display capture_fps={:.1} queue_fps={:.1} encode_fps={:.1} target_fps={} paced_skips={} queue_depth={} dropped_window={} dropped_total={}",
-                    capture_fps,
-                    queued_fps,
-                    encoded_fps,
-                    self.target_fps,
-                    self.window_paced_skips,
-                    queue_depth,
-                    self.window_dropped,
-                    dropped_total
-                );
-            }
+                "display(pump)"
+            };
+            eprintln!(
+                "[CaptureStats] backend={} wgc_fps={:.1} cached={} pump_fps={:.1} pump_submitted={} pump_dropped={} queue_depth={} dropped_total={}",
+                backend,
+                capture_fps,
+                self.window_enqueued,
+                pump_fps,
+                ps,
+                pd,
+                queue_depth,
+                dropped_total
+            );
             self.window_arrivals = 0;
             self.window_enqueued = 0;
-            self.window_dropped = 0;
-            self.window_paced_skips = 0;
             self.stats_window_start = Instant::now();
         }
     }

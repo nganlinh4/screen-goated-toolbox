@@ -12,7 +12,6 @@ use super::html::{get_popup_labels, get_restore_options};
 /// Fallback native context menu when WebView fails
 pub(super) unsafe fn show_native_context_menu() {
     unsafe {
-        use crate::config::ThemeMode;
         use windows::core::{HSTRING, PCWSTR};
 
         let mut ui_language = String::from("en");
@@ -30,11 +29,7 @@ pub(super) unsafe fn show_native_context_menu() {
                 get_popup_labels(&app.config.ui_language);
             let checked = app.config.show_favorite_bubble;
 
-            let is_dark = match app.config.theme_mode {
-                ThemeMode::Dark => true,
-                ThemeMode::Light => false,
-                ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-            };
+            let is_dark = app.config.theme_mode.is_dark();
 
             (
                 settings,

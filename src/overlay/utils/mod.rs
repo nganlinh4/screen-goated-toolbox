@@ -9,12 +9,85 @@ pub use error_messages::{
 };
 pub use input::{force_focus_and_paste, get_target_window_for_paste, type_text_to_window};
 
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::UI::Accessibility::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Shared overlay accent colors used by the realtime/translation WebView overlays.
+/// Orange glow for translation windows.
+pub const GLOW_TRANSLATION: &str = "#ff9633";
+/// Cyan glow for transcription windows.
+pub const GLOW_TRANSCRIPTION: &str = "#00c8ff";
+/// MD3 primary accent (purple) as raw RGB components, used across egui + WebView surfaces.
+pub const ACCENT_PRIMARY_RGB: (u8, u8, u8) = (93u8, 95u8, 239u8);
+
+/// Returns the glow accent color for a realtime overlay window.
+/// Translation windows glow orange; transcription windows glow cyan.
+pub fn glow_color(is_translation: bool) -> &'static str {
+    if is_translation {
+        GLOW_TRANSLATION
+    } else {
+        GLOW_TRANSCRIPTION
+    }
+}
+
+/// Escape a string for safe insertion as HTML text content / attribute values.
+///
+/// Escapes `&`, `<`, `>`, `"`, and `'`. Escaping the single quote is a safe
+/// superset that keeps the output valid whether it lands inside a double- or
+/// single-quoted attribute.
+pub fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+/// Escape a string for safe insertion inside a single-quoted JavaScript string
+/// literal (e.g. `'...'`).
+///
+/// Escapes the backslash, single quote, newline (as `\n`) and strips carriage
+/// returns. Does not escape double quotes (they are safe inside `'...'`).
+pub fn escape_js_single_quoted(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', "\\n")
+        .replace('\r', "")
+}
+
+/// Escape a string for safe insertion inside a double-quoted JavaScript string
+/// literal (e.g. `"..."`).
+///
+/// Escapes the backslash, double quote, newline (as `\n`) and strips carriage
+/// returns. Does not escape single quotes (they are safe inside `"..."`).
+pub fn escape_js_double_quoted(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "")
+}
+
+/// Initiate a native window drag from a WebView/IPC handler.
+///
+/// Releases any active mouse capture, then synchronously posts a non-client
+/// left-button-down on the caption so Windows takes over the move loop.
+pub fn begin_window_drag(hwnd: HWND) {
+    unsafe {
+        let _ = ReleaseCapture();
+        let _ = SendMessageW(
+            hwnd,
+            WM_NCLBUTTONDOWN,
+            Some(WPARAM(HTCAPTION as usize)),
+            Some(LPARAM(0)),
+        );
+    }
+}
 
 /// Timestamp (millis since epoch) of last "no caret" error badge.
 /// Used to rate-limit error notifications during streaming typing.

@@ -11,6 +11,7 @@
 
 import { invoke } from '@/lib/ipc';
 import { pushHeaderStatus } from '@/lib/headerStatus';
+import { CURSOR_PACK_ORDER, CURSOR_TYPES_ORDER, buildCursorSlotId } from '@/lib/exporterCursorTiles';
 
 // ---------------------------------------------------------------------------
 // Duration parsing
@@ -83,35 +84,21 @@ function hashString(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Atlas slot IDs — must match cursor_type_to_id in Rust cursors.rs
+// Atlas slot IDs — generated from the single-source cursor pack/type order in
+// exporterCursorTiles (slotId = packIdx*12 + typeIdx via buildCursorSlotId).
+// MUST stay aligned with `cursor_type_to_id` in Rust native_export/cursor.rs.
+// Only the animated cursor types (wait / appstarting) are captured here.
 // ---------------------------------------------------------------------------
 
-const CURSOR_TYPE_TO_SLOT: Readonly<Record<string, number>> = {
-  'wait-screenstudio': 5,
-  'appstarting-screenstudio': 6,
-  'wait-macos26': 17,
-  'appstarting-macos26': 18,
-  'wait-sgtcute': 29,
-  'appstarting-sgtcute': 30,
-  'wait-sgtcool': 41,
-  'appstarting-sgtcool': 42,
-  'wait-sgtai': 53,
-  'appstarting-sgtai': 54,
-  'wait-sgtpixel': 65,
-  'appstarting-sgtpixel': 66,
-  'wait-jepriwin11': 77,
-  'appstarting-jepriwin11': 78,
-  'wait-sgtwatermelon': 89,
-  'appstarting-sgtwatermelon': 90,
-  'wait-sgtfastfood': 101,
-  'appstarting-sgtfastfood': 102,
-  'wait-sgtveggie': 113,
-  'appstarting-sgtveggie': 114,
-  'wait-sgtvietnam': 125,
-  'appstarting-sgtvietnam': 126,
-  'wait-sgtkorea': 137,
-  'appstarting-sgtkorea': 138,
-};
+const WAIT_TYPE_INDEX = CURSOR_TYPES_ORDER.indexOf('wait');
+const APPSTARTING_TYPE_INDEX = CURSOR_TYPES_ORDER.indexOf('appstarting');
+
+const CURSOR_TYPE_TO_SLOT: Readonly<Record<string, number>> = Object.fromEntries(
+  CURSOR_PACK_ORDER.flatMap((pack) => [
+    [`wait-${pack}`, buildCursorSlotId(pack, WAIT_TYPE_INDEX)],
+    [`appstarting-${pack}`, buildCursorSlotId(pack, APPSTARTING_TYPE_INDEX)],
+  ]),
+);
 export function getCursorAtlasSlotId(cursorType: string): number {
   return CURSOR_TYPE_TO_SLOT[cursorType] ?? -1;
 }

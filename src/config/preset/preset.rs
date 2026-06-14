@@ -365,19 +365,4 @@ impl Preset {
     pub fn is_builtin(&self) -> bool {
         self.id.starts_with("preset_")
     }
-
-    /// Check if this is a MASTER preset
-    pub fn is_master_preset(&self) -> bool {
-        self.is_master
-    }
-
-    /// Get the first block (input block)
-    pub fn input_block(&self) -> Option<&ProcessingBlock> {
-        self.blocks.first()
-    }
-
-    /// Get mutable reference to the first block
-    pub fn input_block_mut(&mut self) -> Option<&mut ProcessingBlock> {
-        self.blocks.first_mut()
-    }
 }

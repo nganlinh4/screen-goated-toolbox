@@ -16,6 +16,22 @@ use visibility::{
     squish_ease_up,
 };
 
+// Non-default cursor packs that map to their own atlas slots. "screenstudio" is
+// the implicit default and is handled separately at each use site.
+const KNOWN_CURSOR_PACKS: [&str; 11] = [
+    "macos26",
+    "sgtcute",
+    "sgtcool",
+    "sgtai",
+    "sgtpixel",
+    "jepriwin11",
+    "sgtwatermelon",
+    "sgtfastfood",
+    "sgtveggie",
+    "sgtvietnam",
+    "sgtkorea",
+];
+
 // --- Cursor physics defaults (mirror videoRenderer.ts) ---
 const DEFAULT_CURSOR_OFFSET_SEC: f64 = 0.0;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH: f64 = 0.30;
@@ -91,11 +107,8 @@ fn get_cursor_pack(bg: Option<&BackgroundConfig>) -> &str {
     .into_iter()
     .flatten()
     {
-        match v {
-            "jepriwin11" | "sgtpixel" | "sgtai" | "sgtcool" | "sgtcute" | "macos26"
-            | "sgtwatermelon" | "sgtfastfood" | "sgtveggie" | "sgtvietnam" | "sgtkorea"
-            | "screenstudio" => return v,
-            _ => {}
+        if v == "screenstudio" || KNOWN_CURSOR_PACKS.contains(&v) {
+            return v;
         }
     }
     "screenstudio"
@@ -130,10 +143,10 @@ fn build_cursor_type(semantic: &str, pack: &str, is_clicked: bool) -> String {
         semantic
     };
 
-    let suffix = match pack {
-        "macos26" | "sgtcool" | "sgtai" | "sgtpixel" | "jepriwin11" | "sgtcute"
-        | "sgtwatermelon" | "sgtfastfood" | "sgtveggie" | "sgtvietnam" | "sgtkorea" => pack,
-        _ => "screenstudio",
+    let suffix = if KNOWN_CURSOR_PACKS.contains(&pack) {
+        pack
+    } else {
+        "screenstudio"
     };
 
     // Map semantic to type name used in cursor atlas

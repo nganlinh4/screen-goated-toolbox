@@ -1,7 +1,7 @@
 use crate::config::tts_catalog::{
     KOKORO_VOICE_LANGUAGES, KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES,
-    SUPERTONIC_LANGUAGES, SUPERTONIC_VOICES, default_kokoro_voice_for_lang,
-    default_magpie_voice_for_lang, default_supertonic_voice_for_lang,
+    SUPERTONIC_LANGUAGE_SUMMARY, SUPERTONIC_LANGUAGES, SUPERTONIC_VOICES,
+    default_kokoro_voice_for_lang, default_magpie_voice_for_lang, default_supertonic_voice_for_lang,
     kokoro_voice_language_for_condition, normalize_magpie_voice, normalize_supertonic_lang,
     normalize_supertonic_voice,
 };
@@ -12,8 +12,6 @@ use crate::gui::theme::AppTheme;
 use eframe::egui;
 
 use super::speak_settings_preview;
-
-pub(super) const SUPERTONIC_LANGUAGE_SUMMARY: &str = "Supports English, Korean, Japanese, Arabic, Bulgarian, Czech, Danish, German, Greek, Spanish, Estonian, Finnish, French, Hindi, Croatian, Hungarian, Indonesian, Italian, Lithuanian, Latvian, Dutch, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Swedish, Turkish, Ukrainian, and Vietnamese.";
 
 fn render_open_weights_header(ui: &mut egui::Ui, title: &str, description: &str) {
     ui.vertical_centered(|ui| {
@@ -93,7 +91,7 @@ pub(super) fn render_magpie_settings(
     render_open_weights_header(
         ui,
         "NVIDIA Magpie-Multilingual 357M",
-        "Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese.",
+        text.tool_desc_magpie,
     );
     changed |= render_magpie_voice_config_rows(ui, config, text);
     changed

@@ -13,8 +13,6 @@ use tray_icon::{
 };
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::*;
-use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
 
 impl SettingsApp {
@@ -168,18 +166,7 @@ impl SettingsApp {
                         Ok(event_handle) => {
                             let result = WaitForSingleObject(event_handle, INFINITE);
                             if result == WAIT_OBJECT_0 {
-                                let class_name = w!("eframe");
-                                let mut hwnd = FindWindowW(class_name, None).unwrap_or_default();
-                                if hwnd.is_invalid() {
-                                    let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
-                                    hwnd = FindWindowW(None, title).unwrap_or_default();
-                                }
-                                if !hwnd.is_invalid() {
-                                    let _ = ShowWindow(hwnd, SW_RESTORE);
-                                    let _ = ShowWindow(hwnd, SW_SHOW);
-                                    let _ = SetForegroundWindow(hwnd);
-                                    let _ = SetFocus(Some(hwnd));
-                                }
+                                super::utils::show_main_window_native();
                                 RESTORE_SIGNAL.store(true, Ordering::SeqCst);
                                 ctx_restore.request_repaint();
                                 let _ = ResetEvent(event_handle);
@@ -200,22 +187,7 @@ impl SettingsApp {
                 match event.id.0.as_str() {
                     "1001" => crate::gui::app::exit_app(),
                     "1002" => {
-                        unsafe {
-                            let class_name = w!("eframe");
-                            let hwnd = FindWindowW(class_name, None).unwrap_or_default();
-                            let hwnd = if hwnd.is_invalid() {
-                                let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
-                                FindWindowW(None, title).unwrap_or_default()
-                            } else {
-                                hwnd
-                            };
-                            if !hwnd.is_invalid() {
-                                let _ = ShowWindow(hwnd, SW_RESTORE);
-                                let _ = ShowWindow(hwnd, SW_SHOW);
-                                let _ = SetForegroundWindow(hwnd);
-                                let _ = SetFocus(Some(hwnd));
-                            }
-                        }
+                        super::utils::show_main_window_native();
                         RESTORE_SIGNAL.store(true, Ordering::SeqCst);
                         let _ = tx_menu.send(UserEvent::Menu(event.clone()));
                         ctx_menu.request_repaint();

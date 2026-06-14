@@ -63,9 +63,6 @@ function main() {
   // Wire up UI buttons from PromptDjMidi
   pdjMidi.addEventListener('start-recording', () => startRecording());
   pdjMidi.addEventListener('stop-recording', () => stopRecording());
-  pdjMidi.addEventListener('reset-all', () => {
-    (pdjMidi as any).resetAll?.();
-  });
 
   // New explicit play/pause events to avoid accidental re-toggles
   pdjMidi.addEventListener('play', () => {
@@ -84,19 +81,6 @@ function main() {
     }
     // Use stop() to fully stop and prevent stray chunks from re-triggering
     liveMusicHelper.stop();
-  });
-  // Back-compat: if any 'play-pause' is emitted, map based on current state
-  pdjMidi.addEventListener('play-pause', () => {
-    if (!liveMusicHelper) {
-      toastMessage.show(LOCALES[pdjMidi.lang as Lang].api_key_toast);
-      pdjMidi.playbackState = 'stopped';
-      return;
-    }
-    const stateMsg = '[PDJ] back-compat play-pause used; mapping to explicit action';
-    try { console.log(stateMsg); } catch { }
-    // Best-effort mapping: if not playing, play; else stop
-    // This minimizes chance of spurious re-plays
-    liveMusicHelper?.play?.();
   });
 
   const attachHelperListeners = () => {

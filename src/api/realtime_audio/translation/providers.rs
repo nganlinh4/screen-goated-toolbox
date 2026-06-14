@@ -2,8 +2,7 @@ use isolang;
 use serde::Deserialize;
 use urlencoding;
 
-use crate::APP;
-use crate::api::client::UREQ_AGENT;
+use crate::api::client::{UREQ_AGENT, record_usage_tokens};
 use crate::api::realtime_audio::state::TranslationRequest;
 use crate::config::Config;
 
@@ -198,21 +197,7 @@ fn translate_with_cerebras(
         .send_json(payload)
         .ok()?;
 
-    if let Some(remaining) = resp
-        .headers()
-        .get("x-ratelimit-remaining-requests-tokens")
-        .and_then(|v| v.to_str().ok())
-    {
-        let limit = resp
-            .headers()
-            .get("x-ratelimit-limit-tokens")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("?");
-        if let Ok(mut app) = APP.lock() {
-            app.model_usage_stats
-                .insert(stats_key.to_string(), format!("{} / {}", remaining, limit));
-        }
-    }
+    record_usage_tokens(resp.headers(), stats_key);
 
     let root: serde_json::Value = resp.into_body().read_json().ok()?;
     let content = root

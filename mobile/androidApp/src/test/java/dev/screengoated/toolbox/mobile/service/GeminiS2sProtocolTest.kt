@@ -23,7 +23,7 @@ class GeminiS2sProtocolTest {
 
     @Test
     fun `s2s source implements hedged attempts and first audio retry`() {
-        val source = loadSourceFile(CLIENT_SOURCE_PATH).readText()
+        val source = clientImplementationSource()
         val vadSource = loadSourceFile(VAD_SOURCE_PATH).readText()
 
         assertTrue(vadSource.contains("internal const val HEDGE_ATTEMPTS = 2"))
@@ -58,7 +58,7 @@ class GeminiS2sProtocolTest {
     @Test
     fun `translate model setup source uses translation config`() {
         val source = loadSourceFile(PROTOCOL_SOURCE_PATH).readText()
-        val clientSource = loadSourceFile(CLIENT_SOURCE_PATH).readText()
+        val clientSource = clientImplementationSource()
 
         assertTrue(source.contains("isGeminiTranslateApiModel(model)"))
         assertTrue(source.contains("RealtimeModelIds.GEMINI_LIVE_TRANSLATE_API_MODEL"))
@@ -86,7 +86,7 @@ class GeminiS2sProtocolTest {
 
     @Test
     fun `live translate continuous socket policy matches Windows probes`() {
-        val source = loadSourceFile(CLIENT_SOURCE_PATH).readText()
+        val source = clientImplementationSource()
 
         assertTrue(source.contains("private const val LIVE_TRANSLATE_SERVER_SILENT_SENT_CHUNKS = 100"))
         assertTrue(source.contains("private const val LIVE_TRANSLATE_SERVER_SILENT_MS = 15_000L"))
@@ -104,6 +104,17 @@ class GeminiS2sProtocolTest {
         assertTrue(source.contains("reconnect_attempts="))
     }
 
+    /**
+     * The S2S client implementation was split across [GeminiS2sClient], [GeminiS2sLiveTranslate],
+     * and [GeminiS2sSegments]. The parity contract is "the S2S client implements X", so the
+     * assertions read all three implementation files combined to find the code wherever it lives.
+     */
+    private fun clientImplementationSource(): String {
+        return CLIENT_IMPLEMENTATION_PATHS.joinToString(separator = "\n") { path ->
+            loadSourceFile(path).readText()
+        }
+    }
+
     private fun loadSourceFile(path: String): File {
         val workingDirectory = requireNotNull(System.getProperty("user.dir"))
         return generateSequence(File(workingDirectory).absoluteFile) { current ->
@@ -116,11 +127,20 @@ class GeminiS2sProtocolTest {
     private companion object {
         private const val CLIENT_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sClient.kt"
+        private const val LIVE_TRANSLATE_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sLiveTranslate.kt"
+        private const val SEGMENTS_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sSegments.kt"
         private const val PLAYBACK_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sPlayback.kt"
         private const val PROTOCOL_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sProtocol.kt"
         private const val VAD_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sVad.kt"
+        private val CLIENT_IMPLEMENTATION_PATHS = listOf(
+            CLIENT_SOURCE_PATH,
+            LIVE_TRANSLATE_SOURCE_PATH,
+            SEGMENTS_SOURCE_PATH,
+        )
     }
 }

@@ -8,8 +8,7 @@ use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
 
 use super::utils::extract_pcm_from_wav;
-use crate::APP;
-use crate::api::client::UREQ_AGENT;
+use crate::api::client::{UREQ_AGENT, record_usage_simple};
 use crate::config::Preset;
 use crate::model_config::{get_model_by_id, is_gemini_live_translate_model_id, model_is_non_llm};
 
@@ -32,10 +31,7 @@ where
     }
 
     let b64_audio = general_purpose::STANDARD.encode(&wav_data);
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
-        model
-    );
+    let url = crate::api::gemini_generate::gemini_content_url(&model, true);
 
     let mut payload = serde_json::json!({
         "contents": [{
@@ -459,21 +455,7 @@ pub fn upload_audio_to_whisper(
     };
 
     // Capture rate limits
-    if let Some(remaining) = response
-        .headers()
-        .get("x-ratelimit-remaining-requests")
-        .and_then(|v| v.to_str().ok())
-    {
-        let limit = response
-            .headers()
-            .get("x-ratelimit-limit-requests")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("?");
-        let usage_str = format!("{} / {}", remaining, limit);
-        if let Ok(mut app) = APP.lock() {
-            app.model_usage_stats.insert(model.to_string(), usage_str);
-        }
-    }
+    record_usage_simple(response.headers(), model);
 
     // Parse response
     let json: serde_json::Value = response

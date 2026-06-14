@@ -61,9 +61,7 @@ pub fn internal_create_tag_thread() {
         let (initial_is_dark, lang) = {
             let app = APP.lock().unwrap();
             (
-                app.config.theme_mode == crate::config::ThemeMode::Dark
-                    || (app.config.theme_mode == crate::config::ThemeMode::System
-                        && crate::gui::utils::is_system_in_dark_mode()),
+                app.config.theme_mode.is_dark(),
                 app.config.ui_language.clone(),
             )
         };

@@ -3,7 +3,7 @@ use crate::gui::settings_ui::pointer_gallery;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
 
-use super::utils::tool_card;
+use super::utils::{format_size, tool_card};
 
 pub(super) fn render_pointer_pack_downloads_section(ui: &mut egui::Ui, text: &LocaleText) {
     let summary = pointer_gallery::downloadable_collection_summary();
@@ -106,9 +106,4 @@ pub(super) fn render_pointer_pack_downloads_section(ui: &mut egui::Ui, text: &Lo
             }
         }
     });
-}
-
-fn format_size(bytes: u64) -> String {
-    let mb = bytes as f64 / 1024.0 / 1024.0;
-    format!("{:.1} MB", mb)
 }

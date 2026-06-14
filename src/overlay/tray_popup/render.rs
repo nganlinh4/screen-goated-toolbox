@@ -8,8 +8,6 @@ use super::html::{
 use super::{BASE_POPUP_WIDTH, POPUP_SURFACE_INSET, RESTORE_FLYOUT_GAP, RESTORE_FLYOUT_WIDTH};
 
 pub(super) fn generate_popup_html() -> String {
-    use crate::config::ThemeMode;
-
     let mut ui_language = String::from("en");
     let (
         settings_text,
@@ -26,11 +24,7 @@ pub(super) fn generate_popup_html() -> String {
         let checked = app.config.show_favorite_bubble;
 
         // Theme detection
-        let is_dark = match app.config.theme_mode {
-            ThemeMode::Dark => true,
-            ThemeMode::Light => false,
-            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        };
+        let is_dark = app.config.theme_mode.is_dark();
 
         (
             settings,

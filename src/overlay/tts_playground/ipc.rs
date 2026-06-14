@@ -6,10 +6,7 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-use windows::Win32::UI::WindowsAndMessaging::{
-    HTCAPTION, PostMessageW, SW_MINIMIZE, SendMessageW, ShowWindow, WM_CLOSE, WM_NCLBUTTONDOWN,
-};
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, SW_MINIMIZE, ShowWindow, WM_CLOSE};
 
 use crate::config::save_config;
 
@@ -392,15 +389,7 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
             Ok(Value::Null)
         }
         "start_drag" => {
-            unsafe {
-                let _ = ReleaseCapture();
-                let _ = SendMessageW(
-                    hwnd,
-                    WM_NCLBUTTONDOWN,
-                    Some(windows::Win32::Foundation::WPARAM(HTCAPTION as usize)),
-                    Some(windows::Win32::Foundation::LPARAM(0)),
-                );
-            }
+            crate::overlay::utils::begin_window_drag(hwnd);
             Ok(Value::Null)
         }
         _ => Err(format!("unknown cmd: {cmd}")),

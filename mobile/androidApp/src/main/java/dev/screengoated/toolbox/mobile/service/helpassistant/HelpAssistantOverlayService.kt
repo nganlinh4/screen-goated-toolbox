@@ -12,6 +12,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.net.toUri
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantRequest
 import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantPendingLaunchStore
@@ -93,7 +94,7 @@ class HelpAssistantOverlayService : Service() {
         val uiLanguage = startIntent.getStringExtra(EXTRA_UI_LANGUAGE).orEmpty().ifBlank { uiLanguage() }
         if (!Settings.canDrawOverlays(this)) {
             HelpAssistantPendingLaunchStore.set(question, uiLanguage)
-            Toast.makeText(this, getString(R.string.help_assistant_overlay_permission_required), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, uiLocalized().getString(R.string.help_assistant_overlay_permission_required), Toast.LENGTH_SHORT).show()
             val permissionIntent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 "package:$packageName".toUri(),

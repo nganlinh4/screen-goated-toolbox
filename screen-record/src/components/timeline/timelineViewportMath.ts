@@ -1,4 +1,7 @@
 import type { TimelineVisibleRange } from "./SegmentBlocksCanvas";
+import { clamp } from "@/lib/mathUtils";
+
+export { clamp };
 
 export const MIN_TIMELINE_ZOOM = 1;
 export const MAX_TIMELINE_ZOOM = 12;
@@ -13,10 +16,6 @@ export const MIN_SCROLLBAR_THUMB_PX = 36;
 export interface TimelineWheelAnchor {
   anchorTime: number;
   pointerContentX: number;
-}
-
-export function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
 
 export function getVisibleContentWidth(viewport: HTMLDivElement): number {

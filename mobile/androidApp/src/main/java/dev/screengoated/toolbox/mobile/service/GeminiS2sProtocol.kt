@@ -5,6 +5,7 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.model.TtsDefaults
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -214,7 +215,7 @@ internal fun buildGeminiS2sSetupPayload(
                 "voiceConfig",
                 JSONObject().put(
                     "prebuiltVoiceConfig",
-                    JSONObject().put("voiceName", settings.globalTts.voice.ifBlank { "Aoede" }),
+                    JSONObject().put("voiceName", settings.globalTts.voice.ifBlank { TtsDefaults.DEFAULT_TTS_GEMINI_VOICE }),
                 ),
             ),
         )

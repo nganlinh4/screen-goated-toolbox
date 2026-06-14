@@ -178,7 +178,24 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                 cover_uv.x = (bg_uv.x - 0.5) * scale + 0.5;
             }
             col = textureSample(bg_tex, bg_samp, cover_uv);
-        } else if (u.bg_style > 8.5) {
+        }
+        // Background family-code dispatch (WYSIWYG export path).
+        // `u.bg_style` is the float `family_code` emitted by
+        // `native_export/background_presets.rs`. This `> N.5` chain and that
+        // table are two hand-kept integer tables that MUST stay in sync — do NOT
+        // change a threshold here without updating the family_code there, or a
+        // preset renders with the wrong shader function:
+        //   bg_style <= 0.5 → base linear gradient (Linear, code 0.0)
+        //   > 0.5  → diagonal_glow_color        (DiagonalGlow,        code 1.0)
+        //   > 1.5  → edge_ribbons_color         (EdgeRibbons,         code 2.0)
+        //   > 2.5  → stacked_radial_color       (StackedRadial,       code 3.0)
+        //   > 3.5  → prism_fold_color           (PrismFold,           code 4.0)
+        //   > 4.5  → topographic_flow_color     (TopographicFlow,     code 5.0)
+        //   > 5.5  → windowlight_caustics_color (WindowlightCaustics, code 6.0)
+        //   > 6.5  → matte_collage_color        (MatteCollage,        code 7.0)
+        //   > 7.5  → orbital_arcs_color         (OrbitalArcs,         code 8.0)
+        //   > 8.5  → melted_glass_color         (MeltedGlass,         code 9.0)
+        else if (u.bg_style > 8.5) {
             col = melted_glass_color(bg_uv, in.pixel_pos);
         } else if (u.bg_style > 7.5) {
             col = orbital_arcs_color(bg_uv, in.pixel_pos);

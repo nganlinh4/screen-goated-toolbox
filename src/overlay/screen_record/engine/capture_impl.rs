@@ -31,11 +31,10 @@ use super::pump_thread::{
     resolve_monitor_capture_size, resolve_window_capture_size, spawn_frame_pump,
 };
 use super::types::{
-    ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, ENCODER_ACTIVE, ENCODER_MAX_PENDING_FRAMES,
-    ENCODING_FINISHED, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH, LAST_RECORDING_FPS,
-    MAX_CATCHUP_SUBMITS_PER_CALLBACK, MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH,
-    MIC_AUDIO_START_OFFSET_MS, NO_READY_VRAM_FRAME, SHOULD_STOP, SHOULD_STOP_AUDIO,
-    TIMESTAMP_RESYNC_THRESHOLD_100NS, VramFrame, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
+    ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, ENCODER_ACTIVE, ENCODING_FINISHED,
+    LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH, LAST_RECORDING_FPS,
+    MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH, MIC_AUDIO_START_OFFSET_MS, NO_READY_VRAM_FRAME,
+    SHOULD_STOP, SHOULD_STOP_AUDIO, VramFrame, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
     WEBCAM_VIDEO_START_OFFSET_MS,
 };
 
@@ -241,7 +240,6 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // Keep WGC callbacks light for both window and monitor capture. The
         // callback stages the newest frame into VRAM; a pump thread submits
         // cached frames to MediaFoundation at the requested recording cadence.
-        let uses_frame_pump = true;
         let app_d3d_device: windows::Win32::Graphics::Direct3D11::ID3D11Device =
             clone_wc_interface_to_app(&ctx.device)
                 .map_err(|e| format!("Failed to bridge capture D3D11 device: {e}"))?;
@@ -255,16 +253,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let app_d3d_context: windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext =
             clone_wc_interface_to_app(&ctx.device_context)
                 .map_err(|e| format!("Failed to bridge capture D3D11 context: {e}"))?;
-        let max_pending_frames = if uses_frame_pump {
-            compute_window_max_pending_frames(target_fps)
-        } else {
-            ENCODER_MAX_PENDING_FRAMES
-        };
-        let window_vram_pool_frames = if uses_frame_pump {
-            compute_window_vram_pool_frames(max_pending_frames)
-        } else {
-            3
-        };
+        let max_pending_frames = compute_window_max_pending_frames(target_fps);
+        let window_vram_pool_frames = compute_window_vram_pool_frames(max_pending_frames);
         let mut vram_frames = Vec::with_capacity(window_vram_pool_frames);
         for _ in 0..window_vram_pool_frames {
             let texture = VideoProcessor::create_texture(
@@ -324,39 +314,30 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         // The pump submits cached frames at constant FPS. This keeps WGC frame
         // callbacks short and decouples capture cadence from encoder cadence.
-        if uses_frame_pump {
-            spawn_frame_pump(
-                vram_pool.clone(),
-                latest_ready_idx.clone(),
-                pump_stop.clone(),
-                pump_submitted.clone(),
-                pump_dropped.clone(),
-                encoder_shared.clone(),
-                frame_interval_100ns,
-                max_pending_frames,
-                start,
-                pump,
-            );
-        }
+        spawn_frame_pump(
+            vram_pool.clone(),
+            latest_ready_idx.clone(),
+            pump_stop.clone(),
+            pump_submitted.clone(),
+            pump_dropped.clone(),
+            encoder_shared.clone(),
+            frame_interval_100ns,
+            max_pending_frames,
+            start,
+            pump,
+        );
 
         Ok(Self {
             encoder: encoder_shared,
             target_fps,
-            frame_interval_100ns,
-            start,
             cursor_sampler_stop,
             cursor_sampler_thread,
-            next_submit_timestamp_100ns: Some(0), // Anchor exactly to start time
-            last_pending_frames: 0,
             frame_count: 0,
             window_arrivals: 0,
             window_enqueued: 0,
-            window_dropped: 0,
-            window_paced_skips: 0,
             stats_window_start: Instant::now(),
             enc_w,
             enc_h,
-            uses_frame_pump,
             is_window_capture,
             vram_pool,
             latest_ready_idx,
@@ -387,192 +368,52 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let mut queue_depth = 0usize;
         let mut dropped_total = 0usize;
 
-        if self.uses_frame_pump {
-            // Pumped capture: stage latest frame into VRAM ring; pump thread
-            // submits at constant target_fps.
-            let frame_w = frame.width();
-            let frame_h = frame.height();
-            if self.is_window_capture && should_ignore_window_frame(frame_w, frame_h) {
-                if self.last_ignored_window_frame != Some((frame_w, frame_h)) {
-                    eprintln!(
-                        "[FramePump] ignoring implausible window frame {}x{}; keeping last good frame",
-                        frame_w, frame_h
-                    );
-                    self.last_ignored_window_frame = Some((frame_w, frame_h));
-                }
-            } else {
-                self.last_ignored_window_frame = None;
-                LAST_CAPTURE_FRAME_WIDTH.store(frame_w as usize, Ordering::Relaxed);
-                LAST_CAPTURE_FRAME_HEIGHT.store(frame_h as usize, Ordering::Relaxed);
-                let was_empty =
-                    self.latest_ready_idx.load(Ordering::Acquire) == NO_READY_VRAM_FRAME;
-                match self.stage_frame_in_vram(frame) {
-                    Ok(Some(slot)) => {
-                        self.vram_pool_exhausted_logged = false;
-                        self.latest_ready_idx.store(slot, Ordering::Release);
-                        self.window_enqueued = self.window_enqueued.saturating_add(1);
-                        if was_empty {
-                            eprintln!(
-                                "[FramePump] first frame staged in VRAM: frame={}x{} enc={}x{}",
-                                frame_w, frame_h, self.enc_w, self.enc_h
-                            );
-                        }
-                    }
-                    Ok(None) => {
-                        if !self.vram_pool_exhausted_logged {
-                            eprintln!(
-                                "[FramePump] all staged surfaces still in flight; keeping last good frame until encoder drains"
-                            );
-                            self.vram_pool_exhausted_logged = true;
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("[FramePump] VRAM stage failed: {}", e);
-                    }
-                }
-            }
-
-            if let Some(encoder) = self.encoder.lock().as_ref() {
-                queue_depth = encoder.pending_video_frames();
-                dropped_total = encoder.dropped_video_frames();
+        // Pumped capture: stage latest frame into VRAM ring; pump thread
+        // submits at constant target_fps.
+        let frame_w = frame.width();
+        let frame_h = frame.height();
+        if self.is_window_capture && should_ignore_window_frame(frame_w, frame_h) {
+            if self.last_ignored_window_frame != Some((frame_w, frame_h)) {
+                eprintln!(
+                    "[FramePump] ignoring implausible window frame {}x{}; keeping last good frame",
+                    frame_w, frame_h
+                );
+                self.last_ignored_window_frame = Some((frame_w, frame_h));
             }
         } else {
-            // Display capture: submit directly to encoder with pacing/catch-up.
-            let now_100ns = (self.start.elapsed().as_nanos() / 100) as i64;
-            let mut should_submit = false;
-            let mut frames_to_submit = 0u32;
-            let mut missed_ticks_to_skip = 0u32;
-
-            let mut due_100ns = self.next_submit_timestamp_100ns.unwrap_or(0);
-
-            if now_100ns.saturating_add(TIMESTAMP_RESYNC_THRESHOLD_100NS) < due_100ns {
-                due_100ns = now_100ns;
-            }
-
-            if now_100ns >= due_100ns {
-                let due_ticks = ((now_100ns.saturating_sub(due_100ns)) / self.frame_interval_100ns)
-                    .saturating_add(1);
-                let missed_ticks = due_ticks.saturating_sub(1) as u32;
-                // WGC can deliver fewer real frames than our target FPS when the
-                // captured app is GPU-bound or WebGL paints below target. Do not
-                // enqueue the same captured surface multiple times to catch up:
-                // that creates visible playback judder and extra encoder load.
-                // Instead, advance the encoder timeline for missed output ticks
-                // and submit only this newly captured frame.
-                frames_to_submit = 1;
-                missed_ticks_to_skip = missed_ticks;
-                self.window_paced_skips = self.window_paced_skips.saturating_add(missed_ticks);
-                self.next_submit_timestamp_100ns = Some(
-                    due_100ns.saturating_add(self.frame_interval_100ns.saturating_mul(due_ticks)),
-                );
-                should_submit = true;
-            } else {
-                self.window_paced_skips = self.window_paced_skips.saturating_add(1);
-                self.next_submit_timestamp_100ns = Some(due_100ns);
-            }
-
-            if should_submit {
-                let frame_w = frame.width();
-                let frame_h = frame.height();
-                let staged_mismatch_slot = if frame_w != self.enc_w || frame_h != self.enc_h {
-                    match self.stage_frame_in_vram(frame) {
-                        Ok(Some(slot)) => Some(slot),
-                        Ok(None) => {
-                            eprintln!(
-                                "Encoder GPU resize fallback skipped: no free staged surface for {}x{} -> {}x{}",
-                                frame_w, frame_h, self.enc_w, self.enc_h
-                            );
-                            None
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "Encoder GPU resize fallback error ({}x{} -> {}x{}): {}",
-                                frame_w, frame_h, self.enc_w, self.enc_h, e
-                            );
-                            None
-                        }
+            self.last_ignored_window_frame = None;
+            LAST_CAPTURE_FRAME_WIDTH.store(frame_w as usize, Ordering::Relaxed);
+            LAST_CAPTURE_FRAME_HEIGHT.store(frame_h as usize, Ordering::Relaxed);
+            let was_empty = self.latest_ready_idx.load(Ordering::Acquire) == NO_READY_VRAM_FRAME;
+            match self.stage_frame_in_vram(frame) {
+                Ok(Some(slot)) => {
+                    self.vram_pool_exhausted_logged = false;
+                    self.latest_ready_idx.store(slot, Ordering::Release);
+                    self.window_enqueued = self.window_enqueued.saturating_add(1);
+                    if was_empty {
+                        eprintln!(
+                            "[FramePump] first frame staged in VRAM: frame={}x{} enc={}x{}",
+                            frame_w, frame_h, self.enc_w, self.enc_h
+                        );
                     }
-                } else {
-                    None
-                };
-
-                let mut encoder_guard = self.encoder.lock();
-                if let Some(encoder) = encoder_guard.as_mut() {
-                    if missed_ticks_to_skip > 0 {
-                        encoder.skip_video_frames(missed_ticks_to_skip);
-                    }
-                    let mut remaining = frames_to_submit.max(1);
-                    let mut submitted = 0u32;
-                    while remaining > 0 {
-                        if submitted >= MAX_CATCHUP_SUBMITS_PER_CALLBACK {
-                            encoder.skip_video_frames(remaining);
-                            self.window_dropped = self.window_dropped.saturating_add(remaining);
-                            break;
-                        }
-
-                        if frame_w == self.enc_w && frame_h == self.enc_h {
-                            match encoder.send_frame_nonblocking(frame, ENCODER_MAX_PENDING_FRAMES)
-                            {
-                                Ok(true) => {
-                                    self.window_enqueued = self.window_enqueued.saturating_add(1);
-                                    submitted = submitted.saturating_add(1);
-                                    remaining -= 1;
-                                }
-                                Ok(false) => {
-                                    encoder.skip_video_frames(remaining);
-                                    self.window_dropped =
-                                        self.window_dropped.saturating_add(remaining);
-                                    break;
-                                }
-                                Err(e) => {
-                                    eprintln!("Encoder error: {}", e);
-                                    encoder.skip_video_frames(remaining);
-                                    self.window_dropped =
-                                        self.window_dropped.saturating_add(remaining);
-                                    break;
-                                }
-                            }
-                        } else {
-                            let Some(slot) = staged_mismatch_slot else {
-                                encoder.skip_video_frames(remaining);
-                                self.window_dropped = self.window_dropped.saturating_add(remaining);
-                                break;
-                            };
-
-                            let surface = SendDirectX::new(self.vram_pool[slot].surface.0.clone());
-                            match encoder.send_directx_surface_nonblocking(
-                                surface,
-                                self.max_pending_frames,
-                                Some(self.vram_pool[slot].in_flight.clone()),
-                            ) {
-                                Ok(true) => {
-                                    self.window_enqueued = self.window_enqueued.saturating_add(1);
-                                    submitted = submitted.saturating_add(1);
-                                    remaining -= 1;
-                                }
-                                Ok(false) => {
-                                    encoder.skip_video_frames(remaining);
-                                    self.window_dropped =
-                                        self.window_dropped.saturating_add(remaining);
-                                    break;
-                                }
-                                Err(e) => {
-                                    eprintln!("Encoder GPU resize submit error: {}", e);
-                                    encoder.skip_video_frames(remaining);
-                                    self.window_dropped =
-                                        self.window_dropped.saturating_add(remaining);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    queue_depth = encoder.pending_video_frames();
-                    dropped_total = encoder.dropped_video_frames();
                 }
-            } else if let Some(encoder) = self.encoder.lock().as_ref() {
-                queue_depth = encoder.pending_video_frames();
-                dropped_total = encoder.dropped_video_frames();
+                Ok(None) => {
+                    if !self.vram_pool_exhausted_logged {
+                        eprintln!(
+                            "[FramePump] all staged surfaces still in flight; keeping last good frame until encoder drains"
+                        );
+                        self.vram_pool_exhausted_logged = true;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[FramePump] VRAM stage failed: {}", e);
+                }
             }
+        }
+
+        if let Some(encoder) = self.encoder.lock().as_ref() {
+            queue_depth = encoder.pending_video_frames();
+            dropped_total = encoder.dropped_video_frames();
         }
 
         self.report_capture_stats(queue_depth, dropped_total);

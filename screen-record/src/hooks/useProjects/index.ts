@@ -10,25 +10,7 @@ import {
   RecordingMode,
   WebcamConfig,
 } from "@/types/video";
-import {
-  clampVisibilitySegmentsToDuration,
-} from "@/lib/cursorHiding";
-import { normalizeSegmentTrimData } from "@/lib/trimSegments";
-import {
-  ensureKeystrokeVisibilitySegments,
-  filterKeystrokeEventsByMode,
-  rebuildKeystrokeVisibilitySegmentsForMode,
-} from "@/lib/keystrokeVisibility";
-import {
-  normalizeDeviceAudioPoints,
-} from "@/lib/deviceAudio";
-import {
-  normalizeMicAudioPoints,
-} from "@/lib/micAudio";
 import { cloneWebcamConfig } from "@/lib/webcam";
-import {
-  normalizeWebcamVisibilitySegments,
-} from "@/lib/webcamVisibility";
 import {
   getMediaServerUrl,
   createAudioPlaceholderVideo,
@@ -36,15 +18,18 @@ import {
   isManagedImportedVideoPath,
   writeBlobToTempMediaFile,
 } from "@/lib/mediaServer";
-import { getVisibleSubtitleSegments, normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
+import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 import {
-  normalizeCropRect,
-  normalizeTrackDelaySec,
   summarizeLoadedBackground,
-  DEFAULT_KEYSTROKE_DELAY_SEC,
   PROJECT_LOAD_DEBUG,
   PROJECT_SWITCH_DEBUG,
-} from "./videoStatePreferences";
+} from "../videoStatePreferences";
+import { restoreRawPath } from "./projectMediaMigration";
+import {
+  loadProjectVideo,
+  loadProjectAudioMedia,
+} from "./loadProjectMedia";
+import { normalizeLoadedSegment } from "./normalizeLoadedSegment";
 
 // ============================================================================
 // useProjects
@@ -258,251 +243,60 @@ export function useProjects(props: UseProjectsProps) {
       }
       let rawMicAudioPath = project.rawMicAudioPath ?? "";
       if (!rawMicAudioPath && project.micAudioBlob && project.micAudioBlob.size > 0) {
-        try {
-          rawMicAudioPath = await writeBlobToTempMediaFile(project.micAudioBlob);
-          if (rawMicAudioPath) {
-            await projectManager.updateProject(projectId, {
-              ...project,
-              rawVideoPath,
-              rawMicAudioPath,
-            });
-          }
-        } catch (e) {
-          console.error("[ProjectLoad] Failed to restore rawMicAudioPath:", e);
-        }
+        rawMicAudioPath = await restoreRawPath(
+          project.micAudioBlob,
+          "rawMicAudioPath",
+          projectId,
+          project,
+          (restoredPath) => ({ rawVideoPath, rawMicAudioPath: restoredPath }),
+        );
       }
       let rawWebcamVideoPath = project.rawWebcamVideoPath ?? "";
       if (!rawWebcamVideoPath && project.webcamBlob && project.webcamBlob.size > 0) {
-        try {
-          rawWebcamVideoPath = await writeBlobToTempMediaFile(project.webcamBlob);
-          if (rawWebcamVideoPath) {
-            await projectManager.updateProject(projectId, {
-              ...project,
-              rawVideoPath,
-              rawMicAudioPath,
-              rawWebcamVideoPath,
-            });
-          }
-        } catch (e) {
-          console.error("[ProjectLoad] Failed to restore rawWebcamVideoPath:", e);
-        }
+        rawWebcamVideoPath = await restoreRawPath(
+          project.webcamBlob,
+          "rawWebcamVideoPath",
+          projectId,
+          project,
+          (restoredPath) => ({
+            rawVideoPath,
+            rawMicAudioPath,
+            rawWebcamVideoPath: restoredPath,
+          }),
+        );
       }
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
-      let videoObjectUrl: string | undefined;
-      if (!isTimelineOnlyProject && rawVideoPath) {
-        const mediaUrl = await getMediaServerUrl(rawVideoPath);
-        videoObjectUrl = await props.videoControllerRef.current?.loadVideo({
-          videoUrl: mediaUrl,
-          initialTime: project.segment.trimStart,
-          debugLabel: "project-load",
-        });
-      } else if (!isTimelineOnlyProject && project.videoBlob) {
-        videoObjectUrl = await props.videoControllerRef.current?.loadVideo({
-          videoBlob: project.videoBlob,
-          initialTime: project.segment.trimStart,
-          debugLabel: "project-load",
-        });
-      }
+      const videoObjectUrl = await loadProjectVideo({
+        controller: props.videoControllerRef.current,
+        project,
+        isTimelineOnlyProject,
+        rawVideoPath,
+      });
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
-      let audioObjectUrl: string | undefined;
-      let micAudioObjectUrl: string | undefined;
-      let webcamVideoObjectUrl: string | undefined;
-      if (rawVideoPath && project.segment.deviceAudioAvailable !== false) {
-        const mediaUrl = await getMediaServerUrl(rawVideoPath);
-        audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio(
-          {
-            audioUrl: mediaUrl,
-          },
-        );
-      } else if (project.audioBlob) {
-        audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio({
-          audioBlob: project.audioBlob,
+      const { audioObjectUrl, micAudioObjectUrl, webcamVideoObjectUrl } =
+        await loadProjectAudioMedia({
+          controller: props.videoControllerRef.current,
+          project,
+          rawVideoPath,
+          rawMicAudioPath,
+          rawWebcamVideoPath,
+          videoObjectUrl,
         });
-      } else if (videoObjectUrl) {
-        audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio({
-          audioUrl: videoObjectUrl,
-        });
-      }
-      if (rawMicAudioPath) {
-        const mediaUrl = await getMediaServerUrl(rawMicAudioPath);
-        micAudioObjectUrl = await props.videoControllerRef.current?.loadMicAudio(
-          {
-            audioUrl: mediaUrl,
-          },
-        );
-      } else if (project.micAudioBlob) {
-        micAudioObjectUrl = await props.videoControllerRef.current?.loadMicAudio(
-          {
-            audioBlob: project.micAudioBlob,
-          },
-        );
-      }
-      if (rawWebcamVideoPath) {
-        const mediaUrl = await getMediaServerUrl(rawWebcamVideoPath);
-        webcamVideoObjectUrl =
-          await props.videoControllerRef.current?.loadWebcamVideo({
-            videoUrl: mediaUrl,
-          });
-      } else if (project.webcamBlob) {
-        webcamVideoObjectUrl =
-          await props.videoControllerRef.current?.loadWebcamVideo({
-            videoBlob: project.webcamBlob,
-          });
-      }
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
       const videoDuration = isTimelineOnlyProject
         ? Math.max(project.duration ?? 0, project.segment.trimEnd, 1)
         : props.videoControllerRef.current?.duration || 0;
-      let correctedSegment = { ...project.segment };
-      if (isTimelineOnlyProject) {
-        correctedSegment.mediaMode = "timelineOnly";
-      }
-      const hasExplicitPointerSegments = Array.isArray(
-        correctedSegment.cursorVisibilitySegments,
-      );
-      if (
-        correctedSegment.trimEnd === 0 ||
-        correctedSegment.trimEnd > videoDuration
-      ) {
-        correctedSegment.trimEnd = videoDuration;
-      }
-      correctedSegment = normalizeSegmentTrimData(
-        correctedSegment,
+      const correctedSegment = normalizeLoadedSegment({
+        project,
+        isTimelineOnlyProject,
         videoDuration,
-      );
-      if (typeof correctedSegment.useCustomCursor !== "boolean") {
-        correctedSegment.useCustomCursor =
-          project.recordingMode === "withCursor" ? false : true;
-      }
-      correctedSegment.crop = normalizeCropRect(correctedSegment.crop);
-      correctedSegment.textSegments = Array.isArray(correctedSegment.textSegments)
-        ? correctedSegment.textSegments
-        : [];
-      correctedSegment.subtitleSegments = Array.isArray(correctedSegment.subtitleSegments)
-        ? correctedSegment.subtitleSegments
-        : [];
-      correctedSegment = normalizeSubtitleTrackState(correctedSegment);
-      correctedSegment.deviceAudioPoints = normalizeDeviceAudioPoints(
-        correctedSegment.deviceAudioPoints,
-        videoDuration,
-        project.backgroundConfig.volume,
-      );
-      correctedSegment.micAudioPoints = normalizeMicAudioPoints(
-        correctedSegment.micAudioPoints,
-        videoDuration,
-      );
-      correctedSegment.micAudioOffsetSec = normalizeTrackDelaySec(
-        correctedSegment.micAudioOffsetSec,
-      );
-      correctedSegment.deviceAudioAvailable =
-        correctedSegment.deviceAudioAvailable !== false;
-      correctedSegment.micAudioAvailable =
-        typeof correctedSegment.micAudioAvailable === "boolean"
-          ? correctedSegment.micAudioAvailable
-          : Boolean(project.rawMicAudioPath || project.micAudioBlob || micAudioObjectUrl);
-      correctedSegment.webcamAvailable =
-        typeof correctedSegment.webcamAvailable === "boolean"
-          ? correctedSegment.webcamAvailable
-          : Boolean(rawWebcamVideoPath || project.webcamBlob || webcamVideoObjectUrl);
-      correctedSegment.webcamOffsetSec = normalizeTrackDelaySec(
-        correctedSegment.webcamOffsetSec,
-      );
-      correctedSegment.webcamVisibilitySegments = normalizeWebcamVisibilitySegments(
-        correctedSegment.webcamVisibilitySegments,
-        videoDuration,
-        correctedSegment.webcamAvailable !== false,
-      );
-      correctedSegment.cursorVisibilitySegments =
-        clampVisibilitySegmentsToDuration(
-          correctedSegment.cursorVisibilitySegments,
-          videoDuration,
-        );
-      correctedSegment.keyboardVisibilitySegments =
-        clampVisibilitySegmentsToDuration(
-          correctedSegment.keyboardVisibilitySegments,
-          videoDuration,
-        );
-      correctedSegment.keyboardMouseVisibilitySegments =
-        clampVisibilitySegmentsToDuration(
-          correctedSegment.keyboardMouseVisibilitySegments,
-          videoDuration,
-        );
-      // Materialize pointer segments for backward-compat (old projects have undefined)
-      if (!hasExplicitPointerSegments) {
-        correctedSegment.cursorVisibilitySegments = [
-          {
-            id: crypto.randomUUID(),
-            startTime: 0,
-            endTime: videoDuration,
-          },
-        ];
-      }
-      if (
-        !correctedSegment.speedPoints ||
-        correctedSegment.speedPoints.length === 0
-      ) {
-        correctedSegment.speedPoints = [
-          { time: 0, speed: 1 },
-          { time: videoDuration, speed: 1 },
-        ];
-      }
-      if (!correctedSegment.keystrokeMode) {
-        correctedSegment.keystrokeMode = "off";
-      }
-      if (!Array.isArray(correctedSegment.keystrokeEvents)) {
-        correctedSegment.keystrokeEvents = [];
-      }
-      if (
-        typeof correctedSegment.keystrokeDelaySec !== "number" ||
-        Number.isNaN(correctedSegment.keystrokeDelaySec)
-      ) {
-        correctedSegment.keystrokeDelaySec = DEFAULT_KEYSTROKE_DELAY_SEC;
-      } else {
-        correctedSegment.keystrokeDelaySec = Math.max(
-          -1,
-          Math.min(1, correctedSegment.keystrokeDelaySec),
-        );
-      }
-      const overlay = correctedSegment.keystrokeOverlay;
-      correctedSegment.keystrokeOverlay = {
-        x:
-          typeof overlay?.x === "number"
-            ? Math.max(0, Math.min(100, overlay.x))
-            : 50,
-        y:
-          typeof overlay?.y === "number"
-            ? Math.max(0, Math.min(100, overlay.y))
-            : 100,
-        scale:
-          typeof overlay?.scale === "number" && Number.isFinite(overlay.scale)
-            ? Math.max(0.45, Math.min(2.4, overlay.scale))
-            : 1,
-      };
-      correctedSegment = ensureKeystrokeVisibilitySegments(
-        correctedSegment,
-        videoDuration,
-      );
-      const loadedMode = correctedSegment.keystrokeMode ?? "off";
-      if (loadedMode === "keyboard" || loadedMode === "keyboardMouse") {
-        const modeEvents = filterKeystrokeEventsByMode(
-          correctedSegment.keystrokeEvents ?? [],
-          loadedMode,
-        );
-        const modeSegments =
-          loadedMode === "keyboard"
-            ? (correctedSegment.keyboardVisibilitySegments ?? [])
-            : (correctedSegment.keyboardMouseVisibilitySegments ?? []);
-        if (modeSegments.length === 0 && modeEvents.length > 0) {
-          correctedSegment = rebuildKeystrokeVisibilitySegmentsForMode(
-            correctedSegment,
-            loadedMode,
-            videoDuration,
-          );
-        }
-      }
+        rawWebcamVideoPath,
+        micAudioObjectUrl,
+        webcamVideoObjectUrl,
+      });
 
       // Draw the first frame on the canvas immediately (before React state updates)
       // so the canvas has content when the projects overlay fades out.

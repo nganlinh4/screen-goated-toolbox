@@ -1,5 +1,7 @@
-import { X } from '@/components/ui/MaterialIcon';
 import { PanelSelect } from '@/components/ui/PanelSelect';
+import { Slider } from '@/components/ui/Slider';
+import { SettingRow } from '@/components/layout/SettingRow';
+import { LanguageConfigList } from './LanguageConfigList';
 import { useSettings } from '@/hooks/useSettings';
 import {
   useNarrationSettings,
@@ -119,93 +121,64 @@ export function NarrationVoiceProviderSettings({
   if (effectiveTtsMethod === 'Kokoro') {
     return (
       <>
-        <div className="narration-panel-kokoro-voices mb-2 flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium text-on-surface-variant">
-            {t.narrationTtsKokoroVoiceConfigs}
-          </span>
-          {kokoroVoiceConfigs.map((config, index) => {
+        <LanguageConfigList
+          className="narration-panel-kokoro-voices mb-2"
+          title={t.narrationTtsKokoroVoiceConfigs}
+          items={kokoroVoiceConfigs}
+          removeTitle={t.narrationTtsLanguageConditionRemove}
+          availableLanguages={availableKokoroVoiceLanguages}
+          addLabel={t.narrationTtsKokoroVoiceConfigAdd}
+          addTriggerClassName="narration-kokoro-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
+          addContentClassName="narration-kokoro-voice-add-menu"
+          rowClassName="narration-panel-kokoro-voice-config"
+          onAdd={addKokoroVoiceConfig}
+          onRemove={removeKokoroVoiceConfig}
+          renderControl={(config, index) => {
             const target = kokoroVoiceLanguageForCondition(config.languageCode);
             const options = (target
               ? kokoroVoices.filter((voice) => voice.languageCode === target)
               : kokoroVoices
             ).map((voice) => ({ value: voice.id, label: `${voice.id} · ${voice.label}` }));
             return (
-              <div key={`${config.languageCode}-${index}`} className="narration-panel-kokoro-voice-config flex items-center gap-1.5">
-                <span className="w-20 flex-shrink-0 truncate text-[11px] font-medium text-[var(--secondary-color)]">
-                  {config.languageName}
-                </span>
-                <PanelSelect
-                  value={config.voiceId}
-                  options={options}
-                  onChange={(value) => updateKokoroVoiceConfig(index, { voiceId: value })}
-                  triggerClassName="narration-kokoro-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-                  contentClassName="narration-kokoro-voice-menu"
-                  searchable={options.length > 8}
-                />
-                <button
-                  type="button"
-                  onClick={() => removeKokoroVoiceConfig(index)}
-                  className="ui-icon-button h-6 w-6 rounded-full text-on-surface-variant hover:text-[var(--tertiary-color)]"
-                  title={t.narrationTtsLanguageConditionRemove}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
+              <PanelSelect
+                value={config.voiceId}
+                options={options}
+                onChange={(value) => updateKokoroVoiceConfig(index, { voiceId: value })}
+                triggerClassName="narration-kokoro-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                contentClassName="narration-kokoro-voice-menu"
+                searchable={options.length > 8}
+              />
             );
-          })}
-          {availableKokoroVoiceLanguages.length > 0 && (
-            <PanelSelect
-              value={t.narrationTtsKokoroVoiceConfigAdd}
-              options={availableKokoroVoiceLanguages.map((language) => ({
-                value: language.languageCode,
-                label: language.languageName,
-              }))}
-              onChange={(value) => {
-                const language = availableKokoroVoiceLanguages.find(
-                  (item) => item.languageCode === value,
-                );
-                if (language) addKokoroVoiceConfig(language.languageCode, language.languageName);
-              }}
-              triggerClassName="narration-kokoro-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
-              contentClassName="narration-kokoro-voice-add-menu"
-              searchable
-            />
-          )}
-        </div>
-        <div className="narration-panel-row mb-2 flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
-            {t.narrationTtsSpeed}
-          </span>
-          <input
-            type="range"
+          }}
+        />
+        <SettingRow
+          label={t.narrationTtsSpeed}
+          valueDisplay={`${settings.kokoroSpeed.toFixed(2)}x`}
+          className="narration-kokoro-speed-row mb-2"
+        >
+          <Slider
             min={0.5}
             max={2}
             step={0.05}
             value={settings.kokoroSpeed}
-            onChange={(event) => update('kokoroSpeed', parseFloat(event.target.value))}
-            className="narration-kokoro-speed-slider flex-1"
+            onChange={(value) => update('kokoroSpeed', value)}
+            className="narration-kokoro-speed-slider"
           />
-          <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
-            {settings.kokoroSpeed.toFixed(2)}x
-          </span>
-        </div>
-        <div className="narration-panel-row flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
-            {t.narrationTtsKokoroThreads}
-          </span>
-          <input
-            type="range"
+        </SettingRow>
+        <SettingRow
+          label={t.narrationTtsKokoroThreads}
+          valueDisplay={settings.kokoroNumThreads}
+          className="narration-kokoro-threads-row"
+        >
+          <Slider
             min={1}
             max={8}
             step={1}
             value={settings.kokoroNumThreads}
-            onChange={(event) => update('kokoroNumThreads', parseInt(event.target.value, 10))}
-            className="narration-kokoro-threads-slider flex-1"
+            onChange={(value) => update('kokoroNumThreads', Math.round(value))}
+            className="narration-kokoro-threads-slider"
           />
-          <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
-            {settings.kokoroNumThreads}
-          </span>
-        </div>
+        </SettingRow>
       </>
     );
   }
@@ -213,159 +186,104 @@ export function NarrationVoiceProviderSettings({
   if (effectiveTtsMethod === 'Supertonic') {
     return (
       <>
-        <div className="narration-panel-supertonic-voices mb-2 flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium text-on-surface-variant">
-            Voice per language
-          </span>
-          {supertonicVoiceConfigs.map((config, index) => (
-            <div key={`${config.languageCode}-${index}`} className="narration-panel-supertonic-voice-config flex items-center gap-1.5">
-              <span className="w-20 flex-shrink-0 truncate text-[11px] font-medium text-[var(--secondary-color)]">
-                {config.languageName}
-              </span>
-              <PanelSelect
-                value={config.voiceId}
-                options={supertonicVoices.map((voice) => ({
-                  value: voice.id,
-                  label: voice.label,
-                }))}
-                onChange={(value) => updateSupertonicVoiceConfig(index, { voiceId: value })}
-                triggerClassName="narration-supertonic-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-                contentClassName="narration-supertonic-voice-menu"
-              />
-              <button
-                type="button"
-                onClick={() => removeSupertonicVoiceConfig(index)}
-                className="ui-icon-button h-6 w-6 rounded-full text-on-surface-variant hover:text-[var(--tertiary-color)]"
-                title={t.narrationTtsLanguageConditionRemove}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-          {availableSupertonicLanguages.length > 0 && (
+        <LanguageConfigList
+          className="narration-panel-supertonic-voices mb-2"
+          title="Voice per language"
+          items={supertonicVoiceConfigs}
+          removeTitle={t.narrationTtsLanguageConditionRemove}
+          availableLanguages={availableSupertonicLanguages}
+          addLabel="Add language"
+          addTriggerClassName="narration-supertonic-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
+          addContentClassName="narration-supertonic-voice-add-menu"
+          rowClassName="narration-panel-supertonic-voice-config"
+          onAdd={addSupertonicVoiceConfig}
+          onRemove={removeSupertonicVoiceConfig}
+          renderControl={(config, index) => (
             <PanelSelect
-              value="Add language"
-              options={availableSupertonicLanguages.map((language) => ({
-                value: language.languageCode,
-                label: language.languageName,
+              value={config.voiceId}
+              options={supertonicVoices.map((voice) => ({
+                value: voice.id,
+                label: voice.label,
               }))}
-              onChange={(value) => {
-                const language = availableSupertonicLanguages.find(
-                  (item) => item.languageCode === value,
-                );
-                if (language) addSupertonicVoiceConfig(language.languageCode, language.languageName);
-              }}
-              triggerClassName="narration-supertonic-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
-              contentClassName="narration-supertonic-voice-add-menu"
-              searchable
+              onChange={(value) => updateSupertonicVoiceConfig(index, { voiceId: value })}
+              triggerClassName="narration-supertonic-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+              contentClassName="narration-supertonic-voice-menu"
             />
           )}
-        </div>
-        <div className="narration-panel-row mb-2 flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
-            {t.narrationTtsSpeed}
-          </span>
-          <input
-            type="range"
+        />
+        <SettingRow
+          label={t.narrationTtsSpeed}
+          valueDisplay={`${settings.supertonicSpeed.toFixed(2)}x`}
+          className="narration-supertonic-speed-row mb-2"
+        >
+          <Slider
             min={0.5}
             max={2}
             step={0.05}
             value={settings.supertonicSpeed}
-            onChange={(event) => update('supertonicSpeed', parseFloat(event.target.value))}
-            className="narration-supertonic-speed-slider flex-1"
+            onChange={(value) => update('supertonicSpeed', value)}
+            className="narration-supertonic-speed-slider"
           />
-          <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
-            {settings.supertonicSpeed.toFixed(2)}x
-          </span>
-        </div>
-        <div className="narration-panel-row mb-2 flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
-            Steps
-          </span>
-          <input
-            type="range"
+        </SettingRow>
+        <SettingRow
+          label="Steps"
+          valueDisplay={settings.supertonicNumSteps}
+          className="narration-supertonic-steps-row mb-2"
+        >
+          <Slider
             min={1}
             max={20}
             step={1}
             value={settings.supertonicNumSteps}
-            onChange={(event) => update('supertonicNumSteps', parseInt(event.target.value, 10))}
-            className="narration-supertonic-steps-slider flex-1"
+            onChange={(value) => update('supertonicNumSteps', Math.round(value))}
+            className="narration-supertonic-steps-slider"
           />
-          <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
-            {settings.supertonicNumSteps}
-          </span>
-        </div>
-        <div className="narration-panel-row flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
-            Threads
-          </span>
-          <input
-            type="range"
+        </SettingRow>
+        <SettingRow
+          label="Threads"
+          valueDisplay={settings.supertonicNumThreads}
+          className="narration-supertonic-threads-row"
+        >
+          <Slider
             min={1}
             max={8}
             step={1}
             value={settings.supertonicNumThreads}
-            onChange={(event) => update('supertonicNumThreads', parseInt(event.target.value, 10))}
-            className="narration-supertonic-threads-slider flex-1"
+            onChange={(value) => update('supertonicNumThreads', Math.round(value))}
+            className="narration-supertonic-threads-slider"
           />
-          <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
-            {settings.supertonicNumThreads}
-          </span>
-        </div>
+        </SettingRow>
       </>
     );
   }
 
   if (effectiveTtsMethod === 'MagpieMultilingual') {
     return (
-      <div className="narration-panel-magpie-voices mb-2 flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium text-on-surface-variant">
-          {t.narrationTtsKokoroVoiceConfigs}
-        </span>
-        {magpieVoiceConfigs.map((config, index) => (
-          <div key={`${config.languageCode}-${index}`} className="narration-panel-magpie-voice-config flex items-center gap-1.5">
-            <span className="w-20 flex-shrink-0 truncate text-[11px] font-medium text-[var(--secondary-color)]">
-              {config.languageName}
-            </span>
-            <PanelSelect
-              value={config.voiceId}
-              options={magpieVoices.map((voice) => ({
-                value: voice.id,
-                label: voice.label,
-              }))}
-              onChange={(value) => updateMagpieVoiceConfig(index, { voiceId: value })}
-              triggerClassName="narration-magpie-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-              contentClassName="narration-magpie-voice-menu"
-            />
-            <button
-              type="button"
-              onClick={() => removeMagpieVoiceConfig(index)}
-              className="ui-icon-button h-6 w-6 rounded-full text-on-surface-variant hover:text-[var(--tertiary-color)]"
-              title={t.narrationTtsLanguageConditionRemove}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        ))}
-        {availableMagpieVoiceLanguages.length > 0 && (
+      <LanguageConfigList
+        className="narration-panel-magpie-voices mb-2"
+        title={t.narrationTtsKokoroVoiceConfigs}
+        items={magpieVoiceConfigs}
+        removeTitle={t.narrationTtsLanguageConditionRemove}
+        availableLanguages={availableMagpieVoiceLanguages}
+        addLabel={t.narrationTtsKokoroVoiceConfigAdd}
+        addTriggerClassName="narration-magpie-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
+        addContentClassName="narration-magpie-voice-add-menu"
+        rowClassName="narration-panel-magpie-voice-config"
+        onAdd={addMagpieVoiceConfig}
+        onRemove={removeMagpieVoiceConfig}
+        renderControl={(config, index) => (
           <PanelSelect
-            value={t.narrationTtsKokoroVoiceConfigAdd}
-            options={availableMagpieVoiceLanguages.map((language) => ({
-              value: language.languageCode,
-              label: language.languageName,
+            value={config.voiceId}
+            options={magpieVoices.map((voice) => ({
+              value: voice.id,
+              label: voice.label,
             }))}
-            onChange={(value) => {
-              const language = availableMagpieVoiceLanguages.find(
-                (item) => item.languageCode === value,
-              );
-              if (language) addMagpieVoiceConfig(language.languageCode, language.languageName);
-            }}
-            triggerClassName="narration-magpie-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
-            contentClassName="narration-magpie-voice-add-menu"
-            searchable
+            onChange={(value) => updateMagpieVoiceConfig(index, { voiceId: value })}
+            triggerClassName="narration-magpie-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+            contentClassName="narration-magpie-voice-menu"
           />
         )}
-      </div>
+      />
     );
   }
 
@@ -420,55 +338,61 @@ export function NarrationVoiceProviderSettings({
   if (effectiveTtsMethod === 'EdgeTTS') {
     return (
       <>
-        <div className="narration-panel-row mb-2 flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
-            {t.narrationTtsPitch}
-          </span>
-          <input
-            type="range"
+        <SettingRow
+          label={t.narrationTtsPitch}
+          valueDisplay={settings.edgePitch}
+          className="narration-edge-pitch-row mb-2"
+        >
+          <Slider
             min={-50}
             max={50}
             step={1}
             value={settings.edgePitch}
-            onChange={(event) => update('edgePitch', parseInt(event.target.value, 10))}
-            className="narration-panel-pitch-slider flex-1"
+            onChange={(value) => update('edgePitch', Math.round(value))}
+            className="narration-panel-pitch-slider"
           />
-          <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
-            {settings.edgePitch}
-          </span>
-        </div>
-        <div className="narration-panel-row flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
-            {t.narrationTtsRate}
-          </span>
-          <input
-            type="range"
+        </SettingRow>
+        <SettingRow
+          label={t.narrationTtsRate}
+          valueDisplay={settings.edgeRate}
+          className="narration-edge-rate-row"
+        >
+          <Slider
             min={-50}
             max={100}
             step={1}
             value={settings.edgeRate}
-            onChange={(event) => update('edgeRate', parseInt(event.target.value, 10))}
-            className="narration-panel-rate-slider flex-1"
+            onChange={(value) => update('edgeRate', Math.round(value))}
+            className="narration-panel-rate-slider"
           />
-          <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
-            {settings.edgeRate}
-          </span>
-        </div>
-        <div className="narration-panel-edge-voices mt-2 flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium text-on-surface-variant">
-            {t.narrationTtsEdgeVoiceConfigs}
-          </span>
-          {edgeVoiceState === 'loading' && (
-            <span className="narration-panel-edge-loading text-[10px] text-on-surface-variant">
-              {t.narrationTtsEdgeVoicesLoading}
-            </span>
-          )}
-          {edgeVoiceState === 'error' && (
-            <span className="narration-panel-edge-error text-[10px] text-[var(--tertiary-color)]">
-              {t.narrationTtsEdgeVoicesFailed}
-            </span>
-          )}
-          {edgeVoiceConfigs.map((config, index) => {
+        </SettingRow>
+        <LanguageConfigList
+          className="narration-panel-edge-voices mt-2"
+          title={t.narrationTtsEdgeVoiceConfigs}
+          items={edgeVoiceConfigs}
+          removeTitle={t.narrationTtsLanguageConditionRemove}
+          availableLanguages={availableEdgeVoiceLanguages}
+          addLabel={t.narrationTtsEdgeVoiceConfigAdd}
+          addTriggerClassName="narration-edge-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
+          addContentClassName="narration-edge-voice-add-menu"
+          rowClassName="narration-panel-edge-voice-config"
+          onAdd={addEdgeVoiceConfig}
+          onRemove={removeEdgeVoiceConfig}
+          statusContent={
+            <>
+              {edgeVoiceState === 'loading' && (
+                <span className="narration-panel-edge-loading text-[10px] text-on-surface-variant">
+                  {t.narrationTtsEdgeVoicesLoading}
+                </span>
+              )}
+              {edgeVoiceState === 'error' && (
+                <span className="narration-panel-edge-error text-[10px] text-[var(--tertiary-color)]">
+                  {t.narrationTtsEdgeVoicesFailed}
+                </span>
+              )}
+            </>
+          }
+          renderControl={(config, index) => {
             const voiceOptions = edgeVoicesByLanguage[config.languageCode] ?? [];
             const options = voiceOptions.length > 0
               ? voiceOptions.map((voice) => ({
@@ -477,51 +401,17 @@ export function NarrationVoiceProviderSettings({
                 }))
               : [{ value: config.voiceName, label: config.voiceName }];
             return (
-              <div
-                key={`${config.languageCode}-${index}`}
-                className="narration-panel-edge-voice-config flex items-center gap-1.5"
-              >
-                <span className="w-20 flex-shrink-0 truncate text-[11px] font-medium text-[var(--secondary-color)]">
-                  {config.languageName}
-                </span>
-                <PanelSelect
-                  value={config.voiceName}
-                  options={options}
-                  onChange={(value) => updateEdgeVoiceConfig(index, { voiceName: value })}
-                  triggerClassName="narration-edge-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-                  contentClassName="narration-edge-voice-menu"
-                  searchable={voiceOptions.length > 8}
-                />
-                <button
-                  type="button"
-                  onClick={() => removeEdgeVoiceConfig(index)}
-                  className="ui-icon-button h-6 w-6 rounded-full text-on-surface-variant hover:text-[var(--tertiary-color)]"
-                  title={t.narrationTtsLanguageConditionRemove}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
+              <PanelSelect
+                value={config.voiceName}
+                options={options}
+                onChange={(value) => updateEdgeVoiceConfig(index, { voiceName: value })}
+                triggerClassName="narration-edge-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                contentClassName="narration-edge-voice-menu"
+                searchable={voiceOptions.length > 8}
+              />
             );
-          })}
-          {availableEdgeVoiceLanguages.length > 0 && (
-            <PanelSelect
-              value={t.narrationTtsEdgeVoiceConfigAdd}
-              options={availableEdgeVoiceLanguages.map((language) => ({
-                value: language.languageCode,
-                label: language.languageName,
-              }))}
-              onChange={(value) => {
-                const language = availableEdgeVoiceLanguages.find(
-                  (item) => item.languageCode === value,
-                );
-                if (language) addEdgeVoiceConfig(language.languageCode, language.languageName);
-              }}
-              triggerClassName="narration-edge-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
-              contentClassName="narration-edge-voice-add-menu"
-              searchable
-            />
-          )}
-        </div>
+          }}
+        />
       </>
     );
   }

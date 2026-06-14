@@ -14,6 +14,29 @@ interface CameraPanelProps {
   commitBatch: () => void;
 }
 
+function ToggleRow({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="camera-toggle-row flex items-center justify-between gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-2)] px-3 py-2">
+      <span className="text-[11px] text-on-surface-variant">{label}</span>
+      <Checkbox
+        checked={checked}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+        disabled={disabled}
+      />
+    </label>
+  );
+}
+
 const POSITION_OPTIONS: Array<{
   id: WebcamPosition;
   label: string;
@@ -61,18 +84,12 @@ export function CameraPanel({
           valueDisplay={webcamConfig.visible ? t.rec : t.recordingAudioMuted}
           className="camera-show-field"
         >
-          <label className="camera-toggle-row flex items-center justify-between gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-2)] px-3 py-2">
-            <span className="text-[11px] text-on-surface-variant">
-              {t.cameraShow}
-            </span>
-            <Checkbox
-              checked={webcamConfig.visible}
-              onChange={(event) =>
-                updateConfig({ visible: event.currentTarget.checked })
-              }
-              disabled={!webcamAvailable}
-            />
-          </label>
+          <ToggleRow
+            label={t.cameraShow}
+            checked={webcamConfig.visible}
+            onChange={(checked) => updateConfig({ visible: checked })}
+            disabled={!webcamAvailable}
+          />
         </SettingRow>
 
         <SettingRow label={t.cameraPosition} className="camera-position-field">
@@ -97,36 +114,24 @@ export function CameraPanel({
         </SettingRow>
 
         <SettingRow label={t.cameraMirror} className="camera-mirror-field">
-          <label className="camera-toggle-row flex items-center justify-between gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-2)] px-3 py-2">
-            <span className="text-[11px] text-on-surface-variant">
-              {t.cameraMirror}
-            </span>
-            <Checkbox
-              checked={webcamConfig.mirror}
-              onChange={(event) =>
-                updateConfig({ mirror: event.currentTarget.checked })
-              }
-              disabled={!webcamAvailable}
-            />
-          </label>
+          <ToggleRow
+            label={t.cameraMirror}
+            checked={webcamConfig.mirror}
+            onChange={(checked) => updateConfig({ mirror: checked })}
+            disabled={!webcamAvailable}
+          />
         </SettingRow>
 
         <SettingRow
           label={t.cameraAutoSize}
           className="camera-auto-size-field"
         >
-          <label className="camera-toggle-row flex items-center justify-between gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-2)] px-3 py-2">
-            <span className="text-[11px] text-on-surface-variant">
-              {t.cameraAutoSize}
-            </span>
-            <Checkbox
-              checked={webcamConfig.autoSizeDuringZoom}
-              onChange={(event) =>
-                updateConfig({ autoSizeDuringZoom: event.currentTarget.checked })
-              }
-              disabled={!webcamAvailable}
-            />
-          </label>
+          <ToggleRow
+            label={t.cameraAutoSize}
+            checked={webcamConfig.autoSizeDuringZoom}
+            onChange={(checked) => updateConfig({ autoSizeDuringZoom: checked })}
+            disabled={!webcamAvailable}
+          />
         </SettingRow>
 
         <SettingRow

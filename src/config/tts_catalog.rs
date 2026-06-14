@@ -208,6 +208,10 @@ pub const KOKORO_VOICE_LANGUAGES: &[(&str, &str)] = &[
     ("por", "Portuguese"),
 ];
 
+/// Canonical human-readable summary of the languages Supertonic supports.
+/// Shared by the TTS settings modal and the downloaded-tools model card.
+pub const SUPERTONIC_LANGUAGE_SUMMARY: &str = "Supports English, Korean, Japanese, Arabic, Bulgarian, Czech, Danish, German, Greek, Spanish, Estonian, Finnish, French, Hindi, Croatian, Hungarian, Indonesian, Italian, Lithuanian, Latvian, Dutch, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Swedish, Turkish, Ukrainian, and Vietnamese.";
+
 pub const SUPERTONIC_LANGUAGES: &[SupertonicLanguageOption] = &[
     supertonic_lang("en", "English"),
     supertonic_lang("ko", "Korean"),

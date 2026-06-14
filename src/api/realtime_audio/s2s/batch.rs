@@ -1,5 +1,48 @@
 use super::*;
 
+/// Drain a completed segment session's event channel into
+/// `(source_text, target_text, audio_bytes, error)`. Shared by the sequential
+/// and parallel batch paths, which buffer identical event kinds.
+fn drain_segment_events(
+    event_rx: mpsc::Receiver<S2sEvent>,
+) -> (String, String, Vec<u8>, Option<String>) {
+    let mut source_text = String::new();
+    let mut target_text = String::new();
+    let mut audio_bytes = Vec::new();
+    let mut error: Option<String> = None;
+    for event in event_rx.try_iter() {
+        match event {
+            S2sEvent::InputText { text, .. } => {
+                source_text = text;
+            }
+            S2sEvent::OutputText { text, .. } => {
+                merge_segment_text(&mut target_text, &text);
+            }
+            S2sEvent::Audio { bytes, .. } => audio_bytes.extend(bytes),
+            S2sEvent::Error { message, .. } => error = Some(message),
+            _ => {}
+        }
+    }
+    (source_text, target_text, audio_bytes, error)
+}
+
+/// Assemble an [`S2sBatchSegment`] from a timed segment and its drained text/audio.
+fn timed_to_batch_segment(
+    timed: &TimedSegment,
+    source_text: String,
+    target_text: String,
+    audio_bytes: &[u8],
+) -> S2sBatchSegment {
+    S2sBatchSegment {
+        id: timed.segment.id,
+        source_start_sec: timed.start_sample as f64 / 16_000.0,
+        source_end_sec: timed.end_sample as f64 / 16_000.0,
+        source_text,
+        target_text,
+        audio_pcm_24k: pcm_bytes_to_i16(audio_bytes),
+    }
+}
+
 pub fn default_batch_settings_for_target(
     target_language: &str,
     model: &str,
@@ -147,23 +190,7 @@ pub fn run_gemini_live_s2s_batch_with_callbacks(
         let result = run_single_segment_session(0, id + 1, timed.segment.clone(), &resources);
         drop(resources);
         drop(event_tx);
-        let mut source_text = String::new();
-        let mut target_text = String::new();
-        let mut audio_bytes = Vec::new();
-        let mut error: Option<String> = None;
-        for event in event_rx.try_iter() {
-            match event {
-                S2sEvent::InputText { text, .. } => {
-                    source_text = text;
-                }
-                S2sEvent::OutputText { text, .. } => {
-                    merge_segment_text(&mut target_text, &text);
-                }
-                S2sEvent::Audio { bytes, .. } => audio_bytes.extend(bytes),
-                S2sEvent::Error { message, .. } => error = Some(message),
-                _ => {}
-            }
-        }
+        let (source_text, target_text, audio_bytes, error) = drain_segment_events(event_rx);
         result?;
         if let Some(error) = error {
             return Err(anyhow::anyhow!(error));
@@ -175,14 +202,7 @@ pub fn run_gemini_live_s2s_batch_with_callbacks(
         if let Ok(mut memory) = context_memory.lock() {
             memory.push_completed(id, &source_text, &target_text);
         }
-        let batch_segment = S2sBatchSegment {
-            id,
-            source_start_sec: timed.start_sample as f64 / 16_000.0,
-            source_end_sec: timed.end_sample as f64 / 16_000.0,
-            source_text,
-            target_text,
-            audio_pcm_24k: pcm_bytes_to_i16(&audio_bytes),
-        };
+        let batch_segment = timed_to_batch_segment(&timed, source_text, target_text, &audio_bytes);
         if let Some(callback) = on_segment.as_mut() {
             callback(batch_segment.clone())?;
         }
@@ -288,23 +308,7 @@ fn run_s2s_timed_segment_without_context(
         );
         drop(resources);
         drop(event_tx);
-        let mut source_text = String::new();
-        let mut target_text = String::new();
-        let mut audio_bytes = Vec::new();
-        let mut error: Option<String> = None;
-        for event in event_rx.try_iter() {
-            match event {
-                S2sEvent::InputText { text, .. } => {
-                    source_text = text;
-                }
-                S2sEvent::OutputText { text, .. } => {
-                    merge_segment_text(&mut target_text, &text);
-                }
-                S2sEvent::Audio { bytes, .. } => audio_bytes.extend(bytes),
-                S2sEvent::Error { message, .. } => error = Some(message),
-                _ => {}
-            }
-        }
+        let (source_text, target_text, audio_bytes, error) = drain_segment_events(event_rx);
         if let Err(err) = result {
             eprintln!(
                 "[RealtimeS2S] batch-retry segment={} attempt={}/{} reason=session_error error={}",
@@ -337,14 +341,12 @@ fn run_s2s_timed_segment_without_context(
             continue;
         }
         return S2sParallelSegmentResult {
-            segment: Some(S2sBatchSegment {
-                id,
-                source_start_sec: timed.start_sample as f64 / 16_000.0,
-                source_end_sec: timed.end_sample as f64 / 16_000.0,
+            segment: Some(timed_to_batch_segment(
+                &timed,
                 source_text,
                 target_text,
-                audio_pcm_24k: pcm_bytes_to_i16(&audio_bytes),
-            }),
+                &audio_bytes,
+            )),
             error: None,
         };
     }

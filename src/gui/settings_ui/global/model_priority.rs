@@ -2,7 +2,7 @@ use crate::config::{Config, ModelPriorityChains};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use crate::model_config::{
-    ModelConfig, ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
+    ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
     model_supports_search_by_id,
 };
 use crate::retry_model_chain::RetryChainKind;
@@ -271,27 +271,11 @@ fn default_insert_model_id(models: &[crate::model_config::ModelConfig]) -> Strin
         .unwrap_or_default()
 }
 
-fn localized_model_name<'a>(model: &'a ModelConfig, ui_language: &str) -> &'a str {
-    match ui_language {
-        "vi" => &model.name_vi,
-        "ko" => &model.name_ko,
-        _ => &model.name_en,
-    }
-}
-
-fn localized_quota<'a>(model: &'a ModelConfig, ui_language: &str) -> &'a str {
-    match ui_language {
-        "vi" => &model.quota_limit_vi,
-        "ko" => &model.quota_limit_ko,
-        _ => &model.quota_limit_en,
-    }
-}
-
 /// Full label shown inside the expanded dropdown list: friendly name +
 /// model id + quota. The provider icon is rendered separately via egui.
 fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &str) -> String {
-    let name = localized_model_name(model, ui_language);
-    let quota = localized_quota(model, ui_language);
+    let name = model.localized_name(ui_language);
+    let quota = model.localized_quota(ui_language);
 
     format!("{} - {} - {}", name, model.full_name, quota)
 }
@@ -301,6 +285,6 @@ fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &st
 /// details stay in the expanded list. The provider icon is rendered separately.
 fn model_short_label(model_id: &str, ui_language: &str) -> String {
     get_model_by_id(model_id)
-        .map(|model| localized_model_name(&model, ui_language).to_string())
+        .map(|model| model.localized_name(ui_language).to_string())
         .unwrap_or_else(|| model_id.to_string())
 }

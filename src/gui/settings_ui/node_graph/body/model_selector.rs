@@ -47,11 +47,7 @@ pub fn show_model_and_settings(
     let model_def = get_model_by_id(model);
     let display_name = model_def
         .as_ref()
-        .map(|m| match viewer.ui_language.as_str() {
-            "vi" => m.name_vi.clone(),
-            "ko" => m.name_ko.clone(),
-            _ => m.name_en.clone(),
-        })
+        .map(|m| m.localized_name(&viewer.ui_language).to_string())
         .unwrap_or_else(|| model.clone());
 
     ui.horizontal(|ui| {
@@ -94,16 +90,8 @@ pub fn show_model_and_settings(
                     && m.model_type == target_model_type
                     && viewer.is_provider_enabled(&m.provider)
                 {
-                    let name = match viewer.ui_language.as_str() {
-                        "vi" => &m.name_vi,
-                        "ko" => &m.name_ko,
-                        _ => &m.name_en,
-                    };
-                    let quota = match viewer.ui_language.as_str() {
-                        "vi" => &m.quota_limit_vi,
-                        "ko" => &m.quota_limit_ko,
-                        _ => &m.quota_limit_en,
-                    };
+                    let name = m.localized_name(&viewer.ui_language);
+                    let quota = m.localized_quota(&viewer.ui_language);
                     let label = format!("{} - {} - {}", name, m.full_name, quota);
                     let is_selected = *model == m.id;
 

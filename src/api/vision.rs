@@ -1,7 +1,7 @@
-use super::client::UREQ_AGENT;
+use super::client::{UREQ_AGENT, record_usage_simple};
+use super::gemini_generate::stream_gemini_generate;
+use super::openai_compat::stream_openai_compat_chat;
 use super::types::{ChatCompletionResponse, StreamChunk};
-use crate::APP;
-use crate::gui::locale::LocaleText;
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
 use std::io::{BufRead, BufReader};
@@ -185,263 +185,71 @@ where
             return Err(anyhow::anyhow!("NO_API_KEY:gemini"));
         }
 
-        let method = if streaming_enabled {
-            "streamGenerateContent"
-        } else {
-            "generateContent"
-        };
-        let url = if streaming_enabled {
-            format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:{}?alt=sse",
-                model, method
-            )
-        } else {
-            format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:{}",
-                model, method
-            )
-        };
+        // Get UI language from config for thinking indicator
+        let ui_language = crate::APP
+            .lock()
+            .ok()
+            .map(|app| app.config.ui_language.clone())
+            .unwrap_or_else(|| "en".to_string());
 
-        let mut payload = serde_json::json!({
-            "contents": [{
-                "role": "user",
-                "parts": [
-                    { "text": prompt },
-                    {
-                        "inline_data": {
-                            "mime_type": mime_type,
-                            "data": b64_image
-                        }
-                    }
-                ]
-            }]
-        });
-
-        if let Some(thinking_config) = crate::api::gemini_thinking_config(&model) {
-            payload["generationConfig"] = serde_json::json!({
-                "thinkingConfig": thinking_config
-            });
-        }
-
-        if crate::model_config::model_supports_search_by_name(&model) {
-            payload["tools"] = serde_json::json!([
-                { "url_context": {} },
-                { "google_search": {} }
-            ]);
-        }
-
-        let resp = UREQ_AGENT
-            .post(&url)
-            .header("x-goog-api-key", gemini_api_key)
-            .send_json(payload)
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("401") || err_str.contains("403") {
-                    anyhow::anyhow!("INVALID_API_KEY")
-                } else {
-                    anyhow::anyhow!("{}", err_str)
-                }
-            })?;
-
-        if streaming_enabled {
-            let reader = BufReader::new(resp.into_body().into_reader());
-            let mut thinking_shown = false;
-            let mut content_started = false;
-
-            // Get UI language from config for thinking indicator
-            let ui_language = crate::APP
-                .lock()
-                .ok()
-                .map(|app| app.config.ui_language.clone())
-                .unwrap_or_else(|| "en".to_string());
-            let locale = LocaleText::get(&ui_language);
-
-            for line in reader.lines() {
-                if let Some(ref ct) = cancel_token
-                    && ct.load(Ordering::Relaxed)
-                {
-                    return Err(anyhow::anyhow!("Cancelled"));
-                }
-                let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
-                if let Some(json_str) = line.strip_prefix("data: ") {
-                    if json_str.trim() == "[DONE]" {
-                        break;
-                    }
-
-                    if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
-                        && let Some(candidates) =
-                            chunk_resp.get("candidates").and_then(|c| c.as_array())
-                        && let Some(first_candidate) = candidates.first()
-                        && let Some(parts) = first_candidate
-                            .get("content")
-                            .and_then(|c| c.get("parts"))
-                            .and_then(|p| p.as_array())
-                    {
-                        for part in parts {
-                            let is_thought = part
-                                .get("thought")
-                                .and_then(|t| t.as_bool())
-                                .unwrap_or(false);
-
-                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                if is_thought {
-                                    // Model is thinking - show thinking indicator (only once)
-                                    if !thinking_shown && !content_started {
-                                        on_chunk(locale.model_thinking);
-                                        thinking_shown = true;
-                                    }
-                                } else {
-                                    // Regular content
-                                    if !content_started && thinking_shown {
-                                        content_started = true;
-                                        full_content.push_str(text);
-                                        let wipe_content =
-                                            format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
-                                        on_chunk(&wipe_content);
-                                    } else {
-                                        content_started = true;
-                                        full_content.push_str(text);
-                                        on_chunk(text);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            let chat_resp: serde_json::Value = resp
-                .into_body()
-                .read_json()
-                .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
-
-            if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array())
-                && let Some(first_choice) = candidates.first()
-                && let Some(parts) = first_choice
-                    .get("content")
-                    .and_then(|c| c.get("parts"))
-                    .and_then(|p| p.as_array())
+        let parts = serde_json::json!([
+            { "text": prompt },
             {
-                // Filter out thought parts and collect only content
-                full_content = parts
-                    .iter()
-                    .filter(|p| !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false))
-                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                    .collect::<String>();
-
-                on_chunk(&full_content);
+                "inline_data": {
+                    "mime_type": mime_type,
+                    "data": b64_image
+                }
             }
-        }
+        ]);
+
+        full_content = stream_gemini_generate(
+            parts,
+            &model,
+            gemini_api_key,
+            streaming_enabled,
+            &ui_language,
+            &cancel_token,
+            None,
+            true,
+            &mut on_chunk,
+        )?;
     } else if provider == "openrouter" {
         // --- OPENROUTER API ---
         if openrouter_api_key.trim().is_empty() {
             return Err(anyhow::anyhow!("NO_API_KEY:openrouter"));
         }
 
-        let payload = serde_json::json!({
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        { "type": "text", "text": prompt },
-                        { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
-                    ]
-                }
-            ],
-            "stream": streaming_enabled
-        });
+        // Get UI language from config for thinking indicator
+        let ui_language = crate::APP
+            .lock()
+            .ok()
+            .map(|app| app.config.ui_language.clone())
+            .unwrap_or_else(|| "en".to_string());
 
-        let resp = UREQ_AGENT
-            .post("https://openrouter.ai/api/v1/chat/completions")
-            .header("Authorization", &format!("Bearer {}", openrouter_api_key))
-            .header("Content-Type", "application/json")
-            .send_json(payload)
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("401") || err_str.contains("403") {
-                    anyhow::anyhow!("INVALID_API_KEY")
-                } else {
-                    anyhow::anyhow!("OpenRouter API Error: {}", err_str)
-                }
-            })?;
-
-        if streaming_enabled {
-            let reader = BufReader::new(resp.into_body().into_reader());
-            let mut thinking_shown = false;
-            let mut content_started = false;
-
-            // Get UI language from config for thinking indicator
-            let ui_language = crate::APP
-                .lock()
-                .ok()
-                .map(|app| app.config.ui_language.clone())
-                .unwrap_or_else(|| "en".to_string());
-            let locale = LocaleText::get(&ui_language);
-
-            for line in reader.lines() {
-                if let Some(ref ct) = cancel_token
-                    && ct.load(Ordering::Relaxed)
-                {
-                    return Err(anyhow::anyhow!("Cancelled"));
-                }
-                let line = line?;
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if data == "[DONE]" {
-                        break;
-                    }
-
-                    match serde_json::from_str::<StreamChunk>(data) {
-                        Ok(chunk) => {
-                            // Check for reasoning tokens (thinking phase)
-                            if let Some(reasoning) = chunk
-                                .choices
-                                .first()
-                                .and_then(|c| c.delta.reasoning.as_ref())
-                                .filter(|s| !s.is_empty())
-                            {
-                                if !thinking_shown && !content_started {
-                                    on_chunk(locale.model_thinking);
-                                    thinking_shown = true;
-                                }
-                                let _ = reasoning;
-                            }
-
-                            // Check for content tokens (final result)
-                            if let Some(content) = chunk
-                                .choices
-                                .first()
-                                .and_then(|c| c.delta.content.as_ref())
-                                .filter(|s| !s.is_empty())
-                            {
-                                if !content_started && thinking_shown {
-                                    content_started = true;
-                                    full_content.push_str(content);
-                                    let wipe_content =
-                                        format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
-                                    on_chunk(&wipe_content);
-                                } else {
-                                    content_started = true;
-                                    full_content.push_str(content);
-                                    on_chunk(content);
-                                }
-                            }
-                        }
-                        Err(_) => continue,
-                    }
-                }
+        let messages = serde_json::json!([
+            {
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": prompt },
+                    { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
+                ]
             }
-        } else {
-            let chat_resp: ChatCompletionResponse = resp
-                .into_body()
-                .read_json()
-                .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+        ]);
 
-            if let Some(choice) = chat_resp.choices.first() {
-                full_content = choice.message.content.clone();
-                on_chunk(&full_content);
-            }
-        }
+        full_content = stream_openai_compat_chat(
+            "https://openrouter.ai/api/v1/chat/completions",
+            &openrouter_api_key,
+            &model,
+            messages,
+            streaming_enabled,
+            false,
+            &ui_language,
+            &cancel_token,
+            "OpenRouter API Error",
+            true,
+            |_| {},
+            &mut on_chunk,
+        )?;
     } else {
         // Groq API (default)
         if groq_api_key.trim().is_empty() {
@@ -504,22 +312,7 @@ where
                 }
             })?;
 
-        if let Some(remaining) = resp
-            .headers()
-            .get("x-ratelimit-remaining-requests")
-            .and_then(|v| v.to_str().ok())
-        {
-            let limit = resp
-                .headers()
-                .get("x-ratelimit-limit-requests")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("?");
-            let usage_str = format!("{} / {}", remaining, limit);
-
-            if let Ok(mut app) = APP.lock() {
-                app.model_usage_stats.insert(model.clone(), usage_str);
-            }
-        }
+        record_usage_simple(resp.headers(), &model);
 
         if streaming_enabled {
             let reader = BufReader::new(resp.into_body().into_reader());

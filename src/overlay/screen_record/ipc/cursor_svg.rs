@@ -3,30 +3,17 @@
 // and normalizing cursor pack SVG files in the repo.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use crate::overlay::screen_record::{cursor_asset_target_paths, repo_root};
 
 pub(super) fn fmt_num(v: f32) -> String {
     let s = format!("{:.2}", v);
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-fn is_repo_root(path: &Path) -> bool {
-    path.join("Cargo.toml").exists()
-        && path.join("screen-record").exists()
-        && path.join("src").exists()
-}
-
 fn find_repo_root() -> Result<PathBuf, String> {
-    let mut dir = std::env::current_dir().map_err(|e| format!("current_dir failed: {}", e))?;
-    for _ in 0..6 {
-        if is_repo_root(&dir) {
-            return Ok(dir);
-        }
-        if !dir.pop() {
-            break;
-        }
-    }
-    Err("Could not locate repository root".to_string())
+    repo_root().ok_or_else(|| "Could not locate repository root".to_string())
 }
 
 fn sanitize_svg_rel_path(src: &str) -> Result<String, String> {
@@ -52,15 +39,7 @@ pub(super) fn apply_cursor_svg_adjustment(
     let rel = sanitize_svg_rel_path(src)?;
     let repo_root = find_repo_root()?;
 
-    let targets = [
-        repo_root.join("screen-record").join("public").join(&rel),
-        repo_root
-            .join("src")
-            .join("overlay")
-            .join("screen_record")
-            .join("dist")
-            .join(&rel),
-    ];
+    let targets = cursor_asset_target_paths(&repo_root, &rel);
 
     let scale = scale.clamp(0.2, 4.0);
     let offset_x = offset_x_lab;

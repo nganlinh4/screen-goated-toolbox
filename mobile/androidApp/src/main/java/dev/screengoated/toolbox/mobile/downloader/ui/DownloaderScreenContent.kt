@@ -56,6 +56,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.webkit.MimeTypeMap
@@ -134,6 +135,11 @@ internal fun SessionContent(
         MaterialTheme.colorScheme.primary
     } else {
         MaterialTheme.colorScheme.tertiary
+    }
+    val preferredVideoFormat = if (session.downloadType == DownloadType.VIDEO) {
+        session.selectedFormat ?: state.settings.lastVideoFormat
+    } else {
+        null
     }
 
     android.util.Log.d("SGT-DL-UI", "SessionContent: phase=${session.phase} formats=${session.availableFormats.size} isAnalyzing=${session.isAnalyzing} downloadType=${session.downloadType}")
@@ -233,7 +239,8 @@ internal fun SessionContent(
         }
 
         // Quality + Subtitle row
-        val hasQuality = session.downloadType == DownloadType.VIDEO && session.availableFormats.isNotEmpty()
+        val hasQuality = session.downloadType == DownloadType.VIDEO &&
+            (session.availableFormats.isNotEmpty() || preferredVideoFormat != null)
         val hasSubs = state.settings.useSubtitles && session.availableSubtitles.isNotEmpty()
         if (hasQuality || hasSubs) {
             UtilityExpressiveCard(accent = MaterialTheme.colorScheme.secondary) {
@@ -252,10 +259,13 @@ internal fun SessionContent(
                 ) {
                     if (hasQuality) {
                         Box(Modifier.weight(1f)) {
+                            val qualityOptions = (listOf(locale.dlBest) +
+                                listOfNotNull(preferredVideoFormat) +
+                                session.availableFormats).distinct()
                             DropdownSelector(
                                 label = locale.dlQualityLabel,
-                                options = listOf(locale.dlBest) + session.availableFormats,
-                                selected = session.selectedFormat ?: locale.dlBest,
+                                options = qualityOptions,
+                                selected = preferredVideoFormat ?: locale.dlBest,
                                 onSelect = { viewModel.setFormat(if (it == locale.dlBest) null else it) },
                             )
                         }
@@ -307,7 +317,13 @@ internal fun SessionContent(
                 ) {
                     Icon(painterResource(R.drawable.ms_download), contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(if (session.isAnalyzing) locale.dlStartNowBtn else locale.dlStartBtn)
+                    Text(
+                        if (session.isAnalyzing) {
+                            downloaderStartNowText(locale, preferredVideoFormat)
+                        } else {
+                            locale.dlStartBtn
+                        },
+                    )
                 }
             }
             DownloadPhase.DOWNLOADING -> {
@@ -378,69 +394,109 @@ internal fun SessionContent(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(onClick = {
-                                session.finishedFilePath?.let { path ->
-                                    try {
-                                        val file = java.io.File(path)
-                                        val ext = file.extension.lowercase()
-                                        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
-                                            ?: when (ext) {
-                                                "mp4", "mkv", "webm" -> "video/*"
-                                                "mp3", "m4a", "opus", "ogg" -> "audio/*"
-                                                else -> "*/*"
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(
+                                onClick = {
+                                    session.finishedFilePath?.let { path ->
+                                        try {
+                                            val file = java.io.File(path)
+                                            val ext = file.extension.lowercase()
+                                            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+                                                ?: when (ext) {
+                                                    "mp4", "mkv", "webm" -> "video/*"
+                                                    "mp3", "m4a", "opus", "ogg" -> "audio/*"
+                                                    else -> "*/*"
+                                                }
+                                            val uri = session.finishedFileUri?.toUri()
+                                                ?: FileProvider.getUriForFile(
+                                                    context,
+                                                    "${context.packageName}.fileprovider",
+                                                    file,
+                                                )
+                                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(uri, mime)
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                             }
-                                        val uri = FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.fileprovider",
-                                            file,
-                                        )
-                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(uri, mime)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {
+                                            android.widget.Toast
+                                                .makeText(context, downloaderOpenFileFailedText(locale), android.widget.Toast.LENGTH_SHORT)
+                                                .show()
                                         }
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {
-                                        android.widget.Toast
-                                            .makeText(context, downloaderOpenFileFailedText(locale), android.widget.Toast.LENGTH_SHORT)
-                                            .show()
                                     }
-                                }
-                            }) {
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
                                 Icon(painterResource(R.drawable.ms_open_in_new), contentDescription = null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(locale.dlOpenFile)
                             }
-                            FilledTonalButton(onClick = {
-                                session.finishedFilePath?.let { path ->
-                                    val folder = java.io.File(path).parentFile ?: return@let
-                                    val storagePath = folder.absolutePath
-                                        .removePrefix("/storage/emulated/0/")
-                                        .replace("/", "%2F")
-                                    val docUri =
-                                        "content://com.android.externalstorage.documents/document/primary%3A$storagePath".toUri()
-                                    val opened = runCatching {
-                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(docUri, "vnd.android.document/directory")
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        context.startActivity(intent)
-                                    }.recoverCatching {
-                                            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                                                putExtra(
-                                                    android.provider.DocumentsContract.EXTRA_INITIAL_URI,
-                                                    docUri,
+                            FilledTonalButton(
+                                onClick = {
+                                    session.finishedFilePath?.let { path ->
+                                        val copied = runCatching {
+                                            val file = java.io.File(path)
+                                            val uri = session.finishedFileUri?.toUri()
+                                                ?: FileProvider.getUriForFile(
+                                                    context,
+                                                    "${context.packageName}.fileprovider",
+                                                    file,
                                                 )
-                                            }
-                                            context.startActivity(intent)
-                                    }.isSuccess
-                                    if (!opened) {
+                                            val clip = ClipData.newUri(context.contentResolver, "SGT Video", uri)
+                                            clipboardManager?.setPrimaryClip(clip) ?: error("Clipboard unavailable")
+                                        }.isSuccess
                                         android.widget.Toast
-                                            .makeText(context, downloaderOpenFolderFailedText(locale), android.widget.Toast.LENGTH_SHORT)
+                                            .makeText(
+                                                context,
+                                                if (copied) {
+                                                    downloaderCopyVideoDoneText(locale)
+                                                } else {
+                                                    downloaderCopyVideoFailedText(locale)
+                                                },
+                                                android.widget.Toast.LENGTH_SHORT,
+                                            )
                                             .show()
                                     }
-                                }
-                            }) {
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(painterResource(R.drawable.ms_content_copy), contentDescription = null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(downloaderCopyVideoLabel(locale))
+                            }
+                            FilledTonalButton(
+                                onClick = {
+                                    session.finishedFilePath?.let { path ->
+                                        val folder = java.io.File(path).parentFile ?: return@let
+                                        val storagePath = folder.absolutePath
+                                            .removePrefix("/storage/emulated/0/")
+                                            .replace("/", "%2F")
+                                        val docUri =
+                                            "content://com.android.externalstorage.documents/document/primary%3A$storagePath".toUri()
+                                        val opened = runCatching {
+                                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(docUri, "vnd.android.document/directory")
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(intent)
+                                        }.recoverCatching {
+                                                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                                                    putExtra(
+                                                        android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                                                        docUri,
+                                                    )
+                                                }
+                                                context.startActivity(intent)
+                                        }.isSuccess
+                                        if (!opened) {
+                                            android.widget.Toast
+                                                .makeText(context, downloaderOpenFolderFailedText(locale), android.widget.Toast.LENGTH_SHORT)
+                                                .show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
                                 Icon(painterResource(R.drawable.ms_folder), contentDescription = null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(locale.dlOpenFolder)

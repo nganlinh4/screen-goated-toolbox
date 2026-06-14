@@ -63,8 +63,6 @@ data class MobileLocaleText(
     val helpAssistantScreenRecordLoading: String,
     val helpAssistantAndroidLoading: String,
     val helpAssistantRestLoading: String,
-    val shellPlaceholderBadge: String,
-    val shellPlaceholderMessage: String,
     val shellCredentialsTitle: String,
     val shellCredentialsDescription: String,
     val shellLiveTitle: String,
@@ -259,21 +257,9 @@ data class MobileLocaleText(
     val dlShowLog: String,
     val dlHideLog: String,
     val dlReset: String,
-    // Downloaded tools UI
-    val toolDescYtdlp: String,
-    val toolDescFfmpeg: String,
-    val toolRuntimeMoonshine: String,
-    val toolRuntimeMoonshineDesc: String,
-    val toolRuntimeOrt: String,
-    val toolRuntimeOrtDesc: String,
-    val toolRuntimeSherpa: String,
-    val toolRuntimeSherpaDesc: String,
-    val toolUpdate: String,
-    val toolDelete: String,
-    val toolUpdated: String,
-    val toolUpToDate: String,
-    val toolUpdating: String,
-    val toolUpdateFailed: String,
+    // Downloader + downloaded-tools cluster (extracted to keep the constructor under the
+    // JVM 254-parameter limit). Consume via `locale.downloader.<field>`.
+    val downloader: MobileDownloaderLocale,
 ) {
     fun ttsFailedLoadVoices(error: String): String {
         return ttsFailedLoadVoicesTemplate.replace("{}", error)

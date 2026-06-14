@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 mod ai_runtime;
 mod backgrounds;
+mod model_card;
 mod model_sections;
 mod pointer_packs;
 mod tts_models;

@@ -307,7 +307,7 @@ fun SgtMobileApp(
                         // Reset TTS to defaults
                         onGlobalTtsMethodChanged(dev.screengoated.toolbox.mobile.model.MobileTtsMethod.GEMINI_LIVE)
                         onGlobalTtsSpeedPresetChanged(dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset.FAST)
-                        onGlobalTtsVoiceChanged("Aoede")
+                        onGlobalTtsVoiceChanged(dev.screengoated.toolbox.mobile.model.TtsDefaults.DEFAULT_TTS_GEMINI_VOICE)
                         onGlobalEdgeTtsSettingsChanged(dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings())
                     },
                     onVoiceSettingsClick = {

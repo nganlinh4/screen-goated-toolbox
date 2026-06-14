@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.res.painterResource
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
@@ -161,7 +162,7 @@ private fun HelpAssistantDialog(
         } else if (pendingQuestion != null) {
             Toast.makeText(
                 context,
-                context.getString(R.string.help_assistant_overlay_permission_required),
+                context.uiLocalized().getString(R.string.help_assistant_overlay_permission_required),
                 Toast.LENGTH_SHORT,
             ).show()
         }

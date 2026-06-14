@@ -70,7 +70,9 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
     };
 
     // MD3 accent colors
-    let primary = "#5D5FEF"; // Purple - main accent
+    let (pr, pg, pb) = crate::overlay::utils::ACCENT_PRIMARY_RGB;
+    let primary_owned = format!("#{pr:02X}{pg:02X}{pb:02X}"); // "#5D5FEF" - main accent (purple)
+    let primary = primary_owned.as_str();
     let primary_light = "#B4B5FF"; // Light purple
     let secondary = "#2979FF"; // Blue
     let tertiary = "#F50057"; // Pink

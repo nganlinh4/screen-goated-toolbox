@@ -7,6 +7,7 @@ import {
   getExportEstimateCalibration,
   type ExportEstimateCalibrationSnapshot,
 } from './exportEstimatorCalibration';
+import { clamp } from './mathUtils';
 export {
   ESTIMATE_CALIBRATION_STORAGE_KEY,
   MAX_CALIBRATION_BUCKETS,
@@ -63,10 +64,6 @@ export interface ExportSizeEstimate {
   calibrationSamples: number;
   calibrationRatio: number;
   profileKey: string;
-}
-
-export function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
 
 export function toRoundedStep(value: number, step: number): number {

@@ -6,8 +6,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::config::types::BlockType;
-
 // ============================================================================
 // PROCESSING BLOCK
 // ============================================================================
@@ -222,33 +220,3 @@ impl BlockBuilder {
     }
 }
 
-// ============================================================================
-// BLOCK TYPE HELPERS
-// ============================================================================
-
-impl ProcessingBlock {
-    /// Check if this is an input adapter block
-    pub fn is_input_adapter(&self) -> bool {
-        self.block_type == "input_adapter"
-    }
-
-    /// Check if this is an image/vision block
-    pub fn is_image(&self) -> bool {
-        self.block_type == "image"
-    }
-
-    /// Check if this is a text block
-    pub fn is_text(&self) -> bool {
-        self.block_type == "text"
-    }
-
-    /// Check if this is an audio block
-    pub fn is_audio(&self) -> bool {
-        self.block_type == "audio"
-    }
-
-    /// Get the block type as enum
-    pub fn block_type_enum(&self) -> BlockType {
-        BlockType::from_str(&self.block_type)
-    }
-}

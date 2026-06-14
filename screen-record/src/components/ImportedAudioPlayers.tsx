@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { AudioGainPoint, ImportedAudioSegment, NarrationSegment, SpeedPoint } from "@/types/video";
 import { getSpeedAtTime } from "@/lib/exportEstimator";
+import { getVolumeEnvelopeAtTime } from "@/components/timeline/adjustableLineUtils";
 import { getMediaServerUrl } from "@/lib/mediaServer";
 import {
   mergeLiveNarrationSegments,
@@ -55,19 +56,6 @@ function isSegmentInPlaybackWindow(
     segmentEnd >= currentTime - PLAYBACK_WINDOW_TAIL_SEC &&
     segment.startTime <= currentTime + PREROLL_SEC
   );
-}
-
-function getTrackVolumeAtTime(time: number, points: AudioGainPoint[] | undefined | null) {
-  if (!points || points.length === 0) return 1;
-  const sorted = [...points].sort((a, b) => a.time - b.time);
-  const idx = sorted.findIndex((point) => point.time >= time);
-  if (idx === -1) return Math.max(0, Math.min(1, sorted[sorted.length - 1]?.volume ?? 1));
-  if (idx === 0) return Math.max(0, Math.min(1, sorted[0]?.volume ?? 1));
-  const left = sorted[idx - 1];
-  const right = sorted[idx];
-  const ratio = Math.max(0, Math.min(1, (time - left.time) / Math.max(0.0001, right.time - left.time)));
-  const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
-  return Math.max(0, Math.min(1, left.volume + (right.volume - left.volume) * cosT));
 }
 
 /**
@@ -238,7 +226,7 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
     wasAudibleRef.current = inAudibleRange;
 
     el.volume = inAudibleRange
-      ? getTrackVolumeAtTime(currentTime, trackVolumePoints)
+      ? getVolumeEnvelopeAtTime(currentTime, trackVolumePoints)
       : 0;
 
     if (inWarmRange && !inAudibleRange) {

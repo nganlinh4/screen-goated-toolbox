@@ -76,9 +76,25 @@
 - Windows closes and stops the session when the mini app window is closed.
 - Android places the Translation Gummy volume slider in the TTS settings modal opened from the Translation Gummy gear instead of the Windows header hover popup, because touch has no hover state and the user requested this modal placement.
 
+## VAD + Setup Constant Lock
+- The Gemini Live VAD numerics and session setup-payload constants are locked by the shared fixture [parity-fixtures/translation-gummy/vad-contract.json](../../parity-fixtures/translation-gummy/vad-contract.json). Rust is canonical.
+- Canonical (Rust) values, from [src/overlay/translation_gummy/runtime.rs](../../src/overlay/translation_gummy/runtime.rs):
+  - `vad.speechRms = 0.015` (`LOCAL_INPUT_SPEECH_RMS`)
+  - `vad.trailingAudioMs = 180` (`LOCAL_INPUT_TRAILING_AUDIO_MS`)
+  - `vad.endSilenceMs = 420` (`LOCAL_INPUT_END_SILENCE_MS`)
+  - `vad.prerollChunks = 2` — Windows stores this as samples (`LOCAL_INPUT_PREROLL_SAMPLES = 3200 = 2 * CHUNK_SAMPLES(1600)`)
+  - `setup.startSensitivity = START_SENSITIVITY_HIGH`, `setup.endSensitivity = END_SENSITIVITY_HIGH`
+  - `setup.prefixPaddingMs = 80`, `setup.silenceDurationMs = 320`
+  - `setup.thinkingBudget = 0`, `setup.mediaResolution = MEDIA_RESOLUTION_LOW`
+  - `setup.activityHandling = START_OF_ACTIVITY_INTERRUPTS`, `setup.turnCoverage = TURN_INCLUDES_ONLY_ACTIVITY`
+- Per-platform assertions:
+  - Windows (Rust): `vad_contract_tests` in [src/overlay/translation_gummy/runtime.rs](../../src/overlay/translation_gummy/runtime.rs) `include_str!`s the fixture and asserts each `LOCAL_INPUT_*` constant + the rebuilt setup payload (`build_setup_payload`). Pre-roll is asserted in samples: `LOCAL_INPUT_PREROLL_SAMPLES == prerollChunks * CHUNK_SAMPLES`.
+  - Android (Kotlin): [TranslationGummyVadContractTest](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/TranslationGummyVadContractTest.kt) loads the same fixture and asserts `TranslationGummyRuntime.LOCAL_INPUT_*` constants + the `buildTranslationGummySetupPayload` output. Pre-roll is asserted as chunks (`LOCAL_INPUT_PREROLL_CHUNKS == prerollChunks`), not raw samples, because the Android audio chunk size is device-dependent.
+
 ## Fixtures
 - Prompt fixture: [parity-fixtures/translation-gummy/prompt-contract.json](../../parity-fixtures/translation-gummy/prompt-contract.json)
 - Socket protocol fixture: [parity-fixtures/translation-gummy/socket-protocol.json](../../parity-fixtures/translation-gummy/socket-protocol.json)
+- VAD + setup constant fixture: [parity-fixtures/translation-gummy/vad-contract.json](../../parity-fixtures/translation-gummy/vad-contract.json)
 - Onboarding fixture: [parity-fixtures/translation-gummy/onboarding-contract.json](../../parity-fixtures/translation-gummy/onboarding-contract.json)
 - Volume fixture: [parity-fixtures/translation-gummy/volume-control.json](../../parity-fixtures/translation-gummy/volume-control.json)
 - State fixture: [parity-fixtures/translation-gummy/state-contract.json](../../parity-fixtures/translation-gummy/state-contract.json)

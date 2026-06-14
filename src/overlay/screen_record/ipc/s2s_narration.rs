@@ -9,6 +9,7 @@ use crate::api::realtime_audio::s2s::{
     S2sBatchSegment, default_batch_settings_for_target, run_gemini_live_s2s_batch_with_callbacks,
 };
 
+use super::job_registry::{self, JobHandle, JobState};
 use super::media_server;
 use super::subtitles::audio::compact_to_source_time;
 use super::subtitles::media::prepare_clip_media;
@@ -106,17 +107,17 @@ impl Default for S2sNarrationJobSnapshot {
     }
 }
 
-#[derive(Clone)]
-struct S2sNarrationJobHandle {
-    snapshot: Arc<Mutex<S2sNarrationJobSnapshot>>,
-    cancelled: Arc<AtomicBool>,
+impl JobState for S2sNarrationJobSnapshot {
+    fn state(&self) -> &str {
+        &self.state
+    }
 }
 
-static S2S_NARRATION_JOBS: OnceLock<Mutex<HashMap<String, S2sNarrationJobHandle>>> =
+static S2S_NARRATION_JOBS: OnceLock<Mutex<HashMap<String, JobHandle<S2sNarrationJobSnapshot>>>> =
     OnceLock::new();
 
-fn jobs() -> &'static Mutex<HashMap<String, S2sNarrationJobHandle>> {
-    S2S_NARRATION_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
+fn jobs() -> &'static Mutex<HashMap<String, JobHandle<S2sNarrationJobSnapshot>>> {
+    job_registry::registry(&S2S_NARRATION_JOBS)
 }
 
 pub fn handle_start_s2s_narration(args: &serde_json::Value) -> Result<serde_json::Value, String> {
@@ -128,15 +129,12 @@ pub fn handle_start_s2s_narration(args: &serde_json::Value) -> Result<serde_json
     let mut jobs = jobs()
         .lock()
         .map_err(|_| "S2S narration jobs lock poisoned".to_string())?;
-    if let Some(active) = jobs.iter().find_map(|(id, handle)| {
-        let snapshot = handle.snapshot.lock().ok()?;
-        matches!(snapshot.state.as_str(), "queued" | "running").then(|| id.clone())
-    }) {
+    if let Some(active) = job_registry::find_active(&jobs) {
         return Err(format!(
             "Gemini S2S narration already running (job={active})"
         ));
     }
-    let job_id = uuid();
+    let job_id = job_registry::uuid("s2s-narration");
     let snapshot = Arc::new(Mutex::new(S2sNarrationJobSnapshot {
         total_clips: request.clips.len(),
         ..S2sNarrationJobSnapshot::default()
@@ -144,7 +142,7 @@ pub fn handle_start_s2s_narration(args: &serde_json::Value) -> Result<serde_json
     let cancelled = Arc::new(AtomicBool::new(false));
     jobs.insert(
         job_id.clone(),
-        S2sNarrationJobHandle {
+        JobHandle {
             snapshot: snapshot.clone(),
             cancelled: cancelled.clone(),
         },
@@ -443,13 +441,4 @@ fn decode_wav_mono_i16(bytes: &[u8]) -> Result<Vec<i16>, String> {
         .samples::<i16>()
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("Decode prepared S2S WAV samples: {error}"))
-}
-
-fn uuid() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
-    format!("s2s-narration-{millis}-{}", std::process::id())
 }

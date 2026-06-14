@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 
@@ -23,12 +24,13 @@ class ServiceNotificationFactory(
         context.getSystemService(NotificationManager::class.java)
 
     fun ensureChannel() {
+        val l10n = context.uiLocalized()
         val channel = NotificationChannel(
             CHANNEL_ID,
-            context.getString(R.string.live_translate_channel_name),
+            l10n.getString(R.string.live_translate_channel_name),
             NotificationManager.IMPORTANCE_MIN,
         ).apply {
-            description = context.getString(R.string.live_translate_channel_description)
+            description = l10n.getString(R.string.live_translate_channel_description)
             setSound(null as Uri?, null as AudioAttributes?)
             enableVibration(false)
             setShowBadge(false)
@@ -38,19 +40,20 @@ class ServiceNotificationFactory(
     }
 
     fun snapshot(state: LiveSessionState): ServiceNotificationSnapshot {
+        val l10n = context.uiLocalized()
         val contentText = when (state.phase) {
-            SessionPhase.AWAITING_PERMISSIONS -> context.getString(R.string.live_translate_notification_waiting_permissions)
+            SessionPhase.AWAITING_PERMISSIONS -> l10n.getString(R.string.live_translate_notification_waiting_permissions)
             SessionPhase.STARTING,
             SessionPhase.LISTENING,
             SessionPhase.TRANSLATING,
-            -> context.getString(R.string.live_translate_notification_running)
+            -> l10n.getString(R.string.live_translate_notification_running)
             SessionPhase.ERROR -> state.lastError?.trim()?.take(80).orEmpty()
-                .ifBlank { context.getString(R.string.live_translate_notification_stopped) }
-            SessionPhase.STOPPED -> context.getString(R.string.live_translate_notification_stopped)
-            SessionPhase.IDLE -> context.getString(R.string.live_translate_notification_text)
+                .ifBlank { l10n.getString(R.string.live_translate_notification_stopped) }
+            SessionPhase.STOPPED -> l10n.getString(R.string.live_translate_notification_stopped)
+            SessionPhase.IDLE -> l10n.getString(R.string.live_translate_notification_text)
         }
         return ServiceNotificationSnapshot(
-            title = context.getString(R.string.live_translate_notification_title),
+            title = l10n.getString(R.string.live_translate_notification_title),
             contentText = contentText,
         )
     }
@@ -87,7 +90,7 @@ class ServiceNotificationFactory(
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setLocalOnly(true)
             .setShowWhen(false)
-            .addAction(0, context.getString(R.string.notification_action_stop), stopIntent)
+            .addAction(0, context.uiLocalized().getString(R.string.notification_action_stop), stopIntent)
             .build()
     }
 

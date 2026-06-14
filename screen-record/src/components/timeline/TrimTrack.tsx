@@ -7,12 +7,7 @@ import {
   isTimeNearRangeBoundary,
 } from "./trackHoverUtils";
 import { useSettings } from "@/hooks/useSettings";
-
-function formatTime(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
-}
+import { formatTime } from "@/utils/helpers";
 
 interface TrimTrackProps {
   segment: VideoSegment;

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SGT Mobile</string>
+    <string name="live_translate_channel_name">실시간 번역</string>
+    <string name="live_translate_channel_description">SGT 모바일 실시간 번역의 포그라운드 세션 상태입니다.</string>
+    <string name="live_translate_notification_title">SGT 실시간 번역</string>
+    <string name="live_translate_notification_text">음성을 수신하며 실시간으로 번역하고 있습니다.</string>
+    <string name="live_translate_notification_waiting_permissions">권한 대기 중</string>
+    <string name="live_translate_notification_running">실시간 번역 실행 중</string>
+    <string name="live_translate_notification_stopped">실시간 번역 중지됨</string>
+    <string name="notification_action_stop">중지</string>
+    <string name="preset_audio_channel_name">SGT 프리셋 오디오</string>
+    <string name="preset_audio_channel_description">프리셋 오디오 캡처용 포그라운드 알림</string>
+    <string name="preset_audio_notification_title">SGT 오디오 프리셋</string>
+    <string name="preset_audio_notification_device">프리셋용 기기 오디오 캡처 중</string>
+    <string name="preset_audio_notification_microphone">프리셋용 마이크 오디오 캡처 중</string>
+    <string name="preset_audio_notification_idle">프리셋 오디오 캡처 대기 중</string>
+    <string name="bubble_channel_name">SGT Bubble</string>
+    <string name="bubble_channel_description">플로팅 버블 오버레이</string>
+    <string name="bubble_notification_title">SGT Bubble</string>
+    <string name="bubble_notification_text">플로팅 버블이 활성화되어 있습니다</string>
+    <string name="bubble_overlay_permission_required">SGT 버블을 사용하려면 오버레이 권한이 필요합니다.</string>
+    <string name="bubble_start_failed">SGT 버블을 시작할 수 없습니다.</string>
+    <string name="bubble_panel_open_failed">버블 패널을 열지 못했습니다.</string>
+    <string name="help_assistant_overlay_permission_required">도움말 어시스턴트를 사용하려면 오버레이 권한이 필요합니다.</string>
+    <string name="projection_realtime_preset_unavailable">요청한 실시간 오디오 프리셋을 사용할 수 없습니다.</string>
+    <string name="projection_audio_consent_cancelled">기기 오디오 캡처 동의가 취소되었습니다.</string>
+    <string name="projection_unavailable">이 기기에서는 MediaProjection을 사용할 수 없습니다.</string>
+    <string name="dj_playback_channel_name">DJ 재생</string>
+    <string name="dj_playback_channel_description">Be a DJ용 백그라운드 음악 재생</string>
+    <string name="dj_notification_title">Be a DJ</string>
+    <string name="dj_notification_text">음악 재생 중</string>
+    <string name="accessibility_service_description">Screen Goated Toolbox는 접근성을 사용하여 모든 앱에서 선택한 텍스트를 읽고 AI 결과를 다시 붙여넣습니다. 텍스트 선택 프리셋에 필요합니다.</string>
+    <string name="preset_image_selection_overlay_label">%1$s • %2$s</string>
+</resources>

@@ -108,19 +108,19 @@ internal fun DownloadedToolsDialog(
                     fontWeight = FontWeight.Bold,
                 )
                 NativeRuntimeRow(
-                    name = locale.toolRuntimeMoonshine,
+                    name = locale.downloader.toolRuntimeMoonshine,
                     status = moonshineRtStatus,
                     locale = locale,
-                    helpDesc = locale.toolRuntimeMoonshineDesc,
+                    helpDesc = locale.downloader.toolRuntimeMoonshineDesc,
                     onDownload = { nativeLibManager.startDownload(NativeLibManager.Engine.MOONSHINE) },
                     onDelete = { nativeLibManager.delete(NativeLibManager.Engine.MOONSHINE) },
                     onHelp = { helpDialog = it },
                 )
                 NativeRuntimeRow(
-                    name = locale.toolRuntimeOrt,
+                    name = locale.downloader.toolRuntimeOrt,
                     status = ortStatus,
                     locale = locale,
-                    helpDesc = locale.toolRuntimeOrtDesc,
+                    helpDesc = locale.downloader.toolRuntimeOrtDesc,
                     onDownload = { nativeLibManager.startDownload(NativeLibManager.Engine.ORT) },
                     onDelete = { nativeLibManager.delete(NativeLibManager.Engine.ORT) },
                     onHelp = { helpDialog = it },
@@ -169,7 +169,7 @@ internal fun DownloadedToolsDialog(
                                 onClick = { moonshineManager.startDownloadMoonshine(lang) },
                             )
                             is MoonshineModelManager.MoonshineLangStatus.Installed -> ToolAction(
-                                text = locale.toolDelete,
+                                text = locale.downloader.toolDelete,
                                 role = ToolActionRole.DESTRUCTIVE,
                                 onClick = { moonshineManager.deleteMoonshine(lang) },
                             )
@@ -187,10 +187,10 @@ internal fun DownloadedToolsDialog(
                     fontWeight = FontWeight.Bold,
                 )
                 NativeRuntimeRow(
-                    name = locale.toolRuntimeSherpa,
+                    name = locale.downloader.toolRuntimeSherpa,
                     status = sherpaRtStatus,
                     locale = locale,
-                    helpDesc = locale.toolRuntimeSherpaDesc,
+                    helpDesc = locale.downloader.toolRuntimeSherpaDesc,
                     onDownload = { nativeLibManager.startDownload(NativeLibManager.Engine.SHERPA) },
                     onDelete = { nativeLibManager.delete(NativeLibManager.Engine.SHERPA) },
                     onHelp = { helpDialog = it },
@@ -239,7 +239,7 @@ internal fun DownloadedToolsDialog(
                                 onClick = { moonshineManager.startDownloadZipformer(lang) },
                             )
                             is MoonshineModelManager.ZipformerLangStatus.Installed -> ToolAction(
-                                text = locale.toolDelete,
+                                text = locale.downloader.toolDelete,
                                 role = ToolActionRole.DESTRUCTIVE,
                                 onClick = { moonshineManager.deleteZipformer(lang) },
                             )
@@ -278,7 +278,7 @@ internal fun DownloadedToolsDialog(
                     } else {
                         MaterialTheme.colorScheme.tertiary
                     },
-                    onHelpClick = { helpDialog = "yt-dlp" to locale.toolDescYtdlp },
+                    onHelpClick = { helpDialog = "yt-dlp" to locale.downloader.toolDescYtdlp },
                     progressFraction = if (
                         downloaderState.ytdlp.status == ToolInstallStatus.DOWNLOADING ||
                         downloaderState.ytdlp.status == ToolInstallStatus.EXTRACTING ||
@@ -298,7 +298,7 @@ internal fun DownloadedToolsDialog(
                             onClick = { downloaderRepository.installTools() },
                         )
                         ToolInstallStatus.INSTALLED -> ToolAction(
-                            text = if (downloaderState.ytdlpUpdate == UpdateStatus.CHECKING) "..." else locale.toolUpdate,
+                            text = if (downloaderState.ytdlpUpdate == UpdateStatus.CHECKING) "..." else locale.downloader.toolUpdate,
                             role = ToolActionRole.TONAL,
                             enabled = downloaderState.ytdlpUpdate != UpdateStatus.CHECKING,
                             onClick = { downloaderRepository.checkUpdates() },
@@ -320,7 +320,7 @@ internal fun DownloadedToolsDialog(
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     accent = MaterialTheme.colorScheme.tertiary,
-                    onHelpClick = { helpDialog = "FFmpeg" to locale.toolDescFfmpeg },
+                    onHelpClick = { helpDialog = "FFmpeg" to locale.downloader.toolDescFfmpeg },
                     progressFraction = if (
                         downloaderState.ffmpeg.status == ToolInstallStatus.DOWNLOADING ||
                         downloaderState.ffmpeg.status == ToolInstallStatus.EXTRACTING ||
@@ -453,10 +453,10 @@ private fun downloaderUpdateText(
     status: UpdateStatus,
     locale: MobileLocaleText,
 ): String? = when (status) {
-    UpdateStatus.UPDATE_AVAILABLE -> locale.toolUpdated
-    UpdateStatus.UP_TO_DATE -> locale.toolUpToDate
-    UpdateStatus.CHECKING -> locale.toolUpdating
-    UpdateStatus.ERROR -> locale.toolUpdateFailed
+    UpdateStatus.UPDATE_AVAILABLE -> locale.downloader.toolUpdated
+    UpdateStatus.UP_TO_DATE -> locale.downloader.toolUpToDate
+    UpdateStatus.CHECKING -> locale.downloader.toolUpdating
+    UpdateStatus.ERROR -> locale.downloader.toolUpdateFailed
     else -> null
 }
 
@@ -510,7 +510,7 @@ private fun NativeRuntimeRow(
                 onClick = onDownload,
             )
             is NativeLibManager.Status.Installed -> ToolAction(
-                text = locale.toolDelete,
+                text = locale.downloader.toolDelete,
                 role = ToolActionRole.DESTRUCTIVE,
                 onClick = onDelete,
             )
@@ -525,29 +525,13 @@ private fun downloadingStatus(locale: MobileLocaleText, progress: Float): String
 private fun installedStatus(locale: MobileLocaleText, sizeBytes: Long): String =
     "${locale.dlDepsReady} (${formatMb(sizeBytes)} MB)"
 
-private fun moonshineLanguageSummary(locale: MobileLocaleText): String = when (locale.closeLabel) {
-    "Đóng" -> "Nhận dạng giọng nói streaming chỉ hỗ trợ tiếng Anh"
-    "닫기" -> "영어 전용 스트리밍 음성 인식"
-    else -> "English-only streaming speech recognition"
-}
+private fun moonshineLanguageSummary(locale: MobileLocaleText): String = locale.downloader.moonshineLanguageSummary
 
-private fun zipformerLanguageSummary(locale: MobileLocaleText): String = when (locale.closeLabel) {
-    "Đóng" -> "8 ngôn ngữ - streaming đa ngôn ngữ"
-    "닫기" -> "8개 언어 - 다국어 스트리밍"
-    else -> "8 languages - multilingual streaming"
-}
+private fun zipformerLanguageSummary(locale: MobileLocaleText): String = locale.downloader.zipformerLanguageSummary
 
-private fun moonshineHelpText(locale: MobileLocaleText): String = when (locale.closeLabel) {
-    "Đóng" -> "Mô hình Moonshine Voice để nhận dạng giọng nói tiếng Anh dạng streaming."
-    "닫기" -> "영어 스트리밍 음성 인식을 위한 Moonshine Voice 모델입니다."
-    else -> "Moonshine Voice streaming model for English speech recognition."
-}
+private fun moonshineHelpText(locale: MobileLocaleText): String = locale.downloader.moonshineHelpText
 
-private fun zipformerHelpText(locale: MobileLocaleText): String = when (locale.closeLabel) {
-    "Đóng" -> "Mô hình Zipformer streaming ASR dùng sherpa-onnx."
-    "닫기" -> "sherpa-onnx 기반 Zipformer 스트리밍 ASR 모델입니다."
-    else -> "Zipformer streaming ASR model (sherpa-onnx)."
-}
+private fun zipformerHelpText(locale: MobileLocaleText): String = locale.downloader.zipformerHelpText
 
 private fun formatMb(bytes: Long): String = "%.1f".format(bytes / (1024.0 * 1024.0))
 
