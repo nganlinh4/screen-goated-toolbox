@@ -29,6 +29,8 @@ import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.service.BubbleService
 import dev.screengoated.toolbox.mobile.service.helpassistant.HelpAssistantOverlayService
+import dev.screengoated.toolbox.mobile.ui.HistoryUiBundle
+import dev.screengoated.toolbox.mobile.ui.ProviderKeysState
 import dev.screengoated.toolbox.mobile.ui.SgtMobileApp
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
@@ -135,24 +137,33 @@ class MainActivity : ComponentActivity() {
             SgtMobileTheme(themeMode = uiPreferences.themeMode) {
                 SgtMobileApp(
                     state = state,
-                    apiKey = apiKey,
-                    cerebrasApiKey = cerebrasApiKey,
-                    groqApiKey = groqApiKey,
-                    openRouterApiKey = openRouterApiKey,
-                    ollamaUrl = ollamaUrl,
+                    providerKeys = ProviderKeysState(
+                        apiKey = apiKey,
+                        cerebrasApiKey = cerebrasApiKey,
+                        groqApiKey = groqApiKey,
+                        openRouterApiKey = openRouterApiKey,
+                        ollamaUrl = ollamaUrl,
+                        onApiKeyChanged = viewModel::onApiKeyChanged,
+                        onCerebrasApiKeyChanged = viewModel::onCerebrasApiKeyChanged,
+                        onGroqApiKeyChanged = viewModel::onGroqApiKeyChanged,
+                        onOpenRouterApiKeyChanged = viewModel::onOpenRouterApiKeyChanged,
+                        onOllamaUrlChanged = viewModel::onOllamaUrlChanged,
+                    ),
                     globalTtsSettings = globalTtsSettings,
                     presetRuntimeSettings = presetRuntimeSettings,
                     customModels = customModels,
                     uiPreferences = uiPreferences,
                     locale = locale,
-                    historyState = historyState,
-                    historySearchQuery = historySearchQuery,
+                    historyBundle = HistoryUiBundle(
+                        state = historyState,
+                        searchQuery = historySearchQuery,
+                        onSearchQueryChanged = viewModel::onHistorySearchQueryChanged,
+                        onClearSearchQuery = viewModel::clearHistorySearchQuery,
+                        onMaxItemsChanged = viewModel::onHistoryMaxItemsChanged,
+                        onDeleteItem = viewModel::deleteHistoryItem,
+                        onClearItems = viewModel::clearHistoryItems,
+                    ),
                     appUpdateState = appUpdateState,
-                    onApiKeyChanged = viewModel::onApiKeyChanged,
-                    onCerebrasApiKeyChanged = viewModel::onCerebrasApiKeyChanged,
-                    onGroqApiKeyChanged = viewModel::onGroqApiKeyChanged,
-                    onOpenRouterApiKeyChanged = viewModel::onOpenRouterApiKeyChanged,
-                    onOllamaUrlChanged = viewModel::onOllamaUrlChanged,
                     onPresetRuntimeSettingsChanged = viewModel::onPresetRuntimeSettingsChanged,
                     onCustomModelsChanged = viewModel::onCustomModelsChanged,
                     onUiLanguageSelected = viewModel::onUiLanguageSelected,
@@ -172,12 +183,7 @@ class MainActivity : ComponentActivity() {
                     onPreviewGoogleTranslate = viewModel::previewGoogleTranslate,
                     onSessionToggle = onSessionToggle,
                     onOverlayOpacityChanged = viewModel::onOverlayOpacityChanged,
-                    onHistorySearchQueryChanged = viewModel::onHistorySearchQueryChanged,
-                    onClearHistorySearchQuery = viewModel::clearHistorySearchQuery,
-                    onHistoryMaxItemsChanged = viewModel::onHistoryMaxItemsChanged,
                     onResetHistoryDefaults = viewModel::resetHistoryDefaults,
-                    onDeleteHistoryItem = viewModel::deleteHistoryItem,
-                    onClearHistoryItems = viewModel::clearHistoryItems,
                     onCheckForAppUpdates = viewModel::checkForAppUpdates,
                 )
             }

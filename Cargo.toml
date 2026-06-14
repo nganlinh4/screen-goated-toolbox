@@ -22,7 +22,7 @@ serde_json = "1.0"
 serde_path_to_error = "0.1"
 anyhow = "1.0"
 base64 = "0.22"
-self_update = { version = "0.42", features = ["archive-zip", "compression-zip-deflate"] }
+semver = "1.0.27"
 zip = "8.2"
 flate2 = "1.1"
 byteorder = "1.5"
@@ -37,6 +37,8 @@ chrono = { version = "0.4", features = ["serde"] }
 # System
 dirs = "6.0"
 lazy_static = "1.5"
+# Cryptographically-strong randomness for the local media server gate token.
+getrandom = "0.3"
 textwrap = "0.16"
 open = "5.3"
 sys-locale = "0.3"
@@ -56,8 +58,6 @@ tray-icon = "0.21.3"
 cpal = "0.17"
 hound = "3.5"
 wasapi = "0.22"
-minimp3 = "0.6"
-egui_extras = { version = "0.34", features = ["all_loaders"] }
 symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4"] }
 symphonia-adapter-libopus = "0.2.6"
 

@@ -21,7 +21,7 @@ use super::engine::get_monitors;
 use super::mf_decode;
 use super::native_export;
 use super::raw_video;
-use super::{SERVER_PORT, SR_HWND};
+use super::{MEDIA_SERVER_TOKEN, SERVER_PORT, SR_HWND};
 use base64::Engine as _;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -164,7 +164,11 @@ pub fn handle_ipc_command(
             if port == 0 {
                 port = start_global_media_server().unwrap_or(0);
             }
-            Ok(serde_json::json!(port))
+            // Deliver the gate token over this SECURE custom-IPC bridge only
+            // (it is not HTTP-reachable). The client attaches it as the
+            // `X-SGT-Token` header on POST/fetch and as `&token=` on GET URLs.
+            let token = MEDIA_SERVER_TOKEN.get().cloned().unwrap_or_default();
+            Ok(serde_json::json!({ "port": port, "token": token }))
         }
         "import_video_path" => {
             let path = args["path"].as_str().ok_or("Missing path")?;

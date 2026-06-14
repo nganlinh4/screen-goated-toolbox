@@ -11,12 +11,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -40,7 +38,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.edit
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
@@ -78,30 +75,15 @@ internal fun MobileShellSection.layoutBehavior(): ShellSectionLayoutBehavior = w
 @Composable
 internal fun MobileShellSurface(
     state: LiveSessionState,
-    apiKey: String,
-    cerebrasApiKey: String,
-    groqApiKey: String,
-    openRouterApiKey: String,
-    ollamaUrl: String,
+    providerKeys: ProviderKeysState,
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
-    historyState: HistoryUiState,
-    historySearchQuery: String,
+    historyBundle: HistoryUiBundle,
     appUpdateState: AppUpdateUiState,
     locale: MobileLocaleText,
-    onApiKeyChanged: (String) -> Unit,
-    onCerebrasApiKeyChanged: (String) -> Unit,
-    onGroqApiKeyChanged: (String) -> Unit,
-    onOpenRouterApiKeyChanged: (String) -> Unit,
-    onOllamaUrlChanged: (String) -> Unit,
-    onPresetRuntimeSettingsClick: () -> Unit,
-    onCustomModelsClick: () -> Unit,
-    onUsageStatsClick: () -> Unit = {},
-    onDownloadedToolsClick: () -> Unit = {},
-    onResetDefaults: () -> Unit = {},
-    onVoiceSettingsClick: () -> Unit,
+    settingsActions: SettingsActions,
+    navActions: ShellNavActions,
     uiPreferences: dev.screengoated.toolbox.mobile.model.MobileUiPreferences = dev.screengoated.toolbox.mobile.model.MobileUiPreferences(),
-    onOverlayOpacityChanged: (Int) -> Unit = {},
     showEmbeddedHeader: Boolean = false,
     appHeaderTitle: String = "",
     uiLanguage: String = "en",
@@ -109,17 +91,6 @@ internal fun MobileShellSurface(
     onUiLanguageSelected: (String) -> Unit = {},
     themeMode: MobileThemeMode = MobileThemeMode.SYSTEM,
     onThemeCycleRequested: () -> Unit = {},
-    onSessionToggle: () -> Unit,
-    onHistorySearchQueryChanged: (String) -> Unit = {},
-    onClearHistorySearchQuery: () -> Unit = {},
-    onHistoryMaxItemsChanged: (Int) -> Unit = {},
-    onDeleteHistoryItem: (Long) -> Unit = {},
-    onClearHistoryItems: () -> Unit = {},
-    onCheckForAppUpdates: () -> Unit = {},
-    onDownloaderClick: () -> Unit = {},
-    onDjClick: () -> Unit = {},
-    onTranslationGummyClick: () -> Unit = {},
-    onPresetClick: (String) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
@@ -199,131 +170,10 @@ internal fun MobileShellSurface(
                 ),
         )
         Box(modifier = Modifier.fillMaxSize()) {
-            // Wide rail layout only for portrait tablets (wide AND tall).
-            // Landscape phones (wide but short) use the pager layout to avoid
-            // VerticalCarousel-in-scrollable-parent crashes.
-            val wideLayout = false // Disabled: tablets use pager layout like phones
-            if (wideLayout) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    ShellRail(
-                        selectedSection = selectedSection,
-                        onSectionSelected = { selectedSection = it },
-                        locale = locale,
-                        modifier = Modifier.fillMaxHeight(),
-                    )
-                    val wideScrollState = rememberScrollState()
-                    val wideNeedsScroll = selectedSection.layoutBehavior().usesOuterScroll
-                    if (wideNeedsScroll) {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .widthIn(max = 960.dp)
-                                .verticalScroll(wideScrollState),
-                            verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
-                        ) {
-                            SectionDetail(
-                                selectedSection = selectedSection,
-                                state = state,
-                                apiKey = apiKey,
-                                cerebrasApiKey = cerebrasApiKey,
-                                groqApiKey = groqApiKey,
-                                openRouterApiKey = openRouterApiKey,
-                                ollamaUrl = ollamaUrl,
-                                globalTtsSettings = globalTtsSettings,
-                                presetRuntimeSettings = presetRuntimeSettings,
-                                historyState = historyState,
-                                historySearchQuery = historySearchQuery,
-                                appUpdateState = appUpdateState,
-                                locale = locale,
-                                wideLayout = true,
-                                onApiKeyChanged = onApiKeyChanged,
-                                onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
-                                onGroqApiKeyChanged = onGroqApiKeyChanged,
-                                onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
-                                onOllamaUrlChanged = onOllamaUrlChanged,
-                                onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
-                                onCustomModelsClick = onCustomModelsClick,
-                                onUsageStatsClick = onUsageStatsClick,
-                                onDownloadedToolsClick = onDownloadedToolsClick,
-                                onResetDefaults = onResetDefaults,
-                                onVoiceSettingsClick = onVoiceSettingsClick,
-                                uiPreferences = uiPreferences,
-                                onOverlayOpacityChanged = onOverlayOpacityChanged,
-                                onSessionToggle = onSessionToggle,
-                                onHistorySearchQueryChanged = onHistorySearchQueryChanged,
-                                onClearHistorySearchQuery = onClearHistorySearchQuery,
-                                onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
-                                onDeleteHistoryItem = onDeleteHistoryItem,
-                                onClearHistoryItems = onClearHistoryItems,
-                                onCheckForAppUpdates = onCheckForAppUpdates,
-                                canToggle = canToggle,
-                                onDownloaderClick = onDownloaderClick,
-                                onDjClick = onDjClick,
-                                onTranslationGummyClick = onTranslationGummyClick,
-                                onPresetClick = onPresetClick,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                            )
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .widthIn(max = 960.dp)
-                                .fillMaxSize(),
-                        ) {
-                            SectionDetail(
-                                selectedSection = selectedSection,
-                                state = state,
-                                apiKey = apiKey,
-                                cerebrasApiKey = cerebrasApiKey,
-                                groqApiKey = groqApiKey,
-                                openRouterApiKey = openRouterApiKey,
-                                ollamaUrl = ollamaUrl,
-                                globalTtsSettings = globalTtsSettings,
-                                presetRuntimeSettings = presetRuntimeSettings,
-                                historyState = historyState,
-                                historySearchQuery = historySearchQuery,
-                                appUpdateState = appUpdateState,
-                                locale = locale,
-                                wideLayout = true,
-                                onApiKeyChanged = onApiKeyChanged,
-                                onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
-                                onGroqApiKeyChanged = onGroqApiKeyChanged,
-                                onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
-                                onOllamaUrlChanged = onOllamaUrlChanged,
-                                onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
-                                onCustomModelsClick = onCustomModelsClick,
-                                onUsageStatsClick = onUsageStatsClick,
-                                onDownloadedToolsClick = onDownloadedToolsClick,
-                                onResetDefaults = onResetDefaults,
-                                onVoiceSettingsClick = onVoiceSettingsClick,
-                                uiPreferences = uiPreferences,
-                                onOverlayOpacityChanged = onOverlayOpacityChanged,
-                                onSessionToggle = onSessionToggle,
-                                onHistorySearchQueryChanged = onHistorySearchQueryChanged,
-                                onClearHistorySearchQuery = onClearHistorySearchQuery,
-                                onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
-                                onDeleteHistoryItem = onDeleteHistoryItem,
-                                onClearHistoryItems = onClearHistoryItems,
-                                onCheckForAppUpdates = onCheckForAppUpdates,
-                                canToggle = canToggle,
-                                onDownloaderClick = onDownloaderClick,
-                                onDjClick = onDjClick,
-                                onTranslationGummyClick = onTranslationGummyClick,
-                                onPresetClick = onPresetClick,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                            )
-                        }
-                    }
-                }
-            } else {
+            // Phones and tablets both use the pager layout: a wide rail layout was
+            // disabled because a VerticalCarousel inside a scrollable parent crashes
+            // on landscape phones (wide but short).
+            run {
                 val sections = MobileShellSection.entries
                 val initialPage = sections.indexOf(selectedSection).coerceAtLeast(0)
                 val warmTabCount = (sections.size - 1).coerceAtLeast(0)
@@ -466,43 +316,17 @@ internal fun MobileShellSurface(
                                 SectionDetail(
                                     selectedSection = section,
                                     state = state,
-                                    apiKey = apiKey,
-                                    cerebrasApiKey = cerebrasApiKey,
-                                    groqApiKey = groqApiKey,
-                                    openRouterApiKey = openRouterApiKey,
-                                    ollamaUrl = ollamaUrl,
+                                    providerKeys = providerKeys,
                                     globalTtsSettings = globalTtsSettings,
                                     presetRuntimeSettings = presetRuntimeSettings,
-                                    historyState = historyState,
-                                    historySearchQuery = historySearchQuery,
+                                    historyBundle = historyBundle,
                                     appUpdateState = appUpdateState,
                                     locale = locale,
                                     wideLayout = false,
-                                    onApiKeyChanged = onApiKeyChanged,
-                                    onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
-                                    onGroqApiKeyChanged = onGroqApiKeyChanged,
-                                    onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
-                                    onOllamaUrlChanged = onOllamaUrlChanged,
-                                    onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
-                                    onCustomModelsClick = onCustomModelsClick,
-                                    onUsageStatsClick = onUsageStatsClick,
-                                    onDownloadedToolsClick = onDownloadedToolsClick,
-                                    onResetDefaults = onResetDefaults,
-                                    onVoiceSettingsClick = onVoiceSettingsClick,
+                                    settingsActions = settingsActions,
+                                    navActions = navActions,
                                     uiPreferences = uiPreferences,
-                                    onOverlayOpacityChanged = onOverlayOpacityChanged,
-                                    onSessionToggle = onSessionToggle,
-                                    onHistorySearchQueryChanged = onHistorySearchQueryChanged,
-                                    onClearHistorySearchQuery = onClearHistorySearchQuery,
-                                    onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
-                                    onDeleteHistoryItem = onDeleteHistoryItem,
-                                    onClearHistoryItems = onClearHistoryItems,
-                                    onCheckForAppUpdates = onCheckForAppUpdates,
                                     canToggle = canToggle,
-                                    onDownloaderClick = onDownloaderClick,
-                                    onDjClick = onDjClick,
-                                    onTranslationGummyClick = onTranslationGummyClick,
-                                    onPresetClick = onPresetClick,
                                     onPagerSwipeLockChanged = { pagerSwipeLocked = it },
                                     sharedTransitionScope = null,
                                     animatedVisibilityScope = null,
@@ -513,43 +337,17 @@ internal fun MobileShellSurface(
                                 SectionDetail(
                                     selectedSection = section,
                                     state = state,
-                                    apiKey = apiKey,
-                                    cerebrasApiKey = cerebrasApiKey,
-                                    groqApiKey = groqApiKey,
-                                    openRouterApiKey = openRouterApiKey,
-                                    ollamaUrl = ollamaUrl,
+                                    providerKeys = providerKeys,
                                     globalTtsSettings = globalTtsSettings,
                                     presetRuntimeSettings = presetRuntimeSettings,
-                                    historyState = historyState,
-                                    historySearchQuery = historySearchQuery,
+                                    historyBundle = historyBundle,
                                     appUpdateState = appUpdateState,
                                     locale = locale,
                                     wideLayout = false,
-                                    onApiKeyChanged = onApiKeyChanged,
-                                    onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
-                                    onGroqApiKeyChanged = onGroqApiKeyChanged,
-                                    onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
-                                    onOllamaUrlChanged = onOllamaUrlChanged,
-                                    onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
-                                    onCustomModelsClick = onCustomModelsClick,
-                                    onUsageStatsClick = onUsageStatsClick,
-                                    onDownloadedToolsClick = onDownloadedToolsClick,
-                                    onResetDefaults = onResetDefaults,
-                                    onVoiceSettingsClick = onVoiceSettingsClick,
+                                    settingsActions = settingsActions,
+                                    navActions = navActions,
                                     uiPreferences = uiPreferences,
-                                    onOverlayOpacityChanged = onOverlayOpacityChanged,
-                                    onSessionToggle = onSessionToggle,
-                                    onHistorySearchQueryChanged = onHistorySearchQueryChanged,
-                                    onClearHistorySearchQuery = onClearHistorySearchQuery,
-                                    onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
-                                    onDeleteHistoryItem = onDeleteHistoryItem,
-                                    onClearHistoryItems = onClearHistoryItems,
-                                    onCheckForAppUpdates = onCheckForAppUpdates,
                                     canToggle = canToggle,
-                                    onDownloaderClick = onDownloaderClick,
-                                    onDjClick = onDjClick,
-                                    onTranslationGummyClick = onTranslationGummyClick,
-                                    onPresetClick = onPresetClick,
                                     onPagerSwipeLockChanged = { pagerSwipeLocked = it },
                                     sharedTransitionScope = null,
                                     animatedVisibilityScope = null,

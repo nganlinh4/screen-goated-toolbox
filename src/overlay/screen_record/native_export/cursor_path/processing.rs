@@ -55,7 +55,10 @@ pub(super) fn smooth_mouse_positions(
         let p3 = &positions[i + 3];
 
         let seg_dur = p2.timestamp - p1.timestamp;
-        let n_frames = (seg_dur * target_fps).ceil() as usize;
+        // WYSIWYG alignment to cursorDynamics.ts smoothMousePositions: clamp the
+        // interpolated frame count to min(ceil(segDur*fps), 60). The preview caps
+        // this at 60 frames per segment; export previously omitted the cap.
+        let n_frames = ((seg_dur * target_fps).ceil() as usize).min(60);
         let n_frames = n_frames.max(1);
 
         for frame in 0..n_frames {
@@ -101,35 +104,56 @@ pub(super) fn smooth_mouse_positions(
             .collect();
     }
 
-    // Gaussian blur passes — only x/y are blurred; other fields are unchanged.
-    // Use separate x/y buffers to avoid per-element String clones.
+    // WYSIWYG alignment to cursorDynamics.ts smoothMousePositions box-blur block:
+    // a FIXED 3-pass UNIFORM box blur (each sample weighted 1) over the symmetric
+    // window [max(0,i-half), min(n-1,i+half)], half = floor(windowSize/2). The mean
+    // is the running window sum divided by the window length. The previous export
+    // used an exponential-weight kernel, passes = ceil(windowSize/2), and a ±window
+    // (≈2× too wide) half — diverging from the preview by 20-34px. Only x/y are
+    // blurred; other fields are unchanged. The O(N) running-sum order mirrors the TS
+    // accumulation exactly so both languages agree within 1e-6.
     let smoothness = get_cursor_smoothness(bg);
     let window_size = (smoothness * 2.0 + 1.0) as usize;
-    let passes = ((window_size as f64) / 2.0).ceil() as usize;
+    let passes = 3; // 3-pass box blur approximates a Gaussian kernel in O(N) total
+    let half = window_size / 2; // floor(windowSize / 2)
     let mut current = smoothed;
-    let inv_half_win = 0.5 / window_size as f64;
 
     for _ in 0..passes {
         let n = current.len();
         let mut new_x = vec![0.0_f64; n];
         let mut new_y = vec![0.0_f64; n];
-        for i in 0..n {
-            let j_start = i.saturating_sub(window_size);
-            let j_end = (i + window_size).min(n - 1);
-            let mut sum_x = 0.0_f64;
-            let mut sum_y = 0.0_f64;
-            let mut total_w = 0.0_f64;
-            for (offset, point) in current[j_start..=j_end].iter().enumerate() {
-                let j = j_start + offset;
-                let dist = (i as isize - j as isize).unsigned_abs() as f64;
-                let w = (-dist * inv_half_win).exp();
-                sum_x += point.x * w;
-                sum_y += point.y * w;
-                total_w += w;
-            }
-            new_x[i] = sum_x / total_w;
-            new_y[i] = sum_y / total_w;
+
+        let mut run_x = 0.0_f64;
+        let mut run_y = 0.0_f64;
+        let mut win_start = 0usize;
+        let mut win_end = half.min(n - 1);
+
+        // Initialize the running sum for the first window centered at i=0.
+        for point in &current[..=win_end] {
+            run_x += point.x;
+            run_y += point.y;
         }
+
+        for i in 0..n {
+            let target_start = i.saturating_sub(half);
+            let target_end = (i + half).min(n - 1);
+
+            while win_end < target_end {
+                win_end += 1;
+                run_x += current[win_end].x;
+                run_y += current[win_end].y;
+            }
+            while win_start < target_start {
+                run_x -= current[win_start].x;
+                run_y -= current[win_start].y;
+                win_start += 1;
+            }
+
+            let win_len = (win_end - win_start + 1) as f64;
+            new_x[i] = run_x / win_len;
+            new_y[i] = run_y / win_len;
+        }
+
         for (i, pos) in current.iter_mut().enumerate() {
             pos.x = new_x[i];
             pos.y = new_y[i];
@@ -386,4 +410,110 @@ pub(super) fn interpolate_pos(time: f64, positions: &[Pos]) -> Option<Pos> {
         cursor_type: next.cursor_type.clone(),
         cursor_rotation: lerp_angle(prev.cursor_rotation, next.cursor_rotation, t),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{catmull_rom, smooth_mouse_positions};
+    use crate::overlay::screen_record::native_export::config::{BackgroundConfig, MousePosition};
+
+    // Cross-language render-math golden for the Catmull-Rom primitive and the full
+    // smoothMousePositions pipeline. TS preview (cursorDynamics.ts) is canonical.
+    // Regenerate via screen-record/tests/unit/_generateRenderGolden.gen.ts.
+    // See .claude/parity/render-camera-cursor.md.
+    const GOLDEN: &str =
+        include_str!("../../../../../parity-fixtures/render-camera-cursor/golden.json");
+
+    #[test]
+    fn catmull_rom_endpoints() {
+        // Passes through p1 at t=0 and p2 at t=1.
+        assert!((catmull_rom(0.0, 10.0, 30.0, 40.0, 0.0) - 10.0).abs() < 1e-12);
+        assert!((catmull_rom(0.0, 10.0, 30.0, 40.0, 1.0) - 30.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn catmull_rom_matches_golden() {
+        let g: serde_json::Value = serde_json::from_str(GOLDEN).expect("golden parses");
+        let tol = g["tolerance"].as_f64().unwrap();
+        for c in g["cursorPrimitives"]["catmullRom"].as_array().unwrap() {
+            let got = catmull_rom(
+                c["p0"].as_f64().unwrap(),
+                c["p1"].as_f64().unwrap(),
+                c["p2"].as_f64().unwrap(),
+                c["p3"].as_f64().unwrap(),
+                c["t"].as_f64().unwrap(),
+            );
+            assert!(
+                (got - c["value"].as_f64().unwrap()).abs() <= tol,
+                "catmull drift at t={}",
+                c["t"]
+            );
+        }
+    }
+
+    // Minimal BackgroundConfig JSON carrying the one field smooth_mouse_positions
+    // reads (cursorSmoothness), plus the required base fields. Mirrors the TS
+    // generator's smoothnessBg().
+    fn bg_with_smoothness(smoothness: f64) -> BackgroundConfig {
+        serde_json::from_value(serde_json::json!({
+            "scale": 1.0,
+            "borderRadius": 0.0,
+            "backgroundType": "solid",
+            "shadow": 0.0,
+            "cursorScale": 1.0,
+            "cursorSmoothness": smoothness,
+        }))
+        .expect("background config parses")
+    }
+
+    #[test]
+    fn smooth_mouse_positions_matches_golden() {
+        // Full pipeline (Catmull-Rom interp -> 3-pass uniform box blur -> dedup) is
+        // now WYSIWYG-aligned with the TS preview and locked cross-language. The
+        // Rust export must reproduce the canonical smoothMousePositions output for
+        // each smoothness within 1e-6.
+        let g: serde_json::Value = serde_json::from_str(GOLDEN).expect("golden parses");
+        let tol = g["tolerance"].as_f64().unwrap();
+        let sm = &g["cursorPrimitives"]["smoothMousePositions"];
+
+        let input: Vec<MousePosition> =
+            serde_json::from_value(sm["input"].clone()).expect("input positions parse");
+
+        for case in sm["cases"].as_array().unwrap() {
+            let smoothness = case["smoothness"].as_f64().unwrap();
+            let bg = bg_with_smoothness(smoothness);
+            let got = smooth_mouse_positions(&input, Some(&bg));
+            let expected = case["output"].as_array().unwrap();
+
+            assert_eq!(
+                got.len(),
+                expected.len(),
+                "output length mismatch at smoothness={smoothness}"
+            );
+            for (i, (g_pos, e)) in got.iter().zip(expected.iter()).enumerate() {
+                assert!(
+                    (g_pos.x - e["x"].as_f64().unwrap()).abs() <= tol,
+                    "x drift at smoothness={smoothness} idx={i}"
+                );
+                assert!(
+                    (g_pos.y - e["y"].as_f64().unwrap()).abs() <= tol,
+                    "y drift at smoothness={smoothness} idx={i}"
+                );
+                assert!(
+                    (g_pos.timestamp - e["timestamp"].as_f64().unwrap()).abs() <= tol,
+                    "timestamp drift at smoothness={smoothness} idx={i}"
+                );
+                assert_eq!(
+                    g_pos.is_clicked,
+                    e["isClicked"].as_bool().unwrap(),
+                    "isClicked mismatch at smoothness={smoothness} idx={i}"
+                );
+                assert_eq!(
+                    g_pos.cursor_type,
+                    e["cursor_type"].as_str().unwrap(),
+                    "cursor_type mismatch at smoothness={smoothness} idx={i}"
+                );
+            }
+        }
+    }
 }

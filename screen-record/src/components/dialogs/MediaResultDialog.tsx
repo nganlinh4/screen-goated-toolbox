@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen, Copy, CheckCircle2 } from '@/components/ui/MaterialIcon';
 import { invoke } from '@/lib/ipc';
+import { getMediaServerUrl } from '@/lib/mediaServer';
 import { useSettings } from '@/hooks/useSettings';
 import type { ExportArtifact } from '@/types/video';
 import {
@@ -98,10 +99,8 @@ export function MediaResultDialog({
     if (streamSessionRef.current) return;
     streamSessionRef.current = true;
     setPreviewReady(false);
-    invoke<number>('get_media_server_port').then((port) => {
-      if (port > 0) {
-        setStreamUrl(`http://127.0.0.1:${port}/?path=${encodeURIComponent(filePath)}`);
-      }
+    getMediaServerUrl(filePath).then((url) => {
+      setStreamUrl(url);
     }).catch(console.error);
   }, [show, filePath]);
 

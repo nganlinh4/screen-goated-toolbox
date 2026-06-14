@@ -61,6 +61,12 @@ thread_local! {
 
 lazy_static::lazy_static! {
     pub static ref SERVER_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+    /// Per-process secret gate token for the local media HTTP server. Minted once
+    /// when the server starts; required (via header or query param) on every
+    /// request so other processes / browser tabs cannot reach the server even
+    /// though it binds a scannable loopback port. Delivered to the frontend only
+    /// over the secure custom-IPC bridge (`get_media_server_port`).
+    pub static ref MEDIA_SERVER_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     static ref PENDING_VIDEO_DROP_ACTIONS: std::sync::Mutex<Vec<VideoDropAction>> = std::sync::Mutex::new(Vec::new());
     static ref PENDING_AUDIO_DROP_ACTIONS: std::sync::Mutex<Vec<AudioDropAction>> = std::sync::Mutex::new(Vec::new());
     static ref PENDING_SUBTITLE_DROP_ACTIONS: std::sync::Mutex<Vec<SubtitleDropAction>> = std::sync::Mutex::new(Vec::new());

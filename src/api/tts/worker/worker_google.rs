@@ -1,7 +1,6 @@
 // Google Translate TTS handler.
 
-use minimp3::{Decoder, Frame};
-use std::io::{Cursor, Read};
+use std::io::Read;
 use std::sync::{Arc, atomic::Ordering};
 
 use super::super::manager::TtsManager;
@@ -81,38 +80,20 @@ pub(super) fn handle_google_tts(
         return;
     }
 
-    // Decode MP3 to PCM
-    let mut decoder = Decoder::new(Cursor::new(mp3_data));
+    // Decode MP3 to PCM (in-memory via symphonia)
     let mut source_sample_rate = 24000u32;
     let mut all_samples: Vec<i16> = Vec::new();
 
-    loop {
-        if request.generation < manager.interrupt_generation.load(Ordering::SeqCst) {
-            let _ = tx.send(AudioEvent::End);
-            clear_tts_state(request.req.hwnd);
-            return;
-        }
-
-        match decoder.next_frame() {
-            Ok(Frame {
-                data,
-                sample_rate,
-                channels,
-                ..
-            }) => {
-                source_sample_rate = sample_rate as u32;
-                if channels == 2 {
-                    for chunk in data.chunks(2) {
-                        let sample = ((chunk[0] as i32 + chunk[1] as i32) / 2) as i16;
-                        all_samples.push(sample);
-                    }
-                } else {
-                    all_samples.extend_from_slice(&data);
-                }
-            }
-            Err(minimp3::Error::Eof) => break,
-            Err(_) => break,
-        }
+    if !super::audio_utils::decode_mp3_to_pcm(
+        mp3_data,
+        &mut all_samples,
+        &mut source_sample_rate,
+        || request.generation < manager.interrupt_generation.load(Ordering::SeqCst),
+    ) {
+        // Interrupted mid-decode.
+        let _ = tx.send(AudioEvent::End);
+        clear_tts_state(request.req.hwnd);
+        return;
     }
 
     stream_pcm_samples(&manager, &request, &tx, all_samples, source_sample_rate);

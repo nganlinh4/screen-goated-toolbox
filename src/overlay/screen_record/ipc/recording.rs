@@ -9,7 +9,7 @@ use super::super::engine::{
     SHOULD_STOP, VIDEO_PATH, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
     WEBCAM_VIDEO_START_OFFSET_MS,
 };
-use super::super::{SERVER_PORT, input_capture};
+use super::super::{MEDIA_SERVER_TOKEN, SERVER_PORT, input_capture};
 use super::media_server::start_global_media_server;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
@@ -481,15 +481,29 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
 
     let mouse_positions = MOUSE_POSITIONS.lock().drain(..).collect::<Vec<_>>();
 
+    // These media-server URLs feed <video>/<audio> elements directly, so they
+    // must carry the gate token as a query param (those elements cannot send
+    // the X-SGT-Token header). The token is the per-process media-server secret.
+    let media_token = MEDIA_SERVER_TOKEN.get().cloned().unwrap_or_default();
+    let encoded_token = urlencoding::encode(&media_token).into_owned();
     let encoded_path = urlencoding::encode(&video_path);
-    let video_url = format!("http://localhost:{}/?path={}", port, encoded_path);
-    let device_audio_url = format!("http://localhost:{}/?path={}", port, encoded_path);
+    let video_url = format!(
+        "http://localhost:{}/?path={}&token={}",
+        port, encoded_path, encoded_token
+    );
+    let device_audio_url = format!(
+        "http://localhost:{}/?path={}&token={}",
+        port, encoded_path, encoded_token
+    );
     let mic_audio_url = mic_audio_path
         .as_ref()
         .filter(|path| std::path::Path::new(path).exists())
         .map(|path| {
             let encoded = urlencoding::encode(path);
-            format!("http://localhost:{}/?path={}", port, encoded)
+            format!(
+                "http://localhost:{}/?path={}&token={}",
+                port, encoded, encoded_token
+            )
         });
     let webcam_video_url = webcam_video_path
         .as_ref()
@@ -500,7 +514,10 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
         })
         .map(|path| {
             let encoded = urlencoding::encode(path);
-            format!("http://localhost:{}/?path={}", port, encoded)
+            format!(
+                "http://localhost:{}/?path={}&token={}",
+                port, encoded, encoded_token
+            )
         });
     IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
     eprintln!(

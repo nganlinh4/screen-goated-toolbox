@@ -19,27 +19,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.res.painterResource
-import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,23 +40,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import dev.screengoated.toolbox.mobile.shared.preset.BlockType
+import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
 
 // ---------------------------------------------------------------------------
-// Render mode model
+// Render mode model helpers (4-option process/special nodes)
 // ---------------------------------------------------------------------------
-
-private data class RenderModeOption(
-    val label: String,
-    val renderMode: String,
-    val streaming: Boolean,
-)
 
 private fun renderModeOptions(lang: String): List<RenderModeOption> = listOf(
     RenderModeOption(nodeGraphLocalized(lang, "Normal", "Thường", "일반"), "plain", false),
@@ -81,193 +67,6 @@ private fun currentRenderModeIndex(block: ProcessingBlock): Int {
         block.renderMode == "markdown" && !block.streamingEnabled -> 2
         block.renderMode == "markdown_stream" && block.streamingEnabled -> 3
         else -> 0
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Main bottom sheet
-// ---------------------------------------------------------------------------
-
-@Composable
-fun NodePropertySheet(
-    block: ProcessingBlock,
-    nodeId: String,
-    lang: String,
-    presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType =
-        dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
-    onDismiss: () -> Unit,
-    onBlockUpdated: (ProcessingBlock) -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var editBlock by remember(nodeId) { mutableStateOf(block) }
-
-    // Propagate edits
-    fun update(newBlock: ProcessingBlock) {
-        editBlock = newBlock
-        onBlockUpdated(newBlock)
-    }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            // -- Header --
-            NodeSheetHeader(editBlock, lang)
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-            when (editBlock.blockType) {
-                BlockType.INPUT_ADAPTER -> InputNodeBody(editBlock, lang, presetType, ::update)
-                else -> ProcessNodeBody(editBlock, lang, ::update)
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Sheet header
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun NodeSheetHeader(block: ProcessingBlock, lang: String) {
-    val accentColor = when (block.blockType) {
-        BlockType.INPUT_ADAPTER -> Color(0xFF26A69A)
-        BlockType.IMAGE -> Color(0xFFFFA726)
-        BlockType.TEXT -> Color(0xFF42A5F5)
-        BlockType.AUDIO -> Color(0xFFAB47BC)
-    }
-    val typeLabel = when (block.blockType) {
-        BlockType.INPUT_ADAPTER -> nodeGraphLocalized(lang, "Input Node", "Nút đầu vào", "입력 노드")
-        BlockType.IMAGE -> nodeGraphLocalized(lang, "Special Node (Image)", "Nút đặc biệt (Ảnh)", "특수 노드 (이미지)")
-        BlockType.TEXT -> nodeGraphLocalized(lang, "Process Node", "Nút xử lý", "처리 노드")
-        BlockType.AUDIO -> nodeGraphLocalized(lang, "Special Node (Audio)", "Nút đặc biệt (Âm thanh)", "특수 노드 (오디오)")
-    }
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Surface(
-            modifier = Modifier.size(8.dp),
-            shape = CircleShape,
-            color = accentColor,
-            content = {},
-        )
-        Spacer(Modifier.width(10.dp))
-        Text(
-            typeLabel,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Input node body
-// ---------------------------------------------------------------------------
-
-@Composable
-internal fun InputNodeBody(
-    block: ProcessingBlock,
-    lang: String,
-    presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType,
-    onUpdate: (ProcessingBlock) -> Unit,
-) {
-    val isTextInput = presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT ||
-        presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT
-    val isImage = presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE
-    val isAudio = presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC ||
-        presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO
-
-    // Show overlay toggle
-    SheetSwitchRow(
-        icon = R.drawable.ms_visibility,
-        label = nodeGraphLocalized(lang, "Show overlay", "Hiện overlay", "오버레이 표시"),
-        checked = block.showOverlay,
-        onCheckedChange = { onUpdate(block.copy(showOverlay = it)) },
-    )
-
-    // Render mode (only when overlay visible)
-    AnimatedVisibility(
-        visible = block.showOverlay,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
-    ) {
-        InputRenderModeSelector(block, lang, onUpdate)
-    }
-
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-    // Auto-copy: text input = locked ON; image = toggleable; audio = hidden
-    if (!isAudio) {
-        SheetSwitchRow(
-            icon = R.drawable.ms_content_copy,
-            label = if (isTextInput) {
-                nodeGraphLocalized(lang, "Auto-copy (always on)", "Tự sao chép (luôn bật)", "자동 복사 (항상 켜짐)")
-            } else {
-                nodeGraphLocalized(lang, "Auto-copy", "Tự sao chép", "자동 복사")
-            },
-            checked = if (isTextInput) true else block.autoCopy,
-            onCheckedChange = {
-                if (!isTextInput) onUpdate(block.copy(autoCopy = it))
-                // Text input: locked on, ignore toggle
-            },
-            enabled = !isTextInput,
-        )
-    }
-
-    // Auto-speak: only for text input presets
-    if (isTextInput) {
-        SheetSwitchRow(
-            icon = R.drawable.ms_volume_up,
-            label = nodeGraphLocalized(lang, "Auto-speak", "Tự phát âm", "자동 말하기"),
-            checked = block.autoSpeak,
-            onCheckedChange = { onUpdate(block.copy(autoSpeak = it)) },
-        )
-    }
-}
-
-@Composable
-internal fun InputRenderModeSelector(
-    block: ProcessingBlock,
-    lang: String,
-    onUpdate: (ProcessingBlock) -> Unit,
-) {
-    val options = listOf(
-        RenderModeOption(nodeGraphLocalized(lang, "Normal", "Thường", "일반"), "plain", false),
-        RenderModeOption(nodeGraphLocalized(lang, "Markdown", "Đẹp", "마크다운"), "markdown", false),
-    )
-    val currentIdx = if (block.renderMode == "markdown" || block.renderMode == "markdown_stream") 1 else 0
-
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SheetLabel(nodeGraphLocalized(lang, "Render mode", "Chế độ hiển thị", "렌더링 모드"))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-        ) {
-            options.forEachIndexed { idx, opt ->
-                ToggleButton(
-                    checked = currentIdx == idx,
-                    onCheckedChange = {
-                        if (it) onUpdate(block.copy(renderMode = opt.renderMode, streamingEnabled = opt.streaming))
-                    },
-                    shapes = when (idx) {
-                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                        else -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                    },
-                    modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
-                ) {
-                    Text(opt.label, style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        }
     }
 }
 
@@ -465,7 +264,7 @@ internal fun ModelSelectorSection(
                                     if (model.supportsSearch) {
                                         Spacer(Modifier.width(6.dp))
                                         Text(
-                                            "\uD83D\uDD0D",
+                                            "🔍",
                                             style = MaterialTheme.typography.labelSmall,
                                         )
                                     }
@@ -480,7 +279,7 @@ internal fun ModelSelectorSection(
 }
 
 // ---------------------------------------------------------------------------
-// Prompt editor + language variables
+// Prompt editor
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -534,162 +333,6 @@ internal fun PromptEditorSection(
     }
 }
 
-@Composable
-internal fun LanguageVariablesSection(
-    block: ProcessingBlock,
-    lang: String,
-    onUpdate: (ProcessingBlock) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painterResource(R.drawable.ms_language),
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.tertiary,
-            )
-            Spacer(Modifier.width(6.dp))
-            SheetLabel(nodeGraphLocalized(lang, "Language variables", "Biến ngôn ngữ", "언어 변수"))
-        }
-
-        block.languageVars.entries.sortedBy { it.key }.forEach { (varName, varValue) ->
-            LanguageVariableRow(
-                varName = varName,
-                varValue = varValue,
-                lang = lang,
-                onValueChanged = { newValue ->
-                    val newVars = block.languageVars.toMutableMap()
-                    newVars[varName] = newValue
-                    onUpdate(block.copy(languageVars = newVars))
-                },
-                onRemove = {
-                    val newVars = block.languageVars.toMutableMap()
-                    newVars.remove(varName)
-                    // Also remove the tag from prompt
-                    val newPrompt = block.prompt.replace("{$varName}", "").trim()
-                    onUpdate(block.copy(languageVars = newVars, prompt = newPrompt))
-                },
-            )
-        }
-    }
-}
-
-@Composable
-internal fun LanguageVariableRow(
-    varName: String,
-    varValue: String,
-    lang: String,
-    onValueChanged: (String) -> Unit,
-    onRemove: () -> Unit,
-) {
-    var showPicker by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
-
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "{$varName}",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.tertiary,
-            )
-            Spacer(Modifier.width(8.dp))
-
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { showPicker = !showPicker },
-                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Text(
-                    varValue,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-
-            IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    painterResource(R.drawable.ms_close),
-                    contentDescription = nodeGraphLocalized(lang, "Remove", "Xóa", "삭제"),
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = showPicker,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            Column(
-                modifier = Modifier.padding(top = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    placeholder = { Text(nodeGraphLocalized(lang, "Search languages...", "Tìm ngôn ngữ...", "언어 검색...")) },
-                    leadingIcon = {
-                        Icon(painterResource(R.drawable.ms_search), contentDescription = null, modifier = Modifier.size(16.dp))
-                    },
-                )
-
-                val filtered = remember(searchQuery) {
-                    if (searchQuery.isBlank()) ALL_ISO_LANGUAGES
-                    else ALL_ISO_LANGUAGES.filter {
-                        it.contains(searchQuery, ignoreCase = true)
-                    }
-                }
-
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 200.dp),
-                ) {
-                    items(filtered, key = { it }) { name ->
-                        val isSelected = name == varValue
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable {
-                                    onValueChanged(name)
-                                    showPicker = false
-                                    searchQuery = ""
-                                },
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.tertiaryContainer
-                            } else {
-                                Color.Transparent
-                            },
-                            shape = RoundedCornerShape(6.dp),
-                        ) {
-                            Text(
-                                name,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Render mode selector (4 options)
 // ---------------------------------------------------------------------------
@@ -731,49 +374,5 @@ internal fun RenderModeSelector(
                 }
             }
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Reusable components
-// ---------------------------------------------------------------------------
-
-@Composable
-internal fun SheetLabel(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onSurface,
-    )
-}
-
-@Composable
-internal fun SheetSwitchRow(
-    @androidx.annotation.DrawableRes icon: Int,
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            painterResource(icon),
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = if (checked) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.4f),
-        )
-        Spacer(Modifier.width(10.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.5f),
-            modifier = Modifier.weight(1f),
-        )
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }

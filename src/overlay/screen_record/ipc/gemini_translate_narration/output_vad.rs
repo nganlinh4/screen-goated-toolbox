@@ -155,11 +155,20 @@ mod tests {
     #[test]
     fn output_vad_closes_speech_regions() {
         let mut vad = OutputVad::new();
-        let silence = vec![0i16; OUTPUT_FRAME_SAMPLES * 2];
+        let lead_silence = vec![0i16; OUTPUT_FRAME_SAMPLES * 2];
         let speech = vec![4000i16; OUTPUT_FRAME_SAMPLES * 4];
-        assert!(vad.push(&silence).is_empty());
+        assert!(vad.push(&lead_silence).is_empty());
         assert!(vad.push(&speech).is_empty());
-        let regions = vad.push(&silence);
+
+        // Hysteresis guard: fewer than OUTPUT_END_SILENCE_FRAMES of trailing
+        // silence must NOT close the active region.
+        let short_silence = vec![0i16; OUTPUT_FRAME_SAMPLES * (OUTPUT_END_SILENCE_FRAMES - 1)];
+        assert!(vad.push(&short_silence).is_empty());
+
+        // Push the remaining silence so the total trailing silence reaches
+        // exactly OUTPUT_END_SILENCE_FRAMES frames, which fires close_active.
+        let closing_silence = vec![0i16; OUTPUT_FRAME_SAMPLES];
+        let regions = vad.push(&closing_silence);
         assert_eq!(regions.len(), 1);
         assert!(regions[0].samples.len() >= OUTPUT_MIN_SAMPLES);
     }

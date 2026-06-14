@@ -1,9 +1,25 @@
 use std::sync::mpsc::Sender;
 use std::thread;
 
-fn select_release_asset(
-    assets: &[self_update::update::ReleaseAsset],
-) -> Option<&self_update::update::ReleaseAsset> {
+/// Minimal local model of a GitHub release asset (replaces `self_update::update::ReleaseAsset`).
+struct ReleaseAsset {
+    name: String,
+    download_url: String,
+}
+
+/// Minimal local model of a GitHub release (replaces `self_update::update::Release`).
+/// Only the fields the updater actually consumes are kept.
+struct Release {
+    assets: Vec<ReleaseAsset>,
+}
+
+/// Compare two semantic versions, returning `true` if `new` is strictly greater
+/// than `current`. Replaces `self_update::version::bump_is_greater`.
+fn bump_is_greater(current: &str, new: &str) -> Result<bool, semver::Error> {
+    Ok(semver::Version::parse(new)? > semver::Version::parse(current)?)
+}
+
+fn select_release_asset(assets: &[ReleaseAsset]) -> Option<&ReleaseAsset> {
     let release_assets = assets
         .iter()
         .filter(|asset| {
@@ -107,8 +123,7 @@ impl Updater {
                                 .to_string();
 
                             let current = env!("CARGO_PKG_VERSION");
-                            let is_newer = self_update::version::bump_is_greater(current, &version)
-                                .unwrap_or(false);
+                            let is_newer = bump_is_greater(current, &version).unwrap_or(false);
 
                             if is_newer {
                                 let _ = tx.send(UpdateStatus::UpdateAvailable { version, body });
@@ -205,27 +220,7 @@ impl Updater {
             let release = match release_data {
                 Ok(mut releases) if !releases.is_empty() => {
                     let rel = releases.remove(0);
-                    self_update::update::Release {
-                        name: rel
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        version: rel
-                            .get("tag_name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .trim_start_matches('v')
-                            .to_string(),
-                        date: rel
-                            .get("published_at")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        body: rel
-                            .get("body")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
+                    Release {
                         assets: rel
                             .get("assets")
                             .and_then(|a| a.as_array())
@@ -235,7 +230,7 @@ impl Updater {
                                 let name = asset.get("name")?.as_str()?.to_string();
                                 let download_url =
                                     asset.get("browser_download_url")?.as_str()?.to_string();
-                                Some(self_update::update::ReleaseAsset { name, download_url })
+                                Some(ReleaseAsset { name, download_url })
                             })
                             .collect(),
                     }

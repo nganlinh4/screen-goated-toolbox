@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -63,10 +62,6 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
-import androidx.compose.material3.WideNavigationRail
-import androidx.compose.material3.WideNavigationRailItem
-import androidx.compose.material3.WideNavigationRailValue
-import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -101,7 +96,6 @@ import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
-import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
@@ -228,104 +222,6 @@ internal fun SectionSegmentedRow(
 }
 
 @Composable
-internal fun ShellRail(
-    selectedSection: MobileShellSection,
-    onSectionSelected: (MobileShellSection) -> Unit,
-    locale: MobileLocaleText,
-    modifier: Modifier = Modifier,
-) {
-    val railState = rememberWideNavigationRailState(WideNavigationRailValue.Expanded)
-    Card(
-        modifier = modifier.width(220.dp),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.92f),
-        ),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.16f),
-                            MaterialTheme.colorScheme.surfaceContainerLow,
-                            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.1f),
-                        ),
-                    ),
-                ),
-        ) {
-            WideNavigationRail(
-                state = railState,
-                modifier = Modifier.fillMaxHeight(),
-                header = {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = ShellSpacing.innerPad),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            text = locale.shellSectionTitle,
-                            style = MaterialTheme.typography.labelLargeEmphasized,
-                        )
-                        StatusChip(
-                            label = selectedSection.label(locale),
-                            accent = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            text = locale.shellCurrentSectionLabel,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-            ) {
-                MobileShellSection.entries.forEach { section ->
-                    ShellRailItem(
-                        selected = selectedSection == section,
-                        onClick = { onSectionSelected(section) },
-                        icon = section.icon,
-                        label = section.label(locale),
-                        description = when (section) {
-                            MobileShellSection.APPS -> locale.shellAppsDescription
-                            MobileShellSection.TOOLS -> locale.shellToolsDescription
-                            MobileShellSection.SETTINGS -> locale.shellSettingsDescription
-                            MobileShellSection.HISTORY -> locale.shellHistoryDescription
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ShellRailItem(
-    selected: Boolean,
-    onClick: () -> Unit,
-    @DrawableRes icon: Int,
-    label: String,
-    description: String,
-) {
-    WideNavigationRailItem(
-        selected = selected,
-        onClick = onClick,
-        icon = { Icon(painterResource(icon), contentDescription = null) },
-        label = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(label)
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                )
-            }
-        },
-        railExpanded = true,
-    )
-}
-
-@Composable
 internal fun QuickActionsRow(locale: MobileLocaleText) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -424,43 +320,17 @@ private fun UtilityTile(
 internal fun SectionDetail(
     selectedSection: MobileShellSection,
     state: LiveSessionState,
-    apiKey: String,
-    cerebrasApiKey: String,
-    groqApiKey: String,
-    openRouterApiKey: String,
-    ollamaUrl: String,
+    providerKeys: ProviderKeysState,
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
-    historyState: HistoryUiState,
-    historySearchQuery: String,
+    historyBundle: HistoryUiBundle,
     appUpdateState: AppUpdateUiState,
     locale: MobileLocaleText,
     wideLayout: Boolean,
-    onApiKeyChanged: (String) -> Unit,
-    onCerebrasApiKeyChanged: (String) -> Unit,
-    onGroqApiKeyChanged: (String) -> Unit,
-    onOpenRouterApiKeyChanged: (String) -> Unit,
-    onOllamaUrlChanged: (String) -> Unit,
-    onPresetRuntimeSettingsClick: () -> Unit,
-    onCustomModelsClick: () -> Unit,
-    onUsageStatsClick: () -> Unit,
-    onDownloadedToolsClick: () -> Unit = {},
-    onResetDefaults: () -> Unit = {},
-    onVoiceSettingsClick: () -> Unit,
+    settingsActions: SettingsActions,
+    navActions: ShellNavActions,
     uiPreferences: dev.screengoated.toolbox.mobile.model.MobileUiPreferences = dev.screengoated.toolbox.mobile.model.MobileUiPreferences(),
-    onOverlayOpacityChanged: (Int) -> Unit = {},
-    onSessionToggle: () -> Unit,
-    onHistorySearchQueryChanged: (String) -> Unit = {},
-    onClearHistorySearchQuery: () -> Unit = {},
-    onHistoryMaxItemsChanged: (Int) -> Unit = {},
-    onDeleteHistoryItem: (Long) -> Unit = {},
-    onClearHistoryItems: () -> Unit = {},
-    onCheckForAppUpdates: () -> Unit = {},
     canToggle: Boolean,
-    onDownloaderClick: () -> Unit = {},
-    onDjClick: () -> Unit = {},
-    onTranslationGummyClick: () -> Unit = {},
-    onPresetClick: (String) -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
@@ -474,11 +344,11 @@ internal fun SectionDetail(
             MobileShellSection.APPS -> AppsCarouselSection(
                 state = state,
                 locale = locale,
-                onSessionToggle = onSessionToggle,
+                onSessionToggle = navActions.onSessionToggle,
                 canToggle = canToggle,
-                onDownloaderClick = onDownloaderClick,
-                onDjClick = onDjClick,
-                onTranslationGummyClick = onTranslationGummyClick,
+                onDownloaderClick = navActions.onDownloaderClick,
+                onDjClick = navActions.onDjClick,
+                onTranslationGummyClick = navActions.onTranslationGummyClick,
                 onPagerSwipeLockChanged = onPagerSwipeLockChanged,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
@@ -486,47 +356,47 @@ internal fun SectionDetail(
 
             MobileShellSection.TOOLS -> ToolsSection(
                 locale = locale,
-                onPresetClick = onPresetClick,
+                onPresetClick = navActions.onPresetClick,
                 onPagerSwipeLockChanged = onPagerSwipeLockChanged,
                 modifier = Modifier.fillMaxSize(),
             )
 
             MobileShellSection.SETTINGS -> GlobalSection(
-                apiKey = apiKey,
-                cerebrasApiKey = cerebrasApiKey,
-                groqApiKey = groqApiKey,
-                openRouterApiKey = openRouterApiKey,
-                ollamaUrl = ollamaUrl,
+                apiKey = providerKeys.apiKey,
+                cerebrasApiKey = providerKeys.cerebrasApiKey,
+                groqApiKey = providerKeys.groqApiKey,
+                openRouterApiKey = providerKeys.openRouterApiKey,
+                ollamaUrl = providerKeys.ollamaUrl,
                 globalTtsSettings = globalTtsSettings,
                 presetRuntimeSettings = presetRuntimeSettings,
                 overlayOpacityPercent = uiPreferences.overlayOpacityPercent,
                 appUpdateState = appUpdateState,
                 locale = locale,
                 wideLayout = wideLayout,
-                onApiKeyChanged = onApiKeyChanged,
-                onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
-                onGroqApiKeyChanged = onGroqApiKeyChanged,
-                onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
-                onOllamaUrlChanged = onOllamaUrlChanged,
-                onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
-                onCustomModelsClick = onCustomModelsClick,
-                onUsageStatsClick = onUsageStatsClick,
-                onDownloadedToolsClick = onDownloadedToolsClick,
-                onResetDefaults = onResetDefaults,
-                onVoiceSettingsClick = onVoiceSettingsClick,
-                onOverlayOpacityChanged = onOverlayOpacityChanged,
-                onCheckForAppUpdates = onCheckForAppUpdates,
+                onApiKeyChanged = providerKeys.onApiKeyChanged,
+                onCerebrasApiKeyChanged = providerKeys.onCerebrasApiKeyChanged,
+                onGroqApiKeyChanged = providerKeys.onGroqApiKeyChanged,
+                onOpenRouterApiKeyChanged = providerKeys.onOpenRouterApiKeyChanged,
+                onOllamaUrlChanged = providerKeys.onOllamaUrlChanged,
+                onPresetRuntimeSettingsClick = settingsActions.onPresetRuntimeSettingsClick,
+                onCustomModelsClick = settingsActions.onCustomModelsClick,
+                onUsageStatsClick = settingsActions.onUsageStatsClick,
+                onDownloadedToolsClick = settingsActions.onDownloadedToolsClick,
+                onResetDefaults = settingsActions.onResetDefaults,
+                onVoiceSettingsClick = settingsActions.onVoiceSettingsClick,
+                onOverlayOpacityChanged = settingsActions.onOverlayOpacityChanged,
+                onCheckForAppUpdates = settingsActions.onCheckForAppUpdates,
             )
 
             MobileShellSection.HISTORY -> HistorySection(
-                state = historyState,
-                searchQuery = historySearchQuery,
+                state = historyBundle.state,
+                searchQuery = historyBundle.searchQuery,
                 locale = locale,
-                onSearchQueryChanged = onHistorySearchQueryChanged,
-                onClearSearchQuery = onClearHistorySearchQuery,
-                onMaxItemsChanged = onHistoryMaxItemsChanged,
-                onDeleteItem = onDeleteHistoryItem,
-                onClearAll = onClearHistoryItems,
+                onSearchQueryChanged = historyBundle.onSearchQueryChanged,
+                onClearSearchQuery = historyBundle.onClearSearchQuery,
+                onMaxItemsChanged = historyBundle.onMaxItemsChanged,
+                onDeleteItem = historyBundle.onDeleteItem,
+                onClearAll = historyBundle.onClearItems,
             )
         }
     }
