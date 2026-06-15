@@ -110,3 +110,56 @@ pub(super) fn check_request_gate(request: &tiny_http::Request) -> Result<(), Gat
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{mint_media_server_token, query_param, tokens_match};
+
+    #[test]
+    fn tokens_match_accepts_identical() {
+        assert!(tokens_match("abc123", "abc123"));
+        assert!(tokens_match("", ""));
+    }
+
+    #[test]
+    fn tokens_match_rejects_length_and_single_bit() {
+        assert!(!tokens_match("abc", "abcd")); // length mismatch
+        assert!(!tokens_match("", "x"));
+        assert!(!tokens_match("abc123", "abc124")); // single-char difference
+    }
+
+    #[test]
+    fn query_param_extracts_and_percent_decodes() {
+        assert_eq!(
+            query_param("/m?path=a%2Fb&token=xy", "token").as_deref(),
+            Some("xy")
+        );
+        assert_eq!(
+            query_param("/m?path=a%2Fb&token=xy", "path").as_deref(),
+            Some("a/b")
+        );
+    }
+
+    #[test]
+    fn query_param_handles_missing_and_no_query() {
+        assert_eq!(query_param("/m?token=xy", "nope"), None);
+        assert_eq!(query_param("/m", "token"), None);
+    }
+
+    #[test]
+    fn query_param_not_fooled_by_prefix_sharing_key() {
+        // A key that merely starts with the name (e.g. `tokenfoo`) must not satisfy
+        // a lookup for `token`; the explicit `=` after the name guards this.
+        assert_eq!(
+            query_param("/m?tokenfoo=bad&token=good", "token").as_deref(),
+            Some("good")
+        );
+    }
+
+    #[test]
+    fn minted_token_is_64_lowercase_hex_chars() {
+        let t = mint_media_server_token();
+        assert_eq!(t.len(), 64);
+        assert!(t.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+}
