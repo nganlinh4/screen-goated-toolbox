@@ -1,3 +1,4 @@
+use crate::api::providers::Provider;
 use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
 use image::{ImageBuffer, Rgba};
@@ -15,7 +16,7 @@ pub(super) fn prepare_image_payload(
     image: ImageBuffer<Rgba<u8>, Vec<u8>>,
     original_bytes: Option<Vec<u8>>,
 ) -> Result<PreparedImage> {
-    if provider == "google"
+    if Provider::from_wire(provider) == Some(Provider::Google)
         && let Some(bytes) = original_bytes
     {
         println!("DEBUG: Zero-Copy optimization active for Google provider");

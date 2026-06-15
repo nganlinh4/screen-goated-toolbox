@@ -9,6 +9,7 @@ use base64::{Engine as _, engine::general_purpose};
 
 use super::utils::extract_pcm_from_wav;
 use crate::api::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
+use crate::api::providers::Provider;
 use crate::config::Preset;
 use crate::model_config::{get_model_by_id, is_gemini_live_translate_model_id, model_is_non_llm};
 
@@ -561,19 +562,19 @@ pub fn execute_audio_processing_logic(
 
     final_prompt = final_prompt.replace("{language}", &audio_block.selected_language);
 
-    if provider == "groq" {
+    if Provider::from_wire(&provider) == Some(Provider::Groq) {
         if groq_api_key.trim().is_empty() {
             Err(anyhow::anyhow!("NO_API_KEY:groq"))
         } else {
             upload_audio_to_whisper(&groq_api_key, &model_name, wav_data)
         }
-    } else if provider == "google" {
+    } else if Provider::from_wire(&provider) == Some(Provider::Google) {
         if gemini_api_key.trim().is_empty() {
             Err(anyhow::anyhow!("NO_API_KEY:google"))
         } else {
             transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
         }
-    } else if provider == "gemini-live" {
+    } else if Provider::from_wire(&provider) == Some(Provider::GeminiLive) {
         // Gemini Live API (WebSocket-based).
         if gemini_api_key.trim().is_empty() {
             Err(anyhow::anyhow!("NO_API_KEY:gemini"))

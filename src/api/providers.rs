@@ -18,6 +18,8 @@ pub enum Provider {
     Groq,
     Taalas,
     Ollama,
+    /// Free QR-code rendering service used by the vision image payload path.
+    Qrserver,
 }
 
 impl Provider {
@@ -33,6 +35,7 @@ impl Provider {
             "groq" => Self::Groq,
             "taalas" => Self::Taalas,
             "ollama" => Self::Ollama,
+            "qrserver" => Self::Qrserver,
             _ => return None,
         })
     }

@@ -3,6 +3,7 @@
 
 mod providers;
 
+use crate::api::providers::Provider;
 use crate::api::vision::translate_image_streaming as vision_translate_image_streaming;
 use crate::overlay::result::RefineContext;
 use anyhow::Result;
@@ -114,7 +115,7 @@ where
 
     match context {
         RefineContext::Image(img_bytes) => {
-            if target_provider == "google" {
+            if Provider::from_wire(&target_provider) == Some(Provider::Google) {
                 if gemini_api_key.trim().is_empty() {
                     return Err(anyhow::anyhow!("NO_API_KEY:gemini"));
                 }
@@ -134,7 +135,7 @@ where
                     },
                     on_chunk,
                 )
-            } else if target_provider == "gemini-live" {
+            } else if Provider::from_wire(&target_provider) == Some(Provider::GeminiLive) {
                 let mime = "image/jpeg".to_string();
                 crate::api::gemini_live::gemini_live_generate(
                     crate::api::gemini_live::GeminiLiveGenerateRequest {
@@ -208,7 +209,7 @@ where
         on_chunk,
     } = request;
 
-    if provider == "google" {
+    if Provider::from_wire(&provider) == Some(Provider::Google) {
         providers::refine_gemini(
             gemini_api_key,
             final_prompt,
@@ -218,7 +219,7 @@ where
             cancel_token,
             on_chunk,
         )
-    } else if provider == "gemini-live" {
+    } else if Provider::from_wire(&provider) == Some(Provider::GeminiLive) {
         crate::api::gemini_live::gemini_live_generate(
             crate::api::gemini_live::GeminiLiveGenerateRequest {
                 model,
@@ -231,9 +232,9 @@ where
             },
             on_chunk,
         )
-    } else if provider == "taalas" {
+    } else if Provider::from_wire(&provider) == Some(Provider::Taalas) {
         providers::refine_taalas(final_prompt, cancel_token, on_chunk)
-    } else if provider == "cerebras" {
+    } else if Provider::from_wire(&provider) == Some(Provider::Cerebras) {
         providers::refine_cerebras(
             cerebras_api_key,
             final_prompt,
@@ -243,7 +244,7 @@ where
             cancel_token,
             on_chunk,
         )
-    } else if provider == "openrouter" {
+    } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {
         providers::refine_openrouter(
             openrouter_api_key,
             final_prompt,
