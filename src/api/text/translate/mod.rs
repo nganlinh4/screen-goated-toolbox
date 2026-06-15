@@ -4,6 +4,7 @@
 mod groq;
 mod providers;
 
+use crate::api::providers::Provider;
 use anyhow::Result;
 use providers::{translate_cerebras, translate_gemini, translate_openrouter, translate_taalas};
 use std::sync::{Arc, atomic::AtomicBool};
@@ -82,138 +83,147 @@ where
         prompt.len()
     );
 
-    if provider == "ollama" {
-        // --- OLLAMA LOCAL API ---
-        let ollama_base_url = crate::APP
-            .lock()
-            .ok()
-            .map(|app| {
-                let config = app.config.clone();
-                config.ollama_base_url.clone()
-            })
-            .unwrap_or_else(|| "http://localhost:11434".to_string());
+    match Provider::from_wire(&provider) {
+        Some(Provider::Ollama) => {
+            // --- OLLAMA LOCAL API ---
+            let ollama_base_url = crate::APP
+                .lock()
+                .ok()
+                .map(|app| {
+                    let config = app.config.clone();
+                    config.ollama_base_url.clone()
+                })
+                .unwrap_or_else(|| "http://localhost:11434".to_string());
 
-        return crate::api::ollama::ollama_generate_text(
-            &ollama_base_url,
-            &model,
-            &prompt,
-            streaming_enabled,
-            ui_language,
-            on_chunk,
-        );
-    } else if provider == "gemini-live" {
-        // --- GEMINI LIVE API (WebSocket-based low-latency streaming) ---
-        return crate::api::gemini_live::gemini_live_generate(
-            crate::api::gemini_live::GeminiLiveGenerateRequest {
-                model,
-                text,
-                instruction,
-                image_data: None,
-                audio_data: None,
+            return crate::api::ollama::ollama_generate_text(
+                &ollama_base_url,
+                &model,
+                &prompt,
                 streaming_enabled,
                 ui_language,
-            },
-            on_chunk,
-        );
-    } else if provider == "google-gtx" {
-        // --- GOOGLE TRANSLATE (GTX) API ---
-        let target_lang = target_language
-            .filter(|lang| !lang.trim().is_empty())
-            .unwrap_or_else(|| {
-                instruction
-                    .to_lowercase()
-                    .split("translate to ")
-                    .nth(1)
-                    .and_then(|s| s.split('.').next())
-                    .and_then(|s| s.split(',').next())
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_else(|| "English".to_string())
-            });
+                on_chunk,
+            );
+        }
+        Some(Provider::GeminiLive) => {
+            // --- GEMINI LIVE API (WebSocket-based low-latency streaming) ---
+            return crate::api::gemini_live::gemini_live_generate(
+                crate::api::gemini_live::GeminiLiveGenerateRequest {
+                    model,
+                    text,
+                    instruction,
+                    image_data: None,
+                    audio_data: None,
+                    streaming_enabled,
+                    ui_language,
+                },
+                on_chunk,
+            );
+        }
+        Some(Provider::GoogleGtx) => {
+            // --- GOOGLE TRANSLATE (GTX) API ---
+            let target_lang = target_language
+                .filter(|lang| !lang.trim().is_empty())
+                .unwrap_or_else(|| {
+                    instruction
+                        .to_lowercase()
+                        .split("translate to ")
+                        .nth(1)
+                        .and_then(|s| s.split('.').next())
+                        .and_then(|s| s.split(',').next())
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_else(|| "English".to_string())
+                });
 
-        let target_lang = target_lang
-            .chars()
-            .enumerate()
-            .map(|(i, c)| {
-                if i == 0 {
-                    c.to_uppercase().next().unwrap_or(c)
-                } else {
-                    c
+            let target_lang = target_lang
+                .chars()
+                .enumerate()
+                .map(|(i, c)| {
+                    if i == 0 {
+                        c.to_uppercase().next().unwrap_or(c)
+                    } else {
+                        c
+                    }
+                })
+                .collect::<String>();
+
+            match crate::api::realtime_audio::translate_with_google_gtx(&text, &target_lang) {
+                Some(translated) => {
+                    on_chunk(&translated);
+                    return Ok(translated);
                 }
-            })
-            .collect::<String>();
-
-        match crate::api::realtime_audio::translate_with_google_gtx(&text, &target_lang) {
-            Some(translated) => {
-                on_chunk(&translated);
-                return Ok(translated);
-            }
-            None => {
-                return Err(anyhow::anyhow!("GTX translation failed"));
+                None => {
+                    return Err(anyhow::anyhow!("GTX translation failed"));
+                }
             }
         }
-    } else if provider == "taalas" {
-        // --- TAALAS API (chatjimmy.ai / HC1 silicon) ---
-        full_content = translate_taalas(&prompt, &cancel_token, &mut on_chunk)?;
-    } else if provider == "google" {
-        // --- GEMINI TEXT API ---
-        full_content = translate_gemini(
-            gemini_api_key,
-            &model,
-            &prompt,
-            streaming_enabled,
-            ui_language,
-            &cancel_token,
-            &mut on_chunk,
-        )?;
-    } else if provider == "cerebras" {
-        // --- CEREBRAS API ---
-        full_content = translate_cerebras(
-            &cerebras_api_key,
-            &model,
-            &prompt,
-            streaming_enabled,
-            ui_language,
-            &cancel_token,
-            &mut on_chunk,
-        )?;
-    } else if provider == "openrouter" {
-        // --- OPENROUTER API ---
-        full_content = translate_openrouter(
-            &openrouter_api_key,
-            &model,
-            &prompt,
-            streaming_enabled,
-            ui_language,
-            &cancel_token,
-            &mut on_chunk,
-        )?;
-    } else {
-        // --- GROQ API (Default) ---
-        if groq_api_key.trim().is_empty() {
-            return Err(anyhow::anyhow!("NO_API_KEY:groq"));
+        Some(Provider::Taalas) => {
+            // --- TAALAS API (chatjimmy.ai / HC1 silicon) ---
+            full_content = translate_taalas(&prompt, &cancel_token, &mut on_chunk)?;
         }
-
-        let is_compound = model.starts_with("groq/compound");
-
-        if is_compound {
-            return groq::translate_groq_compound(
-                groq_api_key,
-                &model,
-                &prompt,
-                search_label,
-                ui_language,
-                on_chunk,
-            );
-        } else {
-            return groq::translate_groq_standard(
-                groq_api_key,
+        Some(Provider::Google) => {
+            // --- GEMINI TEXT API ---
+            full_content = translate_gemini(
+                gemini_api_key,
                 &model,
                 &prompt,
                 streaming_enabled,
-                use_json_format,
-                cancel_token,
-                on_chunk,
-            );
+                ui_language,
+                &cancel_token,
+                &mut on_chunk,
+            )?;
+        }
+        Some(Provider::Cerebras) => {
+            // --- CEREBRAS API ---
+            full_content = translate_cerebras(
+                &cerebras_api_key,
+                &model,
+                &prompt,
+                streaming_enabled,
+                ui_language,
+                &cancel_token,
+                &mut on_chunk,
+            )?;
+        }
+        Some(Provider::OpenRouter) => {
+            // --- OPENROUTER API ---
+            full_content = translate_openrouter(
+                &openrouter_api_key,
+                &model,
+                &prompt,
+                streaming_enabled,
+                ui_language,
+                &cancel_token,
+                &mut on_chunk,
+            )?;
+        }
+        _ => {
+            // --- GROQ API (Default) ---
+            if groq_api_key.trim().is_empty() {
+                return Err(anyhow::anyhow!("NO_API_KEY:groq"));
+            }
+
+            let is_compound = model.starts_with("groq/compound");
+
+            if is_compound {
+                return groq::translate_groq_compound(
+                    groq_api_key,
+                    &model,
+                    &prompt,
+                    search_label,
+                    ui_language,
+                    on_chunk,
+                );
+            } else {
+                return groq::translate_groq_standard(
+                    groq_api_key,
+                    &model,
+                    &prompt,
+                    streaming_enabled,
+                    use_json_format,
+                    cancel_token,
+                    on_chunk,
+                );
+            }
         }
     }
 
