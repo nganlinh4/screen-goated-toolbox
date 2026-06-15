@@ -1,4 +1,4 @@
-use super::client::{UREQ_AGENT, record_usage_simple};
+use super::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
 use super::gemini_generate::stream_gemini_generate;
 use super::openai_compat::stream_openai_compat_chat;
 use super::types::{ChatCompletionResponse, StreamChunk};
@@ -297,17 +297,16 @@ where
             .header("Authorization", &format!("Bearer {}", groq_api_key))
             .send_json(payload)
             .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("401") {
+                if is_auth_error(&e) {
                     anyhow::anyhow!("INVALID_API_KEY")
-                } else if err_str.contains("400") {
+                } else if matches!(&e, ureq::Error::StatusCode(400)) {
                     anyhow::anyhow!(
                         "Groq API 400: Bad request. Check model availability or API request format."
                     )
                 } else {
                     anyhow::anyhow!(
                         "Error: https://api.groq.com/openai/v1/chat/completions: {}",
-                        err_str
+                        e
                     )
                 }
             })?;

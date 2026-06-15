@@ -1,7 +1,7 @@
 // --- GROQ TRANSLATE PROVIDERS ---
 // Groq compound and standard API translation handlers.
 
-use crate::api::client::{UREQ_AGENT, record_usage_simple};
+use crate::api::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
 use crate::api::types::{ChatCompletionResponse, StreamChunk};
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
@@ -62,11 +62,10 @@ where
         .header("Authorization", &format!("Bearer {}", groq_api_key))
         .send_json(payload)
         .map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("401") {
+            if is_auth_error(&e) {
                 anyhow::anyhow!("INVALID_API_KEY")
             } else {
-                anyhow::anyhow!("{}", err_str)
+                anyhow::anyhow!("{}", e)
             }
         })?;
 
@@ -261,11 +260,10 @@ where
         .header("Authorization", &format!("Bearer {}", groq_api_key))
         .send_json(payload)
         .map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("401") {
+            if is_auth_error(&e) {
                 anyhow::anyhow!("INVALID_API_KEY")
             } else {
-                anyhow::anyhow!("{}", err_str)
+                anyhow::anyhow!("{}", e)
             }
         })?;
 

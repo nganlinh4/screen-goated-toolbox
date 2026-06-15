@@ -8,7 +8,7 @@ use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
 
 use super::utils::extract_pcm_from_wav;
-use crate::api::client::{UREQ_AGENT, record_usage_simple};
+use crate::api::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
 use crate::config::Preset;
 use crate::model_config::{get_model_by_id, is_gemini_live_translate_model_id, model_is_non_llm};
 
@@ -81,11 +81,10 @@ where
         .header("x-goog-api-key", gemini_api_key)
         .send_json(payload)
         .map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("401") || err_str.contains("403") {
+            if is_auth_error(&e) {
                 anyhow::anyhow!("INVALID_API_KEY")
             } else {
-                anyhow::anyhow!("Gemini Audio API Error: {}", err_str)
+                anyhow::anyhow!("Gemini Audio API Error: {}", e)
             }
         })?;
 

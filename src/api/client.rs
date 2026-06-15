@@ -23,6 +23,17 @@ pub static UREQ_AGENT: LazyLock<ureq::Agent> =
 pub static UREQ_STREAM_AGENT: LazyLock<ureq::Agent> =
     LazyLock::new(|| build_agent(Duration::from_secs(900)));
 
+/// True when a ureq error is an HTTP 401/403 (authentication failure).
+///
+/// In ureq 3.x an error status surfaces as the typed `Error::StatusCode`, so this
+/// matches the code directly instead of substring-scanning the Display text — which
+/// false-positives on a transport error whose URL or body happens to contain
+/// "401"/"403" and can wrongly flag a provider's key as invalid (and permanently
+/// block it). Also covers 403, which several call sites previously missed.
+pub fn is_auth_error(e: &ureq::Error) -> bool {
+    matches!(e, ureq::Error::StatusCode(401 | 403))
+}
+
 /// Read a response header as a `&str`, if present and valid UTF-8.
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
