@@ -1,16 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React from "react";
 import type { AudioGainPoint } from "@/types/video";
 import {
-  type AdjacentSegmentIndices,
-  type AdjustableLineDragVisualMode,
   buildSegmentDragPlan,
-  getAxisLockMode,
-  getAdjustableLineDragVisualMode,
   getAdjacentSegmentIndicesAtTime,
   getCosineInterpolatedValueAtTime,
-  setAdjustableLineDragVisualMode,
   sortPointsByTime,
-  subscribeToAdjustableLineDragVisualMode,
 } from "./adjustableLineUtils";
 import {
   generateVolumeTrackPath,
@@ -21,6 +15,7 @@ import {
   volumeToY,
   yToVolume,
 } from "./audioVolumeTrackGeometry";
+import { useAdjustableLineTrack } from "./useAdjustableLineTrack";
 import { useSettings } from "@/hooks/useSettings";
 
 const TRACK_TOP_PX = 5;
@@ -84,71 +79,49 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
   const safeDuration = Math.max(duration, 0.0001);
   const effective = rawPoints.length > 0 ? rawPoints : buildFlatPoints(safeDuration);
   const sorted = sortPointsByTime(effective);
-  const draggingIdxRef = useRef<number | null>(null);
-  const pointsRef = useRef(effective);
-  pointsRef.current = effective;
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-  const [activeDragIdx, setActiveDragIdx] = useState<number | null>(null);
-  const [dragBadge, setDragBadge] = useState<{ x: number; y: number; volume: number } | null>(
-    null,
-  );
-  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
-  const [hoveredSegmentIndices, setHoveredSegmentIndices] =
-    useState<AdjacentSegmentIndices | null>(null);
-  const [activeSegmentIndices, setActiveSegmentIndices] =
-    useState<AdjacentSegmentIndices | null>(null);
-  const [globalDragVisualMode, setGlobalDragVisualMode] =
-    useState<AdjustableLineDragVisualMode | null>(() => getAdjustableLineDragVisualMode());
-  const dragVisualModeRef = useRef<AdjustableLineDragVisualMode | null>(null);
-  const pointAxisLockRef = useRef<"horizontal" | "vertical" | null>(null);
 
-  const applyDragVisualMode = (mode: AdjustableLineDragVisualMode | null) => {
-    if (dragVisualModeRef.current === mode) return;
-    dragVisualModeRef.current = mode;
-    setAdjustableLineDragVisualMode(mode);
-  };
-
-  // Subscribe to the global "is some adjustable line dragging" state so this
-  // overlay's hover affordances can stand down while another track is editing.
-  useEffect(() => subscribeToAdjustableLineDragVisualMode(setGlobalDragVisualMode), []);
-  useEffect(() => {
-    if (globalDragVisualMode === null) return;
-    setHoveredIdx(null);
-    setHoveredSegmentIndices(null);
-  }, [globalDragVisualMode]);
-
-  // Track Ctrl key globally so the hover preview ("which segment will move")
-  // matches what DeviceAudioTrack does.
-  useEffect(() => {
-    const sync = (e: KeyboardEvent) => setIsCtrlPressed(e.ctrlKey);
-    const clear = () => setIsCtrlPressed(false);
-    window.addEventListener("keydown", sync);
-    window.addEventListener("keyup", sync);
-    window.addEventListener("blur", clear);
-    return () => {
-      window.removeEventListener("keydown", sync);
-      window.removeEventListener("keyup", sync);
-      window.removeEventListener("blur", clear);
-      setAdjustableLineDragVisualMode(null);
-    };
-  }, []);
-
-  // Delete / Backspace removes the currently-hovered keyframe (never the two
-  // endpoints, to preserve the always-defined-at-edges invariant).
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
-      if (hoveredIdx === null) return;
-      if (hoveredIdx === 0 || hoveredIdx === pointsRef.current.length - 1) return;
-      const next = pointsRef.current.filter((_, i) => i !== hoveredIdx);
-      pointsRef.current = next;
-      onChange(next);
-      onCommit?.();
-      setHoveredIdx(null);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [hoveredIdx, onChange, onCommit]);
+  // Shift-axis-lock math is active (as before), but this lane never rendered a
+  // `data-lock-mode` attribute, so the controller's `axisLockMode` state is
+  // simply not read here. It threads an extra `onCommit`. The Delete/Backspace
+  // handler runs against `pointsRef.current` (= `effective`), matching the
+  // always-defined-at-edges invariant, so `effective` is fed to the controller.
+  // The pointer-down/move handlers below operate on `sorted` (the rendered
+  // order), driving the controller's drag primitives directly.
+  const {
+    hoveredIdx,
+    setHoveredIdx,
+    activeDragIdx,
+    dragBadge,
+    globalDragVisualMode,
+    highlightedSegmentIndices,
+    startDraggingPoint,
+    startDraggingSegment,
+    handlePointPointerDown,
+    setHoveredSegmentIndices,
+  } = useAdjustableLineTrack<AudioGainPoint>({
+    points: effective,
+    duration: safeDuration,
+    onUpdatePoints: onChange,
+    getValue: (point) => point.volume,
+    createPoint: (time, volume) => ({ time, volume }),
+    resolvePointValue: ({ dy, startPoint }) => {
+      const valueRangePx = Math.max(1, TRACK_RANGE_PX);
+      const startVolumeY = volumeToY(startPoint.volume, TRACK_GEOMETRY);
+      const newY = Math.max(0, Math.min(1, startVolumeY + dy / valueRangePx));
+      return yToVolume(newY, TRACK_GEOMETRY);
+    },
+    resolveSegmentValue: ({ dy, startValue }) => {
+      const valueRangePx = Math.max(1, TRACK_RANGE_PX);
+      const startVolumeY = volumeToY(startValue, TRACK_GEOMETRY);
+      const newY = Math.max(0, Math.min(1, startVolumeY + dy / valueRangePx));
+      return yToVolume(newY, TRACK_GEOMETRY);
+    },
+    axisLockEnabled: true,
+    makeBadge: (me, value) => ({ x: me.clientX, y: me.clientY - 40, value }),
+    beginBatch,
+    commitBatch,
+    onCommit,
+  });
 
   const toX = (time: number) => Math.max(0, Math.min(100, (time / safeDuration) * 100));
 
@@ -179,143 +152,10 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
     return d;
   };
 
-  const startDraggingPoint = (
-    activeIdx: number,
-    startClientX: number,
-    startClientY: number,
-    rect: DOMRect,
-    initialPoints: AudioGainPoint[],
-  ) => {
-    draggingIdxRef.current = activeIdx;
-    pointsRef.current = initialPoints;
-    const start = initialPoints[activeIdx];
-    if (!start) return;
-    const startTime = start.time;
-    const startVolume = start.volume;
-    const startVolumeY = volumeToY(startVolume, TRACK_GEOMETRY);
-    const valueRangePx = Math.max(1, TRACK_RANGE_PX);
-    setActiveSegmentIndices(null);
-    setActiveDragIdx(activeIdx);
-    pointAxisLockRef.current = null;
-    applyDragVisualMode("free");
-
-    const onMove = (e: MouseEvent) => {
-      if (draggingIdxRef.current === null) return;
-      const mx = e.clientX - rect.left;
-      const dy = e.clientY - startClientY;
-      const lockMode = e.shiftKey
-        ? pointAxisLockRef.current
-          ?? (() => {
-              const next = getAxisLockMode(
-                e.clientX - startClientX,
-                e.clientY - startClientY,
-              );
-              if (next === "horizontal" || next === "vertical") {
-                pointAxisLockRef.current = next;
-              }
-              return next;
-            })()
-        : null;
-
-      let t = (mx / rect.width) * safeDuration;
-      t = Math.max(0, Math.min(safeDuration, t));
-      let newY = startVolumeY + dy / valueRangePx;
-      newY = Math.max(0, Math.min(1, newY));
-      let volume = yToVolume(newY, TRACK_GEOMETRY);
-
-      if (lockMode === "horizontal") volume = startVolume;
-      if (lockMode === "vertical") t = startTime;
-
-      applyDragVisualMode(
-        lockMode === null
-          ? "free"
-          : lockMode === "armed"
-            ? "armed"
-            : lockMode,
-      );
-
-      if (!e.shiftKey) pointAxisLockRef.current = null;
-
-      const next = [...pointsRef.current];
-      if (next[draggingIdxRef.current]) {
-        if (draggingIdxRef.current === 0) t = 0;
-        if (draggingIdxRef.current === next.length - 1 && next.length > 1) {
-          t = safeDuration;
-        }
-        next[draggingIdxRef.current] = { time: t, volume };
-        pointsRef.current = next;
-        onChange(next);
-        setDragBadge({ x: e.clientX, y: e.clientY - 40, volume });
-      }
-    };
-
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      draggingIdxRef.current = null;
-      setActiveDragIdx(null);
-      pointAxisLockRef.current = null;
-      applyDragVisualMode(null);
-      setDragBadge(null);
-      pointsRef.current = sortPointsByTime(pointsRef.current);
-      onChange(pointsRef.current);
-      commitBatch?.();
-      onCommit?.();
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  };
-
-  const startDraggingSegment = (
-    activeIndices: number[],
-    fixedTimes: number[],
-    startClientY: number,
-    startVolume: number,
-    initialPoints: AudioGainPoint[],
-  ) => {
-    pointsRef.current = initialPoints;
-    const valueRangePx = Math.max(1, TRACK_RANGE_PX);
-    const startVolumeY = volumeToY(startVolume, TRACK_GEOMETRY);
-    setActiveSegmentIndices([
-      activeIndices[0],
-      activeIndices[activeIndices.length - 1],
-    ]);
-    applyDragVisualMode("vertical");
-
-    const onMove = (e: MouseEvent) => {
-      const dy = e.clientY - startClientY;
-      let newY = startVolumeY + dy / valueRangePx;
-      newY = Math.max(0, Math.min(1, newY));
-      const volume = yToVolume(newY, TRACK_GEOMETRY);
-
-      const next = [...pointsRef.current];
-      activeIndices.forEach((index, i) => {
-        const point = next[index];
-        if (!point) return;
-        next[index] = { time: fixedTimes[i] ?? point.time, volume };
-      });
-      pointsRef.current = next;
-      onChange(next);
-      setDragBadge({ x: e.clientX, y: e.clientY - 40, volume });
-    };
-
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      setActiveSegmentIndices(null);
-      applyDragVisualMode(null);
-      setDragBadge(null);
-      pointsRef.current = sortPointsByTime(pointsRef.current);
-      onChange(pointsRef.current);
-      commitBatch?.();
-      onCommit?.();
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  };
-
+  // The track-area pointer handlers operate on `sorted` (matching the rendered
+  // control-point order) and drive the controller's drag primitives directly,
+  // so this lane keeps its bespoke `e.button !== 0` guards and `sorted`-based
+  // segment/insert logic verbatim.
   const handleAreaPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -335,12 +175,12 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
       });
       if (!plan) return;
       beginBatch?.();
-      pointsRef.current = plan.points;
       onChange(plan.points);
       startDraggingSegment(
         plan.activeIndices,
         plan.activeIndices.map((index) => plan.points[index]?.time ?? time),
         e.clientY,
+        rect,
         plan.startValue,
         plan.points,
       );
@@ -358,7 +198,6 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
     next.push(newPoint);
     next = sortPointsByTime(next);
     const newIdx = next.indexOf(newPoint);
-    pointsRef.current = next;
     onChange(next);
     startDraggingPoint(newIdx, e.clientX, e.clientY, rect, next);
   };
@@ -383,7 +222,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
     );
   };
 
-  const handlePointPointerDown = (
+  const onPointPointerDown = (
     e: React.PointerEvent<HTMLDivElement>,
     idx: number,
   ) => {
@@ -391,13 +230,9 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
     e.stopPropagation();
     const rect = e.currentTarget.parentElement?.getBoundingClientRect();
     if (!rect) return;
-    beginBatch?.();
-    startDraggingPoint(idx, e.clientX, e.clientY, rect, pointsRef.current);
+    handlePointPointerDown(rect, e.clientX, e.clientY, idx);
   };
 
-  const highlightedSegmentIndices =
-    activeSegmentIndices
-    ?? (globalDragVisualMode === null && isCtrlPressed ? hoveredSegmentIndices : null);
   const highlightedSegmentPath = getHighlightedVolumeSegmentPath({
     points: sorted,
     duration: safeDuration,
@@ -477,7 +312,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
           }}
           onMouseEnter={() => setHoveredIdx(i)}
           onMouseLeave={() => setHoveredIdx(null)}
-          onPointerDown={(e) => handlePointPointerDown(e, i)}
+          onPointerDown={(e) => onPointPointerDown(e, i)}
           title={`${point.time.toFixed(2)}s · ${(point.volume * 100).toFixed(0)}% (${t.volumePointRemoveHint})`}
         />
       ))}
@@ -493,7 +328,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
             color: "#ffffff",
           }}
         >
-          {Math.round(dragBadge.volume * 100)}%
+          {Math.round(dragBadge.value * 100)}%
         </div>
       )}
     </div>
