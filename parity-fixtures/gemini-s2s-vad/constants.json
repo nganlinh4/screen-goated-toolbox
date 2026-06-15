@@ -1,0 +1,31 @@
+{
+  "_comment": "Cross-platform lock for the Gemini S2S (Gemini Translate) client-side VAD / segmentation / timeout constants, hand-duplicated between Windows (src/api/realtime_audio/s2s.rs) and Android (GeminiS2sVad.kt). Windows is canonical. Both platforms assert their constant values equal these, so the duplicated tuning cannot silently drift. Integers compared exactly; floats within 1e-6. See .claude/parity/gemini-s2s-vad.md.",
+  "ints": {
+    "FRAME_SAMPLES": 1600,
+    "PREROLL_SAMPLES": 4000,
+    "MIN_SEGMENT_SAMPLES": 16000,
+    "TARGET_SEGMENT_SAMPLES": 48000,
+    "MAX_SEGMENT_SAMPLES": 80000,
+    "END_SILENCE_FRAMES": 3,
+    "SESSION_COUNT": 3,
+    "MIN_SEGMENT_SPEECH_FRAMES": 4,
+    "FIRST_AUDIO_SILENT_RETRY_MS": 3800,
+    "FIRST_AUDIO_ACTIVE_RETRY_MS": 5200,
+    "AUDIO_IDLE_FINISH_MS": 1200,
+    "S2S_HEDGE_TIMEOUT_MS": 45000,
+    "S2S_HEDGE_FINAL_TIMEOUT_MS": 60000
+  },
+  "floats": {
+    "SPEECH_THRESHOLD_MULTIPLIER": 2.2,
+    "MIN_SPEECH_THRESHOLD": 0.012,
+    "MAX_SPEECH_THRESHOLD": 0.035,
+    "ABSOLUTE_SPEECH_RMS": 0.045,
+    "NOISE_LEARN_MAX_RMS": 0.018,
+    "NOISE_LEARN_THRESHOLD_RATIO": 0.60,
+    "MIN_SEGMENT_PEAK_RMS": 0.025,
+    "MIN_SEGMENT_SPEECH_RATIO": 0.08,
+    "MIN_SPEECH_LIKE_RATIO": 0.18,
+    "STRICT_MIN_SPEECH_LIKE_RATIO": 0.32,
+    "STRICT_MIN_SPEECH_CONFIDENCE": 0.38
+  }
+}
