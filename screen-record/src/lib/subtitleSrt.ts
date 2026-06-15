@@ -300,17 +300,6 @@ export function importSubtitleFileIntoSegment(
   };
 }
 
-export function importSubtitleSrtIntoSegment(
-  segment: VideoSegment,
-  srtContent: string,
-  duration: number,
-): { segment: VideoSegment; subtitles: SubtitleSegment[] } {
-  return importSubtitleFileIntoSegment(
-    segment,
-    { content: srtContent, format: 'srt' },
-    duration,
-  );
-}
 
 function formatSrtTime(totalSeconds: number): string {
   const clamped = Math.max(0, totalSeconds);

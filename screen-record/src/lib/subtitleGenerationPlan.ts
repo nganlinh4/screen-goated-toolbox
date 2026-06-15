@@ -1,6 +1,5 @@
 import {
   buildSequenceTimeline,
-  getSequenceClipById,
   type SequenceTimelineClip,
 } from '@/lib/sequenceTimeline';
 import { getEffectiveCompositionMode } from '@/lib/projectComposition';
@@ -399,47 +398,3 @@ export function buildSubtitleGenerationPlan(params: {
   };
 }
 
-export function getSequenceReplacementRanges(
-  composition: ProjectComposition | null,
-  clipId: string,
-  ranges: Array<{ startTime: number; endTime: number }>,
-) {
-  const timeline = buildSequenceTimeline(composition);
-  const timelineClip = getSequenceClipById(timeline, clipId);
-  if (!timelineClip) return [];
-  let compactCursor = 0;
-  return getTrimSegments(
-    timelineClip.clip.segment,
-    timelineClip.sourceDuration,
-  )
-    .map((trimSegment) => {
-      const segmentCompactStart = compactCursor;
-      const segmentCompactEnd =
-        segmentCompactStart + (trimSegment.endTime - trimSegment.startTime);
-      compactCursor = segmentCompactEnd;
-      return ranges
-        .map((range) => {
-          const overlapStart = Math.max(range.startTime, trimSegment.startTime);
-          const overlapEnd = Math.min(range.endTime, trimSegment.endTime);
-          if (overlapEnd - overlapStart <= 0.0001) {
-            return null;
-          }
-          return {
-            startTime:
-              timelineClip.sequenceStart +
-              segmentCompactStart +
-              (overlapStart - trimSegment.startTime),
-            endTime:
-              timelineClip.sequenceStart +
-              segmentCompactStart +
-              (overlapEnd - trimSegment.startTime),
-          };
-        })
-        .filter(
-          (
-            range,
-          ): range is { startTime: number; endTime: number } => range !== null,
-        );
-    })
-    .flat();
-}

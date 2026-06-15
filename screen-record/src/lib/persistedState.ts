@@ -1,5 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
-
 /**
  * Options for a single persisted setting.
  *
@@ -61,26 +59,3 @@ export function createPersistedSetting<T>(
   return { getInitial, persist };
 }
 
-/**
- * React binding for a persisted setting: initializes from storage and writes
- * back on every change. Mirrors the hand-rolled `useState(getInitial)` +
- * persist-on-change `useEffect` pattern used across the subtitle hooks.
- */
-export function usePersistedState<T>(
-  key: string,
-  options: PersistedSettingOptions<T>,
-): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const settingRef = useRef<PersistedSetting<T> | null>(null);
-  if (settingRef.current === null) {
-    settingRef.current = createPersistedSetting(key, options);
-  }
-  const setting = settingRef.current;
-
-  const [value, setValue] = useState<T>(() => setting.getInitial());
-
-  useEffect(() => {
-    setting.persist(value);
-  }, [setting, value]);
-
-  return [value, setValue];
-}
