@@ -36,12 +36,14 @@ fixture below (one case directly exercises the 0.08 floor).
 **Target-language BCP-47 mapping** (explicit special cases locked by fixture):
 [parity-fixtures/gemini-s2s-language/target-language-codes.json](../../parity-fixtures/gemini-s2s-language/target-language-codes.json) — `input -> expect` for the Chinese/Portuguese/Filipino/Norwegian special cases + empty. Rust: `target_language_codes_match_parity_fixture` in websocket.rs. Android: [GeminiS2sTargetLanguageParityTest.kt](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/GeminiS2sTargetLanguageParityTest.kt). The general name->code fallback (Windows `isolang` vs Android `LanguageCatalog`) is a documented deviation and not locked.
 
-## Follow-up (not yet locked)
-- The Gemini S2S setup-payload field contract (`transport.rs build_s2s_setup_payload`
-  + `websocket.rs build_live_translate_setup_value` vs `GeminiS2sProtocol.kt
-  buildGeminiS2sSetupPayload`) — the nested JSON wire format — is hand-duplicated
-  with no shared fixture. (Lower drift risk: a field change breaks the live API on
-  one platform immediately; still worth a structural fixture eventually.)
+**Live-translate setup payload** (locked by fixture):
+[parity-fixtures/gemini-s2s-setup/live-translate.json](../../parity-fixtures/gemini-s2s-setup/live-translate.json) — the `{model, targetLanguage} -> setup payload` wire format (responseModalities/translationConfig/echo + the two transcription objects), compared structurally. Rust: `live_translate_setup_payload_matches_parity_fixture` in websocket.rs. Android: [GeminiS2sSetupPayloadParityTest.kt](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/GeminiS2sSetupPayloadParityTest.kt) (needs the real `org.json` test dep, since the Android builder uses org.json which the android.jar stub doesn't mock).
+
+## Deliberate Deviation (not locked)
+- The LEGACY interpreter setup payload's `systemInstruction` PROSE differs by design
+  between platforms (Windows: "You are a low-latency live interpreter…"; Android:
+  "Translate the user's speech directly into…") — both achieve translation; the
+  exact wording is not a contract, so it is intentionally not fixture-locked.
 
 ## Changing this behavior
 Edit the Windows canonical, mirror onto Android, and update the relevant fixture so

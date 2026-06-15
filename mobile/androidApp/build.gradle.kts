@@ -436,6 +436,9 @@ dependencies {
 
     testImplementation(libs.junit4)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Real org.json for JVM unit tests (the android.jar stub throws "not mocked"),
+    // so parity tests can exercise the org.json-based S2S setup-payload builder.
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)

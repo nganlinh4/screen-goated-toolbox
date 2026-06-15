@@ -1,0 +1,18 @@
+{
+  "_comment": "Locks the Gemini S2S (Gemini Translate) LIVE-TRANSLATE setup-payload wire format, hand-duplicated between Windows (websocket.rs build_live_translate_setup_value) and Android (GeminiS2sProtocol.kt buildGeminiS2sSetupPayload, isGeminiTranslateApiModel branch). Both build this payload for the given input; compared structurally (field order ignored). 'Chinese' is used so targetLanguageCode resolves to the deterministic special-case 'zh-Hans', not the divergent isolang/LanguageCatalog fallback. The LEGACY interpreter payload is NOT locked here — its systemInstruction prose differs by design between platforms (documented deviation in .claude/parity/gemini-s2s-vad.md). Windows is canonical.",
+  "input": { "model": "gemini-live-translate", "targetLanguage": "Chinese" },
+  "expect": {
+    "setup": {
+      "model": "models/gemini-live-translate",
+      "generationConfig": {
+        "responseModalities": ["AUDIO"],
+        "translationConfig": {
+          "targetLanguageCode": "zh-Hans",
+          "echoTargetLanguage": true
+        }
+      },
+      "inputAudioTranscription": {},
+      "outputAudioTranscription": {}
+    }
+  }
+}

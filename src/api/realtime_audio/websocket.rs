@@ -355,4 +355,35 @@ mod tests {
             );
         }
     }
+
+    /// Lock the Gemini live-translate setup-payload wire format against the shared
+    /// fixture the Android side asserts too (structural JSON compare).
+    #[test]
+    fn live_translate_setup_payload_matches_parity_fixture() {
+        use super::build_live_translate_setup_value;
+
+        #[derive(Deserialize)]
+        struct Doc {
+            input: Input,
+            expect: serde_json::Value,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Input {
+            model: String,
+            target_language: String,
+        }
+
+        let doc: Doc = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/parity-fixtures/gemini-s2s-setup/live-translate.json"
+            ))
+            .expect("fixture file"),
+        )
+        .expect("fixture json");
+
+        let actual = build_live_translate_setup_value(&doc.input.model, &doc.input.target_language);
+        assert_eq!(actual, doc.expect);
+    }
 }
