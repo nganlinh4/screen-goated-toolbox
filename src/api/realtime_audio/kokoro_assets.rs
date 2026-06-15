@@ -68,11 +68,7 @@ fn has_nonempty_file(path: &Path) -> bool {
 }
 
 pub fn get_kokoro_model_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("models")
-        .join("kokoro_v1")
+    crate::paths::app_models_dir().join("kokoro_v1")
 }
 
 pub fn get_kokoro_espeak_data_dir() -> PathBuf {

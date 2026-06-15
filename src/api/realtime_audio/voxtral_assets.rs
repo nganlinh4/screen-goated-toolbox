@@ -76,11 +76,7 @@ fn has_nonempty(path: &Path) -> bool {
 }
 
 pub fn get_voxtral_model_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("models")
-        .join("voxtral_tts_2603")
+    crate::paths::app_models_dir().join("voxtral_tts_2603")
 }
 
 pub fn is_voxtral_model_downloaded() -> bool {

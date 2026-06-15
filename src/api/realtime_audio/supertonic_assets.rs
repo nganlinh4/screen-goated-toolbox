@@ -54,11 +54,7 @@ fn has_nonempty_file(path: &Path) -> bool {
 }
 
 pub fn get_supertonic_model_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("models")
-        .join("supertonic_3")
+    crate::paths::app_models_dir().join("supertonic_3")
 }
 
 pub fn is_supertonic_model_downloaded() -> bool {

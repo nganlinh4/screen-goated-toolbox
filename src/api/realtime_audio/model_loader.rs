@@ -181,11 +181,7 @@ fn sync_download_badge(progress: f32) {
 }
 
 pub fn get_parakeet_model_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("models")
-        .join("parakeet")
+    crate::paths::app_models_dir().join("parakeet")
 }
 
 pub fn is_model_downloaded() -> bool {

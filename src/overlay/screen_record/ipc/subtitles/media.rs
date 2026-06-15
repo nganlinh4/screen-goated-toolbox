@@ -68,8 +68,7 @@ fn build_trimmed_video_mp4_bytes(
         return Err("Gemini subtitle video source had no trim segments".to_string());
     }
 
-    let temp_root = std::env::temp_dir()
-        .join("screen-goated-toolbox")
+    let temp_root = crate::paths::app_temp_dir()
         .join("subtitle-media")
         .join(unique_suffix());
     fs::create_dir_all(&temp_root)

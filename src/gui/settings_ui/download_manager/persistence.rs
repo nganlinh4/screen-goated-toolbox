@@ -31,10 +31,7 @@ impl Default for DownloadManagerConfig {
 }
 
 pub fn get_config_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or(PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("download_manager.json")
+    crate::paths::app_config_dir().join("download_manager.json")
 }
 
 pub fn load_config() -> DownloadManagerConfig {

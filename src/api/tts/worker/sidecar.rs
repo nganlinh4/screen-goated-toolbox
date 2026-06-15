@@ -17,9 +17,7 @@ pub(super) fn check_response_id(provider: &str, request_id: &str, response_id: &
 /// Builds the per-request temp WAV path shared by the Step Audio and VieNeu
 /// sidecars: `<temp>/screen-goated-toolbox/tts/<prefix>-<req_id>.wav`.
 pub(super) fn temp_wav_path(prefix: &str, req_id: u64) -> Result<std::path::PathBuf> {
-    let dir = std::env::temp_dir()
-        .join("screen-goated-toolbox")
-        .join("tts");
+    let dir = crate::paths::app_temp_dir().join("tts");
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create temp dir '{}'", dir.display()))?;
     Ok(dir.join(format!("{prefix}-{req_id}.wav")))

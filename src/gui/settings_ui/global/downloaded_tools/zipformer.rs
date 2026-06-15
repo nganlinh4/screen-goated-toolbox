@@ -20,11 +20,7 @@ const ALL_LANGUAGES: &[ZipformerLanguage] = &[
 ];
 
 fn model_dir(lang: ZipformerLanguage) -> std::path::PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("models")
-        .join(lang.model_dir_name())
+    crate::paths::app_models_dir().join(lang.model_dir_name())
 }
 
 pub(super) fn render_zipformer_section(

@@ -47,9 +47,7 @@ pub fn current_qwen3_server_notice() -> Option<String> {
 }
 
 pub fn get_qwen3_server_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
+    crate::paths::app_data_dir()
         .join("bin")
         .join("qwen3_asr_reference")
 }
