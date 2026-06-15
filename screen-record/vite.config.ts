@@ -39,7 +39,6 @@ export default defineConfig(async () => ({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
-          if (id.includes("html2canvas") || id.includes("gif.js")) return "media-vendor";
           return "vendor";
         },
         entryFileNames: `assets/[name].js`,
