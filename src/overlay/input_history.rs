@@ -40,9 +40,7 @@ impl Default for InputHistory {
 impl InputHistory {
     /// Get the path to the history file
     fn history_path() -> PathBuf {
-        let config_dir = dirs::config_dir()
-            .unwrap_or_default()
-            .join("screen-goated-toolbox");
+        let config_dir = crate::paths::app_config_dir();
         let _ = fs::create_dir_all(&config_dir);
         config_dir.join("input_history.json")
     }

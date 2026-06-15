@@ -59,9 +59,7 @@ pub use realtime_webview::{
 /// Get a WebView2 data directory path.
 /// If subdir is provided, returns a component-specific folder to avoid file-lock contention.
 pub fn get_shared_webview_data_dir(subdir: Option<&str>) -> std::path::PathBuf {
-    let mut path = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    path.push("SGT");
-    path.push("webview_data");
+    let mut path = crate::paths::app_sgt_dir().join("webview_data");
     if let Some(s) = subdir {
         path.push(s);
     }
@@ -78,9 +76,7 @@ pub fn get_shared_webview_data_dir(subdir: Option<&str>) -> std::path::PathBuf {
 /// that can occur when files are locked by WebView processes. It will retry
 /// with delays and attempt per-file deletion as a fallback.
 pub fn clear_webview_permissions() -> bool {
-    let mut path = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    path.push("SGT");
-    path.push("webview_data");
+    let path = crate::paths::app_sgt_dir().join("webview_data");
 
     if !path.exists() {
         // Already clean

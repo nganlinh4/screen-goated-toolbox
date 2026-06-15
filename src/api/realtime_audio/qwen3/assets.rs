@@ -266,19 +266,11 @@ pub fn current_qwen3_model_notice() -> Option<String> {
 }
 
 pub fn get_qwen3_model_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("models")
-        .join("qwen3_asr_0_6b")
+    crate::paths::app_models_dir().join("qwen3_asr_0_6b")
 }
 
 pub fn get_qwen3_1_7b_model_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("models")
-        .join("qwen3_asr_1_7b")
+    crate::paths::app_models_dir().join("qwen3_asr_1_7b")
 }
 
 pub fn is_qwen3_1_7b_model_downloaded() -> bool {

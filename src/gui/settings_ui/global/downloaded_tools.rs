@@ -216,11 +216,7 @@ fn clean_all_downloaded_tools(download_manager: &mut DownloadManager) {
         crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::Russian,
         crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::All8Lang,
     ] {
-        let model_dir = dirs::data_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("screen-goated-toolbox")
-            .join("models")
-            .join(lang.model_dir_name());
+        let model_dir = crate::paths::app_models_dir().join(lang.model_dir_name());
         let _ = std::fs::remove_dir_all(model_dir);
     }
 

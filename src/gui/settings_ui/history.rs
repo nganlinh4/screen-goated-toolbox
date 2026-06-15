@@ -80,10 +80,7 @@ pub fn render_history_panel(
                     .on_hover_text(text.history_open_media_folder_tooltip)
                     .clicked()
                 {
-                    let config_dir = dirs::config_dir()
-                        .unwrap_or_default()
-                        .join("screen-goated-toolbox")
-                        .join("history_media");
+                    let config_dir = crate::paths::app_config_dir().join("history_media");
                     let _ = std::fs::create_dir_all(&config_dir);
                     let _ = open::that(config_dir);
                 }
@@ -198,10 +195,7 @@ pub fn render_history_panel(
                                                 HistoryType::Text => text.view_text_btn,
                                             };
                                             if ui.button(btn_text).clicked() {
-                                                let config_dir = dirs::config_dir()
-                                                    .unwrap()
-                                                    .join("screen-goated-toolbox")
-                                                    .join("history_media");
+                                                let config_dir = crate::paths::app_config_dir().join("history_media");
                                                 let path = config_dir.join(&item.media_path);
                                                 let _ = open::that(path);
                                             }

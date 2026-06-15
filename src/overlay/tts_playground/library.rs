@@ -145,9 +145,7 @@ pub(super) fn decode_wav_to_24khz_mono(wav_data: &[u8]) -> Result<Vec<i16>, Stri
 }
 
 fn paths() -> (PathBuf, PathBuf, PathBuf) {
-    let config_dir = dirs::config_dir()
-        .unwrap_or_default()
-        .join("screen-goated-toolbox");
+    let config_dir = crate::paths::app_config_dir();
     let dir = config_dir.join("tts_playground");
     let db_path = dir.join("clips.json");
     let _ = std::fs::create_dir_all(&dir);

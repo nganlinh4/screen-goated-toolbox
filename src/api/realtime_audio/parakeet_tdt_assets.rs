@@ -65,11 +65,7 @@ pub fn current_parakeet_tdt_model_notice() -> Option<String> {
 }
 
 pub fn get_parakeet_tdt_model_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("models")
-        .join("parakeet_tdt_0_6b_v3")
+    crate::paths::app_models_dir().join("parakeet_tdt_0_6b_v3")
 }
 
 pub fn is_parakeet_tdt_model_downloaded() -> bool {

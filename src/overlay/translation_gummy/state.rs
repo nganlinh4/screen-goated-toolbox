@@ -400,17 +400,13 @@ struct PersistedTranscript {
 }
 
 fn transcripts_path() -> std::path::PathBuf {
-    let dir = dirs::config_dir()
-        .unwrap_or_default()
-        .join("screen-goated-toolbox");
+    let dir = crate::paths::app_config_dir();
     let _ = std::fs::create_dir_all(&dir);
     dir.join("translation_gummy_transcripts.json")
 }
 
 fn legacy_transcripts_path() -> std::path::PathBuf {
-    let dir = dirs::config_dir()
-        .unwrap_or_default()
-        .join("screen-goated-toolbox");
+    let dir = crate::paths::app_config_dir();
     let _ = std::fs::create_dir_all(&dir);
     dir.join("bilingual_relay_transcripts.json")
 }
