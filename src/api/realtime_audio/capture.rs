@@ -15,6 +15,30 @@ use windows::Win32::Media::Audio::*;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Com::*;
 
+/// Linear-interpolation resample of mono i16 samples by `ratio` (= target_rate /
+/// source_rate). Works in BOTH directions and returns the input unchanged only when
+/// the rate already matches. The three capture paths previously guarded on
+/// `ratio < 1.0`, which silently skipped UPsampling — so any device below 16kHz
+/// (e.g. 8kHz Bluetooth HFP / telephony mics) was forwarded at the wrong rate as if
+/// it were 16kHz, producing half-speed/half-pitch audio that fails ASR.
+fn resample_linear_to_16k(mono: Vec<i16>, ratio: f64) -> Vec<i16> {
+    if (ratio - 1.0).abs() < 1e-9 || mono.is_empty() {
+        return mono;
+    }
+    let new_len = (mono.len() as f64 * ratio) as usize;
+    (0..new_len)
+        .map(|i| {
+            let src_idx = i as f64 / ratio;
+            let idx0 = src_idx as usize;
+            let idx1 = (idx0 + 1).min(mono.len() - 1);
+            let frac = src_idx - idx0 as f64;
+            let s0 = mono[idx0] as f64;
+            let s1 = mono[idx1] as f64;
+            (s0 + (s1 - s0) * frac) as i16
+        })
+        .collect()
+}
+
 fn request_device_reconnect(reason: &str) {
     eprintln!("Device loopback capture needs reconnect: {reason}");
     DEVICE_RECONNECT_REQUESTED.store(true, Ordering::SeqCst);
@@ -280,22 +304,7 @@ pub fn start_device_loopback_capture(
                         .collect();
 
                     // Simple resampling (linear interpolation)
-                    let resampled: Vec<i16> = if resample_ratio < 1.0 {
-                        let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
-                        (0..new_len)
-                            .map(|i| {
-                                let src_idx = i as f64 / resample_ratio;
-                                let idx0 = src_idx as usize;
-                                let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
-                                let frac = src_idx - idx0 as f64;
-                                let s0 = mono_samples[idx0] as f64;
-                                let s1 = mono_samples[idx1] as f64;
-                                (s0 + (s1 - s0) * frac) as i16
-                            })
-                            .collect()
-                    } else {
-                        mono_samples
-                    };
+                    let resampled: Vec<i16> = resample_linear_to_16k(mono_samples, resample_ratio);
 
                     if let Ok(mut buf) = audio_buffer_clone.lock() {
                         buf.extend(resampled.iter().cloned());
@@ -341,22 +350,7 @@ pub fn start_device_loopback_capture(
                         .collect();
 
                     // Simple resampling
-                    let resampled: Vec<i16> = if resample_ratio < 1.0 {
-                        let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
-                        (0..new_len)
-                            .map(|i| {
-                                let src_idx = i as f64 / resample_ratio;
-                                let idx0 = src_idx as usize;
-                                let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
-                                let frac = src_idx - idx0 as f64;
-                                let s0 = mono_samples[idx0] as f64;
-                                let s1 = mono_samples[idx1] as f64;
-                                (s0 + (s1 - s0) * frac) as i16
-                            })
-                            .collect()
-                    } else {
-                        mono_samples
-                    };
+                    let resampled: Vec<i16> = resample_linear_to_16k(mono_samples, resample_ratio);
 
                     if let Ok(mut buf) = audio_buffer_clone.lock() {
                         buf.extend(resampled.iter().cloned());
@@ -444,22 +438,7 @@ pub fn start_mic_capture(
                     })
                     .collect();
 
-                let resampled: Vec<i16> = if resample_ratio < 1.0 {
-                    let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
-                    (0..new_len)
-                        .map(|i| {
-                            let src_idx = i as f64 / resample_ratio;
-                            let idx0 = src_idx as usize;
-                            let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
-                            let frac = src_idx - idx0 as f64;
-                            let s0 = mono_samples[idx0] as f64;
-                            let s1 = mono_samples[idx1] as f64;
-                            (s0 + frac * (s1 - s0)) as i16
-                        })
-                        .collect()
-                } else {
-                    mono_samples
-                };
+                let resampled: Vec<i16> = resample_linear_to_16k(mono_samples, resample_ratio);
 
                 if let Ok(mut buf) = audio_buffer_clone.lock() {
                     buf.extend(resampled.iter().cloned());
@@ -525,4 +504,36 @@ fn retry_capture_stream(
 fn is_overlapped_io_pending_error(error: &anyhow::Error) -> bool {
     let detail = format!("{error:?}");
     detail.contains("os error 997") || detail.contains("Overlapped I/O operation is in progress")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resample_linear_to_16k;
+
+    #[test]
+    fn upsamples_below_16k() {
+        // 8kHz -> 16kHz (ratio 2.0) doubles the sample count. The old `ratio < 1.0`
+        // guard skipped this path, so sub-16kHz mics were forwarded at the wrong rate.
+        let out = resample_linear_to_16k(vec![0i16, 100, 200, 300], 2.0);
+        assert_eq!(out.len(), 8);
+        assert_eq!(out[0], 0);
+    }
+
+    #[test]
+    fn downsamples_above_16k() {
+        // 48kHz -> 16kHz (ratio 1/3) thirds the count.
+        let mono: Vec<i16> = (0..30).collect();
+        assert_eq!(resample_linear_to_16k(mono, 1.0 / 3.0).len(), 10);
+    }
+
+    #[test]
+    fn identity_when_rate_matches() {
+        let mono = vec![1i16, 2, 3];
+        assert_eq!(resample_linear_to_16k(mono.clone(), 1.0), mono);
+    }
+
+    #[test]
+    fn empty_passthrough() {
+        assert!(resample_linear_to_16k(Vec::new(), 2.0).is_empty());
+    }
 }
