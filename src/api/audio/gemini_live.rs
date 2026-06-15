@@ -307,7 +307,7 @@ fn build_audio_stream(
     match config.sample_format() {
         cpal::SampleFormat::F32 => {
             let stream = device.build_input_stream(
-                config.clone().into(),
+                (*config).into(),
                 move |data: &[f32], _: &_| {
                     if pause_signal.load(Ordering::Relaxed) {
                         return;
@@ -343,7 +343,7 @@ fn build_audio_stream(
         }
         cpal::SampleFormat::I16 => {
             let stream = device.build_input_stream(
-                config.clone().into(),
+                (*config).into(),
                 move |data: &[i16], _: &_| {
                     if pause_signal.load(Ordering::Relaxed) {
                         return;

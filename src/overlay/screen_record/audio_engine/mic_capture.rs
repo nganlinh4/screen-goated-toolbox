@@ -46,7 +46,7 @@ fn build_mic_input_stream(
             let mut producer = producer;
             device
                 .build_input_stream(
-                    stream_config.clone(),
+                    *stream_config,
                     move |data: &[f32], _: &_| {
                         if !data.is_empty() {
                             let elapsed_ms = recording_start.elapsed().as_millis() as u64;
@@ -68,7 +68,7 @@ fn build_mic_input_stream(
             let mut producer = producer;
             device
                 .build_input_stream(
-                    stream_config.clone(),
+                    *stream_config,
                     move |data: &[i16], _: &_| {
                         if !data.is_empty() {
                             let elapsed_ms = recording_start.elapsed().as_millis() as u64;
@@ -90,7 +90,7 @@ fn build_mic_input_stream(
             let mut producer = producer;
             device
                 .build_input_stream(
-                    stream_config.clone(),
+                    *stream_config,
                     move |data: &[u16], _: &_| {
                         if !data.is_empty() {
                             let elapsed_ms = recording_start.elapsed().as_millis() as u64;
@@ -138,7 +138,7 @@ pub(crate) fn record_mic_audio_sidecar(
     let buffer_len = 2 * 1024 * 1024;
     let rb = HeapRb::<i16>::new(buffer_len);
     let (producer, mut consumer) = rb.split();
-    let stream_config: cpal::StreamConfig = config.clone().into();
+    let stream_config: cpal::StreamConfig = config.into();
     let stream = build_mic_input_stream(
         &device,
         &stream_config,
