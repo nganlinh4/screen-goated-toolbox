@@ -1,0 +1,16 @@
+{
+  "_comment": "Locks the Gemini S2S grouped-timeout formulas, duplicated between Windows (s2s.rs grouped_first_audio_timeout_ms / grouped_hard_timeout_ms) and Android (GeminiS2sVad.kt groupedFirstAudioTimeoutMs / groupedHardTimeoutMs). Both platforms must return expectMs for each input. Windows is canonical. See .claude/parity/gemini-s2s-vad.md.",
+  "firstAudio": [
+    { "sourceAudioMs": 0, "textUpdates": 0, "expectMs": 5500 },
+    { "sourceAudioMs": 0, "textUpdates": 1, "expectMs": 5500 },
+    { "sourceAudioMs": 2000, "textUpdates": 0, "expectMs": 7800 },
+    { "sourceAudioMs": 2000, "textUpdates": 1, "expectMs": 9200 },
+    { "sourceAudioMs": 20000, "textUpdates": 1, "expectMs": 30000 }
+  ],
+  "hard": [
+    { "sourceAudioMs": 0, "finalAttempt": false, "expectMs": 45000 },
+    { "sourceAudioMs": 0, "finalAttempt": true, "expectMs": 60000 },
+    { "sourceAudioMs": 1000, "finalAttempt": false, "expectMs": 49000 },
+    { "sourceAudioMs": 40000, "finalAttempt": true, "expectMs": 180000 }
+  ]
+}

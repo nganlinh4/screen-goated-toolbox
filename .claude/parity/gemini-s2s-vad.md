@@ -20,28 +20,25 @@ a captured segment is worth sending. The strict-path confidence branch requires 
 `speech_like_ratio >= 0.08` floor *in addition to* the confidence threshold —
 because a high blended confidence can come purely from energy terms (loud
 flat/tonal/DC noise). Android had dropped this floor (fixed 2026-06; it accepted
-noise Windows rejects). The rule itself is currently locked only by independent
-per-platform unit tests (`s2s_adaptive_vad_*` in s2s.rs; the Android VAD tests),
-NOT yet by a shared rule fixture — see Follow-up.
+noise Windows rejects). The rule is now locked by the shared `accept-rule.json`
+fixture below (one case directly exercises the 0.08 floor).
 
 ## Fixtures
 - Constants fixture: [parity-fixtures/gemini-s2s-vad/constants.json](../../parity-fixtures/gemini-s2s-vad/constants.json).
 - Rust assertion: `s2s_vad_constants_match_parity_fixture` in [src/api/realtime_audio/s2s.rs](../../src/api/realtime_audio/s2s.rs).
 - Android assertion: [mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/GeminiS2sVadConstantsParityTest.kt](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/GeminiS2sVadConstantsParityTest.kt).
 
+**Accept rule + grouped-timeout formulas** (locked by fixture):
+- Rule cases: [parity-fixtures/gemini-s2s-vad/accept-rule.json](../../parity-fixtures/gemini-s2s-vad/accept-rule.json) — `(frameCount, speechFrames, speechLikeFrames, energeticFrames, peakRms, meanRms, strictness) -> expectAccept`, including a case that directly exercises the 0.08 speech-like floor. Asserts the baseline gate, strict/lenient paths, AND the ratio/confidence math.
+- Timeout cases: [parity-fixtures/gemini-s2s-vad/timeouts.json](../../parity-fixtures/gemini-s2s-vad/timeouts.json) — `grouped_first_audio_timeout_ms` (clamp 5500/30000, ×2) and `grouped_hard_timeout_ms` (min 180000, ×4).
+- Rust: `s2s_accept_rule_matches_parity_fixture` + `s2s_grouped_timeouts_match_parity_fixture` in s2s.rs. Android: [GeminiS2sVadRuleParityTest.kt](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/GeminiS2sVadRuleParityTest.kt).
+
 ## Follow-up (not yet locked)
-- A shared *rule* fixture: cases of `(speechFrames, peakRms, meanRms,
-  speechLikeFrames, energeticFrames, sampleCount, strictness) -> expected accept`
-  derived from the Windows rule, asserted by both a Rust and an Android unit test,
-  to lock the accept logic (and the ratio/confidence math) — not just its literals.
 - The Gemini S2S setup-payload field contract + the BCP-47 target-language table
   (`transport.rs` + `websocket.rs::live_translate_target_language_code` vs
-  `GeminiS2sProtocol.kt`) are similarly hand-duplicated with no shared fixture.
-- The grouped-timeout formulas (`grouped_first_audio_timeout_ms` clamp 5500/30000,
-  `grouped_hard_timeout_ms` min 180000, ×2/×4 multipliers) are duplicated and not
-  yet fixture-locked.
+  `GeminiS2sProtocol.kt`) are hand-duplicated with no shared fixture.
 
 ## Changing this behavior
-Edit the Windows canonical, mirror onto Android, and update `constants.json` so
+Edit the Windows canonical, mirror onto Android, and update the relevant fixture so
 both suites assert the new values. Behavioral VAD changes should also be validated
 on-device before relying on them.

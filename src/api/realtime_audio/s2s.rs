@@ -627,6 +627,117 @@ mod tests {
         assert_eq!(fx.floats.len(), floats.len(), "float count");
     }
 
+    /// Lock the is_segment_worth_sending accept RULE (baseline gate + strict/lenient
+    /// paths + the 0.08 speech-like floor) against the shared fixture the Android
+    /// side asserts too. See .claude/parity/gemini-s2s-vad.md.
+    #[test]
+    fn s2s_accept_rule_matches_parity_fixture() {
+        use serde::Deserialize;
+
+        #[derive(Deserialize)]
+        struct Doc {
+            cases: Vec<Case>,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Case {
+            name: String,
+            frame_count: usize,
+            speech_frames: usize,
+            speech_like_frames: usize,
+            energetic_frames: usize,
+            peak_rms: f32,
+            mean_rms: f32,
+            strictness: f32,
+            expect_accept: bool,
+        }
+
+        let doc: Doc = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/parity-fixtures/gemini-s2s-vad/accept-rule.json"
+            ))
+            .expect("fixture file"),
+        )
+        .expect("fixture json");
+
+        for c in doc.cases {
+            let segment = super::Segment {
+                id: 0,
+                samples: vec![0i16; c.frame_count * FRAME_SAMPLES],
+                speech_frames: c.speech_frames,
+                peak_rms: c.peak_rms,
+                mean_rms: c.mean_rms,
+                energetic_frames: c.energetic_frames,
+                speech_like_frames: c.speech_like_frames,
+            };
+            let vad = AdaptiveS2sVadSnapshot {
+                strictness: c.strictness,
+            };
+            assert_eq!(
+                is_segment_worth_sending(&segment, vad),
+                c.expect_accept,
+                "case {}",
+                c.name
+            );
+        }
+    }
+
+    /// Lock the grouped-timeout formulas against the shared fixture.
+    #[test]
+    fn s2s_grouped_timeouts_match_parity_fixture() {
+        use serde::Deserialize;
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Doc {
+            first_audio: Vec<FirstAudio>,
+            hard: Vec<Hard>,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct FirstAudio {
+            source_audio_ms: u128,
+            text_updates: usize,
+            expect_ms: u128,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Hard {
+            source_audio_ms: u128,
+            final_attempt: bool,
+            expect_ms: u128,
+        }
+
+        let doc: Doc = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/parity-fixtures/gemini-s2s-vad/timeouts.json"
+            ))
+            .expect("fixture file"),
+        )
+        .expect("fixture json");
+
+        for c in doc.first_audio {
+            assert_eq!(
+                super::grouped_first_audio_timeout_ms(c.source_audio_ms, c.text_updates),
+                c.expect_ms,
+                "first_audio src={} updates={}",
+                c.source_audio_ms,
+                c.text_updates
+            );
+        }
+        for c in doc.hard {
+            assert_eq!(
+                super::grouped_hard_timeout_ms(c.source_audio_ms, c.final_attempt),
+                c.expect_ms,
+                "hard src={} final={}",
+                c.source_audio_ms,
+                c.final_attempt
+            );
+        }
+    }
+
     #[test]
     fn s2s_text_merge_preserves_short_word_boundaries() {
         let mut text = String::from("anh ta đang làm");
