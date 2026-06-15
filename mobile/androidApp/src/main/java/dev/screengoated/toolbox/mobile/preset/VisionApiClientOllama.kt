@@ -43,7 +43,7 @@ internal fun VisionApiClient.streamOllamaVision(
             throw IOException("Ollama vision request failed with ${response.code}")
         }
 
-        val body = response.body ?: throw IOException("Ollama vision response body was empty.")
+        val body = response.body
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
                 val line = rawLine.trim()
@@ -91,7 +91,7 @@ private fun VisionApiClient.generateOllamaVisionBlocking(
         }
 
         val content = try {
-            JSONObject(response.body?.string().orEmpty()).optString("response", "")
+            JSONObject(response.body.string().orEmpty()).optString("response", "")
         } catch (_: JSONException) {
             ""
         }

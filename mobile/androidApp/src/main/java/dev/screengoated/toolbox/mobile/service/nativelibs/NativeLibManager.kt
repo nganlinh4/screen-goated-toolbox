@@ -181,9 +181,9 @@ class NativeLibManager(private val context: Context) {
             val request = Request.Builder().url(url).build()
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-                val contentLength = response.body?.contentLength() ?: -1L
+                val contentLength = response.body.contentLength()
                 var downloaded = 0L
-                response.body?.byteStream()?.use { input ->
+                response.body.byteStream().use { input ->
                     FileOutputStream(zipFile).use { output ->
                         val buf = ByteArray(65536)
                         while (true) {

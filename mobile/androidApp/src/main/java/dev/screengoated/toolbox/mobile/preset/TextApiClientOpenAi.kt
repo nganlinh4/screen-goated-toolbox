@@ -61,7 +61,7 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
             ?: response.header("x-ratelimit-limit-requests-day")
         ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
 
-        val body = response.body ?: throw IOException("$providerName response body was empty.")
+        val body = response.body
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
                 coroutineContext.ensureActive()
@@ -128,7 +128,7 @@ internal suspend fun TextApiClient.streamCerebras(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            val errorBody = response.body?.string().orEmpty()
+            val errorBody = response.body.string().orEmpty()
             Log.e(
                 "TextApiClient",
                 "Cerebras request failed code=$code model=${model.fullName} body=$errorBody",
@@ -137,7 +137,7 @@ internal suspend fun TextApiClient.streamCerebras(
             throw IOException("Cerebras request failed with $code")
         }
 
-        val body = response.body ?: throw IOException("Cerebras response body was empty.")
+        val body = response.body
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
                 coroutineContext.ensureActive()
@@ -240,7 +240,7 @@ internal fun TextApiClient.runGroqCompound(
             throw IOException("Groq request failed with $code")
         }
 
-        val body = response.body?.string().orEmpty()
+        val body = response.body.string().orEmpty()
         val content = try {
             val root = JSONObject(body)
             root.optJSONArray("choices")
@@ -297,7 +297,7 @@ private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(
         ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
 
         val content = try {
-            JSONObject(response.body?.string().orEmpty())
+            JSONObject(response.body.string().orEmpty())
                 .optJSONArray("choices")
                 ?.optJSONObject(0)
                 ?.optJSONObject("message")
@@ -331,7 +331,7 @@ private suspend fun TextApiClient.generateCerebrasBlocking(
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             val code = response.code
-            val errorBody = response.body?.string().orEmpty()
+            val errorBody = response.body.string().orEmpty()
             Log.e(
                 "TextApiClient",
                 "Cerebras request failed code=$code model=${model.fullName} body=$errorBody",
@@ -341,7 +341,7 @@ private suspend fun TextApiClient.generateCerebrasBlocking(
         }
 
         val content = try {
-            JSONObject(response.body?.string().orEmpty())
+            JSONObject(response.body.string().orEmpty())
                 .optJSONArray("choices")
                 ?.optJSONObject(0)
                 ?.optJSONObject("message")

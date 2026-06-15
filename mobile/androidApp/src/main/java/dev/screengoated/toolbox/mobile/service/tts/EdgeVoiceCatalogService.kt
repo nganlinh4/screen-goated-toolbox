@@ -45,7 +45,7 @@ class EdgeVoiceCatalogService(
 
                 httpClient.newCall(request).execute().use { response ->
                     check(response.isSuccessful) { "Edge voices HTTP ${response.code}" }
-                    val body = response.body?.string().orEmpty()
+                    val body = response.body.string().orEmpty()
                     val voices = json.decodeFromString<List<EdgeVoicePayload>>(body).map {
                         EdgeVoice(
                             shortName = it.shortName,

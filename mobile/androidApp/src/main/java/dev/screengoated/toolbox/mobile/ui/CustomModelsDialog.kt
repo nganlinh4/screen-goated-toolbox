@@ -266,7 +266,7 @@ private suspend fun fetchOpenRouterModels(apiKey: String): List<ImportableOpenRo
             if (!response.isSuccessful) {
                 error("OpenRouter scan failed: HTTP ${response.code}")
             }
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string().orEmpty()
             val json = JSONObject(body)
             val data = json.optJSONArray("data") ?: return@withContext emptyList()
             List(data.length()) { index ->

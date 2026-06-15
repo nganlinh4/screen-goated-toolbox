@@ -240,7 +240,7 @@ class RealtimeTranslationClient(
             if (!response.isSuccessful) {
                 throw IOException("Translation request failed with ${response.code}")
             }
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string().orEmpty()
             val root = JSONObject(body)
             val jsonText = root.optJSONArray("choices")
                 ?.optJSONObject(0)
@@ -277,7 +277,7 @@ class RealtimeTranslationClient(
             if (!response.isSuccessful) {
                 throw IOException("Groq translation request failed with ${response.code}")
             }
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string().orEmpty()
             val root = JSONObject(body)
             val jsonText = root.optJSONArray("choices")
                 ?.optJSONObject(0)
@@ -326,7 +326,7 @@ class RealtimeTranslationClient(
             if (!response.isSuccessful) {
                 throw IOException("Gemini translation request failed with ${response.code}")
             }
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string().orEmpty()
             val root = JSONObject(body)
             val parts = root.optJSONArray("candidates")
                 ?.optJSONObject(0)
@@ -389,7 +389,7 @@ class RealtimeTranslationClient(
             if (!response.isSuccessful) {
                 return null
             }
-            val payload = response.body?.string().orEmpty()
+            val payload = response.body.string().orEmpty()
             val sentences = JSONArray(payload).optJSONArray(0) ?: return null
             return buildString {
                 for (index in 0 until sentences.length()) {
