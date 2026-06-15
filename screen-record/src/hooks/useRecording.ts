@@ -57,7 +57,7 @@ interface UseRecordingProps {
   >;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
-  tempCanvasRef: React.RefObject<HTMLCanvasElement>;
+  tempCanvasRef: React.RefObject<HTMLCanvasElement | null>;
   backgroundConfig: BackgroundConfig;
   setSegment: (segment: VideoSegment | null) => void;
   setCurrentVideo: (url: string | null) => void;

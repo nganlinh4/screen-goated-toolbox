@@ -17,7 +17,7 @@ interface UseTimelineSegmentActionsOptions {
   segment: VideoSegment | null;
   setSegment: (segment: VideoSegment | null) => void;
   setCurrentTime: (time: number) => void;
-  videoRef: RefObject<HTMLVideoElement>;
+  videoRef: RefObject<HTMLVideoElement | null>;
   onSeek?: (time: number) => void;
   onClearTimelineFocus?: () => void;
   beginBatch: () => void;

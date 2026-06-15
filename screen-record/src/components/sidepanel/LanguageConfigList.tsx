@@ -80,7 +80,7 @@ export function LanguageConfigList<T extends LanguageConfigItem>({
           className={`language-config-row flex items-center gap-1.5 ${rowClassName ?? ''}`}
         >
           <span
-            className={`language-config-name w-20 flex-shrink-0 ${truncateLanguageName ? 'truncate ' : ''}text-[11px] font-medium text-[var(--secondary-color)]`}
+            className={`language-config-name w-20 shrink-0 ${truncateLanguageName ? 'truncate ' : ''}text-[11px] font-medium text-[var(--secondary-color)]`}
           >
             {item.languageName}
           </span>

@@ -239,7 +239,7 @@ export function EditorMain({
       style={{ height: "calc(100vh - 44px)" }}
     >
       {error && (
-        <p className="error-message text-[var(--tertiary-color)] mb-2 flex-shrink-0">
+        <p className="error-message text-[var(--tertiary-color)] mb-2 shrink-0">
           {error}
         </p>
       )}
@@ -331,7 +331,7 @@ export function EditorMain({
         </div>
 
         {/* Side Panel */}
-        <div className="side-panel-container w-[24rem] flex-shrink-0 min-h-0 relative overflow-visible">
+        <div className="side-panel-container w-[24rem] shrink-0 min-h-0 relative overflow-visible">
           <SidePanel
             activePanel={activePanel}
             setActivePanel={setActivePanel}
@@ -422,7 +422,7 @@ export function EditorMain({
 
       {/* Timeline */}
       <div
-        className={`timeline-container mt-3 flex-shrink-0 relative ${isOverlayMode ? "overflow-hidden" : ""}`}
+        className={`timeline-container mt-3 shrink-0 relative ${isOverlayMode ? "overflow-hidden" : ""}`}
       >
         <TimelineArea
           duration={duration}

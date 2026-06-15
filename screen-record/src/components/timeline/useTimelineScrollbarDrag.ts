@@ -14,9 +14,9 @@ import {
 } from "./timelineViewportMath";
 
 interface UseTimelineScrollbarDragOptions {
-  viewportRef: RefObject<HTMLDivElement>;
-  timelineRef: RefObject<HTMLDivElement>;
-  scrollbarTrackRef: RefObject<HTMLDivElement>;
+  viewportRef: RefObject<HTMLDivElement | null>;
+  timelineRef: RefObject<HTMLDivElement | null>;
+  scrollbarTrackRef: RefObject<HTMLDivElement | null>;
   showScrollbarRef: MutableRefObject<boolean>;
   zoomRef: MutableRefObject<number>;
   followSpringRef: MutableRefObject<SpringSolver>;

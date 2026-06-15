@@ -417,8 +417,8 @@ export function CropWorkspace({
                     ))}
 
                     <div className="crop-workspace-crosshair pointer-events-none absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 opacity-50">
-                      <div className="absolute top-1/2 h-px w-full -translate-y-1/2 bg-white shadow-sm" />
-                      <div className="absolute left-1/2 h-full w-px -translate-x-1/2 bg-white shadow-sm" />
+                      <div className="absolute top-1/2 h-px w-full -translate-y-1/2 bg-white shadow-xs" />
+                      <div className="absolute left-1/2 h-full w-px -translate-x-1/2 bg-white shadow-xs" />
                     </div>
                   </div>
                 </div>

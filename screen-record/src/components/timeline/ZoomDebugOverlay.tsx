@@ -88,7 +88,7 @@ export const ZoomDebugOverlay: React.FC<ZoomDebugOverlayProps> = ({ segment, dur
                 <span className="text-[8px] font-mono text-[var(--timeline-warning-color)] pointer-events-none">speed</span>
                 <button
                     onClick={handleCopy}
-                    className="ui-chip-button text-[7px] font-mono px-1 rounded text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]"
+                    className="ui-chip-button text-[7px] font-mono px-1 rounded-sm text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]"
                 >
                     {copied ? 'copied!' : 'copy'}
                 </button>

@@ -116,7 +116,7 @@ export function PanelSelect({
           <span className="panel-select-trigger-label min-w-0 flex-1 truncate">
             {selectedOption?.triggerLabel ?? selectedOption?.label ?? value}
           </span>
-          <ChevronDown className="panel-select-trigger-icon h-4 w-4 flex-shrink-0 opacity-70" />
+          <ChevronDown className="panel-select-trigger-icon h-4 w-4 shrink-0 opacity-70" />
         </button>
       </Popover.Trigger>
 
@@ -139,13 +139,13 @@ export function PanelSelect({
             {searchable ? (
               <div className="panel-select-search-shell px-1 pb-1.5">
                 <div className="panel-select-search-row flex items-center gap-2 rounded-lg border border-[var(--outline-variant)]/70 bg-[var(--ui-surface-2)] px-2.5 py-2 text-[11px] text-[var(--on-surface-variant)]">
-                  <Search className="panel-select-search-icon h-3.5 w-3.5 flex-shrink-0 opacity-70" />
+                  <Search className="panel-select-search-icon h-3.5 w-3.5 shrink-0 opacity-70" />
                   <input
                     ref={searchInputRef}
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder={searchPlaceholder}
-                    className="panel-select-search-input min-w-0 flex-1 bg-transparent text-[var(--on-surface)] outline-none placeholder:text-[var(--on-surface-variant)]/70"
+                    className="panel-select-search-input min-w-0 flex-1 bg-transparent text-[var(--on-surface)] outline-hidden placeholder:text-[var(--on-surface-variant)]/70"
                   />
                 </div>
               </div>
@@ -165,7 +165,7 @@ export function PanelSelect({
                     <div
                       key={option.value}
                       className={cn(
-                        'panel-select-option-row dropdown-menu-item relative flex w-full items-center rounded-md text-[11px] leading-tight outline-none transition-colors',
+                        'panel-select-option-row dropdown-menu-item relative flex w-full items-center rounded-md text-[11px] leading-tight outline-hidden transition-colors',
                         rowClassName,
                       )}
                     >
@@ -192,7 +192,7 @@ export function PanelSelect({
                       </button>
                       {option.trailing ? (
                         <div
-                          className="panel-select-option-trailing mr-1 flex h-6 flex-shrink-0 items-center justify-center"
+                          className="panel-select-option-trailing mr-1 flex h-6 shrink-0 items-center justify-center"
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -209,7 +209,7 @@ export function PanelSelect({
                           type="button"
                           disabled={optionAction.disabled}
                           className={cn(
-                            'panel-select-option-action mr-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md transition-colors',
+                            'panel-select-option-action mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors',
                             optionAction.disabled
                               ? 'cursor-not-allowed opacity-40'
                               : optionAction.tone === 'danger'

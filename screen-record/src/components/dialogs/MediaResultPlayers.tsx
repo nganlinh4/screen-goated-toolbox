@@ -28,7 +28,7 @@ export function CustomVideoPlayer({
   const [dur, setDur] = useState(0);
   const [muted, setMuted] = useState(false);
   const [ctrlVisible, setCtrlVisible] = useState(true);
-  const hideTimer = useRef<ReturnType<typeof setTimeout>>();
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrubbing = useRef(false);
 
   useEffect(() => {
@@ -298,7 +298,7 @@ export function CustomAudioPlayer({
       <div className="custom-audio-controls flex items-center gap-3 text-[var(--on-surface)]">
         <button
           onClick={toggle}
-          className="custom-audio-play-btn rounded-full bg-[var(--primary-color)] p-2.5 text-[var(--primary-foreground)] shadow-sm hover:brightness-105"
+          className="custom-audio-play-btn rounded-full bg-[var(--primary-color)] p-2.5 text-[var(--primary-foreground)] shadow-xs hover:brightness-105"
         >
           {playing ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" fill="currentColor" />}
         </button>

@@ -15,7 +15,7 @@ export function CanvasRatioIcon({
 
   return (
     <svg
-      className="canvas-ratio-icon h-4 w-4 flex-shrink-0"
+      className="canvas-ratio-icon h-4 w-4 shrink-0"
       viewBox="0 0 18 18"
       fill="none"
       aria-hidden="true"

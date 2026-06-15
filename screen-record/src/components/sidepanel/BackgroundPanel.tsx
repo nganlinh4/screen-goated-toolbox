@@ -196,7 +196,7 @@ export function BackgroundPanel({
                     e.stopPropagation();
                     onRemoveRecentUpload(imageUrl);
                   }}
-                  className="uploaded-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-sm bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
+                  className="uploaded-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-xs bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
                   iconClassName="w-2.5 h-2.5 text-white"
                   title={t.backgroundRemoveUploaded}
                   ariaLabel={t.backgroundRemoveUploaded}

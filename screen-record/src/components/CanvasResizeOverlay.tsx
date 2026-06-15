@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundConfig } from '@/types/video';
 
 interface CanvasResizeOverlayProps {
-  previewContainerRef: React.RefObject<HTMLDivElement>;
+  previewContainerRef: React.RefObject<HTMLDivElement | null>;
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   beginBatch: () => void;
@@ -182,7 +182,7 @@ export function CanvasResizeOverlay({
         <div className="canvas-resize-border absolute inset-0 border border-dashed border-white/30 pointer-events-none" />
         {isLabelVisible && (
           <div
-            className={`canvas-resize-label absolute left-1/2 -translate-x-1/2 bg-black/60 text-white/80 text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none tabular-nums ${
+            className={`canvas-resize-label absolute left-1/2 -translate-x-1/2 bg-black/60 text-white/80 text-[9px] px-1.5 py-0.5 rounded-sm whitespace-nowrap pointer-events-none tabular-nums ${
               showLabelBelowTopHandle ? 'top-3' : '-top-5'
             }`}
           >

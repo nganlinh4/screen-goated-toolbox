@@ -120,7 +120,7 @@ export function PlaybackControlsRow({
 
   return (
     <div
-      className={`playback-controls-row flex-shrink-0 flex justify-center pb-1 min-h-[61px] transition-opacity duration-200 ${
+      className={`playback-controls-row shrink-0 flex justify-center pb-1 min-h-[61px] transition-opacity duration-200 ${
         showPlaybackControls || showPlaybackControlsGhost
           ? "opacity-100"
           : "opacity-0 pointer-events-none"

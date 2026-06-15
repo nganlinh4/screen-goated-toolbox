@@ -49,7 +49,7 @@ export function SubtitleTranslationSettings({
   return (
     <>
       <div className="subtitle-translation-language-row flex items-center gap-2">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.subtitleTranslationLanguage}
         </span>
         <PanelSelect
@@ -65,7 +65,7 @@ export function SubtitleTranslationSettings({
       </div>
 
       <div className="subtitle-translation-model-row flex items-center gap-2">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.subtitleTranslationModel}
         </span>
         <PanelSelect
@@ -86,7 +86,7 @@ export function SubtitleTranslationSettings({
       </label>
 
       <div className="subtitle-translation-source-row flex items-center gap-2">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.subtitleTranslationSource}
         </span>
         <PanelSelect

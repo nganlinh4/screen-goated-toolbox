@@ -6,9 +6,9 @@ interface CropOverlayProps {
   segment: VideoSegment;
   mousePositions: MousePosition[];
   currentTime: number;
-  previewContainerRef: React.RefObject<HTMLDivElement>;
-  canvasRef: React.RefObject<HTMLCanvasElement>;
-  videoRef: React.RefObject<HTMLVideoElement>;
+  previewContainerRef: React.RefObject<HTMLDivElement | null>;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   backgroundConfig: BackgroundConfig;
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
@@ -267,8 +267,8 @@ export function CropOverlay({
 
           {/* Central Crosshair */}
           <div className="crop-crosshair absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 opacity-50 pointer-events-none">
-            <div className="crosshair-h absolute w-full h-[1px] bg-white top-1/2 -translate-y-1/2 shadow-sm" />
-            <div className="crosshair-v absolute h-full w-[1px] bg-white left-1/2 -translate-x-1/2 shadow-sm" />
+            <div className="crosshair-h absolute w-full h-[1px] bg-white top-1/2 -translate-y-1/2 shadow-xs" />
+            <div className="crosshair-v absolute h-full w-[1px] bg-white left-1/2 -translate-x-1/2 shadow-xs" />
           </div>
         </div>
       </div>

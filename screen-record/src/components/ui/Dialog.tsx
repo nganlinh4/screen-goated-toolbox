@@ -54,7 +54,7 @@ const DialogContent = React.forwardRef<
             'flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden',
             size ?? 'max-w-md',
             'rounded-[1.85rem]',
-            'focus:outline-none',
+            'focus:outline-hidden',
             className,
           )}
           initial={{ opacity: 0, scale: 0.965, y: 10 }}

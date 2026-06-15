@@ -15,8 +15,8 @@ export interface TimelineAreaProps {
   currentTime: number;
   segment: VideoSegment | null;
   thumbnails: string[];
-  timelineRef: RefObject<HTMLDivElement>;
-  videoRef: RefObject<HTMLVideoElement>;
+  timelineRef: RefObject<HTMLDivElement | null>;
+  videoRef: RefObject<HTMLVideoElement | null>;
   editingKeyframeId: number | null;
   editingTextId: string | null;
   editingSubtitleId: string | null;

@@ -118,7 +118,7 @@ export function ProjectsView({
         }`}
       >
         {/* Header */}
-        <div className="projects-header flex justify-between items-center px-6 py-4 flex-shrink-0 border-[var(--ui-border)] ">
+        <div className="projects-header flex justify-between items-center px-6 py-4 shrink-0 border-[var(--ui-border)] ">
           <div className="flex items-center gap-4">
             <h3 className="text-lg font-semibold text-[var(--on-surface)]">
               {isPickerMode
@@ -158,7 +158,7 @@ export function ProjectsView({
               </label>
             )}
           </div>
-          <div className="projects-limit-control flex items-center gap-4 flex-shrink-0 whitespace-nowrap">
+          <div className="projects-limit-control flex items-center gap-4 shrink-0 whitespace-nowrap">
             {!isPickerMode && (
               <>
                 <span className="text-[10px] text-[var(--outline)]">
@@ -269,7 +269,7 @@ export function ProjectsView({
                         {editingNameId === project.id ? (
                           <input
                             autoFocus
-                            className="project-rename-input ui-input w-full rounded-md border-b border-[var(--primary-color)] text-[var(--on-surface)] text-xs outline-none py-1 px-1.5"
+                            className="project-rename-input ui-input w-full rounded-md border-b border-[var(--primary-color)] text-[var(--on-surface)] text-xs outline-hidden py-1 px-1.5"
                             value={renameValue}
                             onChange={(e) => setRenameValue(e.target.value)}
                             onBlur={() => handleRename(project.id)}
@@ -299,7 +299,7 @@ export function ProjectsView({
                             await projectManager.deleteProject(project.id);
                             onProjectsChange();
                           }}
-                          className="project-delete-btn ui-icon-button text-[var(--outline)] hover:text-red-400 opacity-0 group-hover:opacity-100 p-0.5 flex-shrink-0"
+                          className="project-delete-btn ui-icon-button text-[var(--outline)] hover:text-red-400 opacity-0 group-hover:opacity-100 p-0.5 shrink-0"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>

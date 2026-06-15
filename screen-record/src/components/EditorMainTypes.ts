@@ -144,7 +144,7 @@ export interface EditorMainProps {
   currentRawMicAudioPath: string;
   currentProjectName?: string | null;
   thumbnails: string[];
-  timelineRef: RefObject<HTMLDivElement>;
+  timelineRef: RefObject<HTMLDivElement | null>;
   editingKeystrokeSegmentId: string | null;
   setCurrentTime: (time: number) => void;
   setEditingKeyframeId: (id: number | null) => void;

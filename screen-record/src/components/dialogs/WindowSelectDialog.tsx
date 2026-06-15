@@ -62,7 +62,7 @@ export function WindowSelectDialog({
                       <img
                         src={win.previewDataUrl}
                         alt=""
-                        className="window-select-card-preview-bg absolute inset-0 w-full h-full object-cover opacity-30 blur-sm"
+                        className="window-select-card-preview-bg absolute inset-0 w-full h-full object-cover opacity-30 blur-xs"
                       />
                       <img
                         src={win.previewDataUrl}
@@ -88,10 +88,10 @@ export function WindowSelectDialog({
                         <img
                           src={win.iconDataUrl}
                           alt=""
-                          className="window-select-card-mini-icon w-5 h-5 rounded object-contain bg-black/50 p-[1px] shadow-sm"
+                          className="window-select-card-mini-icon w-5 h-5 rounded-sm object-contain bg-black/50 p-[1px] shadow-xs"
                         />
                       ) : (
-                        <div className="window-select-card-mini-fallback w-5 h-5 rounded bg-gradient-to-br from-[var(--primary-color)] to-[#8a72d8] flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+                        <div className="window-select-card-mini-fallback w-5 h-5 rounded-sm bg-gradient-to-br from-[var(--primary-color)] to-[#8a72d8] flex items-center justify-center text-white text-[10px] font-bold shadow-xs">
                           {initial}
                         </div>
                       )}

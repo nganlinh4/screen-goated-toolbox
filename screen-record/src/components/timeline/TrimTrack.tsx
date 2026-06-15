@@ -50,7 +50,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
       thumbnails.map((thumbnail, index) => (
         <div
           key={index}
-          className="trim-thumb h-full flex-shrink-0"
+          className="trim-thumb h-full shrink-0"
           style={{
             width: `calc(${100 / thumbnails.length}% - 1px)`,
             backgroundImage: `url(${thumbnail})`,

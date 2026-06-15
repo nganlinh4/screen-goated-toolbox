@@ -317,7 +317,7 @@ export const ImportedAudioTrack: React.FC<ImportedAudioTrackProps> = ({
               >
                 <span className="min-w-0 max-w-full truncate font-medium">{seg.name}</span>
                 {showSpeedBadge && (
-                  <span className="audio-track-segment-speed ml-auto rounded bg-[var(--primary-color)]/30 px-1 text-[9px] font-semibold leading-3">
+                  <span className="audio-track-segment-speed ml-auto rounded-sm bg-[var(--primary-color)]/30 px-1 text-[9px] font-semibold leading-3">
                     {rate.toFixed(2)}×
                   </span>
                 )}

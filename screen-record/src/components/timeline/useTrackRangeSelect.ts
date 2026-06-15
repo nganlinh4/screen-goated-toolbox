@@ -16,7 +16,7 @@ export interface TrackRangeSelect {
   selectedRange: TrackSelectionRange | null;
   rangeSelect: RangeSelectState | null;
   activeDragMode: 'sweep-select' | 'ctrl-range' | null;
-  trackRef: React.RefObject<HTMLDivElement>;
+  trackRef: React.RefObject<HTMLDivElement | null>;
   isDraggingRange: React.MutableRefObject<boolean>;
   clearSelection: () => void;
   onSegmentPointerDown: () => void;

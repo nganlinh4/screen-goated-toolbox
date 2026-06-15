@@ -178,7 +178,7 @@ export function SubtitleGenerationSettings({
   return (
     <>
       <div className="subtitle-view-row flex items-center gap-2">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.subtitleTrackView}
         </span>
         <PanelSelect
@@ -193,7 +193,7 @@ export function SubtitleGenerationSettings({
       </div>
 
       <div className="subtitle-source-row flex items-center gap-2">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.subtitleSource}
         </span>
         <PanelSelect
@@ -206,7 +206,7 @@ export function SubtitleGenerationSettings({
       </div>
 
       <div className="subtitle-method-row flex items-center gap-2">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.subtitleMethod}
         </span>
         <PanelSelect
@@ -220,7 +220,7 @@ export function SubtitleGenerationSettings({
 
       {usesLanguageHint && (
         <div className="subtitle-language-row flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+          <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
             {t.subtitleLanguageHint}
           </span>
           <PanelSelect
@@ -275,7 +275,7 @@ export function SubtitleGenerationSettings({
               onChange={(event) => onGeminiPromptChange(event.target.value)}
               placeholder={t.subtitleGeminiPromptPlaceholder}
               rows={7}
-              className="subtitle-gemini-prompt-input subtle-resize min-h-[132px] w-full resize-y border-0 bg-transparent px-3 py-2.5 text-[11px] leading-4 text-on-surface outline-none"
+              className="subtitle-gemini-prompt-input subtle-resize min-h-[132px] w-full resize-y border-0 bg-transparent px-3 py-2.5 text-[11px] leading-4 text-on-surface outline-hidden"
             />
             <div
               aria-readonly="true"
@@ -326,7 +326,7 @@ export function SubtitleGenerationSettings({
                   title={t.subtitleGroqVocabularyRemove}
                 >
                   <span className="subtitle-groq-vocabulary-tag-text truncate">{entry}</span>
-                  <X className="h-3 w-3 flex-shrink-0" />
+                  <X className="h-3 w-3 shrink-0" />
                 </button>
               ))}
             </div>

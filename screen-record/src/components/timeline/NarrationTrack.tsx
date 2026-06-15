@@ -352,13 +352,13 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
               >
                 <span className="min-w-0 max-w-full truncate font-medium">{seg.name}</span>
                 {showSpeedBadge && (
-                  <span className="narration-track-segment-speed ml-auto rounded bg-[var(--secondary-color)]/30 px-1 text-[9px] font-semibold leading-3">
+                  <span className="narration-track-segment-speed ml-auto rounded-sm bg-[var(--secondary-color)]/30 px-1 text-[9px] font-semibold leading-3">
                     {rate.toFixed(2)}×
                   </span>
                 )}
                 {isEstimatedAlignment && (
                   <span
-                    className="narration-track-segment-alignment-badge ml-auto rounded bg-amber-500/25 px-1 text-[9px] font-semibold leading-3 text-amber-200"
+                    className="narration-track-segment-alignment-badge ml-auto rounded-sm bg-amber-500/25 px-1 text-[9px] font-semibold leading-3 text-amber-200"
                     title="Estimated boundary"
                   >
                     est

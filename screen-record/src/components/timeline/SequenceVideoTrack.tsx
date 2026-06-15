@@ -71,7 +71,7 @@ export function SequenceVideoTrack({
                 </div>
                 <div className="sequence-video-clip-overlay absolute inset-0 bg-black/15" />
                 <div className="sequence-video-clip-header absolute inset-x-1 top-1 flex items-center justify-between gap-2">
-                  <span className="sequence-video-clip-name max-w-full truncate rounded bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/95 shadow-sm">
+                  <span className="sequence-video-clip-name max-w-full truncate rounded-sm bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/95 shadow-xs">
                     {timelineClip.clip.name}
                   </span>
                 </div>

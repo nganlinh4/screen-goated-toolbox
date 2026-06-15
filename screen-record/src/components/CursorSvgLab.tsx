@@ -280,10 +280,10 @@ export default function CursorSvgLab() {
     <div className="cursor-lab-page h-screen overflow-hidden bg-[var(--surface-dim)] text-[var(--on-surface)] p-4">
       <div className="cursor-lab-toolbar sticky top-0 z-20 bg-[var(--surface-dim)] py-2 mb-3 border-b border-[var(--ui-border)]">
         <div className="cursor-lab-toolbar-row flex items-center gap-2 flex-wrap">
-          <a href="#" className="cursor-lab-back-link ui-chip-button rounded px-2 py-1 text-xs">{t.cursorLabBack}</a>
+          <a href="#" className="cursor-lab-back-link ui-chip-button rounded-sm px-2 py-1 text-xs">{t.cursorLabBack}</a>
           <button
             onClick={copyJson}
-            className="cursor-lab-copy-button ui-chip-button rounded px-2 py-1 text-xs text-[var(--primary-color)]"
+            className="cursor-lab-copy-button ui-chip-button rounded-sm px-2 py-1 text-xs text-[var(--primary-color)]"
           >
             {t.cursorLabCopyJson}
           </button>
@@ -463,13 +463,13 @@ export default function CursorSvgLab() {
                     <button
                       onClick={() => applyOne(item)}
                       disabled={Boolean(applying[item.key]) || !hasChanges}
-                      className="cursor-lab-apply-button ui-chip-button px-2 py-0.5 rounded text-[10px] text-[var(--primary-color)] disabled:opacity-50"
+                      className="cursor-lab-apply-button ui-chip-button px-2 py-0.5 rounded-sm text-[10px] text-[var(--primary-color)] disabled:opacity-50"
                     >
                       {applying[item.key] ? t.cursorLabApplying : t.cursorLabApply}
                     </button>
                     <button
                       onClick={() => resetOne(item.key)}
-                      className="cursor-lab-reset-button ui-chip-button px-2 py-0.5 rounded text-[10px]"
+                      className="cursor-lab-reset-button ui-chip-button px-2 py-0.5 rounded-sm text-[10px]"
                     >
                       {t.cursorLabReset}
                     </button>

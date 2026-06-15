@@ -118,7 +118,7 @@ export function PreviewCanvas({
       <div className="preview-inner relative w-full h-full flex justify-center items-center">
         <div
           ref={previewContainerRef}
-          className={`preview-canvas relative flex items-center justify-center ${previewCursorClass} group w-full h-full focus:outline-none`}
+          className={`preview-canvas relative flex items-center justify-center ${previewCursorClass} group w-full h-full focus:outline-hidden`}
           onMouseDown={onMouseDown}
           tabIndex={-1}
         >
@@ -189,7 +189,7 @@ export function PreviewCanvas({
               >
                 <div className="keystroke-overlay-edit-outline absolute inset-0 rounded-lg border border-emerald-300/85 bg-emerald-400/8 shadow-[0_0_0_1px_rgba(0,0,0,0.28)]" />
                 <div
-                  className="keystroke-overlay-edit-handle absolute rounded-sm border border-emerald-100/90 bg-emerald-300/95 shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
+                  className="keystroke-overlay-edit-handle absolute rounded-xs border border-emerald-100/90 bg-emerald-300/95 shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
                   style={{
                     width: `${keystrokeOverlayEditFrame.handleSize}px`,
                     height: `${keystrokeOverlayEditFrame.handleSize}px`,

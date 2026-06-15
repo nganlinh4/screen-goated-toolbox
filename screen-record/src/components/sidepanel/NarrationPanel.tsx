@@ -425,7 +425,7 @@ export function NarrationPanel({
 
           {!isDirectVoiceMode && (
           <div className="narration-panel-row mb-2 flex items-center gap-2">
-            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
               {t.narrationTtsMethod}
             </span>
             <PanelSelect

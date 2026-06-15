@@ -112,7 +112,7 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
     >
       <Popover.Trigger asChild>
         <button
-          className="color-picker-trigger ui-chip-button w-7 h-6 rounded cursor-pointer active:scale-95"
+          className="color-picker-trigger ui-chip-button w-7 h-6 rounded-sm cursor-pointer active:scale-95"
           style={{ backgroundColor: value }}
         />
       </Popover.Trigger>

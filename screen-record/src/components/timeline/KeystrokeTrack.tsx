@@ -246,7 +246,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
       {mode !== 'off' && visualActivityRanges.map((range, idx) => (
         <div
           key={`keystroke-activity-${idx}`}
-          className="keystroke-activity-range absolute inset-y-0 rounded-sm pointer-events-none"
+          className="keystroke-activity-range absolute inset-y-0 rounded-xs pointer-events-none"
           style={{
             left: `${(range.startTime / safeDuration) * 100}%`,
             width: `${((range.endTime - range.startTime) / safeDuration) * 100}%`,
@@ -297,7 +297,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
               {emptyRanges.map((range, idx) => (
                 <div
                   key={`${seg.id}-empty-${idx}`}
-                  className="keystroke-empty-window absolute inset-y-0 rounded-sm pointer-events-none"
+                  className="keystroke-empty-window absolute inset-y-0 rounded-xs pointer-events-none"
                   style={{
                     left: `${((range.startTime - seg.startTime) / segmentDuration) * 100}%`,
                     width: `${((range.endTime - range.startTime) / segmentDuration) * 100}%`,
@@ -308,7 +308,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
               {hasIndicators && indicatorRanges.map((range, idx) => (
                 <div
                   key={`${seg.id}-indicator-${idx}`}
-                  className="keystroke-indicator-window absolute inset-y-0 rounded-sm pointer-events-none"
+                  className="keystroke-indicator-window absolute inset-y-0 rounded-xs pointer-events-none"
                   style={{
                     left: `${((range.startTime - seg.startTime) / segmentDuration) * 100}%`,
                     width: `${((range.endTime - range.startTime) / segmentDuration) * 100}%`,

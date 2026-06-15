@@ -112,7 +112,7 @@ export function SubtitleStyleControls({
       </SettingRow>
 
       <div className="subtitle-color-row flex items-center gap-3">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">{t.color}</span>
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">{t.color}</span>
         <ColorPicker
           value={resolvedStyle.color}
           onChange={(color) => onUpdateSelectedSubtitles((subtitle) => ({
@@ -161,7 +161,7 @@ export function SubtitleStyleControls({
       })}
 
       <div className="subtitle-align-row flex items-center gap-3">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.textAlignment}
         </span>
         <div className="subtitle-align-button-group ui-segmented overflow-hidden">

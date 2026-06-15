@@ -136,7 +136,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
           </SettingRow>
 
           <div className="color-field flex items-center gap-3">
-            <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.color}</span>
+            <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.color}</span>
             <ColorPicker
               value={resolvedStyle.color}
               onChange={(color) => updateStyle({ color })}
@@ -167,7 +167,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
           })}
 
           <div className="text-align-field flex items-center gap-3">
-            <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.textAlignment}</span>
+            <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.textAlignment}</span>
             <div className="alignment-button-group ui-segmented overflow-hidden">
               {(['left', 'center', 'right'] as const).map(align => {
                 const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
@@ -244,7 +244,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
 
           <div>
             <div className="text-animation-row flex items-center gap-3">
-              <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.animation}</span>
+              <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.animation}</span>
               <PanelSelect
                 value={resolvedStyle.animation?.preset ?? 'fade'}
                 options={[
@@ -305,7 +305,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
             {resolvedStyle.background?.enabled && (
               <div className="background-pill-controls space-y-3.5 mt-1 pl-1">
                 <div className="pill-color-field flex items-center gap-3">
-                  <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.pillColor}</span>
+                  <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.pillColor}</span>
                   <ColorPicker
                     value={resolvedStyle.background.color.startsWith('rgba') ? '#000000' : resolvedStyle.background.color}
                     onChange={(color) => updateStyle({
@@ -368,7 +368,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
             {resolvedStyle.stroke?.enabled && (
               <div className="text-stroke-controls mt-1 space-y-3.5 pl-1">
                 <div className="stroke-color-field flex items-center gap-3">
-                  <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.strokeColor}</span>
+                  <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.strokeColor}</span>
                   <ColorPicker
                     value={resolvedStyle.stroke.color}
                     onChange={(color) => updateStyle({ stroke: { ...resolvedStyle.stroke!, color } })}
@@ -407,7 +407,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
             {resolvedStyle.shadow?.enabled && (
               <div className="text-shadow-controls mt-1 space-y-3.5 pl-1">
                 <div className="shadow-color-field flex items-center gap-3">
-                  <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.shadowColor}</span>
+                  <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.shadowColor}</span>
                   <ColorPicker
                     value={resolvedStyle.shadow.color}
                     onChange={(color) => updateStyle({ shadow: { ...resolvedStyle.shadow!, color } })}
