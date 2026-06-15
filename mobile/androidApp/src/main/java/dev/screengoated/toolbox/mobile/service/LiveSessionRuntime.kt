@@ -483,48 +483,8 @@ internal fun fallbackTranslationProviderId(providerId: String): String {
     }
 }
 
-/** Mirrors Windows `utils::split_at_sentence_boundary`. */
-internal fun splitAtSentenceBoundary(text: String): Pair<String, String>? {
-    var lastBoundary = -1
-    var i = 0
-    while (i < text.length) {
-        val ch = text[i]
-        if (ch == '.' || ch == '?' || ch == '!') {
-            val rest = text.substring(i + 1).trimStart()
-            if (rest.isNotEmpty() && (rest[0].isLetter() || rest[0].isDigit())) {
-                lastBoundary = i + 1
-            }
-        }
-        i++
-    }
-    if (lastBoundary < 0) return null
-    return Pair(text.substring(0, lastBoundary).trimEnd(), text.substring(lastBoundary).trimStart())
-}
-
-/**
- * Smooth commit threshold for non-native-punct models (ZH, RU, All8Lang).
- * Mirrors Windows `state::draft_commit_threshold_ms`.
- * Formula: 1200 / (1 + words * 0.5), CJK chars each count as one word.
- *
- * ⚠️ WARNING — THIS FUNCTION ONLY RETURNS A THRESHOLD NUMBER.
- * The caller is responsible for the FULL commit sequence when silence >= threshold:
- *   1. Append "${text}." to committedHistory
- *   2. Set streamCommittedPrefix = rawText.trimEnd()
- *   3. Reset lastDraftText and lastDraftChangeMs
- *   4. Publish with empty draft
- * Simply appending a period to the displayed draft is NOT a commit.
- * Forgetting steps 1-4 means text is never moved out of draft → never translated.
- */
-internal fun draftCommitThresholdMs(draft: String): Long {
-    val cjkCount = draft.count { it.code > 0x2E80 }
-    val wordCount = draft.trim().split(Regex("\\s+")).count { it.isNotEmpty() } + cjkCount
-    if (wordCount == 0) return Long.MAX_VALUE
-    return (1200.0 / (1.0 + wordCount * 0.5)).toLong()
-}
-
-/** Returns true for sentence-ending punctuation. */
-internal fun Char.isSentencePunct(): Boolean = this == '.' || this == '?' || this == '!'
-
+// Offline-ASR sentence-boundary / silence-threshold commit logic now lives in the
+// shared, fixture-gated OfflineAsrStreamParity (commonMain) — see runSherpaSession.
 
 internal fun computeAdaptiveTranslationIntervalMs(latencyMs: Long): Long {
     return (latencyMs + 250L)

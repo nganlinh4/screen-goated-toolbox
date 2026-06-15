@@ -83,7 +83,7 @@ enum class ZipformerLanguage(
      *        Uses sentence-boundary detection for commits (Cases 1 & 2).
      * False = model does not emit punctuation.
      *        Uses silence-based threshold commits with appended period (Case 3).
-     *        See draftCommitThresholdMs() — caller must perform the full commit sequence.
+     *        Handled by the shared OfflineAsrStreamParity.commitStep machine.
      *
      * Confirmed by live testing on all 8 languages (2026-04):
      *   EN ✓  KO ✓  FR ✓  DE ✓  ES ✓  — native punctuation
