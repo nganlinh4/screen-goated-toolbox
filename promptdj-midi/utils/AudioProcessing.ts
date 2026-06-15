@@ -47,8 +47,10 @@ export function audioBufferToWav(buffer: AudioBuffer): Blob {
         for (i = 0; i < numOfChan; i++) {
             // clamp
             sample = Math.max(-1, Math.min(1, channels[i][pos]));
-            // scale to 16-bit
-            sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+            // scale to 16-bit (negative samples span -32768, positive +32767).
+            // Was `0.5 + sample < 0` which parses as `(0.5 + sample) < 0` — a precedence
+            // bug that scaled samples in [-0.5, 0) with the positive factor.
+            sample = (sample < 0 ? sample * 32768 : sample * 32767) | 0;
             view.setInt16(offset, sample, true);
             offset += 2;
         }
@@ -59,7 +61,7 @@ export function audioBufferToWav(buffer: AudioBuffer): Blob {
 }
 
 // Trim silence from start and end
-export function trimSilence(buffer: AudioBuffer, threshold = 0.02): AudioBuffer {
+export function trimSilence(buffer: AudioBuffer, threshold = 0.02): AudioBuffer | null {
     const numChannels = buffer.numberOfChannels;
     let start = 0;
     let end = buffer.length;
