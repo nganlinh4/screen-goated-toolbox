@@ -58,7 +58,8 @@ struct SessionControl {
 
 static TRANSCRIPT_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-static SESSION_CONTROL: LazyLock<Mutex<Option<SessionControl>>> = LazyLock::new(|| Mutex::new(None));
+static SESSION_CONTROL: LazyLock<Mutex<Option<SessionControl>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 pub fn start_session(hwnd: isize, settings: TranslationGummySettings) {
     stop_session();

@@ -23,19 +23,19 @@ pub fn get(is_dark: bool) -> String {
         shadow_sm,
     ) = if is_dark {
         (
-            "rgba(30, 30, 30, 0.98)",          // bg_color
-            "#ccc",                            // text_color (general)
-            "rgba(255, 150, 51, 0.5)",         // border_color (default orange)
-            border_focus_dark.as_str(),        // border_focus_color (blue)
-            "#aaa",                            // label_color
-            "#444",                            // slider_bg
-            "#444",                            // switch_bg
-            "#4caf50",                         // switch_on_bg
-            glow_translation,                  // slider_thumb
-            "rgba(0, 200, 255, 0.15)",         // hover_bg
-            "#555",                            // divider_color
-            "rgba(0,0,0,0.5)",                 // shadow_lg
-            shadow_sm_dark.as_str(),           // shadow_sm (orange glow)
+            "rgba(30, 30, 30, 0.98)",   // bg_color
+            "#ccc",                     // text_color (general)
+            "rgba(255, 150, 51, 0.5)",  // border_color (default orange)
+            border_focus_dark.as_str(), // border_focus_color (blue)
+            "#aaa",                     // label_color
+            "#444",                     // slider_bg
+            "#444",                     // switch_bg
+            "#4caf50",                  // switch_on_bg
+            glow_translation,           // slider_thumb
+            "rgba(0, 200, 255, 0.15)",  // hover_bg
+            "#555",                     // divider_color
+            "rgba(0,0,0,0.5)",          // shadow_lg
+            shadow_sm_dark.as_str(),    // shadow_sm (orange glow)
         )
     } else {
         (

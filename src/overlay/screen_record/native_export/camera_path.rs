@@ -356,8 +356,16 @@ mod tests {
 
     #[test]
     fn blend_zoom_hits_endpoints() {
-        let a = ZoomState { zoom_factor: 1.0, position_x: 0.5, position_y: 0.5 };
-        let b = ZoomState { zoom_factor: 2.5, position_x: 0.2, position_y: 0.7 };
+        let a = ZoomState {
+            zoom_factor: 1.0,
+            position_x: 0.5,
+            position_y: 0.5,
+        };
+        let b = ZoomState {
+            zoom_factor: 2.5,
+            position_x: 0.2,
+            position_y: 0.7,
+        };
         let at0 = blend_zoom(&a, &b, 0.0);
         assert!((at0.zoom_factor - a.zoom_factor).abs() < 1e-9);
         assert!((at0.position_x - a.position_x).abs() < 1e-9);

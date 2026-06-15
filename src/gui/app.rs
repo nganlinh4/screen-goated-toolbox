@@ -8,8 +8,8 @@ mod utils;
 
 pub use init::SettingsAppInit;
 pub use types::SettingsApp;
-pub use utils::{exit_app, request_open_downloaded_tools, restart_app, signal_restore_window};
 pub(crate) use utils::main_window_hwnd;
+pub use utils::{exit_app, request_open_downloaded_tools, restart_app, signal_restore_window};
 
 use eframe::egui;
 

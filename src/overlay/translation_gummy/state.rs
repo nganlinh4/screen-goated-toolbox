@@ -355,9 +355,7 @@ pub(super) fn sync_to_webview() {
     let Some(payload_json) = payload_json() else {
         return;
     };
-    let script = format!(
-        "window.__TG_SET_STATE && window.__TG_SET_STATE({payload_json});"
-    );
+    let script = format!("window.__TG_SET_STATE && window.__TG_SET_STATE({payload_json});");
     super::WEBVIEW.with(|webview| {
         if let Some(webview) = webview.borrow().as_ref() {
             let _ = webview.evaluate_script(&script);

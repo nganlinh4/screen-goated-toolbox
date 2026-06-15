@@ -179,7 +179,10 @@ mod tests {
     fn normalize_angle_wraps_into_pi_range() {
         for a in [4.0, -4.0, 7.5, -7.5, 3.2, -3.2, 12.0, -12.0] {
             let n = normalize_angle(a);
-            assert!((-PI - 1e-9..=PI + 1e-9).contains(&n), "{a} -> {n} out of range");
+            assert!(
+                (-PI - 1e-9..=PI + 1e-9).contains(&n),
+                "{a} -> {n} out of range"
+            );
             // Differs from the original by a whole number of TAU turns.
             let turns = (a - n) / std::f64::consts::TAU;
             assert!((turns - turns.round()).abs() < 1e-9);
@@ -230,7 +233,10 @@ mod tests {
         // carried the pre-clamp velocity forward, diverging from the TS preview.
         let r = smooth_damp_scalar(0.0, 10.0, 5000.0, 0.5, 1e9, 1.0 / 60.0);
         assert!((r.value - 10.0).abs() < 1e-9);
-        assert_eq!(r.velocity, 0.0, "velocity must be zeroed on the clamp branch");
+        assert_eq!(
+            r.velocity, 0.0,
+            "velocity must be zeroed on the clamp branch"
+        );
     }
 
     // ── Cross-language golden ─────────────────────────────────────────────────
@@ -289,7 +295,10 @@ mod tests {
     #[test]
     fn spring_step_scalar_matches_golden() {
         let g = golden();
-        for cfg in g["cursorPrimitives"]["springStepScalar"].as_array().unwrap() {
+        for cfg in g["cursorPrimitives"]["springStepScalar"]
+            .as_array()
+            .unwrap()
+        {
             let target = cfg["target"].as_f64().unwrap();
             let omega = cfg["omega"].as_f64().unwrap();
             let zeta = cfg["zeta"].as_f64().unwrap();

@@ -30,7 +30,8 @@ pub static NEW_AUDIO_SOURCE: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::n
 pub static LANGUAGE_CHANGE: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 /// The new target language to use
-pub static NEW_TARGET_LANGUAGE: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub static NEW_TARGET_LANGUAGE: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new(String::new()));
 /// Signal to change translation model
 pub static TRANSLATION_MODEL_CHANGE: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
@@ -110,4 +111,3 @@ thread_local! {
     // Shared WebContext for this thread using common data directory
     pub static REALTIME_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
 }
-

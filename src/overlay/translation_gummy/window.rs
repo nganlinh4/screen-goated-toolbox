@@ -323,4 +323,3 @@ fn resize_webview(hwnd: HWND) {
         }
     });
 }
-

@@ -3,9 +3,7 @@ use std::time::{Duration, Instant};
 use tungstenite::Message;
 
 use super::super::manager::TtsManager;
-use super::super::types::{
-    AudioEvent, SOURCE_SAMPLE_RATE, TtsCollectedAudio, TtsRequestProfile,
-};
+use super::super::types::{AudioEvent, SOURCE_SAMPLE_RATE, TtsCollectedAudio, TtsRequestProfile};
 use super::super::utils::{
     clear_tts_loading_state, clear_tts_state, get_language_instruction_for_code,
     get_language_instruction_for_text,

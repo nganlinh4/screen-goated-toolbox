@@ -9,8 +9,8 @@ use crate::gui::theme::AppTheme;
 use backend::{
     CursorCollectionSpec, PointerCollectionSummary, cursor_base_size_bounds,
     delete_all_downloaded_collections, expected_file_count, has_original_cursor_backup,
-    new_stop_signal, pointer_collection_summary, required_file_names, restore_original_cursor_backup,
-    start_download_all_missing,
+    new_stop_signal, pointer_collection_summary, required_file_names,
+    restore_original_cursor_backup, start_download_all_missing,
 };
 use eframe::egui;
 use preview::{

@@ -70,9 +70,7 @@ pub(super) fn check_request_gate(request: &tiny_http::Request) -> Result<(), Gat
         Some(token) => token.as_str(),
         // Token not yet minted: fail closed.
         None => {
-            return Err(GateRejection {
-                body: "Forbidden",
-            });
+            return Err(GateRejection { body: "Forbidden" });
         }
     };
 
@@ -103,9 +101,7 @@ pub(super) fn check_request_gate(request: &tiny_http::Request) -> Result<(), Gat
         .or_else(|| query_param(request.url(), "token"))
         .unwrap_or_default();
     if !tokens_match(&provided, expected) {
-        return Err(GateRejection {
-            body: "Forbidden",
-        });
+        return Err(GateRejection { body: "Forbidden" });
     }
 
     Ok(())
@@ -160,6 +156,9 @@ mod tests {
     fn minted_token_is_64_lowercase_hex_chars() {
         let t = mint_media_server_token();
         assert_eq!(t.len(), 64);
-        assert!(t.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(
+            t.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
     }
 }

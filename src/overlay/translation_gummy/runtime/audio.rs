@@ -148,12 +148,16 @@ mod vad_contract_tests {
         );
         assert_eq!(
             CHUNK_SAMPLES as u64,
-            vad["_chunkSamplesWindows"].as_u64().expect("_chunkSamplesWindows"),
+            vad["_chunkSamplesWindows"]
+                .as_u64()
+                .expect("_chunkSamplesWindows"),
             "Windows chunk size drifted from fixture",
         );
         assert_eq!(
             LOCAL_INPUT_PREROLL_SAMPLES as u64,
-            vad["_prerollSamplesWindows"].as_u64().expect("_prerollSamplesWindows"),
+            vad["_prerollSamplesWindows"]
+                .as_u64()
+                .expect("_prerollSamplesWindows"),
             "Windows pre-roll samples drifted from fixture",
         );
     }

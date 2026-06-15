@@ -198,7 +198,13 @@ pub(super) fn handle_edge_tts(
         return;
     }
 
-    stream_pcm_samples(&manager_clone, &request, &tx, all_samples, source_sample_rate);
+    stream_pcm_samples(
+        &manager_clone,
+        &request,
+        &tx,
+        all_samples,
+        source_sample_rate,
+    );
 }
 
 fn connect_edge_websocket()

@@ -49,12 +49,11 @@ pub(crate) fn decode_mp3_to_pcm(
     let track_id = track.id;
     let codec_params = track.codec_params.clone();
 
-    let mut decoder = match symphonia::default::get_codecs()
-        .make(&codec_params, &DecoderOptions::default())
-    {
-        Ok(d) => d,
-        Err(_) => return true,
-    };
+    let mut decoder =
+        match symphonia::default::get_codecs().make(&codec_params, &DecoderOptions::default()) {
+            Ok(d) => d,
+            Err(_) => return true,
+        };
 
     loop {
         if is_interrupted() {

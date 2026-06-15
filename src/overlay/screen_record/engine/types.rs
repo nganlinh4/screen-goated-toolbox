@@ -1,8 +1,8 @@
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows_capture::{
