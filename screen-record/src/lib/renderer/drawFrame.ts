@@ -564,15 +564,14 @@ export async function drawFrame(
       ...(segment.textSegments ?? []),
     ];
     if (overlayTextSegments.length > 0) {
-      const FADE_DURATION = 0.3;
       for (const textSegment of overlayTextSegments) {
         if (frameTime >= textSegment.startTime && frameTime <= textSegment.endTime) {
-          let fadeAlpha = 1.0;
-          const elapsed = frameTime - textSegment.startTime;
-          const remaining = textSegment.endTime - frameTime;
-          if (elapsed < FADE_DURATION) fadeAlpha = elapsed / FADE_DURATION;
-          if (remaining < FADE_DURATION) fadeAlpha = Math.min(fadeAlpha, remaining / FADE_DURATION);
-          drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, fadeAlpha, frameTime);
+          // Fade is owned entirely by getTextAnimationState (inside drawTextOverlay),
+          // matching export which applies animation.alpha exactly once. Previously a
+          // second manual 0.3s linear fade was multiplied on top, double-darkening
+          // transitions (alpha-squared) and overriding the per-segment animation
+          // preset and its custom in/out durations.
+          drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, 1.0, frameTime);
         }
       }
       canvas.style.fontVariationSettings = 'normal';
