@@ -216,10 +216,10 @@ fn transcribe_with_gemini_live(
                     println!("[GeminiLiveInput] Setup complete received!");
                     break;
                 }
-                if msg.contains("error") || msg.contains("Error") {
-                    println!("[GeminiLiveInput] Server error: {}", msg);
+                if let Some(err) = crate::api::gemini_live::websocket::parse_error(msg) {
+                    println!("[GeminiLiveInput] Server error: {}", err);
                     AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-                    return Err(anyhow::anyhow!("Server returned error: {}", msg));
+                    return Err(anyhow::anyhow!("Server returned error: {}", err));
                 }
             }
             Ok(tungstenite::Message::Binary(data)) => {

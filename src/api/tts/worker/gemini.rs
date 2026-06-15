@@ -54,9 +54,9 @@ pub fn synthesize_gemini_live_to_wav_cancel(
                     setup_complete = true;
                     break;
                 }
-                if msg.contains("error") || msg.contains("Error") {
+                if let Some(err) = crate::api::gemini_live::websocket::parse_error(msg) {
                     let _ = socket.close(None);
-                    return Err(anyhow::anyhow!("Gemini setup error: {msg}"));
+                    return Err(anyhow::anyhow!("Gemini setup error: {err}"));
                 }
             }
             Ok(Message::Binary(data)) => {
