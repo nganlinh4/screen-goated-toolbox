@@ -1,0 +1,60 @@
+{
+  "_comment": "Locks the Gemini S2S is_segment_worth_sending / isSegmentWorthSending accept RULE (baseline gate + strict/lenient paths + the 0.08 speech-like floor that Android had dropped) and the ratio/confidence math it depends on. Each case builds a segment with the given fields (samples length = frameCount * FRAME_SAMPLES) at the given strictness; both Rust and Kotlin must return expectAccept. Windows (s2s/utils.rs) is canonical. See .claude/parity/gemini-s2s-vad.md.",
+  "cases": [
+    {
+      "name": "loud_flat_noise_rejected_strict",
+      "frameCount": 8,
+      "speechFrames": 8,
+      "speechLikeFrames": 0,
+      "energeticFrames": 8,
+      "peakRms": 0.25,
+      "meanRms": 0.25,
+      "strictness": 1.0,
+      "expectAccept": false
+    },
+    {
+      "name": "confidence_branch_blocked_by_008_floor_strict",
+      "frameCount": 8,
+      "speechFrames": 4,
+      "speechLikeFrames": 0,
+      "energeticFrames": 8,
+      "peakRms": 0.05,
+      "meanRms": 0.055,
+      "strictness": 1.0,
+      "expectAccept": false
+    },
+    {
+      "name": "clear_speech_accepted_strict",
+      "frameCount": 8,
+      "speechFrames": 8,
+      "speechLikeFrames": 8,
+      "energeticFrames": 8,
+      "peakRms": 0.25,
+      "meanRms": 0.04,
+      "strictness": 1.0,
+      "expectAccept": true
+    },
+    {
+      "name": "below_baseline_rejected",
+      "frameCount": 8,
+      "speechFrames": 0,
+      "speechLikeFrames": 0,
+      "energeticFrames": 0,
+      "peakRms": 0.01,
+      "meanRms": 0.005,
+      "strictness": 0.5,
+      "expectAccept": false
+    },
+    {
+      "name": "lenient_path_accepted_via_speech_like",
+      "frameCount": 8,
+      "speechFrames": 1,
+      "speechLikeFrames": 1,
+      "energeticFrames": 1,
+      "peakRms": 0.03,
+      "meanRms": 0.02,
+      "strictness": 0.0,
+      "expectAccept": true
+    }
+  ]
+}
