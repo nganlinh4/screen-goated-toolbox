@@ -5,7 +5,7 @@
 //! parse. This module centralizes that core so the per-provider functions stay
 //! thin wrappers that only build their payload + provider-specific preamble.
 
-use crate::api::client::UREQ_AGENT;
+use crate::api::client::{UREQ_AGENT, is_auth_error};
 use crate::api::types::{ChatCompletionResponse, StreamChunk};
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
@@ -73,11 +73,10 @@ where
         .header("Content-Type", "application/json")
         .send_json(payload)
         .map_err(|e| {
-            let err_str = e.to_string();
-            if map_auth_errors && (err_str.contains("401") || err_str.contains("403")) {
+            if map_auth_errors && is_auth_error(&e) {
                 anyhow::anyhow!("INVALID_API_KEY")
             } else {
-                anyhow::anyhow!("{}: {}", error_label, err_str)
+                anyhow::anyhow!("{}: {}", error_label, e)
             }
         })?;
 

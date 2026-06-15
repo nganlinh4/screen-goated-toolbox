@@ -6,7 +6,7 @@
 //! non-streaming parse). This module centralizes that so callers only have to
 //! supply the `parts` array (text, text+image, ...) and their error labeling.
 
-use crate::api::client::UREQ_AGENT;
+use crate::api::client::{UREQ_AGENT, is_auth_error};
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
 use std::io::{BufRead, BufReader};
@@ -93,13 +93,12 @@ where
         .header("x-goog-api-key", api_key)
         .send_json(payload)
         .map_err(|e| {
-            let err_str = e.to_string();
-            if map_auth_errors && (err_str.contains("401") || err_str.contains("403")) {
+            if map_auth_errors && is_auth_error(&e) {
                 anyhow::anyhow!("INVALID_API_KEY")
             } else if let Some(label) = error_label {
-                anyhow::anyhow!("{}: {}", label, err_str)
+                anyhow::anyhow!("{}: {}", label, e)
             } else {
-                anyhow::anyhow!("{}", err_str)
+                anyhow::anyhow!("{}", e)
             }
         })?;
 
