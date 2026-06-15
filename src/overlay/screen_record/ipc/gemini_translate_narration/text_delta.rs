@@ -21,7 +21,6 @@ pub(super) fn merge_text(existing: &mut String, incoming: &str) {
     if current.is_empty() || incoming.starts_with(current) {
         *existing = incoming.to_string();
     } else if current.ends_with(incoming) || current.contains(incoming) {
-        return;
     } else {
         let overlap = raw_suffix_prefix_overlap(current, incoming);
         if overlap < incoming.len() {
