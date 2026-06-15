@@ -12,9 +12,7 @@ use crate::model_config::{ModelType, get_model_by_id_with_custom, model_is_non_l
 
 /// Get the config file path
 pub fn get_config_path() -> PathBuf {
-    let config_dir = dirs::config_dir()
-        .unwrap_or_default()
-        .join("screen-goated-toolbox");
+    let config_dir = crate::paths::app_config_dir();
     let _ = std::fs::create_dir_all(&config_dir);
     config_dir.join("config_v3.json")
 }

@@ -13,6 +13,7 @@ mod initialization;
 pub mod lang_detect;
 mod model_config;
 mod overlay;
+mod paths;
 mod registry_integration;
 mod retry_model_chain;
 mod runtime_support;
