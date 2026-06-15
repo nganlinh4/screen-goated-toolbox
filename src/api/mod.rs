@@ -4,6 +4,7 @@ pub mod gemini_generate;
 pub mod gemini_live;
 pub mod ollama;
 pub mod openai_compat;
+pub mod providers;
 pub mod realtime_audio;
 pub mod taalas;
 pub mod text;
