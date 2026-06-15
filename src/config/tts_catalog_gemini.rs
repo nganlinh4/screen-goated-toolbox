@@ -108,8 +108,7 @@ mod tests {
     // Shared cross-platform parity fixture. Rust is canonical; the Android
     // (Kotlin) catalog asserts against the same file so the two cannot drift.
     // See .claude/parity/gemini-voice-catalog.md.
-    const FIXTURE: &str =
-        include_str!("../../parity-fixtures/gemini-voice-catalog/catalog.json");
+    const FIXTURE: &str = include_str!("../../parity-fixtures/gemini-voice-catalog/catalog.json");
 
     #[derive(Deserialize)]
     struct Catalog {

@@ -6,7 +6,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::{WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE};
 
-pub static REALTIME_DISPLAY_TEXT: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub static REALTIME_DISPLAY_TEXT: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new(String::new()));
 pub static TRANSLATION_DISPLAY_TEXT: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new(String::new()));
 

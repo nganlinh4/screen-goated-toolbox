@@ -9,7 +9,8 @@ use tungstenite::WebSocket;
 pub fn connect_tts_websocket(api_key: &str) -> Result<WebSocket<TlsStream<TcpStream>>> {
     let ws_url = format!(
         "{}?key={}",
-        crate::api::realtime_audio::websocket::GEMINI_LIVE_WS_BASE_URL, api_key
+        crate::api::realtime_audio::websocket::GEMINI_LIVE_WS_BASE_URL,
+        api_key
     );
 
     let url = url::Url::parse(&ws_url)?;

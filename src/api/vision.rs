@@ -1,8 +1,8 @@
 use super::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
-use crate::api::providers::Provider;
 use super::gemini_generate::stream_gemini_generate;
 use super::openai_compat::stream_openai_compat_chat;
 use super::types::{ChatCompletionResponse, StreamChunk};
+use crate::api::providers::Provider;
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
 use std::io::{BufRead, BufReader};

@@ -219,4 +219,3 @@ impl BlockBuilder {
         self.block
     }
 }
-

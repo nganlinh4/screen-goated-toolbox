@@ -330,10 +330,10 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
             .to_string();
 
     if gtx_selected {
-        let mut gtx_fn =
-            |group: &[SubtitleTranslationItemRequest], _history: &[TranslationConversationTurn]| {
-                translate_subtitle_chunk_with_gtx(target_language, group)
-            };
+        let mut gtx_fn = |group: &[SubtitleTranslationItemRequest],
+                          _history: &[TranslationConversationTurn]| {
+            translate_subtitle_chunk_with_gtx(target_language, group)
+        };
         match attempt_model(
             AttemptModelArgs {
                 model_id: GTX_TRANSLATION_MODEL_ID,
@@ -368,17 +368,10 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         }
 
         let model_label = localized_model_label(model, &config.ui_language);
-        let mut model_fn =
-            |group: &[SubtitleTranslationItemRequest], history: &[TranslationConversationTurn]| {
-                translate_subtitle_chunk(
-                    config,
-                    model,
-                    target_language,
-                    instructions,
-                    group,
-                    history,
-                )
-            };
+        let mut model_fn = |group: &[SubtitleTranslationItemRequest],
+                            history: &[TranslationConversationTurn]| {
+            translate_subtitle_chunk(config, model, target_language, instructions, group, history)
+        };
         match attempt_model(
             AttemptModelArgs {
                 model_id: &model.id,

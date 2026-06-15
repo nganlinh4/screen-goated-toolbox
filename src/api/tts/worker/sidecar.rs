@@ -9,9 +9,7 @@ use anyhow::{Context, Result, bail};
 /// Identical across every sidecar worker; only the provider name differs.
 pub(super) fn check_response_id(provider: &str, request_id: &str, response_id: &str) -> Result<()> {
     if !response_id.is_empty() && response_id != request_id {
-        bail!(
-            "{provider} sidecar response id mismatch: expected {request_id}, got {response_id}"
-        );
+        bail!("{provider} sidecar response id mismatch: expected {request_id}, got {response_id}");
     }
     Ok(())
 }

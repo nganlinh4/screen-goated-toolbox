@@ -27,7 +27,8 @@ pub(crate) static PENDING_ITEMS_HTML: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new(String::new()));
 pub(crate) static PENDING_DISMISS_LABEL: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new(String::new()));
-pub(crate) static PENDING_CSS: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub(crate) static PENDING_CSS: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new(String::new()));
 pub(crate) static PENDING_POS: LazyLock<Mutex<(i32, i32)>> = LazyLock::new(|| Mutex::new((0, 0)));
 
 thread_local! {

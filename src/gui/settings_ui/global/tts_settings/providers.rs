@@ -1,9 +1,9 @@
 use crate::config::tts_catalog::{
     KOKORO_VOICE_LANGUAGES, KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES,
     SUPERTONIC_LANGUAGE_SUMMARY, SUPERTONIC_LANGUAGES, SUPERTONIC_VOICES,
-    default_kokoro_voice_for_lang, default_magpie_voice_for_lang, default_supertonic_voice_for_lang,
-    kokoro_voice_language_for_condition, normalize_magpie_voice, normalize_supertonic_lang,
-    normalize_supertonic_voice,
+    default_kokoro_voice_for_lang, default_magpie_voice_for_lang,
+    default_supertonic_voice_for_lang, kokoro_voice_language_for_condition, normalize_magpie_voice,
+    normalize_supertonic_lang, normalize_supertonic_voice,
 };
 use crate::config::{Config, KokoroVoiceConfig, MagpieVoiceConfig, SupertonicVoiceConfig};
 use crate::gui::icons::{Icon, icon_button};
@@ -88,11 +88,7 @@ pub(super) fn render_magpie_settings(
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
-    render_open_weights_header(
-        ui,
-        "NVIDIA Magpie-Multilingual 357M",
-        text.tool_desc_magpie,
-    );
+    render_open_weights_header(ui, "NVIDIA Magpie-Multilingual 357M", text.tool_desc_magpie);
     changed |= render_magpie_voice_config_rows(ui, config, text);
     changed
 }

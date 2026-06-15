@@ -14,7 +14,7 @@ use crate::win_types::SendHwnd;
 
 use super::volume::{set_app_volume, update_child_pids};
 use super::{
-    IS_INITIALIZING, IS_WARMED_UP, PDJ_HWND, PDJ_WEBVIEW, PDJ_WEB_CONTEXT, REGISTER_PDJ_CLASS,
+    IS_INITIALIZING, IS_WARMED_UP, PDJ_HWND, PDJ_WEB_CONTEXT, PDJ_WEBVIEW, REGISTER_PDJ_CLASS,
     WM_APP_SHOW, WM_APP_UPDATE_SETTINGS, clear_pdj_webview, html, scripts, with_pdj_webview,
 };
 

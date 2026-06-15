@@ -290,7 +290,12 @@ mod tests {
 
     #[test]
     fn infers_vision_from_id_markers() {
-        for id in ["qwen/qwen-vl", "x/model-vl", "anyscale/llava-13b", "a/vision-pro"] {
+        for id in [
+            "qwen/qwen-vl",
+            "x/model-vl",
+            "anyscale/llava-13b",
+            "a/vision-pro",
+        ] {
             let value = json!({ "id": id });
             assert_eq!(
                 infer_openrouter_model_type(&value, id),
@@ -316,10 +321,10 @@ mod tests {
     fn parse_skips_entries_without_string_id_and_defaults_name() {
         let data = vec![
             json!({ "id": "a/text-model", "name": "Text Model" }),
-            json!({ "name": "missing id" }),         // no id -> skipped
-            json!({ "id": 42 }),                     // non-string id -> skipped
-            json!({ "id": "b/no-name" }),            // name falls back to id
-            json!({ "id": "c/vision-model" }),       // inferred Vision via id
+            json!({ "name": "missing id" }),   // no id -> skipped
+            json!({ "id": 42 }),               // non-string id -> skipped
+            json!({ "id": "b/no-name" }),      // name falls back to id
+            json!({ "id": "c/vision-model" }), // inferred Vision via id
         ];
         let models = parse_openrouter_models(data);
         assert_eq!(models.len(), 3);

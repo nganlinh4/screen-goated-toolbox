@@ -9,8 +9,7 @@ use std::time::Duration;
 /// Base WebSocket URL for the Gemini Live BidiGenerateContent endpoint; the API
 /// key is appended as `?key=...`. Canonical for all Gemini Live sockets
 /// (realtime_audio, gemini_live, tts).
-pub const GEMINI_LIVE_WS_BASE_URL: &str =
-    "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+pub const GEMINI_LIVE_WS_BASE_URL: &str = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 
 /// Create TLS WebSocket connection to Gemini Live API
 pub fn connect_websocket(

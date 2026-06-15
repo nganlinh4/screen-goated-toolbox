@@ -1,9 +1,7 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{
-    PostMessageW, SW_MINIMIZE, ShowWindow, WM_CLOSE,
-};
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, SW_MINIMIZE, ShowWindow, WM_CLOSE};
 
 #[derive(Deserialize)]
 struct IpcEnvelope {

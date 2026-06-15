@@ -16,7 +16,11 @@ pub(super) fn send_setup(
     settings: &TranslationGummySettings,
 ) -> anyhow::Result<()> {
     let (model_name, voice_name) = current_gemini_tts_settings();
-    let payload = build_setup_payload(&model_name, &voice_name, &settings.build_system_instruction());
+    let payload = build_setup_payload(
+        &model_name,
+        &voice_name,
+        &settings.build_system_instruction(),
+    );
 
     socket.write(Message::Text(payload.to_string().into()))?;
     socket.flush()?;
@@ -171,7 +175,9 @@ mod setup_contract_tests {
             setup_fixture["silenceDurationMs"].as_u64().unwrap(),
         );
         assert_eq!(
-            generation["thinkingConfig"]["thinkingBudget"].as_u64().unwrap(),
+            generation["thinkingConfig"]["thinkingBudget"]
+                .as_u64()
+                .unwrap(),
             setup_fixture["thinkingBudget"].as_u64().unwrap(),
         );
         assert_eq!(

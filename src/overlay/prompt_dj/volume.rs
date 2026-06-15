@@ -1,3 +1,4 @@
+use std::sync::LazyLock;
 use windows::Win32::Media::Audio::{
     IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator, ISimpleAudioVolume,
     MMDeviceEnumerator, eMultimedia, eRender,
@@ -5,7 +6,6 @@ use windows::Win32::Media::Audio::{
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
 };
-use std::sync::LazyLock;
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::core::*;
 

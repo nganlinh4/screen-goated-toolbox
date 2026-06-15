@@ -139,8 +139,8 @@ fn name_has_vl_token(name_lower: &str) -> bool {
             || matches!(bytes[idx - 1], b'0'..=b'9' | b'.' | b'-' | b'/')
             || bytes[idx - 1].is_ascii_alphabetic();
         let after = idx + 2;
-        let next_ok = after >= bytes.len()
-            || matches!(bytes[after], b':' | b'-' | b'.' | b'/' | b'0'..=b'9');
+        let next_ok =
+            after >= bytes.len() || matches!(bytes[after], b':' | b'-' | b'.' | b'/' | b'0'..=b'9');
         if prev_ok && next_ok {
             return true;
         }

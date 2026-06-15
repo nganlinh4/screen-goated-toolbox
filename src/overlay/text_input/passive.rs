@@ -1,8 +1,8 @@
 use super::state::{
     INPUT_HWND, PASSIVE_CAPTURE_ENABLED, SHOULD_CLOSE, SUBMITTED_TEXT, WM_APP_SYNC_PASSIVE_EDITOR,
 };
-use std::sync::Mutex;
 use std::sync::LazyLock;
+use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::{HGLOBAL, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};

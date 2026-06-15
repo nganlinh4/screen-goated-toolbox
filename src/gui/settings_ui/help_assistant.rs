@@ -20,7 +20,8 @@ static HELP_ASSISTANT_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
     config.into()
 });
 /// Cached help index — fetched once, reused across queries.
-static HELP_INDEX_CACHE: LazyLock<Mutex<Option<Vec<ChunkEntry>>>> = LazyLock::new(|| Mutex::new(None));
+static HELP_INDEX_CACHE: LazyLock<Mutex<Option<Vec<ChunkEntry>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[derive(Clone)]
 struct ChunkEntry {

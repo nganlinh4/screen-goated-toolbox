@@ -20,9 +20,7 @@ pub use translation_gummy::TranslationGummySettings;
 
 pub use custom_models::{CustomModelDefinition, CustomModelType};
 
-pub use enums::{
-    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, ThemeMode, get_system_ui_language,
-};
+pub use enums::{DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, ThemeMode, get_system_ui_language};
 
 pub use hotkey::Hotkey;
 
