@@ -4,57 +4,10 @@ import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import dev.screengoated.toolbox.mobile.preset.triLang
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
-import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
-import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 import org.json.JSONArray
 import org.json.JSONObject
-
-internal fun buildPanelBootstrap(
-    presets: List<ResolvedPreset>,
-    lang: String,
-): String {
-    val payload = JSONObject()
-    payload.put("title", localized(lang, "Favorite presets", "Preset yêu thích", "즐겨찾기 프리셋"))
-    payload.put(
-        "emptyText",
-        localized(
-            lang,
-            "No favorite presets yet. Star presets in the app first.",
-            "Chưa có preset yêu thích. Hãy đánh dấu sao trong app trước.",
-            "아직 즐겨찾기 프리셋이 없습니다. 먼저 앱에서 별표를 추가하세요.",
-        ),
-    )
-    payload.put("keepOpenLabel", localized(lang, "Keep open", "Giữ mở", "계속 열기"))
-    payload.put("bubbleSizeDownLabel", localized(lang, "Smaller", "Nhỏ hơn", "작게"))
-    payload.put("bubbleSizeUpLabel", localized(lang, "Larger", "Lớn hơn", "크게"))
-    payload.put("keepOpenEnabled", false)
-    payload.put("keepOpenSupported", false)
-    payload.put("bubbleSizeSupported", false)
-    payload.put(
-        "items",
-        JSONArray().apply {
-            presets.forEach { preset ->
-                put(
-                    JSONObject().apply {
-                        put("id", preset.preset.id)
-                        put("label", preset.preset.name(lang))
-                        put("typeLabel", presetTypeLabel(preset.preset.presetType, lang))
-                        put("supported", preset.executionCapability.supported)
-                        put("iconKey", panelIconKey(preset))
-                        put("accentColor", panelAccentColor(preset))
-                        put(
-                            "reason",
-                            preset.executionCapability.reason?.let { placeholderReasonLabel(it, lang) },
-                        )
-                    },
-                )
-            }
-        },
-    )
-    return payload.toString()
-}
 
 internal fun emptyFavoritesMessage(lang: String): String = localized(
     lang,
@@ -150,47 +103,6 @@ internal fun placeholderReasonLabel(
             "Graph này vẫn dùng các block Android chưa hỗ trợ",
             "이 그래프는 아직 Android에서 지원되지 않는 블록을 사용합니다",
         )
-}
-
-private fun presetTypeLabel(
-    presetType: PresetType,
-    lang: String,
-): String = when (presetType) {
-    PresetType.IMAGE -> localized(lang, "Image", "Ảnh", "이미지")
-    PresetType.TEXT_SELECT -> localized(lang, "Text select", "Chọn văn bản", "텍스트 선택")
-    PresetType.TEXT_INPUT -> localized(lang, "Text input", "Nhập văn bản", "텍스트 입력")
-    PresetType.MIC -> localized(lang, "Mic", "Mic", "마이크")
-    PresetType.DEVICE_AUDIO -> localized(lang, "Device audio", "Âm thanh thiết bị", "기기 오디오")
-}
-
-private fun panelIconKey(preset: ResolvedPreset): String {
-    val model = preset.preset
-    if (model.audioProcessingMode == "realtime") {
-        return "realtime"
-    }
-    return when (model.presetType) {
-        PresetType.IMAGE -> "image"
-        PresetType.TEXT_SELECT -> "select"
-        PresetType.TEXT_INPUT -> "text"
-        PresetType.MIC -> "mic"
-        PresetType.DEVICE_AUDIO -> "deviceAudio"
-    }
-}
-
-private fun panelAccentColor(preset: ResolvedPreset): String {
-    if (!preset.executionCapability.supported) {
-        return "#8D99AE"
-    }
-
-    return when (preset.preset.presetType) {
-        PresetType.IMAGE -> "#66C2FF"
-        PresetType.TEXT_SELECT,
-        PresetType.TEXT_INPUT,
-        -> "#67E8A5"
-        PresetType.MIC,
-        PresetType.DEVICE_AUDIO,
-        -> if (preset.preset.audioProcessingMode == "realtime") "#FF7C7C" else "#FFB35C"
-    }
 }
 
 private fun localized(

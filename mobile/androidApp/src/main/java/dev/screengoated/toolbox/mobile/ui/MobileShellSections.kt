@@ -18,7 +18,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -40,8 +39,6 @@ import androidx.annotation.DrawableRes
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
@@ -77,7 +74,6 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.res.painterResource
@@ -219,101 +215,6 @@ internal fun SectionSegmentedRow(
             }
         },
     )
-}
-
-@Composable
-internal fun QuickActionsRow(locale: MobileLocaleText) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-    ) {
-        UtilityTile(
-            label = locale.shellDownloadedToolsLabel,
-            description = locale.shellDownloadedToolsDescription,
-            icon = R.drawable.ms_person_play,
-            brush = Brush.linearGradient(
-                listOf(
-                    MaterialTheme.colorScheme.secondary,
-                    MaterialTheme.colorScheme.primary,
-                ),
-            ),
-            modifier = Modifier.weight(1f),
-        )
-        UtilityTile(
-            label = locale.shellHelpLabel,
-            description = locale.shellHelpDescription,
-            icon = R.drawable.ms_auto_stories,
-            brush = Brush.linearGradient(
-                listOf(
-                    MaterialTheme.colorScheme.tertiary,
-                    MaterialTheme.colorScheme.primary,
-                ),
-            ),
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-@Composable
-private fun UtilityTile(
-    label: String,
-    description: String,
-    @DrawableRes icon: Int,
-    brush: Brush,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.92f),
-        ),
-    ) {
-        Box(
-            modifier = Modifier.background(
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.surfaceContainerLow,
-                        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f),
-                    ),
-                ),
-            ),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(ShellSpacing.innerPad),
-                verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(
-                            brush = Brush.radialGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.surfaceBright,
-                                    MaterialTheme.colorScheme.surfaceContainerHighest,
-                                ),
-                            ),
-                            shape = MaterialTheme.shapes.large,
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    GradientMaskedIcon(icon, brush, modifier = Modifier.size(24.dp))
-                }
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                )
-            }
-        }
-    }
 }
 
 @Composable
