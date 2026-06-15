@@ -283,4 +283,3 @@ fn magpie_temp_wav_path(request_id: u64) -> Result<std::path::PathBuf> {
         .unwrap_or(0);
     Ok(dir.join(format!("magpie-{request_id}-{unique}.wav")))
 }
-

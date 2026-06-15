@@ -449,7 +449,6 @@ fn format_stderr_tail(stderr_tail: &Arc<Mutex<VecDeque<String>>>) -> String {
     out
 }
 
-
 fn trim_vieneu_silence(samples: Vec<i16>, sample_rate: u32) -> Result<Vec<i16>> {
     if samples.is_empty() || sample_rate == 0 {
         bail!("VieNeu returned empty audio");

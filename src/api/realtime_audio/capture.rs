@@ -280,7 +280,8 @@ pub fn start_device_loopback_capture(
                         .collect();
 
                     // Simple resampling (linear interpolation)
-                    let resampled: Vec<i16> = crate::api::audio::resample_linear_i16(&mono_samples, resample_ratio);
+                    let resampled: Vec<i16> =
+                        crate::api::audio::resample_linear_i16(&mono_samples, resample_ratio);
 
                     if let Ok(mut buf) = audio_buffer_clone.lock() {
                         buf.extend(resampled.iter().cloned());
@@ -326,7 +327,8 @@ pub fn start_device_loopback_capture(
                         .collect();
 
                     // Simple resampling
-                    let resampled: Vec<i16> = crate::api::audio::resample_linear_i16(&mono_samples, resample_ratio);
+                    let resampled: Vec<i16> =
+                        crate::api::audio::resample_linear_i16(&mono_samples, resample_ratio);
 
                     if let Ok(mut buf) = audio_buffer_clone.lock() {
                         buf.extend(resampled.iter().cloned());
@@ -414,7 +416,8 @@ pub fn start_mic_capture(
                     })
                     .collect();
 
-                let resampled: Vec<i16> = crate::api::audio::resample_linear_i16(&mono_samples, resample_ratio);
+                let resampled: Vec<i16> =
+                    crate::api::audio::resample_linear_i16(&mono_samples, resample_ratio);
 
                 if let Ok(mut buf) = audio_buffer_clone.lock() {
                     buf.extend(resampled.iter().cloned());

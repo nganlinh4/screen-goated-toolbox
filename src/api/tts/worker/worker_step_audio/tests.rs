@@ -1,7 +1,7 @@
 use super::synthesize_step_audio;
 use crate::api::tts::manager::TtsManager;
-use crate::api::tts::worker::audio_utils::read_wav_i16;
 use crate::api::tts::types::{QueuedRequest, TtsRequest, TtsRequestProfile};
+use crate::api::tts::worker::audio_utils::read_wav_i16;
 use crate::config::{StepAudioSettings, TtsMethod};
 
 #[test]

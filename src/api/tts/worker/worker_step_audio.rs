@@ -497,6 +497,5 @@ fn format_step_audio_stderr_tail(stderr_tail: &Arc<Mutex<VecDeque<String>>>) -> 
     out
 }
 
-
 #[cfg(test)]
 mod tests;
