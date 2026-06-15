@@ -282,7 +282,7 @@ pub fn start_device_loopback_capture(
     let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device
             .build_input_stream(
-                config.clone().into(),
+                config.into(),
                 move |data: &[f32], _: &_| {
                     if stop_signal_audio.load(Ordering::Relaxed)
                         || pause_signal_audio.load(Ordering::Relaxed)
@@ -329,7 +329,7 @@ pub fn start_device_loopback_capture(
             })?,
         cpal::SampleFormat::I16 => device
             .build_input_stream(
-                config.clone().into(),
+                config.into(),
                 move |data: &[i16], _: &_| {
                     if stop_signal_audio.load(Ordering::Relaxed)
                         || pause_signal_audio.load(Ordering::Relaxed)
@@ -421,7 +421,7 @@ pub fn start_mic_capture(
 
     let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
-            config.clone().into(),
+            config.into(),
             move |data: &[f32], _: &_| {
                 if stop_signal_audio.load(Ordering::Relaxed)
                     || pause_signal_audio.load(Ordering::Relaxed)

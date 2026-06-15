@@ -227,7 +227,7 @@ pub fn record_audio_and_transcribe(
     let pause_signal_builder = pause_signal_audio.clone();
     let stream_res = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
-            config.clone().into(),
+            config.into(),
             move |data: &[f32], _: &_| {
                 if !pause_signal_builder.load(Ordering::Relaxed) {
                     let _ = tx.send(data.to_vec());
@@ -248,7 +248,7 @@ pub fn record_audio_and_transcribe(
             None,
         ),
         cpal::SampleFormat::I16 => device.build_input_stream(
-            config.clone().into(),
+            config.into(),
             move |data: &[i16], _: &_| {
                 if !pause_signal_builder.load(Ordering::Relaxed) {
                     let f32_data: Vec<f32> =

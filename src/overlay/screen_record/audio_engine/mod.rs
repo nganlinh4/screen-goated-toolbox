@@ -98,13 +98,13 @@ pub fn record_audio(
         if let Some(device) = host.default_output_device() {
             match device.default_output_config() {
                 Ok(config) => {
-                    let stream_config: cpal::StreamConfig = config.clone().into();
+                    let stream_config: cpal::StreamConfig = config.into();
                     sample_rate = stream_config.sample_rate;
                     channels = stream_config.channels as usize;
 
                     let err_fn = |err| eprintln!("Audio stream error: {}", err);
                     match device.build_input_stream(
-                        stream_config.clone(),
+                        stream_config,
                         move |data: &[f32], _: &_| {
                             let _ = producer.push_slice(data);
                         },

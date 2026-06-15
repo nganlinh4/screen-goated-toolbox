@@ -565,5 +565,5 @@ static ALL_LANGUAGES: LazyLock<Vec<String>> = LazyLock::new(|| {
 
 /// Get all available language names
 pub fn get_all_languages() -> &'static Vec<String> {
-    &*ALL_LANGUAGES
+    &ALL_LANGUAGES
 }
