@@ -132,7 +132,7 @@ fn step_audio_playback_loopback_e2e_when_enabled() {
 
     let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
-            &stream_config,
+            stream_config.clone(),
             move |data: &[f32], _: &_| {
                 if !active_for_callback.load(Ordering::Relaxed) {
                     return;
@@ -148,7 +148,7 @@ fn step_audio_playback_loopback_e2e_when_enabled() {
             None,
         ),
         cpal::SampleFormat::I16 => device.build_input_stream(
-            &stream_config,
+            stream_config.clone(),
             move |data: &[i16], _: &_| {
                 if !active_for_callback.load(Ordering::Relaxed) {
                     return;
@@ -161,7 +161,7 @@ fn step_audio_playback_loopback_e2e_when_enabled() {
             None,
         ),
         cpal::SampleFormat::U16 => device.build_input_stream(
-            &stream_config,
+            stream_config.clone(),
             move |data: &[u16], _: &_| {
                 if !active_for_callback.load(Ordering::Relaxed) {
                     return;
