@@ -88,9 +88,7 @@ fn has_expected_file(path: &Path, expected_bytes: u64) -> bool {
 }
 
 pub fn get_magpie_model_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
+    crate::paths::app_local_data_dir()
         .join("models")
         .join("magpie_multilingual_357m")
 }

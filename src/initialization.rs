@@ -62,10 +62,7 @@ pub fn cleanup_temporary_files() {
     }
 
     // 2. Clean up partial downloads in the app's bin directory
-    let bin_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("bin");
+    let bin_dir = crate::paths::app_local_data_dir().join("bin");
 
     if bin_dir.exists()
         && let Ok(entries) = std::fs::read_dir(&bin_dir)

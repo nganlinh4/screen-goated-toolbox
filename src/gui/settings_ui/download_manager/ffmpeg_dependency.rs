@@ -7,9 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 pub fn ffmpeg_exe_path() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or(PathBuf::from("."))
-        .join("screen-goated-toolbox")
+    crate::paths::app_local_data_dir()
         .join("bin")
         .join("ffmpeg.exe")
 }

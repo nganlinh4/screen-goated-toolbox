@@ -65,10 +65,7 @@ impl Default for DownloadManager {
 
 impl DownloadManager {
     pub fn new() -> Self {
-        let bin_dir = dirs::data_local_dir()
-            .unwrap_or(PathBuf::from("."))
-            .join("screen-goated-toolbox")
-            .join("bin");
+        let bin_dir = crate::paths::app_local_data_dir().join("bin");
 
         let available_browsers = detection::detect_installed_browsers();
         let config = persistence::load_config();

@@ -270,9 +270,7 @@ fn start_sidecar() -> Result<MagpieSidecarClient> {
 }
 
 fn magpie_temp_wav_path(request_id: u64) -> Result<std::path::PathBuf> {
-    let dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("screen-goated-toolbox")
+    let dir = crate::paths::app_local_data_dir()
         .join("tmp")
         .join("magpie_tts");
     std::fs::create_dir_all(&dir)?;

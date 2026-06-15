@@ -156,10 +156,7 @@ fn set_download_status(id: &str, status: BgDownloadStatus) {
 }
 
 fn backgrounds_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("backgrounds")
+    crate::paths::app_local_data_dir().join("backgrounds")
 }
 
 fn delete_existing_files(id: &str) {

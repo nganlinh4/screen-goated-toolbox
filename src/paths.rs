@@ -21,6 +21,14 @@ pub fn app_config_dir() -> PathBuf {
         .join("screen-goated-toolbox")
 }
 
+/// `%LOCALAPPDATA%/screen-goated-toolbox` — caches, recordings, downloaded tools,
+/// assets, export artifacts.
+pub fn app_local_data_dir() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_default()
+        .join("screen-goated-toolbox")
+}
+
 /// `%LOCALAPPDATA%/SGT` — legacy folder for logs and live WebView2 data. Preserved
 /// for backward compatibility; see the module note.
 pub fn app_sgt_dir() -> PathBuf {

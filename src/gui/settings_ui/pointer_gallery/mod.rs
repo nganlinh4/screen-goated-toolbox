@@ -120,10 +120,7 @@ impl Default for PointerGallery {
 
 impl PointerGallery {
     pub fn new() -> Self {
-        let cache_root = dirs::data_local_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("screen-goated-toolbox")
-            .join("pointer-gallery");
+        let cache_root = crate::paths::app_local_data_dir().join("pointer-gallery");
 
         let collections = events::initial_collection_states();
 

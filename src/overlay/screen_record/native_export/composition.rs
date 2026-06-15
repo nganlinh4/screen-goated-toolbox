@@ -14,9 +14,7 @@ use super::progress::{ExportProgressUpdate, push_export_progress_update};
 use super::staging;
 
 fn temp_export_root(session_id: &str) -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("screen-goated-toolbox")
+    crate::paths::app_local_data_dir()
         .join("composition-export")
         .join(session_id)
 }

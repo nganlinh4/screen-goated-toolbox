@@ -320,9 +320,7 @@ pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value
         AudioDownloadFormat::Wav => "wav",
     };
     let final_path = output_dir.join(format!("{base_name}.{extension}"));
-    let temp_root = dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("screen-goated-toolbox")
+    let temp_root = crate::paths::app_local_data_dir()
         .join("audio-download")
         .join(timestamp_ms.to_string());
     fs::create_dir_all(&temp_root).map_err(|e| format!("Create audio temp dir: {e}"))?;
