@@ -22,8 +22,8 @@ use std::sync::mpsc;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
-pub use paste::handle_paste;
 pub(crate) use media_load::load_audio_file;
+pub use paste::handle_paste;
 
 type CapturedImagePayload = (ImageBuffer<Rgba<u8>, Vec<u8>>, Vec<u8>);
 
