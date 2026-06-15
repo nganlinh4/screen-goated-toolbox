@@ -107,7 +107,7 @@ export function useVideoPlayback({
       onDurationChange: setDuration,
       onError: console.error,
       onMetadataLoaded: () => {
-        // Segment update handled in App.tsx via useUndoRedo
+        // Segment updates flow through the editor history (useEditorHistory).
       },
     });
     videoControllerRef.current = controller;

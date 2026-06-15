@@ -11,7 +11,6 @@ import {
 } from "@/lib/trimSegments";
 import {
   appendProjectedSubtitleTrackState,
-  filterSubtitleTrackState,
   projectSubtitleTrackState,
   replaceProjectedSubtitleTrackState,
 } from "@/lib/sequenceSubtitleTracks";
@@ -281,22 +280,6 @@ function mapTimeField(
 }
 
 /**
- * Filter to clip overlap, then offset into clip time. Preserves the source's
- * undefined-vs-array shape exactly.
- */
-function filterMapTimeField(
-  segment: VideoSegment,
-  descriptor: TimeFieldDescriptor,
-  overlapsClip: (startTime: number, endTime: number) => boolean,
-  mapTime: (time: number) => number,
-): (PointItem | StartEndItem)[] | undefined {
-  const items = readTimeField(segment, descriptor);
-  return items
-    ?.filter((item) => itemOverlaps(descriptor, item, overlapsClip))
-    .map((item) => offsetItem(descriptor, item, mapTime));
-}
-
-/**
  * Replace the overlapping window of a base field with projected items:
  * keep base items that do NOT overlap, append the projected items, sort by
  * the descriptor's time key. Mirrors the original `[...filter, ...projected].sort()`.
@@ -381,41 +364,6 @@ export function projectClipSegmentToSequence(
   return withSequenceBounds(projected, sequenceDuration);
 }
 
-export function projectSequenceSegmentToClip(
-  sequenceSegment: VideoSegment,
-  timelineClip: SequenceTimelineClip,
-): VideoSegment {
-  const toClipTime = (time: number) =>
-    sequenceTimeToClipSourceTime(time, timelineClip);
-  const overlapsClip = (startTime: number, endTime: number) =>
-    endTime > timelineClip.sequenceStart &&
-    startTime < timelineClip.sequenceEnd;
-  const subtitleTrackState = filterSubtitleTrackState(
-    sequenceSegment,
-    overlapsClip,
-    toClipTime,
-  );
-
-  const projected: VideoSegment = {
-    ...sequenceSegment,
-    trimStart: timelineClip.clip.segment.trimStart,
-    trimEnd: timelineClip.clip.segment.trimEnd,
-    trimSegments: timelineClip.clip.segment.trimSegments,
-    crop: timelineClip.clip.segment.crop,
-    useCustomCursor: timelineClip.clip.segment.useCustomCursor,
-  };
-  // Each time-bearing field is filtered to the clip window, then offset to
-  // clip-source time.
-  assignTimeFields(
-    projected,
-    buildTimeFieldValues((descriptor) =>
-      filterMapTimeField(sequenceSegment, descriptor, overlapsClip, toClipTime),
-    ),
-  );
-  Object.assign(projected, subtitleTrackState);
-
-  return projected;
-}
 
 export function mergeCompositionSegmentsToSequence(
   timeline: SequenceTimelineModel,

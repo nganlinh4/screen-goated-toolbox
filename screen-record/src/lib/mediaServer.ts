@@ -172,16 +172,6 @@ export async function createAudioPlaceholderVideo(
   return { path: data.path };
 }
 
-export function isManagedImportedAudioPath(
-  path: string | null | undefined,
-): boolean {
-  if (!path) return false;
-  const normalizedPath = path.replace(/\\/g, "/").toLowerCase();
-  return normalizedPath.includes(
-    "/screen-goated-toolbox/recordings/imported-audio-",
-  );
-}
-
 export function isManagedImportedVideoPath(
   path: string | null | undefined,
 ): boolean {

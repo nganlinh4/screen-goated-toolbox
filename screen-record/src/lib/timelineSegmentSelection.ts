@@ -78,17 +78,3 @@ export function mergeTextSegmentsInRange<T extends TextSegment>(
 
   return { merged, segments: nextSegments };
 }
-
-export function replaceSegmentsInRanges<T extends { startTime: number; endTime: number }>(
-  segments: readonly T[],
-  replacementRanges: ReadonlyArray<Pick<TrackSelectionRange, "startTime" | "endTime">>,
-  inserted: readonly T[],
-): T[] {
-  if (replacementRanges.length === 0) {
-    return [...inserted];
-  }
-  const retained = segments.filter(
-    (segment) => !replacementRanges.some((range) => overlapsRange(segment, range)),
-  );
-  return retained.concat(inserted).sort((a, b) => a.startTime - b.startTime);
-}

@@ -35,18 +35,6 @@ export function normalizeWebcamVisibilitySegments(
   return buildFullWebcamVisibilitySegments(safeDuration);
 }
 
-export function isWebcamVisibleAtTime(
-  segments: CursorVisibilitySegment[] | undefined | null,
-  time: number,
-): boolean {
-  if (!segments || segments.length === 0) {
-    return true;
-  }
-  return segments.some(
-    (segment) => time >= segment.startTime && time <= segment.endTime,
-  );
-}
-
 export function getWebcamVisibility(
   time: number,
   segments: CursorVisibilitySegment[] | undefined | null,
