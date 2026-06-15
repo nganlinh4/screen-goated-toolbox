@@ -64,7 +64,11 @@ fn backup_corrupt_config(path: &std::path::Path, err: &serde_json::Error) {
     let copied = std::fs::copy(path, &backup).is_ok();
     crate::log_info!(
         "[config] config parse failed ({err}); {} -> {}",
-        if copied { "preserved corrupt file at" } else { "FAILED to back up corrupt file to" },
+        if copied {
+            "preserved corrupt file at"
+        } else {
+            "FAILED to back up corrupt file to"
+        },
         backup.display()
     );
 }

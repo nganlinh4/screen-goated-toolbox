@@ -6,7 +6,11 @@ use ureq::http::HeaderMap;
 /// Build a ureq agent carrying our user-agent string and an end-to-end timeout.
 fn build_agent(timeout_global: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
-        .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!(
+            env!("CARGO_PKG_NAME"),
+            "/",
+            env!("CARGO_PKG_VERSION")
+        ))
         .timeout_global(Some(timeout_global))
         .build()
         .into()
@@ -42,7 +46,8 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 /// Store a `remaining / limit` usage string for `stats_key` in the shared app state.
 fn store_usage(stats_key: &str, usage_str: String) {
     if let Ok(mut app) = APP.lock() {
-        app.model_usage_stats.insert(stats_key.to_string(), usage_str);
+        app.model_usage_stats
+            .insert(stats_key.to_string(), usage_str);
     }
 }
 
