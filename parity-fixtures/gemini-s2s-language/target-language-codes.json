@@ -1,0 +1,17 @@
+{
+  "_comment": "Locks the Gemini S2S (Gemini Translate) target-language BCP-47 mapping's explicit special cases, hand-duplicated between Windows (websocket.rs live_translate_target_language_code) and Android (GeminiS2sProtocol.kt targetLanguageCode). Only the explicit special-case arms + empty are locked — both platforms code them identically. The general name->code FALLBACK is intentionally NOT locked: Windows uses the isolang crate, Android uses LanguageCatalog, so arbitrary language names may differ (the UI offers a fixed set). Windows is canonical. See .claude/parity/gemini-s2s-vad.md.",
+  "cases": [
+    { "input": "", "expect": "en" },
+    { "input": "Chinese", "expect": "zh-Hans" },
+    { "input": "simplified chinese", "expect": "zh-Hans" },
+    { "input": "zh-CN", "expect": "zh-Hans" },
+    { "input": "Chinese (Traditional)", "expect": "zh-Hant" },
+    { "input": "zh-TW", "expect": "zh-Hant" },
+    { "input": "Portuguese (Brazil)", "expect": "pt-BR" },
+    { "input": "pt-BR", "expect": "pt-BR" },
+    { "input": "Portuguese (Portugal)", "expect": "pt-PT" },
+    { "input": "Filipino", "expect": "fil" },
+    { "input": "Tagalog", "expect": "fil" },
+    { "input": "Norwegian", "expect": "no" }
+  ]
+}

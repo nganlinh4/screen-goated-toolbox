@@ -318,3 +318,41 @@ fn normalize_bcp47_code(code: &str) -> String {
         value => value.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::live_translate_target_language_code;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct Doc {
+        cases: Vec<Case>,
+    }
+    #[derive(Deserialize)]
+    struct Case {
+        input: String,
+        expect: String,
+    }
+
+    /// Lock the explicit target-language special cases against the shared fixture
+    /// the Android side asserts too. See .claude/parity/gemini-s2s-vad.md.
+    #[test]
+    fn target_language_codes_match_parity_fixture() {
+        let doc: Doc = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/parity-fixtures/gemini-s2s-language/target-language-codes.json"
+            ))
+            .expect("fixture file"),
+        )
+        .expect("fixture json");
+        for c in doc.cases {
+            assert_eq!(
+                live_translate_target_language_code(&c.input),
+                c.expect,
+                "input {:?}",
+                c.input
+            );
+        }
+    }
+}
