@@ -138,27 +138,39 @@ impl D3D11GpuFence {
     }
 
     /// Insert a fence after the current GPU commands and block until they complete.
-    pub fn signal_and_wait(&self) {
+    ///
+    /// Returns `Err` if the device is lost (e.g. `DXGI_ERROR_DEVICE_REMOVED` on a TDR
+    /// / driver reset) instead of spinning forever on a query that will never signal.
+    /// After a short spin budget it backs off with a tiny sleep so a slow frame doesn't
+    /// pin a CPU core and starve the driver threads.
+    pub fn signal_and_wait(&self) -> Result<(), String> {
         unsafe {
             self.context.End(&self.query);
             self.context.Flush();
-            // Poll until GPU retires all commands before the End().
+            // Poll until the GPU retires all commands before the End().
             // D3D11_QUERY_EVENT data is a BOOL (i32): TRUE when complete.
             let mut spins = 0u32;
             loop {
                 let mut done: i32 = 0;
-                let _ = self.context.GetData(
+                let hr = self.context.GetData(
                     &self.query,
                     Some(&mut done as *mut i32 as *mut std::ffi::c_void),
                     4,
                     0,
                 );
+                // S_FALSE just means "not ready yet"; a hard error (device removed)
+                // must abort rather than spin forever.
+                if hr.is_err() {
+                    return Err(format!(
+                        "D3D11 GetData failed waiting for GPU fence (device removed / TDR?): {hr:?}"
+                    ));
+                }
                 if done != 0 {
-                    break;
+                    return Ok(());
                 }
                 spins += 1;
                 if spins > 1000 {
-                    std::thread::yield_now();
+                    std::thread::sleep(std::time::Duration::from_micros(200));
                 }
             }
         }

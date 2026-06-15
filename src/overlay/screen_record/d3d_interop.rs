@@ -17,12 +17,43 @@ use windows::Win32::Graphics::Direct3D::{
 };
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::Win32::Graphics::Dxgi::{self as dxgi, IDXGIResource1, IDXGISurface};
+use windows::Win32::Graphics::Dxgi::{self as dxgi, IDXGIKeyedMutex, IDXGIResource1, IDXGISurface};
 use windows::Win32::Security::SECURITY_ATTRIBUTES;
 use windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11SurfaceFromDXGISurface;
 use windows::core::Interface;
 
 pub use readback::{D3D11GpuFence, D3D11Readback};
+
+/// RAII guard for an `IDXGIKeyedMutex` acquisition on a shared decode/encode ring slot.
+///
+/// Acquire uses an INFINITE timeout and the keyed mutex is non-recursive, so leaking
+/// an acquisition — an early `?`, error, or panic between `AcquireSync` and
+/// `ReleaseSync` — makes the *other* side's next `AcquireSync` block forever, hanging
+/// the export instead of failing cleanly. Holding the slot in this guard releases the
+/// key on every exit path. Acquire and release both use the same `key` (the producer
+/// and consumer sides agree on `0`), matching the previous manual pairs.
+pub struct KeyedMutexGuard<'a> {
+    mutex: &'a IDXGIKeyedMutex,
+    key: u64,
+}
+
+impl<'a> KeyedMutexGuard<'a> {
+    /// Acquire `mutex` with `key` (infinite wait); the key is released on drop.
+    pub fn acquire(mutex: &'a IDXGIKeyedMutex, key: u64) -> windows::core::Result<Self> {
+        unsafe { mutex.AcquireSync(key, u32::MAX)? };
+        Ok(Self { mutex, key })
+    }
+}
+
+impl Drop for KeyedMutexGuard<'_> {
+    fn drop(&mut self) {
+        // Drop cannot propagate errors and there is no recovery for a release failure,
+        // so the result is intentionally ignored (matching the prior `let _ = ...`).
+        unsafe {
+            let _ = self.mutex.ReleaseSync(self.key);
+        }
+    }
+}
 
 /// Create a D3D11 device on the SAME adapter as the wgpu/DX12 device.
 ///

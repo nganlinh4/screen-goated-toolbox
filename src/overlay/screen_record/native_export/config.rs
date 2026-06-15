@@ -204,6 +204,30 @@ pub struct SpeedPoint {
     pub speed: f64,
 }
 
+/// Canonical playback-speed sampler shared by the video frame-time loop, the audio
+/// retime map, and the overlay frame-time loop so all three advance source time
+/// identically (WYSIWYG: the overlay quad must land on the same source time as its
+/// video frame during speed ramps). Mirrors the frontend `getSpeedAtTime`: a strict
+/// `<` boundary (`partition_point`) and cosine interpolation between control points.
+/// Callers apply their own `.clamp(...)` to the result.
+pub fn get_speed(time: f64, points: &[SpeedPoint]) -> f64 {
+    if points.is_empty() {
+        return 1.0;
+    }
+    let idx = points.partition_point(|p| p.time < time);
+    if idx == 0 {
+        return points[0].speed;
+    }
+    if idx >= points.len() {
+        return points.last().unwrap().speed;
+    }
+    let p1 = &points[idx - 1];
+    let p2 = &points[idx];
+    let t = (time - p1.time) / (p2.time - p1.time).max(1e-9);
+    let cos_t = (1.0 - (t * std::f64::consts::PI).cos()) / 2.0;
+    p1.speed + (p2.speed - p1.speed) * cos_t
+}
+
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceAudioPoint {

@@ -302,7 +302,7 @@ fn copy_frame_to_private_texture(
     unsafe {
         context.CopyResource(&dest_resource, &source_resource);
     }
-    copy_fence.signal_and_wait();
+    copy_fence.signal_and_wait()?;
 
     Ok(texture)
 }

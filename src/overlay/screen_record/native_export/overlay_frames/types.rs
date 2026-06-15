@@ -1,6 +1,6 @@
 // Overlay frame types, math helpers, and visual state animation.
 
-use super::super::config::{CursorVisibilitySegment, SpeedPoint};
+use super::super::config::CursorVisibilitySegment;
 
 // --- Constants (mirror keystrokeTypes.ts) ---
 pub(crate) const KEYSTROKE_ANIM_ENTER_SEC: f64 = 0.18;
@@ -232,23 +232,11 @@ pub(super) fn is_time_inside_segments(time: f64, segments: &[CursorVisibilitySeg
     time >= seg.start_time && time <= seg.end_time
 }
 
-pub(super) fn get_speed(time: f64, speed_points: &[SpeedPoint]) -> f64 {
-    if speed_points.is_empty() {
-        return 1.0;
-    }
-    let idx = speed_points.partition_point(|p| p.time <= time);
-    if idx == 0 {
-        return speed_points[0].speed.max(0.1);
-    }
-    if idx >= speed_points.len() {
-        return speed_points.last().unwrap().speed.max(0.1);
-    }
-    let prev = &speed_points[idx - 1];
-    let next = &speed_points[idx];
-    let span = (next.time - prev.time).max(1e-10);
-    let t = ((time - prev.time) / span).clamp(0.0, 1.0);
-    (prev.speed + (next.speed - prev.speed) * t).max(0.1)
-}
+// Single canonical speed sampler, re-exported so `types::get_speed` importers
+// (overlay_frames/mod) keep working. The previous LINEAR + `<=`-boundary copy here
+// diverged from the canonical COSINE + `<`-boundary sampler used by the video and
+// audio loops, sliding overlays off their video frame during speed ramps (WYSIWYG).
+pub(super) use super::super::config::get_speed;
 
 pub(super) fn compute_percentile(values: &mut [f64], percentile: f64) -> f64 {
     if values.is_empty() {

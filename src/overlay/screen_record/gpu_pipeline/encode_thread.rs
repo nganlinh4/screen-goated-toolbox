@@ -5,7 +5,7 @@ use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
 use windows::core::Interface;
 
-use super::super::d3d_interop::D3D11GpuFence;
+use super::super::d3d_interop::{D3D11GpuFence, KeyedMutexGuard};
 use super::super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::super::mf_encode::{EncoderConfig, MfEncoder, VideoInputSurfaceFormat};
 use super::audio::apply_audio_volume_envelope;
@@ -301,13 +301,17 @@ pub(super) fn run_encode_thread(
             RenderOutput::Gpu { ring_idx } => {
                 // Acquire D3D11-side keyed mutex -- cache-invalidates the DX12-written
                 // data so the MF encoder reads the correct frame, not stale L2 data.
-                if !gpu_enc_keyed_mutexes.is_empty() {
-                    unsafe {
-                        gpu_enc_keyed_mutexes[ring_idx]
-                            .AcquireSync(0, u32::MAX)
-                            .map_err(|e| format!("AcquireSync D3D11 enc[{ring_idx}]: {e}"))?;
-                    }
-                }
+                // The guard releases the shared slot on every exit path (including the
+                // CreateTexture2D / cast `?` below), so a mid-copy failure can't leave it
+                // locked and hang the render thread's next acquire.
+                let slot_guard = if gpu_enc_keyed_mutexes.is_empty() {
+                    None
+                } else {
+                    Some(
+                        KeyedMutexGuard::acquire(&gpu_enc_keyed_mutexes[ring_idx], 0)
+                            .map_err(|e| format!("AcquireSync D3D11 enc[{ring_idx}]: {e}"))?,
+                    )
+                };
 
                 let private_texture =
                     if let (Some(device), Some(context), Some(fence), Some(desc)) = (
@@ -333,18 +337,14 @@ pub(super) fn run_encode_thread(
                         }
                         // Ensure the shared->private copy is complete before releasing the
                         // shared slot back to the render thread.
-                        fence.signal_and_wait();
+                        fence.signal_and_wait()?;
                         copied
                     } else {
                         gpu_buffers[ring_idx].texture.clone()
                     };
 
                 // Shared slot is no longer needed once the private copy is complete.
-                if !gpu_enc_keyed_mutexes.is_empty() {
-                    unsafe {
-                        let _ = gpu_enc_keyed_mutexes[ring_idx].ReleaseSync(0);
-                    }
-                }
+                drop(slot_guard);
                 let _ = gpu_recycle_tx.send(ring_idx);
 
                 encoder.write_frame_gpu(&private_texture, timestamp_100ns, frame_duration_100ns)?;
