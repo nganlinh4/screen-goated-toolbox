@@ -54,8 +54,14 @@ internal fun DjScreen(
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.allowFileAccess = true
+            // Harden against local-file exfiltration: the promptdj bundle is loaded from
+            // file:// and is then handed the user's Gemini API key, so a script in it must
+            // not be able to read other local files cross-origin. Mirrors the overlay
+            // WebViews (PresetOverlayWindowSupport).
             @Suppress("DEPRECATION")
-            settings.allowUniversalAccessFromFileURLs = true
+            settings.allowFileAccessFromFileURLs = false
+            @Suppress("DEPRECATION")
+            settings.allowUniversalAccessFromFileURLs = false
             settings.builtInZoomControls = false
             settings.displayZoomControls = false
             settings.setSupportZoom(false)
