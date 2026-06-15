@@ -175,7 +175,11 @@ internal fun isSegmentWorthSending(segment: S2sSegment, vad: AdaptiveS2sVadSnaps
         (STRICT_MIN_SPEECH_LIKE_RATIO - MIN_SPEECH_LIKE_RATIO) * vad.strictness
     val minConfidence = 0.24f +
         (STRICT_MIN_SPEECH_CONFIDENCE - 0.24f) * vad.strictness
-    return speechLikeRatio >= minSpeechLike || confidence >= minConfidence
+    // A high blended confidence alone can come purely from the energy terms
+    // (loud flat/tonal/DC noise), so require at least minimal speech-like
+    // structure before accepting on confidence (matches Windows s2s/utils.rs).
+    return speechLikeRatio >= minSpeechLike ||
+        (speechLikeRatio >= 0.08f && confidence >= minConfidence)
 }
 
 internal fun segmentSpeechRatio(segment: S2sSegment): Float {
