@@ -1,4 +1,5 @@
 use super::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
+use crate::api::providers::Provider;
 use super::gemini_generate::stream_gemini_generate;
 use super::openai_compat::stream_openai_compat_chat;
 use super::types::{ChatCompletionResponse, StreamChunk};
@@ -67,7 +68,7 @@ where
 
     let mut full_content = String::new();
 
-    if provider == "ollama" {
+    if Provider::from_wire(&provider) == Some(Provider::Ollama) {
         // Ollama Local API
         let (ollama_base_url, ui_language) = crate::APP
             .lock()
@@ -90,7 +91,7 @@ where
             &ui_language,
             on_chunk,
         );
-    } else if provider == "gemini-live" {
+    } else if Provider::from_wire(&provider) == Some(Provider::GeminiLive) {
         let ui_language = crate::APP
             .lock()
             .ok()
@@ -110,7 +111,7 @@ where
             },
             on_chunk,
         );
-    } else if provider == "qrserver" {
+    } else if Provider::from_wire(&provider) == Some(Provider::Qrserver) {
         // --- QR SERVER API ---
         // Non-LLM QR Code scanner - no API key required
         // Uses multipart form upload to api.qrserver.com
@@ -179,7 +180,7 @@ where
         return Err(anyhow::anyhow!(
             "QR_NOT_FOUND: No QR code detected in image"
         ));
-    } else if provider == "google" {
+    } else if Provider::from_wire(&provider) == Some(Provider::Google) {
         // Gemini API
         if gemini_api_key.trim().is_empty() {
             return Err(anyhow::anyhow!("NO_API_KEY:gemini"));
@@ -213,7 +214,7 @@ where
             true,
             &mut on_chunk,
         )?;
-    } else if provider == "openrouter" {
+    } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {
         // --- OPENROUTER API ---
         if openrouter_api_key.trim().is_empty() {
             return Err(anyhow::anyhow!("NO_API_KEY:openrouter"));
