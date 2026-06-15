@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-lazy_static::lazy_static! {
-    static ref ICON_CACHE: Mutex<HashMap<(u32, usize), Option<String>>> = Mutex::new(HashMap::new());
-}
+static ICON_CACHE: LazyLock<Mutex<HashMap<(u32, usize), Option<String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn hicon_to_data_url(icon: HICON, destroy_icon: bool) -> Option<String> {
     unsafe {

@@ -3,23 +3,24 @@
 
 use std::cell::RefCell;
 use std::sync::{
-    Arc, Mutex, Once,
+    Arc, LazyLock, Once,
     atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering},
 };
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
 use wry::{WebContext, WebView};
 
 // --- GLOBAL SIGNALS ---
-lazy_static::lazy_static! {
-    pub static ref AUDIO_STOP_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref AUDIO_PAUSE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref AUDIO_ABORT_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref AUDIO_WARMUP_COMPLETE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    /// Signal for Gemini Live initialization phase (WebSocket setup)
-    pub static ref AUDIO_INITIALIZING: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-
-    pub static ref VISUALIZATION_BUFFER: Mutex<[f32; 40]> = Mutex::new([0.0; 40]);
-}
+pub static AUDIO_STOP_SIGNAL: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub static AUDIO_PAUSE_SIGNAL: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub static AUDIO_ABORT_SIGNAL: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub static AUDIO_WARMUP_COMPLETE: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+/// Signal for Gemini Live initialization phase (WebSocket setup)
+pub static AUDIO_INITIALIZING: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
 // --- ATOMIC STATE ---
 pub static LAST_SHOW_TIME: AtomicU64 = AtomicU64::new(0);

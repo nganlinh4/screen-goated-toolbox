@@ -4,7 +4,7 @@
 //! including streaming updates, navigation, and file operations.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 // Sub-modules
 pub mod conversion;
@@ -17,12 +17,12 @@ pub mod streaming;
 pub mod webview;
 
 // Static state
-lazy_static::lazy_static! {
-    /// Store WebViews per parent window - wrapped in thread-local storage to avoid Send issues
-    pub(crate) static ref WEBVIEW_STATES: Mutex<HashMap<isize, bool>> = Mutex::new(HashMap::new());
-    /// Flag to skip next navigation handler call (set before history.back())
-    pub(crate) static ref SKIP_NEXT_NAVIGATION: Mutex<HashMap<isize, bool>> = Mutex::new(HashMap::new());
-}
+/// Store WebViews per parent window - wrapped in thread-local storage to avoid Send issues
+pub(crate) static WEBVIEW_STATES: LazyLock<Mutex<HashMap<isize, bool>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Flag to skip next navigation handler call (set before history.back())
+pub(crate) static SKIP_NEXT_NAVIGATION: LazyLock<Mutex<HashMap<isize, bool>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // Thread-local storage for WebViews since they're not Send
 thread_local! {

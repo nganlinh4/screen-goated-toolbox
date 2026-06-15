@@ -8,18 +8,18 @@ use crate::api::realtime_audio::start_realtime_transcription;
 use crate::overlay::realtime_webview::controller;
 use crate::overlay::realtime_webview::state::*;
 use eframe::egui;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-lazy_static::lazy_static! {
-    pub static ref MINIMAL_ACTIVE: AtomicBool = AtomicBool::new(false);
-    pub static ref MINIMAL_STOPPING: AtomicBool = AtomicBool::new(false);
-    pub static ref MINIMAL_PRESET_IDX: AtomicUsize = AtomicUsize::new(0);
-    static ref UI_STATE: Mutex<RealtimeUiState> = Mutex::new(RealtimeUiState::default());
-    static ref USER_REQUESTED_CLOSE: AtomicBool = AtomicBool::new(false);
-    static ref LAST_MINIMAL_STOP: Mutex<Option<(usize, Instant)>> = Mutex::new(None);
-}
+pub static MINIMAL_ACTIVE: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
+pub static MINIMAL_STOPPING: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
+pub static MINIMAL_PRESET_IDX: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(0));
+static UI_STATE: LazyLock<Mutex<RealtimeUiState>> =
+    LazyLock::new(|| Mutex::new(RealtimeUiState::default()));
+static USER_REQUESTED_CLOSE: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
+static LAST_MINIMAL_STOP: LazyLock<Mutex<Option<(usize, Instant)>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 pub(super) struct RealtimeUiState {
     pub font_size: f32,

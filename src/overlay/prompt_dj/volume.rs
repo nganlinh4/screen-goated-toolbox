@@ -5,12 +5,12 @@ use windows::Win32::Media::Audio::{
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
 };
+use std::sync::LazyLock;
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::core::*;
 
-lazy_static::lazy_static! {
-    static ref CHILD_PIDS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
-}
+static CHILD_PIDS: LazyLock<std::sync::Mutex<Vec<u32>>> =
+    LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
 
 pub(super) fn update_child_pids() {
     let current_pid = unsafe { GetCurrentProcessId() };

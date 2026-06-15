@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
@@ -19,9 +19,8 @@ use windows_core::{BOOL, Interface};
 
 use super::icons::get_app_icon_data_url;
 
-lazy_static::lazy_static! {
-    static ref SELECTED_AUDIO_APP_CANDIDATE: Mutex<Option<AudioAppCandidate>> = Mutex::new(None);
-}
+static SELECTED_AUDIO_APP_CANDIDATE: LazyLock<Mutex<Option<AudioAppCandidate>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[derive(Clone, Debug)]
 pub struct AudioAppCandidate {

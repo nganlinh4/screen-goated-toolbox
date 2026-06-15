@@ -2,11 +2,10 @@ use anyhow::{Result, anyhow};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
-lazy_static::lazy_static! {
-    static ref LAST_PARAKEET_ACTION_ERROR: std::sync::Mutex<Option<String>> =
-        std::sync::Mutex::new(None);
-}
+static LAST_PARAKEET_ACTION_ERROR: LazyLock<std::sync::Mutex<Option<String>>> =
+    LazyLock::new(|| std::sync::Mutex::new(None));
 
 fn set_parakeet_action_error(message: impl Into<String>) {
     *LAST_PARAKEET_ACTION_ERROR.lock().unwrap() = Some(message.into());

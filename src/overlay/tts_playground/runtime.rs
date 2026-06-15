@@ -1,7 +1,7 @@
 //! Shared state + facade for the WRY TTS Playground runtime.
 
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Instant;
 
 use crate::api::tts::types::TtsCollectedAudio;
@@ -12,17 +12,19 @@ use super::state::{self, CurrentClip, RecentClip};
 
 pub(super) const RECENT_LIMIT: usize = 5;
 
-lazy_static::lazy_static! {
-    pub(super) static ref ID_GEN: AtomicU64 = AtomicU64::new(0);
-    pub(super) static ref CANCEL_FLAG: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
-    pub(super) static ref CLIP_CACHE: Mutex<Vec<(String, Arc<TtsCollectedAudio>)>> =
-        Mutex::new(Vec::new());
-    pub(super) static ref CLIP_METHODS: Mutex<Vec<(String, TtsMethod)>> =
-        Mutex::new(Vec::new());
-    pub(super) static ref PLAYBACK_TIMER: Mutex<Option<PlaybackTimer>> = Mutex::new(None);
-    pub(super) static ref MIC_SESSION: Mutex<Option<MicSession>> = Mutex::new(None);
-    pub(super) static ref REFERENCE_MIC_TARGET: Mutex<Option<String>> = Mutex::new(None);
-}
+pub(super) static ID_GEN: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(0));
+pub(super) static CANCEL_FLAG: LazyLock<Mutex<Option<Arc<AtomicBool>>>> =
+    LazyLock::new(|| Mutex::new(None));
+pub(super) static CLIP_CACHE: LazyLock<Mutex<Vec<(String, Arc<TtsCollectedAudio>)>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+pub(super) static CLIP_METHODS: LazyLock<Mutex<Vec<(String, TtsMethod)>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+pub(super) static PLAYBACK_TIMER: LazyLock<Mutex<Option<PlaybackTimer>>> =
+    LazyLock::new(|| Mutex::new(None));
+pub(super) static MIC_SESSION: LazyLock<Mutex<Option<MicSession>>> =
+    LazyLock::new(|| Mutex::new(None));
+pub(super) static REFERENCE_MIC_TARGET: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 pub(super) struct MicSession {
     pub(super) samples: Arc<Mutex<Vec<i16>>>,

@@ -16,6 +16,7 @@ pub mod text_selection;
 pub mod translation_gummy;
 pub mod tts_playground; // WRY mini-app TTS Playground
 
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static IS_BUSY_WITH_OVERLAY: AtomicBool = AtomicBool::new(false);
@@ -45,11 +46,10 @@ pub use recording::{
 pub use selection::{is_selection_overlay_active, show_selection_overlay};
 pub use text_selection::show_text_selection_tag;
 // Use the new WebView2-based realtime overlay
-lazy_static::lazy_static! {
-    /// Mutex to ensure only one WebView is being initialized at a time globally.
-    /// This prevents deadlocks and resource exhaustion during startup warmup loops.
-    pub static ref GLOBAL_WEBVIEW_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-}
+/// Mutex to ensure only one WebView is being initialized at a time globally.
+/// This prevents deadlocks and resource exhaustion during startup warmup loops.
+pub static GLOBAL_WEBVIEW_MUTEX: LazyLock<std::sync::Mutex<()>> =
+    LazyLock::new(|| std::sync::Mutex::new(()));
 
 // pub use crate::api::realtime_audio::show_realtime_overlay; // REMOVED - Incorrect path
 pub use realtime_webview::{

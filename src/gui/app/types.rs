@@ -7,7 +7,7 @@ use eframe::egui;
 use egui_snarl::Snarl;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use tray_icon::{
     TrayIcon, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
@@ -25,9 +25,8 @@ pub(crate) enum DetailPane {
     History,
 }
 
-lazy_static::lazy_static! {
-    pub static ref RESTORE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-}
+pub static RESTORE_SIGNAL: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
 pub static REQUEST_OPEN_DOWNLOADED_TOOLS: AtomicBool = AtomicBool::new(false);
 

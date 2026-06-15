@@ -11,15 +11,14 @@ pub mod types;
 pub mod websocket;
 pub mod worker;
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 pub use manager::GeminiLiveManager;
 pub use types::{LiveEvent, LiveInputContent};
 
-lazy_static::lazy_static! {
-    /// Global Gemini Live manager instance
-    pub static ref GEMINI_LIVE_MANAGER: Arc<GeminiLiveManager> = Arc::new(GeminiLiveManager::new());
-}
+/// Global Gemini Live manager instance
+pub static GEMINI_LIVE_MANAGER: LazyLock<Arc<GeminiLiveManager>> =
+    LazyLock::new(|| Arc::new(GeminiLiveManager::new()));
 
 /// Number of worker threads for the connection pool
 const WORKER_COUNT: usize = 2;

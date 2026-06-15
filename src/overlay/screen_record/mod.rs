@@ -12,7 +12,7 @@ use crate::win_types::HwndWrapper;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::sync::{Once, OnceLock};
+use std::sync::{LazyLock, Once, OnceLock};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::WebContext;
@@ -59,18 +59,21 @@ thread_local! {
     static SR_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = const { std::cell::RefCell::new(None) };
 }
 
-lazy_static::lazy_static! {
-    pub static ref SERVER_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
-    /// Per-process secret gate token for the local media HTTP server. Minted once
-    /// when the server starts; required (via header or query param) on every
-    /// request so other processes / browser tabs cannot reach the server even
-    /// though it binds a scannable loopback port. Delivered to the frontend only
-    /// over the secure custom-IPC bridge (`get_media_server_port`).
-    pub static ref MEDIA_SERVER_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    static ref PENDING_VIDEO_DROP_ACTIONS: std::sync::Mutex<Vec<VideoDropAction>> = std::sync::Mutex::new(Vec::new());
-    static ref PENDING_AUDIO_DROP_ACTIONS: std::sync::Mutex<Vec<AudioDropAction>> = std::sync::Mutex::new(Vec::new());
-    static ref PENDING_SUBTITLE_DROP_ACTIONS: std::sync::Mutex<Vec<SubtitleDropAction>> = std::sync::Mutex::new(Vec::new());
-}
+pub static SERVER_PORT: LazyLock<std::sync::atomic::AtomicU16> =
+    LazyLock::new(|| std::sync::atomic::AtomicU16::new(0));
+/// Per-process secret gate token for the local media HTTP server. Minted once
+/// when the server starts; required (via header or query param) on every
+/// request so other processes / browser tabs cannot reach the server even
+/// though it binds a scannable loopback port. Delivered to the frontend only
+/// over the secure custom-IPC bridge (`get_media_server_port`).
+pub static MEDIA_SERVER_TOKEN: LazyLock<std::sync::OnceLock<String>> =
+    LazyLock::new(std::sync::OnceLock::new);
+static PENDING_VIDEO_DROP_ACTIONS: LazyLock<std::sync::Mutex<Vec<VideoDropAction>>> =
+    LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+static PENDING_AUDIO_DROP_ACTIONS: LazyLock<std::sync::Mutex<Vec<AudioDropAction>>> =
+    LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+static PENDING_SUBTITLE_DROP_ACTIONS: LazyLock<std::sync::Mutex<Vec<SubtitleDropAction>>> =
+    LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct AudioDropAction {

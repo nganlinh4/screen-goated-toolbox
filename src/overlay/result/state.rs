@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{
-    Arc, Mutex,
+    Arc, LazyLock, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use windows::Win32::Foundation::*;
@@ -254,9 +254,8 @@ pub struct WindowState {
 unsafe impl Send for WindowState {}
 unsafe impl Sync for WindowState {}
 
-lazy_static::lazy_static! {
-    pub static ref WINDOW_STATES: Mutex<HashMap<isize, WindowState>> = Mutex::new(HashMap::new());
-}
+pub static WINDOW_STATES: LazyLock<Mutex<HashMap<isize, WindowState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub enum WindowType {
     Primary,

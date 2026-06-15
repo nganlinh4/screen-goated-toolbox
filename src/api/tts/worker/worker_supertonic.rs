@@ -4,7 +4,7 @@ use std::ffi::CString;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use unicode_normalization::UnicodeNormalization;
@@ -26,9 +26,8 @@ const INIT_TIMEOUT: Duration = Duration::from_secs(12);
 
 static SUPERTONIC_INIT_TIMED_OUT: AtomicBool = AtomicBool::new(false);
 
-lazy_static::lazy_static! {
-    static ref SUPERTONIC_HANDLE: Mutex<Option<SupertonicSession>> = Mutex::new(None);
-}
+static SUPERTONIC_HANDLE: LazyLock<Mutex<Option<SupertonicSession>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 struct SupertonicSession {
     handle: *const ffi_tts::SherpaOnnxOfflineTts,

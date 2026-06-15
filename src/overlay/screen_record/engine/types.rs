@@ -1,7 +1,7 @@
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::time::Instant;
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
@@ -62,45 +62,57 @@ pub(crate) struct VramFrame {
 // pump index atomics.
 unsafe impl Sync for VramFrame {}
 
-lazy_static::lazy_static! {
-    pub static ref MOUSE_POSITIONS: Mutex<VecDeque<MousePosition>> = Mutex::new(VecDeque::new());
-    pub static ref IS_RECORDING: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    /// Stores the last capture-start error so `stop_recording` can report it.
-    pub static ref CAPTURE_ERROR: Mutex<Option<String>> = Mutex::new(None);
-    pub static ref SHOULD_STOP: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref SHOULD_STOP_AUDIO: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref AUDIO_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref MIC_AUDIO_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
-    pub static ref WEBCAM_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
-    pub static ref ENCODER_ACTIVE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref ACTIVE_CAPTURE_CONTROL: Mutex<Option<InternalCaptureControl>> = Mutex::new(None);
-    // Last emitted cursor debug record to avoid spamming logs every frame.
-    pub(crate) static ref LAST_CURSOR_DEBUG: Mutex<Option<(isize, String, bool, String)>> = Mutex::new(None);
-    // Learned non-system custom cursor signatures that represent grab/openhand cursors.
-    // Learned only when unknown cursor appears while clicked=true.
-    pub(crate) static ref CUSTOM_GRAB_SIGNATURES: Mutex<HashSet<String>> = {
-        Mutex::new(load_grab_signatures())
-    };
-    // Runtime-computed signatures for the current machine's system cursor shapes.
-    // This catches apps/games that clone a system cursor into a private handle.
-    pub(crate) static ref SYSTEM_CURSOR_SIGNATURES: HashMap<String, &'static str> = super::cursor::load_system_cursor_signatures();
-    // Resolve system cursor handles once; avoids repeated LoadCursorW calls per sample.
-    pub(crate) static ref SYSTEM_CURSOR_HANDLES: SystemCursorHandles = super::cursor::load_system_cursor_handles();
-    // Cache cursor_signature() results by HCURSOR raw pointer value.
-    // Windows reuses cursor handles for the lifetime of a process, so a given
-    // pointer always maps to the same bitmap metadata.  Cleared on recording start.
-    pub static ref CURSOR_SIGNATURE_CACHE: Mutex<HashMap<isize, String>> = Mutex::new(HashMap::new());
-    // Most recent unknown cursor seen while no mouse button was held. Used to
-    // safely learn custom drag/grab cursors only when the shape changed under drag.
-    pub(crate) static ref LAST_UNKNOWN_RELEASED_SIGNATURE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
-    // Set SCREEN_RECORD_CURSOR_DEBUG=1 to enable verbose cursor classification logs.
-    pub(crate) static ref CURSOR_DEBUG_ENABLED: bool = {
-        std::env::var("SCREEN_RECORD_CURSOR_DEBUG")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-    };
-}
+pub static MOUSE_POSITIONS: LazyLock<Mutex<VecDeque<MousePosition>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
+pub static IS_RECORDING: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+/// Stores the last capture-start error so `stop_recording` can report it.
+pub static CAPTURE_ERROR: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+pub static SHOULD_STOP: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub static SHOULD_STOP_AUDIO: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub static ENCODING_FINISHED: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub static AUDIO_ENCODING_FINISHED: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub static MIC_AUDIO_ENCODING_FINISHED: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(true)));
+pub static WEBCAM_ENCODING_FINISHED: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(true)));
+pub static ENCODER_ACTIVE: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub static ACTIVE_CAPTURE_CONTROL: LazyLock<Mutex<Option<InternalCaptureControl>>> =
+    LazyLock::new(|| Mutex::new(None));
+// Last emitted cursor debug record to avoid spamming logs every frame.
+pub(crate) static LAST_CURSOR_DEBUG: LazyLock<Mutex<Option<(isize, String, bool, String)>>> =
+    LazyLock::new(|| Mutex::new(None));
+// Learned non-system custom cursor signatures that represent grab/openhand cursors.
+// Learned only when unknown cursor appears while clicked=true.
+pub(crate) static CUSTOM_GRAB_SIGNATURES: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(load_grab_signatures()));
+// Runtime-computed signatures for the current machine's system cursor shapes.
+// This catches apps/games that clone a system cursor into a private handle.
+pub(crate) static SYSTEM_CURSOR_SIGNATURES: LazyLock<HashMap<String, &'static str>> =
+    LazyLock::new(super::cursor::load_system_cursor_signatures);
+// Resolve system cursor handles once; avoids repeated LoadCursorW calls per sample.
+pub(crate) static SYSTEM_CURSOR_HANDLES: LazyLock<SystemCursorHandles> =
+    LazyLock::new(super::cursor::load_system_cursor_handles);
+// Cache cursor_signature() results by HCURSOR raw pointer value.
+// Windows reuses cursor handles for the lifetime of a process, so a given
+// pointer always maps to the same bitmap metadata.  Cleared on recording start.
+pub static CURSOR_SIGNATURE_CACHE: LazyLock<Mutex<HashMap<isize, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+// Most recent unknown cursor seen while no mouse button was held. Used to
+// safely learn custom drag/grab cursors only when the shape changed under drag.
+pub(crate) static LAST_UNKNOWN_RELEASED_SIGNATURE: LazyLock<Mutex<Option<(String, Instant)>>> =
+    LazyLock::new(|| Mutex::new(None));
+// Set SCREEN_RECORD_CURSOR_DEBUG=1 to enable verbose cursor classification logs.
+pub(crate) static CURSOR_DEBUG_ENABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("SCREEN_RECORD_CURSOR_DEBUG")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+});
 
 pub static VIDEO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 pub static AUDIO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);

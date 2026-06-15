@@ -1,6 +1,6 @@
 use crate::overlay::result::layout::calculate_next_window_rect;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -48,11 +48,10 @@ impl ProcessingState {
     }
 }
 
-lazy_static::lazy_static! {
-    // Per-chain window position tracking - ensures snake pattern only applies within the same chain
-    // Key: chain_id (UUID string), Value: last window RECT for that chain
-    static ref CHAIN_WINDOW_POSITIONS: Mutex<HashMap<String, RECT>> = Mutex::new(HashMap::new());
-}
+// Per-chain window position tracking - ensures snake pattern only applies within the same chain
+// Key: chain_id (UUID string), Value: last window RECT for that chain
+static CHAIN_WINDOW_POSITIONS: LazyLock<Mutex<HashMap<String, RECT>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Get the corrected rect using saved preset geometry (if available).
 /// For non-image presets, uses the saved window_geometry from the preset.

@@ -4,15 +4,14 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 /// Maximum number of history entries to keep
 const MAX_HISTORY_SIZE: usize = 100;
 
-lazy_static::lazy_static! {
-    /// Global input history manager
-    pub static ref INPUT_HISTORY: Mutex<InputHistory> = Mutex::new(InputHistory::load());
-}
+/// Global input history manager
+pub static INPUT_HISTORY: LazyLock<Mutex<InputHistory>> =
+    LazyLock::new(|| Mutex::new(InputHistory::load()));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputHistory {

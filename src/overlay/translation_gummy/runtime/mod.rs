@@ -12,7 +12,7 @@ mod protocol;
 mod setup;
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use crate::APP;
@@ -58,9 +58,7 @@ struct SessionControl {
 
 static TRANSCRIPT_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-lazy_static::lazy_static! {
-    static ref SESSION_CONTROL: Mutex<Option<SessionControl>> = Mutex::new(None);
-}
+static SESSION_CONTROL: LazyLock<Mutex<Option<SessionControl>>> = LazyLock::new(|| Mutex::new(None));
 
 pub fn start_session(hwnd: isize, settings: TranslationGummySettings) {
     stop_session();

@@ -15,7 +15,7 @@ mod wnd_proc;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{
-    Mutex,
+    LazyLock, Mutex,
     atomic::{AtomicBool, AtomicIsize, Ordering},
 };
 use windows::Win32::Foundation::*;
@@ -48,12 +48,12 @@ thread_local! {
     static CANVAS_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
-lazy_static::lazy_static! {
-    /// Tracks which result windows are in markdown mode and their positions
-    /// Key: hwnd as isize, Value: (x, y, w, h)
-    static ref MARKDOWN_WINDOWS: Mutex<HashMap<isize, (i32, i32, i32, i32)>> = Mutex::new(HashMap::new());
-    static ref PENDING_REFINE_UPDATES: Mutex<HashMap<isize, String>> = Mutex::new(HashMap::new());
-}
+/// Tracks which result windows are in markdown mode and their positions
+/// Key: hwnd as isize, Value: (x, y, w, h)
+static MARKDOWN_WINDOWS: LazyLock<Mutex<HashMap<isize, (i32, i32, i32, i32)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static PENDING_REFINE_UPDATES: LazyLock<Mutex<HashMap<isize, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // Track last applied theme to avoid redundant injections
 static LAST_THEME_IS_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);

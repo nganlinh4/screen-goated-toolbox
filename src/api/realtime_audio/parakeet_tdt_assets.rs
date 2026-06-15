@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
@@ -17,9 +17,8 @@ const REQUIRED_FILES: &[&str] = &[
     "vocab.txt",
 ];
 
-lazy_static::lazy_static! {
-    static ref LAST_PARAKEET_TDT_ACTION_ERROR: Mutex<Option<String>> = Mutex::new(None);
-}
+static LAST_PARAKEET_TDT_ACTION_ERROR: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 fn set_parakeet_tdt_action_error(message: impl Into<String>) {
     *LAST_PARAKEET_TDT_ACTION_ERROR.lock().unwrap() = Some(message.into());

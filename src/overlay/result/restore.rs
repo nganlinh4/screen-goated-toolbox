@@ -4,7 +4,7 @@ use super::{RefineContext, ResultWindowParams, WindowType, create_result_window}
 use crate::win_types::SendHwnd;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
-    Mutex,
+    LazyLock, Mutex,
     atomic::{AtomicU64, Ordering},
 };
 use windows::Win32::Foundation::*;
@@ -44,10 +44,8 @@ struct RestoreBatchSnapshot {
     windows: Vec<RestorableWindowSnapshot>,
 }
 
-lazy_static::lazy_static! {
-    static ref RECENT_CLOSED_SNAPSHOTS: Mutex<VecDeque<RestoreBatchSnapshot>> =
-        Mutex::new(VecDeque::new());
-}
+static RECENT_CLOSED_SNAPSHOTS: LazyLock<Mutex<VecDeque<RestoreBatchSnapshot>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
 
 pub fn can_restore_last_closed() -> bool {
     !RECENT_CLOSED_SNAPSHOTS.lock().unwrap().is_empty()

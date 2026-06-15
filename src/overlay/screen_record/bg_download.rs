@@ -8,16 +8,15 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::{Read as IoRead, Write};
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock};
 use std::thread;
 
 mod resolver;
 
 use resolver::{detect_download_ext, resolve_image_url};
 
-lazy_static::lazy_static! {
-    pub static ref BG_DOWNLOAD_STATUS: Mutex<HashMap<String, BgDownloadStatus>> = Mutex::new(HashMap::new());
-}
+pub static BG_DOWNLOAD_STATUS: LazyLock<Mutex<HashMap<String, BgDownloadStatus>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone, serde::Serialize)]
 pub enum BgDownloadStatus {

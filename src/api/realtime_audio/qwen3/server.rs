@@ -4,16 +4,15 @@ use anyhow::{Result, anyhow};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 const QWEN3_SERVER_BINARY_NAME: &str = "asr-server.exe";
 const DEFAULT_QWEN3_SERVER_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/qwen3_reference_sidecar/dist/asr-server.exe";
 
-lazy_static::lazy_static! {
-    static ref LAST_QWEN3_SERVER_NOTICE: Mutex<Option<String>> = Mutex::new(None);
-}
+static LAST_QWEN3_SERVER_NOTICE: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 fn set_qwen3_server_notice(message: impl Into<String>) {
     *LAST_QWEN3_SERVER_NOTICE.lock().unwrap() = Some(message.into());

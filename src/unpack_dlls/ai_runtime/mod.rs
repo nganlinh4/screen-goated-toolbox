@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use std::fs;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 mod install;
 mod packages;
@@ -30,11 +30,10 @@ pub enum AiRuntimeUi {
     Badge,
 }
 
-lazy_static::lazy_static! {
-    static ref INSTALL_MUTEX: Mutex<()> = Mutex::new(());
-    static ref STATUS: Mutex<AiRuntimeStatus> = Mutex::new(AiRuntimeStatus::Missing);
-    static ref LAST_ACTION_ERROR: Mutex<Option<String>> = Mutex::new(None);
-}
+static INSTALL_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static STATUS: LazyLock<Mutex<AiRuntimeStatus>> =
+    LazyLock::new(|| Mutex::new(AiRuntimeStatus::Missing));
+static LAST_ACTION_ERROR: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 pub(super) fn set_status(status: AiRuntimeStatus) {
     *STATUS.lock().unwrap() = status;

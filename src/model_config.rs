@@ -92,12 +92,10 @@ pub fn model_is_non_llm(model_id: &str) -> bool {
     GENERATED_NON_LLM_IDS.contains(&model_id)
 }
 
-lazy_static::lazy_static! {
-    static ref ALL_MODELS: Vec<ModelConfig> = generated_models();
-}
+static ALL_MODELS: LazyLock<Vec<ModelConfig>> = LazyLock::new(generated_models);
 
 pub fn get_all_models() -> &'static [ModelConfig] {
-    &ALL_MODELS
+    &ALL_MODELS[..]
 }
 
 pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
@@ -297,22 +295,25 @@ pub fn model_supports_search_by_id_with_custom(
 // === OLLAMA MODEL CACHE ===
 
 use std::sync::{
-    Mutex,
+    LazyLock, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 
-lazy_static::lazy_static! {
-    /// Cached Ollama models (populated by background scan)
-    static ref OLLAMA_MODEL_CACHE: Mutex<Vec<ModelConfig>> = Mutex::new(Vec::new());
+/// Cached Ollama models (populated by background scan)
+static OLLAMA_MODEL_CACHE: LazyLock<Mutex<Vec<ModelConfig>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
 
-    /// Whether a scan is currently in progress
-    static ref OLLAMA_SCAN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+/// Whether a scan is currently in progress
+static OLLAMA_SCAN_IN_PROGRESS: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
 
-    /// Last scan time (for debouncing) - initialized to 10s ago so first scan works immediately
-    static ref OLLAMA_LAST_SCAN: Mutex<std::time::Instant> = Mutex::new(
-        std::time::Instant::now().checked_sub(std::time::Duration::from_secs(10)).unwrap_or_else(std::time::Instant::now)
-    );
-}
+/// Last scan time (for debouncing) - initialized to 10s ago so first scan works immediately
+static OLLAMA_LAST_SCAN: LazyLock<Mutex<std::time::Instant>> = LazyLock::new(|| {
+    Mutex::new(
+        std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(10))
+            .unwrap_or_else(std::time::Instant::now),
+    )
+});
 
 /// Check if Ollama model scan is in progress
 pub fn is_ollama_scan_in_progress() -> bool {

@@ -20,7 +20,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use super::super::manager::TtsManager;
@@ -47,9 +47,7 @@ static KOKORO_INIT_TIMED_OUT: AtomicBool = AtomicBool::new(false);
 // lifetime of the process and reuse it across requests. Wrapped in a Mutex
 // because the underlying C API is not thread-safe for concurrent generate
 // calls — and the TTS worker thread is single-threaded anyway.
-lazy_static::lazy_static! {
-    static ref KOKORO_HANDLE: Mutex<Option<KokoroSession>> = Mutex::new(None);
-}
+static KOKORO_HANDLE: LazyLock<Mutex<Option<KokoroSession>>> = LazyLock::new(|| Mutex::new(None));
 
 /// Wraps the raw OfflineTts pointer so we can keep a Drop impl that
 /// frees it through the FFI when the static is torn down on shutdown.

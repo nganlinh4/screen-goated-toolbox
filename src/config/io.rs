@@ -1,6 +1,7 @@
 //! Config I/O operations: load, save, and language utilities.
 
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use crate::config::config::Config;
 use crate::config::preset::{Preset, ProcessingBlock, get_default_presets};
@@ -546,25 +547,23 @@ pub fn save_config(config: &Config) {
 // LANGUAGE UTILITIES
 // ============================================================================
 
-lazy_static::lazy_static! {
-    /// All available language names (sorted, deduplicated)
-    static ref ALL_LANGUAGES: Vec<String> = {
-        let mut languages = Vec::new();
-        for i in 0..10000 {
-            if let Some(lang) = isolang::Language::from_usize(i) {
-                // Only include languages with ISO 639-1 codes (major languages)
-                if lang.to_639_1().is_some() {
-                    languages.push(lang.to_name().to_string());
-                }
+/// All available language names (sorted, deduplicated)
+static ALL_LANGUAGES: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut languages = Vec::new();
+    for i in 0..10000 {
+        if let Some(lang) = isolang::Language::from_usize(i) {
+            // Only include languages with ISO 639-1 codes (major languages)
+            if lang.to_639_1().is_some() {
+                languages.push(lang.to_name().to_string());
             }
         }
-        languages.sort();
-        languages.dedup();
-        languages
-    };
-}
+    }
+    languages.sort();
+    languages.dedup();
+    languages
+});
 
 /// Get all available language names
 pub fn get_all_languages() -> &'static Vec<String> {
-    &ALL_LANGUAGES
+    &*ALL_LANGUAGES
 }

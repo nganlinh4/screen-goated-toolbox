@@ -1,15 +1,14 @@
 //! Utility functions and static variables for realtime audio
 
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::{WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE};
 
-lazy_static::lazy_static! {
-    pub static ref REALTIME_DISPLAY_TEXT: Mutex<String> = Mutex::new(String::new());
-    pub static ref TRANSLATION_DISPLAY_TEXT: Mutex<String> = Mutex::new(String::new());
-}
+pub static REALTIME_DISPLAY_TEXT: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub static TRANSLATION_DISPLAY_TEXT: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new(String::new()));
 
 pub fn update_overlay_text(hwnd: HWND, text: &str) {
     if let Ok(mut display) = REALTIME_DISPLAY_TEXT.lock() {

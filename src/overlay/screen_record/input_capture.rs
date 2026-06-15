@@ -4,6 +4,7 @@
 use crossbeam_queue::ArrayQueue;
 use parking_lot::Mutex;
 use serde::Serialize;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
@@ -70,10 +71,10 @@ struct QueuedInputEvent {
     modifiers: u8,
 }
 
-lazy_static::lazy_static! {
-    static ref CAPTURE_STATE: Mutex<CaptureState> = Mutex::new(CaptureState::default());
-    static ref EVENT_QUEUE: ArrayQueue<QueuedInputEvent> = ArrayQueue::new(MAX_CAPTURE_EVENTS);
-}
+static CAPTURE_STATE: LazyLock<Mutex<CaptureState>> =
+    LazyLock::new(|| Mutex::new(CaptureState::default()));
+static EVENT_QUEUE: LazyLock<ArrayQueue<QueuedInputEvent>> =
+    LazyLock::new(|| ArrayQueue::new(MAX_CAPTURE_EVENTS));
 
 const MAX_CAPTURE_EVENTS: usize = 250_000;
 const MOD_CTRL_BIT: u8 = 1 << 0;

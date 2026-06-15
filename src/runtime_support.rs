@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use anyhow::{Result, anyhow};
 use windows::Win32::Foundation::HANDLE;
@@ -74,10 +74,9 @@ pub enum WebView2InstallStatus {
 const WEBVIEW2_BOOTSTRAPPER_URL: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
 const WEBVIEW2_BOOTSTRAPPER_NAME: &str = "MicrosoftEdgeWebview2Setup.exe";
 
-lazy_static::lazy_static! {
-    static ref WEBVIEW2_STATUS: Mutex<WebView2InstallStatus> = Mutex::new(WebView2InstallStatus::Missing);
-    static ref STARTUP_NOTICE_SHOWN: Mutex<bool> = Mutex::new(false);
-}
+static WEBVIEW2_STATUS: LazyLock<Mutex<WebView2InstallStatus>> =
+    LazyLock::new(|| Mutex::new(WebView2InstallStatus::Missing));
+static STARTUP_NOTICE_SHOWN: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
 
 pub fn current_process_arch() -> RuntimeArch {
     #[cfg(target_arch = "x86_64")]

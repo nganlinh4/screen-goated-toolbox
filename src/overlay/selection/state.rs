@@ -3,6 +3,7 @@
 
 use crate::win_types::{SendHbitmap, SendHwnd};
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::{HMODULE, HWND, POINT};
 use windows::Win32::Graphics::Gdi::HBITMAP;
@@ -10,9 +11,8 @@ use windows::Win32::UI::WindowsAndMessaging::HHOOK;
 use windows_core::BOOL;
 
 // --- ABORT SIGNAL ---
-lazy_static::lazy_static! {
-    pub static ref SELECTION_ABORT_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-}
+pub static SELECTION_ABORT_SIGNAL: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
 // --- MAGNIFICATION API FFI ---
 pub type MagInitializeFn = unsafe extern "system" fn() -> BOOL;

@@ -13,6 +13,7 @@ pub use app::{SettingsApp, SettingsAppInit};
 pub use app::{request_open_downloaded_tools, signal_restore_window};
 pub use utils::configure_fonts;
 
-lazy_static::lazy_static! {
-    pub static ref GUI_CONTEXT: std::sync::Mutex<Option<eframe::egui::Context>> = std::sync::Mutex::new(None);
-}
+use std::sync::LazyLock;
+
+pub static GUI_CONTEXT: LazyLock<std::sync::Mutex<Option<eframe::egui::Context>>> =
+    LazyLock::new(|| std::sync::Mutex::new(None));

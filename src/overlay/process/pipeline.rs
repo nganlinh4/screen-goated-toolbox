@@ -1,7 +1,7 @@
 mod image;
 
 use crate::win_types::SendHwnd;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect,
@@ -24,9 +24,8 @@ use super::window::create_processing_window;
 pub use image::{start_processing_pipeline, start_processing_pipeline_parallel};
 
 // Track last result window rect for continuous mode snaking
-lazy_static::lazy_static! {
-    static ref LAST_RESULT_RECT: Arc<Mutex<Option<RECT>>> = Arc::new(Mutex::new(None));
-}
+static LAST_RESULT_RECT: LazyLock<Arc<Mutex<Option<RECT>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 // --- ENTRY POINTS ---
 

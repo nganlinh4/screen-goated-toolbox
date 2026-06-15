@@ -2,6 +2,7 @@ use super::state::{
     INPUT_HWND, PASSIVE_CAPTURE_ENABLED, SHOULD_CLOSE, SUBMITTED_TEXT, WM_APP_SYNC_PASSIVE_EDITOR,
 };
 use std::sync::Mutex;
+use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::{HGLOBAL, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
@@ -26,10 +27,8 @@ struct PassiveEditorState {
     win: bool,
 }
 
-lazy_static::lazy_static! {
-    static ref PASSIVE_EDITOR_STATE: Mutex<PassiveEditorState> =
-        Mutex::new(PassiveEditorState::default());
-}
+static PASSIVE_EDITOR_STATE: LazyLock<Mutex<PassiveEditorState>> =
+    LazyLock::new(|| Mutex::new(PassiveEditorState::default()));
 
 pub fn reset_state() {
     let mut state = PASSIVE_EDITOR_STATE.lock().unwrap();

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Mutex, Once};
+use std::sync::{LazyLock, Mutex, Once};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -11,9 +11,8 @@ use super::types::{MAX_GLOW_BUFFER_DIM, ProcessingState};
 // --- PROCESSING WINDOW STATIC STATE ---
 static REGISTER_PROC_CLASS: Once = Once::new();
 
-lazy_static::lazy_static! {
-    static ref PROC_STATES: Mutex<HashMap<isize, ProcessingState>> = Mutex::new(HashMap::new());
-}
+static PROC_STATES: LazyLock<Mutex<HashMap<isize, ProcessingState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // --- WINDOW PROC FOR OVERLAY ---
 pub unsafe fn create_processing_window(rect: RECT, graphics_mode: String) -> HWND {

@@ -10,7 +10,7 @@ use anyhow::{Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
@@ -18,9 +18,8 @@ const GITHUB_RELEASE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases
 const ARCHIVE_FILENAME: &str = "sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2";
 const ARCHIVE_TOP_DIR: &str = "sherpa-onnx-supertonic-3-tts-int8-2026-05-11";
 
-lazy_static::lazy_static! {
-    static ref LAST_SUPERTONIC_ACTION_ERROR: Mutex<Option<String>> = Mutex::new(None);
-}
+static LAST_SUPERTONIC_ACTION_ERROR: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 fn set_supertonic_action_error(message: impl Into<String>) {
     *LAST_SUPERTONIC_ACTION_ERROR.lock().unwrap() = Some(message.into());
