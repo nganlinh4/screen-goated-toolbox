@@ -339,6 +339,39 @@ fn translate_with_google(
     Ok(json_text)
 }
 
+/// POST a prepared OpenAI-compatible chat payload and extract
+/// `choices[0].message.content`. `label` names the provider in error messages,
+/// `extra_headers` carries per-provider headers beyond `Authorization`.
+fn post_openai_compat_chat(
+    url: &str,
+    api_key: &str,
+    label: &str,
+    payload: serde_json::Value,
+    extra_headers: &[(&str, &str)],
+) -> Result<String, String> {
+    let mut request = UREQ_AGENT
+        .post(url)
+        .header("Authorization", &format!("Bearer {api_key}"));
+    for (name, value) in extra_headers {
+        request = request.header(*name, *value);
+    }
+    let response = request
+        .send_json(payload)
+        .map_err(|error| format!("{label} subtitle translation failed: {error}"))?;
+    let root: serde_json::Value = response
+        .into_body()
+        .read_json()
+        .map_err(|error| format!("{label} subtitle translation JSON failed: {error}"))?;
+    root.get("choices")
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.first())
+        .and_then(|value| value.get("message"))
+        .and_then(|value| value.get("content"))
+        .and_then(|value| value.as_str())
+        .map(ToString::to_string)
+        .ok_or_else(|| format!("{label} subtitle translation returned no content"))
+}
+
 fn translate_with_groq(
     config: &Config,
     model: &ModelConfig,
@@ -356,23 +389,13 @@ fn translate_with_groq(
         "stream": false,
         "response_format": { "type": "json_object" },
     });
-    let response = UREQ_AGENT
-        .post("https://api.groq.com/openai/v1/chat/completions")
-        .header("Authorization", &format!("Bearer {}", config.api_key))
-        .send_json(payload)
-        .map_err(|error| format!("Groq subtitle translation failed: {error}"))?;
-    let root: serde_json::Value = response
-        .into_body()
-        .read_json()
-        .map_err(|error| format!("Groq subtitle translation JSON failed: {error}"))?;
-    root.get("choices")
-        .and_then(|value| value.as_array())
-        .and_then(|items| items.first())
-        .and_then(|value| value.get("message"))
-        .and_then(|value| value.get("content"))
-        .and_then(|value| value.as_str())
-        .map(ToString::to_string)
-        .ok_or_else(|| "Groq subtitle translation returned no content".to_string())
+    post_openai_compat_chat(
+        "https://api.groq.com/openai/v1/chat/completions",
+        &config.api_key,
+        "Groq",
+        payload,
+        &[],
+    )
 }
 
 fn cerebras_response_format() -> serde_json::Value {
@@ -421,27 +444,13 @@ fn translate_with_cerebras(
         "stream": false,
         "response_format": cerebras_response_format(),
     });
-    let response = UREQ_AGENT
-        .post("https://api.cerebras.ai/v1/chat/completions")
-        .header(
-            "Authorization",
-            &format!("Bearer {}", config.cerebras_api_key),
-        )
-        .header("Content-Type", "application/json")
-        .send_json(payload)
-        .map_err(|error| format!("Cerebras subtitle translation failed: {error}"))?;
-    let root: serde_json::Value = response
-        .into_body()
-        .read_json()
-        .map_err(|error| format!("Cerebras subtitle translation JSON failed: {error}"))?;
-    root.get("choices")
-        .and_then(|value| value.as_array())
-        .and_then(|items| items.first())
-        .and_then(|value| value.get("message"))
-        .and_then(|value| value.get("content"))
-        .and_then(|value| value.as_str())
-        .map(ToString::to_string)
-        .ok_or_else(|| "Cerebras subtitle translation returned no content".to_string())
+    post_openai_compat_chat(
+        "https://api.cerebras.ai/v1/chat/completions",
+        &config.cerebras_api_key,
+        "Cerebras",
+        payload,
+        &[("Content-Type", "application/json")],
+    )
 }
 
 fn translate_with_openrouter(
@@ -461,28 +470,16 @@ fn translate_with_openrouter(
         "stream": false,
         "response_format": { "type": "json_object" },
     });
-    let response = UREQ_AGENT
-        .post("https://openrouter.ai/api/v1/chat/completions")
-        .header(
-            "Authorization",
-            &format!("Bearer {}", config.openrouter_api_key),
-        )
-        .header("HTTP-Referer", "https://screen-goated-toolbox.local")
-        .header("X-Title", "Screen Goated Toolbox")
-        .send_json(payload)
-        .map_err(|error| format!("OpenRouter subtitle translation failed: {error}"))?;
-    let root: serde_json::Value = response
-        .into_body()
-        .read_json()
-        .map_err(|error| format!("OpenRouter subtitle translation JSON failed: {error}"))?;
-    root.get("choices")
-        .and_then(|value| value.as_array())
-        .and_then(|items| items.first())
-        .and_then(|value| value.get("message"))
-        .and_then(|value| value.get("content"))
-        .and_then(|value| value.as_str())
-        .map(ToString::to_string)
-        .ok_or_else(|| "OpenRouter subtitle translation returned no content".to_string())
+    post_openai_compat_chat(
+        "https://openrouter.ai/api/v1/chat/completions",
+        &config.openrouter_api_key,
+        "OpenRouter",
+        payload,
+        &[
+            ("HTTP-Referer", "https://screen-goated-toolbox.local"),
+            ("X-Title", "Screen Goated Toolbox"),
+        ],
+    )
 }
 
 fn translate_with_gemini_live(

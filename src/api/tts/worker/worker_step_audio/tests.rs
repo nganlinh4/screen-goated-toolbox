@@ -1,5 +1,6 @@
-use super::{read_wav_i16, synthesize_step_audio};
+use super::synthesize_step_audio;
 use crate::api::tts::manager::TtsManager;
+use crate::api::tts::worker::audio_utils::read_wav_i16;
 use crate::api::tts::types::{QueuedRequest, TtsRequest, TtsRequestProfile};
 use crate::config::{StepAudioSettings, TtsMethod};
 
@@ -14,7 +15,7 @@ fn read_wav_i16_accepts_step_audio_smoke_output() {
         return;
     }
 
-    let (samples, sample_rate) = read_wav_i16(&path).expect("read smoke wav");
+    let (samples, sample_rate) = read_wav_i16(&path, "Step Audio", false).expect("read smoke wav");
     assert_eq!(sample_rate, 24_000);
     assert!(
         samples.len() >= (sample_rate as usize / 2),
