@@ -2,6 +2,7 @@
 
 mod api;
 mod assets;
+mod atomic_json;
 mod config;
 mod debug_log;
 pub mod gui;

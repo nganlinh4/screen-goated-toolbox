@@ -130,8 +130,8 @@ fn get_paths() -> (PathBuf, PathBuf, PathBuf) {
 
 fn save_db(items: &Vec<HistoryItem>) {
     let (_, db_path, _) = get_paths();
-    if let Ok(file) = fs::File::create(db_path) {
-        let _ = serde_json::to_writer_pretty(file, items);
+    if let Err(e) = crate::atomic_json::write_json_atomic(&db_path, items) {
+        crate::log_info!("[history] failed to save history db: {e}");
     }
 }
 

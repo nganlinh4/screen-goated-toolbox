@@ -38,13 +38,35 @@ pub fn load_config() -> Config {
 
     let mut config: Config = match serde_json::from_str(&data) {
         Ok(c) => c,
-        Err(_) => return Config::default(),
+        Err(e) => {
+            // A hard parse failure means real corruption (migrate_config tolerates
+            // field drift via #[serde(default)]). Preserve the offending file before
+            // falling back to defaults, so an interrupted/corrupt write never silently
+            // discards every preset, profile and API key.
+            backup_corrupt_config(&path, &e);
+            return Config::default();
+        }
     };
 
     // Apply migrations and merge new defaults
     migrate_config(&mut config);
 
     config
+}
+
+/// Copy a config file that failed to parse to a timestamped `.corrupt-*` sibling
+/// so the user's data can be recovered, instead of silently overwriting it.
+fn backup_corrupt_config(path: &std::path::Path, err: &serde_json::Error) {
+    let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(format!(".corrupt-{ts}"));
+    let backup = PathBuf::from(backup);
+    let copied = std::fs::copy(path, &backup).is_ok();
+    crate::log_info!(
+        "[config] config parse failed ({err}); {} -> {}",
+        if copied { "preserved corrupt file at" } else { "FAILED to back up corrupt file to" },
+        backup.display()
+    );
 }
 
 /// Apply config migrations and merge new default presets
@@ -507,13 +529,14 @@ mod tests {
 // CONFIG SAVING
 // ============================================================================
 
-/// Save config to disk
+/// Save config to disk atomically (temp + rename), so an interrupted write
+/// never truncates the single file that holds every preset, profile and API key.
 pub fn save_config(config: &Config) {
     let path = get_config_path();
     let mut config_to_save = config.clone();
     config_to_save.sync_active_profile_from_presets();
-    if let Ok(data) = serde_json::to_string_pretty(&config_to_save) {
-        let _ = std::fs::write(path, data);
+    if let Err(e) = crate::atomic_json::write_json_atomic(&path, &config_to_save) {
+        crate::log_info!("[config] failed to save config: {e}");
     }
 }
 

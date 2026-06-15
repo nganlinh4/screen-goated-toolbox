@@ -12,6 +12,20 @@ use crate::api::client::{UREQ_AGENT, record_usage_simple};
 use crate::config::Preset;
 use crate::model_config::{get_model_by_id, is_gemini_live_translate_model_id, model_is_non_llm};
 
+/// Borrow a prefix of `s` up to `max` bytes without splitting a UTF-8 char.
+/// Slicing on a raw byte index (`&s[..max]`) panics when `max` lands inside a
+/// multibyte character, which the JSON/text frames from the WS server can hit.
+fn truncate_str(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// Transcribe audio using Gemini REST API with streaming
 pub fn transcribe_audio_gemini<F>(
     gemini_api_key: &str,
@@ -196,7 +210,7 @@ fn transcribe_with_gemini_live(
                 let msg = msg.as_str();
                 println!(
                     "[GeminiLiveInput] Received text message: {}",
-                    &msg[..msg.len().min(200)]
+                    truncate_str(msg, 200)
                 );
                 if msg.contains("setupComplete") {
                     println!("[GeminiLiveInput] Setup complete received!");
@@ -295,7 +309,7 @@ fn transcribe_with_gemini_live(
                     let msg = msg.as_str();
                     println!(
                         "[GeminiLiveInput] Message while sending: {}",
-                        &msg[..msg.len().min(300)]
+                        truncate_str(msg, 300)
                     );
                     if let Some(transcript) = parse_text(msg)
                         && !transcript.is_empty()
@@ -350,7 +364,7 @@ fn transcribe_with_gemini_live(
                 let msg = msg.as_str();
                 println!(
                     "[GeminiLiveInput] Message in conclude phase: {}",
-                    &msg[..msg.len().min(300)]
+                    truncate_str(msg, 300)
                 );
                 if let Some(transcript) = parse_text(msg)
                     && !transcript.is_empty()

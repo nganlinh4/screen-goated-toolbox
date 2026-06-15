@@ -1,21 +1,27 @@
 use crate::APP;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use std::time::Duration;
 use ureq::http::HeaderMap;
 
-lazy_static! {
-    pub static ref UREQ_AGENT: ureq::Agent = {
-        let config = ureq::Agent::config_builder()
-            .user_agent(concat!(
-                env!("CARGO_PKG_NAME"),
-                "/",
-                env!("CARGO_PKG_VERSION")
-            ))
-            .timeout_global(Some(Duration::from_secs(120)))
-            .build();
-        config.into()
-    };
+/// Build a ureq agent carrying our user-agent string and an end-to-end timeout.
+fn build_agent(timeout_global: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+        .timeout_global(Some(timeout_global))
+        .build()
+        .into()
 }
+
+/// Agent for unary (non-streaming) requests — bounded end-to-end at 120s.
+pub static UREQ_AGENT: LazyLock<ureq::Agent> =
+    LazyLock::new(|| build_agent(Duration::from_secs(120)));
+
+/// Agent for streaming (SSE) requests. In ureq 3.x `timeout_global` includes body
+/// reads, so a reasoning / search-grounded LLM stream that legitimately runs past
+/// 120s was being force-aborted mid-response on the shared agent. Streaming calls
+/// use this longer cap (matching the help-assistant agent) instead.
+pub static UREQ_STREAM_AGENT: LazyLock<ureq::Agent> =
+    LazyLock::new(|| build_agent(Duration::from_secs(900)));
 
 /// Read a response header as a `&str`, if present and valid UTF-8.
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {

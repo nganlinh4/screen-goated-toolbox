@@ -60,7 +60,14 @@ where
         "stream": streaming
     });
 
-    let resp = UREQ_AGENT
+    // Streaming responses can legitimately run past the 120s unary cap, so they
+    // use the longer-lived streaming agent; unary calls keep the tight bound.
+    let agent = if streaming {
+        &*crate::api::client::UREQ_STREAM_AGENT
+    } else {
+        &*UREQ_AGENT
+    };
+    let resp = agent
         .post(endpoint)
         .header("Authorization", &format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
