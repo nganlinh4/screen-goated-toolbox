@@ -62,8 +62,7 @@ pub fn offline_asr_commit_step(
     if has_native_punctuation {
         if let Some((before, after)) = split_at_sentence_boundary(&draft) {
             append_history_segment(&mut state.committed_history, &before);
-            state.stream_committed_prefix =
-                text[..text.len() - after.len()].trim_end().to_string();
+            state.stream_committed_prefix = text[..text.len() - after.len()].trim_end().to_string();
             state.last_draft_text.clear();
             state.last_draft_change_ms = now_ms;
             after.trim_start().to_string()
@@ -116,7 +115,10 @@ mod tests {
     fn commits_punctuation_terminated_draft_after_stale_period() {
         let mut s = OfflineAsrCommitState::default();
         // Draft appears at t=0; stays identical and ends in '.', so at t>=600 it commits.
-        assert_eq!(offline_asr_commit_step(&mut s, "All done.", true, 0), "All done.");
+        assert_eq!(
+            offline_asr_commit_step(&mut s, "All done.", true, 0),
+            "All done."
+        );
         let active = offline_asr_commit_step(&mut s, "All done.", true, 600);
         assert_eq!(s.committed_history, "All done.");
         assert_eq!(active, "");
@@ -136,7 +138,10 @@ mod tests {
     fn commits_unpunctuated_draft_after_silence_threshold() {
         let mut s = OfflineAsrCommitState::default();
         // 2 words -> threshold 1200/(1+2*0.5)=600ms. Stable from t=0; commits at t>=600 with a '.'.
-        assert_eq!(offline_asr_commit_step(&mut s, "hello world", false, 0), "hello world");
+        assert_eq!(
+            offline_asr_commit_step(&mut s, "hello world", false, 0),
+            "hello world"
+        );
         let active = offline_asr_commit_step(&mut s, "hello world", false, 600);
         assert_eq!(s.committed_history, "hello world.");
         assert_eq!(active, "");

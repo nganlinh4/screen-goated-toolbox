@@ -69,6 +69,10 @@ pub(super) fn run_job_inner(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "clip processing needs job, request, clip, auth, audio, and job state"
+)]
 fn process_clip(
     job_id: &str,
     request: &GeminiTranslateNarrationRequest,
@@ -252,7 +256,7 @@ fn process_clip(
                 ClipResult {
                     clip_id: clip.clip_id.clone(),
                     is_partial: false,
-                    segments: vec![meta.to_final(
+                    segments: vec![meta.into_final(
                         final_path.clone(),
                         final_duration,
                         audio_in_point,
@@ -287,7 +291,7 @@ struct RegionMeta {
 }
 
 impl RegionMeta {
-    fn to_final(
+    fn into_final(
         self,
         path: String,
         duration: f64,

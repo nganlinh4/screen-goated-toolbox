@@ -36,18 +36,16 @@ pub use types::{
     WEBCAM_VIDEO_START_OFFSET_MS,
 };
 
+/// The `CaptureControl` returned by `start_free_threaded`.
+type ExternalCaptureControl = windows_capture::capture::CaptureControl<
+    CaptureHandler,
+    Box<dyn std::error::Error + Send + Sync>,
+>;
+
 /// Stores the CaptureControl returned by start_free_threaded so stop_recording
 /// can properly terminate the capture thread even when 0 frames arrived.
-pub static EXTERNAL_CAPTURE_CONTROL: LazyLock<
-    parking_lot::Mutex<
-        Option<
-            windows_capture::capture::CaptureControl<
-                CaptureHandler,
-                Box<dyn std::error::Error + Send + Sync>,
-            >,
-        >,
-    >,
-> = LazyLock::new(|| parking_lot::Mutex::new(None));
+pub static EXTERNAL_CAPTURE_CONTROL: LazyLock<parking_lot::Mutex<Option<ExternalCaptureControl>>> =
+    LazyLock::new(|| parking_lot::Mutex::new(None));
 
 pub struct CaptureHandler {
     encoder: Arc<Mutex<Option<VideoEncoder>>>,

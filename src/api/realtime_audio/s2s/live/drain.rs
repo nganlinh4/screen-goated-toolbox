@@ -2,6 +2,10 @@ use super::super::transport::parse_s2s_update;
 use super::super::*;
 use super::text_state::LiveTranslateTextState;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "drains a live socket threading the full streaming + playback context"
+)]
 pub(super) fn drain_live_translate_socket(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
     stream_id: u64,
@@ -54,6 +58,10 @@ pub(super) fn drain_live_translate_socket(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "handles one message threading the full streaming + playback context"
+)]
 fn handle_live_translate_message(
     stream_id: u64,
     message: &str,

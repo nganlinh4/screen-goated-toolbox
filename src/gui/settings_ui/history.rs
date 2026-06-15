@@ -195,7 +195,8 @@ pub fn render_history_panel(
                                                 HistoryType::Text => text.view_text_btn,
                                             };
                                             if ui.button(btn_text).clicked() {
-                                                let config_dir = crate::paths::app_config_dir().join("history_media");
+                                                let config_dir = crate::paths::app_config_dir()
+                                                    .join("history_media");
                                                 let path = config_dir.join(&item.media_path);
                                                 let _ = open::that(path);
                                             }

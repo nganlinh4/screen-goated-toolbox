@@ -15,7 +15,9 @@ pub(super) const RECENT_LIMIT: usize = 5;
 pub(super) static ID_GEN: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(0));
 pub(super) static CANCEL_FLAG: LazyLock<Mutex<Option<Arc<AtomicBool>>>> =
     LazyLock::new(|| Mutex::new(None));
-pub(super) static CLIP_CACHE: LazyLock<Mutex<Vec<(String, Arc<TtsCollectedAudio>)>>> =
+type ClipCacheEntry = (String, Arc<TtsCollectedAudio>);
+
+pub(super) static CLIP_CACHE: LazyLock<Mutex<Vec<ClipCacheEntry>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 pub(super) static CLIP_METHODS: LazyLock<Mutex<Vec<(String, TtsMethod)>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));

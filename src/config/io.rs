@@ -247,6 +247,46 @@ fn normalize_translation_gummy_settings(config: &mut Config) {
     }
 }
 
+// ============================================================================
+// CONFIG SAVING
+// ============================================================================
+
+/// Save config to disk atomically (temp + rename), so an interrupted write
+/// never truncates the single file that holds every preset, profile and API key.
+pub fn save_config(config: &Config) {
+    let path = get_config_path();
+    let mut config_to_save = config.clone();
+    config_to_save.sync_active_profile_from_presets();
+    if let Err(e) = crate::atomic_json::write_json_atomic(&path, &config_to_save) {
+        crate::log_info!("[config] failed to save config: {e}");
+    }
+}
+
+// ============================================================================
+// LANGUAGE UTILITIES
+// ============================================================================
+
+/// All available language names (sorted, deduplicated)
+static ALL_LANGUAGES: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut languages = Vec::new();
+    for i in 0..10000 {
+        if let Some(lang) = isolang::Language::from_usize(i) {
+            // Only include languages with ISO 639-1 codes (major languages)
+            if lang.to_639_1().is_some() {
+                languages.push(lang.to_name().to_string());
+            }
+        }
+    }
+    languages.sort();
+    languages.dedup();
+    languages
+});
+
+/// Get all available language names
+pub fn get_all_languages() -> &'static Vec<String> {
+    &ALL_LANGUAGES
+}
+
 #[cfg(test)]
 mod tests {
     use super::migrate_config;
@@ -526,44 +566,4 @@ mod tests {
         config.delete_preset_profile(1);
         assert_eq!(config.active_preset_profile_idx, 0);
     }
-}
-
-// ============================================================================
-// CONFIG SAVING
-// ============================================================================
-
-/// Save config to disk atomically (temp + rename), so an interrupted write
-/// never truncates the single file that holds every preset, profile and API key.
-pub fn save_config(config: &Config) {
-    let path = get_config_path();
-    let mut config_to_save = config.clone();
-    config_to_save.sync_active_profile_from_presets();
-    if let Err(e) = crate::atomic_json::write_json_atomic(&path, &config_to_save) {
-        crate::log_info!("[config] failed to save config: {e}");
-    }
-}
-
-// ============================================================================
-// LANGUAGE UTILITIES
-// ============================================================================
-
-/// All available language names (sorted, deduplicated)
-static ALL_LANGUAGES: LazyLock<Vec<String>> = LazyLock::new(|| {
-    let mut languages = Vec::new();
-    for i in 0..10000 {
-        if let Some(lang) = isolang::Language::from_usize(i) {
-            // Only include languages with ISO 639-1 codes (major languages)
-            if lang.to_639_1().is_some() {
-                languages.push(lang.to_name().to_string());
-            }
-        }
-    }
-    languages.sort();
-    languages.dedup();
-    languages
-});
-
-/// Get all available language names
-pub fn get_all_languages() -> &'static Vec<String> {
-    &ALL_LANGUAGES
 }

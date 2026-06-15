@@ -7,7 +7,10 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-static ICON_CACHE: LazyLock<Mutex<HashMap<(u32, usize), Option<String>>>> =
+/// Icon cache key: `(icon index, module-path hash)`.
+type IconCacheKey = (u32, usize);
+
+static ICON_CACHE: LazyLock<Mutex<HashMap<IconCacheKey, Option<String>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn hicon_to_data_url(icon: HICON, destroy_icon: bool) -> Option<String> {
