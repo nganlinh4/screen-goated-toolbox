@@ -298,7 +298,7 @@ fn run_request(
     } else {
         std::path::PathBuf::from(response.output_wav_path)
     };
-    let (samples, sample_rate) = read_wav_i16(&wav_path)?;
+    let (samples, sample_rate) = super::audio_utils::read_wav_i16(&wav_path, "VieNeu", false)?;
     let samples = trim_vieneu_silence(samples, sample_rate)?;
     let _ = std::fs::remove_file(&wav_path);
     Ok((samples, response.sample_rate.max(sample_rate)))
@@ -449,23 +449,6 @@ fn format_stderr_tail(stderr_tail: &Arc<Mutex<VecDeque<String>>>) -> String {
     out
 }
 
-fn read_wav_i16(path: &std::path::Path) -> Result<(Vec<i16>, u32)> {
-    let mut reader = hound::WavReader::open(path)
-        .with_context(|| format!("Failed to open VieNeu WAV '{}'", path.display()))?;
-    let spec = reader.spec();
-    let samples = match spec.sample_format {
-        hound::SampleFormat::Int => reader
-            .samples::<i16>()
-            .collect::<std::result::Result<Vec<_>, _>>()?,
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .map(|sample| {
-                sample.map(|value| (value.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16)
-            })
-            .collect::<std::result::Result<Vec<_>, _>>()?,
-    };
-    Ok((samples, spec.sample_rate))
-}
 
 fn trim_vieneu_silence(samples: Vec<i16>, sample_rate: u32) -> Result<Vec<i16>> {
     if samples.is_empty() || sample_rate == 0 {

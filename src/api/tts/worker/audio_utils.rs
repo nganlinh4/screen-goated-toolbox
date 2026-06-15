@@ -1,3 +1,4 @@
+use anyhow::{Context, bail};
 use std::io::Cursor;
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
@@ -124,4 +125,47 @@ pub(crate) fn resample_audio(samples: &[i16], from_rate: u32, to_rate: u32) -> V
     }
 
     result
+}
+
+/// Read a WAV sidecar into i16 samples, returning `(samples, sample_rate)`.
+/// `label` names the producer in error messages. With `require_mono`, a non-mono
+/// file is rejected. Int >16-bit is down-shifted to 16-bit; Float is
+/// clamped/scaled/rounded. Previously copy-pasted across the Magpie, Step-Audio
+/// and VieNeu workers (with a hardcoded-shift / missing-wide-int divergence).
+pub(crate) fn read_wav_i16(
+    path: &std::path::Path,
+    label: &str,
+    require_mono: bool,
+) -> anyhow::Result<(Vec<i16>, u32)> {
+    let mut reader = hound::WavReader::open(path)
+        .with_context(|| format!("Failed to read {label} WAV '{}'", path.display()))?;
+    let spec = reader.spec();
+    if require_mono && spec.channels != 1 {
+        bail!("{label} WAV must be mono, got {} channels", spec.channels);
+    }
+    let samples = match spec.sample_format {
+        hound::SampleFormat::Int => {
+            if spec.bits_per_sample <= 16 {
+                reader
+                    .samples::<i16>()
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+            } else {
+                reader
+                    .samples::<i32>()
+                    .map(|sample| {
+                        sample.map(|value| {
+                            (value >> (spec.bits_per_sample.saturating_sub(16) as u32)) as i16
+                        })
+                    })
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+            }
+        }
+        hound::SampleFormat::Float => reader
+            .samples::<f32>()
+            .map(|sample| {
+                sample.map(|value| (value.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16)
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?,
+    };
+    Ok((samples, spec.sample_rate))
 }

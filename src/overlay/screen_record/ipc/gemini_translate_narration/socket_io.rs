@@ -1,4 +1,3 @@
-use std::io::Cursor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -119,22 +118,6 @@ pub(super) struct DrainOutcome {
     pub(super) audio_chunks: usize,
     pub(super) audio_samples: usize,
     pub(super) silence_samples: usize,
-}
-
-pub(super) fn decode_wav_mono_i16(bytes: &[u8]) -> Result<Vec<i16>, String> {
-    let mut reader = hound::WavReader::new(Cursor::new(bytes))
-        .map_err(|error| format!("Read prepared Gemini Translate WAV: {error}"))?;
-    let spec = reader.spec();
-    if spec.channels != 1 || spec.sample_rate != 16_000 {
-        return Err(format!(
-            "Prepared Gemini Translate WAV must be 16 kHz mono, got {} Hz {} channel(s)",
-            spec.sample_rate, spec.channels
-        ));
-    }
-    reader
-        .samples::<i16>()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("Decode prepared Gemini Translate WAV samples: {error}"))
 }
 
 fn message_to_text(message: Message) -> Option<String> {

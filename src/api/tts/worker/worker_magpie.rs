@@ -183,7 +183,10 @@ fn synthesize_magpie(request: &QueuedRequest) -> Result<(Vec<i16>, u32)> {
     } else {
         std::path::PathBuf::from(response.output_wav_path)
     };
-    let (samples, sample_rate) = read_wav_i16(&wav_path)?;
+    let (samples, sample_rate) = super::audio_utils::read_wav_i16(&wav_path, "Magpie", true)?;
+    if samples.is_empty() {
+        bail!("Magpie sidecar produced an empty WAV");
+    }
     let _ = std::fs::remove_file(&wav_path);
     Ok((samples, response.sample_rate.max(sample_rate)))
 }
@@ -281,33 +284,3 @@ fn magpie_temp_wav_path(request_id: u64) -> Result<std::path::PathBuf> {
     Ok(dir.join(format!("magpie-{request_id}-{unique}.wav")))
 }
 
-fn read_wav_i16(path: &std::path::Path) -> Result<(Vec<i16>, u32)> {
-    let mut reader = hound::WavReader::open(path)
-        .with_context(|| format!("Failed to read Magpie WAV '{}'", path.display()))?;
-    let spec = reader.spec();
-    if spec.channels != 1 {
-        bail!("Magpie WAV must be mono, got {} channels", spec.channels);
-    }
-    let samples = match spec.sample_format {
-        hound::SampleFormat::Int => {
-            if spec.bits_per_sample <= 16 {
-                reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?
-            } else {
-                reader
-                    .samples::<i32>()
-                    .map(|sample| sample.map(|value| (value >> 16) as i16))
-                    .collect::<Result<Vec<_>, _>>()?
-            }
-        }
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .map(|sample| {
-                sample.map(|value| (value.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16)
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-    };
-    if samples.is_empty() {
-        bail!("Magpie sidecar produced an empty WAV");
-    }
-    Ok((samples, spec.sample_rate))
-}

@@ -10,7 +10,8 @@ use crate::api::realtime_audio::websocket::{
 };
 
 use super::output_vad::{OutputRegion, OutputVad};
-use super::socket_io::{decode_wav_mono_i16, drain_socket, wait_for_setup};
+use super::super::wav_decode::decode_wav_mono_i16;
+use super::socket_io::{drain_socket, wait_for_setup};
 use super::text_delta::{nonempty_text, take_text_delta};
 use super::{ClipResult, GeminiTranslateNarrationRequest, JobSnapshot, ResultEvent, SegmentResult};
 use crate::overlay::screen_record::ipc::media_server;
@@ -56,7 +57,7 @@ pub(super) fn run_job_inner(
             &request.source_type,
             clip,
         )?;
-        let samples = decode_wav_mono_i16(&prepared.bytes)?;
+        let samples = decode_wav_mono_i16(&prepared.bytes, "Gemini Translate")?;
         update_clip_state(snapshot, clip, clip_index, request.clips.len(), 0, 0, false);
         process_clip(
             job_id, request, clip, clip_index, &api_key, samples, snapshot, cancelled,

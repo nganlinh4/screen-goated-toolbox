@@ -14,6 +14,7 @@ mod s2s_narration;
 mod stage_export;
 mod subtitle_export;
 mod subtitles;
+mod wav_decode;
 mod window_monitor;
 
 use super::bg_download;

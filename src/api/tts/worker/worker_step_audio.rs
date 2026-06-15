@@ -325,7 +325,7 @@ fn run_step_audio_request(
     } else {
         std::path::PathBuf::from(response.output_wav_path)
     };
-    let (samples, sample_rate) = read_wav_i16(&wav_path)?;
+    let (samples, sample_rate) = super::audio_utils::read_wav_i16(&wav_path, "Step Audio", false)?;
     let _ = std::fs::remove_file(&wav_path);
     Ok((samples, response.sample_rate.max(sample_rate)))
 }
@@ -497,36 +497,6 @@ fn format_step_audio_stderr_tail(stderr_tail: &Arc<Mutex<VecDeque<String>>>) -> 
     out
 }
 
-fn read_wav_i16(path: &std::path::Path) -> Result<(Vec<i16>, u32)> {
-    let mut reader = hound::WavReader::open(path)
-        .with_context(|| format!("Failed to open Step Audio WAV '{}'", path.display()))?;
-    let spec = reader.spec();
-    let samples = match spec.sample_format {
-        hound::SampleFormat::Int => {
-            if spec.bits_per_sample <= 16 {
-                reader
-                    .samples::<i16>()
-                    .collect::<std::result::Result<Vec<_>, _>>()?
-            } else {
-                reader
-                    .samples::<i32>()
-                    .map(|sample| {
-                        sample.map(|value| {
-                            (value >> (spec.bits_per_sample.saturating_sub(16) as u32)) as i16
-                        })
-                    })
-                    .collect::<std::result::Result<Vec<_>, _>>()?
-            }
-        }
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .map(|sample| {
-                sample.map(|value| (value.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16)
-            })
-            .collect::<std::result::Result<Vec<_>, _>>()?,
-    };
-    Ok((samples, spec.sample_rate))
-}
 
 #[cfg(test)]
 mod tests;

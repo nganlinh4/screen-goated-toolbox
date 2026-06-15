@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
@@ -318,7 +317,7 @@ fn run_job_inner(
             &request.source_type,
             clip,
         )?;
-        let samples = decode_wav_mono_i16(&prepared.bytes)?;
+        let samples = super::wav_decode::decode_wav_mono_i16(&prepared.bytes, "S2S")?;
         crate::log_info!(
             "[S2SNarration][job={}] clip {}/{} id={} prepared_samples={} duration_sec={:.3}",
             job_id,
@@ -427,18 +426,3 @@ fn push_result(
     Ok(())
 }
 
-fn decode_wav_mono_i16(bytes: &[u8]) -> Result<Vec<i16>, String> {
-    let mut reader = hound::WavReader::new(Cursor::new(bytes))
-        .map_err(|error| format!("Read prepared S2S WAV: {error}"))?;
-    let spec = reader.spec();
-    if spec.channels != 1 || spec.sample_rate != 16_000 {
-        return Err(format!(
-            "Prepared S2S WAV must be 16 kHz mono, got {} Hz {} channel(s)",
-            spec.sample_rate, spec.channels
-        ));
-    }
-    reader
-        .samples::<i16>()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("Decode prepared S2S WAV samples: {error}"))
-}
