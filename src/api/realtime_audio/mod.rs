@@ -13,6 +13,7 @@ pub mod magpie_runtime;
 pub mod model_loader;
 pub mod parakeet;
 pub mod parakeet_tdt_assets;
+pub mod offline_asr_commit;
 pub mod qwen3;
 pub(crate) mod s2s;
 pub mod sherpa_onnx;
