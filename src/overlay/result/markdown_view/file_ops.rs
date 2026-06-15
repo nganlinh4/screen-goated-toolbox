@@ -17,12 +17,9 @@ pub fn generate_filename(content: &str) -> String {
         return default_name;
     }
 
-    // Truncate content to avoid token limits (first 4000 chars should be enough for context)
-    let prompt_content = if content.len() > 4000 {
-        &content[..4000]
-    } else {
-        content
-    };
+    // Truncate to avoid token limits (first 4000 chars is enough for context).
+    // Slice by chars, not bytes — a byte cut would panic mid-UTF-8 on ko/vi content.
+    let prompt_content: String = content.chars().take(4000).collect();
 
     let prompt = format!(
         "Generate a short, kebab-case filename (without extension) for the following content. \

@@ -49,7 +49,6 @@ pub fn handle_ipc_message(body: &str) {
             "broom_all_drag_start" => handle_broom_drag_start(hwnd, true, true),
             "set_opacity" => handle_set_opacity(hwnd, &json),
             "request_update" => update_canvas(),
-            "broom_drag" => handle_broom_drag(hwnd, &json),
             "submit_refine" => handle_submit_refine(hwnd, &json),
             "cancel_refine" => crate::overlay::result::trigger_refine_cancel(hwnd),
             "history_up_refine" => handle_history_up(hwnd, &json),
@@ -272,14 +271,6 @@ fn handle_set_opacity(hwnd: HWND, json: &serde_json::Value) {
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
         }
     }
-}
-
-fn handle_broom_drag(hwnd: HWND, json: &serde_json::Value) {
-    // Legacy JS-driven drag (unused now but kept for compatibility)
-    let scale = get_dpi_scale();
-    let dx = (json.get("dx").and_then(|v| v.as_f64()).unwrap_or(0.0) * scale).round() as i32;
-    let dy = (json.get("dy").and_then(|v| v.as_f64()).unwrap_or(0.0) * scale).round() as i32;
-    crate::overlay::result::trigger_drag_window(hwnd, dx, dy);
 }
 
 fn handle_submit_refine(hwnd: HWND, json: &serde_json::Value) {

@@ -38,7 +38,6 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "6.0"
 # Cryptographically-strong randomness for the local media server gate token.
 getrandom = "0.4"
-textwrap = "0.16"
 open = "5.3"
 sys-locale = "0.3"
 winreg = "0.56"
@@ -71,7 +70,6 @@ ringbuf = "0.5"
 windows-capture = "1.5.0"
 rdev = "0.5.3"
 tiny_http = "0.12"
-memmap2 = "0.9.10"
 parking_lot = "0.12"
 crossbeam-queue = "0.3"
 libloading = "0.8"
@@ -116,7 +114,6 @@ features = [
     "Win32_UI_Accessibility",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D11",
-    "Win32_Graphics_Direct3D11on12",
     "Win32_Graphics_Direct3D12",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",

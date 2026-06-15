@@ -104,10 +104,6 @@ impl SplashScreen {
         slf
     }
 
-    pub fn reset_timer(&mut self, ctx: &egui::Context) {
-        self.start_time = ctx.input(|i| i.time);
-    }
-
     fn init_scene(&mut self) {
         scene::init_scene(
             &mut self.voxels,
