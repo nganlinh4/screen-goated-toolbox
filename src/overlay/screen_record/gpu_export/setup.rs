@@ -86,9 +86,9 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
     #[cfg(not(target_os = "windows"))]
     let preferred_backends = wgpu::Backends::all();
 
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: preferred_backends,
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     #[cfg(target_os = "windows")]
     let mut adapter = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::DX12))
@@ -101,9 +101,9 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         adapter = request_adapter(&instance);
     }
     if adapter.is_none() {
-        let fallback_instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let fallback_instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         adapter = request_adapter(&fallback_instance);
         // Last resort: software (WARP) adapter — always available on Windows.
@@ -217,10 +217,10 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Pipeline Layout"),
         bind_group_layouts: &[
-            &uniform_layout,
-            &texture_layout,
-            &texture_layout,
-            &background_overlay_layout,
+            Some(&uniform_layout),
+            Some(&texture_layout),
+            Some(&texture_layout),
+            Some(&background_overlay_layout),
         ],
         immediate_size: 0,
     });
@@ -365,7 +365,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
 
     let overlay_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Overlay Pipeline Layout"),
-        bind_group_layouts: &[&atlas_texture_layout],
+        bind_group_layouts: &[Some(&atlas_texture_layout)],
         immediate_size: 0,
     });
 
@@ -427,7 +427,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
     });
     let webcam_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Webcam Pipeline Layout"),
-        bind_group_layouts: &[&texture_layout, &webcam_uniform_layout],
+        bind_group_layouts: &[Some(&texture_layout), Some(&webcam_uniform_layout)],
         immediate_size: 0,
     });
 
