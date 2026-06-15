@@ -2,9 +2,8 @@ use super::super::capture::{
     start_device_loopback_capture_resilient, start_mic_capture_resilient, start_per_app_capture,
 };
 use super::super::state::{SharedRealtimeState, TranscriptionMethod};
-use super::super::utils::{
-    append_history_segment, split_at_sentence_boundary, update_overlay_text,
-};
+use super::super::offline_asr_commit::{OfflineAsrCommitState, offline_asr_commit_step};
+use super::super::utils::update_overlay_text;
 use super::super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 use super::ffi;
 use anyhow::Result;
@@ -37,13 +36,6 @@ struct RecognizerContext<'a> {
     stream: *const ffi::SherpaOnnxOnlineStream,
 }
 
-struct TranscriptCommitState {
-    committed_history: String,
-    stream_committed_prefix: String,
-    last_draft_text: String,
-    last_draft_change: Instant,
-}
-
 pub(super) fn run_streaming_loop(params: SherpaStreamingLoop<'_>) -> Result<()> {
     let SherpaStreamingLoop {
         lib,
@@ -61,13 +53,8 @@ pub(super) fn run_streaming_loop(params: SherpaStreamingLoop<'_>) -> Result<()> 
         recognizer,
         stream,
     };
-    let mut transcript_state = TranscriptCommitState {
-        committed_history: String::new(),
-        // Portion of current stream output already committed: advance but never reset mid-speech.
-        stream_committed_prefix: String::new(),
-        last_draft_text: String::new(),
-        last_draft_change: Instant::now(),
-    };
+    let mut transcript_state = OfflineAsrCommitState::default();
+    let loop_start = Instant::now();
     let mut pending_f32: Vec<f32> = Vec::new();
 
     while !stop_signal.load(Ordering::Relaxed) && !is_stale_session(session_id) {
@@ -128,6 +115,7 @@ pub(super) fn run_streaming_loop(params: SherpaStreamingLoop<'_>) -> Result<()> 
                 overlay_hwnd,
                 has_native_punctuation,
                 &mut transcript_state,
+                loop_start.elapsed().as_millis() as u64,
             );
         } else {
             std::thread::sleep(Duration::from_millis(50));
@@ -174,19 +162,14 @@ fn handle_recognizer_result(
     state: &SharedRealtimeState,
     overlay_hwnd: HWND,
     has_native_punctuation: bool,
-    transcript_state: &mut TranscriptCommitState,
+    transcript_state: &mut OfflineAsrCommitState,
+    now_ms: u64,
 ) {
     let RecognizerContext {
         lib,
         recognizer,
         stream,
     } = recognizer_context;
-    let TranscriptCommitState {
-        committed_history,
-        stream_committed_prefix,
-        last_draft_text,
-        last_draft_change,
-    } = transcript_state;
     let result_ptr = unsafe { (lib.get_result_json)(recognizer, stream) };
     if result_ptr.is_null() {
         return;
@@ -197,49 +180,14 @@ fn handle_recognizer_result(
     let text = parse_result_text(&result_str);
     unsafe { (lib.destroy_result_json)(result_ptr) };
 
-    let draft = if text.starts_with(stream_committed_prefix.as_str()) {
-        text[stream_committed_prefix.len()..]
-            .trim_start()
-            .to_string()
-    } else {
-        text.clone()
-    };
-
-    if draft != *last_draft_text {
-        *last_draft_text = draft.clone();
-        *last_draft_change = Instant::now();
-    }
-
-    if has_native_punctuation && let Some((before, after)) = split_at_sentence_boundary(&draft) {
-        append_history_segment(committed_history, &before);
-        *stream_committed_prefix = text[..text.len() - after.len()].trim_end().to_string();
-        last_draft_text.clear();
-        *last_draft_change = Instant::now();
-        publish_transcript(state, overlay_hwnd, committed_history, after.trim_start());
-    } else if has_native_punctuation
-        && draft.trim_end().ends_with(['.', '?', '!'])
-        && last_draft_change.elapsed().as_millis() >= 600
-    {
-        append_history_segment(committed_history, &draft);
-        *stream_committed_prefix = text.trim_end().to_string();
-        last_draft_text.clear();
-        *last_draft_change = Instant::now();
-        publish_transcript(state, overlay_hwnd, committed_history, "");
-    } else if !has_native_punctuation {
-        let silence_ms = last_draft_change.elapsed().as_millis() as u64;
-        if let Some(committed) = super::super::state::check_draft_commit(&draft, silence_ms) {
-            let committed = format!("{}.", committed);
-            append_history_segment(committed_history, &committed);
-            *stream_committed_prefix = text.trim_end().to_string();
-            last_draft_text.clear();
-            *last_draft_change = Instant::now();
-            publish_transcript(state, overlay_hwnd, committed_history, "");
-        } else {
-            publish_transcript(state, overlay_hwnd, committed_history, &draft);
-        }
-    } else {
-        publish_transcript(state, overlay_hwnd, committed_history, &draft);
-    }
+    // Canonical commit machine — shared with the Android port via golden fixtures.
+    let active = offline_asr_commit_step(transcript_state, &text, has_native_punctuation, now_ms);
+    publish_transcript(
+        state,
+        overlay_hwnd,
+        &transcript_state.committed_history,
+        &active,
+    );
 }
 
 fn is_stale_session(session_id: u64) -> bool {
