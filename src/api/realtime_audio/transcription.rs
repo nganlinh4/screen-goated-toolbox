@@ -380,8 +380,8 @@ fn run_realtime_transcription(
                 if msg.contains("setupComplete") {
                     break;
                 }
-                if msg.contains("error") || msg.contains("Error") {
-                    return Err(anyhow::anyhow!("Server returned error: {}", msg));
+                if let Some(err) = crate::api::gemini_live::websocket::parse_error(msg) {
+                    return Err(anyhow::anyhow!("Server returned error: {}", err));
                 }
             }
             Ok(tungstenite::Message::Close(frame)) => {
