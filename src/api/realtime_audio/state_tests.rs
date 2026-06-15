@@ -271,3 +271,58 @@ struct FixtureHistoryEntry {
     source: String,
     translation: String,
 }
+
+#[test]
+fn shared_fixtures_match_offline_asr_commit() {
+    use super::offline_asr_commit::{OfflineAsrCommitState, offline_asr_commit_step};
+
+    #[derive(Deserialize)]
+    struct Doc {
+        cases: Vec<Case>,
+    }
+    #[derive(Deserialize)]
+    struct Case {
+        name: String,
+        steps: Vec<Step>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Step {
+        text: String,
+        has_native_punctuation: bool,
+        now_ms: u64,
+        expect_committed_history: String,
+        expect_active_draft: String,
+    }
+
+    let doc: Doc = serde_json::from_str(
+        &fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/offline-asr-stream/cases.json"
+        ))
+        .expect("fixture file"),
+    )
+    .expect("fixture json");
+
+    for case in doc.cases {
+        let mut state = OfflineAsrCommitState::default();
+        for (i, step) in case.steps.into_iter().enumerate() {
+            let active = offline_asr_commit_step(
+                &mut state,
+                &step.text,
+                step.has_native_punctuation,
+                step.now_ms,
+            );
+            assert_eq!(
+                state.committed_history, step.expect_committed_history,
+                "case '{}' step {} history",
+                case.name, i
+            );
+            assert_eq!(
+                active, step.expect_active_draft,
+                "case '{}' step {} draft",
+                case.name, i
+            );
+        }
+    }
+}

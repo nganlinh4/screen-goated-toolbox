@@ -1,0 +1,48 @@
+{
+  "_comment": "Golden fixtures for the offline-ASR (sherpa) streaming commit machine. Each case starts from an empty state and runs steps in order; after each step the committed history and returned active draft must match. Asserted identically by Rust (api::realtime_audio::offline_asr_commit) and Kotlin (OfflineAsrStreamParity). See .claude/parity/offline-asr-stream.md.",
+  "cases": [
+    {
+      "name": "streams_unpunctuated_draft_before_commit",
+      "steps": [
+        { "text": "hello world", "hasNativePunctuation": false, "nowMs": 0, "expectCommittedHistory": "", "expectActiveDraft": "hello world" }
+      ]
+    },
+    {
+      "name": "commits_on_interior_sentence_boundary",
+      "steps": [
+        { "text": "First sentence. second", "hasNativePunctuation": true, "nowMs": 100, "expectCommittedHistory": "First sentence.", "expectActiveDraft": "second" }
+      ]
+    },
+    {
+      "name": "punctuation_terminated_draft_commits_after_stale_600ms",
+      "steps": [
+        { "text": "All done.", "hasNativePunctuation": true, "nowMs": 0, "expectCommittedHistory": "", "expectActiveDraft": "All done." },
+        { "text": "All done.", "hasNativePunctuation": true, "nowMs": 300, "expectCommittedHistory": "", "expectActiveDraft": "All done." },
+        { "text": "All done.", "hasNativePunctuation": true, "nowMs": 600, "expectCommittedHistory": "All done.", "expectActiveDraft": "" }
+      ]
+    },
+    {
+      "name": "unpunctuated_draft_commits_at_word_count_threshold_with_period",
+      "steps": [
+        { "text": "hello world", "hasNativePunctuation": false, "nowMs": 0, "expectCommittedHistory": "", "expectActiveDraft": "hello world" },
+        { "text": "hello world", "hasNativePunctuation": false, "nowMs": 600, "expectCommittedHistory": "hello world.", "expectActiveDraft": "" }
+      ]
+    },
+    {
+      "name": "cjk_chars_count_as_words_for_threshold",
+      "steps": [
+        { "text": "你好世界", "hasNativePunctuation": false, "nowMs": 0, "expectCommittedHistory": "", "expectActiveDraft": "你好世界" },
+        { "text": "你好世界", "hasNativePunctuation": false, "nowMs": 400, "expectCommittedHistory": "你好世界.", "expectActiveDraft": "" }
+      ]
+    },
+    {
+      "name": "two_sentences_commit_and_join_with_smart_spacing",
+      "steps": [
+        { "text": "First.", "hasNativePunctuation": true, "nowMs": 0, "expectCommittedHistory": "", "expectActiveDraft": "First." },
+        { "text": "First.", "hasNativePunctuation": true, "nowMs": 600, "expectCommittedHistory": "First.", "expectActiveDraft": "" },
+        { "text": "First. Second.", "hasNativePunctuation": true, "nowMs": 700, "expectCommittedHistory": "First.", "expectActiveDraft": "Second." },
+        { "text": "First. Second.", "hasNativePunctuation": true, "nowMs": 1300, "expectCommittedHistory": "First. Second.", "expectActiveDraft": "" }
+      ]
+    }
+  ]
+}
