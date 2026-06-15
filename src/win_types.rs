@@ -19,10 +19,6 @@ impl SendHwnd {
     pub fn as_isize(&self) -> isize {
         self.0.0 as isize
     }
-
-    pub fn from_isize(val: isize) -> Self {
-        SendHwnd(HWND(val as *mut std::ffi::c_void))
-    }
 }
 
 /// Thread-safe wrapper for HANDLE

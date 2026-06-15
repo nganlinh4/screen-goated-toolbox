@@ -2,61 +2,16 @@ use eframe::egui;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmExtendFrameIntoClientArea,
     DwmSetWindowAttribute,
-};
-use windows::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW,
 };
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateIcon, GetSystemMetrics, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CXSMICON, SM_CYICON,
     SM_CYSMICON, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_SETICON,
 };
-use windows_core::BOOL;
-
-// --- Monitor Enumeration (Existing Code) ---
-
-struct MonitorEnumContext {
-    monitors: Vec<String>,
-}
-
-unsafe extern "system" fn monitor_enum_proc(
-    hmonitor: HMONITOR,
-    _hdc: HDC,
-    _lprc: *mut RECT,
-    dwdata: LPARAM,
-) -> BOOL {
-    unsafe {
-        let context = &mut *(dwdata.0 as *mut MonitorEnumContext);
-        let mut mi = MONITORINFOEXW::default();
-        mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
-
-        if GetMonitorInfoW(hmonitor, &mut mi as *mut _ as *mut _).as_bool() {
-            let device_name = String::from_utf16_lossy(&mi.szDevice);
-            let trimmed_name = device_name.trim_matches(char::from(0)).to_string();
-            context.monitors.push(trimmed_name);
-        }
-        BOOL::from(true)
-    }
-}
-
-pub fn get_monitor_names() -> Vec<String> {
-    let mut ctx = MonitorEnumContext {
-        monitors: Vec::new(),
-    };
-    unsafe {
-        let _ = EnumDisplayMonitors(
-            None,
-            None,
-            Some(monitor_enum_proc),
-            LPARAM(&mut ctx as *mut _ as isize),
-        );
-    }
-    ctx.monitors
-}
 
 // --- Clipboard Helper (Existing Code) ---
 pub fn copy_to_clipboard_text(text: &str) {

@@ -308,7 +308,12 @@ fn opus_channel_count_from_extra_data(extra_data: Option<&[u8]>) -> Option<u8> {
 fn probe_opus_channel_count_from_mp4(file_path: &str) -> Option<u8> {
     let bytes = std::fs::read(file_path).ok()?;
     let pattern = b"dOps";
-    let search_end = bytes.len().saturating_sub(pattern.len() + 6);
+    // Need at least the 'dOps' tag + version byte + channel-count byte; the old
+    // saturating_sub bottomed out at 0 and then sliced &bytes[0..4] on tiny files.
+    if bytes.len() < pattern.len() + 6 {
+        return None;
+    }
+    let search_end = bytes.len() - pattern.len();
 
     for index in 0..=search_end {
         if &bytes[index..index + pattern.len()] != pattern {
