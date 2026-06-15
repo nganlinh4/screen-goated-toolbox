@@ -12,7 +12,7 @@ serde_json = "1.0"
 [dependencies]
 # Network & Serialization
 ureq = { version = "3.2", features = ["json", "native-tls"] }
-tungstenite = { version = "0.28", features = ["native-tls"] }
+tungstenite = { version = "0.29", features = ["native-tls"] }
 native-tls = "0.2"
 sha2 = "0.10"
 sha1 = "0.10"
@@ -38,11 +38,11 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "6.0"
 lazy_static = "1.5"
 # Cryptographically-strong randomness for the local media server gate token.
-getrandom = "0.3"
+getrandom = "0.4"
 textwrap = "0.16"
 open = "5.3"
 sys-locale = "0.3"
-winreg = "0.55"
+winreg = "0.56"
 auto-launch = "0.6"
 urlencoding = "2.1"
 
@@ -54,7 +54,7 @@ encoding_rs = "0.8"
 # GUI & Media
 eframe = { version = "0.34", default-features = false, features = ["glow", "persistence"] }
 egui-snarl = { path = "libs/egui-snarl", features = ["serde"] }
-tray-icon = "0.21.3"
+tray-icon = "0.24.1"
 cpal = "0.17"
 hound = "3.5"
 wasapi = "0.22"
@@ -63,7 +63,7 @@ symphonia-adapter-libopus = "0.2.6"
 
 # Markdown Rendering
 pulldown-cmark = "0.13"
-wry = "0.54.2"
+wry = "0.55"
 raw-window-handle = "0.6"
 windows-core = "0.62"
 parakeet-rs = { version = "=0.3.6", features = ["directml"] }
