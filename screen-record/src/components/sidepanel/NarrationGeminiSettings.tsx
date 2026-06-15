@@ -46,7 +46,7 @@ export function NarrationGeminiSettings({
     <>
       {geminiModels.length > 0 && (
         <div className="narration-panel-row mb-2 flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+          <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
             {t.narrationTtsModel}
           </span>
           <PanelSelect
@@ -62,7 +62,7 @@ export function NarrationGeminiSettings({
         </div>
       )}
       <div className="narration-panel-row mb-2 flex items-center gap-2">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.narrationTtsVoice}
         </span>
         <PanelSelect
@@ -78,7 +78,7 @@ export function NarrationGeminiSettings({
         />
       </div>
       <div className="narration-panel-row mb-2 flex items-center gap-2">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.narrationTtsSpeed}
         </span>
         <PanelSelect

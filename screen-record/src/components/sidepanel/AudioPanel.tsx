@@ -165,8 +165,8 @@ export function AudioPanel({
       if (content) {
         speedBadge = document.createElement('span');
         speedBadge.className = segment.kind === 'narration'
-          ? 'narration-track-segment-speed ml-auto rounded bg-[var(--secondary-color)]/30 px-1 text-[9px] font-semibold leading-3'
-          : 'audio-track-segment-speed ml-auto rounded bg-[var(--primary-color)]/30 px-1 text-[9px] font-semibold leading-3';
+          ? 'narration-track-segment-speed ml-auto rounded-sm bg-[var(--secondary-color)]/30 px-1 text-[9px] font-semibold leading-3'
+          : 'audio-track-segment-speed ml-auto rounded-sm bg-[var(--primary-color)]/30 px-1 text-[9px] font-semibold leading-3';
         speedBadge.dataset.sgtPreviewCreated = 'true';
         content.appendChild(speedBadge);
       }
@@ -435,7 +435,7 @@ export function AudioPanel({
     label: string,
   ) => (
     <div className="audio-panel-speed-row flex items-center gap-2 rounded-lg border border-outline/30 bg-surface-container-high/40 p-2">
-      <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
+      <span className="w-20 shrink-0 text-[10px] font-medium text-on-surface-variant">
         {label}
       </span>
       <input

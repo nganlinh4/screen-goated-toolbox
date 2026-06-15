@@ -32,17 +32,17 @@ interface UseTimelineViewportOptions {
   duration: number;
   currentTime: number;
   segment: VideoSegment | null;
-  timelineRef: RefObject<HTMLDivElement>;
-  videoRef: RefObject<HTMLVideoElement>;
+  timelineRef: RefObject<HTMLDivElement | null>;
+  videoRef: RefObject<HTMLVideoElement | null>;
   isPlaying: boolean;
   isInteracting: boolean;
   disableVideoSync?: boolean;
 }
 
 interface UseTimelineViewportResult {
-  viewportRef: RefObject<HTMLDivElement>;
-  scrollbarTrackRef: RefObject<HTMLDivElement>;
-  scrollbarThumbRef: RefObject<HTMLDivElement>;
+  viewportRef: RefObject<HTMLDivElement | null>;
+  scrollbarTrackRef: RefObject<HTMLDivElement | null>;
+  scrollbarThumbRef: RefObject<HTMLDivElement | null>;
   zoom: number;
   showScrollbar: boolean;
   canvasWidth: string;

@@ -147,7 +147,7 @@ export function NarrationModeSections({
             {t.narrationModeS2s}
           </div>
           <div className="narration-direct-method-row mb-2 flex items-center gap-2">
-            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
               {t.narrationTtsModel}
             </span>
             <PanelSelect
@@ -159,7 +159,7 @@ export function NarrationModeSections({
             />
           </div>
           <div className="narration-s2s-source-row mb-2 flex items-center gap-2">
-            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
               {t.subtitleSource}
             </span>
             <PanelSelect
@@ -171,7 +171,7 @@ export function NarrationModeSections({
             />
           </div>
           <div className="narration-s2s-language-row mb-2 flex items-center gap-2">
-            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
               {t.narrationS2sTarget}
             </span>
             <PanelSelect
@@ -231,7 +231,7 @@ export function NarrationModeSections({
       {narrationMode === 'subtitles' && (
         <>
           <div className="narration-panel-source-row flex items-center gap-2">
-            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
               {t.narrationSourceTrack}
             </span>
             <PanelSelect
@@ -324,7 +324,7 @@ export function NarrationModeSections({
             <div className="narration-panel-status mt-2 flex items-center justify-between gap-2 text-[10px] leading-4 text-on-surface-variant">
               <span className="narration-panel-status-message min-w-0 truncate">{statusMessage}</span>
               {(status?.errors.length ?? 0) > 0 && (
-                <span className="narration-panel-error-count flex-shrink-0 text-[var(--tertiary-color)]">
+                <span className="narration-panel-error-count shrink-0 text-[var(--tertiary-color)]">
                   {t.subtitleNarrationErrors.replace('{count}', String(status?.errors.length ?? 0))}
                 </span>
               )}
@@ -334,7 +334,7 @@ export function NarrationModeSections({
                 <summary className="cursor-pointer text-[var(--tertiary-color)]">
                   {t.narrationErrorDetails}
                 </summary>
-                <div className="narration-panel-error-detail-body mt-1 max-h-32 overflow-y-auto rounded border border-outline/30 bg-[var(--ui-surface-2)] p-1.5 font-mono text-[10px] text-on-surface-variant">
+                <div className="narration-panel-error-detail-body mt-1 max-h-32 overflow-y-auto rounded-sm border border-outline/30 bg-[var(--ui-surface-2)] p-1.5 font-mono text-[10px] text-on-surface-variant">
                   {status?.error && (
                     <div className="narration-panel-error-top break-words text-[var(--tertiary-color)]">
                       {status.error}

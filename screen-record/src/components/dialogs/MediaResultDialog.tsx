@@ -173,12 +173,12 @@ export function MediaResultDialog({
         <DialogBody className="flex flex-col gap-4">
           {isBusy && !filePath ? (
             <div className="media-result-header-row ui-inline-note flex items-center gap-2 rounded-xl px-3 py-2.5">
-              <div className="h-4 w-4 flex-shrink-0 rounded-full border-2 border-[var(--primary-color)] border-t-transparent animate-spin" />
+              <div className="h-4 w-4 shrink-0 rounded-full border-2 border-[var(--primary-color)] border-t-transparent animate-spin" />
               <span className="text-sm text-[var(--on-surface-variant)]">{t.saving}</span>
             </div>
           ) : (
             <div className="media-result-header-row flex items-center gap-2 rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-2.5">
-              <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600 dark:text-emerald-300" />
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
               <div className="min-w-0 flex-1 text-sm text-emerald-700 dark:text-emerald-200 whitespace-nowrap">
                 <span className="font-semibold">{t.savedTo}</span>
                 <span className="mx-1 opacity-70">·</span>
@@ -232,7 +232,7 @@ export function MediaResultDialog({
                         if (e.key === 'Enter') submitRename();
                         if (e.key === 'Escape') setIsRenaming(false);
                       }}
-                      className="media-rename-input ui-input flex-1 rounded-lg border border-[var(--primary-color)] bg-[var(--ui-surface-3)] px-3 py-1.5 text-sm outline-none"
+                      className="media-rename-input ui-input flex-1 rounded-lg border border-[var(--primary-color)] bg-[var(--ui-surface-3)] px-3 py-1.5 text-sm outline-hidden"
                     />
                     <Button
                       size="sm"
@@ -249,7 +249,7 @@ export function MediaResultDialog({
                 ) : (
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-sm text-[var(--on-surface)] truncate font-medium flex-1" title={filePath}>{renameValue}</div>
-                    <Button size="sm" variant="outline" onClick={() => setIsRenaming(true)} disabled={isBusy} className="h-8 text-xs flex-shrink-0">{t.rename}</Button>
+                    <Button size="sm" variant="outline" onClick={() => setIsRenaming(true)} disabled={isBusy} className="h-8 text-xs shrink-0">{t.rename}</Button>
                   </div>
                 )}
               </div>

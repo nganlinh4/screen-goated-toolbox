@@ -31,8 +31,8 @@ export interface TimelineDragState {
 export interface UseTimelineDragOptions {
   duration: number;
   segment: VideoSegment | null;
-  timelineRef: React.RefObject<HTMLDivElement>;
-  videoRef: React.RefObject<HTMLVideoElement>;
+  timelineRef: React.RefObject<HTMLDivElement | null>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   setCurrentTime: (time: number) => void;
   setSegment: (segment: VideoSegment | null) => void;
   setEditingKeyframeId: (id: number | null) => void;

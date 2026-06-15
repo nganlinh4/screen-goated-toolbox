@@ -34,7 +34,7 @@ interface TimelineTrackStackProps {
   duration: number;
   currentTime: number;
   thumbnails: string[];
-  videoRef: RefObject<HTMLVideoElement>;
+  videoRef: RefObject<HTMLVideoElement | null>;
   editingKeyframeId: number | null;
   editingTextId: string | null;
   editingSubtitleId: string | null;

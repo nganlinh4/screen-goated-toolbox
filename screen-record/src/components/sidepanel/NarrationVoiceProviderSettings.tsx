@@ -104,7 +104,7 @@ export function NarrationVoiceProviderSettings({
   if (effectiveTtsMethod === 'GoogleTranslate') {
     return (
       <div className="narration-panel-row flex items-center gap-2">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.narrationTtsSpeed}
         </span>
         <PanelSelect

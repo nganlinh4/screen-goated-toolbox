@@ -166,7 +166,7 @@ export function SubtitleCustomChainEditor({
           >
             <button
               type="button"
-              className="subtitle-custom-chain-drag-handle flex h-7 w-7 flex-shrink-0 cursor-grab items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-[var(--ui-surface-2)] hover:text-on-surface active:cursor-grabbing"
+              className="subtitle-custom-chain-drag-handle flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-[var(--ui-surface-2)] hover:text-on-surface active:cursor-grabbing"
               style={{ touchAction: 'none' }}
               onPointerDown={(event) => {
                 if (event.pointerType === 'mouse' && event.button !== 0) {

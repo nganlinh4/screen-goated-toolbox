@@ -33,7 +33,7 @@ interface UseExportProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   webcamVideoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
-  tempCanvasRef: React.RefObject<HTMLCanvasElement>;
+  tempCanvasRef: React.RefObject<HTMLCanvasElement | null>;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   micAudioRef: React.RefObject<HTMLAudioElement | null>;
   isRecording: boolean;

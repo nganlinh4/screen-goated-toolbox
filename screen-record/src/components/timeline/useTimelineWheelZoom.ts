@@ -24,8 +24,8 @@ import {
 } from "./timelineViewportMath";
 
 interface UseTimelineWheelZoomOptions {
-  viewportRef: RefObject<HTMLDivElement>;
-  timelineRef: RefObject<HTMLDivElement>;
+  viewportRef: RefObject<HTMLDivElement | null>;
+  timelineRef: RefObject<HTMLDivElement | null>;
   durationRef: MutableRefObject<number>;
   segmentRef: MutableRefObject<VideoSegment | null>;
   isInteractingRef: MutableRefObject<boolean>;

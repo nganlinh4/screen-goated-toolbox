@@ -99,7 +99,7 @@ export function TimelineLabelColumn({
       <button
         type="button"
         onClick={() => onAudioTrackDownload(trackKind, label)}
-        className={`timeline-label-audio-download ui-icon-button absolute left-full top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-sm transition-opacity duration-150 ${hoverClass} focus-visible:opacity-100`}
+        className={`timeline-label-audio-download ui-icon-button absolute left-full top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-xs transition-opacity duration-150 ${hoverClass} focus-visible:opacity-100`}
         style={{ marginLeft: `${4 + offsetIndex * 24}px` }}
         title={t.downloadAudioTrack}
         aria-label={`${t.downloadAudioTrack}: ${label}`}
@@ -162,7 +162,7 @@ export function TimelineLabelColumn({
   );
 
   return (
-    <div className="timeline-side-column w-[4rem] flex-shrink-0">
+    <div className="timeline-side-column w-[4rem] shrink-0">
       <div className="timeline-label-gutter flex flex-col gap-[2px] border-r border-[var(--ui-border)] pr-2">
         {showZoom && (
           <div className="timeline-label-zoom h-7 flex items-center justify-between">
@@ -171,7 +171,7 @@ export function TimelineLabelColumn({
             </span>
             <button
               onClick={() => setShowDebug((value) => !value)}
-              className={`timeline-debug-btn w-3 h-3 rounded-sm text-[7px] font-bold leading-none flex items-center justify-center transition-colors ${
+              className={`timeline-debug-btn w-3 h-3 rounded-xs text-[7px] font-bold leading-none flex items-center justify-center transition-colors ${
                 showDebug
                   ? "bg-blue-500 text-white"
                   : "ui-surface text-[var(--outline)] hover:text-[var(--on-surface)]"
@@ -225,7 +225,7 @@ export function TimelineLabelColumn({
               <button
                 type="button"
                 onClick={onTriggerImportedAudioPicker}
-                className="timeline-label-imported-audio-add ui-icon-button absolute left-full ml-1 top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/imported-audio-label:opacity-100 focus-visible:opacity-100"
+                className="timeline-label-imported-audio-add ui-icon-button absolute left-full ml-1 top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-xs transition-opacity duration-150 group-hover/imported-audio-label:opacity-100 focus-visible:opacity-100"
                 title={t.addAudioFile}
                 aria-label={t.addAudioFile}
               >
@@ -283,7 +283,7 @@ export function TimelineLabelColumn({
             <button
               type="button"
               onClick={onTriggerSubtitlePicker}
-              className="timeline-label-subtitles-add ui-icon-button absolute left-full ml-1 top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/subtitle-label:opacity-100 focus-visible:opacity-100"
+              className="timeline-label-subtitles-add ui-icon-button absolute left-full ml-1 top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-xs transition-opacity duration-150 group-hover/subtitle-label:opacity-100 focus-visible:opacity-100"
               title={t.importSubtitleSrt}
               aria-label={t.importSubtitleSrt}
             >

@@ -159,7 +159,7 @@ export function SeekIndicator({ dir, showKey }: { dir: 'left' | 'right'; showKey
     <div className="seek-indicator absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] pointer-events-none">
       <div
         key={animKey}
-        className="seek-indicator-badge bg-black/75 backdrop-blur-sm text-white px-4 py-2.5 rounded-2xl flex items-center gap-1.5 shadow-2xl"
+        className="seek-indicator-badge bg-black/75 backdrop-blur-xs text-white px-4 py-2.5 rounded-2xl flex items-center gap-1.5 shadow-2xl"
         style={{
           animation: 'seek-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
         }}
@@ -305,14 +305,14 @@ export function PlaybackControls({
       >
         {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
       </Button>
-      <div className="time-display group/time-display relative text-[11px] font-medium tabular-nums flex-shrink-0 text-[var(--overlay-panel-fg)]/90">
+      <div className="time-display group/time-display relative text-[11px] font-medium tabular-nums shrink-0 text-[var(--overlay-panel-fg)]/90">
         {formatTime(wallClockCurrentTime ?? currentTime)} / {formatTime(wallClockDuration ?? duration)}
         {onSetProjectDuration && (
           <>
             <button
               type="button"
               onClick={openDurationEditor}
-              className="time-display-duration-edit ui-icon-button absolute -right-7 top-1/2 z-30 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 opacity-0 shadow-sm transition-opacity duration-150 group-hover/time-display:opacity-100 focus-visible:opacity-100"
+              className="time-display-duration-edit ui-icon-button absolute -right-7 top-1/2 z-30 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 opacity-0 shadow-xs transition-opacity duration-150 group-hover/time-display:opacity-100 focus-visible:opacity-100"
               title={t.editProjectDuration}
               aria-label={t.editProjectDuration}
             >
@@ -321,7 +321,7 @@ export function PlaybackControls({
             {isEditingDuration && (
               <div className="time-display-duration-popover absolute left-1/2 top-[calc(100%+8px)] z-40 flex -translate-x-1/2 items-center gap-1 rounded-xl border bg-[var(--surface)] p-2 shadow-[var(--shadow-elevation-2)]">
                 <input
-                  className="time-display-duration-input h-7 w-20 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-1)] px-2 text-[11px] text-[var(--on-surface)] outline-none"
+                  className="time-display-duration-input h-7 w-20 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-1)] px-2 text-[11px] text-[var(--on-surface)] outline-hidden"
                   value={durationInput}
                   autoFocus
                   inputMode="decimal"
@@ -401,8 +401,8 @@ interface VideoPreviewProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
-  tempCanvasRef: React.RefObject<HTMLCanvasElement>;
-  previewContainerRef: React.RefObject<HTMLDivElement>;
+  tempCanvasRef: React.RefObject<HTMLCanvasElement | null>;
+  previewContainerRef: React.RefObject<HTMLDivElement | null>;
   currentVideo: string | null;
   isLoadingVideo: boolean;
   loadingProgress: number;

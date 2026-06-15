@@ -15,14 +15,14 @@ export interface SettingRowProps {
 export function SettingRow({ label, valueDisplay, children, className }: SettingRowProps) {
   return (
     <div className={cn('setting-row flex items-center gap-3', className)}>
-      <span className="setting-row-label text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">
+      <span className="setting-row-label text-[11px] font-medium text-on-surface-variant w-20 shrink-0">
         {label}
       </span>
       <div className="setting-row-control flex-1 min-w-0">
         {children}
       </div>
       {valueDisplay !== undefined && (
-        <span className="setting-row-value text-[11px] font-medium text-on-surface tabular-nums w-12 text-right flex-shrink-0">
+        <span className="setting-row-value text-[11px] font-medium text-on-surface tabular-nums w-12 text-right shrink-0">
           {valueDisplay}
         </span>
       )}

@@ -59,7 +59,7 @@ export function RecordingAudioSourceDropdown({
 
   return (
     <div
-      className="recording-audio-dropdown relative flex-shrink-0"
+      className="recording-audio-dropdown relative shrink-0"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -69,11 +69,11 @@ export function RecordingAudioSourceDropdown({
             className="recording-audio-toggle-btn ui-toolbar-button px-2 h-6 text-[11px] whitespace-nowrap flex items-center gap-1.5"
             title={t.recordingAudioSource}
           >
-            <Volume2 className="w-3.5 h-3.5 flex-shrink-0" />
+            <Volume2 className="w-3.5 h-3.5 shrink-0" />
             <span className="recording-audio-toggle-label truncate">
               {summaryLabel}
             </span>
-            <ChevronDown className="w-3 h-3 ml-0.5 flex-shrink-0" />
+            <ChevronDown className="w-3 h-3 ml-0.5 shrink-0" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent

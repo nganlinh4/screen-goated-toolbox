@@ -212,7 +212,7 @@ export function Header({
     >
       <div className="header-left flex items-center gap-2 px-4 h-full min-w-0 flex-1">
         {isRecording && (
-          <div className="recording-status-area h-full flex items-center flex-shrink-0">
+          <div className="recording-status-area h-full flex items-center shrink-0">
             <div className="recording-indicator flex items-center gap-2 border border-red-500/25 bg-red-500/14 px-3 py-1 rounded-lg animate-in fade-in slide-in-from-left-2 duration-300">
               <div className="recording-dot w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
               <span className="text-red-500 text-xs font-bold drop-shadow-sm">{formatTime(recordingDuration)}</span>
@@ -223,15 +223,15 @@ export function Header({
         {headerStatus && (
           <div
             key={headerStatus.id + headerStatus.type}
-            className={`header-status-badge flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium flex-shrink-0 animate-in fade-in slide-in-from-left-2 duration-200 ${
+            className={`header-status-badge flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium shrink-0 animate-in fade-in slide-in-from-left-2 duration-200 ${
               headerStatus.type === 'success'
                 ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
                 : 'border border-[var(--primary-color)]/20 bg-[var(--primary-color)]/10 text-[var(--primary-color)]'
             }`}
           >
             {headerStatus.type === 'success'
-              ? <CircleCheck className="w-3 h-3 flex-shrink-0" />
-              : <Loader2 className="w-3 h-3 flex-shrink-0 animate-spin" />
+              ? <CircleCheck className="w-3 h-3 shrink-0" />
+              : <Loader2 className="w-3 h-3 shrink-0 animate-spin" />
             }
             <span className="header-status-message">{(t as Record<string, string>)[headerStatus.messageKey] ?? headerStatus.messageKey}</span>
           </div>
@@ -244,24 +244,24 @@ export function Header({
         )}
       </div>
 
-      <div className="header-right flex items-center gap-2 h-full pl-2 flex-shrink-0">
+      <div className="header-right flex items-center gap-2 h-full pl-2 shrink-0">
         <div className="hotkey-list flex items-center gap-1.5 flex-wrap max-w-[500px] justify-end">
           {hotkeys.map((h, i) => (
             <Button
               key={i}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => onRemoveHotkey(i)}
-              className="hotkey-chip ui-chip-button px-2 h-6 text-[11px] flex-shrink-0"
+              className="hotkey-chip ui-chip-button px-2 h-6 text-[11px] shrink-0"
               title={t.clickToRemove}
             >
               <span className="truncate max-w-[80px]">{h.name}</span>
-              <X className="w-3 h-3 ml-1 flex-shrink-0" />
+              <X className="w-3 h-3 ml-1 shrink-0" />
             </Button>
           ))}
           <Button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onOpenHotkeyDialog}
-            className="add-hotkey-btn ui-toolbar-button px-2 h-6 text-[11px] flex-shrink-0 whitespace-nowrap"
+            className="add-hotkey-btn ui-toolbar-button px-2 h-6 text-[11px] shrink-0 whitespace-nowrap"
             title={t.addHotkey}
           >
             <Keyboard className="w-3 h-3 mr-1" />
@@ -299,7 +299,7 @@ export function Header({
             }}
             t={t}
           />
-          <div className="recording-mode-dropdown relative flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="recording-mode-dropdown relative shrink-0" onMouseDown={(e) => e.stopPropagation()}>
             <DropdownMenu open={isRecordingModeMenuOpen} onOpenChange={(open) => {
               if (open) {
                 pendingDropdownRef.current = null;
@@ -345,7 +345,7 @@ export function Header({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <div className="capture-source-dropdown relative flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="capture-source-dropdown relative shrink-0" onMouseDown={(e) => e.stopPropagation()}>
             <DropdownMenu open={isCaptureSourceMenuOpen} onOpenChange={(open) => {
               if (open) {
                 pendingDropdownRef.current = null;
@@ -378,7 +378,7 @@ export function Header({
                       onSelect={(e) => { e.preventDefault(); setMenuStep('display-monitors'); }}
                       className="capture-source-option-display py-2"
                     >
-                      <Monitor className="w-3.5 h-3.5 flex-shrink-0 mr-2" />
+                      <Monitor className="w-3.5 h-3.5 shrink-0 mr-2" />
                       <span className="flex-1">{t.displayCapture}</span>
                       <ChevronRight className="w-3 h-3 opacity-50" />
                     </DropdownMenuItem>
@@ -387,7 +387,7 @@ export function Header({
                       onSelect={(e) => { e.preventDefault(); setMenuStep('window-fps'); }}
                       className="capture-source-option-window py-2 mt-0.5"
                     >
-                      <AppWindow className="w-3.5 h-3.5 flex-shrink-0 mr-2" />
+                      <AppWindow className="w-3.5 h-3.5 shrink-0 mr-2" />
                       <span className="flex-1">{t.windowCapture}</span>
                       <ChevronRight className="w-3 h-3 opacity-50" />
                     </DropdownMenuItem>

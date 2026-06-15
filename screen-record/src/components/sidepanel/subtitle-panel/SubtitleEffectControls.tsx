@@ -26,7 +26,7 @@ export function SubtitleEffectControls({
   return (
     <>
       <div className="subtitle-animation-row flex items-center gap-3">
-        <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
           {t.animation}
         </span>
         <PanelSelect
@@ -114,7 +114,7 @@ export function SubtitleEffectControls({
       {resolvedStyle.background?.enabled ? (
         <div className="subtitle-background-controls mt-1 space-y-3.5 pl-1">
           <div className="subtitle-background-color-row flex items-center gap-3">
-            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
               {t.pillColor}
             </span>
             <ColorPicker
@@ -236,7 +236,7 @@ export function SubtitleEffectControls({
         {resolvedStyle.stroke?.enabled ? (
           <div className="subtitle-stroke-controls mt-1 space-y-3.5 pl-1">
             <div className="subtitle-stroke-color-row flex items-center gap-3">
-              <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">{t.strokeColor}</span>
+              <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">{t.strokeColor}</span>
               <ColorPicker
                 value={resolvedStyle.stroke.color}
                 onChange={(color) => onUpdateSelectedSubtitles((subtitle) => ({
@@ -305,7 +305,7 @@ export function SubtitleEffectControls({
         {resolvedStyle.shadow?.enabled ? (
           <div className="subtitle-shadow-controls mt-1 space-y-3.5 pl-1">
             <div className="subtitle-shadow-color-row flex items-center gap-3">
-              <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">{t.shadowColor}</span>
+              <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">{t.shadowColor}</span>
               <ColorPicker
                 value={resolvedStyle.shadow.color}
                 onChange={(color) => onUpdateSelectedSubtitles((subtitle) => ({

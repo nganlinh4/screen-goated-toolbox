@@ -61,7 +61,7 @@ export function useVideoPlayback({
   const tempCanvasRef = useRef<HTMLCanvasElement>(
     document.createElement("canvas"),
   );
-  const videoControllerRef = useRef<ReturnType<typeof createVideoController>>();
+  const videoControllerRef = useRef<ReturnType<typeof createVideoController> | undefined>(undefined);
   const currentVideoRef = useRef<string | null>(null);
   const currentAudioRef = useRef<string | null>(null);
   const currentMicAudioRef = useRef<string | null>(null);

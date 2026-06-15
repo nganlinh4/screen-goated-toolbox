@@ -80,7 +80,7 @@ export interface AppViewProps {
   nextPreloadVideoRef: RefObject<HTMLVideoElement | null>;
   nextPreloadAudioRef: RefObject<HTMLAudioElement | null>;
   previewContainerRef: MutableRefObject<HTMLDivElement | null>;
-  timelineRef: RefObject<HTMLDivElement>;
+  timelineRef: RefObject<HTMLDivElement | null>;
   restoreImageRef: MutableRefObject<string | null>;
   projectsPreviewTargetSnapshotRef: MutableRefObject<ProjectsPreviewTargetSnapshot | null>;
   isDraggingKeystrokeOverlayRef: MutableRefObject<boolean>;

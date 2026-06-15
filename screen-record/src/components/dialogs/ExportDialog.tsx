@@ -464,7 +464,7 @@ export function ExportDialog({
                       step={bitrateBounds.stepKbps}
                       value={targetVideoBitrateKbps}
                       onChange={(e) => setExportOptions(prev => ({ ...prev, targetVideoBitrateKbps: Number(e.target.value) }))}
-                      className="flex-1 h-1 rounded"
+                      className="flex-1 h-1 rounded-sm"
                     />
                   </div>
                   <div className="bitrate-standard-marker relative mt-1 h-5">
