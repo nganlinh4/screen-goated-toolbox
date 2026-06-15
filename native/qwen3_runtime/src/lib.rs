@@ -550,8 +550,10 @@ pub extern "C" fn sgt_qwen3_last_error(
     out_len: *mut usize,
 ) -> i32 {
     if handle_or_null.is_null() {
-        let payload = LAST_GLOBAL_ERROR_JSON.lock().unwrap().clone();
-        write_out_string(&payload, out_json, out_len);
+        // Point the caller at the global error buffer itself (stable static storage),
+        // not a function-local clone that would be dropped before the caller reads it.
+        let guard = LAST_GLOBAL_ERROR_JSON.lock().unwrap();
+        write_out_string(&guard, out_json, out_len);
         return STATUS_OK;
     }
 
@@ -568,8 +570,11 @@ pub extern "C" fn sgt_qwen3_last_error(
             STATUS_OK
         }
         _ => {
-            let payload = error_payload("Unknown Qwen3 handle kind.");
-            write_out_string(&payload, out_json, out_len);
+            // Store into the static error buffer, then hand the caller a pointer into
+            // it — a function-local payload would dangle the moment this returns.
+            set_global_error("Unknown Qwen3 handle kind.");
+            let guard = LAST_GLOBAL_ERROR_JSON.lock().unwrap();
+            write_out_string(&guard, out_json, out_len);
             STATUS_OK
         }
     }

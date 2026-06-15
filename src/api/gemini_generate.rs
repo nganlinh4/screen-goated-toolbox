@@ -81,7 +81,14 @@ where
         ]);
     }
 
-    let resp = UREQ_AGENT
+    // Search-grounded / reasoning streams can exceed the 120s unary cap, so route
+    // streaming requests through the longer-lived streaming agent.
+    let agent = if streaming {
+        &*crate::api::client::UREQ_STREAM_AGENT
+    } else {
+        &*UREQ_AGENT
+    };
+    let resp = agent
         .post(&url)
         .header("x-goog-api-key", api_key)
         .send_json(payload)
