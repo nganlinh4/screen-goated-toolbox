@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import type { TimelineAreaProps } from "./TimelineAreaTypes";
 import { buildTimelineRulerTicks } from "./timelineRuler";
+import { Playhead } from "./Playhead";
 import { TimelineLabelColumn } from "./TimelineLabelColumn";
 import { TimelineTrackStack } from "./TimelineTrackStack";
 import { useTimelineDrag } from "./useTimelineDrag";
@@ -151,34 +152,53 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     [onPickSubtitleFile, onPickSubtitleSrtFile],
   );
 
-  const trackHeightsBeforeTrim = [
-    ...(showZoom ? [TIMELINE_TRACK_HEIGHTS.zoom] : []),
-    ...(showZoom && showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
-    ...(showSpeed ? [TIMELINE_TRACK_HEIGHTS.speed] : []),
-    ...(showImportedAudio ? [TIMELINE_TRACK_HEIGHTS.importedAudio] : []),
-    ...(showDeviceAudio ? [TIMELINE_TRACK_HEIGHTS.deviceAudio] : []),
-    ...(showMicAudio ? [TIMELINE_TRACK_HEIGHTS.micAudio] : []),
-    ...(showWebcam ? [TIMELINE_TRACK_HEIGHTS.webcam] : []),
-    ...(showNarration ? [TIMELINE_TRACK_HEIGHTS.narration] : []),
-    TIMELINE_TRACK_HEIGHTS.subtitles,
-    TIMELINE_TRACK_HEIGHTS.text,
-    ...(showKeystroke ? [TIMELINE_TRACK_HEIGHTS.keystroke] : []),
-    ...(showPointer ? [TIMELINE_TRACK_HEIGHTS.pointer] : []),
-  ];
-  const trackStackHeight =
-    trackHeightsBeforeTrim.reduce((sum, height) => sum + height, 0) +
-    Math.max(trackHeightsBeforeTrim.length - 1, 0) * TIMELINE_TRACK_GAP_PX;
-  const trimHeadCenterY =
-    trackStackHeight +
-    (trackHeightsBeforeTrim.length > 0 ? TIMELINE_TRACK_GAP_PX : 0) +
-    TIMELINE_TRACK_HEIGHTS.trimLane / 2;
-  const trimLaneBottomY = trimHeadCenterY + TIMELINE_TRACK_HEIGHTS.trimLane / 2;
-  const playheadHeadCenterY = showTrimLane
-    ? trimHeadCenterY
-    : Math.max(trackStackHeight / 2, 8);
-  const playheadLineBottomY = showTrimLane
-    ? trimLaneBottomY
-    : Math.max(trackStackHeight, 1);
+  // Track geometry depends only on which lanes are visible, never on
+  // `currentTime`. Memoize the spread + reduce so the ~60fps playback ticks
+  // (which re-render TimelineArea via the viewport follow loop) don't redo it.
+  const { playheadHeadCenterY, playheadLineBottomY } = useMemo(() => {
+    const trackHeightsBeforeTrim = [
+      ...(showZoom ? [TIMELINE_TRACK_HEIGHTS.zoom] : []),
+      ...(showZoom && showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
+      ...(showSpeed ? [TIMELINE_TRACK_HEIGHTS.speed] : []),
+      ...(showImportedAudio ? [TIMELINE_TRACK_HEIGHTS.importedAudio] : []),
+      ...(showDeviceAudio ? [TIMELINE_TRACK_HEIGHTS.deviceAudio] : []),
+      ...(showMicAudio ? [TIMELINE_TRACK_HEIGHTS.micAudio] : []),
+      ...(showWebcam ? [TIMELINE_TRACK_HEIGHTS.webcam] : []),
+      ...(showNarration ? [TIMELINE_TRACK_HEIGHTS.narration] : []),
+      TIMELINE_TRACK_HEIGHTS.subtitles,
+      TIMELINE_TRACK_HEIGHTS.text,
+      ...(showKeystroke ? [TIMELINE_TRACK_HEIGHTS.keystroke] : []),
+      ...(showPointer ? [TIMELINE_TRACK_HEIGHTS.pointer] : []),
+    ];
+    const trackStackHeight =
+      trackHeightsBeforeTrim.reduce((sum, height) => sum + height, 0) +
+      Math.max(trackHeightsBeforeTrim.length - 1, 0) * TIMELINE_TRACK_GAP_PX;
+    const trimHeadCenterY =
+      trackStackHeight +
+      (trackHeightsBeforeTrim.length > 0 ? TIMELINE_TRACK_GAP_PX : 0) +
+      TIMELINE_TRACK_HEIGHTS.trimLane / 2;
+    const trimLaneBottomY = trimHeadCenterY + TIMELINE_TRACK_HEIGHTS.trimLane / 2;
+    return {
+      playheadHeadCenterY: showTrimLane
+        ? trimHeadCenterY
+        : Math.max(trackStackHeight / 2, 8),
+      playheadLineBottomY: showTrimLane
+        ? trimLaneBottomY
+        : Math.max(trackStackHeight, 1),
+    };
+  }, [
+    showZoom,
+    showDebug,
+    showSpeed,
+    showImportedAudio,
+    showDeviceAudio,
+    showMicAudio,
+    showWebcam,
+    showNarration,
+    showKeystroke,
+    showPointer,
+    showTrimLane,
+  ]);
   const {
     dragState,
     handleTrimDragStart,
@@ -373,9 +393,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                   segment={segment}
                   setSegment={setSegment}
                   duration={duration}
-                  currentTime={currentTime}
                   thumbnails={thumbnails}
-                  videoRef={videoRef}
                   editingKeyframeId={editingKeyframeId}
                   editingTextId={editingTextId}
                   editingSubtitleId={editingSubtitleId}
@@ -412,8 +430,6 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                   narrationTrackVolumePoints={narrationTrackVolumePoints}
                   canvasWidthPx={canvasWidthPx}
                   visibleTimeRange={visibleTimeRange}
-                  playheadHeadCenterY={playheadHeadCenterY}
-                  playheadLineBottomY={playheadLineBottomY}
                   dragState={dragState}
                   beginBatch={beginBatch}
                   commitBatch={commitBatch}
@@ -470,6 +486,23 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                   onTrimAddSegment={handleTrimAddSegment}
                   onEmptyTrackClick={handleEmptyTrackClick}
                 />
+
+                {/* Rendered as a sibling of the memoized track stack so the
+                    ~60fps `currentTime` ticks update only the Playhead. Its
+                    dual time source (own RAF while playing, `currentTime` prop
+                    while paused/seeking) is preserved. */}
+                {segment && (
+                  <Playhead
+                    currentTime={currentTime}
+                    duration={duration}
+                    isPlaying={!!isPlaying}
+                    videoRef={videoRef}
+                    segment={segment}
+                    disableVideoSync={segment.mediaMode === "timelineOnly"}
+                    headCenterY={playheadHeadCenterY}
+                    lineBottomY={playheadLineBottomY}
+                  />
+                )}
               </div>
 
               <div className="timeline-ruler relative h-4 mt-0.5 select-none">

@@ -1,4 +1,5 @@
-import type { ComponentProps, RefObject } from "react";
+import { memo } from "react";
+import type { ComponentProps } from "react";
 import type {
   ImportedAudioSegment,
   NarrationSegment,
@@ -17,7 +18,6 @@ import { ImportedAudioTrack } from "./ImportedAudioTrack";
 import { KeystrokeTrack } from "./KeystrokeTrack";
 import { MicTrack } from "./MicTrack";
 import { NarrationTrack } from "./NarrationTrack";
-import { Playhead } from "./Playhead";
 import { PointerTrack } from "./PointerTrack";
 import { SpeedTrack } from "./SpeedTrack";
 import { SubtitleTrack } from "./SubtitleTrack";
@@ -32,9 +32,7 @@ interface TimelineTrackStackProps {
   segment: VideoSegment | null;
   setSegment: (segment: VideoSegment | null) => void;
   duration: number;
-  currentTime: number;
   thumbnails: string[];
-  videoRef: RefObject<HTMLVideoElement | null>;
   editingKeyframeId: number | null;
   editingTextId: string | null;
   editingSubtitleId: string | null;
@@ -74,8 +72,6 @@ interface TimelineTrackStackProps {
   narrationTrackVolumePoints?: ComponentProps<typeof NarrationTrack>["volumePoints"];
   canvasWidthPx: number;
   visibleTimeRange: TimelineVisibleRange | null;
-  playheadHeadCenterY: number;
-  playheadLineBottomY: number;
   dragState: TimelineDragState;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -133,13 +129,11 @@ interface TimelineTrackStackProps {
   onEmptyTrackClick: (time: number) => void;
 }
 
-export function TimelineTrackStack({
+function TimelineTrackStackImpl({
   segment,
   setSegment,
   duration,
-  currentTime,
   thumbnails,
-  videoRef,
   editingKeyframeId,
   editingTextId,
   editingSubtitleId,
@@ -176,8 +170,6 @@ export function TimelineTrackStack({
   narrationTrackVolumePoints,
   canvasWidthPx,
   visibleTimeRange,
-  playheadHeadCenterY,
-  playheadLineBottomY,
   dragState,
   beginBatch,
   commitBatch,
@@ -508,19 +500,11 @@ export function TimelineTrackStack({
           </div>
         ))}
       </div>
-
-      {segment && (
-        <Playhead
-          currentTime={currentTime}
-          duration={duration}
-          isPlaying={!!isPlaying}
-          videoRef={videoRef}
-          segment={segment}
-          disableVideoSync={segment.mediaMode === "timelineOnly"}
-          headCenterY={playheadHeadCenterY}
-          lineBottomY={playheadLineBottomY}
-        />
-      )}
     </>
   );
 }
+
+// Memoized so the ~12 track children do not re-render on every ~60fps
+// `currentTime` tick. The Playhead (the only consumer of `currentTime`) is
+// rendered as a sibling in TimelineArea, keeping its own time source intact.
+export const TimelineTrackStack = memo(TimelineTrackStackImpl);
