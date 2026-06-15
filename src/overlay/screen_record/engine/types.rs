@@ -84,8 +84,11 @@ pub static ENCODER_ACTIVE: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 pub static ACTIVE_CAPTURE_CONTROL: LazyLock<Mutex<Option<InternalCaptureControl>>> =
     LazyLock::new(|| Mutex::new(None));
+/// Last emitted cursor debug record: `(hwnd, cursor_type, clicked, signature)`.
+type CursorDebugRecord = (isize, String, bool, String);
+
 // Last emitted cursor debug record to avoid spamming logs every frame.
-pub(crate) static LAST_CURSOR_DEBUG: LazyLock<Mutex<Option<(isize, String, bool, String)>>> =
+pub(crate) static LAST_CURSOR_DEBUG: LazyLock<Mutex<Option<CursorDebugRecord>>> =
     LazyLock::new(|| Mutex::new(None));
 // Learned non-system custom cursor signatures that represent grab/openhand cursors.
 // Learned only when unknown cursor appears while clicked=true.

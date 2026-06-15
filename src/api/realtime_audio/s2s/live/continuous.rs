@@ -88,9 +88,10 @@ pub(super) fn run_live_translate_continuous(
         }
 
         if let Ok(mut guard) = audio_buffer.lock()
-            && !guard.is_empty() {
-                pending.extend(guard.drain(..));
-            }
+            && !guard.is_empty()
+        {
+            pending.extend(guard.drain(..));
+        }
         if pending.len() > MAX_PENDING_SAMPLES {
             let drop_count = pending.len() - MAX_PENDING_SAMPLES;
             pending.drain(..drop_count);
@@ -109,17 +110,18 @@ pub(super) fn run_live_translate_continuous(
                     &mut sent_chunks_at_last_activity,
                     sent_chunks,
                     &playback,
-                )? {
-                    schedule_live_translate_reconnect(
-                        &mut socket,
-                        &mut socket_connected_at,
-                        &mut stream_id,
-                        &mut reconnect_attempts,
-                        &mut next_connect_after,
-                        settings.mode.log_tag(),
-                        "socket-drain",
-                    );
-                }
+                )?
+            {
+                schedule_live_translate_reconnect(
+                    &mut socket,
+                    &mut socket_connected_at,
+                    &mut stream_id,
+                    &mut reconnect_attempts,
+                    &mut next_connect_after,
+                    settings.mode.log_tag(),
+                    "socket-drain",
+                );
+            }
             maybe_rotate_live_translate_socket(
                 &mut socket,
                 &mut socket_connected_at,

@@ -48,9 +48,12 @@ thread_local! {
     static CANVAS_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
+/// Result-window rectangle `(x, y, w, h)`.
+type WindowRect = (i32, i32, i32, i32);
+
 /// Tracks which result windows are in markdown mode and their positions
 /// Key: hwnd as isize, Value: (x, y, w, h)
-static MARKDOWN_WINDOWS: LazyLock<Mutex<HashMap<isize, (i32, i32, i32, i32)>>> =
+static MARKDOWN_WINDOWS: LazyLock<Mutex<HashMap<isize, WindowRect>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static PENDING_REFINE_UPDATES: LazyLock<Mutex<HashMap<isize, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));

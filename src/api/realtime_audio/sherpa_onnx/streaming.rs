@@ -1,8 +1,8 @@
 use super::super::capture::{
     start_device_loopback_capture_resilient, start_mic_capture_resilient, start_per_app_capture,
 };
-use super::super::state::{SharedRealtimeState, TranscriptionMethod};
 use super::super::offline_asr_commit::{OfflineAsrCommitState, offline_asr_commit_step};
+use super::super::state::{SharedRealtimeState, TranscriptionMethod};
 use super::super::utils::update_overlay_text;
 use super::super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 use super::ffi;

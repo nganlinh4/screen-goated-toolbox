@@ -81,79 +81,6 @@ fn build_s2s_setup_payload(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn settings(model: &str, target_language: &str) -> S2sSettings {
-        S2sSettings {
-            api_key: "test-key".to_string(),
-            model: model.to_string(),
-            mode: if model == crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL {
-                S2sMode::LiveTranslate
-            } else {
-                S2sMode::LegacyInterpreter
-            },
-            voice: "Aoede".to_string(),
-            speed: "Normal".to_string(),
-            custom_instruction: String::new(),
-            target_language: target_language.to_string(),
-        }
-    }
-
-    #[test]
-    fn translate_model_setup_uses_translation_config() {
-        let payload = build_s2s_setup_payload(
-            &settings(
-                crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL,
-                "Vietnamese",
-            ),
-            &S2sContextSnapshot {
-                text: "legacy context must not be sent".to_string(),
-            },
-        );
-
-        let setup = &payload["setup"];
-        let expected_model = format!(
-            "models/{}",
-            crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL
-        );
-        assert_eq!(setup["model"].as_str(), Some(expected_model.as_str()));
-        assert!(setup.get("systemInstruction").is_none());
-        assert_eq!(setup["inputAudioTranscription"], serde_json::json!({}));
-        assert_eq!(setup["outputAudioTranscription"], serde_json::json!({}));
-        assert_eq!(
-            setup["generationConfig"]["translationConfig"]["targetLanguageCode"].as_str(),
-            Some("vi")
-        );
-        assert_eq!(
-            setup["generationConfig"]["translationConfig"]["echoTargetLanguage"].as_bool(),
-            Some(true)
-        );
-        assert!(
-            setup["generationConfig"]
-                .get("inputAudioTranscription")
-                .is_none()
-        );
-        assert!(
-            setup["generationConfig"]
-                .get("outputAudioTranscription")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn translate_target_language_code_preserves_bcp47_variants() {
-        let code = crate::api::realtime_audio::websocket::live_translate_target_language_code;
-        assert_eq!(code("Chinese"), "zh-Hans");
-        assert_eq!(code("Chinese (Traditional)"), "zh-Hant");
-        assert_eq!(code("pt-BR"), "pt-BR");
-        assert_eq!(code("Portuguese (Portugal)"), "pt-PT");
-        assert_eq!(code("Filipino"), "fil");
-        assert_eq!(code("Korean"), "ko");
-    }
-}
-
 fn wait_for_setup(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
     stop_signal: Arc<AtomicBool>,
@@ -455,4 +382,77 @@ pub(crate) fn parse_s2s_update(message: &str) -> S2sParsedUpdate {
     }
 
     update
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(model: &str, target_language: &str) -> S2sSettings {
+        S2sSettings {
+            api_key: "test-key".to_string(),
+            model: model.to_string(),
+            mode: if model == crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL {
+                S2sMode::LiveTranslate
+            } else {
+                S2sMode::LegacyInterpreter
+            },
+            voice: "Aoede".to_string(),
+            speed: "Normal".to_string(),
+            custom_instruction: String::new(),
+            target_language: target_language.to_string(),
+        }
+    }
+
+    #[test]
+    fn translate_model_setup_uses_translation_config() {
+        let payload = build_s2s_setup_payload(
+            &settings(
+                crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL,
+                "Vietnamese",
+            ),
+            &S2sContextSnapshot {
+                text: "legacy context must not be sent".to_string(),
+            },
+        );
+
+        let setup = &payload["setup"];
+        let expected_model = format!(
+            "models/{}",
+            crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL
+        );
+        assert_eq!(setup["model"].as_str(), Some(expected_model.as_str()));
+        assert!(setup.get("systemInstruction").is_none());
+        assert_eq!(setup["inputAudioTranscription"], serde_json::json!({}));
+        assert_eq!(setup["outputAudioTranscription"], serde_json::json!({}));
+        assert_eq!(
+            setup["generationConfig"]["translationConfig"]["targetLanguageCode"].as_str(),
+            Some("vi")
+        );
+        assert_eq!(
+            setup["generationConfig"]["translationConfig"]["echoTargetLanguage"].as_bool(),
+            Some(true)
+        );
+        assert!(
+            setup["generationConfig"]
+                .get("inputAudioTranscription")
+                .is_none()
+        );
+        assert!(
+            setup["generationConfig"]
+                .get("outputAudioTranscription")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn translate_target_language_code_preserves_bcp47_variants() {
+        let code = crate::api::realtime_audio::websocket::live_translate_target_language_code;
+        assert_eq!(code("Chinese"), "zh-Hans");
+        assert_eq!(code("Chinese (Traditional)"), "zh-Hant");
+        assert_eq!(code("pt-BR"), "pt-BR");
+        assert_eq!(code("Portuguese (Portugal)"), "pt-PT");
+        assert_eq!(code("Filipino"), "fil");
+        assert_eq!(code("Korean"), "ko");
+    }
 }
