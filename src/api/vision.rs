@@ -1,15 +1,12 @@
 use super::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
 use super::gemini_generate::stream_gemini_generate;
 use super::openai_compat::stream_openai_compat_chat;
-use super::types::{ChatCompletionResponse, StreamChunk};
+use super::types::ChatCompletionResponse;
 use crate::api::providers::Provider;
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
-use std::io::{BufRead, BufReader};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::io::BufReader;
+use std::sync::{Arc, atomic::AtomicBool};
 
 mod image_payload;
 use image_payload::prepare_image_payload;
@@ -316,32 +313,11 @@ where
 
         if streaming_enabled {
             let reader = BufReader::new(resp.into_body().into_reader());
-            for line in reader.lines() {
-                if let Some(ref ct) = cancel_token
-                    && ct.load(Ordering::Relaxed)
-                {
-                    return Err(anyhow::anyhow!("Cancelled"));
-                }
-                let line = line?;
-
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if data == "[DONE]" {
-                        break;
-                    }
-
-                    match serde_json::from_str::<StreamChunk>(data) {
-                        Ok(chunk) => {
-                            if let Some(content) =
-                                chunk.choices.first().and_then(|c| c.delta.content.as_ref())
-                            {
-                                full_content.push_str(content);
-                                on_chunk(content);
-                            }
-                        }
-                        Err(_) => continue,
-                    }
-                }
-            }
+            full_content = crate::api::openai_compat::consume_content_stream(
+                reader,
+                &cancel_token,
+                &mut on_chunk,
+            )?;
         } else {
             let chat_resp: ChatCompletionResponse = resp
                 .into_body()

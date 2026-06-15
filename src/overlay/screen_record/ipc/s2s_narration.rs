@@ -425,4 +425,3 @@ fn push_result(
         .push(S2sNarrationResultEvent { revision, result });
     Ok(())
 }
-

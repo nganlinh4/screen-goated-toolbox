@@ -157,3 +157,40 @@ where
 
     Ok(full_content)
 }
+
+/// Consume an OpenAI-compatible *streaming* chat response, appending each
+/// `delta.content` chunk to a string (forwarded via `on_chunk`) until `[DONE]`,
+/// honoring `cancel_token`. Returns the accumulated content. This is the simple
+/// content-only loop shared by the Groq translate / vision / refine paths; the
+/// reasoning/thinking-aware variant is built into [`stream_openai_compat_chat`].
+pub fn consume_content_stream<R, F>(
+    reader: R,
+    cancel_token: &Option<Arc<AtomicBool>>,
+    on_chunk: &mut F,
+) -> Result<String>
+where
+    R: BufRead,
+    F: FnMut(&str),
+{
+    let mut full_content = String::new();
+    for line in reader.lines() {
+        if let Some(ct) = cancel_token
+            && ct.load(Ordering::Relaxed)
+        {
+            return Err(anyhow::anyhow!("Cancelled"));
+        }
+        let line = line?;
+        if let Some(data) = line.strip_prefix("data: ") {
+            if data == "[DONE]" {
+                break;
+            }
+            if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data)
+                && let Some(content) = chunk.choices.first().and_then(|c| c.delta.content.as_ref())
+            {
+                full_content.push_str(content);
+                on_chunk(content);
+            }
+        }
+    }
+    Ok(full_content)
+}

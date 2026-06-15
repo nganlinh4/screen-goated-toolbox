@@ -6,14 +6,11 @@ mod groq_compound;
 use crate::api::client::{UREQ_AGENT, record_usage_cerebras, record_usage_simple};
 use crate::api::gemini_generate::stream_gemini_generate;
 use crate::api::openai_compat::stream_openai_compat_chat;
-use crate::api::types::{ChatCompletionResponse, StreamChunk};
+use crate::api::types::ChatCompletionResponse;
 use anyhow::Result;
 use groq_compound::refine_groq_compound;
-use std::io::{BufRead, BufReader};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::io::BufReader;
+use std::sync::{Arc, atomic::AtomicBool};
 
 // --- GEMINI REFINE ---
 pub(super) fn refine_gemini<F>(
@@ -174,26 +171,8 @@ where
 
     if streaming_enabled {
         let reader = BufReader::new(resp.into_body().into_reader());
-        for line in reader.lines() {
-            if let Some(ct) = cancel_token
-                && ct.load(Ordering::Relaxed)
-            {
-                return Err(anyhow::anyhow!("Cancelled"));
-            }
-            let line = line?;
-            if let Some(data) = line.strip_prefix("data: ") {
-                if data == "[DONE]" {
-                    break;
-                }
-                if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data)
-                    && let Some(content) =
-                        chunk.choices.first().and_then(|c| c.delta.content.as_ref())
-                {
-                    full_content.push_str(content);
-                    on_chunk(content);
-                }
-            }
-        }
+        full_content =
+            crate::api::openai_compat::consume_content_stream(reader, cancel_token, on_chunk)?;
     } else {
         let json: ChatCompletionResponse = resp.into_body().read_json()?;
         if let Some(choice) = json.choices.first() {
