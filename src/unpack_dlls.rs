@@ -17,9 +17,7 @@ pub(crate) fn private_bin_dir() -> PathBuf {
         crate::runtime_support::RuntimeArch::X64 => "x64",
     };
 
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
+    crate::paths::app_local_data_dir()
         .join("bin")
         .join(arch_dir)
 }

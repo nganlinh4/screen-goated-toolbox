@@ -79,9 +79,7 @@ fn locale() -> crate::gui::locale::LocaleText {
 }
 
 pub fn get_magpie_runtime_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
+    crate::paths::app_local_data_dir()
         .join("bin")
         .join("magpie_runtime")
 }

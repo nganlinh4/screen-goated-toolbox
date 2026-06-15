@@ -175,7 +175,7 @@ pub fn clear_all_app_data() {
     let local = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     let roaming = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
 
-    let sgt_local = local.join("screen-goated-toolbox");
+    let sgt_local = crate::paths::app_local_data_dir();
     let sgt_roaming = roaming.join("screen-goated-toolbox");
     let legacy_sgt_roaming = roaming.join("SGT");
 

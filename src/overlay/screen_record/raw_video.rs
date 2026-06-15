@@ -107,10 +107,7 @@ pub fn save_raw_video_copy(source_path: &str, target_dir: &str) -> Result<String
 
 pub fn save_composition_snapshot_copy(source_path: &str) -> Result<String, String> {
     let source = ensure_source_video(source_path)?;
-    let dir = dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("screen-goated-toolbox")
-        .join("composition-snapshots");
+    let dir = crate::paths::app_local_data_dir().join("composition-snapshots");
     fs::create_dir_all(&dir)
         .map_err(|e| format!("Failed to create composition snapshot dir: {}", e))?;
     let source_name = source

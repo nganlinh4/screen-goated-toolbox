@@ -27,10 +27,7 @@ const NORMALIZED_IMPORT_AUDIO_CHANNELS: u32 = 2;
 const NORMALIZED_IMPORT_AUDIO_BITRATE_KBPS: u32 = 192;
 
 pub(crate) fn recordings_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("screen-goated-toolbox")
-        .join("recordings")
+    crate::paths::app_local_data_dir().join("recordings")
 }
 
 fn normalize_imported_video(

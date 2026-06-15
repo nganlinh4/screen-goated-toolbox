@@ -190,8 +190,7 @@ pub(crate) fn load_system_cursor_signatures() -> HashMap<String, &'static str> {
 }
 
 fn grab_signatures_file_path() -> PathBuf {
-    let base = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir);
-    base.join("screen-goated-toolbox")
+    crate::paths::app_local_data_dir()
         .join("recordings")
         .join("cursor_grab_signatures.json")
 }

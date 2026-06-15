@@ -44,9 +44,7 @@ pub struct VieneuRuntimeChunk {
 }
 
 pub fn get_vieneu_runtime_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
+    crate::paths::app_local_data_dir()
         .join("bin")
         .join("vieneu_runtime")
 }

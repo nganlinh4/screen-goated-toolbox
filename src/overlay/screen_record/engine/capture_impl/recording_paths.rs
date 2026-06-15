@@ -13,10 +13,7 @@ pub(super) struct RecordingPaths {
 }
 
 pub(super) fn prepare_recording_paths() -> std::io::Result<RecordingPaths> {
-    let app_data_dir = dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("screen-goated-toolbox")
-        .join("recordings");
+    let app_data_dir = crate::paths::app_local_data_dir().join("recordings");
 
     std::fs::create_dir_all(&app_data_dir)?;
 

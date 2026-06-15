@@ -43,10 +43,7 @@ const ACCESSIBILITY_CURSOR_SIZE_MIN: u32 = 1;
 const ACCESSIBILITY_CURSOR_SIZE_MAX: u32 = 15;
 
 fn cache_root() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("pointer-gallery")
+    crate::paths::app_local_data_dir().join("pointer-gallery")
 }
 
 fn backup_path() -> PathBuf {
