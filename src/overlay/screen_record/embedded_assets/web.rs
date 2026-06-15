@@ -17,6 +17,9 @@ const WEB_ASSETS: &[EmbeddedAsset] = &[
     asset!("assets/index.js", "application/javascript"),
     asset!("assets/index.css", "text/css"),
     asset!("assets/vendor.js", "application/javascript"),
+    // Rolldown (Vite 8) emits a separate runtime chunk that index.js imports;
+    // without serving it the whole bundle fails to load and the WebView is blank.
+    asset!("assets/rolldown-runtime.js", "application/javascript"),
     asset!("bg-warm-abstract.jpg", "image/jpeg"),
     asset!("bg-cool-abstract.jpg", "image/jpeg"),
     asset!("bg-deep-abstract.jpg", "image/jpeg"),
