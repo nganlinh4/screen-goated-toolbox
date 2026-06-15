@@ -33,10 +33,15 @@ fixture below (one case directly exercises the 0.08 floor).
 - Timeout cases: [parity-fixtures/gemini-s2s-vad/timeouts.json](../../parity-fixtures/gemini-s2s-vad/timeouts.json) — `grouped_first_audio_timeout_ms` (clamp 5500/30000, ×2) and `grouped_hard_timeout_ms` (min 180000, ×4).
 - Rust: `s2s_accept_rule_matches_parity_fixture` + `s2s_grouped_timeouts_match_parity_fixture` in s2s.rs. Android: [GeminiS2sVadRuleParityTest.kt](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/GeminiS2sVadRuleParityTest.kt).
 
+**Target-language BCP-47 mapping** (explicit special cases locked by fixture):
+[parity-fixtures/gemini-s2s-language/target-language-codes.json](../../parity-fixtures/gemini-s2s-language/target-language-codes.json) — `input -> expect` for the Chinese/Portuguese/Filipino/Norwegian special cases + empty. Rust: `target_language_codes_match_parity_fixture` in websocket.rs. Android: [GeminiS2sTargetLanguageParityTest.kt](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/GeminiS2sTargetLanguageParityTest.kt). The general name->code fallback (Windows `isolang` vs Android `LanguageCatalog`) is a documented deviation and not locked.
+
 ## Follow-up (not yet locked)
-- The Gemini S2S setup-payload field contract + the BCP-47 target-language table
-  (`transport.rs` + `websocket.rs::live_translate_target_language_code` vs
-  `GeminiS2sProtocol.kt`) are hand-duplicated with no shared fixture.
+- The Gemini S2S setup-payload field contract (`transport.rs build_s2s_setup_payload`
+  + `websocket.rs build_live_translate_setup_value` vs `GeminiS2sProtocol.kt
+  buildGeminiS2sSetupPayload`) — the nested JSON wire format — is hand-duplicated
+  with no shared fixture. (Lower drift risk: a field change breaks the live API on
+  one platform immediately; still worth a structural fixture eventually.)
 
 ## Changing this behavior
 Edit the Windows canonical, mirror onto Android, and update the relevant fixture so
