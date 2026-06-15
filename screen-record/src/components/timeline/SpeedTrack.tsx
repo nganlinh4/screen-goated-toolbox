@@ -12,6 +12,12 @@ import {
   sortPointsByTime,
   subscribeToAdjustableLineDragVisualMode,
 } from './adjustableLineUtils';
+import {
+  generateCurveFillPath,
+  generateCurvePath,
+  getHighlightedCurveSegmentFillPath,
+  getHighlightedCurveSegmentPath,
+} from './curvePath';
 
 // Logarithmic vertical mapping for intuitive dragging:
 // 1x in the middle, 16x at top, 0.1x at bottom.
@@ -138,99 +144,30 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
     };
   }, []);
 
-  const generatePath = () => {
-    if (points.length === 0) return 'M 0 20 L 100 20';
-    const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (speed: number) => speedToTrackY(speed);
-    const x0 = toX(sorted[0].time);
-    const y0 = toY(sorted[0].speed);
-    let d = `M 0 ${y0} `;
-    if (x0 > 0) d += `L ${x0} ${y0} `;
+  const speedPointToY = (p: SpeedPoint) => speedToTrackY(p.speed);
 
-    for (let i = 1; i < sorted.length; i++) {
-      const p1 = sorted[i - 1];
-      const p2 = sorted[i];
-      const x1 = toX(p1.time);
-      const y1 = toY(p1.speed);
-      const x2 = toX(p2.time);
-      const y2 = toY(p2.speed);
-      const dx = x2 - x1;
-      d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
-    }
+  const generatePath = () =>
+    generateCurvePath({ points, duration, toY: speedPointToY, emptyPathY: 20 });
 
-    const xLast = toX(sorted[sorted.length - 1].time);
-    const yLast = toY(sorted[sorted.length - 1].speed);
-    if (xLast < 100) d += `L 100 ${yLast} `;
-    return d;
-  };
+  const generateFillPath = () =>
+    generateCurveFillPath({
+      points,
+      duration,
+      toY: speedPointToY,
+      baselineY: SPEED_TRACK_VIEWBOX_HEIGHT,
+    });
 
-  const generateFillPath = () => {
-    if (points.length === 0) return '';
-    const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (speed: number) => speedToTrackY(speed);
-    const x0 = toX(sorted[0].time);
-    const y0 = toY(sorted[0].speed);
-    let d = `M 0 40 L ${x0} 40 L ${x0} ${y0} `;
+  const getHighlightedSegmentPath = (segmentIndices: AdjacentSegmentIndices | null) =>
+    getHighlightedCurveSegmentPath({ points, duration, toY: speedPointToY, segmentIndices });
 
-    for (let i = 1; i < sorted.length; i++) {
-      const p1 = sorted[i - 1];
-      const p2 = sorted[i];
-      const x1 = toX(p1.time);
-      const y1 = toY(p1.speed);
-      const x2 = toX(p2.time);
-      const y2 = toY(p2.speed);
-      const dx = x2 - x1;
-      d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
-    }
-
-    const xLast = toX(sorted[sorted.length - 1].time);
-    d += `L ${xLast} 40 L 100 40 Z`;
-    return d;
-  };
-
-  const getHighlightedSegmentPath = (
-    segmentIndices: AdjacentSegmentIndices | null,
-  ) => {
-    if (!segmentIndices) return '';
-
-    const sorted = sortPointsByTime(points);
-    const [leftIdx, rightIdx] = segmentIndices;
-    const left = sorted[leftIdx];
-    const right = sorted[rightIdx];
-    if (!left || !right || right.time <= left.time) return '';
-
-    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (speed: number) => speedToTrackY(speed);
-    const x1 = toX(left.time);
-    const y1 = toY(left.speed);
-    const x2 = toX(right.time);
-    const y2 = toY(right.speed);
-    const dx = x2 - x1;
-    return `M ${x1} ${y1} C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2}`;
-  };
-
-  const getHighlightedSegmentFillPath = (
-    segmentIndices: AdjacentSegmentIndices | null,
-  ) => {
-    if (!segmentIndices) return '';
-
-    const sorted = sortPointsByTime(points);
-    const [leftIdx, rightIdx] = segmentIndices;
-    const left = sorted[leftIdx];
-    const right = sorted[rightIdx];
-    if (!left || !right || right.time <= left.time) return '';
-
-    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (speed: number) => speedToTrackY(speed);
-    const x1 = toX(left.time);
-    const y1 = toY(left.speed);
-    const x2 = toX(right.time);
-    const y2 = toY(right.speed);
-    const dx = x2 - x1;
-    return `M ${x1} 40 L ${x1} ${y1} C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} L ${x2} 40 Z`;
-  };
+  const getHighlightedSegmentFillPath = (segmentIndices: AdjacentSegmentIndices | null) =>
+    getHighlightedCurveSegmentFillPath({
+      points,
+      duration,
+      toY: speedPointToY,
+      baselineY: SPEED_TRACK_VIEWBOX_HEIGHT,
+      segmentIndices,
+    });
 
   const startDraggingPoint = (
     activeIdx: number,
