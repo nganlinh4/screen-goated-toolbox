@@ -75,7 +75,7 @@ impl SplashAudio {
 
         let stream = device
             .build_output_stream(
-                &config.into(),
+                config.clone().into(),
                 move |data: &mut [f32], _| {
                     // Try non-blocking lock to avoid audio pops from blocking
                     let (physics_t, warp_progress, is_dark, is_finished, trigger_impact) =

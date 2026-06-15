@@ -46,7 +46,7 @@ fn build_mic_input_stream(
             let mut producer = producer;
             device
                 .build_input_stream(
-                    stream_config,
+                    stream_config.clone(),
                     move |data: &[f32], _: &_| {
                         if !data.is_empty() {
                             let elapsed_ms = recording_start.elapsed().as_millis() as u64;
@@ -68,7 +68,7 @@ fn build_mic_input_stream(
             let mut producer = producer;
             device
                 .build_input_stream(
-                    stream_config,
+                    stream_config.clone(),
                     move |data: &[i16], _: &_| {
                         if !data.is_empty() {
                             let elapsed_ms = recording_start.elapsed().as_millis() as u64;
@@ -90,7 +90,7 @@ fn build_mic_input_stream(
             let mut producer = producer;
             device
                 .build_input_stream(
-                    stream_config,
+                    stream_config.clone(),
                     move |data: &[u16], _: &_| {
                         if !data.is_empty() {
                             let elapsed_ms = recording_start.elapsed().as_millis() as u64;

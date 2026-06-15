@@ -55,9 +55,9 @@ encoding_rs = "0.8"
 eframe = { version = "0.34", default-features = false, features = ["glow", "persistence"] }
 egui-snarl = { path = "libs/egui-snarl", features = ["serde"] }
 tray-icon = "0.24.1"
-cpal = "0.17"
+cpal = "0.18"
 hound = "3.5"
-wasapi = "0.22"
+wasapi = "0.23"
 symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4"] }
 symphonia-adapter-libopus = "0.2.6"
 
@@ -68,7 +68,7 @@ raw-window-handle = "0.6"
 windows-core = "0.62"
 parakeet-rs = { version = "=0.3.6", features = ["directml"] }
 ort = { version = "=2.0.0-rc.12", features = ["directml", "load-dynamic"] }
-ringbuf = "0.4.8"
+ringbuf = "0.5"
 windows-capture = "1.5.0"
 rdev = "0.5.3"
 tiny_http = "0.12"

@@ -104,7 +104,7 @@ pub fn record_audio(
 
                     let err_fn = |err| eprintln!("Audio stream error: {}", err);
                     match device.build_input_stream(
-                        &stream_config,
+                        stream_config.clone(),
                         move |data: &[f32], _: &_| {
                             let _ = producer.push_slice(data);
                         },
