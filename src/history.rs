@@ -119,9 +119,7 @@ impl HistoryManager {
 }
 
 fn get_paths() -> (PathBuf, PathBuf, PathBuf) {
-    let config_dir = dirs::config_dir()
-        .unwrap_or_default()
-        .join("screen-goated-toolbox");
+    let config_dir = crate::paths::app_config_dir();
     let media_dir = config_dir.join("history_media");
     let db_path = config_dir.join("history.json");
     let _ = fs::create_dir_all(&media_dir);
