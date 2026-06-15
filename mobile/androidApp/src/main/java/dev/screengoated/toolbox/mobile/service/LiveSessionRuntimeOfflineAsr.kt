@@ -11,6 +11,8 @@ import dev.screengoated.toolbox.mobile.service.tts.RealtimeTtsCoordinator
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
+import dev.screengoated.toolbox.mobile.shared.live.OfflineAsrCommitState
+import dev.screengoated.toolbox.mobile.shared.live.OfflineAsrStreamParity
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.live.TranscriptionMethod
@@ -298,7 +300,9 @@ internal suspend fun LiveSessionRuntime.runSherpaSession(
                 numThreads = 1,
                 bpeVocab = bpeVocabPath,
             ),
-            enableEndpoint = true,
+            // Windows canonical sets enable_endpoint = 0 — the shared commit machine
+            // segments via sentence-boundary/silence, never recognizer endpoints.
+            enableEndpoint = false,
             decodingMethod = "greedy_search",
         )
 
@@ -315,11 +319,8 @@ internal suspend fun LiveSessionRuntime.runSherpaSession(
         val stream = recognizer.createStream()
         Log.i("Sherpa", "Loaded ${lang.modelName} for ${lang.displayName}")
 
-        var committedHistory = ""
-        var lastDraftText = ""
-        var lastDraftChangeMs = SystemClock.elapsedRealtime()
-        val DRAFT_STALE_MS = 3_000L
-        var streamCommittedPrefix = ""
+        // Canonical offline-ASR commit state (mirrors the Windows OfflineAsrCommitState).
+        val asrState = OfflineAsrCommitState()
 
         try {
             repository.markListening()
@@ -365,71 +366,22 @@ internal suspend fun LiveSessionRuntime.runSherpaSession(
 
                         val result = recognizer.getResult(stream)
                         val rawText = result.text.trim()
-                        val text = if (streamCommittedPrefix.isNotEmpty()) {
-                            if (rawText.startsWith(streamCommittedPrefix))
-                                rawText.substring(streamCommittedPrefix.length).trimStart()
-                            else { streamCommittedPrefix = ""; rawText }
-                        } else rawText
-
-                        val isEndpoint = recognizer.isEndpoint(stream)
-                        if (isEndpoint) {
-                            if (text.isNotBlank()) {
-                                val toCommit = if (!lang.hasNativePunctuation ||
-                                    !text.trimEnd().last().isSentencePunct()
-                                ) "$text." else text
-                                committedHistory = if (committedHistory.isEmpty()) toCommit
-                                else "$committedHistory $toCommit"
-                                Log.i("Sherpa", "COMMIT: '$toCommit'")
-                            }
-                            recognizer.reset(stream)
-                            streamCommittedPrefix = ""
-                            lastDraftText = ""
-                            lastDraftChangeMs = SystemClock.elapsedRealtime()
-                            repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
-                        } else {
-                            if (text != lastDraftText) { lastDraftText = text; lastDraftChangeMs = SystemClock.elapsedRealtime() }
-                            val silenceMs = SystemClock.elapsedRealtime() - lastDraftChangeMs
-                            val boundary = if (lang.hasNativePunctuation) splitAtSentenceBoundary(text) else null
-
-                            if (boundary != null) {
-                                val (before, after) = boundary
-                                committedHistory = if (committedHistory.isEmpty()) before else "$committedHistory $before"
-                                val afterTrimmed = after.trimStart()
-                                streamCommittedPrefix = if (rawText.length >= afterTrimmed.length)
-                                    rawText.substring(0, rawText.length - afterTrimmed.length).trimEnd() else rawText
-                                lastDraftText = after; lastDraftChangeMs = SystemClock.elapsedRealtime()
-                                Log.i("Sherpa", "CASE1: '$before' | draft='$after'")
-                                repository.setTranscriptSegments(committedHistory, after, SystemClock.elapsedRealtime())
-                            } else if (lang.hasNativePunctuation && text.trimEnd().lastOrNull()?.isSentencePunct() == true && silenceMs >= 600L) {
-                                committedHistory = if (committedHistory.isEmpty()) text else "$committedHistory $text"
-                                recognizer.reset(stream); streamCommittedPrefix = ""; lastDraftText = ""; lastDraftChangeMs = SystemClock.elapsedRealtime()
-                                Log.i("Sherpa", "CASE2: '$text'")
-                                repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
-                            } else if (!lang.hasNativePunctuation && text.isNotBlank()) {
-                                // Case 3: silence-based commit for models without native punctuation
-                                // (ZH, RU, All8Lang). draftCommitThresholdMs() only computes the
-                                // threshold — the caller MUST perform the actual commit here.
-                                // ⚠️ EASY TO FORGET: showing the draft with a period is NOT a commit.
-                                // Mirrors Windows run_streaming_loop Case 3 exactly:
-                                //   committed_history += text + "."
-                                //   stream_committed_prefix = raw_text  (strips committed part)
-                                //   publish empty draft
-                                val thresholdMs = draftCommitThresholdMs(text)
-                                if (silenceMs >= thresholdMs || silenceMs >= DRAFT_STALE_MS) {
-                                    val toCommit = "${text.trimEnd()}."
-                                    committedHistory = if (committedHistory.isEmpty()) toCommit else "$committedHistory $toCommit"
-                                    streamCommittedPrefix = rawText.trimEnd()
-                                    lastDraftText = ""; lastDraftChangeMs = SystemClock.elapsedRealtime()
-                                    Log.i("Sherpa", "CASE3: '$toCommit'")
-                                    repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
-                                } else {
-                                    repository.setTranscriptSegments(committedHistory, text, SystemClock.elapsedRealtime())
-                                }
-                            } else {
-                                val draft = if (text.isNotBlank() && silenceMs >= DRAFT_STALE_MS) "${text.trimEnd()}." else text
-                                repository.setTranscriptSegments(committedHistory, draft, SystemClock.elapsedRealtime())
-                            }
-                        }
+                        // Canonical commit machine — shared with the Windows loop
+                        // (src/api/realtime_audio/offline_asr_commit.rs) and proven
+                        // byte-identical via parity-fixtures/offline-asr-stream/cases.json.
+                        // No recognizer endpoint/reset: commits are driven purely by
+                        // sentence-boundary / punctuation-stale / silence threshold.
+                        val active = OfflineAsrStreamParity.commitStep(
+                            asrState,
+                            rawText,
+                            lang.hasNativePunctuation,
+                            SystemClock.elapsedRealtime(),
+                        )
+                        repository.setTranscriptSegments(
+                            committed = asrState.committedHistory,
+                            draft = active,
+                            nowMs = SystemClock.elapsedRealtime(),
+                        )
 
                         if (totalSamplesFed % (16000 * 2) < batch.size.toLong()) {
                             val audioMs = totalSamplesFed * 1000 / 16000; val wallMs = SystemClock.elapsedRealtime() - startTimeMs
