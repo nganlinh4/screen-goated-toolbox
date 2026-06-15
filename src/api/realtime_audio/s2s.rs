@@ -530,6 +530,103 @@ mod tests {
         is_segment_worth_sending, merge_segment_text, segment_speech_like_ratio,
     };
 
+    /// The Gemini S2S VAD/segmentation/timeout constants are hand-duplicated on
+    /// Android (GeminiS2sVad.kt). Lock the Windows-canonical values against the
+    /// shared fixture that the Android side asserts too. See
+    /// .claude/parity/gemini-s2s-vad.md.
+    #[test]
+    fn s2s_vad_constants_match_parity_fixture() {
+        use serde::Deserialize;
+        use std::collections::BTreeMap;
+
+        #[derive(Deserialize)]
+        struct Fixture {
+            ints: BTreeMap<String, i64>,
+            floats: BTreeMap<String, f64>,
+        }
+
+        let fx: Fixture = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/parity-fixtures/gemini-s2s-vad/constants.json"
+            ))
+            .expect("fixture file"),
+        )
+        .expect("fixture json");
+
+        let ints: &[(&str, i64)] = &[
+            ("FRAME_SAMPLES", super::FRAME_SAMPLES as i64),
+            ("PREROLL_SAMPLES", super::PREROLL_SAMPLES as i64),
+            ("MIN_SEGMENT_SAMPLES", super::MIN_SEGMENT_SAMPLES as i64),
+            (
+                "TARGET_SEGMENT_SAMPLES",
+                super::TARGET_SEGMENT_SAMPLES as i64,
+            ),
+            ("MAX_SEGMENT_SAMPLES", super::MAX_SEGMENT_SAMPLES as i64),
+            ("END_SILENCE_FRAMES", super::END_SILENCE_FRAMES as i64),
+            ("SESSION_COUNT", super::SESSION_COUNT as i64),
+            (
+                "MIN_SEGMENT_SPEECH_FRAMES",
+                super::MIN_SEGMENT_SPEECH_FRAMES as i64,
+            ),
+            (
+                "FIRST_AUDIO_SILENT_RETRY_MS",
+                super::FIRST_AUDIO_SILENT_RETRY_MS as i64,
+            ),
+            (
+                "FIRST_AUDIO_ACTIVE_RETRY_MS",
+                super::FIRST_AUDIO_ACTIVE_RETRY_MS as i64,
+            ),
+            ("AUDIO_IDLE_FINISH_MS", super::AUDIO_IDLE_FINISH_MS as i64),
+            ("S2S_HEDGE_TIMEOUT_MS", super::S2S_HEDGE_TIMEOUT_MS as i64),
+            (
+                "S2S_HEDGE_FINAL_TIMEOUT_MS",
+                super::S2S_HEDGE_FINAL_TIMEOUT_MS as i64,
+            ),
+        ];
+        for (name, value) in ints {
+            assert_eq!(fx.ints.get(*name), Some(value), "int {name}");
+        }
+        assert_eq!(fx.ints.len(), ints.len(), "int count");
+
+        let floats: &[(&str, f32)] = &[
+            (
+                "SPEECH_THRESHOLD_MULTIPLIER",
+                super::SPEECH_THRESHOLD_MULTIPLIER,
+            ),
+            ("MIN_SPEECH_THRESHOLD", super::MIN_SPEECH_THRESHOLD),
+            ("MAX_SPEECH_THRESHOLD", super::MAX_SPEECH_THRESHOLD),
+            ("ABSOLUTE_SPEECH_RMS", super::ABSOLUTE_SPEECH_RMS),
+            ("NOISE_LEARN_MAX_RMS", super::NOISE_LEARN_MAX_RMS),
+            (
+                "NOISE_LEARN_THRESHOLD_RATIO",
+                super::NOISE_LEARN_THRESHOLD_RATIO,
+            ),
+            ("MIN_SEGMENT_PEAK_RMS", super::MIN_SEGMENT_PEAK_RMS),
+            ("MIN_SEGMENT_SPEECH_RATIO", super::MIN_SEGMENT_SPEECH_RATIO),
+            ("MIN_SPEECH_LIKE_RATIO", super::MIN_SPEECH_LIKE_RATIO),
+            (
+                "STRICT_MIN_SPEECH_LIKE_RATIO",
+                super::STRICT_MIN_SPEECH_LIKE_RATIO,
+            ),
+            (
+                "STRICT_MIN_SPEECH_CONFIDENCE",
+                super::STRICT_MIN_SPEECH_CONFIDENCE,
+            ),
+        ];
+        for (name, value) in floats {
+            let fixture_val = fx
+                .floats
+                .get(*name)
+                .unwrap_or_else(|| panic!("missing float {name}"));
+            assert!(
+                (*fixture_val - *value as f64).abs() < 1e-6,
+                "float {name}: fixture {fixture_val} vs const {value}"
+            );
+        }
+        assert_eq!(fx.floats.len(), floats.len(), "float count");
+    }
+
     #[test]
     fn s2s_text_merge_preserves_short_word_boundaries() {
         let mut text = String::from("anh ta đang làm");
