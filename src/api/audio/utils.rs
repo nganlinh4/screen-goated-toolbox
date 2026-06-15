@@ -87,6 +87,28 @@ pub fn resample_to_16khz(samples: &[i16], source_rate: u32) -> Vec<i16> {
     resampled
 }
 
+/// Linear-interpolation resampler for mono PCM16 by an output/input rate `ratio`
+/// (e.g. 2.0 to upsample 8 kHz → 16 kHz). Bidirectional — no `ratio < 1.0` guard,
+/// so sub-target mics upsample correctly. Shared by the realtime-audio capture
+/// path and the TTS workers, which previously carried separate copies.
+pub fn resample_linear_i16(samples: &[i16], ratio: f64) -> Vec<i16> {
+    if (ratio - 1.0).abs() < 1e-9 || samples.is_empty() {
+        return samples.to_vec();
+    }
+    let new_len = (samples.len() as f64 * ratio) as usize;
+    (0..new_len)
+        .map(|i| {
+            let src_idx = i as f64 / ratio;
+            let idx0 = src_idx as usize;
+            let idx1 = (idx0 + 1).min(samples.len() - 1);
+            let frac = src_idx - idx0 as f64;
+            let s0 = samples[idx0] as f64;
+            let s1 = samples[idx1] as f64;
+            (s0 + (s1 - s0) * frac) as i16
+        })
+        .collect()
+}
+
 /// Create a streaming overlay window for real-time transcription display.
 /// Returns the HWND of the created window, or None if streaming is disabled.
 pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
@@ -231,5 +253,37 @@ pub fn calculate_result_rects(preset: &Preset) -> (RECT, Option<RECT>) {
             },
             None,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resample_linear_i16;
+
+    #[test]
+    fn upsamples_below_16k() {
+        // 8kHz -> 16kHz (ratio 2.0) doubles the sample count. The old `ratio < 1.0`
+        // guard skipped this path, so sub-16kHz mics were forwarded at the wrong rate.
+        let out = resample_linear_i16(&[0i16, 100, 200, 300], 2.0);
+        assert_eq!(out.len(), 8);
+        assert_eq!(out[0], 0);
+    }
+
+    #[test]
+    fn downsamples_above_16k() {
+        // 48kHz -> 16kHz (ratio 1/3) thirds the count.
+        let mono: Vec<i16> = (0..30).collect();
+        assert_eq!(resample_linear_i16(&mono, 1.0 / 3.0).len(), 10);
+    }
+
+    #[test]
+    fn identity_when_rate_matches() {
+        let mono = vec![1i16, 2, 3];
+        assert_eq!(resample_linear_i16(&mono, 1.0), mono);
+    }
+
+    #[test]
+    fn empty_passthrough() {
+        assert!(resample_linear_i16(&[], 2.0).is_empty());
     }
 }
