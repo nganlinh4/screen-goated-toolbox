@@ -9,6 +9,95 @@ import {
 } from '@/components/ui/MaterialIcon';
 import { formatTime as fmtTime } from "@/utils/helpers";
 
+/** Shared <video>/<audio> playback controller: play/pause + time + duration +
+ * mute state, the media-element event wiring, and pointer-scrub seeking. The
+ * video and audio players keep only their own chrome/JSX (and the video's
+ * keyboard + auto-hide layer). */
+function useMediaElementPlayback<T extends HTMLMediaElement>(
+  src: string,
+  onReady: () => void,
+) {
+  const mediaRef = useRef<T>(null);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const [dur, setDur] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const scrubbing = useRef(false);
+
+  useEffect(() => {
+    const el = mediaRef.current;
+    if (!el) return;
+    const onMeta = () => {
+      setDur(el.duration);
+      onReady();
+    };
+    const onCanPlay = () => onReady();
+    const onTime = () => {
+      if (!scrubbing.current) setTime(el.currentTime);
+    };
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    el.addEventListener("loadedmetadata", onMeta);
+    el.addEventListener("canplay", onCanPlay);
+    el.addEventListener("timeupdate", onTime);
+    el.addEventListener("play", onPlay);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("ended", onPause);
+    return () => {
+      el.removeEventListener("loadedmetadata", onMeta);
+      el.removeEventListener("canplay", onCanPlay);
+      el.removeEventListener("timeupdate", onTime);
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("ended", onPause);
+    };
+  }, [src, onReady]);
+
+  const toggle = useCallback(() => {
+    const el = mediaRef.current;
+    if (el) el.paused ? el.play() : el.pause();
+  }, []);
+
+  const seekTo = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const el = mediaRef.current;
+      if (el && dur > 0) {
+        el.currentTime = pct * dur;
+        setTime(pct * dur);
+      }
+    },
+    [dur],
+  );
+
+  const toggleMute = useCallback(() => {
+    const el = mediaRef.current;
+    if (el) {
+      el.muted = !el.muted;
+      setMuted(el.muted);
+    }
+  }, []);
+
+  const seekHandlers = {
+    onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      scrubbing.current = true;
+      seekTo(e);
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
+      if (scrubbing.current) seekTo(e);
+    },
+    onPointerUp: () => {
+      scrubbing.current = false;
+    },
+  };
+
+  const progress = dur > 0 ? (time / dur) * 100 : 0;
+
+  return { mediaRef, playing, time, dur, muted, toggle, toggleMute, seekHandlers, progress };
+}
+
 export function CustomVideoPlayer({
   src,
   isFullscreen,
@@ -22,53 +111,27 @@ export function CustomVideoPlayer({
   onExitFullscreen: () => void;
   onReady: () => void;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [time, setTime] = useState(0);
-  const [dur, setDur] = useState(0);
-  const [muted, setMuted] = useState(false);
+  const {
+    mediaRef: videoRef,
+    playing,
+    time,
+    dur,
+    muted,
+    toggle,
+    toggleMute,
+    seekHandlers,
+    progress,
+  } = useMediaElementPlayback<HTMLVideoElement>(src, onReady);
   const [ctrlVisible, setCtrlVisible] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrubbing = useRef(false);
 
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const onMeta = () => {
-      setDur(v.duration);
-      onReady();
-    };
-    const onCanPlay = () => onReady();
-    const onTime = () => {
-      if (!scrubbing.current) setTime(v.currentTime);
-    };
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    v.addEventListener("loadedmetadata", onMeta);
-    v.addEventListener("canplay", onCanPlay);
-    v.addEventListener("timeupdate", onTime);
-    v.addEventListener("play", onPlay);
-    v.addEventListener("pause", onPause);
-    v.addEventListener("ended", onPause);
-    return () => {
-      v.removeEventListener("loadedmetadata", onMeta);
-      v.removeEventListener("canplay", onCanPlay);
-      v.removeEventListener("timeupdate", onTime);
-      v.removeEventListener("play", onPlay);
-      v.removeEventListener("pause", onPause);
-      v.removeEventListener("ended", onPause);
-    };
-  }, [src, onReady]);
-
-  const toggle = useCallback(() => {
-    const v = videoRef.current;
-    if (v) v.paused ? v.play() : v.pause();
-  }, []);
-
-  const seekDelta = useCallback((d: number) => {
-    const v = videoRef.current;
-    if (v) v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + d));
-  }, []);
+  const seekDelta = useCallback(
+    (d: number) => {
+      const v = videoRef.current;
+      if (v) v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + d));
+    },
+    [videoRef],
+  );
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -104,17 +167,6 @@ export function CustomVideoPlayer({
     }
   }, [playing]);
 
-  const seekTo = (e: React.PointerEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const v = videoRef.current;
-    if (v && dur > 0) {
-      v.currentTime = pct * dur;
-      setTime(pct * dur);
-    }
-  };
-
-  const progress = dur > 0 ? (time / dur) * 100 : 0;
   const visible = ctrlVisible || !playing;
 
   return (
@@ -149,15 +201,7 @@ export function CustomVideoPlayer({
       >
         <div
           className="custom-player-seek group relative h-5 flex items-center cursor-pointer touch-none"
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture(e.pointerId);
-            scrubbing.current = true;
-            seekTo(e);
-          }}
-          onPointerMove={(e) => scrubbing.current && seekTo(e)}
-          onPointerUp={() => {
-            scrubbing.current = false;
-          }}
+          {...seekHandlers}
         >
           <div className="custom-seek-track w-full h-[3px] rounded-full bg-white/25 overflow-hidden">
             <div
@@ -183,13 +227,7 @@ export function CustomVideoPlayer({
           </span>
           <div className="flex-1" />
           <button
-            onClick={() => {
-              const v = videoRef.current;
-              if (v) {
-                v.muted = !v.muted;
-                setMuted(!muted);
-              }
-            }}
+            onClick={toggleMute}
             className="custom-player-volume-btn p-1.5 text-white/80 hover:text-white transition-colors"
           >
             {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -213,58 +251,17 @@ export function CustomAudioPlayer({
   src: string;
   onReady: () => void;
 }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [time, setTime] = useState(0);
-  const [dur, setDur] = useState(0);
-  const [muted, setMuted] = useState(false);
-  const scrubbing = useRef(false);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const onMeta = () => {
-      setDur(audio.duration);
-      onReady();
-    };
-    const onCanPlay = () => onReady();
-    const onTime = () => {
-      if (!scrubbing.current) setTime(audio.currentTime);
-    };
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    audio.addEventListener("loadedmetadata", onMeta);
-    audio.addEventListener("canplay", onCanPlay);
-    audio.addEventListener("timeupdate", onTime);
-    audio.addEventListener("play", onPlay);
-    audio.addEventListener("pause", onPause);
-    audio.addEventListener("ended", onPause);
-    return () => {
-      audio.removeEventListener("loadedmetadata", onMeta);
-      audio.removeEventListener("canplay", onCanPlay);
-      audio.removeEventListener("timeupdate", onTime);
-      audio.removeEventListener("play", onPlay);
-      audio.removeEventListener("pause", onPause);
-      audio.removeEventListener("ended", onPause);
-    };
-  }, [onReady, src]);
-
-  const toggle = useCallback(() => {
-    const audio = audioRef.current;
-    if (audio) audio.paused ? audio.play() : audio.pause();
-  }, []);
-
-  const seekTo = (e: React.PointerEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const audio = audioRef.current;
-    if (audio && dur > 0) {
-      audio.currentTime = pct * dur;
-      setTime(pct * dur);
-    }
-  };
-
-  const progress = dur > 0 ? (time / dur) * 100 : 0;
+  const {
+    mediaRef: audioRef,
+    playing,
+    time,
+    dur,
+    muted,
+    toggle,
+    toggleMute,
+    seekHandlers,
+    progress,
+  } = useMediaElementPlayback<HTMLAudioElement>(src, onReady);
 
   return (
     <div className="custom-audio-player flex h-full min-h-[180px] flex-col justify-center gap-5 border border-[var(--ui-border)] bg-[var(--ui-surface-3)] px-6">
@@ -274,15 +271,7 @@ export function CustomAudioPlayer({
       </div>
       <div
         className="custom-audio-seek group relative h-6 flex items-center cursor-pointer touch-none"
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          scrubbing.current = true;
-          seekTo(e);
-        }}
-        onPointerMove={(e) => scrubbing.current && seekTo(e)}
-        onPointerUp={() => {
-          scrubbing.current = false;
-        }}
+        {...seekHandlers}
       >
         <div className="custom-audio-seek-track h-[4px] w-full overflow-hidden rounded-full bg-[var(--ui-hover-strong)]">
           <div
@@ -307,13 +296,7 @@ export function CustomAudioPlayer({
         </span>
         <div className="flex-1" />
         <button
-          onClick={() => {
-            const audio = audioRef.current;
-            if (audio) {
-              audio.muted = !audio.muted;
-              setMuted(audio.muted);
-            }
-          }}
+          onClick={toggleMute}
           className="custom-audio-volume-btn rounded-full p-2 text-[var(--on-surface-variant)] hover:bg-[var(--ui-hover)] hover:text-[var(--on-surface)]"
         >
           {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
