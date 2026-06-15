@@ -498,3 +498,78 @@ pub fn run_sherpa_transcription(
 
     result
 }
+
+#[cfg(test)]
+mod catalog_parity_tests {
+    use super::ZipformerLanguage;
+    use serde::Deserialize;
+
+    const ALL: [ZipformerLanguage; 8] = [
+        ZipformerLanguage::English,
+        ZipformerLanguage::Korean,
+        ZipformerLanguage::Chinese,
+        ZipformerLanguage::French,
+        ZipformerLanguage::German,
+        ZipformerLanguage::Spanish,
+        ZipformerLanguage::Russian,
+        ZipformerLanguage::All8Lang,
+    ];
+
+    #[derive(Deserialize)]
+    struct Catalog {
+        languages: Vec<CatalogEntry>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CatalogEntry {
+        code: String,
+        model_name: String,
+        download_base_url: String,
+        has_native_punctuation: bool,
+        model_files: Vec<String>,
+    }
+
+    /// The Windows-canonical Zipformer catalog must match the shared parity fixture
+    /// asserted identically by the Android side. See .claude/parity/zipformer-catalog.md.
+    #[test]
+    fn windows_zipformer_catalog_matches_parity_fixture() {
+        let catalog: Catalog = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/parity-fixtures/zipformer-catalog/catalog.json"
+            ))
+            .expect("fixture file"),
+        )
+        .expect("fixture json");
+
+        assert_eq!(catalog.languages.len(), ALL.len());
+        for lang in ALL {
+            let entry = catalog
+                .languages
+                .iter()
+                .find(|e| e.code == lang.code())
+                .unwrap_or_else(|| panic!("no fixture entry for code {}", lang.code()));
+            assert_eq!(lang.model_dir_name(), entry.model_name, "{}", lang.code());
+            assert_eq!(
+                lang.download_base_url(),
+                entry.download_base_url,
+                "{}",
+                lang.code()
+            );
+            assert_eq!(
+                lang.has_native_punctuation(),
+                entry.has_native_punctuation,
+                "{}",
+                lang.code()
+            );
+            let expected_files: Vec<&str> = entry.model_files.iter().map(String::as_str).collect();
+            assert_eq!(
+                lang.model_files(),
+                expected_files.as_slice(),
+                "{}",
+                lang.code()
+            );
+        }
+    }
+}
