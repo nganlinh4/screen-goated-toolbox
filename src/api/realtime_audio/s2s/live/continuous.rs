@@ -87,11 +87,10 @@ pub(super) fn run_live_translate_continuous(
             }
         }
 
-        if let Ok(mut guard) = audio_buffer.lock() {
-            if !guard.is_empty() {
+        if let Ok(mut guard) = audio_buffer.lock()
+            && !guard.is_empty() {
                 pending.extend(guard.drain(..));
             }
-        }
         if pending.len() > MAX_PENDING_SAMPLES {
             let drop_count = pending.len() - MAX_PENDING_SAMPLES;
             pending.drain(..drop_count);
@@ -99,8 +98,8 @@ pub(super) fn run_live_translate_continuous(
         }
 
         if pending.len() < FRAME_SAMPLES {
-            if let Some(open_socket) = socket.as_mut() {
-                if !drain_live_translate_socket(
+            if let Some(open_socket) = socket.as_mut()
+                && !drain_live_translate_socket(
                     open_socket,
                     stream_id,
                     &event_tx,
@@ -121,7 +120,6 @@ pub(super) fn run_live_translate_continuous(
                         "socket-drain",
                     );
                 }
-            }
             maybe_rotate_live_translate_socket(
                 &mut socket,
                 &mut socket_connected_at,
