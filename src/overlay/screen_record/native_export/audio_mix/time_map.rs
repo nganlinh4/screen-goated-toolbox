@@ -17,25 +17,9 @@ pub(super) fn normalized_trim_segments(
     trim_segments.to_vec()
 }
 
-pub(super) fn get_speed(time: f64, points: &[SpeedPoint]) -> f64 {
-    if points.is_empty() {
-        return 1.0;
-    }
-
-    let idx = points.partition_point(|point| point.time < time);
-    if idx == 0 {
-        return points[0].speed;
-    }
-    if idx >= points.len() {
-        return points.last().unwrap().speed;
-    }
-
-    let left = &points[idx - 1];
-    let right = &points[idx];
-    let t = (time - left.time) / (right.time - left.time).max(1e-9);
-    let cos_t = (1.0 - (t * std::f64::consts::PI).cos()) / 2.0;
-    left.speed + (right.speed - left.speed) * cos_t
-}
+// Single canonical speed sampler, re-exported so `time_map::get_speed` importers
+// (audio_mix) keep working.
+pub(super) use super::super::config::get_speed;
 
 pub(super) fn get_audio_volume(time: f64, points: &[DeviceAudioPoint]) -> f64 {
     if points.is_empty() {

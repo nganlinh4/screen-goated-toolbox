@@ -302,7 +302,7 @@ fn copy_frame_to_private_texture(
             None,
         );
     }
-    copy_fence.signal_and_wait();
+    copy_fence.signal_and_wait()?;
     Ok(texture)
 }
 

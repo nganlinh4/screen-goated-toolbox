@@ -1,25 +1,9 @@
-use super::super::native_export::config::{SpeedPoint, TrimSegment};
+use super::super::native_export::config::TrimSegment;
 use super::types::PipelineConfig;
 
-pub(super) fn get_speed(time: f64, points: &[SpeedPoint]) -> f64 {
-    if points.is_empty() {
-        return 1.0;
-    }
-
-    let idx = points.partition_point(|p| p.time < time);
-    if idx == 0 {
-        return points[0].speed;
-    }
-    if idx >= points.len() {
-        return points.last().unwrap().speed;
-    }
-
-    let p1 = &points[idx - 1];
-    let p2 = &points[idx];
-    let t = (time - p1.time) / (p2.time - p1.time).max(1e-9);
-    let cos_t = (1.0 - (t * std::f64::consts::PI).cos()) / 2.0;
-    p1.speed + (p2.speed - p1.speed) * cos_t
-}
+// Single canonical speed sampler, re-exported so existing `frame_timing::get_speed`
+// importers (decode_thread, decode_thread_cpu) keep working.
+pub(super) use super::super::native_export::config::get_speed;
 
 pub fn build_frame_times(config: &PipelineConfig) -> Vec<f64> {
     let mut times = Vec::new();
