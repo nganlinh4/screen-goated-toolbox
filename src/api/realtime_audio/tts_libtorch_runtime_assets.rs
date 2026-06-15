@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 // -------------------------------------------------------------------------
 // Downloadable runtime DLLs for libtorch-backed TTS providers.
@@ -32,10 +33,9 @@ pub const VOXTRAL_RUNTIME: TtsRuntimeSpec = TtsRuntimeSpec {
     download_title: "Downloading Voxtral runtime",
 };
 
-lazy_static::lazy_static! {
-    static ref LAST_TTS_RUNTIME_NOTICE: std::sync::Mutex<std::collections::HashMap<TtsLibtorchProvider, String>> =
-        std::sync::Mutex::new(std::collections::HashMap::new());
-}
+static LAST_TTS_RUNTIME_NOTICE: LazyLock<
+    std::sync::Mutex<std::collections::HashMap<TtsLibtorchProvider, String>>,
+> = LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 static TTS_RUNTIME_DOWNLOAD_IN_PROGRESS: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);

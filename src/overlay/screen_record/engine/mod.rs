@@ -8,7 +8,7 @@ pub mod types;
 use crate::overlay::screen_record::d3d_interop::VideoProcessor;
 use parking_lot::Mutex;
 use std::mem::zeroed;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -36,11 +36,18 @@ pub use types::{
     WEBCAM_VIDEO_START_OFFSET_MS,
 };
 
-lazy_static::lazy_static! {
-    /// Stores the CaptureControl returned by start_free_threaded so stop_recording
-    /// can properly terminate the capture thread even when 0 frames arrived.
-    pub static ref EXTERNAL_CAPTURE_CONTROL: parking_lot::Mutex<Option<windows_capture::capture::CaptureControl<CaptureHandler, Box<dyn std::error::Error + Send + Sync>>>> = parking_lot::Mutex::new(None);
-}
+/// Stores the CaptureControl returned by start_free_threaded so stop_recording
+/// can properly terminate the capture thread even when 0 frames arrived.
+pub static EXTERNAL_CAPTURE_CONTROL: LazyLock<
+    parking_lot::Mutex<
+        Option<
+            windows_capture::capture::CaptureControl<
+                CaptureHandler,
+                Box<dyn std::error::Error + Send + Sync>,
+            >,
+        >,
+    >,
+> = LazyLock::new(|| parking_lot::Mutex::new(None));
 
 pub struct CaptureHandler {
     encoder: Arc<Mutex<Option<VideoEncoder>>>,

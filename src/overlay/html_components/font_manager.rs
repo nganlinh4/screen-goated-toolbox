@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, Once};
+use std::sync::{LazyLock, Mutex, Once};
 use wry::WebViewBuilder;
 
 /// Google Sans Flex variable font - bundled at compile time (~5MB)
@@ -18,20 +18,22 @@ static PAGE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 // Session-based cache buster - generated once at startup to prevent cache corruption
 // This fixes ERR_CACHE_READ_FAILURE in persistent WebViews like preset_wheel
-lazy_static::lazy_static! {
-    static ref SESSION_CACHE_BUSTER: String = format!("{:x}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis());
-}
+static SESSION_CACHE_BUSTER: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    )
+});
 
-lazy_static::lazy_static! {
-    /// Server URL once started
-    static ref SERVER_URL: Mutex<Option<String>> = Mutex::new(None);
+/// Server URL once started
+static SERVER_URL: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
-    /// Pending HTML pages waiting to be served (page_id -> html)
-    static ref PENDING_PAGES: Mutex<HashMap<u64, String>> = Mutex::new(HashMap::new());
-}
+/// Pending HTML pages waiting to be served (page_id -> html)
+static PENDING_PAGES: LazyLock<Mutex<HashMap<u64, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn start_server() {
     START_SERVER_ONCE.call_once(|| {

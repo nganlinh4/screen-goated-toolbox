@@ -8,7 +8,7 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
@@ -21,9 +21,8 @@ const QWEN3_1_7B_REPO_TREE_URL: &str =
 const QWEN3_1_7B_REPO_RESOLVE_BASE: &str =
     "https://huggingface.co/Qwen/Qwen3-ASR-1.7B/resolve/main";
 
-lazy_static::lazy_static! {
-    static ref LAST_QWEN3_MODEL_ACTION_ERROR: Mutex<Option<String>> = Mutex::new(None);
-}
+static LAST_QWEN3_MODEL_ACTION_ERROR: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[derive(Deserialize)]
 struct HuggingFaceTreeEntry {

@@ -7,7 +7,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::time::{Duration, Instant};
 use std::{collections::VecDeque, fmt::Write as _};
 
@@ -32,9 +32,8 @@ const STEP_AUDIO_TIMEOUT: Duration = Duration::from_secs(900);
 const STEP_AUDIO_CANCEL_POLL: Duration = Duration::from_millis(200);
 const STEP_AUDIO_STDERR_TAIL_LINES: usize = 80;
 
-lazy_static::lazy_static! {
-    static ref STEP_AUDIO_SIDECAR: Mutex<Option<StepAudioSidecarClient>> = Mutex::new(None);
-}
+static STEP_AUDIO_SIDECAR: LazyLock<Mutex<Option<StepAudioSidecarClient>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

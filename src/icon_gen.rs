@@ -1,16 +1,14 @@
 use eframe::egui;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use tray_icon::Icon;
 
-// Wrapper to make Icon thread-safe for lazy_static
+// Wrapper to make Icon thread-safe for LazyLock
 struct SafeIcon(Icon);
 unsafe impl Send for SafeIcon {}
 unsafe impl Sync for SafeIcon {}
 
-lazy_static! {
-    static ref TRAY_ICON_DARK: SafeIcon = SafeIcon(load_tray_icon(true));
-    static ref TRAY_ICON_LIGHT: SafeIcon = SafeIcon(load_tray_icon(false));
-}
+static TRAY_ICON_DARK: LazyLock<SafeIcon> = LazyLock::new(|| SafeIcon(load_tray_icon(true)));
+static TRAY_ICON_LIGHT: LazyLock<SafeIcon> = LazyLock::new(|| SafeIcon(load_tray_icon(false)));
 
 fn load_tray_icon(is_system_dark: bool) -> Icon {
     // LOGIC:

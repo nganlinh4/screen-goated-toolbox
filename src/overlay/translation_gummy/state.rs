@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -7,9 +7,7 @@ use crate::gui::locale::LocaleText;
 
 use super::{TranslationGummyConnectionState, TranslationGummyTranscriptItem};
 
-lazy_static::lazy_static! {
-    static ref UI_STATE: Mutex<UiState> = Mutex::new(UiState::from_config());
-}
+static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| Mutex::new(UiState::from_config()));
 
 #[derive(Clone)]
 pub(super) struct UiState {

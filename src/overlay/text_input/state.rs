@@ -4,7 +4,7 @@
 use crate::win_types::SendHhook;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicIsize};
-use std::sync::{Mutex, Once};
+use std::sync::{LazyLock, Mutex, Once};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
 use wry::WebContext;
@@ -27,23 +27,23 @@ pub const WM_APP_SYNC_PASSIVE_EDITOR: u32 = WM_USER + 102;
 
 type TextSubmitCallback = Box<dyn Fn(String, HWND) + Send>;
 
-// --- LAZY STATIC ---
-lazy_static::lazy_static! {
-    pub static ref SUBMITTED_TEXT: Mutex<Option<String>> = Mutex::new(None);
-    pub static ref SHOULD_CLOSE: Mutex<bool> = Mutex::new(false);
-    pub static ref SHOULD_CLEAR_ONLY: Mutex<bool> = Mutex::new(false);
+// --- LAZY STATICS ---
+pub static SUBMITTED_TEXT: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+pub static SHOULD_CLOSE: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
+pub static SHOULD_CLEAR_ONLY: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
 
-    // Config Storage (Thread-safe for persistent window)
-    pub static ref CFG_TITLE: Mutex<String> = Mutex::new(String::new());
-    pub static ref CFG_LANG: Mutex<String> = Mutex::new(String::new());
-    pub static ref CFG_CANCEL: Mutex<String> = Mutex::new(String::new());
-    pub static ref CFG_CALLBACK: Mutex<Option<TextSubmitCallback>> = Mutex::new(None);
-    pub static ref CFG_CONTINUOUS: Mutex<bool> = Mutex::new(false);
-    pub static ref INPUT_HOOK: Mutex<SendHhook> = Mutex::new(SendHhook::default());
+// Config Storage (Thread-safe for persistent window)
+pub static CFG_TITLE: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub static CFG_LANG: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub static CFG_CANCEL: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub static CFG_CALLBACK: LazyLock<Mutex<Option<TextSubmitCallback>>> =
+    LazyLock::new(|| Mutex::new(None));
+pub static CFG_CONTINUOUS: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
+pub static INPUT_HOOK: LazyLock<Mutex<SendHhook>> =
+    LazyLock::new(|| Mutex::new(SendHhook::default()));
 
-    // Cross-thread text injection (for auto-paste from transcription)
-    pub static ref PENDING_TEXT: Mutex<Option<String>> = Mutex::new(None);
-}
+// Cross-thread text injection (for auto-paste from transcription)
+pub static PENDING_TEXT: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 // --- THREAD LOCAL ---
 thread_local! {

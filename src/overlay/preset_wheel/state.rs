@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize};
-use std::sync::{Mutex, Once};
+use std::sync::{LazyLock, Mutex, Once};
 
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
 use wry::{WebContext, WebView};
@@ -23,12 +23,12 @@ pub(crate) static OVERLAY_HWND: AtomicIsize = AtomicIsize::new(0);
 pub(crate) static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
 pub(crate) static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 
-lazy_static::lazy_static! {
-    pub(crate) static ref PENDING_ITEMS_HTML: Mutex<String> = Mutex::new(String::new());
-    pub(crate) static ref PENDING_DISMISS_LABEL: Mutex<String> = Mutex::new(String::new());
-    pub(crate) static ref PENDING_CSS: Mutex<String> = Mutex::new(String::new());
-    pub(crate) static ref PENDING_POS: Mutex<(i32, i32)> = Mutex::new((0, 0));
-}
+pub(crate) static PENDING_ITEMS_HTML: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new(String::new()));
+pub(crate) static PENDING_DISMISS_LABEL: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new(String::new()));
+pub(crate) static PENDING_CSS: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub(crate) static PENDING_POS: LazyLock<Mutex<(i32, i32)>> = LazyLock::new(|| Mutex::new((0, 0)));
 
 thread_local! {
     pub(crate) static WHEEL_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };

@@ -7,9 +7,8 @@ pub use processor::hotkey_proc;
 
 use crate::APP;
 use crate::win_types::{SendHandle, SendHhook, SendHwnd};
-use lazy_static::lazy_static;
 use sha2::{Digest, Sha256};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::System::Threading::*;
@@ -32,17 +31,17 @@ pub const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
 pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
 pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 
-lazy_static! {
-    /// Global event for inter-process restore signaling (manual-reset event).
-    pub static ref RESTORE_EVENT: Option<SendHandle> = unsafe {
-        let name = restore_event_name_wide();
-        CreateEventW(None, true, false, PCWSTR(name.as_ptr())).ok().map(SendHandle)
-    };
-    /// Global handle for the listener window (for the mouse hook to post messages to).
-    static ref LISTENER_HWND: Mutex<SendHwnd> = Mutex::new(SendHwnd::default());
-    /// Global handle for the mouse hook.
-    static ref MOUSE_HOOK: Mutex<SendHhook> = Mutex::new(SendHhook::default());
-}
+/// Global event for inter-process restore signaling (manual-reset event).
+pub static RESTORE_EVENT: LazyLock<Option<SendHandle>> = LazyLock::new(|| unsafe {
+    let name = restore_event_name_wide();
+    CreateEventW(None, true, false, PCWSTR(name.as_ptr()))
+        .ok()
+        .map(SendHandle)
+});
+/// Global handle for the listener window (for the mouse hook to post messages to).
+static LISTENER_HWND: LazyLock<Mutex<SendHwnd>> = LazyLock::new(|| Mutex::new(SendHwnd::default()));
+/// Global handle for the mouse hook.
+static MOUSE_HOOK: LazyLock<Mutex<SendHhook>> = LazyLock::new(|| Mutex::new(SendHhook::default()));
 
 fn current_exe_namespace_suffix() -> String {
     let path = std::env::current_exe()

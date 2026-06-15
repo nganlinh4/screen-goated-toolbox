@@ -5,14 +5,13 @@ use std::collections::HashMap;
 use std::ffi::{c_char, c_void};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
 
-lazy_static::lazy_static! {
-    static ref LAST_QWEN3_RUNTIME_NOTICE: Mutex<Option<String>> = Mutex::new(None);
-    static ref QWEN3_RUNTIME_ABI_CACHE: Mutex<HashMap<PathBuf, RuntimeAbiProbe>> =
-        Mutex::new(HashMap::new());
-}
+static LAST_QWEN3_RUNTIME_NOTICE: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
+static QWEN3_RUNTIME_ABI_CACHE: LazyLock<Mutex<HashMap<PathBuf, RuntimeAbiProbe>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_runtime.dll";
 const QWEN3_RUNTIME_MANIFEST: &str = "sgt_qwen3_runtime.manifest.json";

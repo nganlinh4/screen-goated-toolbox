@@ -3,7 +3,7 @@
 //! Builds the JSON view model from persisted config, locale labels, runtime
 //! playback state, recent clips, and provider catalogs.
 
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use serde::Serialize;
 
@@ -12,9 +12,8 @@ use crate::gui::locale::LocaleText;
 
 use super::catalogs::CatalogsView;
 
-lazy_static::lazy_static! {
-    pub(super) static ref UI_STATE: Mutex<UiState> = Mutex::new(UiState::default());
-}
+pub(super) static UI_STATE: LazyLock<Mutex<UiState>> =
+    LazyLock::new(|| Mutex::new(UiState::default()));
 
 #[derive(Default, Clone)]
 pub(super) struct UiState {

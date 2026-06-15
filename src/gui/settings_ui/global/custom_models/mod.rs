@@ -12,14 +12,12 @@ use crate::model_config::{
     is_ollama_scan_in_progress, ollama_cached_model_count, trigger_ollama_model_scan,
 };
 use eframe::egui::{self, Color32, CornerRadius, Margin, Stroke};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use openrouter_import::{render_openrouter_import_results, start_openrouter_import};
 use style::{accent_icon, on_color, provider_accent, wash};
 
-lazy_static::lazy_static! {
-    static ref OLLAMA_SCAN_REQUESTED: Mutex<bool> = Mutex::new(false);
-}
+static OLLAMA_SCAN_REQUESTED: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
 
 pub fn render_custom_models_modal(
     ui: &mut egui::Ui,

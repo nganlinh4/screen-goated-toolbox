@@ -2,7 +2,7 @@
 // Shared state, atomics, and constants for text selection badge.
 
 use std::sync::{
-    Arc, Mutex, Once,
+    Arc, LazyLock, Mutex, Once,
     atomic::{AtomicBool, AtomicIsize, Ordering},
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -27,10 +27,10 @@ pub static SELECTION_STATE: Mutex<TextSelectionState> = Mutex::new(TextSelection
 
 pub static REGISTER_TAG_CLASS: Once = Once::new();
 
-lazy_static::lazy_static! {
-    pub static ref TAG_ABORT_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref INITIAL_TEXT_GLOBAL: Mutex<String> = Mutex::new(String::from("Select text..."));
-}
+pub static TAG_ABORT_SIGNAL: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub static INITIAL_TEXT_GLOBAL: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new(String::from("Select text...")));
 
 thread_local! {
     pub static SELECTION_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };

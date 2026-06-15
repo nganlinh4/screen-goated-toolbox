@@ -5,7 +5,7 @@
 //! canonical commentary. Weights at `models/voxtral_tts_2603/`; runtime DLL
 //! at `native/voxtral_runtime/dist/sgt_voxtral_runtime.dll`.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use super::super::manager::TtsManager;
 use super::super::types::AudioEvent;
@@ -22,10 +22,8 @@ use crate::api::realtime_audio::voxtral_assets::{
 
 const PROVIDER: &str = "Voxtral";
 
-lazy_static::lazy_static! {
-    static ref VOX_RUNTIME: Mutex<Option<TtsRuntimeHandle>> = Mutex::new(None);
-    static ref VOX_LIB: Mutex<Option<&'static SgtTtsLib>> = Mutex::new(None);
-}
+static VOX_RUNTIME: LazyLock<Mutex<Option<TtsRuntimeHandle>>> = LazyLock::new(|| Mutex::new(None));
+static VOX_LIB: LazyLock<Mutex<Option<&'static SgtTtsLib>>> = LazyLock::new(|| Mutex::new(None));
 pub(super) fn handle_voxtral_tts(
     manager: Arc<TtsManager>,
     request: super::super::types::QueuedRequest,

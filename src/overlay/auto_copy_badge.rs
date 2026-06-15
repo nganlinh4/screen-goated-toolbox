@@ -2,7 +2,7 @@ use crate::APP;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use std::sync::{Mutex, Once};
+use std::sync::{LazyLock, Mutex, Once};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::*;
@@ -57,10 +57,10 @@ struct ProgressNotification {
     progress: f32,
 }
 
-lazy_static::lazy_static! {
-    static ref PENDING_QUEUE: Mutex<VecDeque<PendingNotification>> = Mutex::new(VecDeque::new());
-    static ref ACTIVE_PROGRESS: Mutex<Option<ProgressNotification>> = Mutex::new(None);
-}
+static PENDING_QUEUE: LazyLock<Mutex<VecDeque<PendingNotification>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
+static ACTIVE_PROGRESS: LazyLock<Mutex<Option<ProgressNotification>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 thread_local! {
     static BADGE_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };

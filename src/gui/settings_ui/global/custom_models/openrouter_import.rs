@@ -8,7 +8,7 @@ use crate::gui::theme::AppTheme;
 use crate::gui::widgets::filled_icon_button;
 use eframe::egui;
 use serde::Deserialize;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 #[derive(Clone, Debug)]
 pub(super) struct OpenRouterImportModel {
@@ -30,10 +30,8 @@ struct OpenRouterModelsResponse {
     data: Vec<serde_json::Value>,
 }
 
-lazy_static::lazy_static! {
-    static ref OPENROUTER_IMPORT: Mutex<OpenRouterImportState> =
-        Mutex::new(OpenRouterImportState::default());
-}
+static OPENROUTER_IMPORT: LazyLock<Mutex<OpenRouterImportState>> =
+    LazyLock::new(|| Mutex::new(OpenRouterImportState::default()));
 
 pub(super) fn render_openrouter_import_results(
     ui: &mut egui::Ui,

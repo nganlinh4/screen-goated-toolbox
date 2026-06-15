@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
@@ -15,9 +15,8 @@ const RUNTIME_MANIFEST_URL: &str = "https://raw.githubusercontent.com/nganlinh4/
 const MANAGED_MANIFEST_FILE: &str = "sgt_magpie_runtime.manifest.json";
 const MIN_RUNTIME_ABI: u32 = 1;
 
-lazy_static::lazy_static! {
-    static ref LAST_MAGPIE_RUNTIME_NOTICE: Mutex<Option<String>> = Mutex::new(None);
-}
+static LAST_MAGPIE_RUNTIME_NOTICE: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 static MAGPIE_RUNTIME_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 

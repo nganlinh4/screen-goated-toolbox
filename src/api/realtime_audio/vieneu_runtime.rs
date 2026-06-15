@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
@@ -18,9 +18,8 @@ const RUNTIME_MANIFEST_URL: &str = "https://github.com/nganlinh4/screen-goated-t
 const MANAGED_MANIFEST_FILE: &str = "sgt_vieneu_runtime.manifest.json";
 const MIN_RUNTIME_ABI: u32 = 1;
 
-lazy_static::lazy_static! {
-    static ref LAST_VIENEU_RUNTIME_NOTICE: Mutex<Option<String>> = Mutex::new(None);
-}
+static LAST_VIENEU_RUNTIME_NOTICE: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 static VIENEU_RUNTIME_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 

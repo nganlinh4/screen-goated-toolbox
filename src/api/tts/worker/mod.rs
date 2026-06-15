@@ -26,7 +26,7 @@ pub use gemini::synthesize_gemini_live_to_wav_cancel;
 // ---- Warm socket pool for instant TTS ----
 use native_tls::TlsStream;
 use std::net::TcpStream;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use tungstenite::WebSocket;
 
 struct WarmSocket {
@@ -35,9 +35,7 @@ struct WarmSocket {
     api_key: String,
 }
 
-lazy_static::lazy_static! {
-    static ref WARM_SOCKET: Mutex<Option<WarmSocket>> = Mutex::new(None);
-}
+static WARM_SOCKET: LazyLock<Mutex<Option<WarmSocket>>> = LazyLock::new(|| Mutex::new(None));
 
 const WARM_SOCKET_MAX_AGE: Duration = Duration::from_secs(86400);
 fn acquire_warm_socket(api_key: &str) -> Option<WebSocket<TlsStream<TcpStream>>> {

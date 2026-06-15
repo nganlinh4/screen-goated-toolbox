@@ -3,10 +3,8 @@
 //! Uses a pre-built chunk index (help-index.json) with keyword search to
 //! retrieve only the relevant source files, then sends them to Gemini.
 
-use lazy_static::lazy_static;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 static HELP_INPUT_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -15,16 +13,14 @@ const HELP_INDEX_URL: &str =
     "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/help-index.json";
 const TOP_K: usize = 20;
 
-lazy_static! {
-    static ref HELP_ASSISTANT_AGENT: ureq::Agent = {
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(900)))
-            .build();
-        config.into()
-    };
-    /// Cached help index — fetched once, reused across queries.
-    static ref HELP_INDEX_CACHE: Mutex<Option<Vec<ChunkEntry>>> = Mutex::new(None);
-}
+static HELP_ASSISTANT_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(900)))
+        .build();
+    config.into()
+});
+/// Cached help index — fetched once, reused across queries.
+static HELP_INDEX_CACHE: LazyLock<Mutex<Option<Vec<ChunkEntry>>>> = LazyLock::new(|| Mutex::new(None));
 
 #[derive(Clone)]
 struct ChunkEntry {

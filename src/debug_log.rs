@@ -1,10 +1,9 @@
 use chrono::Local;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::sync::LazyLock;
 
-lazy_static::lazy_static! {
-    static ref LOG_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-}
+static LOG_MUTEX: LazyLock<std::sync::Mutex<()>> = LazyLock::new(|| std::sync::Mutex::new(()));
 
 pub fn log_debug(msg: &str) {
     let _lock = LOG_MUTEX.lock().unwrap();

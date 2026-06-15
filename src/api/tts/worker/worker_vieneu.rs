@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -27,9 +27,8 @@ const SILENCE_PAD_MS: u32 = 140;
 const MIN_AUDIBLE_PEAK: i32 = 24;
 const BASE_SILENCE_PEAK_THRESHOLD: i32 = 220;
 
-lazy_static::lazy_static! {
-    static ref VIENEU_SIDECAR: Mutex<Option<VieneuSidecarClient>> = Mutex::new(None);
-}
+static VIENEU_SIDECAR: LazyLock<Mutex<Option<VieneuSidecarClient>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

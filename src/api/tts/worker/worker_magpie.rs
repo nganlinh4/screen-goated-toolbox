@@ -5,7 +5,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -27,9 +27,8 @@ use crate::config::tts_catalog::{normalize_magpie_lang, resolve_magpie_voice_for
 const PROVIDER: &str = "Magpie";
 const MAGPIE_TIMEOUT: Duration = Duration::from_secs(180);
 
-lazy_static::lazy_static! {
-    static ref MAGPIE_SIDECAR: Mutex<Option<MagpieSidecarClient>> = Mutex::new(None);
-}
+static MAGPIE_SIDECAR: LazyLock<Mutex<Option<MagpieSidecarClient>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
@@ -42,9 +42,7 @@ const FILES: &[&str] = &[
     "voice_embedding/pt_male.pt",
 ];
 
-lazy_static::lazy_static! {
-    static ref LAST_NOTICE: Mutex<Option<String>> = Mutex::new(None);
-}
+static LAST_NOTICE: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 fn set_notice(message: impl Into<String>) {
     *LAST_NOTICE.lock().unwrap() = Some(message.into());

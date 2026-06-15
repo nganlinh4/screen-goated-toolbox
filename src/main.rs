@@ -25,9 +25,8 @@ pub mod win_types;
 use config::{Config, ThemeMode, load_config};
 use gui::locale::LocaleText;
 use history::HistoryManager;
-use lazy_static::lazy_static;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Instant;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
 use windows::Win32::Foundation::*;
@@ -57,8 +56,8 @@ pub struct AppState {
     pub last_active_window: Option<SendHwnd>,
 }
 
-lazy_static! {
-    pub static ref APP: Arc<Mutex<AppState>> = Arc::new(Mutex::new({
+pub static APP: LazyLock<Arc<Mutex<AppState>>> = LazyLock::new(|| {
+    Arc::new(Mutex::new({
         let config = load_config();
         let history = Arc::new(HistoryManager::new(config.max_history_items));
         AppState {
@@ -70,8 +69,8 @@ lazy_static! {
             history,
             last_active_window: None,
         }
-    }));
-}
+    }))
+});
 
 const PROCESS_WITH_SGT_FLAG: &str = "--process-with-sgt";
 const SCREEN_RECORD_WRY_SMOKE_FLAG: &str = "--screen-record-wry-smoke";

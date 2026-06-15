@@ -1,9 +1,8 @@
 //! Edge TTS voice list fetching and caching.
 
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 /// Edge TTS voice information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,10 +34,9 @@ pub struct EdgeVoiceCache {
     pub error: Option<String>,
 }
 
-lazy_static! {
-    /// Global cached Edge TTS voice list
-    pub static ref EDGE_VOICE_CACHE: Mutex<EdgeVoiceCache> = Mutex::new(EdgeVoiceCache::default());
-}
+/// Global cached Edge TTS voice list
+pub static EDGE_VOICE_CACHE: LazyLock<Mutex<EdgeVoiceCache>> =
+    LazyLock::new(|| Mutex::new(EdgeVoiceCache::default()));
 
 /// Start loading the Edge TTS voice list in a background thread
 pub fn load_edge_voices_async() {
