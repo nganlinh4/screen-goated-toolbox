@@ -1,7 +1,7 @@
 import * as React from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Check, ChevronDown, Search } from '@/components/ui/MaterialIcon';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 
 import { cn } from '@/lib/utils';
 

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 const PRESETS = [
   '#ffffff', '#e0e0e0', '#9e9e9e', '#616161', '#212121', '#000000',

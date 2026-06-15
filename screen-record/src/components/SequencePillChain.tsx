@@ -2,7 +2,7 @@ import { Link2, Plus, X, Check, Minus, LogOut } from '@/components/ui/MaterialIc
 import { useSettings } from "@/hooks/useSettings";
 import type { ProjectComposition, ProjectCompositionClip, ProjectCompositionMode } from "@/types/video";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 import { useRef, useCallback, useState, useEffect } from "react";
 
 interface SequencePillChainProps {

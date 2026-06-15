@@ -21,7 +21,7 @@ import { TextPanel } from './TextPanel';
 import { BlurPanel } from './BlurPanel';
 import { AudioPanel } from './AudioPanel';
 import { NarrationPanel } from './NarrationPanel';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'motion/react';
 import type { WebcamConfig } from '@/types/video';
 
 // ============================================================================
