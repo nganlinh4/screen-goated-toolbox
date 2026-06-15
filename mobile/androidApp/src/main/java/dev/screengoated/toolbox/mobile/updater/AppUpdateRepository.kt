@@ -99,7 +99,7 @@ class AppUpdateRepository(
             if (!response.isSuccessful) {
                 error("Failed to fetch release info: HTTP ${response.code}")
             }
-            val rawBody = response.body?.string().orEmpty()
+            val rawBody = response.body.string().orEmpty()
             val releases = JSONArray(rawBody)
             if (releases.length() == 0) {
                 error("No releases found on GitHub")

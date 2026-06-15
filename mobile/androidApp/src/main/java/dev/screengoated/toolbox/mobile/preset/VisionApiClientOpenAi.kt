@@ -54,7 +54,7 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
             ?: response.header("x-ratelimit-limit-requests-day")
         ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
 
-        val body = response.body ?: throw IOException("$providerName vision response body was empty.")
+        val body = response.body
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
                 coroutineContext.ensureActive()
@@ -115,7 +115,7 @@ private fun VisionApiClient.generateOpenAiVisionBlocking(
         ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
 
         val content = try {
-            JSONObject(response.body?.string().orEmpty())
+            JSONObject(response.body.string().orEmpty())
                 .optJSONArray("choices")
                 ?.optJSONObject(0)
                 ?.optJSONObject("message")
@@ -155,7 +155,7 @@ internal fun VisionApiClient.callQrServer(
         if (!response.isSuccessful) {
             throw IOException("QR server request failed with ${response.code}")
         }
-        val responseBody = response.body?.string().orEmpty()
+        val responseBody = response.body.string().orEmpty()
         val data = try {
             val arr = JSONArray(responseBody)
             arr.optJSONObject(0)

@@ -44,8 +44,7 @@ class HelpAssistantClient(
             if (!response.isSuccessful) {
                 throw IOException("Failed to fetch help index: HTTP ${response.code}")
             }
-            val body = response.body?.string()
-                ?: throw IOException("Failed to fetch help index: empty body")
+            val body = response.body.string()
             val arr = JSONArray(body)
             val entries = mutableListOf<ChunkEntry>()
             for (i in 0 until arr.length()) {
@@ -100,8 +99,7 @@ class HelpAssistantClient(
                 }
                 throw IOException("API request failed: HTTP ${response.code}")
             }
-            val body = response.body?.string()
-                ?: throw IOException("Failed to parse response: empty body")
+            val body = response.body.string()
             val json = JSONObject(body)
             val parts = json.optJSONArray("candidates")
                 ?.optJSONObject(0)

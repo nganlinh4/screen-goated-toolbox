@@ -44,7 +44,7 @@ internal suspend fun VisionApiClient.streamGeminiVision(
             throw IOException("Gemini vision request failed with $code")
         }
 
-        val body = response.body ?: throw IOException("Gemini vision response body was empty.")
+        val body = response.body
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
                 coroutineContext.ensureActive()
@@ -84,7 +84,7 @@ private fun VisionApiClient.generateGeminiVisionBlocking(request: Request): Stri
             throw IOException("Gemini vision request failed with $code")
         }
 
-        val body = response.body ?: throw IOException("Gemini vision response body was empty.")
+        val body = response.body
         val root = JSONObject(body.string())
         val parts = root.optJSONArray("candidates")
             ?.optJSONObject(0)

@@ -49,7 +49,7 @@ internal fun TextApiClient.streamOllama(
             throw IOException("Ollama request failed with ${response.code}")
         }
 
-        val body = response.body ?: throw IOException("Ollama response body was empty.")
+        val body = response.body
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
                 val line = rawLine.trim()
@@ -114,7 +114,7 @@ internal fun TextApiClient.translateGoogleGtx(
         if (!response.isSuccessful) {
             throw IOException("GTX translation failed with ${response.code}")
         }
-        val body = response.body?.string().orEmpty()
+        val body = response.body.string().orEmpty()
         val sentences = JSONArray(body).optJSONArray(0)
             ?: throw IOException("GTX returned no translation segments.")
         val result = buildString {
@@ -162,7 +162,7 @@ private fun TextApiClient.generateOllamaBlocking(
         }
 
         val content = try {
-            JSONObject(response.body?.string().orEmpty()).optString("response", "")
+            JSONObject(response.body.string().orEmpty()).optString("response", "")
         } catch (_: JSONException) {
             ""
         }

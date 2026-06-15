@@ -40,7 +40,7 @@ object TaalasClient {
 
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return null
-            val raw = response.body?.string().orEmpty()
+            val raw = response.body.string().orEmpty()
             val statsIdx = raw.indexOf(STATS_MARKER)
             val clean = if (statsIdx >= 0) raw.substring(0, statsIdx).trim() else raw.trim()
             return clean.ifBlank { null }

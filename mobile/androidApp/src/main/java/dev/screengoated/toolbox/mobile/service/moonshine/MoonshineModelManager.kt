@@ -248,7 +248,7 @@ class MoonshineModelManager(private val context: Context) {
         val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-            val body = response.body ?: throw Exception("Empty response")
+            val body = response.body
             val contentLength = body.contentLength()
             var downloaded = 0L
             val tempTarget = File(target.parentFile, "${target.name}.part")
@@ -293,7 +293,7 @@ class MoonshineModelManager(private val context: Context) {
         val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-            val body = response.body ?: throw Exception("Empty response")
+            val body = response.body
             val contentLength = body.contentLength()
             var downloaded = 0L
             val tempTarget = File(target.parentFile, "${target.name}.part")

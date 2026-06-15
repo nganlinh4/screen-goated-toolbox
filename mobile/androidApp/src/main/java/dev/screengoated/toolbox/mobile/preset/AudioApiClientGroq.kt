@@ -38,7 +38,7 @@ internal fun AudioApiClient.transcribeWithGroq(
                 if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("groq"))
                 throw IOException("Groq audio request failed with $code")
             }
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string().orEmpty()
             val text = org.json.JSONObject(body).optString("text").trim()
             if (text.isBlank()) {
                 throw IOException("Audio transcription returned no text.")

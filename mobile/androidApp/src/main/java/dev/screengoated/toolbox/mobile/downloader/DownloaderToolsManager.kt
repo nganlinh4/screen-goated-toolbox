@@ -79,7 +79,7 @@ internal fun DownloaderRepository.downloadNativeZips() {
             .header("User-Agent", "Mozilla/5.0 SGT-Mobile").build()
         val response = client.newCall(request).execute()
         if (!response.isSuccessful) throw Exception("HTTP ${response.code} downloading $filename")
-        val body = response.body ?: throw Exception("Empty body for $filename")
+        val body = response.body
         val totalBytes = body.contentLength()
         val tmpFile = File(nativeZipDir, "$filename.tmp")
 

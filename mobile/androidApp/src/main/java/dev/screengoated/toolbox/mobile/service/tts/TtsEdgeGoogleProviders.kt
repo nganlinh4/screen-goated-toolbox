@@ -228,7 +228,7 @@ internal class GoogleTranslateTtsProvider(
         runCatching {
             httpClient.newCall(httpRequest).execute().use { response ->
                 check(response.isSuccessful) { "Google TTS HTTP ${response.code}" }
-                val mp3Bytes = response.body?.bytes() ?: ByteArray(0)
+                val mp3Bytes = response.body.bytes()
                 val pcm = mp3Decoder.decodeToMonoPcm24k(mp3Bytes)
                 check(pcm.isNotEmpty()) { "Google TTS audio decode failed." }
                 chunkBytes(pcm, CHUNK_BYTES).forEach { chunk ->
