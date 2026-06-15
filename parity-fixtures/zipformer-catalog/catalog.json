@@ -1,0 +1,61 @@
+{
+  "_comment": "Cross-platform lock for the streaming-Zipformer ASR model catalog. Windows (src/api/realtime_audio/sherpa_onnx/mod.rs ZipformerLanguage) is canonical; Android (ZipformerLanguage.kt) must match these fields exactly. Asserted by a Rust test and an Android unit test so the catalogs cannot silently drift. Two fields are DELIBERATELY excluded — see .claude/parity/zipformer-catalog.md: the All-8 displayName (Android adds spaces for readability) and sherpaModelType (Windows sets zipformer2 for the Kroko EN/FR/DE/ES models, Android defaults to auto-detect; reconciling needs on-device validation).",
+  "languages": [
+    {
+      "code": "en",
+      "modelName": "streaming-zipformer-en-kroko",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06/resolve/main",
+      "hasNativePunctuation": true,
+      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
+    },
+    {
+      "code": "ko",
+      "modelName": "streaming-zipformer-korean",
+      "downloadBaseUrl": "https://modelscope.cn/models/k2-fsa/sherpa-onnx-streaming-zipformer-korean-2024-06-16/resolve/master",
+      "hasNativePunctuation": true,
+      "modelFiles": ["encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx", "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt", "bpe.model"]
+    },
+    {
+      "code": "zh",
+      "modelName": "streaming-zipformer-zh",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main",
+      "hasNativePunctuation": false,
+      "modelFiles": ["encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt"]
+    },
+    {
+      "code": "fr",
+      "modelName": "streaming-zipformer-fr-kroko",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-fr-kroko-2025-08-06/resolve/main",
+      "hasNativePunctuation": true,
+      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
+    },
+    {
+      "code": "de",
+      "modelName": "streaming-zipformer-de-kroko",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/main",
+      "hasNativePunctuation": true,
+      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
+    },
+    {
+      "code": "es",
+      "modelName": "streaming-zipformer-es-kroko",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06/resolve/main",
+      "hasNativePunctuation": true,
+      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
+    },
+    {
+      "code": "ru",
+      "modelName": "streaming-zipformer-small-ru-vosk",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ru-vosk-2025-08-16/resolve/main",
+      "hasNativePunctuation": false,
+      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt", "bpe.model"]
+    },
+    {
+      "code": "all-8",
+      "modelName": "streaming-zipformer-multilingual-8lang",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/main",
+      "hasNativePunctuation": false,
+      "modelFiles": ["encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx", "decoder-epoch-75-avg-11-chunk-16-left-128.onnx", "joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx", "tokens.txt", "bpe.model"]
+    }
+  ]
+}
