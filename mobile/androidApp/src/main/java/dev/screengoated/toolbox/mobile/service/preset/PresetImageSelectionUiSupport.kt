@@ -13,7 +13,6 @@ import android.os.Build
 import android.graphics.Typeface
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -24,19 +23,6 @@ import dev.screengoated.toolbox.mobile.R
 
 internal fun condensedRoundedTypeface(context: Context): Typeface? {
     return ResourcesCompat.getFont(context, R.font.google_sans_flex)
-}
-
-internal fun pillBackground(
-    fillColor: Int,
-    strokeColor: Int,
-    radiusPx: Float,
-): GradientDrawable {
-    return GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        cornerRadius = radiusPx
-        setColor(fillColor)
-        setStroke(1, strokeColor)
-    }
 }
 
 internal fun puffyBackground(

@@ -104,48 +104,6 @@ internal fun HistoryMetricChip(
 }
 
 @Composable
-internal fun HistorySearchClearButton(
-    onClick: () -> Unit,
-    contentDescription: String,
-    modifier: Modifier = Modifier,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val morphProgress by animateFloatAsState(
-        targetValue = if (pressed) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
-        ),
-        label = "history-search-clear",
-    )
-    val accent = MaterialTheme.colorScheme.error
-    MorphingShapeBadge(
-        morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie4Sided),
-        progress = morphProgress,
-        containerColor = lerp(
-            MaterialTheme.colorScheme.surfaceContainerHighest,
-            accent.copy(alpha = 0.92f),
-            0.4f + (0.6f * morphProgress),
-        ),
-        modifier = modifier
-            .size(38.dp)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick,
-            ),
-    ) {
-        androidx.compose.material3.Icon(
-            painter = painterResource(R.drawable.ms_close),
-            contentDescription = contentDescription,
-            tint = Color.White,
-            modifier = Modifier.size(16.dp),
-        )
-    }
-}
-
-@Composable
 internal fun HistorySectionHeroBadge(
     modifier: Modifier = Modifier,
 ) {

@@ -8,19 +8,15 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.res.painterResource
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -30,75 +26,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.helpassistant.helpPlaceholder
 import dev.screengoated.toolbox.mobile.service.helpassistant.HelpAssistantOverlayService
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
-
-@Composable
-internal fun HelpAssistantCard(
-    locale: MobileLocaleText,
-    modifier: Modifier = Modifier,
-) {
-    var showDialog by rememberSaveable { mutableStateOf(false) }
-
-    ExpressiveSettingsCard(
-        accent = MaterialTheme.colorScheme.primary,
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { showDialog = true },
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                MorphingShapeBadge(
-                    morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie4Sided),
-                    progress = 0.54f,
-                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                    modifier = Modifier.size(42.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ms_auto_stories),
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                Column {
-                    Text(
-                        text = locale.shellHelpLabel,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = locale.shellHelpDescription,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
-
-    if (showDialog) {
-        HelpAssistantDialog(
-            locale = locale,
-            onDismiss = { showDialog = false },
-        )
-    }
-}
 
 @Composable
 internal fun HelpAssistantActionButton(
