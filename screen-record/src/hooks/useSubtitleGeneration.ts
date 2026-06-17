@@ -53,8 +53,22 @@ import type {
 } from './subtitleGenerationTypes';
 import { useSubtitleResultApplication } from './useSubtitleResultApplication';
 import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
+import {
+  clearResumableRun,
+  saveResumableRun,
+  useResumableRun,
+} from './resumableJobRegistry';
 
 export type { SubtitleMethod } from './subtitleGenerationTypes';
+
+interface ResumableSubtitleGenerationRun {
+  jobId: string;
+  jobContext: SubtitleJobContext | null;
+  status: SubtitleJobViewStatus | null;
+  lastKnownResultsRevision: number;
+  lastAppliedResultsKey: string;
+  lastStatusViewKey: string;
+}
 
 export function useSubtitleGeneration({
   t,
@@ -91,6 +105,17 @@ export function useSubtitleGeneration({
   const lastProjectResetKeyRef = useRef<string | null | undefined>(undefined);
   const autoSplitSubtitlesRef = useRef(autoSplitSubtitles);
   const autoSplitMaxUnitsRef = useRef(autoSplitMaxUnits);
+  const runNamespace = 'subtitle-generation';
+
+  // Re-adopt an in-flight subtitle job after the panel remounts (tab switch).
+  useResumableRun<ResumableSubtitleGenerationRun>(runNamespace, jobId, (cached) => {
+    lastKnownResultsRevisionRef.current = cached.lastKnownResultsRevision;
+    lastAppliedResultsKeyRef.current = cached.lastAppliedResultsKey;
+    lastStatusViewKeyRef.current = cached.lastStatusViewKey;
+    setJobContext(cached.jobContext);
+    setStatus(cached.status);
+    setJobId(cached.jobId);
+  });
 
   const {
     clearQueuedSubtitleResults,
@@ -168,6 +193,7 @@ export function useSubtitleGeneration({
     if (activeJobId) {
       void invoke('cancel_subtitle_generation', { jobId: activeJobId }).catch(() => {});
     }
+    clearResumableRun(runNamespace);
     setEditingSubtitleId(null);
     setJobId(null);
     setIsStartingSubtitleJob(false);
@@ -332,8 +358,19 @@ export function useSubtitleGeneration({
         lastAppliedResultsKeyRef.current = nextAppliedResultsKey;
         queueSubtitleResults(generatedResults, hasFinalSubtitleResult(generatedResults));
       }
+      if (jobId) {
+        saveResumableRun<ResumableSubtitleGenerationRun>(runNamespace, {
+          jobId,
+          jobContext,
+          status: nextViewStatus,
+          lastKnownResultsRevision: lastKnownResultsRevisionRef.current,
+          lastAppliedResultsKey: lastAppliedResultsKeyRef.current,
+          lastStatusViewKey: lastStatusViewKeyRef.current,
+        });
+      }
     },
     onComplete: (nextStatus) => {
+      clearResumableRun(runNamespace);
       if (nextStatus.state === 'completed') {
         flushQueuedSubtitleResults();
         markCompletedJobForPersist();
@@ -354,6 +391,7 @@ export function useSubtitleGeneration({
       setJobContext(null);
     },
     onError: (error) => {
+      clearResumableRun(runNamespace);
       setStatus({
         state: 'error',
         message: error instanceof Error ? error.message : t.subtitleStatusFailed,
@@ -436,12 +474,13 @@ export function useSubtitleGeneration({
 
     setActivePanel('subtitles');
     clearQueuedSubtitleResults();
-    setJobContext({
+    const nextJobContext: SubtitleJobContext = {
       replacementRangesByClip: plan.replacementRangesByClip,
       indicator: plan.indicator,
       sourceTypeForNative: plan.sourceTypeForNative,
       clipTransformsByClip: plan.clipTransformsByClip,
-    });
+    };
+    setJobContext(nextJobContext);
 
     const result = await invoke<{ jobId: string }>('start_subtitle_generation', {
       sourceType: plan.sourceTypeForNative,
@@ -452,7 +491,7 @@ export function useSubtitleGeneration({
       clips: plan.clips,
     });
 
-    setStatus({
+    const queuedStatus: SubtitleJobViewStatus = {
       state: 'queued',
       message: t.subtitleStatusStarting,
       messageKey: 'subtitleStatusStarting',
@@ -463,11 +502,20 @@ export function useSubtitleGeneration({
       resultsRevision: 0,
       skipped: [],
       error: null,
-    });
+    };
+    setStatus(queuedStatus);
     lastAppliedResultsKeyRef.current = '';
     lastKnownResultsRevisionRef.current = 0;
     lastStatusViewKeyRef.current = '';
     setJobId(result.jobId);
+    saveResumableRun<ResumableSubtitleGenerationRun>(runNamespace, {
+      jobId: result.jobId,
+      jobContext: nextJobContext,
+      status: queuedStatus,
+      lastKnownResultsRevision: 0,
+      lastAppliedResultsKey: '',
+      lastStatusViewKey: '',
+    });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setStatus({
@@ -510,6 +558,7 @@ export function useSubtitleGeneration({
       jobId,
       cancelCommand: 'cancel_subtitle_generation',
       onCancelled: () => {
+        clearResumableRun(runNamespace);
         clearQueuedSubtitleResults();
         setStatus((prev) => (prev ? {
           ...prev,

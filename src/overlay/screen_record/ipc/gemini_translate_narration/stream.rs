@@ -10,9 +10,9 @@ use crate::api::realtime_audio::websocket::{
 };
 
 use super::super::wav_decode::decode_wav_mono_i16;
-use super::output_vad::{OutputRegion, OutputVad};
+use super::output_vad::{OutputRegion, OutputVad, speech_active_seconds};
 use super::socket_io::{drain_socket, wait_for_setup};
-use super::text_delta::{nonempty_text, take_text_delta};
+use super::word_distribute::redistribute_words_by_weight;
 use super::{ClipResult, GeminiTranslateNarrationRequest, JobSnapshot, ResultEvent, SegmentResult};
 use crate::overlay::screen_record::ipc::media_server;
 use crate::overlay::screen_record::ipc::subtitles::audio::compact_to_source_time;
@@ -24,6 +24,46 @@ use crate::overlay::screen_record::ipc::subtitles::types::{
 const INPUT_FRAME_SAMPLES: usize = 1600;
 const INPUT_SAMPLE_RATE: f64 = 16_000.0;
 const OUTPUT_SAMPLE_RATE: f64 = 24_000.0;
+/// Absolute i16 amplitude below which an output sample is treated as silence when
+/// locating the end of the real speech. Kept low so quiet word-tails are never
+/// mistaken for the trailing-silence pad and trimmed.
+const SILENCE_LEVEL: u16 = 50;
+/// Fallback only: approximate Gemini input-transcription latency, used to anchor
+/// the narration when the source onset can't be detected from the audio.
+const NARRATION_ANCHOR_LEAD_SEC: f64 = 0.5;
+
+/// Detect the source narrator's onset (compact seconds) directly from the input
+/// audio. This anchors the narration on the *source* speech and is
+/// latency-independent — unlike anchoring on Gemini's output/transcript timing,
+/// which carries Gemini's variable translation/transcription latency. A quiet
+/// title or lead-in stays below the threshold; the first sustained real speech
+/// clears it.
+pub(super) fn detect_source_speech_onset(samples: &[i16]) -> Option<f64> {
+    const FRAME: usize = 320; // 20 ms @ 16 kHz
+    const RMS_THRESHOLD: f32 = 0.02; // ≈ -34 dB; above a quiet lead-in
+    const SUSTAIN_FRAMES: usize = 8; // 160 ms of sustained speech
+    let mut run = 0usize;
+    for (index, frame) in samples.chunks(FRAME).enumerate() {
+        let sum: f32 = frame
+            .iter()
+            .map(|sample| {
+                let value = *sample as f32 / i16::MAX as f32;
+                value * value
+            })
+            .sum();
+        let rms = (sum / frame.len().max(1) as f32).sqrt();
+        if rms >= RMS_THRESHOLD {
+            run += 1;
+            if run >= SUSTAIN_FRAMES {
+                let onset_frame = (index + 1).saturating_sub(SUSTAIN_FRAMES);
+                return Some(onset_frame as f64 * FRAME as f64 / INPUT_SAMPLE_RATE);
+            }
+        } else {
+            run = 0;
+        }
+    }
+    None
+}
 
 pub(super) fn run_job_inner(
     job_id: &str,
@@ -95,23 +135,21 @@ fn process_clip(
     wait_for_setup(&mut socket, cancelled)?;
     set_socket_nonblocking(&mut socket).map_err(|error| error.to_string())?;
 
+    // Latency-independent anchor: where the source narrator actually starts.
+    let source_onset = detect_source_speech_onset(&samples);
     let mut vad = OutputVad::new();
     let mut full_output = Vec::new();
     let mut emitted = Vec::<RegionMeta>::new();
     let mut source_text = String::new();
     let mut target_text = String::new();
-    let mut last_source_text = String::new();
-    let mut last_target_text = String::new();
-    let mut shift_sec: Option<f64> = None;
-    let mut last_subtitle_compact_end = 0.0f64;
     let mut last_audio_out_point = 0.0f64;
     let mut sent_chunks = 0usize;
     let mut received_audio_chunks = 0usize;
     let mut received_audio_samples = 0usize;
-    let mut inserted_silence_samples = 0usize;
     let mut saw_turn_complete = false;
+    let mut first_input_text_elapsed: Option<f64> = None;
+    let mut last_output_speech: Option<Instant> = None;
     let stream_started = Instant::now();
-    let output_clock = Instant::now();
 
     macro_rules! drain_and_emit {
         () => {{
@@ -119,33 +157,27 @@ fn process_clip(
                 &mut socket,
                 &mut vad,
                 &mut full_output,
-                output_clock,
                 &mut source_text,
                 &mut target_text,
-                |region, current_source_text, current_target_text, stream_duration| {
-                    emit_region(
-                        job_id,
+                |region, _src, _tgt, _dur| {
+                    emitted.push(emit_region(
                         clip,
-                        clip_index,
-                        region,
-                        &mut shift_sec,
-                        &mut last_subtitle_compact_end,
+                        &region,
                         &mut last_audio_out_point,
-                        current_source_text,
-                        current_target_text,
-                        &mut last_source_text,
-                        &mut last_target_text,
-                        stream_duration,
-                        None,
                         snapshot,
-                    )
-                    .map(|meta| emitted.push(meta))
+                    ));
+                    Ok(())
                 },
             )?;
             received_audio_chunks += drain.audio_chunks;
             received_audio_samples += drain.audio_samples;
-            inserted_silence_samples += drain.silence_samples;
             saw_turn_complete |= drain.turn_complete;
+            if first_input_text_elapsed.is_none() && !source_text.trim().is_empty() {
+                first_input_text_elapsed = Some(stream_started.elapsed().as_secs_f64());
+            }
+            if drain.had_output_speech {
+                last_output_speech = Some(Instant::now());
+            }
             drain
         }};
     }
@@ -181,29 +213,19 @@ fn process_clip(
         if drain.turn_complete {
             break;
         }
-        if !drain.had_activity && last_activity.elapsed() > Duration::from_secs(8) {
+        // Gemini's continuous live socket keeps streaming silence after it finishes
+        // speaking, so "any audio" is not an end signal. Stop once the real voice
+        // has been quiet for a short tail, or if the socket goes fully idle.
+        let voice_done = last_output_speech
+            .is_some_and(|at| at.elapsed() > Duration::from_secs(4));
+        let socket_idle = !drain.had_activity && last_activity.elapsed() > Duration::from_secs(8);
+        if voice_done || socket_idle {
             break;
         }
         std::thread::sleep(Duration::from_millis(20));
     }
     if let Some(region) = vad.finish() {
-        let meta = emit_region(
-            job_id,
-            clip,
-            clip_index,
-            region,
-            &mut shift_sec,
-            &mut last_subtitle_compact_end,
-            &mut last_audio_out_point,
-            &source_text,
-            &target_text,
-            &mut last_source_text,
-            &mut last_target_text,
-            full_output.len() as f64 / OUTPUT_SAMPLE_RATE,
-            None,
-            snapshot,
-        )?;
-        emitted.push(meta);
+        emitted.push(emit_region(clip, &region, &mut last_audio_out_point, snapshot));
     }
     if emitted.is_empty() && !full_output.is_empty() {
         let region = OutputRegion {
@@ -212,27 +234,68 @@ fn process_clip(
             end_sample: full_output.len(),
             samples: full_output.clone(),
         };
-        let meta = emit_region(
-            job_id,
-            clip,
-            clip_index,
-            region,
-            &mut shift_sec,
-            &mut last_subtitle_compact_end,
-            &mut last_audio_out_point,
-            &source_text,
-            &target_text,
-            &mut last_source_text,
-            &mut last_target_text,
-            full_output.len() as f64 / OUTPUT_SAMPLE_RATE,
-            None,
-            snapshot,
-        )?;
-        emitted.push(meta);
+        emitted.push(emit_region(clip, &region, &mut last_audio_out_point, snapshot));
     }
+    // full_output is now the contiguous, complete Gemini output (no wall-clock
+    // padding). The output VAD only marks subtitle-cue boundaries; the takes that
+    // back those cues must cover the audio gap-free so the whole continuous voice
+    // plays even where the VAD under-segments. Extend each take's out-point to the
+    // next take's in-point and the last take to the end of the real speech, then
+    // trim only the trailing-silence tail Gemini appends after it finishes.
+    if !emitted.is_empty() {
+        emitted.sort_by(|a, b| {
+            a.audio_in_point
+                .partial_cmp(&b.audio_in_point)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let speech_end_sec = full_output
+            .iter()
+            .rposition(|&sample| sample.unsigned_abs() > SILENCE_LEVEL)
+            .map(|idx| (idx + 1) as f64 / OUTPUT_SAMPLE_RATE + 0.4)
+            .unwrap_or_else(|| full_output.len() as f64 / OUTPUT_SAMPLE_RATE);
+        let take_count = emitted.len();
+        for index in 0..take_count {
+            let cover_to = if index + 1 < take_count {
+                emitted[index + 1].audio_in_point
+            } else {
+                speech_end_sec
+            };
+            emitted[index].audio_out_point = cover_to.max(emitted[index].audio_in_point + 0.05);
+        }
+        let keep_samples = (speech_end_sec * OUTPUT_SAMPLE_RATE).ceil() as usize;
+        if keep_samples > 0 && keep_samples < full_output.len() {
+            full_output.truncate(keep_samples);
+        }
+
+        // Anchor the contiguous narration on the source timeline. A take's
+        // sample-offset is NOT its source time (the audio is gap-free, the source
+        // has pauses), so anchor on where the source narrator actually starts
+        // (detected from the input audio — latency-independent) and tile every cue
+        // across the source from there by its offset in the contiguous voice.
+        // Falls back to Gemini's first-transcript arrival if the source onset
+        // can't be detected. Voice and cues then line up with the source speech.
+        let source_duration = clip.source_duration.max(0.0);
+        let anchor_compact = source_onset
+            .or_else(|| {
+                first_input_text_elapsed.map(|elapsed| (elapsed - NARRATION_ANCHOR_LEAD_SEC).max(0.0))
+            })
+            .unwrap_or(0.0)
+            .clamp(0.0, source_duration);
+        let first_in = emitted[0].audio_in_point;
+        for meta in emitted.iter_mut() {
+            let compact_start =
+                (anchor_compact + (meta.audio_in_point - first_in)).clamp(0.0, source_duration);
+            meta.result.narration_start_time = Some(compact_to_source_time(
+                compact_start,
+                &clip.trim_segments,
+                clip.source_duration,
+            ));
+        }
+    }
+    redistribute_segment_text(&mut emitted, &source_text, &target_text);
     if !full_output.is_empty() {
         crate::log_info!(
-            "[GeminiTranslateNarration][job={}] clip={} output complete sent_chunks={} source_ms={} wall_ms={} received_audio_chunks={} received_audio_ms={} inserted_silence_ms={} timeline_ms={} regions={} turn_complete={}",
+            "[GeminiTranslateNarration][job={}] clip={} output complete sent_chunks={} source_ms={} wall_ms={} received_audio_chunks={} received_audio_ms={} output_ms={} regions={} turn_complete={}",
             job_id,
             clip.clip_id,
             sent_chunks,
@@ -240,7 +303,6 @@ fn process_clip(
             stream_started.elapsed().as_millis(),
             received_audio_chunks,
             received_audio_samples as u64 * 1000 / 24_000,
-            inserted_silence_samples as u64 * 1000 / 24_000,
             full_output.len() as u64 * 1000 / 24_000,
             emitted.len(),
             saw_turn_complete
@@ -289,6 +351,7 @@ struct RegionMeta {
     result: SegmentResult,
     audio_in_point: f64,
     audio_out_point: f64,
+    speech_seconds: f64,
 }
 
 impl RegionMeta {
@@ -311,107 +374,86 @@ impl RegionMeta {
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "emission needs stream, alignment, and job state"
-)]
+/// Record a take from a detected output-VAD region. This captures only the take's
+/// position in the contiguous voice (`audio_in_point`/`audio_out_point`) and its
+/// speech weight, plus a result skeleton. The committed audio path, subtitle text,
+/// and source-timeline placement are all filled once in finalization — nothing is
+/// pushed to the snapshot here, so streaming never commits a result that differs
+/// from what concludes (no preview-vs-final drift).
 fn emit_region(
-    job_id: &str,
     clip: &SubtitleClipRequest,
-    clip_index: usize,
-    region: OutputRegion,
-    shift_sec: &mut Option<f64>,
-    last_subtitle_compact_end: &mut f64,
+    region: &OutputRegion,
     last_audio_out_point: &mut f64,
-    source_text: &str,
-    target_text: &str,
-    last_source_text: &mut String,
-    last_target_text: &mut String,
-    stream_duration: f64,
-    final_path: Option<String>,
     snapshot: &Arc<Mutex<JobSnapshot>>,
-) -> Result<RegionMeta, String> {
+) -> RegionMeta {
     let output_start = region.start_sample as f64 / OUTPUT_SAMPLE_RATE;
     let output_end = region.end_sample as f64 / OUTPUT_SAMPLE_RATE;
+    let speech_seconds = speech_active_seconds(&region.samples, OUTPUT_SAMPLE_RATE);
     let audio_in_point = output_start.max(*last_audio_out_point);
     let audio_out_point = output_end.max(audio_in_point + 0.05);
-    let audio_trim_delta = audio_in_point - output_start;
-    let audio_shift = *shift_sec.get_or_insert_with(|| output_start.clamp(0.0, 4.0));
-    let subtitle_shift = audio_shift.min(0.35);
-    let mut compact_start = (output_start + audio_trim_delta - subtitle_shift)
-        .max(0.0)
-        .max(*last_subtitle_compact_end);
-    let mut compact_end = (output_end - subtitle_shift).max(compact_start + 0.05);
-    let mut narration_compact_start = (audio_in_point - audio_shift).max(0.0);
-    let source_duration = clip.source_duration.max(0.0);
-    compact_start = compact_start.min(source_duration);
-    compact_end = compact_end.min(source_duration.max(compact_start + 0.05));
-    narration_compact_start = narration_compact_start.min(source_duration);
-    *last_subtitle_compact_end = compact_end;
     *last_audio_out_point = audio_out_point;
-    let start_time =
-        compact_to_source_time(compact_start, &clip.trim_segments, clip.source_duration);
-    let end_time = compact_to_source_time(compact_end, &clip.trim_segments, clip.source_duration)
-        .max(start_time + 0.05);
-    let narration_start_time = compact_to_source_time(
-        narration_compact_start,
-        &clip.trim_segments,
-        clip.source_duration,
-    );
-    let is_final = final_path.is_some();
-    let path = if let Some(path) = final_path {
-        path
-    } else {
-        let wav = encode_wav(&region.samples, 24_000, 1);
-        media_server::write_managed_narration_wav(job_id, clip_index * 10_000 + region.index, &wav)?
-    };
-    let source_delta = take_text_delta(source_text, last_source_text);
-    let target_delta = take_text_delta(target_text, last_target_text);
-    let duration = if is_final {
-        stream_duration
-    } else {
-        region.samples.len() as f64 / OUTPUT_SAMPLE_RATE
-    };
-    let local_audio_in_point = audio_trim_delta.max(0.0);
-    let result = SegmentResult {
-        id: format!("{}-gemini-translate-{}", clip.clip_id, region.index),
-        clip_id: clip.clip_id.clone(),
-        source_text: nonempty_text(source_delta, source_text, "Speech"),
-        target_text: nonempty_text(target_delta, target_text, "Translation"),
-        start_time,
-        end_time,
-        narration_start_time: Some(narration_start_time),
-        path,
-        duration: duration.max(0.05),
-        audio_in_point: Some(local_audio_in_point),
-        audio_out_point: Some((output_end - output_start).max(local_audio_in_point + 0.05)),
-        narration_group_take_id: None,
-        narration_group_source_start_time: None,
-        alignment_mode: Some("estimated".to_string()),
-        alignment_confidence: Some(0.68),
-        tts_profile_method: Some("gemini-live-translate".to_string()),
-    };
-    push_result(
-        snapshot,
-        ClipResult {
-            clip_id: clip.clip_id.clone(),
-            is_partial: !is_final,
-            segments: vec![result.clone()],
-        },
-    )?;
     if let Ok(mut locked) = snapshot.lock() {
         locked.vad_segment_done = region.index + 1;
         locked.vad_segment_total = 0;
         locked.message = format!(
-            "Generating Gemini Translate narration · live output VAD {}",
+            "Generating Gemini Translate narration · output VAD {}",
             region.index + 1
         );
     }
-    Ok(RegionMeta {
-        result,
+    RegionMeta {
+        result: SegmentResult {
+            id: format!("{}-gemini-translate-{}", clip.clip_id, region.index),
+            clip_id: clip.clip_id.clone(),
+            source_text: String::new(),
+            target_text: String::new(),
+            start_time: 0.0,
+            end_time: 0.0,
+            narration_start_time: None,
+            path: String::new(),
+            duration: 0.05,
+            audio_in_point: None,
+            audio_out_point: None,
+            narration_group_take_id: None,
+            narration_group_source_start_time: None,
+            alignment_mode: Some("aligned".to_string()),
+            alignment_confidence: Some(0.82),
+            tts_profile_method: Some("gemini-live-translate".to_string()),
+        },
         audio_in_point,
         audio_out_point,
-    })
+        speech_seconds,
+    }
+}
+
+/// Lock every subtitle cue onto its narration take and re-deal the transcript by
+/// speech timing.
+///
+/// 1. Each cue's `[start_time, end_time]` is set to exactly span its narration
+///    take (`narration_start_time` + the take's audio length), so the subtitle
+///    sits on the audio segment — same count, same start/end as the voice.
+/// 2. The complete `source_text`/`target_text` are re-dealt across the cues
+///    proportional to each cue's **speech-active duration** (how much real voice
+///    it carries), so the words line up with where they are spoken: a dense
+///    cue's trailing words cascade forward and every take keeps at least one
+///    word. Working from the complete transcripts (not the per-region deltas)
+///    also discards the cumulative-replay dumps and placeholder lines.
+fn redistribute_segment_text(emitted: &mut [RegionMeta], source_text: &str, target_text: &str) {
+    if emitted.is_empty() {
+        return;
+    }
+    for meta in emitted.iter_mut() {
+        let take_start = meta.result.narration_start_time.unwrap_or(meta.result.start_time);
+        let take_duration = (meta.audio_out_point - meta.audio_in_point).max(0.05);
+        meta.result.start_time = take_start;
+        meta.result.end_time = take_start + take_duration;
+    }
+    let weights: Vec<f64> = emitted.iter().map(|meta| meta.speech_seconds).collect();
+    let source_lines = redistribute_words_by_weight(&weights, source_text);
+    let target_lines = redistribute_words_by_weight(&weights, target_text);
+    for (index, meta) in emitted.iter_mut().enumerate() {
+        meta.result.source_text = source_lines[index].clone();
+        meta.result.target_text = target_lines[index].clone();
+    }
 }
 
 fn push_result(snapshot: &Arc<Mutex<JobSnapshot>>, result: ClipResult) -> Result<(), String> {

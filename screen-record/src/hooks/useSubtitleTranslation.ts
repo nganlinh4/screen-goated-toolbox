@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
 import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
 import {
+  clearResumableRun,
+  saveResumableRun,
+  useResumableRun,
+} from './resumableJobRegistry';
+import {
   getEffectiveCompositionMode,
   updateCompositionClip,
 } from '@/lib/projectComposition';
@@ -85,6 +90,12 @@ interface UseSubtitleTranslationParams {
 }
 
 
+interface ResumableTranslationRun {
+  jobId: string;
+  jobContext: SubtitleTranslationJobContext;
+  status: SubtitleTranslationJobStatus | null;
+}
+
 export function useSubtitleTranslation({
   t,
   projectResetKey,
@@ -109,6 +120,14 @@ export function useSubtitleTranslation({
   const [capabilities, setCapabilities] = useState<SubtitleTranslationCapabilities | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
   const lastProjectResetKeyRef = useRef<string | null | undefined>(undefined);
+  const runNamespace = 'subtitle-translation';
+
+  // Re-adopt an in-flight translation job after the panel remounts (tab switch).
+  useResumableRun<ResumableTranslationRun>(runNamespace, jobId, (cached) => {
+    setJobContext(cached.jobContext);
+    setStatus(cached.status);
+    setJobId(cached.jobId);
+  });
 
   useEffect(() => {
     persistTranslationLanguage(targetLanguage);
@@ -153,6 +172,7 @@ export function useSubtitleTranslation({
     if (activeJobId) {
       void invoke('cancel_subtitle_translation', { jobId: activeJobId }).catch(() => {});
     }
+    clearResumableRun(runNamespace);
     setJobId(null);
     setJobContext(null);
     setStatus(null);
@@ -366,9 +386,17 @@ export function useSubtitleTranslation({
       || nextStatus.state === 'error',
     onTick: (nextStatus) => {
       setStatus(nextStatus);
+      if (jobId && jobContext) {
+        saveResumableRun<ResumableTranslationRun>(runNamespace, {
+          jobId,
+          jobContext,
+          status: nextStatus,
+        });
+      }
     },
     onComplete: (nextStatus) => {
       if (!jobContext) return;
+      clearResumableRun(runNamespace);
       if (nextStatus.state === 'completed') {
         applySubtitleTranslationResults(nextStatus.results, jobContext);
         setJobId(null);
@@ -385,6 +413,7 @@ export function useSubtitleTranslation({
       setJobContext(null);
     },
     onError: (error) => {
+      clearResumableRun(runNamespace);
       setStatus({
         state: 'error',
         message: error instanceof Error ? error.message : t.subtitleTranslationStatusFailed,
@@ -437,10 +466,11 @@ export function useSubtitleTranslation({
       return;
     }
 
-    setJobContext({
+    const nextJobContext: SubtitleTranslationJobContext = {
       targetLanguage,
       targetTrackId: targetLanguageTrack?.id ?? null,
-    });
+    };
+    setJobContext(nextJobContext);
     setActivePanel('subtitles');
     const result = await invoke<{ jobId: string }>('start_subtitle_translation', {
       targetLanguage,
@@ -451,7 +481,7 @@ export function useSubtitleTranslation({
       instructions: instructions.trim() || null,
       items,
     });
-    setStatus({
+    const queuedStatus: SubtitleTranslationJobStatus = {
       state: 'queued',
       message: t.subtitleTranslationStatusStarting,
       messageKey: 'subtitleTranslationStatusStarting',
@@ -462,8 +492,14 @@ export function useSubtitleTranslation({
       targetLanguage,
       results: [],
       error: null,
-    });
+    };
+    setStatus(queuedStatus);
     setJobId(result.jobId);
+    saveResumableRun<ResumableTranslationRun>(runNamespace, {
+      jobId: result.jobId,
+      jobContext: nextJobContext,
+      status: queuedStatus,
+    });
   }, [
     capabilities,
     refreshCapabilities,
@@ -486,6 +522,7 @@ export function useSubtitleTranslation({
       jobId,
       cancelCommand: 'cancel_subtitle_translation',
       onCancelled: () => {
+        clearResumableRun(runNamespace);
         setStatus((prev) => (prev ? {
           ...prev,
           state: 'cancelled',

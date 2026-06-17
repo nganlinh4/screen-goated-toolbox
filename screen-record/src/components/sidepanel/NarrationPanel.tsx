@@ -37,9 +37,13 @@ import {
   type NarrationLanguageDetectionResponse,
 } from './narrationLanguageUtils';
 import {
+  getInitialDirectVoiceMethod,
   getInitialNarrationGroupTextBudget,
+  getInitialNarrationMode,
   getInitialReadUnsplitSubtitles,
+  persistDirectVoiceMethod,
   persistNarrationGroupTextBudget,
+  persistNarrationMode,
   persistReadUnsplitSubtitles,
 } from './narrationPanelStorage';
 import { NarrationModeSections } from './NarrationModeSections';
@@ -118,9 +122,11 @@ export function NarrationPanel({
   const [groupTextBudget, setGroupTextBudget] = useState(getInitialNarrationGroupTextBudget);
   const [isGroupSliderDragging, setIsGroupSliderDragging] = useState(false);
   const [narrationMode, setNarrationMode] = useState<NarrationMode>(
-    visibleSubtitles.length > 0 ? 'subtitles' : 's2s',
+    () => getInitialNarrationMode(visibleSubtitles.length > 0),
   );
-  const [directVoiceMethod, setDirectVoiceMethod] = useState<DirectVoiceMethod>('s2s');
+  const [directVoiceMethod, setDirectVoiceMethod] = useState<DirectVoiceMethod>(
+    getInitialDirectVoiceMethod,
+  );
   const [s2sTargetLanguage, setS2sTargetLanguage] = useState('vi');
   const segmentRef = useRef<VideoSegment | null>(segment);
   const isDirectVoiceMode = narrationMode === 's2s';
@@ -139,6 +145,14 @@ export function NarrationPanel({
   useEffect(() => {
     persistNarrationGroupTextBudget(groupTextBudget);
   }, [groupTextBudget]);
+
+  useEffect(() => {
+    persistNarrationMode(narrationMode);
+  }, [narrationMode]);
+
+  useEffect(() => {
+    persistDirectVoiceMethod(directVoiceMethod);
+  }, [directVoiceMethod]);
 
   useEffect(() => {
     setSelectedSourceTrackId(preferredSourceTrackId);

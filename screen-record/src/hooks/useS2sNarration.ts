@@ -3,15 +3,15 @@ import type { Translations } from '@/i18n';
 import { invoke, logToHost } from '@/lib/ipc';
 import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
 import {
+  clearResumableRun,
+  saveResumableRun,
+  useResumableRun,
+} from './resumableJobRegistry';
+import {
   buildSubtitleGenerationPlan,
   type SubtitleGenerationPlan,
   type SubtitleSource,
 } from '@/lib/subtitleGenerationPlan';
-import {
-  ORIGINAL_SUBTITLE_TRACK_ID,
-  getTranslationSubtitleTrackId,
-  normalizeSubtitleTrackState,
-} from '@/lib/subtitleTracks';
 import type {
   NarrationSegment,
   ProjectComposition,
@@ -85,6 +85,23 @@ const BACKEND_COMMANDS = {
   },
 } as const;
 
+interface ActiveS2sRun {
+  jobId: string;
+  status: S2sNarrationStatus | null;
+  plan: SubtitleGenerationPlan;
+  batchId: string;
+  targetLanguage: string;
+  sourceSubtitleResults: SubtitleSegment[];
+  targetSubtitleResults: SubtitleSegment[];
+  baseSourceSubtitleResults: SubtitleSegment[];
+  baseTargetSubtitleResults: SubtitleSegment[];
+  baseSubtitleSnapshot: S2sSubtitleStateSnapshot | null;
+  resultsRevision: number;
+  lastProgressSignature: string;
+  lastProgressAt: number;
+  lastStallLogAt: number;
+}
+
 export function useS2sNarration({
   backendMode = 's2s',
   t,
@@ -126,6 +143,46 @@ export function useS2sNarration({
     onApplyNarrationSegments,
     onPopulateEmptySubtitles,
     onFinalize,
+  });
+
+  const runNamespace = `s2s-narration:${backendMode}`;
+
+  const snapshotActiveRun = useCallback((activeJobId: string, nextStatus?: S2sNarrationStatus | null) => {
+    const plan = planRef.current;
+    if (!plan) return;
+    saveResumableRun<ActiveS2sRun>(runNamespace, {
+      jobId: activeJobId,
+      status: nextStatus ?? status,
+      plan,
+      batchId: batchIdRef.current,
+      targetLanguage: jobTargetLanguageRef.current,
+      sourceSubtitleResults: sourceSubtitleResultsRef.current,
+      targetSubtitleResults: targetSubtitleResultsRef.current,
+      baseSourceSubtitleResults: baseSourceSubtitleResultsRef.current,
+      baseTargetSubtitleResults: baseTargetSubtitleResultsRef.current,
+      baseSubtitleSnapshot: baseSubtitleSnapshotRef.current,
+      resultsRevision: revisionRef.current,
+      lastProgressSignature: lastProgressSignatureRef.current,
+      lastProgressAt: lastProgressAtRef.current,
+      lastStallLogAt: lastStallLogAtRef.current,
+    });
+  }, [runNamespace, status]);
+
+  useResumableRun<ActiveS2sRun>(runNamespace, jobId, (cached) => {
+    planRef.current = cached.plan;
+    batchIdRef.current = cached.batchId;
+    jobTargetLanguageRef.current = cached.targetLanguage;
+    sourceSubtitleResultsRef.current = cached.sourceSubtitleResults;
+    targetSubtitleResultsRef.current = cached.targetSubtitleResults;
+    baseSourceSubtitleResultsRef.current = cached.baseSourceSubtitleResults;
+    baseTargetSubtitleResultsRef.current = cached.baseTargetSubtitleResults;
+    baseSubtitleSnapshotRef.current = cached.baseSubtitleSnapshot;
+    revisionRef.current = cached.resultsRevision;
+    lastProgressSignatureRef.current = cached.lastProgressSignature;
+    lastProgressAtRef.current = cached.lastProgressAt;
+    lastStallLogAtRef.current = cached.lastStallLogAt;
+    setStatus(cached.status);
+    setJobId(cached.jobId);
   });
 
   useEffect(() => {
@@ -176,20 +233,33 @@ export function useS2sNarration({
       revisionRef.current = Math.max(revisionRef.current, next.resultsRevision);
       const activeTargetLanguage = jobTargetLanguageRef.current;
       const latest = latestRefs.current;
-      setStatus({ ...next, message: localizeS2sStatus(latest.t, next, backendMode), results: [] });
+      const displayStatus = {
+        ...next,
+        message: localizeS2sStatus(latest.t, next, backendMode),
+        results: [],
+      };
+      setStatus(displayStatus);
       const plan = planRef.current;
       if (plan && next.results.length > 0) {
         const flat = next.results.flatMap((result) => result.segments);
-        const sourceSubtitles = flat.map((result) =>
-          buildSubtitle(result, plan, 'source', result.sourceText),
-        );
-        const targetSubtitles = flat.map((result) =>
-          buildSubtitle(result, plan, 'target', result.targetText),
-        );
-        const narrations = flat.map((result) =>
-          buildNarration(result, plan, batchIdRef.current, commands.ttsMethod),
-        );
-        const replaceIds = flat.map((result) => s2sSubtitleId(result, 'target'));
+        const sourceSubtitles = flat
+          .filter((result) => result.sourceText.trim().length > 0)
+          .map((result) => buildSubtitle(result, plan, 'source', result.sourceText));
+        const targetSubtitles = flat
+          .filter((result) => result.targetText.trim().length > 0)
+          .map((result) => buildSubtitle(result, plan, 'target', result.targetText));
+        // Narration takes must stay 1:1 with the target subtitle cues. Without
+        // this filter, regions whose (redistributed) target text is empty still
+        // produce a take that falls back to the English source name, so the
+        // narration track ends up with more, misaligned takes than the subtitles.
+        const narrations = flat
+          .filter((result) => result.targetText.trim().length > 0)
+          .map((result) =>
+            buildNarration(result, plan, batchIdRef.current, commands.ttsMethod),
+          );
+        const replaceIds = flat
+          .filter((result) => result.targetText.trim().length > 0)
+          .map((result) => s2sSubtitleId(result, 'target'));
         sourceSubtitleResultsRef.current = replaceS2sSubtitleSegments([
           ...sourceSubtitleResultsRef.current,
           ...sourceSubtitles,
@@ -213,6 +283,9 @@ export function useS2sNarration({
         );
         await latest.onApplyNarrationSegments(narrations, replaceIds);
       }
+      if (jobId) {
+        snapshotActiveRun(jobId, displayStatus);
+      }
     },
     onComplete: async (next) => {
       const activeTargetLanguage = jobTargetLanguageRef.current;
@@ -230,6 +303,9 @@ export function useS2sNarration({
             debugPhase: 'complete',
           },
         );
+        if (jobId) {
+          clearResumableRun(runNamespace);
+        }
         setJobId(null);
         await latest.onFinalize();
         return;
@@ -238,16 +314,22 @@ export function useS2sNarration({
       latest.onPopulateEmptySubtitles(
         [],
         [],
-        activeTargetLanguage,
-        {
-          restoreSnapshot: baseSubtitleSnapshotRef.current,
-          debugPhase: next.state,
-        },
-      );
+          activeTargetLanguage,
+          {
+            restoreSnapshot: baseSubtitleSnapshotRef.current,
+            debugPhase: next.state,
+          },
+        );
+      if (jobId) {
+        clearResumableRun(runNamespace);
+      }
       setJobId(null);
       await latest.onFinalize();
     },
     onError: async (error) => {
+      if (jobId) {
+        clearResumableRun(runNamespace);
+      }
       setStatus({
         state: 'error',
         message: error instanceof Error ? error.message : String(error),
@@ -307,12 +389,13 @@ export function useS2sNarration({
       sourceSubtitleResultsRef.current = [];
       targetSubtitleResultsRef.current = [];
       baseSubtitleSnapshotRef.current = cloneSubtitleSnapshot(segment);
-      const normalizedSegment = segment ? normalizeSubtitleTrackState(segment) : null;
-      const targetTrackId = getTranslationSubtitleTrackId(targetLanguage);
-      baseSourceSubtitleResultsRef.current =
-        normalizedSegment?.subtitleTracks?.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID)?.segments ?? [];
-      baseTargetSubtitleResultsRef.current =
-        normalizedSegment?.subtitleTracks?.find((track) => track.id === targetTrackId)?.segments ?? [];
+      // Regenerating narration must FULLY REPLACE the prior run's cues, not merge
+      // with them. Start from an empty base so the new cues populate cleanly;
+      // otherwise the restore-snapshot at conclusion brings back the previous
+      // run's stale subtitle (the audio updates but the subtitle reverts — the
+      // streamed result diverging from the concluded one).
+      baseSourceSubtitleResultsRef.current = [];
+      baseTargetSubtitleResultsRef.current = [];
       revisionRef.current = 0;
       lastProgressSignatureRef.current = '';
       lastProgressAtRef.current = performance.now();
@@ -338,6 +421,33 @@ export function useS2sNarration({
         resultsRevision: 0,
         results: [],
         error: null,
+      });
+      saveResumableRun<ActiveS2sRun>(runNamespace, {
+        jobId: response.jobId,
+        status: {
+          state: 'queued',
+          message: backendMode === 'gemini-translate'
+            ? t.narrationGeminiTranslateQueued
+            : t.narrationS2sQueued,
+          progress: 0,
+          totalClips: plan.clips.length,
+          completedClips: 0,
+          resultsRevision: 0,
+          results: [],
+          error: null,
+        },
+        plan,
+        batchId: batchIdRef.current,
+        targetLanguage: jobTargetLanguageRef.current,
+        sourceSubtitleResults: sourceSubtitleResultsRef.current,
+        targetSubtitleResults: targetSubtitleResultsRef.current,
+        baseSourceSubtitleResults: baseSourceSubtitleResultsRef.current,
+        baseTargetSubtitleResults: baseTargetSubtitleResultsRef.current,
+        baseSubtitleSnapshot: baseSubtitleSnapshotRef.current,
+        resultsRevision: revisionRef.current,
+        lastProgressSignature: lastProgressSignatureRef.current,
+        lastProgressAt: lastProgressAtRef.current,
+        lastStallLogAt: lastStallLogAtRef.current,
       });
       setJobId(response.jobId);
     } catch (error) {
@@ -382,6 +492,7 @@ export function useS2sNarration({
       jobId,
       cancelCommand: BACKEND_COMMANDS[backendMode].cancel,
       onCancelled: async () => {
+        clearResumableRun(runNamespace);
         latestRefs.current.onPopulateEmptySubtitles(
           [],
           [],
