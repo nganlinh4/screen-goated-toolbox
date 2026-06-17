@@ -135,6 +135,30 @@ impl OutputVad {
         Some(region)
     }
 }
+/// Whether `samples` carry real speech (any frame clears the speech threshold).
+/// Used to stop draining once Gemini's continuous live socket finishes the voice
+/// and starts streaming only silence.
+pub(super) fn samples_have_speech(samples: &[i16]) -> bool {
+    samples
+        .chunks(OUTPUT_FRAME_SAMPLES)
+        .any(|frame| calculate_rms(frame) >= 0.01)
+}
+
+/// Seconds of speech-active audio in `samples` — frames whose RMS clears a
+/// speech threshold. Used to weight subtitle word distribution by how much real
+/// voice each cue carries, so dense cues get proportionally more words.
+pub(super) fn speech_active_seconds(samples: &[i16], sample_rate: f64) -> f64 {
+    if samples.is_empty() || sample_rate <= 0.0 {
+        return 0.0;
+    }
+    let active: usize = samples
+        .chunks(OUTPUT_FRAME_SAMPLES)
+        .filter(|frame| calculate_rms(frame) >= 0.01)
+        .map(<[i16]>::len)
+        .sum();
+    active as f64 / sample_rate
+}
+
 fn calculate_rms(samples: &[i16]) -> f32 {
     if samples.is_empty() {
         return 0.0;

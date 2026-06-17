@@ -5,6 +5,7 @@
 mod audio_waveform;
 mod cursor_svg;
 mod gemini_translate_narration;
+pub(crate) use gemini_translate_narration::run_gt_narration_test_cli;
 mod hotkeys;
 mod job_registry;
 pub mod media_server;

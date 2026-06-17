@@ -9,9 +9,8 @@ use crate::api::realtime_audio::websocket::{
     is_recoverable_socket_error, is_transient_socket_read_error, pcm_bytes_to_i16,
 };
 
-use super::output_vad::{OutputRegion, OutputVad};
+use super::output_vad::{OutputRegion, OutputVad, samples_have_speech};
 use super::text_delta::merge_text;
-use super::timeline_audio::append_received_audio_on_clock;
 
 const OUTPUT_SAMPLE_RATE: f64 = 24_000.0;
 
@@ -50,7 +49,6 @@ pub(super) fn drain_socket(
     socket: &mut LiveSocket,
     vad: &mut OutputVad,
     full_output: &mut Vec<i16>,
-    output_clock: Instant,
     source_text: &mut String,
     target_text: &mut String,
     mut on_region: impl FnMut(OutputRegion, &str, &str, f64) -> Result<(), String>,
@@ -79,12 +77,17 @@ pub(super) fn drain_socket(
                     if samples.is_empty() {
                         continue;
                     }
-                    let append =
-                        append_received_audio_on_clock(full_output, vad, output_clock, &samples);
+                    // Gemini Live Translate is a CONTINUOUS model: append every
+                    // output chunk in arrival order, exactly like the canonical
+                    // Live Translate path. Never wall-clock-pad — fabricated
+                    // silence between words is what scattered/dropped speech.
+                    full_output.extend_from_slice(&samples);
                     outcome.audio_chunks += 1;
-                    outcome.audio_samples += append.audio_samples;
-                    outcome.silence_samples += append.silence_samples;
-                    for region in append.regions {
+                    outcome.audio_samples += samples.len();
+                    outcome.had_output_speech |= samples_have_speech(&samples);
+                    // The VAD runs only to find subtitle-cue boundaries over the
+                    // contiguous audio; it never cuts or gates the audio itself.
+                    for region in vad.push(&samples) {
                         on_region(
                             region,
                             source_text,
@@ -114,10 +117,10 @@ pub(super) fn drain_socket(
 #[derive(Default)]
 pub(super) struct DrainOutcome {
     pub(super) had_activity: bool,
+    pub(super) had_output_speech: bool,
     pub(super) turn_complete: bool,
     pub(super) audio_chunks: usize,
     pub(super) audio_samples: usize,
-    pub(super) silence_samples: usize,
 }
 
 fn message_to_text(message: Message) -> Option<String> {

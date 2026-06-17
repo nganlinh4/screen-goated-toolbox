@@ -250,8 +250,24 @@ export function useTimelineWorkspaceComposition({
       }
 
       const replaceSet = new Set(replaceSubtitleIds);
+      // Each generation gets a new batch id of the form `{family}-{timestamp}`.
+      // Drop takes from a PREVIOUS run of the same family: every Gemini run
+      // re-segments the audio differently, so old takes without an exact
+      // source-id match would otherwise pile up and overlap the new ones.
+      const incomingBatchId = segments[0]?.narrationBatchId ?? null;
+      const incomingFamily = incomingBatchId
+        ? incomingBatchId.replace(/-\d+$/, "")
+        : null;
+      const isStalePriorRun = (segment: NarrationSegment) =>
+        Boolean(
+          incomingFamily &&
+            segment.narrationBatchId &&
+            segment.narrationBatchId !== incomingBatchId &&
+            segment.narrationBatchId.replace(/-\d+$/, "") === incomingFamily,
+        );
       const nextNarrationSegments = [
         ...(baseComposition.narrationSegments ?? []).filter((segment) => {
+          if (isStalePriorRun(segment)) return false;
           const sourceIds = segment.sourceSubtitleIds?.length
             ? segment.sourceSubtitleIds
             : segment.sourceSubtitleId

@@ -30,42 +30,9 @@ pub(super) fn merge_text(existing: &mut String, incoming: &str) {
     }
 }
 
-pub(super) fn take_text_delta(text: &str, previous: &mut String) -> String {
-    let current = text.trim();
-    let last = previous.trim();
-    let mut should_update_previous = !current.is_empty();
-    let delta = if current.is_empty() || current == last {
-        String::new()
-    } else if last.contains(current) {
-        should_update_previous = false;
-        String::new()
-    } else if last.is_empty() {
-        current.to_string()
-    } else if let Some(suffix) = current.strip_prefix(last) {
-        suffix.trim().to_string()
-    } else {
-        let overlap = raw_suffix_prefix_overlap(last, current);
-        current[overlap..].trim().to_string()
-    };
-    if should_update_previous {
-        *previous = current.to_string();
-    }
-    delta
-}
-
-pub(super) fn nonempty_text(delta: String, full: &str, fallback: &str) -> String {
-    if !delta.trim().is_empty() {
-        delta
-    } else if !full.trim().is_empty() {
-        full.trim().to_string()
-    } else {
-        fallback.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{merge_text, take_text_delta};
+    use super::merge_text;
 
     // Captures the intentionally-different narration merge semantics so future
     // refactors don't silently converge it onto the canonical
@@ -100,21 +67,5 @@ mod tests {
         let mut text = String::from("alpha");
         merge_text(&mut text, "beta");
         assert_eq!(text, "alpha beta");
-    }
-
-    #[test]
-    fn take_text_delta_returns_new_suffix() {
-        let mut previous = String::from("hello");
-        let delta = take_text_delta("hello world", &mut previous);
-        assert_eq!(delta, "world");
-        assert_eq!(previous, "hello world");
-    }
-
-    #[test]
-    fn take_text_delta_uses_raw_overlap_for_partial_continuation() {
-        let mut previous = String::from("good mor");
-        let delta = take_text_delta("morning everyone", &mut previous);
-        assert_eq!(delta, "ning everyone");
-        assert_eq!(previous, "morning everyone");
     }
 }

@@ -1,8 +1,15 @@
+mod gt_test;
 mod output_vad;
 mod socket_io;
 mod stream;
 mod text_delta;
-mod timeline_audio;
+mod word_distribute;
+
+/// CLI test entry: stream `input_wav` (16 kHz mono PCM) through the live-translate
+/// narration pipeline and write `<input_wav>.narration.wav`.
+pub(crate) fn run_gt_narration_test_cli(input_wav: &str, target_language: &str) -> Result<(), String> {
+    gt_test::run_cli(input_wav, target_language)
+}
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

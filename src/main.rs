@@ -304,6 +304,20 @@ fn main() -> eframe::Result<()> {
     // Unpack embedded DLLs
     unpack_dlls::unpack_dlls();
 
+    // Standalone CLI test for the Gemini Translate narration streaming: feed a
+    // 16 kHz mono WAV, write `<wav>.narration.wav`, exit. No GUI / app wiring.
+    if let Some(input_wav) = parse_arg_value(&startup_args, "--gt-narration-test") {
+        let target_language =
+            parse_arg_value(&startup_args, "--gt-narration-lang").unwrap_or_else(|| "vi".to_string());
+        match crate::overlay::screen_record::run_gt_narration_test_cli(&input_wav, &target_language) {
+            Ok(()) => std::process::exit(0),
+            Err(error) => {
+                eprintln!("[gt-test] ERROR: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     if let Some(exit_code) = maybe_run_headless_export_replay(&startup_args) {
         std::process::exit(exit_code);
     }

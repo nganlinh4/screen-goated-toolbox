@@ -4,6 +4,7 @@
 pub(crate) mod bg_download;
 mod embedded_assets;
 mod ipc;
+pub(crate) use ipc::run_gt_narration_test_cli;
 mod raw_video;
 mod webview_setup;
 mod window_proc;

@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Translations } from '@/i18n';
 import { invoke } from '@/lib/ipc';
 import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
+import {
+  clearResumableRun,
+  saveResumableRun,
+  useResumableRun,
+} from './resumableJobRegistry';
 import { overlapsRange, type TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import type {
   NarrationSegment,
@@ -28,6 +33,16 @@ export {
 
 const APPLY_RESULT_STREAM_INTERVAL_MS = 140;
 const STATUS_UI_UPDATE_INTERVAL_MS = 900;
+
+interface ResumableSubtitleNarrationRun {
+  jobId: string;
+  status: SubtitleNarrationJobStatus | null;
+  batchId: string | null;
+  appliedResultIds: string[];
+  knownResultsRevision: number;
+  allResultItems: SubtitleNarrationResultItem[];
+  allErrorItems: Array<{ subtitleId: string; message: string }>;
+}
 
 interface UseSubtitleNarrationParams {
   t: Translations;
@@ -82,6 +97,19 @@ export function useSubtitleNarration({
   useEffect(() => {
     onApplyNarrationSegmentsRef.current = onApplyNarrationSegments;
   }, [onApplyNarrationSegments]);
+
+  const runNamespace = 'subtitle-narration';
+
+  // Re-adopt an in-flight narration job after the panel remounts (tab switch).
+  useResumableRun<ResumableSubtitleNarrationRun>(runNamespace, jobId, (cached) => {
+    batchIdRef.current = cached.batchId;
+    appliedResultIdsRef.current = new Set(cached.appliedResultIds);
+    knownResultsRevisionRef.current = cached.knownResultsRevision;
+    allResultItemsRef.current = cached.allResultItems;
+    allErrorItemsRef.current = cached.allErrorItems;
+    setStatus(cached.status);
+    setJobId(cached.jobId);
+  });
 
   const targetSubtitles = useMemo(() => {
     const selection = new Set(selectedSubtitleIds ?? []);
@@ -324,11 +352,12 @@ export function useSubtitleNarration({
           ...nextStatus.errors,
         ];
       }
-      publishStatus({
+      const publishedStatus: SubtitleNarrationJobStatus = {
         ...nextStatus,
         results: [],
         errors: allErrorItemsRef.current,
-      });
+      };
+      publishStatus(publishedStatus);
 
       const newResults = nextStatus.results.filter((result) => {
         if (appliedResultIdsRef.current.has(result.subtitleId)) return false;
@@ -336,8 +365,20 @@ export function useSubtitleNarration({
         return true;
       });
       queueApplyResults(newResults);
+      if (jobId) {
+        saveResumableRun<ResumableSubtitleNarrationRun>(runNamespace, {
+          jobId,
+          status: publishedStatus,
+          batchId: batchIdRef.current,
+          appliedResultIds: [...appliedResultIdsRef.current],
+          knownResultsRevision: knownResultsRevisionRef.current,
+          allResultItems: allResultItemsRef.current,
+          allErrorItems: allErrorItemsRef.current,
+        });
+      }
     },
     onComplete: async (nextStatus) => {
+      clearResumableRun(runNamespace);
       if (nextStatus.state === 'completed') {
         await waitForApplyDrain();
         const overlaps = countNarrationOverlaps(allResultItemsRef.current);
@@ -364,6 +405,7 @@ export function useSubtitleNarration({
       await finalizeNarration();
     },
     onError: async (error) => {
+      clearResumableRun(runNamespace);
       publishStatus({
         state: 'error',
         message: error instanceof Error ? error.message : t.subtitleNarrationStatusFailed,
@@ -428,7 +470,7 @@ export function useSubtitleNarration({
           vadSearchRadiusSec: NARRATION_GROUP_VAD_RADIUS_SEC,
         },
       });
-      setStatus({
+      const queuedStatus: SubtitleNarrationJobStatus = {
         state: 'queued',
         message: t.subtitleNarrationStatusStarting,
         progress: 0,
@@ -438,8 +480,18 @@ export function useSubtitleNarration({
         results: [],
         errors: [],
         error: null,
-      });
+      };
+      setStatus(queuedStatus);
       setJobId(result.jobId);
+      saveResumableRun<ResumableSubtitleNarrationRun>(runNamespace, {
+        jobId: result.jobId,
+        status: queuedStatus,
+        batchId: batchIdRef.current,
+        appliedResultIds: [],
+        knownResultsRevision: 0,
+        allResultItems: [],
+        allErrorItems: [],
+      });
     } catch (error) {
       setStatus({
         state: 'error',
@@ -472,6 +524,7 @@ export function useSubtitleNarration({
       jobId,
       cancelCommand: 'cancel_subtitle_narration',
       onCancelled: async () => {
+        clearResumableRun(runNamespace);
         setStatus((prev) => prev ? {
           ...prev,
           state: 'cancelled',
