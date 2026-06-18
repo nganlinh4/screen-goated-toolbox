@@ -11,6 +11,7 @@ use crate::api::realtime_audio::websocket::{
 
 use super::super::wav_decode::decode_wav_mono_i16;
 use super::output_vad::{OutputRegion, OutputVad, speech_active_seconds};
+use super::resegment::resegment;
 use super::socket_io::{drain_socket, wait_for_setup};
 use super::word_distribute::redistribute_words_by_weight;
 use super::{ClipResult, GeminiTranslateNarrationRequest, JobSnapshot, ResultEvent, SegmentResult};
@@ -81,12 +82,12 @@ pub(super) fn run_job_inner(
         return Err("Gemini API key is not configured".to_string());
     }
     crate::log_info!(
-        "[GeminiTranslateNarration][job={}] start clips={} source={} target={} group_budget={}",
+        "[GeminiTranslateNarration][job={}] start clips={} source={} target={} target_segment_sec={}",
         job_id,
         request.clips.len(),
         request.source_type,
         request.target_language,
-        request.group_text_budget
+        request.target_segment_sec
     );
     for (clip_index, clip) in request.clips.iter().enumerate() {
         if cancelled.load(Ordering::SeqCst) {
@@ -237,11 +238,10 @@ fn process_clip(
         emitted.push(emit_region(clip, &region, &mut last_audio_out_point, snapshot));
     }
     // full_output is now the contiguous, complete Gemini output (no wall-clock
-    // padding). The output VAD only marks subtitle-cue boundaries; the takes that
-    // back those cues must cover the audio gap-free so the whole continuous voice
-    // plays even where the VAD under-segments. Extend each take's out-point to the
-    // next take's in-point and the last take to the end of the real speech, then
-    // trim only the trailing-silence tail Gemini appends after it finishes.
+    // padding). The output VAD only marks natural pause boundaries; the resegment
+    // pass below steers those into even cues near the target length (splitting long
+    // pause-free reads, merging short ones) so the whole continuous voice is
+    // covered gap-free with no too-long or too-short cue.
     if !emitted.is_empty() {
         emitted.sort_by(|a, b| {
             a.audio_in_point
@@ -253,19 +253,41 @@ fn process_clip(
             .rposition(|&sample| sample.unsigned_abs() > SILENCE_LEVEL)
             .map(|idx| (idx + 1) as f64 / OUTPUT_SAMPLE_RATE + 0.4)
             .unwrap_or_else(|| full_output.len() as f64 / OUTPUT_SAMPLE_RATE);
-        let take_count = emitted.len();
-        for index in 0..take_count {
-            let cover_to = if index + 1 < take_count {
-                emitted[index + 1].audio_in_point
-            } else {
-                speech_end_sec
-            };
-            emitted[index].audio_out_point = cover_to.max(emitted[index].audio_in_point + 0.05);
-        }
         let keep_samples = (speech_end_sec * OUTPUT_SAMPLE_RATE).ceil() as usize;
         if keep_samples > 0 && keep_samples < full_output.len() {
             full_output.truncate(keep_samples);
         }
+        // Contiguous phrase spans from the natural regions: each covers its speech
+        // onset to the next region's onset (or the end of speech), so nothing is
+        // dropped between regions.
+        let region_count = emitted.len();
+        let phrase_spans: Vec<(f64, f64)> = (0..region_count)
+            .map(|index| {
+                let start = emitted[index].audio_in_point;
+                let end = if index + 1 < region_count {
+                    emitted[index + 1].audio_in_point
+                } else {
+                    speech_end_sec
+                };
+                (start, end.max(start + 0.05))
+            })
+            .collect();
+        // Steer toward the requested target length, then rebuild the takes from the
+        // balanced spans (recomputing each cue's speech weight for redistribution).
+        let target = request.target_segment_sec.clamp(2.0, 8.0);
+        emitted = resegment(&phrase_spans, target)
+            .iter()
+            .enumerate()
+            .map(|(index, &(start, end))| {
+                let from = ((start * OUTPUT_SAMPLE_RATE) as usize).min(full_output.len());
+                let to = ((end * OUTPUT_SAMPLE_RATE) as usize)
+                    .min(full_output.len())
+                    .max(from);
+                let speech_seconds =
+                    speech_active_seconds(&full_output[from..to], OUTPUT_SAMPLE_RATE);
+                RegionMeta::new(clip, index, start, end, speech_seconds)
+            })
+            .collect();
 
         // Anchor the contiguous narration on the source timeline. A take's
         // sample-offset is NOT its source time (the audio is gap-free, the source
@@ -355,6 +377,41 @@ struct RegionMeta {
 }
 
 impl RegionMeta {
+    /// A take spanning `[audio_in_point, audio_out_point]` (output seconds) with a
+    /// result skeleton; text, path, duration, and timeline placement are filled at
+    /// finalization.
+    fn new(
+        clip: &SubtitleClipRequest,
+        index: usize,
+        audio_in_point: f64,
+        audio_out_point: f64,
+        speech_seconds: f64,
+    ) -> Self {
+        Self {
+            result: SegmentResult {
+                id: format!("{}-gemini-translate-{index}", clip.clip_id),
+                clip_id: clip.clip_id.clone(),
+                source_text: String::new(),
+                target_text: String::new(),
+                start_time: 0.0,
+                end_time: 0.0,
+                narration_start_time: None,
+                path: String::new(),
+                duration: 0.05,
+                audio_in_point: None,
+                audio_out_point: None,
+                narration_group_take_id: None,
+                narration_group_source_start_time: None,
+                alignment_mode: Some("aligned".to_string()),
+                alignment_confidence: Some(0.82),
+                tts_profile_method: Some("gemini-live-translate".to_string()),
+            },
+            audio_in_point,
+            audio_out_point,
+            speech_seconds,
+        }
+    }
+
     fn into_final(
         self,
         path: String,
@@ -400,29 +457,13 @@ fn emit_region(
             region.index + 1
         );
     }
-    RegionMeta {
-        result: SegmentResult {
-            id: format!("{}-gemini-translate-{}", clip.clip_id, region.index),
-            clip_id: clip.clip_id.clone(),
-            source_text: String::new(),
-            target_text: String::new(),
-            start_time: 0.0,
-            end_time: 0.0,
-            narration_start_time: None,
-            path: String::new(),
-            duration: 0.05,
-            audio_in_point: None,
-            audio_out_point: None,
-            narration_group_take_id: None,
-            narration_group_source_start_time: None,
-            alignment_mode: Some("aligned".to_string()),
-            alignment_confidence: Some(0.82),
-            tts_profile_method: Some("gemini-live-translate".to_string()),
-        },
+    RegionMeta::new(
+        clip,
+        region.index,
         audio_in_point,
         audio_out_point,
         speech_seconds,
-    }
+    )
 }
 
 /// Lock every subtitle cue onto its narration take and re-deal the transcript by

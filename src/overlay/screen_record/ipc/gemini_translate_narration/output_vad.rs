@@ -104,6 +104,8 @@ impl OutputVad {
         } else {
             self.silence_frames + 1
         };
+        // Close on a natural pause only — the resegment pass downstream splits any
+        // long pause-free read and merges short ones toward the target length.
         if self.active.len() >= OUTPUT_MIN_SAMPLES
             && self.silence_frames >= OUTPUT_END_SILENCE_FRAMES
         {

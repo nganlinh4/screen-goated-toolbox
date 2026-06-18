@@ -1,11 +1,15 @@
 import {
   DEFAULT_NARRATION_GROUP_TEXT_BUDGET,
+  DEFAULT_NARRATION_TARGET_SEGMENT_SEC,
   MAX_NARRATION_GROUP_TEXT_BUDGET,
+  MAX_NARRATION_TARGET_SEGMENT_SEC,
   MIN_NARRATION_GROUP_TEXT_BUDGET,
+  MIN_NARRATION_TARGET_SEGMENT_SEC,
 } from '@/hooks/useSubtitleNarration';
 
 const READ_UNSPLIT_SUBTITLES_KEY = 'screen-record-narration-read-unsplit-subtitles-v1';
 const NARRATION_GROUP_TEXT_BUDGET_KEY = 'screen-record-narration-group-text-budget-v2';
+const NARRATION_TARGET_SEGMENT_SEC_KEY = 'screen-record-narration-target-segment-sec-v1';
 const NARRATION_MODE_KEY = 'screen-record-narration-mode-v1';
 const DIRECT_VOICE_METHOD_KEY = 'screen-record-direct-voice-method-v1';
 
@@ -69,6 +73,30 @@ export function persistReadUnsplitSubtitles(value: boolean) {
 export function persistNarrationGroupTextBudget(value: number) {
   try {
     localStorage.setItem(NARRATION_GROUP_TEXT_BUDGET_KEY, String(value));
+  } catch {
+    // ignore persistence failures
+  }
+}
+
+export function getInitialNarrationTargetSegmentSec() {
+  try {
+    const raw = Number(localStorage.getItem(NARRATION_TARGET_SEGMENT_SEC_KEY));
+    if (
+      Number.isFinite(raw) &&
+      raw >= MIN_NARRATION_TARGET_SEGMENT_SEC &&
+      raw <= MAX_NARRATION_TARGET_SEGMENT_SEC
+    ) {
+      return raw;
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return DEFAULT_NARRATION_TARGET_SEGMENT_SEC;
+}
+
+export function persistNarrationTargetSegmentSec(value: number) {
+  try {
+    localStorage.setItem(NARRATION_TARGET_SEGMENT_SEC_KEY, String(value));
   } catch {
     // ignore persistence failures
   }

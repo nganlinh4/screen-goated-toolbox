@@ -6,7 +6,9 @@ import { useSettings } from '@/hooks/useSettings';
 import {
   DEFAULT_NARRATION_GROUP_TEXT_BUDGET,
   MAX_NARRATION_GROUP_TEXT_BUDGET,
+  MAX_NARRATION_TARGET_SEGMENT_SEC,
   MIN_NARRATION_GROUP_TEXT_BUDGET,
+  MIN_NARRATION_TARGET_SEGMENT_SEC,
   type SubtitleNarrationGroupPreview,
 } from '@/hooks/useSubtitleNarration';
 import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
@@ -50,6 +52,8 @@ interface NarrationModeSectionsProps {
   generateLabel: string;
   groupBudgetLabel: string;
   groupTextBudget: number;
+  targetSegmentLabel: string;
+  targetSegmentSec: number;
   hasSubtitleRange: boolean;
   directVoiceMethod: DirectVoiceMethod;
   narration: SubtitleNarrationState;
@@ -64,6 +68,7 @@ interface NarrationModeSectionsProps {
   selectedSource: SubtitleSource;
   selectedSourceTrackId: string;
   setGroupTextBudget: (value: number) => void;
+  setTargetSegmentSec: (value: number) => void;
   setIsGroupSliderDragging: (value: boolean) => void;
   setDirectVoiceMethod: (method: DirectVoiceMethod) => void;
   setNarrationMode: (mode: NarrationMode) => void;
@@ -80,6 +85,8 @@ export function NarrationModeSections({
   generateLabel,
   groupBudgetLabel,
   groupTextBudget,
+  targetSegmentLabel,
+  targetSegmentSec,
   hasSubtitleRange,
   directVoiceMethod,
   narration,
@@ -94,6 +101,7 @@ export function NarrationModeSections({
   selectedSource,
   selectedSourceTrackId,
   setGroupTextBudget,
+  setTargetSegmentSec,
   setIsGroupSliderDragging,
   setDirectVoiceMethod,
   setNarrationMode,
@@ -110,6 +118,12 @@ export function NarrationModeSections({
     Math.max(
       MIN_NARRATION_GROUP_TEXT_BUDGET,
       Math.min(MAX_NARRATION_GROUP_TEXT_BUDGET, Math.round(value)),
+    ),
+  );
+  const clampTargetSegment = (value: number) => setTargetSegmentSec(
+    Math.max(
+      MIN_NARRATION_TARGET_SEGMENT_SEC,
+      Math.min(MAX_NARRATION_TARGET_SEGMENT_SEC, Math.round(value * 2) / 2),
     ),
   );
 
@@ -182,25 +196,49 @@ export function NarrationModeSections({
               contentClassName="narration-s2s-language-menu"
             />
           </div>
-          <div className="narration-s2s-grouping mb-2 space-y-1.5">
-            <div className="narration-s2s-grouping-header flex items-center justify-between gap-2">
-              <span className="text-[11px] font-medium text-on-surface-variant">
-                {t.narrationGrouping}
-              </span>
-              <span className="narration-s2s-grouping-value text-[10px] font-semibold text-on-surface-variant">
-                {groupBudgetLabel}
-              </span>
+          {directVoiceMethod === 'gemini-translate' ? (
+            // Gemini Translate segments by audio (VAD), so the word-grouping knob
+            // doesn't apply; expose the max cue/take length instead.
+            <div className="narration-s2s-segment-length mb-2 space-y-1.5">
+              <div className="narration-s2s-segment-header flex items-center justify-between gap-2">
+                <span className="text-[11px] font-medium text-on-surface-variant">
+                  {t.narrationTargetSegment}
+                </span>
+                <span className="narration-s2s-segment-value text-[10px] font-semibold text-on-surface-variant">
+                  {targetSegmentLabel}
+                </span>
+              </div>
+              <Slider
+                min={MIN_NARRATION_TARGET_SEGMENT_SEC}
+                max={MAX_NARRATION_TARGET_SEGMENT_SEC}
+                step={0.5}
+                value={targetSegmentSec}
+                onChange={clampTargetSegment}
+                className="narration-s2s-segment-slider"
+                disabled={s2s.isGenerating}
+              />
             </div>
-            <Slider
-              min={MIN_NARRATION_GROUP_TEXT_BUDGET}
-              max={MAX_NARRATION_GROUP_TEXT_BUDGET}
-              step={5}
-              value={groupTextBudget}
-              onChange={clampGroupBudget}
-              className="narration-s2s-grouping-slider"
-              disabled={s2s.isGenerating}
-            />
-          </div>
+          ) : (
+            <div className="narration-s2s-grouping mb-2 space-y-1.5">
+              <div className="narration-s2s-grouping-header flex items-center justify-between gap-2">
+                <span className="text-[11px] font-medium text-on-surface-variant">
+                  {t.narrationGrouping}
+                </span>
+                <span className="narration-s2s-grouping-value text-[10px] font-semibold text-on-surface-variant">
+                  {groupBudgetLabel}
+                </span>
+              </div>
+              <Slider
+                min={MIN_NARRATION_GROUP_TEXT_BUDGET}
+                max={MAX_NARRATION_GROUP_TEXT_BUDGET}
+                step={5}
+                value={groupTextBudget}
+                onChange={clampGroupBudget}
+                className="narration-s2s-grouping-slider"
+                disabled={s2s.isGenerating}
+              />
+            </div>
+          )}
           <div className="narration-s2s-actions grid grid-cols-2 gap-1.5">
             <button
               type="button"

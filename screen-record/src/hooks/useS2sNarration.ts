@@ -53,6 +53,7 @@ interface UseS2sNarrationParams {
   geminiSpeed: string;
   parallelRequests: number;
   groupTextBudget: number;
+  targetSegmentSec: number;
   onApplyNarrationSegments: (
     segments: NarrationSegment[],
     replaceSubtitleIds: string[],
@@ -119,6 +120,7 @@ export function useS2sNarration({
   geminiSpeed,
   parallelRequests,
   groupTextBudget,
+  targetSegmentSec,
   onApplyNarrationSegments,
   onPopulateEmptySubtitles,
   onFinalize,
@@ -408,6 +410,7 @@ export function useS2sNarration({
         geminiSpeed,
         parallelRequests,
         groupTextBudget,
+        targetSegmentSec,
         clips: plan.clips,
       });
       setStatus({

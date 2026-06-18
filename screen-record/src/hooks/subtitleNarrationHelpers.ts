@@ -49,6 +49,13 @@ export const MIN_NARRATION_GROUP_TEXT_BUDGET = 5;
 export const MAX_NARRATION_GROUP_TEXT_BUDGET = 120;
 export const NARRATION_GROUP_VAD_RADIUS_SEC = 0.35;
 
+// Target length (seconds) the Gemini Translate cues/takes are steered toward:
+// long pause-free reads are split, short ones merged, so segments land near this
+// without any too short. MIN/MAX bound the user-facing slider.
+export const DEFAULT_NARRATION_TARGET_SEGMENT_SEC = 4;
+export const MIN_NARRATION_TARGET_SEGMENT_SEC = 2;
+export const MAX_NARRATION_TARGET_SEGMENT_SEC = 8;
+
 const NARRATION_GROUP_MAX_ITEMS = 10;
 const NARRATION_GROUP_MAX_CHARS = 650;
 const NARRATION_GROUP_GAP_BREAK_SEC = 1.2;
