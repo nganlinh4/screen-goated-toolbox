@@ -53,13 +53,14 @@ Create complex presets using a visual editor. Connect blocks to define logic:
 
 ## Installation
 
-### Option 1: Download Release
+### Option 1: Download
 
-Download the latest `.exe` and `.apk` from the [Releases](https://github.com/nganlinh4/screen-goated-toolbox/releases) page.
+**Windows** — download the latest `.exe` from the [Releases](https://github.com/nganlinh4/screen-goated-toolbox/releases) page:
 
 * **Windows x64:** `ScreenGoatedToolbox_v<version>.exe`
 * **Windows arm64:** `ScreenGoatedToolbox_v<version>-arm64.exe`
-* **Android:** `ScreenGoatedToolbox_v<version>.apk`
+
+**Android** — get it on [Google Play](https://play.google.com/store/apps/details?id=dev.screengoated.toolbox.mobile). Android now updates through the Play Store; the legacy sideload `.apk` is being retired.
 
 ### Option 2: Build from Source (Windows)
 
