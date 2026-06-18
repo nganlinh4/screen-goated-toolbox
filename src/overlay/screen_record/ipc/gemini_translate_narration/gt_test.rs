@@ -26,6 +26,7 @@ use crate::api::realtime_audio::websocket::{
 
 use super::super::wav_decode::decode_wav_mono_i16;
 use super::output_vad::OutputVad;
+use super::resegment::resegment;
 use super::socket_io::{drain_socket, wait_for_setup};
 use super::stream::detect_source_speech_onset;
 
@@ -227,17 +228,30 @@ pub(crate) fn run_cli(input_wav: &str, target_language: &str) -> Result<(), Stri
         source_text.len(),
         target_text.len()
     );
-    for (index, &(start, end)) in regions.iter().enumerate() {
-        let gap_after = regions
-            .get(index + 1)
-            .map(|&(next, _)| secs(next.saturating_sub(end)))
-            .unwrap_or_else(|| secs(speech_end.saturating_sub(end)));
+    // Resegment the contiguous phrase spans toward the default target (4.0s) — the
+    // same balancing the app applies — and report the resulting cue durations so we
+    // can see there are no too-long or too-short cues.
+    let phrase_spans_sec: Vec<(f64, f64)> = gapfree
+        .iter()
+        .map(|&(start, end)| (secs(start), secs(end)))
+        .collect();
+    let balanced = resegment(&phrase_spans_sec, 4.0);
+    let balanced_durs: Vec<f64> = balanced.iter().map(|&(start, end)| end - start).collect();
+    let min_dur = balanced_durs.iter().copied().fold(f64::INFINITY, f64::min);
+    let max_dur = balanced_durs.iter().copied().fold(0.0_f64, f64::max);
+    eprintln!(
+        "[gt-test] resegment(target=4.0s) -> {} cues  min={:.2}s max={:.2}s",
+        balanced.len(),
+        min_dur,
+        max_dur
+    );
+    for (index, &(start, end)) in balanced.iter().enumerate() {
         eprintln!(
-            "[gt-test]   region {:2}: {:6.2}-{:6.2}s  gap_after={:5.2}s",
+            "[gt-test]   cue {:2}: {:6.2}-{:6.2}s  dur={:4.2}s",
             index,
-            secs(start),
-            secs(end),
-            gap_after
+            start,
+            end,
+            end - start
         );
     }
 

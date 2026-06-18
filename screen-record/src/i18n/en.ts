@@ -359,6 +359,8 @@ const en = {
   narrationGrouping: 'Grouped requests',
   narrationGroupingBudgetValue: '~{count} words/group',
   narrationGroupingGroups: 'groups',
+  narrationTargetSegment: 'Segment length',
+  narrationTargetSegmentValue: '~{count}s',
   narrationErrorDetails: 'Show error details',
   narrationErrorLogHint: 'Full log: %LOCALAPPDATA%\\SGT\\logs\\session.log',
   narrationTtsPitch: 'Pitch',

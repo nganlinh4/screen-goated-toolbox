@@ -361,6 +361,8 @@ const vi: Translations = {
   narrationGrouping: 'Gộp lượt đọc',
   narrationGroupingBudgetValue: '~{count} từ/nhóm',
   narrationGroupingGroups: 'nhóm',
+  narrationTargetSegment: 'Độ dài đoạn',
+  narrationTargetSegmentValue: '~{count}s',
   narrationErrorDetails: 'Xem chi tiết lỗi',
   narrationErrorLogHint: 'Log đầy đủ: %LOCALAPPDATA%\\SGT\\logs\\session.log',
   narrationTtsPitch: 'Cao độ',

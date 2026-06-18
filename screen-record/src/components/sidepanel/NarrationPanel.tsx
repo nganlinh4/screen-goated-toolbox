@@ -39,10 +39,12 @@ import {
 import {
   getInitialDirectVoiceMethod,
   getInitialNarrationGroupTextBudget,
+  getInitialNarrationTargetSegmentSec,
   getInitialNarrationMode,
   getInitialReadUnsplitSubtitles,
   persistDirectVoiceMethod,
   persistNarrationGroupTextBudget,
+  persistNarrationTargetSegmentSec,
   persistNarrationMode,
   persistReadUnsplitSubtitles,
 } from './narrationPanelStorage';
@@ -120,6 +122,7 @@ export function NarrationPanel({
   );
   const [readUnsplitSubtitles, setReadUnsplitSubtitles] = useState(getInitialReadUnsplitSubtitles);
   const [groupTextBudget, setGroupTextBudget] = useState(getInitialNarrationGroupTextBudget);
+  const [targetSegmentSec, setTargetSegmentSec] = useState(getInitialNarrationTargetSegmentSec);
   const [isGroupSliderDragging, setIsGroupSliderDragging] = useState(false);
   const [narrationMode, setNarrationMode] = useState<NarrationMode>(
     () => getInitialNarrationMode(visibleSubtitles.length > 0),
@@ -145,6 +148,10 @@ export function NarrationPanel({
   useEffect(() => {
     persistNarrationGroupTextBudget(groupTextBudget);
   }, [groupTextBudget]);
+
+  useEffect(() => {
+    persistNarrationTargetSegmentSec(targetSegmentSec);
+  }, [targetSegmentSec]);
 
   useEffect(() => {
     persistNarrationMode(narrationMode);
@@ -356,6 +363,7 @@ export function NarrationPanel({
     geminiSpeed: profile.geminiSpeed,
     parallelRequests: profile.geminiS2sParallelRequests,
     groupTextBudget,
+    targetSegmentSec,
     onApplyNarrationSegments,
     onPopulateEmptySubtitles: handlePopulateS2sSubtitles,
     onFinalize: onFinalizeNarrationSegments,
@@ -373,6 +381,10 @@ export function NarrationPanel({
   const groupBudgetLabel = t.narrationGroupingBudgetValue.replace(
     '{count}',
     String(groupTextBudget),
+  );
+  const targetSegmentLabel = t.narrationTargetSegmentValue.replace(
+    '{count}',
+    String(targetSegmentSec),
   );
 
   const status = narration.narrationStatus;
@@ -405,6 +417,8 @@ export function NarrationPanel({
           generateLabel={generateLabel}
           groupBudgetLabel={groupBudgetLabel}
           groupTextBudget={groupTextBudget}
+          targetSegmentLabel={targetSegmentLabel}
+          targetSegmentSec={targetSegmentSec}
           hasSubtitleRange={Boolean(selectedSubtitleRange)}
           directVoiceMethod={directVoiceMethod}
           narration={narration}
@@ -419,6 +433,7 @@ export function NarrationPanel({
           selectedSource={selectedSource}
           selectedSourceTrackId={selectedSourceTrackId}
           setGroupTextBudget={setGroupTextBudget}
+          setTargetSegmentSec={setTargetSegmentSec}
           setIsGroupSliderDragging={setIsGroupSliderDragging}
           setDirectVoiceMethod={setDirectVoiceMethod}
           setNarrationMode={setNarrationMode}

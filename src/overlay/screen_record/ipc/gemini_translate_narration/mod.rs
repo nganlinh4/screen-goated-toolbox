@@ -1,5 +1,6 @@
 mod gt_test;
 mod output_vad;
+mod resegment;
 mod socket_io;
 mod stream;
 mod text_delta;
@@ -24,13 +25,16 @@ use super::subtitles::types::SubtitleClipRequest;
 struct GeminiTranslateNarrationRequest {
     source_type: String,
     target_language: String,
-    #[serde(default = "default_group_budget")]
-    group_text_budget: usize,
+    /// Target length (seconds) the cues/takes are steered toward: long pause-free
+    /// reads are split into ~this, short reads merged into neighbours, so segments
+    /// stay near this length without leaving any too short.
+    #[serde(default = "default_target_segment_sec")]
+    target_segment_sec: f64,
     clips: Vec<SubtitleClipRequest>,
 }
 
-fn default_group_budget() -> usize {
-    25
+fn default_target_segment_sec() -> f64 {
+    4.0
 }
 
 #[derive(Clone, serde::Serialize)]

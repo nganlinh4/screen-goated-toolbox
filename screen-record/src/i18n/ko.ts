@@ -361,6 +361,8 @@ const ko: Translations = {
   narrationGrouping: '묶어서 생성',
   narrationGroupingBudgetValue: '그룹당 약 {count}단어',
   narrationGroupingGroups: '그룹',
+  narrationTargetSegment: '구간 길이',
+  narrationTargetSegmentValue: '~{count}초',
   narrationErrorDetails: '오류 자세히 보기',
   narrationErrorLogHint: '전체 로그: %LOCALAPPDATA%\\SGT\\logs\\session.log',
   narrationTtsPitch: '음높이',
