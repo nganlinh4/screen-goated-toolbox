@@ -29,8 +29,9 @@
   - Comparison is against the canonical shared app version, not platform-specific debug/flavor suffixes.
   - GitHub release `tag_name` is normalized by removing the leading `v`.
   - Android flavor/build suffixes such as `-full`, `-play`, and `-debug` are ignored for update comparison.
-  - If an Android `.apk` asset exists in the latest release, Android should prefer that asset URL for the download action.
-  - If no `.apk` asset exists yet, Android should fall back to the release page URL.
+  - The Android update **action target depends on the distribution flavor**:
+    - `play` flavor: the action opens the Google Play listing (`market://details?id=dev.screengoated.toolbox.mobile`, web fallback `https://play.google.com/store/apps/details?id=...`). Play performs the actual update.
+    - `full` (sideload) flavor: prefer the latest `.apk` asset URL; fall back to the release page URL when no `.apk` exists. (Legacy path — being phased out as Android moves to Play-only.)
 - Output contract:
   - Android must show the same latest-version and release-notes data that Windows uses from GitHub Releases.
   - Android must perform the same startup auto-check semantics once per app launch.
@@ -52,4 +53,6 @@
 
 ## Deviations
 - Windows performs an in-place executable update and can request restart.
-- Android cannot safely mirror that in-place replacement path from the app UI, so the Android primary action opens the latest `.apk` asset or the GitHub release page for user-driven install.
+- Android cannot mirror Windows' in-place replacement from the app UI:
+  - `play` flavor delegates updates to Google Play — the action opens the Play listing and Play auto-updates installed builds.
+  - `full` (sideload) flavor opens the GitHub `.apk` asset or release page for a user-driven install. This path is being retired in favor of Play-only distribution; existing sideload installs must reinstall from Play (different signing key) to migrate.
