@@ -13,6 +13,10 @@ tmp-release-notes-*.txt
 # Local-only release infra notes (embedding server / SSH details)
 docs/RELEASING.local.md
 
+# Google Play Developer API service-account key (NEVER commit)
+play-service-account*.json
+*play*service*account*.json
+
 # Cursor build artifacts
 build_cursor.exe
 cursor_data.txt

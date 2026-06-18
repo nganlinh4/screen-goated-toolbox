@@ -58,8 +58,20 @@ gh release create v<VERSION> `
 - After reviewing the draft on GitHub, publish it.
 
 ## 7. Google Play
-- Upload the `.aab` to the relevant track (closed test → production once approved).
-- Add the same release notes in the Play Console release.
+Two ways to push the `.aab` to a track:
+
+**a) Console UI** — upload the `.aab` to the track (production / closed / etc.), add release notes, roll out.
+
+**b) CLI (no browser)** — `scripts/play_publish.py` via the Play Developer API:
+```
+pip install google-api-python-client google-auth      # one-time
+set PLAY_SERVICE_ACCOUNT_JSON=C:\path\to\play-service-account.json
+python scripts/play_publish.py --aab <path-to.aab> --track production \
+    --notes-file play-notes-<VERSION>.txt --fraction 1.0
+```
+- One-time setup: Play Console → Setup → API access → create a service account, download its JSON key, grant it release permission. Keep the key **outside the repo** (it's gitignored as a safety net).
+- Play caps release notes at **500 chars/language**, so use a short `play-notes-<VERSION>.txt`, not the full GitHub `tmp-release-notes` file.
+- Use `--track internal` first to smoke-test the pipeline; `--fraction 0.2` for a staged rollout.
 
 ---
 
