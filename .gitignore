@@ -10,6 +10,9 @@ nul
 # Scratch / temporary release notes drafts
 tmp-release-notes-*.txt
 
+# Local-only release infra notes (embedding server / SSH details)
+docs/RELEASING.local.md
+
 # Cursor build artifacts
 build_cursor.exe
 cursor_data.txt
