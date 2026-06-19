@@ -36,7 +36,9 @@ PLAY_NOTE_LIMIT = 500  # Google Play caps release notes at 500 chars per languag
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Publish an AAB to Google Play.")
-    parser.add_argument("--aab", required=True, help="Path to the .aab to upload.")
+    parser.add_argument("--aab", help="Path to the .aab to upload (omit if --version-code given).")
+    parser.add_argument("--version-code", type=int,
+                        help="Use an already-uploaded versionCode instead of uploading a new .aab.")
     parser.add_argument("--track", default="production",
                         help="Track: production | beta | alpha | internal (default: production).")
     parser.add_argument("--notes-file", help="Release-notes text file (<=500 chars for Play).")
@@ -50,8 +52,8 @@ def main() -> int:
 
     if not args.credentials or not os.path.exists(args.credentials):
         return _fail("Service-account JSON not found. Set PLAY_SERVICE_ACCOUNT_JSON or pass --credentials.")
-    if not os.path.exists(args.aab):
-        return _fail(f"AAB not found: {args.aab}")
+    if not args.version_code and not (args.aab and os.path.exists(args.aab)):
+        return _fail("Provide --aab <path> or --version-code <int>.")
     if not (0.0 < args.fraction <= 1.0):
         return _fail("--fraction must be between 0 (exclusive) and 1.0.")
 
@@ -68,13 +70,17 @@ def main() -> int:
 
     edit_id = edits.insert(packageName=PACKAGE_NAME, body={}).execute()["id"]
 
-    print(f"Uploading {os.path.basename(args.aab)} ...")
-    media = MediaFileUpload(args.aab, mimetype="application/octet-stream", resumable=True)
-    bundle = edits.bundles().upload(
-        packageName=PACKAGE_NAME, editId=edit_id, media_body=media,
-    ).execute()
-    version_code = bundle["versionCode"]
-    print(f"  uploaded versionCode {version_code}")
+    if args.version_code:
+        version_code = args.version_code
+        print(f"  using existing versionCode {version_code} (skipping upload)")
+    else:
+        print(f"Uploading {os.path.basename(args.aab)} ...")
+        media = MediaFileUpload(args.aab, mimetype="application/octet-stream", resumable=True)
+        bundle = edits.bundles().upload(
+            packageName=PACKAGE_NAME, editId=edit_id, media_body=media,
+        ).execute()
+        version_code = bundle["versionCode"]
+        print(f"  uploaded versionCode {version_code}")
 
     release = {
         "versionCodes": [str(version_code)],
@@ -82,6 +88,8 @@ def main() -> int:
     }
     if args.fraction < 1.0:
         release["userFraction"] = args.fraction
+        # countryTargeting is only valid on staged (in-progress) releases.
+        release["countryTargeting"] = {"includeRestOfWorld": True}
     if args.notes_file:
         notes = open(args.notes_file, encoding="utf-8").read().strip()
         if len(notes) > PLAY_NOTE_LIMIT:
