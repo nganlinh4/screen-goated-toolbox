@@ -117,7 +117,11 @@ fn render_magpie_voice_config_rows(
                             .strong()
                             .color(theme.success()),
                     );
-                    ui.label("→");
+                    crate::gui::icons::draw_icon_static(
+                        ui,
+                        crate::gui::icons::Icon::ArrowRightAlt,
+                        Some(crate::gui::icons::ICON_SM),
+                    );
                     crate::gui::widgets::combo(format!("magpie_voice_{}", idx))
                         .selected_text(normalize_magpie_voice(&voice_config.voice_id))
                         .width(220.0)
@@ -232,7 +236,11 @@ fn render_kokoro_voice_config_rows(
                             .strong()
                             .color(theme.success()),
                     );
-                    ui.label("→");
+                    crate::gui::icons::draw_icon_static(
+                        ui,
+                        crate::gui::icons::Icon::ArrowRightAlt,
+                        Some(crate::gui::icons::ICON_SM),
+                    );
 
                     let voice_lang =
                         kokoro_voice_language_for_condition(&voice_config.language_code)
@@ -376,7 +384,11 @@ fn render_supertonic_voice_config_rows(
                             .strong()
                             .color(theme.success()),
                     );
-                    ui.label("→");
+                    crate::gui::icons::draw_icon_static(
+                        ui,
+                        crate::gui::icons::Icon::ArrowRightAlt,
+                        Some(crate::gui::icons::ICON_SM),
+                    );
                     crate::gui::widgets::combo(format!("supertonic_voice_{idx}"))
                         .selected_text(normalize_supertonic_voice(&voice_config.voice_id))
                         .width(160.0)

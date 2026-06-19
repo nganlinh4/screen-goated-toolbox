@@ -104,17 +104,21 @@ export function MediaResultDialog({
     }).catch(console.error);
   }, [show, filePath]);
 
+  // Auto-select the name (minus extension) only when rename mode opens — not on
+  // every keystroke, otherwise each character typed re-selects the whole field
+  // and the next keystroke overwrites it down to a single character.
   useEffect(() => {
     if (!isRenaming) return;
     const input = renameInputRef.current;
     if (!input) return;
-    const extensionStart = renameValue.lastIndexOf('.');
-    const selectionEnd = extensionStart > 0 ? extensionStart : renameValue.length;
     requestAnimationFrame(() => {
+      const current = input.value;
+      const extensionStart = current.lastIndexOf('.');
+      const selectionEnd = extensionStart > 0 ? extensionStart : current.length;
       input.focus();
       input.setSelectionRange(0, selectionEnd);
     });
-  }, [isRenaming, renameValue]);
+  }, [isRenaming]);
 
   if (!show) return null;
 

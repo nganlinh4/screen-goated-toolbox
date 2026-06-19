@@ -134,18 +134,14 @@ export function Button({
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg
-      viewBox="0 0 12 12"
+      viewBox="0 0 24 24"
       className={clsx(
         "tts-select-chevron h-3 w-3 shrink-0 text-muted transition-transform duration-150",
         open && "rotate-180",
       )}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill="currentColor"
     >
-      <path d="M3 4.5 L6 7.5 L9 4.5" />
+      <path d="m12 15.375l-6-6l1.4-1.4l4.6 4.6l4.6-4.6l1.4 1.4z" />
     </svg>
   );
 }
@@ -294,15 +290,11 @@ export function Select<T extends string>({
                   <span className="min-w-0 flex-1 truncate">{o.label}</span>
                   {active && (
                     <svg
-                      viewBox="0 0 12 12"
+                      viewBox="0 0 24 24"
                       className="tts-select-check h-3 w-3 shrink-0 text-accent"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.75"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                      fill="currentColor"
                     >
-                      <path d="M2.5 6.5 L5 9 L9.5 3.5" />
+                      <path d="m9.55 18l-5.7-5.7l1.425-1.425L9.55 15.15l9.175-9.175L20.15 7.4z" />
                     </svg>
                   )}
                 </button>

@@ -254,7 +254,11 @@ pub fn render_tts_settings_modal(
                                 .unwrap_or(&condition.language_name);
 
                             ui.label(egui::RichText::new(display_name).strong().color(theme.success()));
-                            ui.label("→");
+                            crate::gui::icons::draw_icon_static(
+                                ui,
+                                crate::gui::icons::Icon::ArrowRightAlt,
+                                Some(crate::gui::icons::ICON_SM),
+                            );
 
                             // Instruction input
                             if ui.add(
@@ -474,7 +478,11 @@ pub fn render_tts_settings_modal(
                             ui.horizontal(|ui| {
                                 // Language name (read-only)
                                 ui.label(egui::RichText::new(&voice_config.language_name).strong().color(theme.success()));
-                                ui.label("→");
+                                crate::gui::icons::draw_icon_static(
+                                ui,
+                                crate::gui::icons::Icon::ArrowRightAlt,
+                                Some(crate::gui::icons::ICON_SM),
+                            );
 
                                 // Voice dropdown for this language
                                 let voices = crate::api::tts::edge_voices::get_voices_for_language(&voice_config.language_code);

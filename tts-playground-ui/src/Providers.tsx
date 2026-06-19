@@ -395,13 +395,8 @@ function VoicePerLanguage({
                 className="tts-voice-remove text-muted hover:text-danger"
                 aria-label="Remove"
               >
-                <svg viewBox="0 0 16 16" className="h-3.5 w-3.5">
-                  <path
-                    d="M5 5 L11 11 M11 5 L5 11"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor">
+                  <path d="M6.4 19L5 17.6l5.6-5.6L5 6.4L6.4 5l5.6 5.6L17.6 5L19 6.4L13.4 12l5.6 5.6l-1.4 1.4l-5.6-5.6z" />
                 </svg>
               </button>
             </li>

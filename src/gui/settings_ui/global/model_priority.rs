@@ -101,11 +101,11 @@ fn render_chain_section(
     ui.group(|ui| {
         ui.set_min_width(340.0);
         ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(section_title)
-                    .strong()
-                    .size(13.0)
-                    .color(section_title_color),
+            crate::gui::icons::arrow_label(
+                ui,
+                section_title,
+                Some(section_title_color),
+                |rt| rt.strong().size(13.0).color(section_title_color),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button(text.reset_defaults_btn).clicked() {
@@ -123,7 +123,11 @@ fn render_chain_section(
         ui.horizontal(|ui| {
             ui.label("1.");
             ui.label(egui::RichText::new(text.model_priority_chosen_model).strong());
-            ui.label(egui::RichText::new("→").weak());
+            crate::gui::icons::draw_icon_static(
+                ui,
+                crate::gui::icons::Icon::ArrowRightAlt,
+                Some(crate::gui::icons::ICON_SM),
+            );
             ui.label(
                 egui::RichText::new(text.model_priority_fixed_hint)
                     .small()
@@ -238,7 +242,11 @@ fn render_chain_section(
         ui.horizontal(|ui| {
             ui.label(format!("{}.", chain.len() + 2));
             ui.label(egui::RichText::new(text.model_priority_auto).strong());
-            ui.label(egui::RichText::new("→").weak());
+            crate::gui::icons::draw_icon_static(
+                ui,
+                crate::gui::icons::Icon::ArrowRightAlt,
+                Some(crate::gui::icons::ICON_SM),
+            );
             ui.label(
                 egui::RichText::new(text.model_priority_auto_hint)
                     .small()

@@ -86,39 +86,6 @@ pub(super) fn get(
             color: {tertiary};
         }}
 
-        /* Waveform animation for listening state */
-        .wave-line {{
-             transform-box: fill-box;
-             transform-origin: center;
-             animation: wave-animation 1.2s cubic-bezier(0.2, 0.0, 0, 1.0) infinite;
-        }}
-        .wave-line.delay-1 {{ animation-delay: 0s; }}
-        .wave-line.delay-2 {{ animation-delay: 0.15s; }}
-        .wave-line.delay-3 {{ animation-delay: 0.3s; }}
-        .wave-line.delay-4 {{ animation-delay: 0.1s; }}
-
-        @keyframes wave-animation {{
-            0%, 100% {{
-                transform: scaleY(1);
-            }}
-            50% {{
-                transform: scaleY(1.7);
-            }}
-        }}
-
-        /* Translation animation */
-        .trans-part-1 {{
-            animation: lang-bounce 2.2s cubic-bezier(0.2, 0.0, 0, 1.0) infinite;
-        }}
-        .trans-part-2 {{
-            animation: lang-bounce 2.2s cubic-bezier(0.2, 0.0, 0, 1.0) infinite;
-            animation-delay: 1.1s;
-        }}
-        @keyframes lang-bounce {{
-            0%, 100% {{ transform: translateY(0); opacity: 0.8; }}
-            50% {{ transform: translateY(-2px); opacity: 1; }}
-        }}
-
         /* Speak button styling */
         .speak-btn {{
             position: relative;

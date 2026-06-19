@@ -398,7 +398,7 @@ internal fun NodeGraphSection(
                     ) {
                         DropdownMenuItem(
                             text = {
-                                Text(localized(lang, "Add Text -> Text Node", "Thêm node Text -> Text", "텍스트 -> 텍스트 노드 추가"))
+                                Text(localized(lang, "Add Text → Text Node", "Thêm node Text → Text", "텍스트 → 텍스트 노드 추가"))
                             },
                             onClick = {
                                 showAddMenu = false
@@ -440,8 +440,8 @@ internal fun NodeGraphSection(
                                 else -> "gemma-4-26b-a4b"
                             }
                             val specialLabel = when (editorTypeGroup) {
-                                EditorTypeGroup.IMAGE -> localized(lang, "Add Image -> Text Node", "Thêm node Ảnh -> Text", "이미지 -> 텍스트 노드 추가")
-                                EditorTypeGroup.AUDIO -> localized(lang, "Add Audio -> Text Node", "Thêm node Audio -> Text", "오디오 -> 텍스트 노드 추가")
+                                EditorTypeGroup.IMAGE -> localized(lang, "Add Image → Text Node", "Thêm node Ảnh → Text", "이미지 → 텍스트 노드 추가")
+                                EditorTypeGroup.AUDIO -> localized(lang, "Add Audio → Text Node", "Thêm node Audio → Text", "오디오 → 텍스트 노드 추가")
                                 else -> localized(lang, "Add Special Node", "Thêm node đặc biệt", "특별 노드 추가")
                             }
                             DropdownMenuItem(

@@ -104,6 +104,7 @@ cargo test               # Run tests
 - Class names should be semantic, kebab-case, and describe the element's purpose
 - This applies to all components — tracks, handles, labels, overlays, buttons, etc.
 - **Preview = Export (WYSIWYG)**: The frontend preview must always be streamlined and baked/calculated for the backend export. What the user sees in preview must be completely identical to the exported result. Minimize work/changes in the export/render backend when adding new features or changing things in the frontend — keep the preview as the single source of truth.
+- **UI icons** live in `screen-record/src/components/ui/MaterialIcon.tsx` as a hand-curated map of inline Material Symbols SVG path strings (not a build-time pipeline). To add one, run `node screen-record/scripts/add_material_icon.mjs <material-symbol-name>` (e.g. `graphic_eq_off`) — it fetches the exact path from the Iconify material-symbols set and inserts the `ICON_PATHS` entry + `export` line alphabetically. Override the export name with `--name PascalName`. Icons built from non-`<path>` primitives are rejected and must be added by hand.
 
 ### Background WYSIWYG Contract
 - For any new background preset/effect, do not maintain separate "look tuning" paths for preview and export.

@@ -339,20 +339,12 @@ pub(super) fn get_badge_html() -> String {
 
         function getLeadingIcon(type) {{
             if (type === 'gif_copy') {{
-                return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="5" width="18" height="14" rx="3"></rect>
-                    <text x="12" y="15" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none">GIF</text>
-                </svg>`;
+                return `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.587 1.413T19 21zm6-6h1.5V9H11zm-4 0h2q.425 0 .713-.288T10 14v-2H8.5v1.5h-1v-3H10V10q0-.425-.288-.712T9 9H7q-.425 0-.712.288T6 10v4q0 .425.288.713T7 15m7 0h1.5v-2h2v-1.5h-2v-1h3V9H14z"/></svg>`;
             }}
             if (type === 'file_copy') {{
-                return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="6" width="13" height="12" rx="2"></rect>
-                    <polygon points="16 10 21 7.5 21 16.5 16 14"></polygon>
-                </svg>`;
+                return `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M9 18q-.825 0-1.412-.587T7 16V4q0-.825.588-1.412T9 2h9q.825 0 1.413.588T20 4v12q0 .825-.587 1.413T18 18zm-4 4q-.825 0-1.412-.587T3 20V6h2v14h11v2z"/></svg>`;
             }}
-            return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>`;
+            return `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="m9.55 18l-5.7-5.7l1.425-1.425L9.55 15.15l9.175-9.175L20.15 7.4z"/></svg>`;
         }}
 
         function maybeHideWindow() {{

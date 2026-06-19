@@ -61,7 +61,7 @@ pub fn get_icon_svg(name: &str) -> &'static str {
         }
 
         "resize_corner" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 0 16 16" width="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12.5h9V3.5"/></svg>"#
+            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" fill="currentColor"><path d="M3 21v-8h2v4.6L17.6 5H13V3h8v8h-2V6.4L6.4 19H11v2z"/></svg>"#
         }
 
         "apps" => {

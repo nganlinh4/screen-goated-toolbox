@@ -25,9 +25,9 @@ internal fun nodeTypeLabel(
         val prefix = nodeGraphLocalized(lang, "Input", "Đầu vào", "입력")
         "$prefix: $inputSuffix"
     }
-    BlockType.TEXT -> nodeGraphLocalized(lang, "Text -> Text", "Text -> Text", "텍스트 -> 텍스트")
-    BlockType.IMAGE -> nodeGraphLocalized(lang, "Image -> Text", "Ảnh -> Text", "이미지 -> 텍스트")
-    BlockType.AUDIO -> nodeGraphLocalized(lang, "Audio -> Text", "Audio -> Text", "오디오 -> 텍스트")
+    BlockType.TEXT -> nodeGraphLocalized(lang, "Text → Text", "Text → Text", "텍스트 → 텍스트")
+    BlockType.IMAGE -> nodeGraphLocalized(lang, "Image → Text", "Ảnh → Text", "이미지 → 텍스트")
+    BlockType.AUDIO -> nodeGraphLocalized(lang, "Audio → Text", "Audio → Text", "오디오 → 텍스트")
 }
 
 internal fun nodeGraphLocalized(lang: String, en: String, vi: String, ko: String): String = when (lang) {

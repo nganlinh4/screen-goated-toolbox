@@ -392,6 +392,7 @@ const en = {
   startRecordingHint: 'Or drag and drop video, audio, or subtitle files (SRT/VTT) into SGT or SGT Record to start working',
   loadingVideo: 'Loading video:',
   applyCrop: 'Apply Crop',
+  clearCrop: 'Clear Crop',
   cropVideo: 'Crop Video',
 
   // Dialogs - Export

@@ -394,6 +394,7 @@ const ko: Translations = {
   startRecordingHint: '또는 비디오, 오디오, 자막 파일(SRT/VTT)을 SGT나 SGT Record에 끌어다 놓아 작업을 시작하세요',
   loadingVideo: '비디오 로딩:',
   applyCrop: '자르기 적용',
+  clearCrop: '자르기 해제',
   cropVideo: '비디오 자르기',
 
   // Dialogs - Export
