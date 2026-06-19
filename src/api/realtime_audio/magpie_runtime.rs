@@ -180,10 +180,16 @@ fn ensure_magpie_runtime_imports(entrypoint: &Path) -> Result<()> {
 }
 
 fn python_import_ok(python: &Path, module: &str) -> bool {
-    Command::new(python)
-        .args(["-c", &format!("import {module}")])
-        .status()
-        .is_ok_and(|status| status.success())
+    let mut cmd = Command::new(python);
+    cmd.args(["-c", &format!("import {module}")]);
+    // CREATE_NO_WINDOW: this runs on the "downloaded tools" status probe (every
+    // few seconds while the modal is open), so a visible console would flash.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd.status().is_ok_and(|status| status.success())
 }
 
 pub fn is_magpie_runtime_installed() -> bool {
