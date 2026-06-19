@@ -534,15 +534,6 @@ impl AppTheme {
         style.visuals = v;
         // Slightly roomier buttons without reflowing the dense layouts much.
         style.spacing.button_padding = egui::vec2(7.0, 3.0);
-        // egui enables these red debug overlays by default in debug builds
-        // (`cargo run`); they flicker over widgets on interaction. Keep the UI clean.
-        style.debug.show_unaligned = false;
-        style.debug.show_interactive_widgets = false;
-        style.debug.show_widget_hits = false;
-        // Paints a 2px red outline on every widget whose rect moved since the
-        // last frame — i.e. red boxes everywhere while scrolling. On by default
-        // in debug builds; kill it so the UI stays clean.
-        style.debug.warn_if_rect_changes_id = false;
 
         ctx.set_global_style(style);
     }
