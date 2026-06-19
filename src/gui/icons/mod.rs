@@ -88,6 +88,10 @@ pub enum Icon {
     ArrowUp,
     ArrowDown,
     ArrowRight,
+    // Straight "flow" arrow (A → B), distinct from the chevron family above.
+    ArrowRightAlt,
+    // Notched flow arrow used inline inside "X → Y" labels (node titles etc.).
+    LineEndArrowNotch,
 
     // Section headers / status
     Key,
@@ -154,6 +158,8 @@ fn icon_svg_bytes(icon: Icon) -> &'static [u8] {
         Icon::ArrowUp => include_bytes!("svg/keyboard_arrow_up.svg"),
         Icon::ArrowDown => include_bytes!("svg/keyboard_arrow_down.svg"),
         Icon::ArrowRight => include_bytes!("svg/keyboard_arrow_right.svg"),
+        Icon::ArrowRightAlt => include_bytes!("svg/arrow_right_alt.svg"),
+        Icon::LineEndArrowNotch => include_bytes!("svg/line_end_arrow_notch.svg"),
         Icon::Key => include_bytes!("svg/key.svg"),
         Icon::Upgrade => include_bytes!("svg/upgrade.svg"),
         Icon::CheckCircle => include_bytes!("svg/check_circle.svg"),
@@ -292,6 +298,33 @@ pub fn draw_icon_static(ui: &mut egui::Ui, icon: Icon, size_override: Option<f32
     let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
     let color = ui.visuals().text_color();
     render_icon(ui.painter(), rect, icon, color);
+}
+
+/// Render an `"X → Y"` label with the Material `line_end_arrow_notch` icon in
+/// place of the arrow, laid out inline in the current (horizontal) ui. The text
+/// is a localized string that uses `→` as the split point; falls back to a
+/// plain styled label when there's no arrow. `decorate` styles each text half
+/// identically (size/strong/color); `color` tints the arrow icon (defaults to
+/// the ui text color).
+pub fn arrow_label(
+    ui: &mut egui::Ui,
+    text: &str,
+    color: Option<egui::Color32>,
+    decorate: impl Fn(egui::RichText) -> egui::RichText,
+) {
+    match text.split_once('→') {
+        Some((lhs, rhs)) => {
+            ui.label(decorate(egui::RichText::new(lhs.trim())));
+            let side = ICON_SM;
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+            let c = color.unwrap_or_else(|| ui.visuals().text_color());
+            render_icon(ui.painter(), rect, Icon::LineEndArrowNotch, c);
+            ui.label(decorate(egui::RichText::new(rhs.trim())));
+        }
+        None => {
+            ui.label(decorate(egui::RichText::new(text)));
+        }
+    }
 }
 
 /// Paint an icon directly (for custom layouts where icon_button isn't suitable)

@@ -171,10 +171,10 @@ impl SettingsApp {
         let original_lang = self.config.ui_language.clone();
         let chevron_px = ui.spacing().icon_width;
         let chevron_gap = 4.0_f32;
-        let lang_flag = match self.config.ui_language.as_str() {
-            "vi" => "🇻🇳",
-            "ko" => "🇰🇷",
-            _ => "🇺🇸",
+        let lang_code = match self.config.ui_language.as_str() {
+            "vi" => "VI",
+            "ko" => "KO",
+            _ => "EN",
         };
         let space_w = ui
             .painter()
@@ -187,10 +187,10 @@ impl SettingsApp {
             .width()
             .max(0.1);
         let lead = (((chevron_px + chevron_gap) / space_w).ceil() as usize).max(1);
-        let lang_label = format!("{}{}", lang_flag, " ".repeat(lead));
+        let lang_label = format!("{}{}", lang_code, " ".repeat(lead));
         let menu_inner = ui.menu_button(lang_label, |ui| {
             if ui
-                .selectable_value(&mut self.config.ui_language, "en".to_string(), "🇺🇸 English")
+                .selectable_value(&mut self.config.ui_language, "en".to_string(), "English")
                 .clicked()
             {
                 ui.close();
@@ -199,14 +199,14 @@ impl SettingsApp {
                 .selectable_value(
                     &mut self.config.ui_language,
                     "vi".to_string(),
-                    "🇻🇳 Tiếng Việt",
+                    "Tiếng Việt",
                 )
                 .clicked()
             {
                 ui.close();
             }
             if ui
-                .selectable_value(&mut self.config.ui_language, "ko".to_string(), "🇰🇷 한국어")
+                .selectable_value(&mut self.config.ui_language, "ko".to_string(), "한국어")
                 .clicked()
             {
                 ui.close();

@@ -143,15 +143,10 @@ export function SeekIndicator({ dir, showKey }: { dir: 'left' | 'right'; showKey
       width="18"
       height="18"
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill="currentColor"
       style={flip ? { transform: 'scaleX(-1)' } : undefined}
     >
-      <polyline points="13 17 18 12 13 7" />
-      <polyline points="6 17 11 12 6 7" />
+      <path d="M9.575 12L5 7.4L6.4 6l6 6l-6 6L5 16.6zm6.6 0L11.6 7.4L13 6l6 6l-6 6l-1.4-1.4z" />
     </svg>
   );
 
@@ -250,9 +245,7 @@ export function PlaybackControls({
           title={t.applyCrop}
           aria-label={t.applyCrop}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <Check size={14} />
         </Button>
       </div>
     );

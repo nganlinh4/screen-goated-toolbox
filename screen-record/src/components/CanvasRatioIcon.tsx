@@ -17,18 +17,10 @@ export function CanvasRatioIcon({
     <svg
       className="canvas-ratio-icon h-4 w-4 shrink-0"
       viewBox="0 0 18 18"
-      fill="none"
+      fill="currentColor"
       aria-hidden="true"
     >
-      <rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        rx={radius}
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
+      <rect x={x} y={y} width={width} height={height} rx={radius} />
     </svg>
   );
 }

@@ -394,6 +394,7 @@ const vi: Translations = {
   startRecordingHint: 'Hoặc kéo thả video, audio hoặc phụ đề (SRT/VTT) vào SGT hoặc SGT Record để bắt đầu làm việc',
   loadingVideo: 'Đang tải video:',
   applyCrop: 'Áp Dụng Cắt',
+  clearCrop: 'Xóa Cắt',
   cropVideo: 'Cắt Video',
 
   // Dialogs - Export

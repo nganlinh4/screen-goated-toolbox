@@ -127,7 +127,7 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                 ChainNode::Process { .. } => {
                     draw_icon_static(ui, Icon::Settings, Some(crate::gui::icons::ICON_MD));
                     let title = self.text.node_process_title;
-                    ui.label(title);
+                    crate::gui::icons::arrow_label(ui, title, None, |rt| rt);
                 }
 
                 ChainNode::Special { .. } => {
@@ -139,7 +139,9 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                         _ => self.text.node_special_default,
                     };
                     let header_color = AppTheme::from_ui(ui).node_special_title();
-                    ui.label(egui::RichText::new(title).color(header_color));
+                    crate::gui::icons::arrow_label(ui, title, Some(header_color), move |rt| {
+                        rt.color(header_color)
+                    });
                 }
             };
         });
@@ -210,24 +212,37 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
             _ => self.text.node_menu_add_special_generic,
         };
 
-        let add_process_clicked = ui
-            .horizontal(|ui| {
-                draw_icon_static(ui, Icon::Plus, Some(crate::gui::icons::ICON_MD));
-                ui.button(add_process_label).clicked()
-            })
-            .inner;
+        let add_process_clicked = {
+            let resp = ui
+                .horizontal(|ui| {
+                    draw_icon_static(ui, Icon::Plus, Some(crate::gui::icons::ICON_MD));
+                    crate::gui::icons::arrow_label(ui, add_process_label, None, |rt| rt);
+                })
+                .response
+                .interact(egui::Sense::click());
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            resp.clicked()
+        };
         if add_process_clicked {
             snarl.insert_node(pos, ChainNode::default());
             self.changed = true;
             ui.close();
         }
-        let add_special_clicked = self.preset_type != "text"
-            && ui
+        let add_special_clicked = self.preset_type != "text" && {
+            let resp = ui
                 .horizontal(|ui| {
                     draw_icon_static(ui, Icon::Star, Some(crate::gui::icons::ICON_MD));
-                    ui.button(add_special_label).clicked()
+                    crate::gui::icons::arrow_label(ui, add_special_label, None, |rt| rt);
                 })
-                .inner;
+                .response
+                .interact(egui::Sense::click());
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            resp.clicked()
+        };
         if add_special_clicked {
             let mut node = ChainNode::default();
             // Force it to be Special

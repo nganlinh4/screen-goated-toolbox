@@ -85,8 +85,8 @@ function Header({ title }: { title: string }) {
           ariaLabel="Minimize"
           onClick={() => void ttsApi.minimizeWindow()}
         >
-          <svg viewBox="0 0 12 12" className="h-3 w-3">
-            <rect x="2" y="5.5" width="8" height="1" fill="currentColor" />
+          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor">
+            <path d="M5 13v-2h14v2z" />
           </svg>
         </WindowButton>
         <WindowButton
@@ -94,13 +94,8 @@ function Header({ title }: { title: string }) {
           onClick={() => void ttsApi.closeWindow()}
           danger
         >
-          <svg viewBox="0 0 12 12" className="h-3 w-3">
-            <path
-              d="M2 2 L10 10 M10 2 L2 10"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-            />
+          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor">
+            <path d="M6.4 19L5 17.6l5.6-5.6L5 6.4L6.4 5l5.6 5.6L17.6 5L19 6.4L13.4 12l5.6 5.6l-1.4 1.4l-5.6-5.6z" />
           </svg>
         </WindowButton>
       </div>
@@ -108,24 +103,11 @@ function Header({ title }: { title: string }) {
   );
 }
 
-/** Small accent waveform mark — replaces the generic 🔊 emoji. */
+/** Small accent waveform mark (Material Symbols "graphic_eq") — replaces the generic 🔊 emoji. */
 function WaveMark() {
   return (
-    <svg viewBox="0 0 20 14" className="tts-wave-mark h-3.5 w-5 text-accent" aria-hidden>
-      {[2, 6, 10, 14, 18].map((x, i) => {
-        const h = [5, 11, 8, 13, 6][i];
-        return (
-          <rect
-            key={x}
-            x={x - 1}
-            y={(14 - h) / 2}
-            width="2"
-            height={h}
-            rx="1"
-            fill="currentColor"
-          />
-        );
-      })}
+    <svg viewBox="0 0 24 24" className="tts-wave-mark h-3.5 w-4 text-accent" fill="currentColor" aria-hidden>
+      <path d="M7 18V6h2v12zm4 4V2h2v20zm-8-8v-4h2v4zm12 4V6h2v12zm4-4v-4h2v4z" />
     </svg>
   );
 }

@@ -244,9 +244,9 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     };
 
     let loading_icon = if is_translation {
-        r##"<svg class="loading-svg" viewBox="0 -6 24 36" fill="none" stroke="#ff9633" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g class="trans-part-1"><path d="m5 8 6 6"></path><path d="m4 14 6-6 2-3"></path><path d="M2 5h12"></path><path d="M7 2h1"></path></g><g class="trans-part-2"><path d="m22 22-5-10-5 10"></path><path d="M14 18h6"></path></g></svg>"##
+        r##"<svg class="loading-svg" viewBox="0 0 24 24" fill="#ff9633"><path d="m11.9 22l4.55-12h2.1l4.55 12H21l-1.075-3.05h-4.85L14 22zM4 19l-1.4-1.4l5.05-5.05q-.875-.875-1.588-2T4.75 8h2.1q.5.975 1 1.7t1.2 1.45q.825-.825 1.713-2.313T12.1 6H1V4h7V2h2v2h7v2h-2.9q-.525 1.8-1.575 3.7t-2.075 2.9l2.4 2.45l-.75 2.05l-3.05-3.125zm11.7-1.8h3.6l-1.8-5.1z"/></svg>"##
     } else {
-        r##"<svg class="loading-svg" viewBox="0 -12 24 48" fill="none" stroke="#00c8ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><line class="wave-line delay-1" x1="4" y1="8" x2="4" y2="16"></line><line class="wave-line delay-2" x1="9" y1="4" x2="9" y2="20"></line><line class="wave-line delay-3" x1="14" y1="6" x2="14" y2="18"></line><line class="wave-line delay-4" x1="19" y1="8" x2="19" y2="16"></line></svg>"##
+        r##"<svg class="loading-svg" viewBox="0 0 24 24" fill="#00c8ff"><path d="M7 18V6h2v12zm4 4V2h2v20zm-8-8v-4h2v4zm12 4V6h2v12zm4-4v-4h2v4z"/></svg>"##
     };
 
     // Construct CSS and JS from components

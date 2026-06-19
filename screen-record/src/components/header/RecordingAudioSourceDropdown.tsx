@@ -1,5 +1,5 @@
 import type { PointerEvent } from "react";
-import { ChevronDown, Loader2, Mic, MonitorSpeaker, Volume2 } from '@/components/ui/MaterialIcon';
+import { ChevronDown, GraphicEqOff, Headphones, Loader2, Mic, Volume2 } from '@/components/ui/MaterialIcon';
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -43,6 +43,15 @@ function buildSummaryLabel(
   return t.recordingAudioMuted;
 }
 
+// Keep the trigger glyph in sync with the summary label so the outer button
+// matches the source shown in the menu (device audio → headphones, mic → mic).
+function summaryIcon(selection: RecordingAudioSelection) {
+  if (selection.deviceEnabled && selection.micEnabled) return Volume2;
+  if (selection.deviceEnabled) return Headphones;
+  if (selection.micEnabled) return Mic;
+  return GraphicEqOff;
+}
+
 export function RecordingAudioSourceDropdown({
   open,
   onOpenChange,
@@ -56,6 +65,7 @@ export function RecordingAudioSourceDropdown({
   t,
 }: RecordingAudioSourceDropdownProps) {
   const summaryLabel = buildSummaryLabel(selection, t);
+  const SummaryIcon = summaryIcon(selection);
 
   return (
     <div
@@ -69,7 +79,7 @@ export function RecordingAudioSourceDropdown({
             className="recording-audio-toggle-btn ui-toolbar-button px-2 h-6 text-[11px] whitespace-nowrap flex items-center gap-1.5"
             title={t.recordingAudioSource}
           >
-            <Volume2 className="w-3.5 h-3.5 shrink-0" />
+            <SummaryIcon className="w-3.5 h-3.5 shrink-0" />
             <span className="recording-audio-toggle-label truncate">
               {summaryLabel}
             </span>
@@ -95,7 +105,7 @@ export function RecordingAudioSourceDropdown({
                 checked={selection.deviceEnabled}
                 onChange={(e) => onToggleDevice(e.target.checked)}
               />
-              <MonitorSpeaker className="w-3.5 h-3.5 text-[var(--on-surface-variant)]" />
+              <Headphones className="w-3.5 h-3.5 text-[var(--on-surface-variant)]" />
               <span className="recording-audio-device-label flex-1">
                 {t.trackDeviceAudio}
               </span>

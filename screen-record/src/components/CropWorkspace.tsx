@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, Crop, X } from '@/components/ui/MaterialIcon';
+import { Check, Crop, RotateCcw, X } from '@/components/ui/MaterialIcon';
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/Slider";
 import { useSettings } from "@/hooks/useSettings";
@@ -8,6 +8,15 @@ import { CropRect } from "@/types/video";
 import { getContainedRect } from "@/lib/dynamicCapture";
 
 const DEFAULT_CROP: CropRect = { x: 0, y: 0, width: 1, height: 1 };
+
+function isDefaultCrop(crop: CropRect): boolean {
+  return (
+    Math.abs(crop.x) < 1e-4 &&
+    Math.abs(crop.y) < 1e-4 &&
+    Math.abs(crop.width - 1) < 1e-4 &&
+    Math.abs(crop.height - 1) < 1e-4
+  );
+}
 
 interface CropWorkspaceProps {
   show: boolean;
@@ -292,6 +301,15 @@ export function CropWorkspace({
             </div>
           </div>
           <div className="crop-workspace-actions flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDraftCrop(DEFAULT_CROP)}
+              disabled={isDefaultCrop(draftCrop)}
+              className="crop-workspace-clear-btn h-9 rounded-xl text-xs"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {t.clearCrop}
+            </Button>
             <Button
               variant="outline"
               onClick={onCancel}

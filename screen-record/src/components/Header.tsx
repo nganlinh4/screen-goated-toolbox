@@ -3,8 +3,8 @@ import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
 import {
   Keyboard, X, Download, FolderOpen,
-  ChevronDown, ChevronLeft, ChevronRight, Monitor, AppWindow,
-  Loader2, CircleCheck,
+  ChevronDown, ChevronLeft, ChevronRight, Monitor,
+  ScreenshotMonitor, SelectWindow, Loader2, CircleCheck,
 } from '@/components/ui/MaterialIcon';
 import { Hotkey, MonitorInfo } from '@/hooks/useAppHooks';
 import { formatMonitorSummary, formatTime } from '@/utils/helpers';
@@ -378,7 +378,7 @@ export function Header({
                       onSelect={(e) => { e.preventDefault(); setMenuStep('display-monitors'); }}
                       className="capture-source-option-display py-2"
                     >
-                      <Monitor className="w-3.5 h-3.5 shrink-0 mr-2" />
+                      <ScreenshotMonitor className="w-3.5 h-3.5 shrink-0 mr-2" />
                       <span className="flex-1">{t.displayCapture}</span>
                       <ChevronRight className="w-3 h-3 opacity-50" />
                     </DropdownMenuItem>
@@ -387,7 +387,7 @@ export function Header({
                       onSelect={(e) => { e.preventDefault(); setMenuStep('window-fps'); }}
                       className="capture-source-option-window py-2 mt-0.5"
                     >
-                      <AppWindow className="w-3.5 h-3.5 shrink-0 mr-2" />
+                      <SelectWindow className="w-3.5 h-3.5 shrink-0 mr-2" />
                       <span className="flex-1">{t.windowCapture}</span>
                       <ChevronRight className="w-3 h-3 opacity-50" />
                     </DropdownMenuItem>

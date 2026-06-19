@@ -261,7 +261,7 @@ fn handle_ipc_message(body: &str) {
                     let js = format!(
                         "document.getElementById('bubble-check-container').innerHTML = '{}';",
                         if new_state {
-                            r#"<svg class="check-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M13.86 3.66a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.6 9.03a.75.75 0 1 1 1.06-1.06l2.42 2.42 6.72-6.72a.75.75 0 0 1 1.06 0z"/></svg>"#
+                            super::BUBBLE_CHECK_SVG
                         } else { "" }
                     );
                     let _ = webview.evaluate_script(&js);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@/lib/ipc';
-import { Loader2 } from '@/components/ui/MaterialIcon';
+import { Loader2, Upload } from '@/components/ui/MaterialIcon';
 import { BackgroundConfig } from '@/types/video';
 import { Slider } from '@/components/ui/Slider';
 import { Switch } from '@/components/ui/Switch';
@@ -144,7 +144,7 @@ export function BackgroundPanel({
                 {isBackgroundUploadProcessing ? (
                   <Loader2 className="w-4 h-4 text-[var(--primary-color)] animate-spin" />
                 ) : (
-                  <svg className="w-4 h-4 text-on-surface-variant group-hover:text-[var(--primary-color)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <Upload className="w-4 h-4 text-on-surface-variant group-hover:text-[var(--primary-color)] transition-colors" />
                 )}
               </div>
             </label>
