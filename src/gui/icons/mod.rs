@@ -92,6 +92,8 @@ pub enum Icon {
     ArrowRightAlt,
     // Notched flow arrow used inline inside "X → Y" labels (node titles etc.).
     LineEndArrowNotch,
+    // Computer Control preset (robot/agent).
+    SmartToy,
 
     // Section headers / status
     Key,
@@ -160,6 +162,7 @@ fn icon_svg_bytes(icon: Icon) -> &'static [u8] {
         Icon::ArrowRight => include_bytes!("svg/keyboard_arrow_right.svg"),
         Icon::ArrowRightAlt => include_bytes!("svg/arrow_right_alt.svg"),
         Icon::LineEndArrowNotch => include_bytes!("svg/line_end_arrow_notch.svg"),
+        Icon::SmartToy => include_bytes!("svg/smart_toy.svg"),
         Icon::Key => include_bytes!("svg/key.svg"),
         Icon::Upgrade => include_bytes!("svg/upgrade.svg"),
         Icon::CheckCircle => include_bytes!("svg/check_circle.svg"),

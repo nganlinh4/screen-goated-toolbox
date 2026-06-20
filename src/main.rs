@@ -318,6 +318,110 @@ fn main() -> eframe::Result<()> {
         }
     }
 
+    // De-risk probe for the Computer Control feature: open a real Gemini Live
+    // session, stream one screenshot + a text task, log tool calls / usage, exit.
+    if startup_args.iter().any(|arg| arg == "--computer-control-probe") {
+        let task = parse_arg_value(&startup_args, "--cc-task")
+            .unwrap_or_else(|| "Look at the screen and describe what you see, then call done.".to_string());
+        match crate::overlay::computer_control::run_probe_cli(&task) {
+            Ok(()) => std::process::exit(0),
+            Err(error) => {
+                eprintln!("[cc-probe] ERROR: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Headless Computer Control session (mic + screen + execute, stderr logs, no GUI).
+    if startup_args.iter().any(|arg| arg == "--computer-control-run") {
+        crate::overlay::computer_control::run_headless();
+        std::process::exit(0);
+    }
+
+    // Coordinate-convention debug harness.
+    if startup_args.iter().any(|arg| arg == "--cc-coord-test") {
+        match crate::overlay::computer_control::run_coord_test_cli() {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[coord] ERROR: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // UIA ground-truth element dump.
+    if startup_args.iter().any(|arg| arg == "--cc-uia-dump") {
+        let target = parse_arg_value(&startup_args, "--cc-window")
+            .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
+        match crate::overlay::computer_control::run_uia_dump_cli(target.as_deref()) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[uia] ERROR: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Aux vision-stack smoke test: read the foreground window, print the answer.
+    if startup_args.iter().any(|arg| arg == "--cc-vision-test") {
+        let target = parse_arg_value(&startup_args, "--cc-window")
+            .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
+        let question = parse_arg_value(&startup_args, "--cc-task")
+            .unwrap_or_else(|| "In one sentence, what application and content is shown?".to_string());
+        match crate::overlay::computer_control::run_vision_test_cli(target.as_deref(), &question) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[vision-test] ERROR: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Model-free human-cursor demo: glide the cursor on a tour of the screen.
+    if startup_args.iter().any(|arg| arg == "--cc-cursor-demo") {
+        crate::overlay::computer_control::run_cursor_demo_cli();
+        std::process::exit(0);
+    }
+
+    // Grid-overlay legibility check: capture one frame + Set-of-Mark grid, save it.
+    if startup_args.iter().any(|arg| arg == "--cc-grid-test") {
+        let target = parse_arg_value(&startup_args, "--cc-window")
+            .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
+        match crate::overlay::computer_control::run_grid_test_cli(target.as_deref()) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[grid-test] ERROR: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // UIA-grounded task workhorse (element-list grounding + per-step screenshots).
+    if startup_args.iter().any(|arg| arg == "--cc-uia-task") {
+        let task = parse_arg_value(&startup_args, "--cc-task")
+            .unwrap_or_else(|| "Describe the focused window, then call done.".to_string());
+        match crate::overlay::computer_control::run_uia_task_cli(&task) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[uia-task] ERROR: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Task-trace harness (multi-step task + per-step screenshots).
+    if startup_args.iter().any(|arg| arg == "--cc-task-trace") {
+        let task = parse_arg_value(&startup_args, "--cc-task")
+            .unwrap_or_else(|| "Open the Windows Start menu, then call done.".to_string());
+        match crate::overlay::computer_control::run_task_trace_cli(&task) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[trace] ERROR: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     if let Some(exit_code) = maybe_run_headless_export_replay(&startup_args) {
         std::process::exit(exit_code);
     }

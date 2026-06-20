@@ -93,3 +93,7 @@ third_party/moonshine-voice/
 third_party/sherpa-onnx-win/
 docs/index.bleve/
 __pycache__/
+
+# Computer-control debug traces (CC_TRACE_DIR) + scratch design docs
+/cc-*/
+/temp-*.md
