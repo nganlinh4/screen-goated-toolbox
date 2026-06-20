@@ -338,7 +338,9 @@ fn render_preset_item_parts(
     let is_selected = matches!(current_view_mode, ViewMode::Preset(i) if *i == idx);
     let has_hotkey = !preset.hotkeys.is_empty();
 
-    let icon_type = if preset.id == "preset_realtime_audio_translate" {
+    let icon_type = if preset.id == "preset_computer_control" {
+        Icon::SmartToy
+    } else if preset.id == "preset_realtime_audio_translate" {
         Icon::Rtt
     } else {
         match preset.preset_type.as_str() {

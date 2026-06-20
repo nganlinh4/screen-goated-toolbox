@@ -130,6 +130,9 @@ impl eframe::App for SettingsApp {
 
             // Render Minimal Mode Overlay (Realtime)
             crate::overlay::realtime_egui::render_minimal_overlay(ctx);
+
+            // Render Computer Control overlay (Điều khiển máy tính)
+            crate::overlay::computer_control::render_overlay(ctx);
         }
 
         // Render Splash Overlay (Last Last)
