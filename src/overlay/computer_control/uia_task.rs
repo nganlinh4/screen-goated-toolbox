@@ -54,7 +54,7 @@ THEN stop and wait for the user's next request, without acting further on your o
 step, but DO speak up briefly when it matters: answer the user's questions, and proactively tell them when you \
 are stuck, when an action isn't registering, or what you're seeing - never go silent while struggling.";
 
-pub(super) fn build_setup(resume: Option<&str>, voice: bool) -> Value {
+pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Value {
     let think = std::env::var("CC_THINK").unwrap_or_else(|_| "medium".to_string());
     // Match the global TTS voice preference ("Cài đặt giọng đọc" in settings) so
     // the agent speaks in the user's chosen Gemini voice, not a hardcoded one.
@@ -128,6 +128,12 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool) -> Value {
             "activityHandling": "NO_INTERRUPTION"
         });
     }
+    // Google Search grounding needs a billing-enabled project / grounding quota;
+    // without it the server rejects the whole session ("exceeded quota"). So it's
+    // OPT-IN per call — callers retry without it if setup fails.
+    if !search && let Some(tools) = setup["setup"]["tools"].as_array_mut() {
+        tools.retain(|t| t.get("googleSearch").is_none());
+    }
     setup
 }
 
@@ -150,9 +156,9 @@ enum ReadOutcome {
 }
 
 /// Reconnect the Live session, resuming the prior conversation by `resume` handle.
-pub(super) fn reconnect(key: &str, resume: Option<&str>, voice: bool) -> Result<Sock> {
+pub(super) fn reconnect(key: &str, resume: Option<&str>, voice: bool, search: bool) -> Result<Sock> {
     let mut s = connect_ws(key).context("reconnect")?;
-    send(&mut s, build_setup(resume, voice))?;
+    send(&mut s, build_setup(resume, voice, search))?;
     wait_for_setup(&mut s)?;
     set_socket_nonblocking(&mut s)?;
     Ok(s)
@@ -524,7 +530,7 @@ active, foreground one (its title must contain {t:?})"
 
     let key = session::load_key()?;
     let mut socket = connect_ws(&key).context("connect")?;
-    send(&mut socket, build_setup(None, false))?;
+    send(&mut socket, build_setup(None, false, false))?;
     wait_for_setup(&mut socket)?;
     set_socket_nonblocking(&mut socket)?;
     // Resilience: the preview Live model intermittently drops the WS with
@@ -590,7 +596,7 @@ active, foreground one (its title must contain {t:?})"
                     break;
                 }
                 eprintln!("[cc] reconnecting #{reconnects} (fresh session + re-seed)");
-                match reconnect(&key, None, false) {
+                match reconnect(&key, None, false, false) {
                     Ok(s) => socket = s,
                     Err(e) => {
                         eprintln!("[cc] reconnect failed: {e}");

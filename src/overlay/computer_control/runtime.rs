@@ -40,8 +40,19 @@ pub(super) fn run(stop: Arc<AtomicBool>) {
     match run_inner(&stop) {
         Ok(()) => overlay::set_status("stopped"),
         Err(e) => {
-            overlay::push_log(format!("[warn] session error: {e}"));
-            overlay::set_status("error");
+            let msg = e.to_string().to_lowercase();
+            if msg.contains("quota") || msg.contains("exceeded") || msg.contains("resource_exhausted") {
+                overlay::push_log(
+                    "Gemini rate limit hit (a burst of Live connections). This is usually the per-minute / \
+concurrent-session cap, NOT your daily quota - just WAIT ~30-60s and start again. If it persists, check the key \
+matches your AI Studio project, or use a billing-enabled key."
+                        .to_string(),
+                );
+                overlay::set_status("rate limited - wait ~1 min and retry");
+            } else {
+                overlay::push_log(format!("[warn] session error: {e}"));
+                overlay::set_status("error");
+            }
         }
     }
     overlay::set_listening(false);
@@ -51,9 +62,18 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     let key = session::load_key()?;
     let target = std::env::var("CC_UIA_WINDOW").ok();
     overlay::set_status("connecting...");
+    // Try WITH Google Search grounding; if setup is rejected (grounding needs a
+    // billing-enabled project / quota), fall back to a search-less session so it
+    // still starts. Other Live features don't use search, which is why they work.
     let mut socket = connect_ws(&key)?;
-    send(&mut socket, uia_task::build_setup(None, true))?;
-    wait_for_setup(&mut socket, stop)?;
+    send(&mut socket, uia_task::build_setup(None, true, true))?;
+    if wait_for_setup(&mut socket, stop).is_err() {
+        let _ = socket.close(None);
+        overlay::push_log("(Google Search unavailable on this key — starting without it)".to_string());
+        socket = connect_ws(&key)?;
+        send(&mut socket, uia_task::build_setup(None, true, false))?;
+        wait_for_setup(&mut socket, stop)?;
+    }
     set_socket_nonblocking(&mut socket)?;
     overlay::set_status("ready - speak a command");
     overlay::push_log("* connected; streaming screen + mic (smart brain)".to_string());
@@ -251,7 +271,7 @@ fn reconnect_session(
         return Ok(false);
     }
     overlay::set_status("reconnecting...");
-    match uia_task::reconnect(key, None, true) {
+    match uia_task::reconnect(key, None, true, false) {
         Ok(s) => *socket = s,
         Err(e) => {
             overlay::push_log(format!("reconnect failed: {e}"));
