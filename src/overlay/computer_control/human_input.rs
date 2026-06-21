@@ -53,12 +53,17 @@ impl HumanProfile {
                 wpm: wpm.unwrap_or(55.0),
                 typos: std::env::var("CC_TYPOS").is_ok(),
             },
-            Some("smooth") | Some("1") | Some("on") | Some("true") => Self {
+            // Opt OUT to the rigid/teleport path (for deterministic harness tests).
+            Some("instant") | Some("off") | Some("0") | Some("false") | Some("none") => {
+                Self::instant()
+            }
+            // Default (and "smooth"/"on"/…): natural smooth cursor + typing — the
+            // best experience, so a normal launch gets it with no env var set.
+            _ => Self {
                 mode: Humanize::Smooth,
                 wpm: wpm.unwrap_or(70.0),
                 typos: false,
             },
-            _ => Self::instant(),
         }
     }
 

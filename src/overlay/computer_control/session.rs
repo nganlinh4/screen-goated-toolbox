@@ -250,6 +250,55 @@ pub(super) fn encode_view(
     Ok((encode_jpeg(&image::DynamicImage::ImageRgb8(rgb))?, clamped))
 }
 
+/// A tiny 32x32 grayscale fingerprint of the CLEAN view region (no grid/marker
+/// overlay), for detecting whether the on-screen content actually changed after
+/// an action — the only "did it register?" signal for canvas content the UIA tree
+/// can't see.
+pub(super) fn view_fingerprint(cap: &Capture, view: View) -> Vec<u8> {
+    let iw = cap.rgb.width() as i32;
+    let ih = cap.rgb.height() as i32;
+    let x = (view.x - cap.origin_x).clamp(0, iw.saturating_sub(1).max(0));
+    let y = (view.y - cap.origin_y).clamp(0, ih.saturating_sub(1).max(0));
+    let w = view.w.clamp(1, iw - x);
+    let h = view.h.clamp(1, ih - y);
+    let sub = image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
+    let small = image::imageops::resize(&sub, 32, 32, image::imageops::FilterType::Triangle);
+    small
+        .pixels()
+        .map(|p| {
+            let [r, g, b] = p.0;
+            ((r as u16 * 30 + g as u16 * 59 + b as u16 * 11) / 100) as u8
+        })
+        .collect()
+}
+
+/// Fingerprint a small box (half-width `half` screen px) centred on a screen
+/// pixel — for detecting whether a CLICK changed its own target cell, ignoring a
+/// timer/animation elsewhere on screen.
+pub(super) fn region_fingerprint(cap: &Capture, cx: i32, cy: i32, half: i32) -> Vec<u8> {
+    let v = View { x: cx - half, y: cy - half, w: half * 2, h: half * 2 };
+    view_fingerprint(cap, v)
+}
+
+/// Capture the screen now and fingerprint the box around (cx, cy) — the "before"
+/// snapshot taken just prior to a click.
+pub(super) fn capture_region_fp(cx: i32, cy: i32, half: i32) -> Option<Vec<u8>> {
+    capture_virtual().ok().map(|cap| region_fingerprint(&cap, cx, cy, half))
+}
+
+/// Count of fingerprint cells that changed appreciably between two frames. Robust
+/// to cursor blink / JPEG noise (small deltas ignored); a placed game piece or a
+/// moved selection lights up enough cells to clear the caller's threshold.
+pub(super) fn fingerprint_change(a: &[u8], b: &[u8]) -> u32 {
+    if a.len() != b.len() {
+        return u32::MAX;
+    }
+    a.iter()
+        .zip(b)
+        .filter(|(x, y)| x.abs_diff(**y) > 24)
+        .count() as u32
+}
+
 fn encode_jpeg(img: &image::DynamicImage) -> Result<Vec<u8>> {
     let mut buf = Cursor::new(Vec::new());
     img.write_to(&mut buf, image::ImageFormat::Jpeg)

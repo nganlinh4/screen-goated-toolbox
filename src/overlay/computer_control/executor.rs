@@ -25,13 +25,14 @@ use windows::core::PCWSTR;
 
 use super::human_input::{self, HumanProfile, Outcome};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
-    MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK,
-    MOUSEEVENTF_WHEEL, MOUSEINPUT, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE,
-    VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9,
-    VK_F10, VK_F11, VK_F12, VK_HOME, VK_LEFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN,
+    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MAPVK_VK_TO_VSC, MapVirtualKeyW,
+    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
+    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
+    MOUSEINPUT, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END,
+    VK_ESCAPE, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11,
+    VK_F12, VK_HOME, VK_INSERT, VK_LEFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN,
     VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
 
@@ -270,6 +271,7 @@ fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<V
 }
 
 fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
+    super::uia::focus_foreground(); // text must land on the on-screen window
     let text = args.get("text").and_then(Value::as_str).ok_or_else(|| anyhow!("missing text"))?;
     if profile.humanized() {
         let r = human_input::human_type(
@@ -301,6 +303,7 @@ fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value> {
     if cancel.load(Ordering::Relaxed) {
         return Ok(aborted());
     }
+    super::uia::focus_foreground(); // keys must land on the on-screen window
     let combo = args.get("keys").and_then(Value::as_str).ok_or_else(|| anyhow!("missing keys"))?;
     let mut vks = Vec::new();
     for token in combo.split('+').map(str::trim).filter(|t| !t.is_empty()) {
@@ -458,9 +461,27 @@ fn key_unicode(scan: u16, up: bool) -> INPUT {
     keybd(VIRTUAL_KEY(0), scan, flags)
 }
 
+/// Build a virtual-key event WITH its hardware scan code. A real keypress carries
+/// the scan code, which browsers turn into `KeyboardEvent.code` ("KeyW",
+/// "ArrowDown") — games that read `.code` ignore a scan-codeless synthetic key.
+/// Setting both wVk and wScan makes the injected key indistinguishable from a
+/// physical one. Extended keys (arrows, nav cluster) need the EXTENDEDKEY flag.
 fn key_vk(vk: VIRTUAL_KEY, up: bool) -> INPUT {
-    let flags = if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) };
-    keybd(vk, 0, flags)
+    let scan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
+    let mut flags = if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) };
+    if is_extended_key(vk) {
+        flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    keybd(vk, scan, flags)
+}
+
+/// Keys in the "extended" set send an extra 0xE0 prefix on real hardware; the
+/// EXTENDEDKEY flag reproduces that so `KeyboardEvent.code` resolves correctly.
+fn is_extended_key(vk: VIRTUAL_KEY) -> bool {
+    matches!(
+        vk,
+        VK_LEFT | VK_UP | VK_RIGHT | VK_DOWN | VK_HOME | VK_END | VK_PRIOR | VK_NEXT | VK_INSERT | VK_DELETE
+    )
 }
 
 fn keybd(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {

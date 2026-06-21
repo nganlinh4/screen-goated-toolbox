@@ -15,8 +15,9 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetForegroundWindow, GetSystemMetrics, GetWindowThreadProcessId,
+    BringWindowToTop, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowThreadProcessId,
     SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_RESTORE,
     SetForegroundWindow, ShowWindow,
 };
@@ -191,6 +192,59 @@ pub(super) fn raise_window(target: &str) -> bool {
             let _ = AttachThreadInput(this_tid, fg_tid, false);
         }
         true
+    }
+}
+
+/// Re-assert the foreground window as the focused keyboard target before sending
+/// keys, so keystrokes land on the on-screen window even if focus has drifted
+/// (e.g. to this app's own overlay). The `AttachThreadInput` trick lets a
+/// background process legally call `SetForegroundWindow`/`SetFocus`. Best-effort;
+/// a web canvas's DOM focus still requires a click on it first.
+pub(super) fn focus_foreground() {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return;
+        }
+        let this_tid = GetCurrentThreadId();
+        let fg_tid = GetWindowThreadProcessId(hwnd, None);
+        let attach = fg_tid != 0 && fg_tid != this_tid;
+        if attach {
+            let _ = AttachThreadInput(this_tid, fg_tid, true);
+        }
+        let _ = SetForegroundWindow(hwnd);
+        let _ = SetFocus(Some(hwnd));
+        if attach {
+            let _ = AttachThreadInput(this_tid, fg_tid, false);
+        }
+    }
+}
+
+/// Per-turn grounding context: (active window title, cursor x, cursor y, the
+/// accessible element currently under the cursor). One COM pass. Best-effort —
+/// empty strings if unavailable.
+pub(super) fn pointer_context(target: Option<&str>) -> (String, i32, i32, String) {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let Ok(uia) =
+            CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+        else {
+            return (String::new(), 0, 0, String::new());
+        };
+        let title = pick_window(&uia, target)
+            .ok()
+            .and_then(|w| w.CurrentName().ok())
+            .map(|b| b.to_string())
+            .unwrap_or_default();
+        let mut p = POINT::default();
+        let _ = GetCursorPos(&mut p);
+        let under = uia
+            .ElementFromPoint(p)
+            .ok()
+            .and_then(|e| e.CurrentName().ok())
+            .map(|b| b.to_string())
+            .unwrap_or_default();
+        (title, p.x, p.y, under)
     }
 }
 

@@ -90,46 +90,6 @@ pub fn tool_declarations() -> Value {
     ]}])
 }
 
-/// System instruction for the live computer-control assistant.
-pub const RUNTIME_SYSTEM_INSTRUCTION: &str = "You are a hands-on computer-control assistant for this Windows PC. \
-You continuously SEE the screen (screenshots are streamed to you) and HEAR the user (their speech is transcribed). \
-When the user asks you to do something, DO IT by calling the tools (click/double_click/drag/scroll/type_text/key_combination). \
-ALL screen coordinates are NORMALIZED to a 0-1000 grid over the screenshot: x=0 left edge, x=1000 right edge, y=0 top, y=1000 bottom. \
-Work step by step: act, observe the new screenshot, then continue. \
-Keep spoken/written replies very short. Call done when the request is complete.";
-
-/// Build the runtime setup. The model only supports AUDIO output, so we request
-/// AUDIO + `outputAudioTranscription` and show the transcript on the overlay (the
-/// audio itself is dropped for now — playback is a follow-up). Server-side VAD
-/// lets the user just talk; HIGH media resolution keeps on-screen text legible.
-pub fn build_runtime_setup(model: &str, system_instruction: &str) -> Value {
-    json!({ "setup": {
-        "model": format!("models/{model}"),
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": "Aoede"}}},
-            "mediaResolution": "MEDIA_RESOLUTION_HIGH",
-            "thinkingConfig": {"thinkingLevel": thinking_level()}
-        },
-        "systemInstruction": {"parts": [{"text": system_instruction}]},
-        "tools": tool_declarations(),
-        "realtimeInputConfig": {
-            "automaticActivityDetection": {
-                "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
-                "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH",
-                // Snappy barge-in: a clipped "stop!" should register fast.
-                "prefixPaddingMs": 30,
-                "silenceDurationMs": 250
-            },
-            "activityHandling": "START_OF_ACTIVITY_INTERRUPTS"
-        },
-        "inputAudioTranscription": {},
-        "outputAudioTranscription": {},
-        "sessionResumption": {},
-        "contextWindowCompression": {"slidingWindow": {}}
-    }})
-}
-
 /// Build the BidiGenerateContent `setup` payload for the probe (AUDIO output).
 pub fn build_setup(system_instruction: &str) -> Value {
     json!({ "setup": {
