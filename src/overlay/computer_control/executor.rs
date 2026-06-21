@@ -74,6 +74,7 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
         "key_combination" => key_combination(args, cancel),
         "open_url" => open_url(args),
         "launch_app" => launch_app(args),
+        "run_command" => run_command(args),
         other => Err(anyhow!("unknown action: {other}")),
     };
     match result {
@@ -273,6 +274,22 @@ fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<V
 fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
     super::uia::focus_foreground(); // text must land on the on-screen window
     let text = args.get("text").and_then(Value::as_str).ok_or_else(|| anyhow!("missing text"))?;
+    // Fast path: PASTE longer text via the clipboard instead of synthesizing a
+    // keystroke per character (which took 30+ seconds for a paragraph and mangles
+    // non-ASCII like Vietnamese). Save and restore the user's clipboard so we
+    // don't clobber it. Short inputs still type — avoids touching the clipboard
+    // for a couple of chars and plays nice with type-as-you-search fields.
+    if text.chars().count() > 12 {
+        let saved = super::clipboard::get_text();
+        super::clipboard::set_text(text);
+        sleep(Duration::from_millis(30)); // let the clipboard settle before paste
+        send_ctrl_v();
+        sleep(Duration::from_millis(140)); // let the target consume the paste...
+        if !saved.is_empty() {
+            super::clipboard::set_text(&saved); // ...then restore what the user had
+        }
+        return Ok(json!({"ok": true, "typed_chars": text.chars().count(), "method": "paste"}));
+    }
     if profile.humanized() {
         let r = human_input::human_type(
             text,
@@ -297,6 +314,39 @@ fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Resul
         sleep(Duration::from_millis(2));
     }
     Ok(json!({"ok": true, "typed_chars": text.chars().count()}))
+}
+
+/// Run a PowerShell command (non-interactive, no profile) and capture its text
+/// output — the agent's GENERAL escape hatch for anything without a dedicated
+/// tool (files, processes, volume, system info). Inherits THIS process's
+/// (non-elevated) privileges. `CREATE_NO_WINDOW` avoids a console flash.
+fn run_command(args: &Value) -> Result<Value> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let command = args.get("command").and_then(Value::as_str).ok_or_else(|| anyhow!("missing command"))?;
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", command])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| anyhow!("failed to launch powershell: {e}"))?;
+    let clip = |b: &[u8]| -> String { String::from_utf8_lossy(b).trim().chars().take(4000).collect() };
+    Ok(json!({
+        "ok": output.status.success(),
+        "exit_code": output.status.code(),
+        "stdout": clip(&output.stdout),
+        "stderr": clip(&output.stderr),
+    }))
+}
+
+/// Press Ctrl+V (paste) — Ctrl down, V down, V up, Ctrl up.
+fn send_ctrl_v() {
+    let v = VIRTUAL_KEY(0x56); // 'V'
+    send(&[
+        key_vk(VK_CONTROL, false),
+        key_vk(v, false),
+        key_vk(v, true),
+        key_vk(VK_CONTROL, true),
+    ]);
 }
 
 fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value> {

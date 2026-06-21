@@ -29,6 +29,10 @@ fn default_projects_limit() -> usize {
     DEFAULT_PROJECTS_LIMIT
 }
 
+fn default_cc_memory_limit() -> usize {
+    20
+}
+
 fn default_graphics_mode() -> String {
     "standard".to_string()
 }
@@ -182,6 +186,11 @@ pub struct Config {
     /// Maximum screen record projects to keep
     #[serde(default = "default_projects_limit")]
     pub max_screen_record_projects: usize,
+
+    /// Maximum Computer Control conversations kept in searchable memory. Its own
+    /// cap so the (numerous) normal history items can't evict CC conversations.
+    #[serde(default = "default_cc_memory_limit")]
+    pub cc_max_memory_items: usize,
 
     /// Graphics mode: "standard" or "low"
     #[serde(default = "default_graphics_mode")]
@@ -434,6 +443,7 @@ impl Default for Config {
             ui_language: get_system_ui_language(),
             max_history_items: DEFAULT_HISTORY_LIMIT,
             max_screen_record_projects: DEFAULT_PROJECTS_LIMIT,
+            cc_max_memory_items: default_cc_memory_limit(),
             graphics_mode: "standard".to_string(),
             favorite_overlay_opacity: default_favorite_overlay_opacity(),
 

@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod client;
+pub mod gemini_embed;
 pub mod gemini_generate;
 pub mod gemini_live;
 pub mod ollama;
