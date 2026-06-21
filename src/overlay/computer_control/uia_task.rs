@@ -39,9 +39,10 @@ precise targets. Use zoom + click_at(cell) only for coarse navigation. \
 Open a web page: open_url(url) opens it as a new foreground tab. Launch an app: launch_app(name). These OS-level \
 tools beat driving the Start menu / address bar by keystrokes - prefer them. Wait for slow/async results (image \
 generation, page loads) with wait(seconds). \
-For any FACT, definition, price, how-to, or current information - or whenever you are unsure about ANYTHING - use \
-your built-in Google Search to answer directly; it is instant and accurate, so do NOT open a browser tab just to \
-look something up. Be eager to search; it is free and reliable. \
+To answer a question, look() at the CURRENT screen FIRST - it reads ONLY what is on screen now (it does NOT search \
+the web). If the answer is already visible, just read it - do NOT open a search. ONLY when the needed information \
+is genuinely NOT on the current screen, open_url('https://www.google.com/search?q=...') and read the results. \
+NEVER pass a 'search for X' question to look(), and NEVER claim you searched when you only read the screen. \
 Report ONLY what the screenshot shows; if it is not what you expected, say so and correct course. \
 NEVER judge the screen state or claim done from your own low-res view - call look() and QUOTE what it says; your \
 own view is unreliable for fine detail. Do NOT call look() twice without acting in between. You ALREADY have \
@@ -52,10 +53,19 @@ win' or 'book the flight' means do the WHOLE task yourself, many actions in a ro
 done when the goal is fully achieved (a fresh look() confirms it; an independent check will verify) - and only \
 THEN stop and wait for the user's next request, without acting further on your own. Don't narrate every routine \
 step, but DO speak up briefly when it matters: answer the user's questions, and proactively tell them when you \
-are stuck, when an action isn't registering, or what you're seeing - never go silent while struggling.";
+are stuck, when an action isn't registering, or what you're seeing - never go silent while struggling. Before a \
+SLOW step (a look or a page load can take 10-20s), say a quick word ('one sec, reading that') so the user knows \
+you're working, not frozen.";
 
 pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Value {
     let think = std::env::var("CC_THINK").unwrap_or_else(|_| "medium".to_string());
+    // Raise the per-turn output cap so a long spoken summary isn't cut off mid-word.
+    // maxOutputTokens IS honored by the Live API (it's not in the documented
+    // unsupported list); the server clamps anything above the model's own ceiling.
+    let max_out: u32 = std::env::var("CC_MAX_OUTPUT_TOKENS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(16384);
     // Match the global TTS voice preference ("Cài đặt giọng đọc" in settings) so
     // the agent speaks in the user's chosen Gemini voice, not a hardcoded one.
     let voice_name = {
@@ -74,6 +84,7 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
             "responseModalities": ["AUDIO"],
             "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}},
             "mediaResolution": "MEDIA_RESOLUTION_HIGH",
+            "maxOutputTokens": max_out,
             "thinkingConfig": {"thinkingLevel": think}
         },
         "systemInstruction": {"parts": [{"text": SYS}]},
@@ -122,10 +133,16 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
                 "prefixPaddingMs": 30,
                 "silenceDurationMs": 250
             },
-            // Softened barge-in: the user can TALK while the agent works without
-            // the server cancelling the in-flight action. Explicit "stop"/"wait"
-            // still halts via local transcript detection -> the CANCEL flag.
-            "activityHandling": "NO_INTERRUPTION"
+            // Native barge-in: when you START speaking, the server interrupts the
+            // model - it stops talking (we clear the audio sink on `interrupted`) and
+            // cancels any pending tool call (handled as ToolCancellation: the action
+            // still physically finishes, its result is dropped, and the model re-plans
+            // from your new words). The Live API couples speech + action interruption
+            // into this one switch, so getting "stop talking" back means actions are
+            // interruptible too. Requires headphones - on open speakers the agent's own
+            // voice leaks into the mic and self-interrupts, so set CC_MIC_GATE=1 to mute
+            // the mic during playback (which trades away barge-in to stop the echo).
+            "activityHandling": "START_OF_ACTIVITY_INTERRUPTS"
         });
     }
     // Google Search grounding needs a billing-enabled project / grounding quota;
@@ -239,12 +256,11 @@ impl Brain {
     /// is (window), where the cursor is + what's under it, what it just did, and
     /// how long it's been waiting. Cheap situational awareness.
     fn context_block(&self) -> String {
-        let (title, cx, cy, under) = uia::pointer_context(self.target.as_deref());
+        let (title, cx, cy) = uia::pointer_context();
         let title: String = if title.is_empty() { "(unknown)".into() } else { title.chars().take(70).collect() };
-        let under: String = if under.is_empty() { "(nothing)".into() } else { under.chars().take(50).collect() };
         let trail = if self.trail.is_empty() { "(none yet)".to_string() } else { self.trail.join("  |  ") };
         let mut s = format!(
-            "Active window: {title}\nCursor at ({cx},{cy}) over: {under}\nYour recent actions: {trail}"
+            "Active window: {title}\nCursor at ({cx},{cy})\nYour recent actions: {trail}"
         );
         if self.wait_accum > 0.0 {
             s.push_str(&format!(
@@ -411,7 +427,7 @@ impl Brain {
         // signal for vision/click cost. Full result is truncated to avoid bloat;
         // look()/click_target log their rich detail on their own lines above.
         let ms = t0.elapsed().as_millis();
-        let settle = if name == "open_url" || name == "launch_app" { 1800 } else { 450 };
+        let settle = if name == "open_url" || name == "launch_app" { 1100 } else { 250 };
         std::thread::sleep(Duration::from_millis(settle));
         let short: String = result.to_string().chars().take(120).collect();
         eprintln!("[cc] step {step:02} {name} {ms}ms -> {short}");
@@ -715,27 +731,32 @@ where
 }
 
 /// Ask the aux vision stack for the click point of `description`, returned as
-/// 0-1000 over `view` (+ what's there). DEFAULT: two-call coarse-to-fine
-/// (accurate on small adjacent cells). `CC_LOCATE_MODE=box` uses a single
-/// bounding-box call (faster, but mis-locates tiny cells — large targets only).
+/// 0-1000 over `view` (+ what's there). DEFAULT: a SINGLE point call (fast, and
+/// point-based so it's accurate for normal targets). `CC_LOCATE_MODE=refine` adds
+/// a second zoomed pass for tiny adjacent cells (2x the latency); `=box` uses one
+/// bounding-box call.
 fn locate_in_view(view: View, description: &str, ctx: &str, cancel: &AtomicBool) -> Result<Located> {
     let cap = session::capture_virtual()?;
     let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None)?;
-    if std::env::var("CC_LOCATE_MODE").as_deref() == Ok("box") {
-        let (j, d, c) = (jpeg.clone(), description.to_string(), ctx.to_string());
-        return match run_cancellable(cancel, move || super::vision_reader::locate_box(&j, &d, &c)) {
-            Ok(p) => {
-                eprintln!("[cc] locate box: ({:.0},{:.0})", p.x, p.y);
-                Ok(p)
+    match std::env::var("CC_LOCATE_MODE").as_deref() {
+        Ok("refine") => refine_in_view(&cap, view, &jpeg, description, ctx, cancel),
+        Ok("box") => {
+            let (j, d, c) = (jpeg.clone(), description.to_string(), ctx.to_string());
+            match run_cancellable(cancel, move || super::vision_reader::locate_box(&j, &d, &c)) {
+                Ok(p) => Ok(p),
+                Err(_) => {
+                    let (j, d, c) = (jpeg, description.to_string(), ctx.to_string());
+                    run_cancellable(cancel, move || super::vision_reader::locate_point(&j, &d, &c))
+                }
             }
-            Err(e) => {
-                eprintln!("[cc] box locate failed ({e}); falling back to point");
-                let (j, d, c) = (jpeg, description.to_string(), ctx.to_string());
-                run_cancellable(cancel, move || super::vision_reader::locate_point(&j, &d, &c))
-            }
-        };
+        }
+        // DEFAULT: one point call - half the latency of refine, accurate for
+        // normal UI; opt into refine for tiny adjacent cells (game boards).
+        _ => {
+            let (j, d, c) = (jpeg, description.to_string(), ctx.to_string());
+            run_cancellable(cancel, move || super::vision_reader::locate_point(&j, &d, &c))
+        }
     }
-    refine_in_view(&cap, view, &jpeg, description, ctx, cancel)
 }
 
 /// Ask the aux vision stack to map EVERY target matching `description` to a list

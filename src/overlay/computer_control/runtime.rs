@@ -30,6 +30,12 @@ use super::uia_task::{self, Brain};
 /// How often a fresh (gridded) screenshot is pushed while idle.
 const FRAME_INTERVAL: Duration = Duration::from_millis(1800);
 const MAX_RECONNECTS: u32 = 6;
+/// The preview Live model often goes silent mid-turn without closing the socket.
+/// When it owes us a response and we've heard nothing for `NUDGE_SILENCE`, poke it
+/// with a fresh frame (cheap, keeps session memory). Only if it's STILL silent at
+/// `RECONNECT_SILENCE` do we tear down + reconnect (which drops in-flight context).
+const NUDGE_SILENCE: Duration = Duration::from_secs(7);
+const RECONNECT_SILENCE: Duration = Duration::from_secs(18);
 
 /// A tool call handed to the executor thread: (id, name, args, task, intent).
 type Job = (String, String, Value, String, String);
@@ -62,6 +68,43 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     let key = session::load_key()?;
     let target = std::env::var("CC_UIA_WINDOW").ok();
     overlay::set_status("connecting...");
+
+    // AUDIO FIRST: cpal/WASAPI must claim this thread's COM apartment BEFORE the
+    // WebSocket's TLS (or UIA) initializes COM in a conflicting mode - otherwise
+    // building the mic stream fails with RPC_E_CHANGED_MODE ("cannot change thread
+    // mode after it is set").
+    let mic_buf: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let mic_pause = Arc::new(AtomicBool::new(false));
+    // Build the mic stream, retrying a few times (WASAPI can transiently report
+    // "insufficient system resources" while a device is being reassigned).
+    let init_mic = || -> anyhow::Result<cpal::Stream> {
+        let mut attempt = 0;
+        loop {
+            match crate::api::realtime_audio::start_mic_capture(
+                mic_buf.clone(),
+                stop.clone(),
+                mic_pause.clone(),
+            ) {
+                Ok(s) => return Ok(s),
+                Err(_) if attempt < 4 => {
+                    attempt += 1;
+                    overlay::push_log(format!("(audio device busy - retrying {attempt}/4)"));
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    };
+    let mut _mic_stream = init_mic()?;
+    let mut sink = AudioSink::new(); // output voice (24 kHz); optional
+    if sink.is_none() {
+        overlay::push_log("(no audio output device - replies shown as text only)".to_string());
+    }
+    // Track the default input device so we can RE-INIT mic + output if it changes
+    // mid-session (e.g. you plug in headphones), instead of going silently deaf.
+    let mut audio_device = crate::api::realtime_audio::current_input_device_name();
+    let mut last_device_check = Instant::now();
+
     // Try WITH Google Search grounding; if setup is rejected (grounding needs a
     // billing-enabled project / quota), fall back to a search-less session so it
     // still starts. Other Live features don't use search, which is why they work.
@@ -77,18 +120,6 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     set_socket_nonblocking(&mut socket)?;
     overlay::set_status("ready - speak a command");
     overlay::push_log("* connected; streaming screen + mic (smart brain)".to_string());
-
-    // Mic (16 kHz mono i16) into a shared buffer.
-    let mic_buf: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
-    let mic_pause = Arc::new(AtomicBool::new(false));
-    let _mic_stream =
-        crate::api::realtime_audio::start_mic_capture(mic_buf.clone(), stop.clone(), mic_pause)?;
-
-    // Output voice (24 kHz). Optional - run muted if there is no output device.
-    let sink = AudioSink::new();
-    if sink.is_none() {
-        overlay::push_log("(no audio output device - replies shown as text only)".to_string());
-    }
 
     // Steer/stop core: the Brain + its (possibly slow) actions run on a SEPARATE
     // thread so the reader keeps receiving mic + barge-in WHILE an action runs.
@@ -108,17 +139,45 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
         send(&mut socket, realtime_video_jpeg_b64(&f0))?;
     }
     let mut last_frame = Instant::now();
+    let mut last_event = Instant::now();
     let mut state = Reader::default();
     let mut reconnects = 0u32;
+    // By default the mic stays OPEN while the agent talks, so you can barge in and
+    // interrupt its speech (native Live behaviour). On open speakers (no headphones
+    // / no echo cancellation) the agent's own voice can leak into the mic and make
+    // it interrupt itself - set CC_MIC_GATE=1 to mute the mic during playback.
+    let echo_gate = std::env::var("CC_MIC_GATE").is_ok();
 
     while !stop.load(Ordering::SeqCst) {
-        // 1) mic -> server, GATED while our own TTS plays (avoid self-barge-in).
+        // 0) default audio device changed (e.g. headphones in/out)? re-init mic +
+        //    output on the NEW device so the session keeps hearing/speaking.
+        if last_device_check.elapsed() >= Duration::from_secs(2) {
+            last_device_check = Instant::now();
+            let now_device = crate::api::realtime_audio::current_input_device_name();
+            if now_device != audio_device {
+                overlay::push_log(format!(
+                    "(audio device changed -> {} - re-initializing)",
+                    now_device.as_deref().unwrap_or("none")
+                ));
+                audio_device = now_device;
+                std::thread::sleep(Duration::from_millis(300)); // let the new device settle
+                match init_mic() {
+                    Ok(s) => {
+                        _mic_stream = s; // dropping the old stream releases the old device
+                        sink = AudioSink::new();
+                    }
+                    Err(e) => overlay::push_log(format!("(mic re-init failed: {e})")),
+                }
+            }
+        }
+
+        // 1) mic -> server. Open during TTS so you can barge in, unless echo_gate.
         let chunk = {
             let mut b = mic_buf.lock().unwrap();
             std::mem::take(&mut *b)
         };
-        let speaking = sink.as_ref().map(|s| s.is_playing()).unwrap_or(false);
-        if !chunk.is_empty() && !speaking {
+        let muted = echo_gate && sink.as_ref().map(|s| s.is_playing()).unwrap_or(false);
+        if !chunk.is_empty() && !muted {
             overlay::set_listening(true);
             send_audio_chunk(&mut socket, &chunk)?;
         }
@@ -143,6 +202,7 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
                 overlay::push_log("[~] step done; result dropped (you spoke)".to_string());
             } else {
                 let resp_ok = resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                record_observation(&mut state, &name, &resp); // durable memory of what we saw
                 send(&mut socket, tool_response(&id, &name, resp))?; // answer first
                 if let Some(f) = frame {
                     let _ = send(&mut socket, realtime_video_jpeg_b64(&f)); // then frame
@@ -152,6 +212,9 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
                 if name == "done" && resp_ok {
                     overlay::push_log("[done] goal reached".to_string());
                     state.active = false;
+                    state.awaiting = false;
+                } else {
+                    state.awaiting = true; // model owes the next action/turn
                 }
             }
             state.pending = Pending::default();
@@ -180,6 +243,37 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
                 continue;
             }
             Err(e) if is_transient_socket_read_error(&e) => {
+                // Staleness recovery: the preview Live model often goes SILENT without
+                // closing the socket. Only relevant while it OWES us a turn and nothing
+                // is in flight (`pending.id.is_none()` ⇒ never fires during a slow
+                // vision call). Recover gently first: a NUDGE (fresh frame + a terse
+                // "continue") usually un-sticks it WITHOUT losing session memory; only
+                // if it stays silent do we fall back to the context-dropping reconnect.
+                if state.awaiting && state.pending.id.is_none() {
+                    let silent = last_event.elapsed();
+                    if silent > RECONNECT_SILENCE {
+                        overlay::push_log("(session still silent - reconnecting)".to_string());
+                        if !reconnect_session(&mut socket, &key, target.as_deref(), &mut reconnects, &mut state)? {
+                            break;
+                        }
+                        last_event = Instant::now();
+                        last_frame = Instant::now();
+                        continue;
+                    } else if silent > NUDGE_SILENCE && !state.nudged {
+                        // One poke per silent spell, then escalate. Send ONLY a fresh
+                        // frame - never an injected "continue" instruction. A long
+                        // answer makes the model go silent while it THINKS, not because
+                        // it's stuck; a text nudge there gets queued as a second user
+                        // turn, so the model answers, then re-answers (restarting the
+                        // story). A bare frame is the same ambient input we already
+                        // stream, so it can't be mistaken for a new request.
+                        state.nudged = true;
+                        overlay::push_log("(nudging the model with a fresh frame)".to_string());
+                        if let Ok(f) = uia_task::snapshot(target.as_deref()) {
+                            let _ = send(&mut socket, realtime_video_jpeg_b64(&f));
+                        }
+                    }
+                }
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
@@ -193,10 +287,16 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
             }
         };
         reconnects = 0; // healthy read - reset the budget
+        last_event = Instant::now(); // heard from the server - session is alive
+        state.nudged = false; // silence broken - re-arm the nudge for next time
         for ev in parse_server_message(&text) {
             handle_event(ev, sink.as_ref(), &cancel, &exec_tx, &mut state);
         }
     }
+    // On stop, abort any in-flight action so the executor frees up promptly - else
+    // join() blocks (up to a slow vision call) and the mic/audio client lingers,
+    // accumulating across session restarts until WASAPI runs out of resources.
+    cancel.store(true, Ordering::SeqCst);
     drop(exec_tx); // close the channel -> executor thread exits
     let _ = exec_thread.join();
     Ok(())
@@ -279,6 +379,7 @@ fn reconnect_session(
         }
     }
     state.pending = Pending::default();
+    state.nudged = false; // fresh session - re-arm the nudge
     flush_reply(state); // capture any in-flight reply before recapping
     if let Ok(f) = uia_task::snapshot(target) {
         send(socket, realtime_video_jpeg_b64(&f))?;
@@ -327,6 +428,13 @@ struct Reader {
     /// The assistant's spoken reply since the last user turn, flushed into
     /// `history` when the user speaks again (or on reconnect).
     reply: String,
+    /// True when the model OWES us a response (user just spoke, or we just answered
+    /// a tool call) and hasn't produced output yet. The staleness heartbeat fires
+    /// only while awaiting — so a normal idle wait for the user never reconnects.
+    awaiting: bool,
+    /// Set once we've nudged the model during the CURRENT silent spell, so we poke
+    /// it only once before escalating to a reconnect. Cleared on any server event.
+    nudged: bool,
 }
 
 /// Cap on history entries kept (rolling); older turns drop off.
@@ -348,6 +456,26 @@ fn flush_reply(state: &mut Reader) {
         }
     }
     state.reply.clear();
+}
+
+/// Append a compact note of what a vision/read tool actually OBSERVED to the
+/// rolling history, so it survives a reconnect (the preview session's own memory is
+/// unreliable) and the agent can recall the sequence later — e.g. summarize all the
+/// dialogue it read, not just whatever happens to still be on screen.
+fn record_observation(state: &mut Reader, name: &str, resp: &Value) {
+    let Some(reading) = resp.get("reading").and_then(Value::as_str) else {
+        return; // only look/read tools carry a "reading"; actions don't
+    };
+    let reading = reading.trim();
+    if reading.is_empty() {
+        return;
+    }
+    let clipped: String = reading.chars().take(220).collect();
+    state.history.push(format!("Observed ({name}): {clipped}"));
+    if state.history.len() > MAX_HISTORY {
+        let drop = state.history.len() - MAX_HISTORY;
+        state.history.drain(0..drop);
+    }
 }
 
 /// Build a recap of the most recent conversation (newest-biased, length-capped).
@@ -420,6 +548,7 @@ fn handle_event(
                 }
                 state.last_cmd = t.clone(); // task context for vision
                 state.active = true; // a fresh request - resume pushing frames
+                state.awaiting = true; // model now owes a response
             }
             overlay::set_user_text(t);
             overlay::set_listening(false);
@@ -437,11 +566,13 @@ fn handle_event(
             // pollute the spoken transcript or the vision intent context.
         }
         ServerEvent::TurnComplete => {
-            // The model finished a turn — record its spoken reply now (clean,
-            // real-time) rather than waiting for the next user utterance.
+            // The model finished a turn cleanly — record its spoken reply, and it no
+            // longer owes a response (it's waiting for the user now).
             flush_reply(state);
+            state.awaiting = false;
         }
         ServerEvent::ToolCall { id, name, args } => {
+            state.awaiting = false; // model responded (with an action)
             let intent = state.reasoning.trim().to_string();
             state.reasoning.clear();
             overlay::push_log(format!(">{name} {}", compact_args(&args)));

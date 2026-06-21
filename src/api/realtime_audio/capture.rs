@@ -375,6 +375,15 @@ pub fn start_device_loopback_capture_resilient(
     })
 }
 
+/// Name of the current default input device — for detecting a device change (e.g.
+/// headphones plugged/unplugged switching the default mic) so a caller can re-init.
+pub fn current_input_device_name() -> Option<String> {
+    cpal::default_host()
+        .default_input_device()
+        .and_then(|d| d.description().ok())
+        .map(|desc| desc.name().to_string())
+}
+
 /// Start microphone capture
 /// Returns the cpal Stream that must be kept alive
 pub fn start_mic_capture(

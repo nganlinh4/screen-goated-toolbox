@@ -17,9 +17,9 @@ use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowThreadProcessId,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_RESTORE,
-    SetForegroundWindow, ShowWindow,
+    BringWindowToTop, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowTextW,
+    GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+    SM_YVIRTUALSCREEN, SW_RESTORE, SetForegroundWindow, ShowWindow,
 };
 
 #[derive(Debug, Clone)]
@@ -206,14 +206,25 @@ pub(super) fn focus_foreground() {
         if hwnd.0.is_null() {
             return;
         }
+        // Diagnostic: which on-screen window will receive the keystrokes? If this
+        // logs our own overlay / SGT window instead of the target app, that's why
+        // app-specific shortcuts (Explorer Ctrl+A, F2, …) don't land.
+        let mut buf = [0u16; 128];
+        let n = GetWindowTextW(hwnd, &mut buf);
+        let title = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+        eprintln!("[cc] keys -> '{}'", title.chars().take(50).collect::<String>());
         let this_tid = GetCurrentThreadId();
         let fg_tid = GetWindowThreadProcessId(hwnd, None);
         let attach = fg_tid != 0 && fg_tid != this_tid;
         if attach {
             let _ = AttachThreadInput(this_tid, fg_tid, true);
         }
+        // Re-assert the window as foreground if focus has DRIFTED (no-op if it's
+        // already foreground). We deliberately do NOT call SetFocus(hwnd) here -
+        // that moves keyboard focus to the TOP-LEVEL window, wiping the child
+        // control (e.g. Explorer's file list) that a prior click just focused, so
+        // shortcuts like Shift+Delete / F2 land on nothing.
         let _ = SetForegroundWindow(hwnd);
-        let _ = SetFocus(Some(hwnd));
         if attach {
             let _ = AttachThreadInput(this_tid, fg_tid, false);
         }
@@ -223,28 +234,18 @@ pub(super) fn focus_foreground() {
 /// Per-turn grounding context: (active window title, cursor x, cursor y, the
 /// accessible element currently under the cursor). One COM pass. Best-effort —
 /// empty strings if unavailable.
-pub(super) fn pointer_context(target: Option<&str>) -> (String, i32, i32, String) {
+pub(super) fn pointer_context() -> (String, i32, i32) {
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let Ok(uia) =
-            CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-        else {
-            return (String::new(), 0, 0, String::new());
-        };
-        let title = pick_window(&uia, target)
-            .ok()
-            .and_then(|w| w.CurrentName().ok())
-            .map(|b| b.to_string())
-            .unwrap_or_default();
+        // Pure Win32 (fast): foreground window title + cursor position. We
+        // deliberately do NOT do a UIA ElementFromPoint here - that second
+        // CoCreate + tree-walk cost ~100-300ms PER TURN for little value.
+        let hwnd = GetForegroundWindow();
+        let mut buf = [0u16; 128];
+        let n = GetWindowTextW(hwnd, &mut buf);
+        let title = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
         let mut p = POINT::default();
         let _ = GetCursorPos(&mut p);
-        let under = uia
-            .ElementFromPoint(p)
-            .ok()
-            .and_then(|e| e.CurrentName().ok())
-            .map(|b| b.to_string())
-            .unwrap_or_default();
-        (title, p.x, p.y, under)
+        (title, p.x, p.y)
     }
 }
 
