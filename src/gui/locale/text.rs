@@ -2,6 +2,7 @@ pub struct LocaleText {
     pub history_btn: &'static str,
     pub history_title: &'static str,
     pub max_items_label: &'static str,
+    pub cc_memory_max_label: &'static str,
     pub history_empty: &'static str,
     pub clear_all_history_btn: &'static str,
     pub view_image_btn: &'static str,

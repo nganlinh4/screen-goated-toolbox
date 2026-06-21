@@ -142,6 +142,12 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     let mut last_event = Instant::now();
     let mut state = Reader::default();
     let mut reconnects = 0u32;
+    // Representative clean frames captured across the session (deduped by window
+    // title, newest 6 kept) - embedded with the transcript into conversation
+    // memory so a past session is findable by what it LOOKED like, not just words.
+    let mut mem_frames: Vec<Vec<u8>> = Vec::new();
+    let mut last_mem_title = String::new();
+    let mut last_mem_check = Instant::now();
     // By default the mic stays OPEN while the agent talks, so you can barge in and
     // interrupt its speech (native Live behaviour). On open speakers (no headphones
     // / no echo cancellation) the agent's own voice can leak into the mic and make
@@ -167,6 +173,22 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
                         sink = AudioSink::new();
                     }
                     Err(e) => overlay::push_log(format!("(mic re-init failed: {e})")),
+                }
+            }
+        }
+
+        // 0b) capture a representative clean frame each time the foreground window
+        //     changes, for conversation memory (keep the newest 6 distinct screens).
+        if last_mem_check.elapsed() >= Duration::from_secs(3) {
+            last_mem_check = Instant::now();
+            let title = super::uia::pointer_context().0;
+            if !title.is_empty() && title != last_mem_title {
+                last_mem_title = title;
+                if let Ok((jpeg, _)) = session::capture_frame_jpeg() {
+                    mem_frames.push(jpeg);
+                    if mem_frames.len() > 6 {
+                        mem_frames.remove(0);
+                    }
                 }
             }
         }
@@ -293,6 +315,12 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
             handle_event(ev, sink.as_ref(), &cancel, &exec_tx, &mut state);
         }
     }
+    // Persist the whole session to searchable memory (saved + embedded on a
+    // detached thread, so this returns immediately). The agent can recall it in a
+    // future session via search_memory/open_memory.
+    flush_reply(&mut state); // close the final spoken reply into the transcript
+    super::memory::save(state.history.clone(), std::mem::take(&mut mem_frames));
+
     // On stop, abort any in-flight action so the executor frees up promptly - else
     // join() blocks (up to a slow vision call) and the mic/audio client lingers,
     // accumulating across session restarts until WASAPI runs out of resources.
@@ -437,8 +465,10 @@ struct Reader {
     nudged: bool,
 }
 
-/// Cap on history entries kept (rolling); older turns drop off.
-const MAX_HISTORY: usize = 24;
+/// Cap on history entries kept (rolling); older turns drop off. Sized to retain
+/// a whole session for conversation MEMORY (the reconnect recap is bounded
+/// separately by RECAP_BUDGET, so a larger window costs only a little RAM).
+const MAX_HISTORY: usize = 600;
 /// Cap on the recap text seeded on reconnect (kept well under the 1007
 /// "invalid argument" size threshold).
 const RECAP_BUDGET: usize = 1500;

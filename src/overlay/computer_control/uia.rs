@@ -15,11 +15,12 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
-use windows::Win32::Foundation::POINT;
+use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowTextW,
     GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, SW_RESTORE, SetForegroundWindow, ShowWindow,
+    SM_YVIRTUALSCREEN, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MINIMIZE, SW_RESTORE,
+    SetForegroundWindow, SetWindowPos, ShowWindow,
 };
 
 #[derive(Debug, Clone)]
@@ -156,11 +157,13 @@ pub(super) fn target_window_rect(target: Option<&str>) -> Option<(i32, i32, i32,
     }
 }
 
-/// Bring the matching top-level window to the foreground (restore if minimized).
-/// Used ONLY when the agent is explicitly scoped to a window (`CC_UIA_WINDOW`),
-/// once at startup — so launching the harness from a terminal can't leave the
-/// target window hidden. Uses the `AttachThreadInput` trick because a background
-/// process otherwise can't legally call `SetForegroundWindow`. Best-effort.
+/// Bring the top-level window whose title contains `target` to the foreground
+/// (restoring it if minimized), and VERIFY it actually took. General-purpose:
+/// used at startup for `CC_UIA_WINDOW` scoping AND by the agent's `focus_window`
+/// tool to switch to any app by name (e.g. when a window it opened is hidden
+/// behind a fullscreen game). Returns false if no window matched OR the switch
+/// could not be forced (e.g. an exclusive-fullscreen app owns the foreground —
+/// which nothing short of minimizing it can move, elevated or not).
 pub(super) fn raise_window(target: &str) -> bool {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -178,20 +181,138 @@ pub(super) fn raise_window(target: &str) -> bool {
         if hwnd.0.is_null() {
             return false;
         }
-        let _ = ShowWindow(hwnd, SW_RESTORE);
-        let this_tid = GetCurrentThreadId();
-        let fg_tid = GetWindowThreadProcessId(GetForegroundWindow(), None);
-        let attach = fg_tid != 0 && fg_tid != this_tid;
-        if attach {
-            let _ = AttachThreadInput(this_tid, fg_tid, true);
+        force_foreground_hwnd(hwnd)
+    }
+}
+
+/// Titles of the visible top-level windows — the agent's situational awareness
+/// of what's open to switch to (`focus_window`) or push aside (`minimize_window`).
+/// Best-effort; empty on failure.
+pub(super) fn list_windows() -> Vec<String> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let Ok(uia) =
+            CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+        else {
+            return Vec::new();
+        };
+        let (Ok(root), Ok(cond)) = (uia.GetRootElement(), uia.CreateTrueCondition()) else {
+            return Vec::new();
+        };
+        let Ok(children) = root.FindAll(TreeScope_Children, &cond) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if let Ok(len) = children.Length() {
+            for i in 0..len {
+                let Ok(el) = children.GetElement(i) else { continue };
+                let name = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
+                let name = name.trim().to_string();
+                if !name.is_empty() && !out.contains(&name) {
+                    out.push(name);
+                }
+            }
         }
-        let _ = BringWindowToTop(hwnd);
-        let _ = SetForegroundWindow(hwnd);
-        let _ = SetFocus(Some(hwnd));
-        if attach {
-            let _ = AttachThreadInput(this_tid, fg_tid, false);
+        out
+    }
+}
+
+/// Minimize the top-level window whose title contains `target` via a DIRECT
+/// `ShowWindow` on its handle (no input injection — so it works even on a
+/// fullscreen game that's swallowing keystrokes, unlike a synthetic Win+D).
+/// Returns whether a window matched. Non-elevated.
+pub(super) fn minimize_window(target: &str) -> bool {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let Ok(uia) =
+            CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+        else {
+            return false;
+        };
+        let Ok(el) = pick_window(&uia, Some(target)) else {
+            return false;
+        };
+        let Ok(hwnd) = el.CurrentNativeWindowHandle() else {
+            return false;
+        };
+        if hwnd.0.is_null() {
+            return false;
         }
+        let _ = ShowWindow(hwnd, SW_MINIMIZE);
         true
+    }
+}
+
+/// Resolve the top-level window whose title contains `target` to its handle.
+unsafe fn find_window(target: &str) -> Option<HWND> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let uia: IUIAutomation =
+            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+        let el = pick_window(&uia, Some(target)).ok()?;
+        let hwnd = el.CurrentNativeWindowHandle().ok()?;
+        (!hwnd.0.is_null()).then_some(hwnd)
+    }
+}
+
+/// Resize the window matching `target` to `w`x`h` pixels (restoring it first, so
+/// a maximized window can shrink). Keeps its position. Non-elevated.
+pub(super) fn resize_window(target: &str, w: i32, h: i32) -> bool {
+    if w <= 0 || h <= 0 {
+        return false;
+    }
+    unsafe {
+        let Some(hwnd) = find_window(target) else {
+            return false;
+        };
+        let _ = ShowWindow(hwnd, SW_RESTORE); // can't resize while maximized
+        SetWindowPos(hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER).is_ok()
+    }
+}
+
+/// Move the window matching `target` so its top-left corner is at screen pixel
+/// (x, y). Keeps its size. Non-elevated.
+pub(super) fn move_window(target: &str, x: i32, y: i32) -> bool {
+    unsafe {
+        let Some(hwnd) = find_window(target) else {
+            return false;
+        };
+        let _ = ShowWindow(hwnd, SW_RESTORE); // can't move while maximized
+        SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER).is_ok()
+    }
+}
+
+/// Force `hwnd` to the foreground using the `AttachThreadInput` trick (a
+/// background process otherwise can't legally call `SetForegroundWindow`),
+/// restoring it if minimized. Retries briefly and verifies — returns whether
+/// `hwnd` is actually the foreground window afterward. Non-elevated, best-effort.
+unsafe fn force_foreground_hwnd(hwnd: HWND) -> bool {
+    unsafe {
+        let this_tid = GetCurrentThreadId();
+        for attempt in 0..3 {
+            if GetForegroundWindow().0 == hwnd.0 {
+                return true;
+            }
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let fg_tid = GetWindowThreadProcessId(GetForegroundWindow(), None);
+            let attach = fg_tid != 0 && fg_tid != this_tid;
+            if attach {
+                let _ = AttachThreadInput(this_tid, fg_tid, true);
+            }
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+            let _ = SetFocus(Some(hwnd));
+            if attach {
+                let _ = AttachThreadInput(this_tid, fg_tid, false);
+            }
+            if GetForegroundWindow().0 == hwnd.0 {
+                return true;
+            }
+            if attempt < 2 {
+                std::thread::sleep(std::time::Duration::from_millis(120));
+            }
+        }
+        GetForegroundWindow().0 == hwnd.0
     }
 }
 

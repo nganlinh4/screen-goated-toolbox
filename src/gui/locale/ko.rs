@@ -4,6 +4,7 @@ pub fn get() -> LocaleText {
         history_btn: "히스토리",
         history_title: "결과 라이브러리",
         max_items_label: "저장 한도:",
+        cc_memory_max_label: "CC 기억:",
         history_empty: "기록이 없습니다.",
         clear_all_history_btn: "모두 삭제",
         view_image_btn: "이미지 보기",

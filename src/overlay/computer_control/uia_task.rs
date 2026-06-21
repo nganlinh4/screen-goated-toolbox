@@ -39,6 +39,12 @@ precise targets. Use zoom + click_at(cell) only for coarse navigation. \
 Open a web page: open_url(url) opens it as a new foreground tab. Launch an app: launch_app(name). These OS-level \
 tools beat driving the Start menu / address bar by keystrokes - prefer them. Wait for slow/async results (image \
 generation, page loads) with wait(seconds). \
+SWITCHING WINDOWS: if a window you opened isn't visible (the view still shows the SAME app, often a FULLSCREEN game), \
+do NOT spam alt+tab - those keystrokes get swallowed by the game. Call focus_window('Chrome') to bring it forward; \
+if that fails, minimize_window the covering app first. list_windows() shows what's open. \
+MEMORY: search_memory/open_memory recall our PAST conversations. When the user asks about something from BEFORE, \
+answer from the open_memory TRANSCRIPT - NOT from the current screen. Quote what the transcript actually says; if a \
+detail isn't in it, say it's not in your memory rather than guessing from what's on screen. \
 To answer a question, look() at the CURRENT screen FIRST - it reads ONLY what is on screen now (it does NOT search \
 the web). If the answer is already visible, just read it - do NOT open a search. ONLY when the needed information \
 is genuinely NOT on the current screen, open_url('https://www.google.com/search?q=...') and read the results. \
@@ -109,14 +115,36 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"seconds": {"type": "number", "description": "Seconds to wait (max 30)."}}, "required": ["seconds"]}},
             {"name": "type_text", "description": "Type text at the current keyboard focus.",
              "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+            {"name": "scroll", "description": "Scroll with the REAL mouse wheel (not PageDown) over the page/list. direction up/down (or left/right); 'amount' is how far (default 5; larger scrolls more). Optionally pass a grid 'cell' to scroll over a specific area, else it scrolls over the centre. Prefer this for natural scrolling.",
+             "parameters": {"type": "object", "properties": {"direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "number"}, "cell": {"type": "integer"}}, "required": ["direction"]}},
+            {"name": "drag", "description": "Press at one grid cell, glide to another, and release - for sliders, reordering items, drawing, or click-drag to SELECT text/items. Pass from_cell and to_cell (the printed grid numbers). zoom() first for finer cells when precision matters.",
+             "parameters": {"type": "object", "properties": {"from_cell": {"type": "integer", "description": "Grid cell to press at."}, "to_cell": {"type": "integer", "description": "Grid cell to release at."}}, "required": ["from_cell", "to_cell"]}},
             {"name": "key_combination", "description": "Press a keyboard shortcut, e.g. Enter, Control+C, Alt+Tab.",
              "parameters": {"type": "object", "properties": {"keys": {"type": "string"}}, "required": ["keys"]}},
             {"name": "open_url", "description": "Open an http(s) URL in the default browser as a NEW foreground tab (via the OS shell). Use this to go to a web page directly - far more reliable than typing into the address bar.",
              "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
             {"name": "launch_app", "description": "Launch or focus a Windows application by name/path via the OS shell, e.g. 'chrome', 'notepad', 'explorer'. More reliable than the Win+type Start-menu method.",
              "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+            {"name": "run_command", "description": "Run a Windows PowerShell command and get its text output - your most GENERAL tool, for anything without a dedicated action: file operations (Get-ChildItem, Get-Content, Set-Content, Copy-Item, New-Item), processes (Get-Process), system info, audio volume, etc. Runs non-elevated and non-interactive (commands that prompt will fail rather than hang). Returns stdout/stderr (truncated). Prefer a real tool when one exists (e.g. open_url, type_text).",
+             "parameters": {"type": "object", "properties": {"command": {"type": "string", "description": "The PowerShell command line to run."}}, "required": ["command"]}},
+            {"name": "focus_window", "description": "Bring an already-open window to the FRONT by a piece of its title (e.g. 'Chrome', 'Notepad', a document name). Use this when a window you opened isn't visible because another window (often a FULLSCREEN game) is covering it - alt+tab keystrokes go to the game instead, so use this to switch reliably. Returns the window now in front so you can confirm. If it reports the same covering window, that app is likely exclusive-fullscreen: minimize_window it first.",
+             "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "A substring of the target window's title bar."}}, "required": ["title"]}},
+            {"name": "list_windows", "description": "List the titles of all open top-level windows, so you know what's available to focus_window or minimize_window. No arguments.",
+             "parameters": {"type": "object", "properties": {}}},
+            {"name": "minimize_window", "description": "Minimize a window by a piece of its title - use this to get a FULLSCREEN game or app OUT OF THE WAY when it covers what you need (it works even when the game swallows alt+tab/Win+D keystrokes, because it acts on the window directly). Returns what's in front afterward.",
+             "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "A substring of the window to minimize."}}, "required": ["title"]}},
+            {"name": "resize_window", "description": "Resize a window (matched by a piece of its title) to width x height in PIXELS. Restores it first if maximized, so you can make it smaller. e.g. resize_window('Notepad', 700, 500).",
+             "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "width": {"type": "integer"}, "height": {"type": "integer"}}, "required": ["title", "width", "height"]}},
+            {"name": "move_window", "description": "Move a window (matched by a piece of its title) so its top-left corner is at screen pixel (x, y). Keeps its current size.",
+             "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["title", "x", "y"]}},
+            {"name": "read_clipboard", "description": "Read the text currently on the Windows clipboard (e.g. what you or the user just copied). Lets you grab a selection without retyping it. No arguments. (type_text already PASTES via the clipboard, so writing long text is fast.)",
+             "parameters": {"type": "object", "properties": {}}},
             {"name": "done", "description": "Call ONLY when the goal is confirmed achieved; quote the evidence.",
-             "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}}
+             "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}},
+            {"name": "search_memory", "description": "Search YOUR memory of PAST conversations (every prior session is saved). Use when the user refers to something from before ('remember when we...', 'what did we decide about X', 'last time'). Returns matching past conversations as numbered results with a title + snippet + id. Then call open_memory(id) to read the full one.",
+             "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "What to recall, in plain words, e.g. 'the plan for the memory feature' or 'the Genshin quest story'."}}, "required": ["query"]}},
+            {"name": "open_memory", "description": "Read the FULL transcript of one past conversation returned by search_memory. Pass its id.",
+             "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "The conversation id from a search_memory result."}}, "required": ["id"]}}
         ]}],
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
@@ -414,11 +442,115 @@ impl Brain {
                 let aborted = human_input::sleep_cancellable((secs * 1000.0) as u64, cancel);
                 json!({"ok": !aborted, "waited_seconds": secs})
             }
-            "type_text" | "key_combination" | "open_url" | "launch_app" => {
+            "type_text" | "key_combination" | "open_url" | "launch_app" | "run_command" => {
                 if self.dry {
                     json!({"ok": true, "note": "dry"})
                 } else {
                     executor::execute_ex(name, args, &self.profile, cancel)
+                }
+            }
+            "scroll" => {
+                // Real mouse-wheel scroll. Resolve where to scroll: a given grid
+                // cell, else the centre of the current view (the wheel acts on the
+                // window under that point).
+                let (mx, my) = args
+                    .get("cell")
+                    .and_then(Value::as_u64)
+                    .and_then(|c| self.grid.center_norm(c as u32))
+                    .unwrap_or((500.0, 500.0));
+                let (sx, sy) = self.view.to_screen_px(mx, my);
+                let a = json!({
+                    "x": sx, "y": sy,
+                    "direction": args.get("direction").and_then(Value::as_str).unwrap_or("down"),
+                    "magnitude": args.get("amount").and_then(Value::as_f64).unwrap_or(5.0),
+                });
+                if self.dry {
+                    json!({"ok": true, "note": "dry"})
+                } else {
+                    executor::execute_ex("scroll", &a, &self.profile, cancel)
+                }
+            }
+            "drag" => {
+                // Press at from_cell, glide, release at to_cell — for sliders,
+                // reordering, drawing, or click-drag selection. Zoom first for
+                // finer cells when precision matters.
+                let from = args
+                    .get("from_cell")
+                    .and_then(Value::as_u64)
+                    .and_then(|c| self.grid.center_norm(c as u32));
+                let to = args
+                    .get("to_cell")
+                    .and_then(Value::as_u64)
+                    .and_then(|c| self.grid.center_norm(c as u32));
+                match (from, to) {
+                    (Some((fx, fy)), Some((tx, ty))) => {
+                        let (sx, sy) = self.view.to_screen_px(fx, fy);
+                        let (dx, dy) = self.view.to_screen_px(tx, ty);
+                        let a = json!({"x": sx, "y": sy, "dest_x": dx, "dest_y": dy});
+                        if self.dry {
+                            json!({"ok": true, "note": "dry"})
+                        } else {
+                            executor::execute_ex("drag", &a, &self.profile, cancel)
+                        }
+                    }
+                    _ => json!({"ok": false, "error": "drag needs from_cell and to_cell"}),
+                }
+            }
+            "focus_window" => {
+                let title = args.get("title").and_then(Value::as_str).unwrap_or("");
+                let raised = super::uia::raise_window(title);
+                std::thread::sleep(Duration::from_millis(200)); // let the switch settle
+                let now = super::uia::pointer_context().0;
+                json!({
+                    "ok": raised,
+                    "foreground_now": now,
+                    "note": if raised { "switched" } else { "could not bring it to front - it may be covered by an exclusive-fullscreen app; minimize_window that app first" }
+                })
+            }
+            "list_windows" => {
+                json!({"ok": true, "windows": super::uia::list_windows()})
+            }
+            "read_clipboard" => {
+                json!({"ok": true, "text": super::clipboard::get_text()})
+            }
+            "minimize_window" => {
+                let title = args.get("title").and_then(Value::as_str).unwrap_or("");
+                let ok = super::uia::minimize_window(title);
+                std::thread::sleep(Duration::from_millis(200)); // let the minimize settle
+                json!({"ok": ok, "foreground_now": super::uia::pointer_context().0})
+            }
+            "resize_window" => {
+                let title = args.get("title").and_then(Value::as_str).unwrap_or("");
+                let w = args.get("width").and_then(Value::as_i64).unwrap_or(0) as i32;
+                let h = args.get("height").and_then(Value::as_i64).unwrap_or(0) as i32;
+                json!({"ok": super::uia::resize_window(title, w, h)})
+            }
+            "move_window" => {
+                let title = args.get("title").and_then(Value::as_str).unwrap_or("");
+                let x = args.get("x").and_then(Value::as_i64).unwrap_or(0) as i32;
+                let y = args.get("y").and_then(Value::as_i64).unwrap_or(0) as i32;
+                json!({"ok": super::uia::move_window(title, x, y)})
+            }
+            "search_memory" => {
+                let query = args.get("query").and_then(Value::as_str).unwrap_or("");
+                let hits = super::memory::search(query, 5);
+                if hits.is_empty() {
+                    json!({"ok": true, "results": [], "note": "no matching past conversation"})
+                } else {
+                    let results: Vec<Value> = hits
+                        .iter()
+                        .map(|h| {
+                            json!({"id": h.id.to_string(), "when": h.timestamp, "title": h.title, "snippet": h.snippet})
+                        })
+                        .collect();
+                    json!({"ok": true, "results": results, "instruction": "Results are ranked by relevance + recency; each has a 'when' timestamp. For 'the last/most recent/previous conversation', pick the one with the newest 'when'. Then open_memory(id) to read it in full."})
+                }
+            }
+            "open_memory" => {
+                let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+                match id.parse::<i64>().ok().and_then(super::memory::open) {
+                    Some(transcript) => json!({"ok": true, "transcript": transcript}),
+                    None => json!({"ok": false, "error": "no saved conversation with that id"}),
                 }
             }
             _ => json!({"ok": false, "error": "unknown action"}),
@@ -452,9 +584,17 @@ impl Brain {
         if !self.zoomed {
             self.view = window_view(self.target.as_deref());
         }
-        let elements = uia::enumerate(self.target.as_deref()).unwrap_or_default();
         let (b, v, fp) = render_view(&self.dir, self.step, self.view, self.grid, self.last_click)?;
         self.view = v;
+        // Informational tools don't change the screen; skip the heavy UIA readout
+        // dump so their OWN result (memory transcript, clipboard text, window list)
+        // is the dominant signal instead of being buried under hundreds of on-screen
+        // elements — which made the agent answer from the SCREEN, not from memory.
+        if matches!(name, "search_memory" | "open_memory" | "read_clipboard" | "list_windows") {
+            eprintln!("[cc] step {:02} (info tool — screen readouts suppressed)", self.step);
+            return Ok(Grounded { frame_b64: b, state_text: self.context_block(), notes: Vec::new() });
+        }
+        let elements = uia::enumerate(self.target.as_deref()).unwrap_or_default();
         // Did the click change ITS OWN target cell? Compare the region snapshot
         // taken just before the click (`click_before`) to the same region now
         // (`fp`, fingerprinted around the click point). Localized, so a timer or

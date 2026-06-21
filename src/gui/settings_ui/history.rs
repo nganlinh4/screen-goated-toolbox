@@ -46,6 +46,23 @@ pub fn render_history_panel(
                 });
             });
 
+            ui.add_space(6.0);
+
+            // Computer Control conversation memory has its OWN retention cap so the
+            // (numerous) media history items above can't push CC conversations out.
+            ui.horizontal(|ui| {
+                draw_icon_static(ui, Icon::SmartToy, Some(crate::gui::icons::ICON_SM));
+                ui.label(egui::RichText::new(text.cc_memory_max_label).size(13.0));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add(egui::Slider::new(&mut config.cc_max_memory_items, 5..=100))
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                });
+            });
+
             ui.add_space(8.0);
 
             // Row 2: Search + Actions
