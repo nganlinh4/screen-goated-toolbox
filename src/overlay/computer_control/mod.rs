@@ -71,5 +71,12 @@ pub fn run_cursor_demo_cli() {
 pub fn run_headless() {
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
-    runtime::run(Arc::new(AtomicBool::new(false)));
+    // The voice session may fall back to the gemini-live vision model, which needs
+    // the Live worker pool (the app's main() starts it, but this CLI path doesn't).
+    crate::api::gemini_live::init_gemini_live();
+    // Run on a FRESH thread (like show_overlay) so cpal's WASAPI mic gets a clean
+    // COM apartment — main() has already CoInitialize'd this process's main thread
+    // for the GUI, which would otherwise trip RPC_E_CHANGED_MODE.
+    let stop = Arc::new(AtomicBool::new(false));
+    let _ = std::thread::spawn(move || runtime::run(stop)).join();
 }

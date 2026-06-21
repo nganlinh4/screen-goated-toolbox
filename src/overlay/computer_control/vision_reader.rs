@@ -41,29 +41,32 @@ fn key_for(provider: &str, config: &Config) -> Option<String> {
 /// `CC_VISION_MODEL`.
 const CC_DEFAULT_VISION_MODEL: &str = "gemini-3.1-flash-lite-preview";
 
+/// CC vision fallback order AFTER the accurate default (flash-lite): the Live
+/// model as a vision model (Unlimited quota, comparable accuracy, ~2x slower) and
+/// then accurate gemma. So flash-lite stays #1; these are graceful fallbacks if it
+/// fails / is rate-limited. Tried before the user's generic image_to_text chain.
+const CC_VISION_FALLBACKS: &[&str] = &["gemini-live-vision-3.1", "gemma-4-26b-a4b-vision"];
+
 /// The ordered model ids to try: `prefer` (if any) first, then the CC default
-/// (or `CC_VISION_MODEL` override), then the user's `image_to_text` chain. So a
-/// preferred (e.g. faster) model is tried first but ALWAYS falls back to the
-/// accurate default — it can never lose correctness, only fail back.
+/// (or `CC_VISION_MODEL` override), then the CC fallbacks, then the user's
+/// `image_to_text` chain. A preferred (e.g. faster) model is tried first but
+/// ALWAYS falls back to the accurate default — it can never lose correctness.
 fn chain_ids(config: &Config, prefer: Option<&str>) -> Vec<String> {
     let default_first = std::env::var("CC_VISION_MODEL")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| CC_DEFAULT_VISION_MODEL.to_string());
-    let mut ids = Vec::new();
-    if let Some(p) = prefer {
-        let p = p.trim();
-        if !p.is_empty() {
-            ids.push(p.to_string());
-        }
-    }
-    if !ids.contains(&default_first) {
-        ids.push(default_first);
-    }
-    for id in &config.model_priority_chains.image_to_text {
-        if !ids.contains(id) {
-            ids.push(id.clone());
+    let candidates = prefer
+        .map(|p| p.trim().to_string())
+        .into_iter()
+        .chain(std::iter::once(default_first))
+        .chain(CC_VISION_FALLBACKS.iter().map(|s| s.to_string()))
+        .chain(config.model_priority_chains.image_to_text.iter().cloned());
+    let mut ids: Vec<String> = Vec::new();
+    for c in candidates {
+        if !c.is_empty() && !ids.contains(&c) {
+            ids.push(c);
         }
     }
     ids
@@ -188,6 +191,46 @@ visible, output {{\"error\": \"not visible\"}}.",
             note: None,
         })
         .ok_or_else(|| anyhow!("could not parse a box from vision answer: {answer}"))
+}
+
+/// Ask the vision stack to enumerate EVERY target matching `description` as a JSON
+/// array of centre points — for building a reusable set of click anchors in ONE
+/// call (then the Live model clicks them by id, no per-click vision).
+pub(super) fn locate_points(jpeg: &[u8], description: &str, ctx: &str) -> Result<Vec<Located>> {
+    let prompt = format!(
+        "{}Find EVERY target matching: {description}. Output ONLY a JSON array, one object per target, in reading \
+order (top row left-to-right, then next row): [{{\"x\": <int>, \"y\": <int>, \"what\": \"<2-4 words at that spot>\"}}, ...] \
+- x,y are the CENTER on a 0-1000 grid (x 0 left..1000 right, y 0 top..1000 bottom). Output [] if none. Cap at 60.",
+        ctx_prefix(ctx)
+    );
+    let answer = run_chain(jpeg, &prompt, None)?;
+    let pts = parse_points(&answer);
+    if pts.is_empty() {
+        anyhow::bail!("no points parsed from vision answer: {answer}");
+    }
+    Ok(pts)
+}
+
+/// Parse a JSON array of `{x,y,what}` objects from a vision answer (tolerant of
+/// surrounding prose / markdown fences).
+fn parse_points(s: &str) -> Vec<Located> {
+    let (Some(a), Some(b)) = (s.find('['), s.rfind(']')) else {
+        return Vec::new();
+    };
+    if b <= a {
+        return Vec::new();
+    }
+    let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(&s[a..=b]) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|item| {
+            let x = item.get("x").and_then(serde_json::Value::as_f64)?;
+            let y = item.get("y").and_then(serde_json::Value::as_f64)?;
+            let note = item.get("what").and_then(serde_json::Value::as_str).map(str::to_string);
+            Some(Located { x, y, note })
+        })
+        .collect()
 }
 
 /// Extract a JSON string field `"key": "value"` from a vision answer.
