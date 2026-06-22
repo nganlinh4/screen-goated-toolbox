@@ -152,6 +152,10 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     let mut mem_frames: Vec<Vec<u8>> = Vec::new();
     let mut last_mem_title = String::new();
     let mut last_mem_check = Instant::now();
+    // One-time proactive offer to set up deep browser control when the user is
+    // browsing without it (and hasn't recently declined).
+    let mut offered_browser = false;
+    let mut last_offer_check = Instant::now();
     // By default the mic stays OPEN while the agent talks, so you can barge in and
     // interrupt its speech (native Live behaviour). On open speakers (no headphones
     // / no echo cancellation) the agent's own voice can leak into the mic and make
@@ -194,6 +198,33 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
                         mem_frames.remove(0);
                     }
                 }
+            }
+        }
+
+        // 0c) one-time proactive offer: the user is browsing, deep control isn't
+        //     set up, and they haven't recently declined → nudge the model to offer
+        //     (it phrases it in the user's language). Only when idle + mid-session.
+        if !offered_browser
+            && !state.active
+            && !state.awaiting
+            && !state.last_cmd.trim().is_empty()
+            && last_offer_check.elapsed() >= Duration::from_secs(4)
+        {
+            last_offer_check = Instant::now();
+            if !super::browser::is_connected()
+                && super::browser::offer_due()
+                && foreground_is_browser()
+            {
+                offered_browser = true;
+                let _ = send(
+                    &mut socket,
+                    realtime_text(
+                        "(Heads-up for you, not the user: they're working in a web browser and deep browser control \
+isn't set up. If it fits the moment, briefly offer ONCE - in their language - to set it up via browser_setup for \
+more precise page reading/acting. If they decline, call decline_browser_control.)",
+                    ),
+                );
+                state.awaiting = true; // expect the model to speak the offer
             }
         }
 
@@ -620,6 +651,15 @@ fn handle_event(
         }
         _ => {}
     }
+}
+
+/// Best-effort: is the foreground window a web browser? (Brand names in window
+/// titles are language-stable, e.g. "… - Google Chrome", "… - Microsoft Edge".)
+fn foreground_is_browser() -> bool {
+    let title = super::uia::pointer_context().0.to_lowercase();
+    ["chrome", "edge", "brave", "opera", "firefox", "chromium", "vivaldi"]
+        .iter()
+        .any(|b| title.contains(b))
 }
 
 fn compact_args(args: &Value) -> String {

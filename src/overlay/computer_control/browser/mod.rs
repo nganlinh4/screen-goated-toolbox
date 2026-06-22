@@ -9,10 +9,55 @@
 mod bridge;
 mod crypto;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub(super) use bridge::{ensure_started, is_connected};
+
+// ── Proactive-offer preferences (persisted across sessions) ──────────────────
+
+/// Tracks whether/when we may proactively offer to set up browser control, so a
+/// user who declined isn't nagged - but is asked again much later.
+#[derive(Serialize, Deserialize, Default)]
+struct OfferPrefs {
+    declined: u32,
+    snooze_until: u64, // unix seconds; offers are suppressed until this time
+}
+
+fn prefs_path() -> std::path::PathBuf {
+    crate::paths::app_config_dir().join("cc_browser_prefs.json")
+}
+
+fn load_prefs() -> OfferPrefs {
+    std::fs::File::open(prefs_path())
+        .ok()
+        .and_then(|f| serde_json::from_reader(f).ok())
+        .unwrap_or_default()
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// Whether a proactive offer is allowed now (past any post-decline snooze).
+pub(super) fn offer_due() -> bool {
+    now_secs() >= load_prefs().snooze_until
+}
+
+/// The user declined the offer → back off, longer each time, but never forever
+/// (3 days, then 2 weeks, then ~2 months — after which we ask again once).
+pub(super) fn record_decline() {
+    let mut p = load_prefs();
+    p.declined = p.declined.saturating_add(1);
+    let days: u64 = match p.declined {
+        1 => 3,
+        2 => 14,
+        _ => 60,
+    };
+    p.snooze_until = now_secs() + days * 86_400;
+    let _ = crate::atomic_json::write_json_atomic(&prefs_path(), &p);
+}
 
 // The unpacked extension, shipped in the binary and written to disk on setup.
 const EXT_MANIFEST: &[u8] = include_bytes!("../browser_ext/manifest.json");
