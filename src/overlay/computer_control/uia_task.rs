@@ -172,6 +172,8 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {}}},
             {"name": "browser_status", "description": "Check whether the deep-browser extension is connected. Returns connected + the pairing code/port.",
              "parameters": {"type": "object", "properties": {}}},
+            {"name": "browser_reset", "description": "Reset/repair browser control when it's stuck or won't connect (e.g. the user says 'reset/fix/forget browser control'): re-opens the pairing window so a loaded extension re-pairs cleanly and re-enables the setup offer. To fully UNINSTALL, the user removes the extension on the browser's extensions page.",
+             "parameters": {"type": "object", "properties": {}}},
             {"name": "browser_read_page", "description": "Read the current page's real DOM: title, url, and visible text. Far more complete/reliable than look() for web pages once the extension is connected.",
              "parameters": {"type": "object", "properties": {}}},
             {"name": "browser_query", "description": "Find elements by CSS selector on the page; returns up to 50 with their text, tag, and on-screen rect. Use to locate things precisely before browser_click/browser_fill.",
@@ -608,6 +610,7 @@ impl Brain {
             }
             "browser_setup" => super::browser::setup(),
             "browser_status" => super::browser::status(),
+            "browser_reset" => super::browser::reset(),
             "browser_read_page" => super::browser::read_page(),
             "browser_query" => super::browser::query(args.get("selector").and_then(Value::as_str).unwrap_or("")),
             "browser_click" => super::browser::click_selector(args.get("selector").and_then(Value::as_str).unwrap_or("")),
@@ -673,8 +676,9 @@ impl Brain {
         if matches!(
             name,
             "search_memory" | "open_memory" | "read_clipboard" | "list_windows"
-            | "browser_setup" | "browser_status" | "browser_read_page" | "browser_query"
-            | "browser_eval" | "browser_tabs" | "browser_network" | "decline_browser_control"
+            | "browser_setup" | "browser_status" | "browser_reset" | "browser_read_page"
+            | "browser_query" | "browser_eval" | "browser_tabs" | "browser_network"
+            | "decline_browser_control"
         ) {
             eprintln!("[cc] step {:02} (info tool — screen readouts suppressed)", self.step);
             return Ok(Grounded { frame_b64: b, state_text: self.context_block(), notes: Vec::new() });

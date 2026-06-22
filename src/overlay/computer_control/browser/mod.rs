@@ -206,6 +206,18 @@ pub(super) fn setup() -> Value {
     })
 }
 
+/// Reset / repair browser control: re-open the pairing window so a stuck or
+/// stale-secret extension re-pairs cleanly, and re-enable the proactive offer.
+/// The clean alternative to manually deleting files - no raw deletion, bounded.
+pub(super) fn reset() -> Value {
+    let _ = std::fs::remove_file(prefs_path()); // re-enable the setup offer
+    bridge::open_pairing_window(); // a loaded extension re-pairs within the window
+    json!({
+        "ok": true,
+        "note": "Browser-control pairing reset: a loaded extension re-pairs within ~2 minutes. If it still won't connect, reload it on the browser's extensions page; to fully UNINSTALL, the user removes it there."
+    })
+}
+
 pub(super) fn status() -> Value {
     json!({
         "ok": true,
