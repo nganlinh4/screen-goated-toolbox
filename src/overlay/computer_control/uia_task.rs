@@ -69,6 +69,9 @@ browser_navigate replaces the CURRENT tab - use it when the current page is disp
 somewhere fresh; browser_open_tab opens a NEW tab in the same window, keeping the current page - use it when the user \
 is working with the current page or wants something opened alongside. When unsure, prefer a new tab (less \
 disruptive). Reserve open_url for when the extension isn't connected or to leave a chrome:// page. \
+The DOM tools (browser_query/click/fill) see the MAIN page, not CROSS-ORIGIN iframes (some login/payment/embed \
+widgets) - if a selector isn't found, the target may be in such a frame: fall back to vision (click_target / \
+click_here on what the user points at). \
 MULTI-STEP TASKS: once you START a multi-step task (e.g. browser setup), carry out ALL its steps BACK-TO-BACK in one \
 go - do NOT do one step then stop and wait for the user. If the user makes a remark or asks a status question ('are \
 you doing it?', 'why did you stop?') mid-task, answer in ONE short sentence if needed but KEEP GOING immediately with \
