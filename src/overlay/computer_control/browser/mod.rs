@@ -76,7 +76,7 @@ fn not_connected() -> Value {
     json!({
         "ok": false,
         "error": "the browser extension isn't connected",
-        "hint": "Call browser_setup, then guide the user to load the extension + paste the pairing code."
+        "hint": "Call browser_setup and follow its do_yourself steps to load the unpacked extension yourself; it auto-pairs (no code to paste). Then poll browser_status until connected."
     })
 }
 
@@ -110,6 +110,12 @@ fn write_extension() -> anyhow::Result<std::path::PathBuf> {
         .replace("\"version\": \"0.1.0\"", &format!("\"version\": \"{ver}\""));
     std::fs::write(dir.join("manifest.json"), manifest.as_bytes())?;
     std::fs::write(dir.join("sw.js"), EXT_SW)?;
+    // Stamp the per-install bootstrap key into a script the service worker loads via
+    // importScripts() on startup. The extension proves knowledge of it on first
+    // connect to receive the durable secret - so the secret is never handed to an
+    // unauthenticated local socket. (Re)written every setup so a fresh extract pairs.
+    let boot = serde_json::to_string(&bridge::bootstrap_secret()).unwrap_or_else(|_| "\"\"".into());
+    std::fs::write(dir.join("bootstrap.js"), format!("self.SGT_BOOTSTRAP = {boot};\n").as_bytes())?;
     std::fs::write(dir.join("popup.html"), EXT_POPUP_HTML)?;
     std::fs::write(dir.join("popup.js"), EXT_POPUP_JS)?;
     std::fs::write(dir.join("icon16.png"), EXT_ICON16)?;
@@ -219,10 +225,12 @@ pub(super) fn reset() -> Value {
 }
 
 pub(super) fn status() -> Value {
+    // Deliberately does NOT return the pairing secret: with auto-pair the model
+    // never needs it, and exposing it widens the blast radius if a transcript leaks.
     json!({
         "ok": true,
         "connected": is_connected(),
-        "pairing_code": bridge::pairing_code(),
+        "pairing_window_open": bridge::pairing_window_open(),
         "port": bridge::port_for_display()
     })
 }

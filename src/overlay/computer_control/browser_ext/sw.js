@@ -9,6 +9,11 @@
 // using the global led to onopen sending `hello` on the wrong (newer) socket, so
 // the server's accepted socket never got it → "timed out waiting for hello" loop.
 
+// The per-install bootstrap key SGT stamped into bootstrap.js at extract time. We
+// prove knowledge of it on the FIRST connect to receive the durable secret (then it
+// is never used again). Absent on older installs - then only durable/manual pairing.
+try { importScripts("bootstrap.js"); } catch (_) { /* no bootstrap file present */ }
+
 const DEFAULT_PORT = 47800;
 let ws = null;          // the current active socket (for unsolicited events)
 let connecting = false; // guard against overlapping connect() calls
@@ -67,7 +72,7 @@ async function connect() {
     connecting = false;
     backoff = 1000;
     if (detachTimer) { clearTimeout(detachTimer); detachTimer = null; } // reconnected in time
-    reply({ type: "hello", extId: chrome.runtime.id, hasSecret: !!secret });
+    reply({ type: "hello", extId: chrome.runtime.id, hasSecret: !!secret, hasBootstrap: !!self.SGT_BOOTSTRAP });
   };
   sock.onmessage = (ev) => onMessage(ev.data, reply).catch((e) => console.error("[sgt]", e));
   sock.onclose = () => {
@@ -91,8 +96,11 @@ async function onMessage(raw, reply) {
   const msg = JSON.parse(raw);
   switch (msg.type) {
     case "challenge": {
+      // The app picks which key to prove: the per-install bootstrap key on the
+      // first connect, else the durable secret. Both HMAC over the server nonce.
       const { secret } = await cfg();
-      reply({ type: "auth", extId: chrome.runtime.id, mac: await hmacHex(secret, msg.nonce) });
+      const key = msg.use === "bootstrap" ? (self.SGT_BOOTSTRAP || "") : secret;
+      reply({ type: "auth", extId: chrome.runtime.id, mac: await hmacHex(key, msg.nonce) });
       break;
     }
     case "pair":

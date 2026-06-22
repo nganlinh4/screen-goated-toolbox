@@ -11,19 +11,27 @@ See `../../../../temp-browser-extension-design.md` for the full design.
 - `manifest.json` — MV3; permissions kept minimal (`debugger`, `tabs`, `storage`).
 - `sw.js` — service worker: owns the WS (+ ≤20s keepalive) and `chrome.debugger`;
   HMAC challenge-response pairing; flat sessions for child frames/OOPIFs.
-- `popup.html` / `popup.js` — one-time pairing (paste the code) + status + Forget.
+- `bootstrap.js` — generated per install: the one-time bootstrap key the app stamps
+  in so the extension can prove itself on first connect (loaded via `importScripts`).
+- `popup.html` / `popup.js` — status view + a manual-pair / Forget debug fallback.
 
 ## Install (dev / load-unpacked)
-The app's agent does this for you via `browser_setup`, but manually:
+The app's agent does this for you via `browser_setup` — **no code to paste**:
 1. The app extracts these files to `%LOCALAPPDATA%/screen-goated-toolbox/cc_browser_ext`.
 2. `chrome://extensions` → enable **Developer mode** → **Load unpacked** → that folder.
-3. Approve the permission prompt (it can read/change browser data).
-4. Click the extension icon → paste the **pairing code** the app shows → **Pair & connect**.
+3. Approve the permission prompt if one appears (it can read/change browser data).
+4. It **auto-pairs** over the socket within ~2 minutes — the extension proves the
+   stamped bootstrap key and the app hands back the durable secret. (The popup's
+   manual paste stays only as a debug fallback.)
 
 ## Security
-- Connects only to `ws://127.0.0.1:<port>` (default 47800).
-- Authenticates every connection with **HMAC challenge-response** over a shared
-  secret (the pairing code) — no static token on the wire. **Forget** wipes it.
+- Connects only to `ws://127.0.0.1:<port>` (default 47800); web-page Origins rejected.
+- **First connect:** the extension proves the per-install **bootstrap key** (stamped
+  into its own files, so a random local socket client that can't read them can't
+  pair) → the app hands over the durable secret. The secret is never sent to an
+  unauthenticated socket and is not surfaced in `browser_status`.
+- **Every reconnect:** **HMAC challenge-response** over the durable secret — no
+  static token on the wire. **Forget** wipes it.
 - The persistent "being debugged" banner is the honest "automation active" signal.
 
 ## Packaging
