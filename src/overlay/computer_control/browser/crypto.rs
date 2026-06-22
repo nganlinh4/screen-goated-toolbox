@@ -63,3 +63,35 @@ pub(super) fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     }
     diff == 0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hmac_matches_rfc4231_vector_2() {
+        // RFC 4231 test case 2 - the wire contract the extension's WebCrypto
+        // HMAC-SHA-256 must also satisfy, or pairing silently never authenticates.
+        assert_eq!(
+            hmac_sha256_hex(b"Jefe", b"what do ya want for nothing?"),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+    }
+
+    #[test]
+    fn hmac_keys_longer_than_the_block_are_hashed() {
+        // Key > 64 bytes takes the SHA-256(key) path; just assert it's stable and
+        // distinct from a short key, so a regression there can't pass silently.
+        let long = vec![0xaau8; 80];
+        let a = hmac_sha256_hex(&long, b"nonce");
+        assert_eq!(a.len(), 64);
+        assert_ne!(a, hmac_sha256_hex(b"\xaa", b"nonce"));
+    }
+
+    #[test]
+    fn ct_eq_distinguishes_and_handles_length() {
+        assert!(ct_eq(b"abc", b"abc"));
+        assert!(!ct_eq(b"abc", b"abd"));
+        assert!(!ct_eq(b"abc", b"abcd"));
+    }
+}

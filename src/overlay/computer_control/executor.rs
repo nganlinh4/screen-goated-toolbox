@@ -321,9 +321,11 @@ fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Resul
     // Short inputs still type, to leave the clipboard alone and play nice with
     // type-as-you-search fields.
     let saved = super::clipboard::get_text();
-    // Only take the paste fast-path when it won't DESTROY non-text clipboard data
-    // (an image / copied files) we can't restore. Otherwise fall through to typing.
-    let would_clobber = saved.is_empty() && super::clipboard::has_nontext();
+    // Only take the paste fast-path when the clipboard holds NO non-text data we
+    // can't restore (an image, copied files). If any such format is present we type
+    // instead - even when text ALSO exists, because re-setting our saved text would
+    // EmptyClipboard the rich formats and silently downgrade them to plain text.
+    let would_clobber = super::clipboard::has_nontext();
     if n > 12 && !would_clobber {
         super::clipboard::set_text(&text);
         sleep(Duration::from_millis(30));

@@ -30,12 +30,23 @@ struct Bridge {
     req_tx: Mutex<Option<mpsc::Sender<Outbound>>>,
     connected: AtomicBool,
     next_id: AtomicU64,
+    /// The durable HMAC key. Handed to the extension ONCE (after it proves the
+    /// bootstrap secret), then used for challenge-response on every reconnect.
     secret: String,
+    /// Per-install bootstrap key, also stamped into the extension's own files
+    /// (`bootstrap.js`). On the first connect the extension proves knowledge of it,
+    /// which is what authorizes handing over `secret`. A random local socket client
+    /// that can't read the extension's files cannot prove it - closing the
+    /// "anyone-on-localhost grabs the secret during the window" race.
+    bootstrap: String,
     events: Mutex<VecDeque<Value>>,
-    /// While `Some(deadline)` and now < deadline, an extension with no secret yet
-    /// is auto-paired (the secret is handed to it over the socket). Opened by
+    /// While `Some(deadline)` and now < deadline, a freshly-written extension that
+    /// proves the bootstrap secret is handed the durable secret. Opened by
     /// `browser_setup` so pairing needs no fragile in-browser popup.
     pairing_until: Mutex<Option<Instant>>,
+    /// The extension's id, learned (trust-on-first-use) from the first successful
+    /// pairing. Used to pin a chrome-extension:// Origin on later handshakes.
+    ext_id: Mutex<Option<String>>,
 }
 
 static BRIDGE: OnceLock<Bridge> = OnceLock::new();
@@ -51,17 +62,20 @@ fn secret_path() -> std::path::PathBuf {
     crate::paths::app_config_dir().join("cc_browser_secret.txt")
 }
 
-/// Load the persisted pairing secret, or mint + store one on first use.
-fn load_or_make_secret() -> String {
-    let p = secret_path();
-    if let Ok(s) = std::fs::read_to_string(&p) {
+fn bootstrap_path() -> std::path::PathBuf {
+    crate::paths::app_config_dir().join("cc_browser_bootstrap.txt")
+}
+
+/// Load a persisted hex secret from `p`, or mint + store one on first use.
+fn load_or_make(p: &std::path::Path) -> String {
+    if let Ok(s) = std::fs::read_to_string(p) {
         let s = s.trim().to_string();
         if !s.is_empty() {
             return s;
         }
     }
     let s = crypto::random_hex(24);
-    let _ = std::fs::write(&p, &s);
+    let _ = std::fs::write(p, &s);
     s
 }
 
@@ -70,9 +84,11 @@ fn bridge() -> &'static Bridge {
         req_tx: Mutex::new(None),
         connected: AtomicBool::new(false),
         next_id: AtomicU64::new(1),
-        secret: load_or_make_secret(),
+        secret: load_or_make(&secret_path()),
+        bootstrap: load_or_make(&bootstrap_path()),
         events: Mutex::new(VecDeque::new()),
         pairing_until: Mutex::new(None),
+        ext_id: Mutex::new(None),
     })
 }
 
@@ -88,13 +104,19 @@ fn in_pairing_window() -> bool {
     matches!(*bridge().pairing_until.lock().unwrap(), Some(t) if Instant::now() < t)
 }
 
+/// Whether a setup pairing window is currently open (surfaced in `browser_status`).
+pub(super) fn pairing_window_open() -> bool {
+    in_pairing_window()
+}
+
 pub(crate) fn is_connected() -> bool {
     bridge().connected.load(Ordering::SeqCst)
 }
 
-/// The pairing code the user pastes into the extension popup (also the HMAC key).
-pub(super) fn pairing_code() -> String {
-    bridge().secret.clone()
+/// The per-install bootstrap key to stamp into the extension's files so it can
+/// prove itself on first connect. Not the durable secret (which we never expose).
+pub(super) fn bootstrap_secret() -> String {
+    bridge().bootstrap.clone()
 }
 
 pub(super) fn port_for_display() -> u16 {
@@ -130,25 +152,34 @@ fn listen_loop() {
 
 fn handle_conn(stream: TcpStream) -> anyhow::Result<()> {
     stream.set_read_timeout(Some(READ_TICK))?;
-    // Defense-in-depth: REJECT handshakes from a web-page Origin (http/https) - a
-    // browser sets Origin to the page's URL and a page cannot forge it, so this
-    // slams the door on a malicious web page hitting our localhost port. We do NOT
-    // *require* chrome-extension:// (a service-worker WS may send no Origin), and the
-    // pairing secret remains the real gate.
+    // Origin gate (defense-in-depth; the bootstrap / durable proof is the real one):
+    //  - http(s) web-page Origin → REJECT. A browser sets Origin to the page URL and
+    //    a page cannot forge it, so this slams the door on a malicious page hitting
+    //    our localhost port.
+    //  - chrome-extension:// Origin → accept, but once we've learned OUR extension's
+    //    id (trust-on-first-use) pin it - except inside a setup window, where the
+    //    bootstrap proof gates and the id may legitimately have changed.
+    //  - no Origin (an MV3 service-worker WS may omit it) → allow the socket open;
+    //    it still gets nothing without the proof.
     let mut ws = accept_hdr(stream, |req: &Request, resp: Response| {
-        let is_web_page = req
-            .headers()
-            .get("origin")
-            .and_then(|v| v.to_str().ok())
-            .map(|o| o.starts_with("http://") || o.starts_with("https://"))
-            .unwrap_or(false);
-        if is_web_page {
+        let forbidden = |msg: &str| -> Result<Response, tungstenite::http::Response<Option<String>>> {
             Err(tungstenite::http::Response::builder()
                 .status(tungstenite::http::StatusCode::FORBIDDEN)
-                .body(Some("web pages may not connect to the SGT bridge".to_string()))
+                .body(Some(msg.to_string()))
                 .unwrap())
-        } else {
-            Ok(resp)
+        };
+        match req.headers().get("origin").and_then(|v| v.to_str().ok()) {
+            Some(o) if o.starts_with("http://") || o.starts_with("https://") => {
+                forbidden("web pages may not connect to the SGT bridge")
+            }
+            Some(o) if o.starts_with("chrome-extension://") => {
+                let id = o.trim_start_matches("chrome-extension://").trim_end_matches('/');
+                match (in_pairing_window(), bridge().ext_id.lock().unwrap().clone()) {
+                    (false, Some(exp)) if id != exp => forbidden("unexpected extension id"),
+                    _ => Ok(resp),
+                }
+            }
+            _ => Ok(resp),
         }
     })
     .map_err(|e| anyhow::anyhow!("ws handshake: {e}"))?;
@@ -193,26 +224,59 @@ fn wait_for_type(ws: &mut WebSocket<TcpStream>, deadline: Instant, ty: &str) -> 
 fn do_pairing(ws: &mut WebSocket<TcpStream>) -> anyhow::Result<bool> {
     let deadline = Instant::now() + Duration::from_secs(12);
     let hello = wait_for_type(ws, deadline, "hello")?;
-    // During a setup window, (RE)PAIR unconditionally with our current secret -
-    // this must come FIRST so it also heals a STALE/mismatched secret left by a
-    // prior install (otherwise such an extension loops on "bad code" forever).
-    if in_pairing_window() {
-        send(ws, json!({"type": "pair", "secret": bridge().secret}))?;
-        *bridge().pairing_until.lock().unwrap() = None; // one extension per window
-        eprintln!("[cc-browser] paired extension (pairing window)");
-        return Ok(true);
-    }
-    // Outside a window: a paired extension proves it with HMAC challenge-response.
-    if hello.get("hasSecret").and_then(Value::as_bool) == Some(true) {
+    let ext_id = hello.get("extId").and_then(Value::as_str).map(str::to_string);
+    let has_secret = hello.get("hasSecret").and_then(Value::as_bool) == Some(true);
+    let has_bootstrap = hello.get("hasBootstrap").and_then(Value::as_bool) == Some(true);
+
+    // FIRST pairing (inside a setup window): the freshly-written extension proves the
+    // per-install bootstrap secret - which only IT can read from its own files - and
+    // we hand back the durable secret. This must come FIRST so it also HEALS a
+    // stale/mismatched durable secret (re-hands the current one), and the proof is
+    // REQUIRED so a random local socket client that can't read the extension files
+    // gets nothing (closes the open-pairing-window race).
+    if in_pairing_window() && has_bootstrap {
         let nonce = crypto::random_hex(16);
-        send(ws, json!({"type": "challenge", "nonce": nonce}))?;
+        send(ws, json!({"type": "challenge", "nonce": nonce, "use": "bootstrap"}))?;
+        let auth = wait_for_type(ws, deadline, "auth")?;
+        let mac = auth.get("mac").and_then(Value::as_str).unwrap_or("");
+        let expect = crypto::hmac_sha256_hex(bridge().bootstrap.as_bytes(), nonce.as_bytes());
+        if crypto::ct_eq(mac.as_bytes(), expect.as_bytes()) {
+            send(ws, json!({"type": "pair", "secret": bridge().secret}))?;
+            *bridge().pairing_until.lock().unwrap() = None; // one extension per window
+            commit_ext_id(ext_id);
+            eprintln!("[cc-browser] paired extension (bootstrap proof)");
+            return Ok(true);
+        }
+        // Bad proof: leave the window OPEN for the real extension, drop this socket.
+        let _ = send(ws, json!({"type": "error", "error": "bootstrap proof failed"}));
+        eprintln!("[cc-browser] rejected a connection: bad bootstrap proof");
+        return Ok(false);
+    }
+
+    // RECONNECT: an established extension proves the durable secret with HMAC
+    // challenge-response (the bootstrap secret is never used again after pairing).
+    if has_secret {
+        let nonce = crypto::random_hex(16);
+        send(ws, json!({"type": "challenge", "nonce": nonce, "use": "secret"}))?;
         let auth = wait_for_type(ws, deadline, "auth")?;
         let mac = auth.get("mac").and_then(Value::as_str).unwrap_or("");
         let expect = crypto::hmac_sha256_hex(bridge().secret.as_bytes(), nonce.as_bytes());
-        return Ok(crypto::ct_eq(mac.as_bytes(), expect.as_bytes()));
+        if crypto::ct_eq(mac.as_bytes(), expect.as_bytes()) {
+            commit_ext_id(ext_id);
+            return Ok(true);
+        }
+        return Ok(false);
     }
-    send(ws, json!({"type": "error", "error": "not pairing - run browser_setup first"}))?;
+
+    send(ws, json!({"type": "error", "error": "not paired - run browser_setup first"}))?;
     Ok(false)
+}
+
+/// Remember the extension's id (trust-on-first-use) for the Origin pin.
+fn commit_ext_id(id: Option<String>) {
+    if let Some(id) = id {
+        *bridge().ext_id.lock().unwrap() = Some(id);
+    }
 }
 
 fn send(ws: &mut WebSocket<TcpStream>, v: Value) -> anyhow::Result<()> {
