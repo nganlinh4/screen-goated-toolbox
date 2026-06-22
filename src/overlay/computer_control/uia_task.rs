@@ -55,9 +55,11 @@ toggles, so do NOT retry just because it reports 'no visual change'; click ONCE,
 SETUP IS DONE the instant browser_status (or browser_setup) reports connected:true - say it's ready and STOP: do NOT \
 re-run browser_setup, re-open chrome://extensions, re-toggle Developer mode, or look() to 'verify' the extension. \
 Then just USE the browser tools for the user's actual task. \
-BROWSER NAVIGATION: once browser control is connected, use browser_navigate to go to a URL - it reuses the CURRENT \
-tab. Do NOT use open_url for that (it opens a NEW tab/window every time); reserve open_url for when the extension \
-isn't connected, or to leave a chrome:// page (which the extension can't drive). Work in the EXISTING browser window. \
+BROWSER NAVIGATION: once connected, open URLs with the extension, NOT open_url (which opens a new WINDOW). Choose: \
+browser_navigate replaces the CURRENT tab - use it when the current page is disposable or the user wants to go \
+somewhere fresh; browser_open_tab opens a NEW tab in the same window, keeping the current page - use it when the user \
+is working with the current page or wants something opened alongside. When unsure, prefer a new tab (less \
+disruptive). Reserve open_url for when the extension isn't connected or to leave a chrome:// page. \
 MULTI-STEP TASKS: once you START a multi-step task (e.g. browser setup), carry out ALL its steps BACK-TO-BACK in one \
 go - do NOT do one step then stop and wait for the user. If the user makes a remark or asks a status question ('are \
 you doing it?', 'why did you stop?') mid-task, answer in ONE short sentence if needed but KEEP GOING immediately with \
@@ -182,7 +184,9 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "timeout_ms": {"type": "integer"}}, "required": ["selector"]}},
             {"name": "browser_eval", "description": "Run JavaScript in the page and return its (JSON-able) result. Your general escape hatch for extracting structured data or doing precise DOM work.",
              "parameters": {"type": "object", "properties": {"code": {"type": "string", "description": "A JS expression; its value is returned (use an IIFE for statements)."}}, "required": ["code"]}},
-            {"name": "browser_navigate", "description": "Navigate the current tab to a URL (in-page, keeps the session).",
+            {"name": "browser_navigate", "description": "Navigate the CURRENT tab to a URL (replaces what's on it). Use when the current page is disposable or the user wants to go somewhere fresh.",
+             "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
+            {"name": "browser_open_tab", "description": "Open a URL in a NEW tab in the same window (keeps the current page). Use when the user is working with the current page or wants something opened alongside. Prefer this over browser_navigate when unsure (less disruptive).",
              "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
             {"name": "browser_upload", "description": "Set the file for a file <input> matching a CSS selector (real upload via DevTools). Pass an absolute file path.",
              "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "path": {"type": "string"}}, "required": ["selector", "path"]}},
@@ -617,6 +621,7 @@ impl Brain {
             ),
             "browser_eval" => super::browser::eval_js(args.get("code").and_then(Value::as_str).unwrap_or("")),
             "browser_navigate" => super::browser::navigate(args.get("url").and_then(Value::as_str).unwrap_or("")),
+            "browser_open_tab" => super::browser::open_tab(args.get("url").and_then(Value::as_str).unwrap_or("")),
             "browser_upload" => super::browser::upload_file(
                 args.get("selector").and_then(Value::as_str).unwrap_or(""),
                 args.get("path").and_then(Value::as_str).unwrap_or(""),
