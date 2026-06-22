@@ -116,9 +116,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// The user's browser, as far as the extension flow needs to know.
 struct BrowserInfo {
-    start: &'static str,   // `start` target (App Paths alias)
     ext_url: &'static str, // the …://extensions page
-    focus: &'static str,   // window-title substring to bring to front
     name: &'static str,    // display name
     chromium: bool,        // deep control only works on Chromium browsers
 }
@@ -128,15 +126,15 @@ struct BrowserInfo {
 fn detect_browser() -> BrowserInfo {
     let prog = default_https_progid().unwrap_or_default().to_lowercase();
     if prog.contains("msedge") || prog.contains("edge") {
-        BrowserInfo { start: "msedge", ext_url: "edge://extensions", focus: "Edge", name: "Microsoft Edge", chromium: true }
+        BrowserInfo { ext_url: "edge://extensions", name: "Microsoft Edge", chromium: true }
     } else if prog.contains("brave") {
-        BrowserInfo { start: "brave", ext_url: "brave://extensions", focus: "Brave", name: "Brave", chromium: true }
+        BrowserInfo { ext_url: "brave://extensions", name: "Brave", chromium: true }
     } else if prog.contains("opera") {
-        BrowserInfo { start: "opera", ext_url: "opera://extensions", focus: "Opera", name: "Opera", chromium: true }
+        BrowserInfo { ext_url: "opera://extensions", name: "Opera", chromium: true }
     } else if prog.contains("firefox") {
-        BrowserInfo { start: "chrome", ext_url: "chrome://extensions", focus: "Chrome", name: "Firefox", chromium: false }
+        BrowserInfo { ext_url: "chrome://extensions", name: "Firefox", chromium: false }
     } else {
-        BrowserInfo { start: "chrome", ext_url: "chrome://extensions", focus: "Chrome", name: "Google Chrome", chromium: true }
+        BrowserInfo { ext_url: "chrome://extensions", name: "Google Chrome", chromium: true }
     }
 }
 
@@ -159,15 +157,6 @@ fn default_https_progid() -> Option<String> {
         .map(str::to_string)
 }
 
-/// Open the browser's …://extensions page (reliable, unlike `open_url`/
-/// ShellExecute which reject the `…://` scheme).
-fn open_extensions_page(info: &BrowserInfo) {
-    use std::os::windows::process::CommandExt;
-    let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", info.start, info.ext_url])
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
-}
 
 /// Bring the bridge up, lay down the extension files, and open chrome://extensions.
 /// Returns what the agent needs to finish the install ITSELF (it should perform
@@ -189,9 +178,6 @@ pub(super) fn setup() -> Value {
     };
     let browser = detect_browser();
     bridge::open_pairing_window(); // ~2 min: a fresh extension auto-pairs, no popup
-    open_extensions_page(&browser);
-    std::thread::sleep(Duration::from_millis(1200)); // let the tab open...
-    let _ = super::uia::raise_window(browser.focus); // ...then bring it to the front
     json!({
         "ok": true,
         "connected": is_connected(),
@@ -201,15 +187,15 @@ pub(super) fn setup() -> Value {
         "extension_folder": dir,
         "port": bridge::port_for_display(),
         "warning": if browser.chromium { Value::Null } else {
-            json!(format!("Your default browser ({}) isn't Chromium - deep browser control needs Chrome/Edge/Brave. Opened Chrome instead; if it isn't installed, tell the user.", browser.name))
+            json!(format!("Your default browser ({}) isn't Chromium - deep browser control needs Chrome/Edge/Brave.", browser.name))
         },
         "do_yourself": [
-            format!("{} should now be open (focus that browser window if not).", browser.ext_url),
+            format!("In the EXISTING browser window (focus_window it if needed - do NOT open a new window), go to {} by typing it in the ADDRESS BAR: key_combination 'Ctrl+L', then type_text '{}' with press_enter:true.", browser.ext_url, browser.ext_url),
             "Toggle ON 'Developer mode' (top-right) ONLY if it's off - look() first; don't toggle what's already on. Click the SWITCH, not the text label.",
             "Click 'Load unpacked'. In the file dialog, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
             "A permission prompt may appear (it can read/change browser data): briefly tell the user and PAUSE for their click - the one human checkpoint.",
             "That's it - NO popup, NO pairing code. The extension auto-pairs over the socket within ~2 minutes.",
-            "Poll browser_status (wait a few seconds between tries) until 'connected' is true."
+            "Poll browser_status (wait a few seconds between tries) until 'connected' is true, then STOP."
         ]
     })
 }
