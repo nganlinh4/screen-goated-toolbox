@@ -148,6 +148,26 @@ impl Brain {
                     Err(e) => json!({"ok": false, "error": format!("could not locate '{desc}': {e}")}),
                 }
             }
+            "point_at" => {
+                // Same vision-locate as click_target, but MOVE the cursor onto the
+                // target and stop - no click. For "point at / show me X" or to hover
+                // and reveal a tooltip / hover-menu (dwell_seconds lets it surface).
+                let desc = args.get("description").and_then(Value::as_str).unwrap_or("");
+                let dwell = args.get("dwell_seconds").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 10.0);
+                match locate_in_view(self.view, desc, ctx, cancel) {
+                    Ok(loc) => {
+                        let (sx, sy) = self.view.to_screen_px(loc.x, loc.y);
+                        self.last_click = Some((sx, sy)); // mark where we pointed on the next frame
+                        append_click(&self.dir, json!({"step": step, "kind": "point_at", "desc": desc,
+                            "view_norm": [loc.x.round(), loc.y.round()], "screen_px": [sx, sy],
+                            "saw": loc.note, "view": [self.view.x, self.view.y, self.view.w, self.view.h]}));
+                        eprintln!("[cc] step {step:02} POINT_AT '{desc}' -> screen({sx},{sy}) saw={:?}", loc.note);
+                        let r = point_screen(sx, sy, (dwell * 1000.0) as u64, self.dry, &self.profile, cancel);
+                        json!({"ok": true, "pointed_view_norm": [loc.x, loc.y], "saw_at_target": loc.note, "move": r})
+                    }
+                    Err(e) => json!({"ok": false, "error": format!("could not point at '{desc}': {e}")}),
+                }
+            }
             "map_targets" => {
                 let desc = args.get("description").and_then(Value::as_str).unwrap_or("");
                 match map_in_view(self.view, desc, ctx, cancel) {

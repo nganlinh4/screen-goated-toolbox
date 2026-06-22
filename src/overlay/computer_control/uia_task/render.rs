@@ -76,6 +76,31 @@ pub(super) fn click_screen(
     )
 }
 
+/// Glide the cursor to an absolute screen pixel WITHOUT clicking (point/hover);
+/// `dwell_ms` lingers there so a hover tooltip / menu can surface. Mirrors
+/// `click_screen` but runs the executor's `point` action (move only).
+pub(super) fn point_screen(
+    sx: i32,
+    sy: i32,
+    dwell_ms: u64,
+    dry: bool,
+    profile: &HumanProfile,
+    cancel: &AtomicBool,
+) -> Value {
+    let (vx, vy, vw, vh) = uia::virtual_desktop();
+    let nx = (sx - vx) as f64 / vw.max(1) as f64 * 1000.0;
+    let ny = (sy - vy) as f64 / vh.max(1) as f64 * 1000.0;
+    if dry {
+        return json!({"ok": true, "note": "dry", "screen_px": [sx, sy]});
+    }
+    executor::execute_ex(
+        "point",
+        &json!({"x": nx, "y": ny, "dwell_ms": dwell_ms}),
+        profile,
+        cancel,
+    )
+}
+
 /// A new view magnified to the labeled grid cell (plus a little context), in
 /// screen pixels. Returns None if the label is out of range.
 pub(super) fn zoom_to_cell(view: View, grid: &Grid, label: u32) -> Option<View> {
