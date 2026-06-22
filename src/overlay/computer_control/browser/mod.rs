@@ -174,6 +174,15 @@ fn open_extensions_page(info: &BrowserInfo) {
 /// the clicks, not recite them to the user) — pausing only at the permission grant.
 pub(super) fn setup() -> Value {
     ensure_started();
+    // Already connected → nothing to do. Without this the agent would re-open
+    // chrome://extensions and re-run the whole install, looping after success.
+    if is_connected() {
+        return json!({
+            "ok": true,
+            "connected": true,
+            "note": "Browser control is ALREADY set up and connected - do NOT install again. Tell the user it's ready and stop."
+        });
+    }
     let dir = match write_extension() {
         Ok(d) => d.display().to_string(),
         Err(e) => return err(e),
