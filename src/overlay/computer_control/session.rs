@@ -179,7 +179,7 @@ pub(super) fn capture_virtual() -> Result<Capture> {
         rgb.push(px[1]); // G
         rgb.push(px[0]); // B
     }
-    let img = image::RgbImage::from_raw(w as u32, h as u32, rgb)
+    let mut img = image::RgbImage::from_raw(w as u32, h as u32, rgb)
         .ok_or_else(|| anyhow::anyhow!("rgb buffer size mismatch"))?;
     let (ox, oy) = unsafe {
         (
@@ -187,11 +187,122 @@ pub(super) fn capture_virtual() -> Result<Capture> {
             GetSystemMetrics(SM_YVIRTUALSCREEN),
         )
     };
+    // GDI BitBlt returns BLACK for GPU-composited content (browser canvas/WebGL
+    // games, hardware video). Best-effort: patch the ACTIVE window's real pixels in.
+    patch_foreground_gpu(&mut img, ox, oy);
     Ok(Capture {
         rgb: img,
         origin_x: ox,
         origin_y: oy,
     })
+}
+
+/// Average channel value over a sparse sample of the image rect (image coords).
+/// Returns a high value (not-black) when the rect is mostly off-image.
+fn region_avg(rgb: &image::RgbImage, x: i32, y: i32, w: i32, h: i32) -> u32 {
+    let (iw, ih) = (rgb.width() as i32, rgb.height() as i32);
+    let step = (w.max(h) / 24).max(1);
+    let (mut sum, mut n) = (0u64, 0u64);
+    let mut yy = 0;
+    while yy < h {
+        let py = y + yy;
+        if (0..ih).contains(&py) {
+            let mut xx = 0;
+            while xx < w {
+                let px = x + xx;
+                if (0..iw).contains(&px) {
+                    let p = rgb.get_pixel(px as u32, py as u32);
+                    sum += p[0] as u64 + p[1] as u64 + p[2] as u64;
+                    n += 1;
+                }
+                xx += step;
+            }
+        }
+        yy += step;
+    }
+    if n == 0 { 255 } else { (sum / n) as u32 }
+}
+
+/// When the FOREGROUND window's region in the GDI capture is near-black (GDI missed
+/// its GPU content), re-capture just that window with `PrintWindow(PW_RENDERFULLCONTENT)`
+/// (which asks the window to render itself, capturing DirectComposition content) and
+/// patch its non-black pixels into `rgb`. Guarded so it can only ADD detail where GDI
+/// failed; it never overwrites a good capture. Pure hardware-overlay WebGL may still be
+/// black (that needs WGC).
+fn patch_foreground_gpu(rgb: &mut image::RgbImage, origin_x: i32, origin_y: i32) {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleBitmap, CreateCompatibleDC,
+        DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC, SelectObject,
+    };
+    use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect};
+    const PW_RENDERFULLCONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(0x0000_0002);
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_invalid() {
+            return;
+        }
+        let mut r = RECT::default();
+        if GetWindowRect(hwnd, &mut r).is_err() {
+            return;
+        }
+        let (ww, wh) = (r.right - r.left, r.bottom - r.top);
+        if ww <= 0 || wh <= 0 {
+            return;
+        }
+        let (ix, iy) = (r.left - origin_x, r.top - origin_y); // window pos in image coords
+        if region_avg(rgb, ix, iy, ww, wh) >= 24 {
+            return; // GDI already captured it (not black) - nothing to fix
+        }
+
+        let hdc_screen = GetDC(None);
+        let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+        let hbm = CreateCompatibleBitmap(hdc_screen, ww, wh);
+        let old = SelectObject(hdc_mem, hbm.into());
+        let ok = PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT).as_bool();
+        let mut bgra = vec![0u8; (ww as usize) * (wh as usize) * 4];
+        if ok {
+            let mut bmi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: ww,
+                    biHeight: -wh, // top-down
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            GetDIBits(hdc_mem, hbm, 0, wh as u32, Some(bgra.as_mut_ptr().cast()), &mut bmi, DIB_RGB_COLORS);
+        }
+        let _ = SelectObject(hdc_mem, old);
+        let _ = DeleteObject(hbm.into());
+        let _ = DeleteDC(hdc_mem);
+        let _ = ReleaseDC(None, hdc_screen);
+        if !ok {
+            return;
+        }
+        let (iw, ih) = (rgb.width() as i32, rgb.height() as i32);
+        for wy in 0..wh {
+            let py = iy + wy;
+            if !(0..ih).contains(&py) {
+                continue;
+            }
+            for wx in 0..ww {
+                let px = ix + wx;
+                if !(0..iw).contains(&px) {
+                    continue;
+                }
+                let idx = ((wy * ww + wx) * 4) as usize;
+                let (b, g, rr) = (bgra[idx], bgra[idx + 1], bgra[idx + 2]);
+                if b as u32 + g as u32 + rr as u32 > 12 {
+                    rgb.put_pixel(px as u32, py as u32, image::Rgb([rr, g, b]));
+                }
+            }
+        }
+    }
 }
 
 /// Crop a [`Capture`] to `view`, downscale so the SHORT edge is at most

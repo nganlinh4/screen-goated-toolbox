@@ -132,6 +132,55 @@ pub(super) fn refine_in_view(
     }
 }
 
+// ── Browser-pipeline variants (used when browser::input_active()) ─────────────
+//
+// Same vision-locate, but over a crisp CDP page screenshot instead of the OS
+// frame, and the action goes through the browser's TRUSTED input (CDP) instead of
+// SendInput. This is what lets the agent operate <canvas>/WebGL web games and
+// cross-origin iframes that ignore synthetic OS mouse events — with better pixel
+// precision too (full-res page image, exact CSS-px coordinates, no chrome/DPR math).
+
+/// Locate `description` in the controlled browser's viewport via a CDP screenshot,
+/// returning the point in CSS px (the space CDP input uses) plus what was seen.
+pub(super) fn locate_css(description: &str, ctx: &str, cancel: &AtomicBool) -> Result<(f64, f64, Option<String>)> {
+    let (jpeg, cw, ch) = super::super::browser::shot()?;
+    let (d, c) = (description.to_string(), ctx.to_string());
+    let loc = run_cancellable(cancel, move || super::super::vision_reader::locate_point(&jpeg, &d, &c))?;
+    Ok((loc.x / 1000.0 * cw, loc.y / 1000.0 * ch, loc.note))
+}
+
+/// click_target via the trusted browser pipeline.
+pub(super) fn browser_click(desc: &str, right: bool, ctx: &str, cancel: &AtomicBool) -> Value {
+    match locate_css(desc, ctx, cancel) {
+        Ok((x, y, note)) => {
+            eprintln!("[cc] CLICK_TARGET(browser) '{desc}' -> css({x:.0},{y:.0}) saw={note:?}");
+            match super::super::browser::click(x, y, right) {
+                Ok(()) => json!({"ok": true, "via": "browser", "css_px": [x.round(), y.round()], "saw_at_target": note}),
+                Err(e) => json!({"ok": false, "error": e.to_string()}),
+            }
+        }
+        Err(e) => json!({"ok": false, "error": format!("could not locate '{desc}': {e}")}),
+    }
+}
+
+/// drag_target via the trusted browser pipeline (vision-locate BOTH endpoints).
+pub(super) fn browser_drag(from: &str, to: &str, ctx: &str, cancel: &AtomicBool) -> Value {
+    let f = match locate_css(from, ctx, cancel) {
+        Ok(v) => v,
+        Err(e) => return json!({"ok": false, "error": format!("could not locate from '{from}': {e}")}),
+    };
+    let t = match locate_css(to, ctx, cancel) {
+        Ok(v) => v,
+        Err(e) => return json!({"ok": false, "error": format!("could not locate to '{to}': {e}")}),
+    };
+    eprintln!("[cc] DRAG_TARGET(browser) '{from}'->'{to}' : css({:.0},{:.0})->({:.0},{:.0})", f.0, f.1, t.0, t.1);
+    match super::super::browser::drag(f.0, f.1, t.0, t.1) {
+        Ok(()) => json!({"ok": true, "via": "browser", "from": f.2, "to": t.2,
+            "from_css": [f.0.round(), f.1.round()], "to_css": [t.0.round(), t.1.round()]}),
+        Err(e) => json!({"ok": false, "error": e.to_string()}),
+    }
+}
+
 /// True if every token in a `key_combination` is a scroll/navigation key — those
 /// are legitimately repeated (paging through a feed), so the stuck detector skips
 /// them. A combo with a non-nav key (e.g. Ctrl+C) is not navigation.
@@ -182,7 +231,7 @@ pub(super) fn read_click_points(dir: &str) -> Vec<(i32, i32)> {
 /// save a frame with EVERY click point marked — so we can tell whether a wrong
 /// outcome was a harness mis-click or a model decision.
 pub(super) fn final_review(dir: &str, target: Option<&str>, note: &str) {
-    let view = window_view(target);
+    let view = window_view(target, false);
     let reading = read_view(
         view,
         "Describe the final on-screen state in detail. If this is a game, state the exact result \

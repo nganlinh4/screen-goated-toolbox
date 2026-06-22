@@ -4,13 +4,18 @@
 
 use super::*;
 
-pub(super) fn window_view(target: Option<&str>) -> View {
-    if let Some((x, y, w, h)) = uia::target_window_rect(target) {
-        View { x, y, w, h }
-    } else {
-        let (x, y, w, h) = uia::virtual_desktop();
-        View { x, y, w, h }
+/// The view the model is grounded on. DEFAULT = the ACTIVE window (precise clicks,
+/// no whole-screen ambiguity) - the target window if `target` is set, else the
+/// foreground one. When `whole_screen` is set (the model called see_whole_screen for
+/// awareness / to find another window) it's the WHOLE virtual desktop instead.
+pub(super) fn window_view(target: Option<&str>, whole_screen: bool) -> View {
+    if !whole_screen
+        && let Some((x, y, w, h)) = uia::target_window_rect(target)
+    {
+        return View { x, y, w, h };
     }
+    let (x, y, w, h) = uia::virtual_desktop();
+    View { x, y, w, h }
 }
 
 /// Capture + overlay + save the current view; return (base64 JPEG, clamped view)
@@ -96,6 +101,31 @@ pub(super) fn point_screen(
     executor::execute_ex(
         "point",
         &json!({"x": nx, "y": ny, "dwell_ms": dwell_ms}),
+        profile,
+        cancel,
+    )
+}
+
+/// Drag from one absolute screen pixel to another (press, glide, release) - the
+/// precise drag for canvas drag-and-drop (place a card on a slot, move a slider).
+/// The executor's `drag` takes 0-1000 normalized, so convert screen px back.
+pub(super) fn drag_screen(
+    fx: i32,
+    fy: i32,
+    tx: i32,
+    ty: i32,
+    dry: bool,
+    profile: &HumanProfile,
+    cancel: &AtomicBool,
+) -> Value {
+    if dry {
+        return json!({"ok": true, "note": "dry", "from_px": [fx, fy], "to_px": [tx, ty]});
+    }
+    let (fnx, fny) = executor::screen_to_norm(fx, fy);
+    let (tnx, tny) = executor::screen_to_norm(tx, ty);
+    executor::execute_ex(
+        "drag",
+        &json!({"x": fnx, "y": fny, "dest_x": tnx, "dest_y": tny}),
         profile,
         cancel,
     )
@@ -204,14 +234,17 @@ pub(super) fn format_state(elements: &[UiElement], target: Option<&str>, view: V
         if readouts.len() + clickable.len() > 3200 {
             break;
         }
+        // Ground-truth control state (on/off/selected/expanded/value) as a tag,
+        // so the model reads state as text instead of guessing from pixels.
+        let state = e.state.as_deref().map(|s| format!(" [{s}]")).unwrap_or_default();
         if e.control_type == "Text" {
-            let line = format!("- {name}{}\n", cell_of(e));
+            let line = format!("- {name}{state}{}\n", cell_of(e));
             if seen.insert(line.clone()) {
                 readouts.push_str(&line);
             }
         } else if is_clickable(e.control_type) {
             let flag = if e.enabled { "" } else { " [disabled]" };
-            let line = format!("- {} \"{name}\"{flag}{}\n", e.control_type, cell_of(e));
+            let line = format!("- {} \"{name}\"{flag}{state}{}\n", e.control_type, cell_of(e));
             if seen.insert(line.clone()) {
                 clickable.push_str(&line);
             }
@@ -222,7 +255,8 @@ pub(super) fn format_state(elements: &[UiElement], target: Option<&str>, view: V
     }
     format!(
         "WINDOW: {title}\n\nREADOUTS (live values, with grid cell):\n{readouts}\nCLICKABLE \
-(click_element by exact name; @cellN is where it sits on the grid):\n{clickable}\nNote: targets with NO \
+(click_element by exact name; @cellN = its grid cell; a [tag] like [on]/[off]/[selected]/[expanded]/[value N] \
+is its CURRENT state - TRUST that over the screenshot):\n{clickable}\nNote: targets with NO \
 UIA element (game boards, canvas, images) are not listed - locate them visually, using the @cell anchors \
 above as reference, then zoom that cell and click_at.\n"
     )

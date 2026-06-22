@@ -203,8 +203,8 @@ pub(super) fn setup() -> Value {
         },
         "do_yourself": [
             format!("Open a NEW TAB first so you don't lose the user's current page: key_combination 'Ctrl+T'. Then in that new tab go to {} via the address bar: key_combination 'Ctrl+L', then type_text '{}' with press_enter:true. Stay in the SAME window (no new window).", browser.ext_url, browser.ext_url),
-            "Toggle ON 'Developer mode' (top-right) ONLY if it's off - look() first; don't toggle what's already on. Click the SWITCH (far right), then look() to confirm it flipped - DON'T retry on 'no visual change' (the detector misses tiny toggles).",
-            "Click 'Load unpacked'. In the file dialog, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
+            "Developer mode must be ON - but DON'T read the tiny toggle visually (vision misreads it). It is ON exactly when a 'Load unpacked' button appears in your CLICKABLE list. If you already see 'Load unpacked', it's on - skip ahead. If NOT, click the 'Developer mode' toggle (top-right) ONCE, then re-check your CLICKABLE list for 'Load unpacked' (toggle at most once per check).",
+            "Once 'Load unpacked' is listed, click it. In the file dialog, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
             "A permission prompt USUALLY does NOT appear for unpacked extensions - do NOT wait for one or tell the user to confirm it. If one happens to show, pause for the user; otherwise just continue.",
             "That's it - NO popup, NO pairing code. The extension auto-pairs over the socket within ~2 minutes.",
             "Poll browser_status (wait a few seconds between tries) until 'connected' is true, then STOP."
@@ -316,15 +316,80 @@ pub(super) fn click_selector(selector: &str) -> Value {
 }
 
 fn dispatch_click(x: f64, y: f64) -> anyhow::Result<()> {
+    click(x, y, false)
+}
+
+// ── Vision-located input over the trusted browser pipeline (CDP) ──────────────
+//
+// A vision model can find a target the DOM can't address by selector — a card on
+// a <canvas>, a control inside a cross-origin iframe. We screenshot the VIEWPORT
+// via CDP, let vision locate the target in that crisp page image, then act there
+// with `Input.dispatchMouseEvent`. Because the screenshot IS the viewport, a
+// 0-1000 normalized point maps linearly to CSS px — the exact space CDP input
+// uses — with no window-chrome or DPR math. And CDP events are TRUSTED, so they
+// drive canvas/WebGL pointer handlers (and HTML5 drag-and-drop) that ignore the
+// synthetic OS mouse events SendInput produces.
+
+/// Whether a vision-located click/drag should go through the browser's trusted
+/// input pipeline: deep control is connected AND a Chromium browser is foreground.
+pub(super) fn input_active() -> bool {
+    is_connected() && super::uia::foreground_is_chromium()
+}
+
+/// Capture the controlled tab's viewport as a JPEG, with its CSS width/height so a
+/// 0-1000 normalized vision hit can be scaled to the CSS px CDP input expects.
+pub(super) fn shot() -> anyhow::Result<(Vec<u8>, f64, f64)> {
+    let size = eval_value("({w: window.innerWidth, h: window.innerHeight})")?;
+    let cw = size.get("w").and_then(Value::as_f64).unwrap_or(0.0);
+    let ch = size.get("h").and_then(Value::as_f64).unwrap_or(0.0);
+    if cw < 1.0 || ch < 1.0 {
+        anyhow::bail!("browser viewport has no size");
+    }
+    let _ = bridge::cdp("Page.enable", json!({})); // idempotent; some builds need it
+    let r = bridge::cdp("Page.captureScreenshot", json!({"format": "jpeg", "quality": 65}))?;
+    let b64 = r.get("data").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("no screenshot data"))?;
+    use base64::Engine as _;
+    let jpeg = base64::engine::general_purpose::STANDARD.decode(b64)?;
+    Ok((jpeg, cw, ch))
+}
+
+/// Trusted left/right click at a CSS-px point.
+pub(super) fn click(x: f64, y: f64, right: bool) -> anyhow::Result<()> {
+    let (button, mask) = if right { ("right", 2) } else { ("left", 1) };
     bridge::cdp("Input.dispatchMouseEvent", json!({"type":"mouseMoved","x":x,"y":y}))?;
-    bridge::cdp(
-        "Input.dispatchMouseEvent",
-        json!({"type":"mousePressed","x":x,"y":y,"button":"left","buttons":1,"clickCount":1}),
-    )?;
-    bridge::cdp(
-        "Input.dispatchMouseEvent",
-        json!({"type":"mouseReleased","x":x,"y":y,"button":"left","buttons":0,"clickCount":1}),
-    )?;
+    bridge::cdp("Input.dispatchMouseEvent",
+        json!({"type":"mousePressed","x":x,"y":y,"button":button,"buttons":mask,"clickCount":1}))?;
+    bridge::cdp("Input.dispatchMouseEvent",
+        json!({"type":"mouseReleased","x":x,"y":y,"button":button,"buttons":0,"clickCount":1}))?;
+    Ok(())
+}
+
+/// Trusted press-glide-release drag between two CSS-px points, shaped like a real
+/// human drag so pointer/canvas games and HTML5 drag-and-drop reliably latch it:
+///   1. press, then HOLD - lets the page's pointerdown/grab settle before motion
+///      (a press immediately followed by movement reads as a stray click, which is
+///      why fast drags intermittently "spring back" instead of picking the item up);
+///   2. a STEADY (linear) glide of many held mouseMoved events - steady motion
+///      crosses velocity/threshold-based drag detection cleanly;
+///   3. dwell on the drop target before release - so dragover/drop fires there.
+pub(super) fn drag(fx: f64, fy: f64, tx: f64, ty: f64) -> anyhow::Result<()> {
+    const GRAB_HOLD_MS: u64 = 110; // settle the grab before moving
+    const DROP_HOLD_MS: u64 = 110; // settle on the target before releasing
+    const STEPS: i32 = 28;
+    bridge::cdp("Input.dispatchMouseEvent", json!({"type":"mouseMoved","x":fx,"y":fy}))?;
+    bridge::cdp("Input.dispatchMouseEvent",
+        json!({"type":"mousePressed","x":fx,"y":fy,"button":"left","buttons":1,"clickCount":1}))?;
+    std::thread::sleep(Duration::from_millis(GRAB_HOLD_MS));
+    for i in 1..=STEPS {
+        let t = f64::from(i) / f64::from(STEPS);
+        let (x, y) = (fx + (tx - fx) * t, fy + (ty - fy) * t);
+        bridge::cdp("Input.dispatchMouseEvent",
+            json!({"type":"mouseMoved","x":x,"y":y,"button":"left","buttons":1}))?;
+        std::thread::sleep(Duration::from_millis(14));
+    }
+    std::thread::sleep(Duration::from_millis(DROP_HOLD_MS));
+    bridge::cdp("Input.dispatchMouseEvent",
+        json!({"type":"mouseReleased","x":tx,"y":ty,"button":"left","buttons":0,"clickCount":1}))?;
     Ok(())
 }
 

@@ -11,16 +11,21 @@ use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationElement, TreeScope_Children, TreeScope_Descendants,
+    CUIAutomation, ExpandCollapseState_Collapsed, ExpandCollapseState_Expanded,
+    ExpandCollapseState_PartiallyExpanded, IUIAutomation, IUIAutomationElement,
+    IUIAutomationExpandCollapsePattern, IUIAutomationRangeValuePattern,
+    IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern, ToggleState_Indeterminate,
+    ToggleState_On, TreeScope_Children, TreeScope_Descendants, UIA_ExpandCollapsePatternId,
+    UIA_RangeValuePatternId, UIA_SelectionItemPatternId, UIA_TogglePatternId,
 };
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowTextW,
-    GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MINIMIZE, SW_RESTORE,
-    SetForegroundWindow, SetWindowPos, ShowWindow,
+    BringWindowToTop, GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics,
+    GetWindowTextW, GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MINIMIZE,
+    SW_RESTORE, SetForegroundWindow, SetWindowPos, ShowWindow,
 };
 
 #[derive(Debug, Clone)]
@@ -32,6 +37,10 @@ pub(super) struct UiElement {
     pub right: i32,
     pub bottom: i32,
     pub enabled: bool,
+    /// Ground-truth control state from UIA patterns (e.g. "on"/"off"/"selected"/
+    /// "expanded"/"value 30"), when the element exposes one - so the model reads
+    /// state as text instead of (unreliably) eyeballing a few-pixel toggle.
+    pub state: Option<String>,
 }
 
 impl UiElement {
@@ -74,6 +83,59 @@ fn control_type_name(id: i32) -> &'static str {
     }
 }
 
+/// Best-effort ground-truth STATE of an interactive element, via UIA control
+/// patterns - the on/off, selected, expanded, or value the model would otherwise
+/// have to (unreliably) read from a few pixels. `None` when it exposes no state.
+/// Unsupported patterns return `Err` (windows-rs null-checks the out-pointer), so
+/// the `if let Ok` chains simply fall through.
+unsafe fn read_state(el: &IUIAutomationElement) -> Option<String> {
+    unsafe {
+        // Toggle = checkbox / switch / toggle-button (on | off | mixed).
+        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
+            && let Ok(st) = p.CurrentToggleState()
+        {
+            let s = if st == ToggleState_On {
+                "on"
+            } else if st == ToggleState_Indeterminate {
+                "mixed"
+            } else {
+                "off"
+            };
+            return Some(s.to_string());
+        }
+        // Selection = tab / list item / radio: surface only the SELECTED one.
+        if let Ok(p) =
+            el.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+            && let Ok(sel) = p.CurrentIsSelected()
+            && sel.as_bool()
+        {
+            return Some("selected".to_string());
+        }
+        // Expand/collapse = tree / menu / combo open state (LeafNode → no tag).
+        if let Ok(p) = el
+            .GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId)
+            && let Ok(st) = p.CurrentExpandCollapseState()
+        {
+            if st == ExpandCollapseState_Expanded {
+                return Some("expanded".to_string());
+            } else if st == ExpandCollapseState_Collapsed {
+                return Some("collapsed".to_string());
+            } else if st == ExpandCollapseState_PartiallyExpanded {
+                return Some("partly-expanded".to_string());
+            }
+        }
+        // Range = slider / progress: the numeric value (trimmed of float noise).
+        if let Ok(p) =
+            el.GetCurrentPatternAs::<IUIAutomationRangeValuePattern>(UIA_RangeValuePatternId)
+            && let Ok(v) = p.CurrentValue()
+        {
+            let r = (v * 100.0).round() / 100.0;
+            return Some(format!("value {r}"));
+        }
+        None
+    }
+}
+
 /// Enumerate on-screen UIA elements of the target window (or the foreground
 /// window if `target` is None). Filters out zero-area and offscreen elements.
 pub(super) fn enumerate(target: Option<&str>) -> Result<Vec<UiElement>> {
@@ -97,6 +159,9 @@ pub(super) fn enumerate(target: Option<&str>) -> Result<Vec<UiElement>> {
             let name = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
             let ct = el.CurrentControlType().map(|c| c.0).unwrap_or(0);
             let enabled = el.CurrentIsEnabled().map(|b| b.as_bool()).unwrap_or(false);
+            // Read control state only for named elements (the ones we display), to
+            // bound the extra per-element pattern probes.
+            let state = if name.trim().is_empty() { None } else { read_state(&el) };
             out.push(UiElement {
                 name,
                 control_type: control_type_name(ct),
@@ -105,6 +170,7 @@ pub(super) fn enumerate(target: Option<&str>) -> Result<Vec<UiElement>> {
                 right: rect.right,
                 bottom: rect.bottom,
                 enabled,
+                state,
             });
         }
         Ok(out)
@@ -367,6 +433,20 @@ pub(super) fn pointer_context() -> (String, i32, i32) {
         let mut p = POINT::default();
         let _ = GetCursorPos(&mut p);
         (title, p.x, p.y)
+    }
+}
+
+/// True when the foreground window is a Chromium browser. Chrome, Edge, Brave,
+/// Opera and Vivaldi all use the `Chrome_WidgetWin_1` top-level window class -
+/// a signal that is brand-independent, NOT localized, and (unlike the title) not
+/// subject to truncation. Used to decide whether a vision-located click/drag
+/// should be driven through the browser's OWN trusted input pipeline (CDP)
+/// instead of synthetic OS mouse events, which canvas/WebGL web games ignore.
+pub(super) fn foreground_is_chromium() -> bool {
+    unsafe {
+        let mut buf = [0u16; 64];
+        let n = GetClassNameW(GetForegroundWindow(), &mut buf);
+        String::from_utf16_lossy(&buf[..n.max(0) as usize]) == "Chrome_WidgetWin_1"
     }
 }
 

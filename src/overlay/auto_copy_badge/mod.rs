@@ -222,8 +222,12 @@ fn ensure_window_and_post(msg: u32) {
     if hwnd_val != 0 && !hwnd.is_invalid() {
         unsafe {
             if IsWindow(Some(hwnd)).as_bool() {
-                let res = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0));
-                println!("[Badge] PostMessage Result: {:?}", res);
+                // Only log FAILURES - this fires on every progress tick (hundreds of
+                // times during a large model download), so logging each Ok floods the
+                // console with no signal.
+                if let Err(e) = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0)) {
+                    println!("[Badge] PostMessage failed: {e:?}");
+                }
             } else {
                 BADGE_HWND.store(0, Ordering::SeqCst);
                 IS_WARMED_UP.store(false, Ordering::SeqCst);
