@@ -585,30 +585,26 @@ fn handle_event(
             }
         }
         ServerEvent::ToolCancellation(ids) => {
-            // The server discarded the pending call because new user input arrived.
-            // We must NOT answer that id (would be invalid) - but we let the action
-            // run to completion so the move still happens; only the result is
-            // dropped. The model re-plans from the user's new input.
+            // The user spoke while a tool call was pending, so the server cancelled
+            // it. We must NOT answer that id (invalid), AND we ABORT the in-flight
+            // action: the model is about to re-plan from the new input, so letting a
+            // now-irrelevant long action (a wait, a vision call, a humanized glide)
+            // run to completion just wastes time. This IS our "stop" - it's driven by
+            // the server's voice-activity barge-in, which works in ANY language, so
+            // no spoken-keyword list is needed.
             if let Some(sink) = sink {
                 sink.clear();
             }
             if let Some(p) = state.pending.id.as_ref()
                 && ids.iter().any(|i| i == p)
             {
-                state.pending.cancelled = true; // don't answer; action still finishes
+                state.pending.cancelled = true; // don't answer it...
+                cancel.store(true, Ordering::SeqCst); // ...and abort the action now
+                overlay::set_status("halting...");
             }
-            overlay::push_log(format!("[~] re-planning (current step still finishing) {ids:?}"));
+            overlay::push_log(format!("[~] halting current step + re-planning {ids:?}"));
         }
         ServerEvent::InputTranscript(t) => {
-            // Local fast-path: a spoken stop halts NOW, before the round-trip.
-            let lt = t.to_lowercase();
-            if state.pending.id.is_some()
-                && (lt.contains("stop") || lt.contains("dừng") || lt.contains("wait"))
-            {
-                cancel.store(true, Ordering::SeqCst); // explicit stop aborts the action
-                overlay::set_status("halting...");
-                overlay::push_log("[stop] halting on your command".to_string());
-            }
             if !t.trim().is_empty() {
                 flush_reply(state); // close the assistant's prior reply into history
                 state.history.push(format!("User: {}", t.trim()));
