@@ -50,6 +50,9 @@ tools - don't narrate a list of steps for them to do. To submit a typed URL/sear
 press_enter:true (never type a literal '{enter}'). For DEEP browser control, call browser_setup and then carry out \
 its checklist yourself, pausing only at the extension permission prompt. Before flipping a setting (e.g. the \
 Developer mode switch), look() to check whether it's ALREADY in the wanted state - don't toggle what's already on. \
+SETUP IS DONE the instant browser_status (or browser_setup) reports connected:true - say it's ready and STOP: do NOT \
+re-run browser_setup, re-open chrome://extensions, re-toggle Developer mode, or look() to 'verify' the extension. \
+Then just USE the browser tools for the user's actual task. \
 BROWSER NAVIGATION: once browser control is connected, use browser_navigate to go to a URL - it reuses the CURRENT \
 tab. Do NOT use open_url for that (it opens a NEW tab/window every time); reserve open_url for when the extension \
 isn't connected, or to leave a chrome:// page (which the extension can't drive). Work in the EXISTING browser window. \
