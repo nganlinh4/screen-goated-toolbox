@@ -396,17 +396,20 @@ fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// `ShellExecuteW "open"` on a file/app/URL. Returns Ok if the shell accepted it
+/// `ShellExecuteW "open"` on a file/app/URL, optionally with command-line
+/// arguments (e.g. open a file in an app). Returns Ok if the shell accepted it
 /// (HINSTANCE > 32 per the Win32 contract).
-fn shell_open(file: &str) -> Result<()> {
+fn shell_open(file: &str, params: Option<&str>) -> Result<()> {
     let op = to_wide("open");
     let file_w = to_wide(file);
+    let params_w = params.filter(|p| !p.is_empty()).map(to_wide);
+    let params_ptr = params_w.as_ref().map_or(PCWSTR::null(), |p| PCWSTR(p.as_ptr()));
     let r = unsafe {
         ShellExecuteW(
             None,
             PCWSTR(op.as_ptr()),
             PCWSTR(file_w.as_ptr()),
-            PCWSTR::null(),
+            params_ptr,
             PCWSTR::null(),
             SW_SHOWNORMAL,
         )
@@ -426,16 +429,19 @@ fn open_url(args: &Value) -> Result<Value> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err(anyhow!("url must start with http:// or https://"));
     }
-    shell_open(url)?;
+    shell_open(url, None)?;
     Ok(json!({"ok": true, "opened_url": url}))
 }
 
 /// Launch (or focus) an application by name/path via the shell, e.g. "chrome",
-/// "notepad", "explorer". More reliable than the Win+type Start-menu dance.
+/// "notepad", "explorer", with optional arguments (e.g. open a file in an app:
+/// name="notepad", args="C:\path\file.txt"). More reliable than the Win+type
+/// Start-menu dance.
 fn launch_app(args: &Value) -> Result<Value> {
     let name = args.get("name").and_then(Value::as_str).ok_or_else(|| anyhow!("missing name"))?;
-    shell_open(name)?;
-    Ok(json!({"ok": true, "launched": name}))
+    let app_args = args.get("args").and_then(Value::as_str);
+    shell_open(name, app_args)?;
+    Ok(json!({"ok": true, "launched": name, "args": app_args}))
 }
 
 fn token_to_vk(token: &str) -> Option<VIRTUAL_KEY> {
