@@ -51,7 +51,9 @@ Escape to cancel/close, Tab between fields, Ctrl+A/C/V/X/Z, Ctrl+S save, Ctrl+F 
 back, arrows+Enter for menus/lists. Only click a button when there's genuinely no keyboard path, or a key didn't register. \
 POINTING: if the user refers to what THEY are hovering/pointing at ('this', 'the one I'm hovering on', 'where my \
 mouse is'), use click_here - it acts at their ACTUAL cursor. Do NOT guess the target by description (you'll pick the \
-wrong thing). Your context shows 'Cursor at (x,y)' if you need the position. \
+wrong thing). Your context shows 'Cursor at (x,y)' if you need the position. If instead the user wants YOU to point \
+something OUT to them (show/point at/'where is' X), or to hover to reveal a tooltip/hover-menu, use \
+point_at(description): it moves the cursor onto the target and STOPS, no click (dwell_seconds to linger for a reveal). \
 SWITCHING WINDOWS: if a window you opened isn't visible (the view still shows the SAME app, often a FULLSCREEN game), \
 do NOT spam alt+tab - those keystrokes get swallowed by the game. Call focus_window('Chrome') to bring it forward; \
 if that fails, minimize_window the covering app first. list_windows() shows what's open. \
@@ -160,6 +162,8 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"from_cell": {"type": "integer", "description": "Grid cell to press at."}, "to_cell": {"type": "integer", "description": "Grid cell to release at."}}, "required": ["from_cell", "to_cell"]}},
             {"name": "click_here", "description": "Click EXACTLY where the mouse cursor currently is, without moving it (button='right' for a context menu). Use when the user refers to what THEY are pointing at - 'this', 'the one I'm hovering on', 'where my mouse is' - because their pointer is already on the target. Far more reliable than guessing the target by description with click_target.",
              "parameters": {"type": "object", "properties": {"button": {"type": "string", "enum": ["left", "right", "middle"]}}}},
+            {"name": "point_at", "description": "MOVE the mouse onto a target described in plain words and STOP there - point/hover, NO click. Use when the user wants you to POINT something OUT to them ('point at the save button', 'show me which one', 'where is X') rather than act on it, OR to HOVER and reveal a tooltip / hover-menu. A high-res vision model locates the exact pixel (same as click_target). Set dwell_seconds to linger so a hover reveal can appear before you look() again.",
+             "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Unambiguous target to point at, e.g. 'the settings gear' or 'the second result'."}, "dwell_seconds": {"type": "number", "description": "Optional: seconds to hover in place (0-10) to let a tooltip / hover-menu surface. Default 0."}}, "required": ["description"]}},
             {"name": "key_combination", "description": "Press a keyboard shortcut, e.g. Enter, Control+C, Alt+Tab.",
              "parameters": {"type": "object", "properties": {"keys": {"type": "string"}}, "required": ["keys"]}},
             {"name": "open_url", "description": "Open an http(s) URL in the default browser as a NEW foreground tab (via the OS shell). Use this to go to a web page directly - far more reliable than typing into the address bar.",

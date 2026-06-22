@@ -76,6 +76,7 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
         "launch_app" => launch_app(args),
         "run_command" => run_command(args),
         "click_here" => click_here(args),
+        "point" => point(args, profile, cancel),
         other => Err(anyhow!("unknown action: {other}")),
     };
     match result {
@@ -261,6 +262,22 @@ fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Val
     sleep(Duration::from_millis(40));
     send(&[mouse(0, 0, 0, MOUSEEVENTF_LEFTUP)]);
     Ok(json!({"ok": true, "drag": [[x, y], [dx, dy]]}))
+}
+
+/// Glide the cursor to a 0-1000 point and STOP there - a point/hover, NO click.
+/// For "point at / show me X" (indicate without acting) or to hover and reveal a
+/// tooltip / hover-menu. `dwell_ms` lingers on the target so that reveal can happen
+/// before the next frame is captured. Pollable by `cancel` like every motion.
+fn point(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
+    let (x, y) = xy(args)?;
+    if move_humanized(x, y, 40.0, profile, cancel) == Outcome::Aborted {
+        return Ok(aborted());
+    }
+    let dwell = args.get("dwell_ms").and_then(Value::as_u64).unwrap_or(0).min(10_000);
+    if dwell > 0 && human_input::sleep_cancellable(dwell, cancel) {
+        return Ok(aborted());
+    }
+    Ok(json!({"ok": true, "pointed": [x, y]}))
 }
 
 /// Click (or right/middle-click) at the CURRENT cursor position WITHOUT moving
