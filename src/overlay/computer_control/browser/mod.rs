@@ -67,13 +67,59 @@ fn write_extension() -> anyhow::Result<std::path::PathBuf> {
     Ok(dir)
 }
 
-/// Open chrome://extensions in Chrome (reliable, unlike `open_url`/ShellExecute
-/// which reject `chrome://`).
-fn open_extensions_page() {
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// The user's browser, as far as the extension flow needs to know.
+struct BrowserInfo {
+    start: &'static str,   // `start` target (App Paths alias)
+    ext_url: &'static str, // the …://extensions page
+    focus: &'static str,   // window-title substring to bring to front
+    name: &'static str,    // display name
+    chromium: bool,        // deep control only works on Chromium browsers
+}
+
+/// Detect the default browser from the https UserChoice ProgId and map it to a
+/// Chromium browser. Firefox/unknown → fall back to Chrome (and flag it).
+fn detect_browser() -> BrowserInfo {
+    let prog = default_https_progid().unwrap_or_default().to_lowercase();
+    if prog.contains("msedge") || prog.contains("edge") {
+        BrowserInfo { start: "msedge", ext_url: "edge://extensions", focus: "Edge", name: "Microsoft Edge", chromium: true }
+    } else if prog.contains("brave") {
+        BrowserInfo { start: "brave", ext_url: "brave://extensions", focus: "Brave", name: "Brave", chromium: true }
+    } else if prog.contains("opera") {
+        BrowserInfo { start: "opera", ext_url: "opera://extensions", focus: "Opera", name: "Opera", chromium: true }
+    } else if prog.contains("firefox") {
+        BrowserInfo { start: "chrome", ext_url: "chrome://extensions", focus: "Chrome", name: "Firefox", chromium: false }
+    } else {
+        BrowserInfo { start: "chrome", ext_url: "chrome://extensions", focus: "Chrome", name: "Google Chrome", chromium: true }
+    }
+}
+
+fn default_https_progid() -> Option<String> {
     use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let out = std::process::Command::new("reg")
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
+            "/v",
+            "ProgId",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout);
+    s.lines()
+        .find(|l| l.contains("ProgId") && l.contains("REG_SZ"))
+        .and_then(|l| l.split_whitespace().last())
+        .map(str::to_string)
+}
+
+/// Open the browser's …://extensions page (reliable, unlike `open_url`/
+/// ShellExecute which reject the `…://` scheme).
+fn open_extensions_page(info: &BrowserInfo) {
+    use std::os::windows::process::CommandExt;
     let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", "chrome", "chrome://extensions"])
+        .args(["/C", "start", info.start, info.ext_url])
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
 }
@@ -87,19 +133,25 @@ pub(super) fn setup() -> Value {
         Ok(d) => d.display().to_string(),
         Err(e) => return err(e),
     };
+    let browser = detect_browser();
     bridge::open_pairing_window(); // ~2 min: a fresh extension auto-pairs, no popup
-    open_extensions_page();
+    open_extensions_page(&browser);
     std::thread::sleep(Duration::from_millis(1200)); // let the tab open...
-    let _ = super::uia::raise_window("Chrome"); // ...then bring Chrome to the front
+    let _ = super::uia::raise_window(browser.focus); // ...then bring it to the front
     json!({
         "ok": true,
         "connected": is_connected(),
-        "opened_extensions_page": true,
+        "browser": browser.name,
+        "chromium": browser.chromium,
+        "extensions_page": browser.ext_url,
         "extension_folder": dir,
         "port": bridge::port_for_display(),
+        "warning": if browser.chromium { Value::Null } else {
+            json!(format!("Your default browser ({}) isn't Chromium - deep browser control needs Chrome/Edge/Brave. Opened Chrome instead; if it isn't installed, tell the user.", browser.name))
+        },
         "do_yourself": [
-            "chrome://extensions should now be open (focus the Chrome window if not).",
-            "Toggle ON 'Developer mode' (top-right). Use click_target on the SWITCH itself (not the text label).",
+            format!("{} should now be open (focus that browser window if not).", browser.ext_url),
+            "Toggle ON 'Developer mode' (top-right) ONLY if it's off - look() first; don't toggle what's already on. Click the SWITCH, not the text label.",
             "Click 'Load unpacked'. In the file dialog, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
             "A permission prompt may appear (it can read/change browser data): briefly tell the user and PAUSE for their click - the one human checkpoint.",
             "That's it - NO popup, NO pairing code. The extension auto-pairs over the socket within ~2 minutes.",
