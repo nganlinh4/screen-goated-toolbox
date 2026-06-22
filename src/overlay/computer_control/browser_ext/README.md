@@ -1,4 +1,4 @@
-# SGT Computer Control Bridge (Chrome extension)
+# SGT Browser Use (Chrome extension)
 
 A thin **CDP-over-WebSocket bridge**: it attaches `chrome.debugger` to the active
 tab and forwards DevTools Protocol commands to the Screen Goated Toolbox app over a
