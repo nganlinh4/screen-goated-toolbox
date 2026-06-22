@@ -1,4 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// The Computer Control tool catalog is one large `json!` literal; its array
+// expands recursively, so the default macro recursion limit (128) is too low.
+#![recursion_limit = "512"]
 
 mod api;
 mod assets;

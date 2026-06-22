@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font: 13px system-ui, sans-serif; width: 260px; padding: 12px; }
+      h1 { font-size: 14px; margin: 0 0 8px; }
+      label { display: block; margin: 8px 0 2px; color: #555; }
+      input { width: 100%; box-sizing: border-box; padding: 6px; }
+      button { margin-top: 10px; padding: 6px 10px; cursor: pointer; }
+      #status { margin-top: 10px; padding: 6px; border-radius: 6px; background: #f1f1f1; }
+      .ok { color: #1a7f37; }
+      .off { color: #b3261e; }
+      .muted { color: #888; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <h1>SGT Computer Control Bridge</h1>
+    <div class="muted">Paste the pairing code shown by Screen Goated Toolbox.</div>
+    <label>Pairing code</label>
+    <input id="secret" type="password" placeholder="paste code…" />
+    <label>Port</label>
+    <input id="port" type="number" placeholder="47800" />
+    <button id="save">Pair &amp; connect</button>
+    <button id="forget" title="Wipe the pairing secret">Forget</button>
+    <div id="status" class="off">Not paired</div>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -273,26 +273,47 @@ fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<V
 
 fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
     super::uia::focus_foreground(); // text must land on the on-screen window
-    let text = args.get("text").and_then(Value::as_str).ok_or_else(|| anyhow!("missing text"))?;
-    // Fast path: PASTE longer text via the clipboard instead of synthesizing a
-    // keystroke per character (which took 30+ seconds for a paragraph and mangles
-    // non-ASCII like Vietnamese). Save and restore the user's clipboard so we
-    // don't clobber it. Short inputs still type — avoids touching the clipboard
-    // for a couple of chars and plays nice with type-as-you-search fields.
-    if text.chars().count() > 12 {
-        let saved = super::clipboard::get_text();
-        super::clipboard::set_text(text);
-        sleep(Duration::from_millis(30)); // let the clipboard settle before paste
-        send_ctrl_v();
-        sleep(Duration::from_millis(140)); // let the target consume the paste...
-        if !saved.is_empty() {
-            super::clipboard::set_text(&saved); // ...then restore what the user had
+    let raw = args.get("text").and_then(Value::as_str).ok_or_else(|| anyhow!("missing text"))?;
+    // Submit handling: models routinely append a submit token ("…{enter}", a
+    // trailing newline) or pass press_enter. Honor all of them — type the literal
+    // text, then press Enter. Without this the field just gets
+    // "chrome://extensions{enter}" typed verbatim (what stalled browser setup).
+    let mut text = raw.to_string();
+    let mut enter = args.get("press_enter").and_then(Value::as_bool).unwrap_or(false);
+    let lower = text.to_lowercase();
+    for tok in ["{enter}", "{return}", "\n"] {
+        if lower.ends_with(tok) {
+            text.truncate(text.len() - tok.len());
+            enter = true;
+            break;
         }
-        return Ok(json!({"ok": true, "typed_chars": text.chars().count(), "method": "paste"}));
     }
-    if profile.humanized() {
+    let n = text.chars().count();
+    let press_enter = || {
+        if enter && let Some(vk) = token_to_vk("enter") {
+            send(&[key_vk(vk, false), key_vk(vk, true)]);
+        }
+    };
+
+    // PASTE longer text via the clipboard instead of a keystroke per character
+    // (slow for paragraphs, mangles non-ASCII). Save/restore the user's clipboard.
+    // Short inputs still type, to leave the clipboard alone and play nice with
+    // type-as-you-search fields.
+    if n > 12 {
+        let saved = super::clipboard::get_text();
+        super::clipboard::set_text(&text);
+        sleep(Duration::from_millis(30));
+        send_ctrl_v();
+        sleep(Duration::from_millis(140));
+        if !saved.is_empty() {
+            super::clipboard::set_text(&saved);
+        }
+        press_enter();
+        return Ok(json!({"ok": true, "typed_chars": n, "method": "paste", "submitted": enter}));
+    }
+    if profile.humanized() && n > 0 {
         let r = human_input::human_type(
-            text,
+            &text,
             profile,
             cancel,
             &|unit| send(&[key_unicode(unit, false)]),
@@ -301,7 +322,8 @@ fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Resul
         if r == Outcome::Aborted {
             return Ok(json!({"ok": false, "status": "aborted_by_user", "typed_partial": true}));
         }
-        return Ok(json!({"ok": true, "typed_chars": text.chars().count()}));
+        press_enter();
+        return Ok(json!({"ok": true, "typed_chars": n, "submitted": enter}));
     }
     let mut inputs = Vec::new();
     for unit in text.encode_utf16() {
@@ -313,7 +335,8 @@ fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Resul
         send(chunk);
         sleep(Duration::from_millis(2));
     }
-    Ok(json!({"ok": true, "typed_chars": text.chars().count()}))
+    press_enter();
+    Ok(json!({"ok": true, "typed_chars": n, "submitted": enter}))
 }
 
 /// Run a PowerShell command (non-interactive, no profile) and capture its text
