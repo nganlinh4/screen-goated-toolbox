@@ -75,10 +75,12 @@ fn bridge() -> &'static Bridge {
     })
 }
 
-/// Open a ~2-minute window during which a fresh (secret-less) extension is
-/// auto-paired. Called by `browser_setup`.
+/// Open a 10-minute window during which a fresh-or-stale extension is auto-paired
+/// (with our current secret). Generous because installing the unpacked extension
+/// can be slow (vision waits, user chatter) - a short window expired before the
+/// extension finished loading, leaving a stale secret looping on "bad code".
 pub(super) fn open_pairing_window() {
-    *bridge().pairing_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(120));
+    *bridge().pairing_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(600));
 }
 
 fn in_pairing_window() -> bool {
