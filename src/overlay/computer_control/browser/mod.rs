@@ -102,7 +102,13 @@ fn ext_dir() -> std::path::PathBuf {
 fn write_extension() -> anyhow::Result<std::path::PathBuf> {
     let dir = ext_dir();
     std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join("manifest.json"), EXT_MANIFEST)?;
+    // Centralize the version on Cargo.toml: stamp it into the manifest at extract
+    // time (Chrome wants a plain x.y.z, so drop any -pre/+build suffix).
+    let ver = env!("CARGO_PKG_VERSION");
+    let ver = ver.split(['-', '+']).next().unwrap_or(ver);
+    let manifest = String::from_utf8_lossy(EXT_MANIFEST)
+        .replace("\"version\": \"0.1.0\"", &format!("\"version\": \"{ver}\""));
+    std::fs::write(dir.join("manifest.json"), manifest.as_bytes())?;
     std::fs::write(dir.join("sw.js"), EXT_SW)?;
     std::fs::write(dir.join("popup.html"), EXT_POPUP_HTML)?;
     std::fs::write(dir.join("popup.js"), EXT_POPUP_JS)?;
@@ -332,6 +338,15 @@ pub(super) fn navigate(url: &str) -> Value {
     require_conn!();
     match bridge::cdp("Page.navigate", json!({"url": url})) {
         Ok(_) => json!({"ok": true, "navigated": url}),
+        Err(e) => err(e),
+    }
+}
+
+/// Open `url` in a NEW tab of the current window (keeps the existing page).
+pub(super) fn open_tab(url: &str) -> Value {
+    require_conn!();
+    match bridge::rpc("tabs", json!({"action": "create", "url": url})) {
+        Ok(v) => json!({"ok": true, "tab": v}),
         Err(e) => err(e),
     }
 }

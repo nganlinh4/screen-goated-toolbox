@@ -128,6 +128,9 @@ async function handleTabs(msg, reply) {
     } else if (msg.action === "activate") {
       await chrome.tabs.update(msg.tabId, { active: true });
       reply({ id: msg.id, ok: true, result: {} });
+    } else if (msg.action === "create") {
+      const tab = await chrome.tabs.create({ url: msg.url, active: true });
+      reply({ id: msg.id, ok: true, result: { id: tab.id, url: tab.url } });
     } else {
       reply({ id: msg.id, ok: false, error: "bad tabs action" });
     }
