@@ -10,7 +10,8 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use tungstenite::{Message, WebSocket, accept};
+use tungstenite::handshake::server::{Request, Response};
+use tungstenite::{Message, WebSocket, accept_hdr};
 
 use super::crypto;
 
@@ -129,7 +130,28 @@ fn listen_loop() {
 
 fn handle_conn(stream: TcpStream) -> anyhow::Result<()> {
     stream.set_read_timeout(Some(READ_TICK))?;
-    let mut ws = accept(stream).map_err(|e| anyhow::anyhow!("ws handshake: {e}"))?;
+    // Defense-in-depth: REJECT handshakes from a web-page Origin (http/https) - a
+    // browser sets Origin to the page's URL and a page cannot forge it, so this
+    // slams the door on a malicious web page hitting our localhost port. We do NOT
+    // *require* chrome-extension:// (a service-worker WS may send no Origin), and the
+    // pairing secret remains the real gate.
+    let mut ws = accept_hdr(stream, |req: &Request, resp: Response| {
+        let is_web_page = req
+            .headers()
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .map(|o| o.starts_with("http://") || o.starts_with("https://"))
+            .unwrap_or(false);
+        if is_web_page {
+            Err(tungstenite::http::Response::builder()
+                .status(tungstenite::http::StatusCode::FORBIDDEN)
+                .body(Some("web pages may not connect to the SGT bridge".to_string()))
+                .unwrap())
+        } else {
+            Ok(resp)
+        }
+    })
+    .map_err(|e| anyhow::anyhow!("ws handshake: {e}"))?;
     if !do_pairing(&mut ws)? {
         let _ = ws.close(None);
         anyhow::bail!("pairing failed (bad code)");

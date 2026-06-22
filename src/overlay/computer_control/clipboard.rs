@@ -4,11 +4,15 @@
 //! model can read directly.
 
 use windows::Win32::Foundation::{HGLOBAL, HWND};
-use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+};
 use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 
 /// CF_UNICODETEXT clipboard format.
 const CF_UNICODETEXT: u32 = 13;
+/// Non-text formats we must not clobber: CF_BITMAP, CF_DIB, CF_HDROP (files).
+const NONTEXT_FORMATS: [u32; 3] = [2, 8, 15];
 
 /// The current clipboard text (empty if none / not text).
 pub(super) fn get_text() -> String {
@@ -35,4 +39,21 @@ pub(super) fn get_text() -> String {
 /// Set the clipboard text (reuses the app's proven, retrying setter).
 pub(super) fn set_text(text: &str) {
     crate::overlay::utils::copy_to_clipboard(text, HWND::default());
+}
+
+/// Empty the clipboard - so a paste-typing fast-path doesn't leave OUR text on a
+/// clipboard the user had empty.
+pub(super) fn clear() {
+    unsafe {
+        if OpenClipboard(Some(HWND::default())).is_ok() {
+            let _ = EmptyClipboard();
+            let _ = CloseClipboard();
+        }
+    }
+}
+
+/// True if the clipboard holds NON-text content (an image or copied files) that a
+/// paste fast-path would destroy - the caller should type by keystroke instead.
+pub(super) fn has_nontext() -> bool {
+    NONTEXT_FORMATS.iter().any(|&f| unsafe { IsClipboardFormatAvailable(f).is_ok() })
 }

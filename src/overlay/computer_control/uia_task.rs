@@ -525,8 +525,10 @@ impl Brain {
                     .and_then(|c| self.grid.center_norm(c as u32))
                     .unwrap_or((500.0, 500.0));
                 let (sx, sy) = self.view.to_screen_px(mx, my);
+                // executor scroll/drag take 0..1000 normalized, not screen px.
+                let (nx, ny) = executor::screen_to_norm(sx, sy);
                 let a = json!({
-                    "x": sx, "y": sy,
+                    "x": nx, "y": ny,
                     "direction": args.get("direction").and_then(Value::as_str).unwrap_or("down"),
                     "magnitude": args.get("amount").and_then(Value::as_f64).unwrap_or(5.0),
                 });
@@ -550,8 +552,11 @@ impl Brain {
                     .and_then(|c| self.grid.center_norm(c as u32));
                 match (from, to) {
                     (Some((fx, fy)), Some((tx, ty))) => {
-                        let (sx, sy) = self.view.to_screen_px(fx, fy);
-                        let (dx, dy) = self.view.to_screen_px(tx, ty);
+                        // executor drag takes 0..1000 normalized, not screen px.
+                        let (fpx, fpy) = self.view.to_screen_px(fx, fy);
+                        let (tpx, tpy) = self.view.to_screen_px(tx, ty);
+                        let (sx, sy) = executor::screen_to_norm(fpx, fpy);
+                        let (dx, dy) = executor::screen_to_norm(tpx, tpy);
                         let a = json!({"x": sx, "y": sy, "dest_x": dx, "dest_y": dy});
                         if self.dry {
                             json!({"ok": true, "note": "dry"})
