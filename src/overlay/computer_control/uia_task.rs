@@ -50,6 +50,8 @@ tools - don't narrate a list of steps for them to do. To submit a typed URL/sear
 press_enter:true (never type a literal '{enter}'). For DEEP browser control, call browser_setup and then carry out \
 its checklist yourself, pausing only at the extension permission prompt. Before flipping a setting (e.g. the \
 Developer mode switch), look() to check whether it's ALREADY in the wanted state - don't toggle what's already on. \
+After clicking a small toggle/switch, VERIFY the new state with look() - the screen-change detector misses tiny \
+toggles, so do NOT retry just because it reports 'no visual change'; click ONCE, then look() to confirm it flipped. \
 SETUP IS DONE the instant browser_status (or browser_setup) reports connected:true - say it's ready and STOP: do NOT \
 re-run browser_setup, re-open chrome://extensions, re-toggle Developer mode, or look() to 'verify' the extension. \
 Then just USE the browser tools for the user's actual task. \

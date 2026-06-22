@@ -191,9 +191,9 @@ pub(super) fn setup() -> Value {
         },
         "do_yourself": [
             format!("In the EXISTING browser window (focus_window it if needed - do NOT open a new window), go to {} by typing it in the ADDRESS BAR: key_combination 'Ctrl+L', then type_text '{}' with press_enter:true.", browser.ext_url, browser.ext_url),
-            "Toggle ON 'Developer mode' (top-right) ONLY if it's off - look() first; don't toggle what's already on. Click the SWITCH, not the text label.",
+            "Toggle ON 'Developer mode' (top-right) ONLY if it's off - look() first; don't toggle what's already on. Click the SWITCH (far right), then look() to confirm it flipped - DON'T retry on 'no visual change' (the detector misses tiny toggles).",
             "Click 'Load unpacked'. In the file dialog, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
-            "A permission prompt may appear (it can read/change browser data): briefly tell the user and PAUSE for their click - the one human checkpoint.",
+            "A permission prompt USUALLY does NOT appear for unpacked extensions - do NOT wait for one or tell the user to confirm it. If one happens to show, pause for the user; otherwise just continue.",
             "That's it - NO popup, NO pairing code. The extension auto-pairs over the socket within ~2 minutes.",
             "Poll browser_status (wait a few seconds between tries) until 'connected' is true, then STOP."
         ]
