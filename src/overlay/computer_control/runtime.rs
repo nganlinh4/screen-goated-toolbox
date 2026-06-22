@@ -208,6 +208,7 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
             && !state.active
             && !state.awaiting
             && !state.last_cmd.trim().is_empty()
+            && last_event.elapsed() > Duration::from_secs(6) // genuinely idle, not mid-request
             && last_offer_check.elapsed() >= Duration::from_secs(4)
         {
             last_offer_check = Instant::now();
