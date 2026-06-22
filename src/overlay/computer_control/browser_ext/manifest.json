@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "minimum_chrome_version": "125",
-  "name": "SGT Computer Control Bridge",
+  "name": "SGT Browser Use",
   "version": "0.1.0",
   "description": "Lets Screen Goated Toolbox's Computer Control agent drive THIS browser via the DevTools Protocol over a local, paired connection.",
   "permissions": ["debugger", "tabs", "storage"],
@@ -9,7 +9,7 @@
   "background": { "service_worker": "sw.js" },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "SGT Bridge — pair / status",
+    "default_title": "SGT Browser Use — pair / status",
     "default_icon": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" }
   }
 }

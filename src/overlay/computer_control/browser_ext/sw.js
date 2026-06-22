@@ -1,4 +1,4 @@
-// SGT Computer Control Bridge — service worker.
+// SGT Browser Use — service worker.
 //
 // Owns BOTH the WebSocket to the SGT app AND chrome.debugger (CDP). The SW is
 // kept alive by WebSocket traffic (Chrome 116+) and during an active debugger
