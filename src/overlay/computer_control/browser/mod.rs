@@ -19,6 +19,9 @@ const EXT_MANIFEST: &[u8] = include_bytes!("../browser_ext/manifest.json");
 const EXT_SW: &[u8] = include_bytes!("../browser_ext/sw.js");
 const EXT_POPUP_HTML: &[u8] = include_bytes!("../browser_ext/popup.html");
 const EXT_POPUP_JS: &[u8] = include_bytes!("../browser_ext/popup.js");
+const EXT_ICON16: &[u8] = include_bytes!("../browser_ext/icon16.png");
+const EXT_ICON48: &[u8] = include_bytes!("../browser_ext/icon48.png");
+const EXT_ICON128: &[u8] = include_bytes!("../browser_ext/icon128.png");
 
 fn err(e: anyhow::Error) -> Value {
     json!({"ok": false, "error": e.to_string()})
@@ -58,6 +61,9 @@ fn write_extension() -> anyhow::Result<std::path::PathBuf> {
     std::fs::write(dir.join("sw.js"), EXT_SW)?;
     std::fs::write(dir.join("popup.html"), EXT_POPUP_HTML)?;
     std::fs::write(dir.join("popup.js"), EXT_POPUP_JS)?;
+    std::fs::write(dir.join("icon16.png"), EXT_ICON16)?;
+    std::fs::write(dir.join("icon48.png"), EXT_ICON48)?;
+    std::fs::write(dir.join("icon128.png"), EXT_ICON128)?;
     Ok(dir)
 }
 
