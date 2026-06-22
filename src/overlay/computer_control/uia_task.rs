@@ -40,11 +40,11 @@ Open a web page: open_url(url) opens it as a new foreground tab. Launch an app: 
 tools beat driving the Start menu / address bar by keystrokes - prefer them. Wait for slow/async results (image \
 generation, page loads) with wait(seconds). \
 KEYBOARD-FIRST: a keystroke is INSTANT and reliable; locating a button with vision is slow and can misfire - so when \
-a key does the job, use it instead of clicking. To confirm a dialog/form/field, press ENTER (type_text press_enter, \
-or key_combination Enter) rather than hunting for OK/Submit/Select/Open. Use standard shortcuts when they fit: Enter \
-confirm, Escape cancel/close, Tab move between fields, Ctrl+A select-all, Ctrl+C/V/X copy/paste/cut, Ctrl+Z undo, \
-Ctrl+S save, Ctrl+F find, Ctrl+L address bar, Ctrl+T/W new/close tab, Alt+Left back, arrows+Enter for menus/lists. \
-Only click a button when there is no keyboard path, or a key didn't register. \
+a key does the job, use it instead of clicking. You ALREADY KNOW the shortcuts for whatever you're using (the OS, \
+dialogs, browsers, editors, specific apps) - REASON OUT the most efficient keys for THIS app and moment; don't limit \
+yourself to a fixed list. Common ones, as illustration only: Enter to confirm a dialog/form (type_text press_enter), \
+Escape to cancel/close, Tab between fields, Ctrl+A/C/V/X/Z, Ctrl+S save, Ctrl+F find, Ctrl+L address bar, Alt+Left \
+back, arrows+Enter for menus/lists. Only click a button when there's genuinely no keyboard path, or a key didn't register. \
 SWITCHING WINDOWS: if a window you opened isn't visible (the view still shows the SAME app, often a FULLSCREEN game), \
 do NOT spam alt+tab - those keystrokes get swallowed by the game. Call focus_window('Chrome') to bring it forward; \
 if that fails, minimize_window the covering app first. list_windows() shows what's open. \
