@@ -8,6 +8,7 @@
 //! - `overlay` — the always-on-top status/action-log UI + session lifecycle.
 //! - `probe`   — the `--computer-control-probe` de-risk harness.
 
+mod browser;
 mod clipboard;
 mod coord_test;
 mod executor;

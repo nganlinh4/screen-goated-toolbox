@@ -45,6 +45,10 @@ if that fails, minimize_window the covering app first. list_windows() shows what
 MEMORY: search_memory/open_memory recall our PAST conversations. When the user asks about something from BEFORE, \
 answer from the open_memory TRANSCRIPT - NOT from the current screen. Quote what the transcript actually says; if a \
 detail isn't in it, say it's not in your memory rather than guessing from what's on screen. \
+DOING TASKS FOR THE USER: when the user asks you to set something up or perform a task, DO it yourself with your \
+tools - don't narrate a list of steps for them to do. To submit a typed URL/search, use type_text with \
+press_enter:true (never type a literal '{enter}'). For DEEP browser control, call browser_setup and then carry out \
+its checklist yourself, pausing only at the extension permission prompt. \
 To answer a question, look() at the CURRENT screen FIRST - it reads ONLY what is on screen now (it does NOT search \
 the web). If the answer is already visible, just read it - do NOT open a search. ONLY when the needed information \
 is genuinely NOT on the current screen, open_url('https://www.google.com/search?q=...') and read the results. \
@@ -113,8 +117,8 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"mark": {"type": "integer", "description": "The anchor number from map_targets."}, "button": {"type": "string", "enum": ["left", "right"]}}, "required": ["mark"]}},
             {"name": "wait", "description": "Pause for N seconds, for slow or asynchronous operations (e.g. waiting for an image to finish generating or a page to load). Then re-observe.",
              "parameters": {"type": "object", "properties": {"seconds": {"type": "number", "description": "Seconds to wait (max 30)."}}, "required": ["seconds"]}},
-            {"name": "type_text", "description": "Type text at the current keyboard focus.",
-             "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+            {"name": "type_text", "description": "Type text at the current keyboard focus. Set press_enter=true to submit afterward (e.g. an address bar or search box) - do NOT put '{enter}' inside the text, it would be typed literally.",
+             "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "press_enter": {"type": "boolean", "description": "Press Enter after typing (to submit)."}}, "required": ["text"]}},
             {"name": "scroll", "description": "Scroll with the REAL mouse wheel (not PageDown) over the page/list. direction up/down (or left/right); 'amount' is how far (default 5; larger scrolls more). Optionally pass a grid 'cell' to scroll over a specific area, else it scrolls over the centre. Prefer this for natural scrolling.",
              "parameters": {"type": "object", "properties": {"direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "number"}, "cell": {"type": "integer"}}, "required": ["direction"]}},
             {"name": "drag", "description": "Press at one grid cell, glide to another, and release - for sliders, reordering items, drawing, or click-drag to SELECT text/items. Pass from_cell and to_cell (the printed grid numbers). zoom() first for finer cells when precision matters.",
@@ -144,7 +148,33 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
             {"name": "search_memory", "description": "Search YOUR memory of PAST conversations (every prior session is saved). Use when the user refers to something from before ('remember when we...', 'what did we decide about X', 'last time'). Returns matching past conversations as numbered results with a title + snippet + id. Then call open_memory(id) to read the full one.",
              "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "What to recall, in plain words, e.g. 'the plan for the memory feature' or 'the Genshin quest story'."}}, "required": ["query"]}},
             {"name": "open_memory", "description": "Read the FULL transcript of one past conversation returned by search_memory. Pass its id.",
-             "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "The conversation id from a search_memory result."}}, "required": ["id"]}}
+             "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "The conversation id from a search_memory result."}}, "required": ["id"]}},
+            {"name": "browser_setup", "description": "Bring up DEEP browser control (read/act on the real page DOM, not just pixels) via the SGT browser extension. It opens chrome://extensions and returns the extension folder + pairing code + a 'do_yourself' checklist. DO the install YOURSELF with your tools (toggle Developer mode, Load unpacked the folder, paste the pairing code in the popup) - do NOT recite steps to the user. Pause ONLY at the permission prompt. Then poll browser_status.",
+             "parameters": {"type": "object", "properties": {}}},
+            {"name": "browser_status", "description": "Check whether the deep-browser extension is connected. Returns connected + the pairing code/port.",
+             "parameters": {"type": "object", "properties": {}}},
+            {"name": "browser_read_page", "description": "Read the current page's real DOM: title, url, and visible text. Far more complete/reliable than look() for web pages once the extension is connected.",
+             "parameters": {"type": "object", "properties": {}}},
+            {"name": "browser_query", "description": "Find elements by CSS selector on the page; returns up to 50 with their text, tag, and on-screen rect. Use to locate things precisely before browser_click/browser_fill.",
+             "parameters": {"type": "object", "properties": {"selector": {"type": "string", "description": "A CSS selector, e.g. 'button.submit' or 'a[href*=login]'."}}, "required": ["selector"]}},
+            {"name": "browser_click", "description": "Click the element matching a CSS selector, using a TRUSTED page click (more reliable than pixel clicks). Scrolls it into view first.",
+             "parameters": {"type": "object", "properties": {"selector": {"type": "string"}}, "required": ["selector"]}},
+            {"name": "browser_fill", "description": "Focus the input/textarea matching a CSS selector, select its contents, and type text into it (trusted, fires input events).",
+             "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "text": {"type": "string"}}, "required": ["selector", "text"]}},
+            {"name": "browser_wait_for", "description": "Wait until an element matching a CSS selector appears (or timeout). Use after a click/navigation that loads content.",
+             "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "timeout_ms": {"type": "integer"}}, "required": ["selector"]}},
+            {"name": "browser_eval", "description": "Run JavaScript in the page and return its (JSON-able) result. Your general escape hatch for extracting structured data or doing precise DOM work.",
+             "parameters": {"type": "object", "properties": {"code": {"type": "string", "description": "A JS expression; its value is returned (use an IIFE for statements)."}}, "required": ["code"]}},
+            {"name": "browser_navigate", "description": "Navigate the current tab to a URL (in-page, keeps the session).",
+             "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
+            {"name": "browser_upload", "description": "Set the file for a file <input> matching a CSS selector (real upload via DevTools). Pass an absolute file path.",
+             "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "path": {"type": "string"}}, "required": ["selector", "path"]}},
+            {"name": "browser_tabs", "description": "List the open browser tabs (id, title, url, active).",
+             "parameters": {"type": "object", "properties": {}}},
+            {"name": "browser_switch_tab", "description": "Make a browser tab active by its id (from browser_tabs).",
+             "parameters": {"type": "object", "properties": {"tab_id": {"type": "integer"}}, "required": ["tab_id"]}},
+            {"name": "browser_network", "description": "Read recent network requests the page made (url + status). Enables capture if needed; call again after the page loads to see results.",
+             "parameters": {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring of the CDP event name, e.g. 'responseReceived'."}}}}
         ]}],
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
@@ -553,6 +583,28 @@ impl Brain {
                     None => json!({"ok": false, "error": "no saved conversation with that id"}),
                 }
             }
+            "browser_setup" => super::browser::setup(),
+            "browser_status" => super::browser::status(),
+            "browser_read_page" => super::browser::read_page(),
+            "browser_query" => super::browser::query(args.get("selector").and_then(Value::as_str).unwrap_or("")),
+            "browser_click" => super::browser::click_selector(args.get("selector").and_then(Value::as_str).unwrap_or("")),
+            "browser_fill" => super::browser::fill(
+                args.get("selector").and_then(Value::as_str).unwrap_or(""),
+                args.get("text").and_then(Value::as_str).unwrap_or(""),
+            ),
+            "browser_wait_for" => super::browser::wait_for(
+                args.get("selector").and_then(Value::as_str).unwrap_or(""),
+                args.get("timeout_ms").and_then(Value::as_u64).unwrap_or(8000),
+            ),
+            "browser_eval" => super::browser::eval_js(args.get("code").and_then(Value::as_str).unwrap_or("")),
+            "browser_navigate" => super::browser::navigate(args.get("url").and_then(Value::as_str).unwrap_or("")),
+            "browser_upload" => super::browser::upload_file(
+                args.get("selector").and_then(Value::as_str).unwrap_or(""),
+                args.get("path").and_then(Value::as_str).unwrap_or(""),
+            ),
+            "browser_tabs" => super::browser::get_tabs(),
+            "browser_switch_tab" => super::browser::switch_tab(args.get("tab_id").and_then(Value::as_i64).unwrap_or(0)),
+            "browser_network" => super::browser::read_network(args.get("filter").and_then(Value::as_str).unwrap_or("")),
             _ => json!({"ok": false, "error": "unknown action"}),
         };
         // Per-action latency (excludes the settle wait) — the key refinement
@@ -590,7 +642,12 @@ impl Brain {
         // dump so their OWN result (memory transcript, clipboard text, window list)
         // is the dominant signal instead of being buried under hundreds of on-screen
         // elements — which made the agent answer from the SCREEN, not from memory.
-        if matches!(name, "search_memory" | "open_memory" | "read_clipboard" | "list_windows") {
+        if matches!(
+            name,
+            "search_memory" | "open_memory" | "read_clipboard" | "list_windows"
+            | "browser_setup" | "browser_status" | "browser_read_page" | "browser_query"
+            | "browser_eval" | "browser_tabs" | "browser_network"
+        ) {
             eprintln!("[cc] step {:02} (info tool — screen readouts suppressed)", self.step);
             return Ok(Grounded { frame_b64: b, state_text: self.context_block(), notes: Vec::new() });
         }

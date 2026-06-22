@@ -127,6 +127,10 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     // micro-steps so a spoken "stop" halts mid-glide. Synchronous FC ⇒ the model
     // is blocked awaiting our toolResponse, so we ALWAYS answer the pending id
     // (unless the server itself cancelled it) or the session deadlocks.
+    // Bring up the browser-control bridge server so the extension (if installed)
+    // can connect; idempotent across sessions.
+    super::browser::ensure_started();
+
     let cancel = Arc::new(AtomicBool::new(false));
     let (exec_tx, exec_rx) = mpsc::channel::<Job>();
     let (res_tx, res_rx) = mpsc::channel::<Done>();
