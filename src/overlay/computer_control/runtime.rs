@@ -47,7 +47,11 @@ pub(super) fn run(stop: Arc<AtomicBool>) {
         Ok(()) => overlay::set_status("stopped"),
         Err(e) => {
             let msg = e.to_string().to_lowercase();
-            if msg.contains("quota") || msg.contains("exceeded") || msg.contains("resource_exhausted") {
+            if stop.load(Ordering::SeqCst) || msg == "stopped" {
+                // You stopped during connect/setup (e.g. toggling the hotkey fast) -
+                // a clean shutdown, NOT an error.
+                overlay::set_status("stopped");
+            } else if msg.contains("quota") || msg.contains("exceeded") || msg.contains("resource_exhausted") {
                 overlay::push_log(
                     "Gemini rate limit hit (a burst of Live connections). This is usually the per-minute / \
 concurrent-session cap, NOT your daily quota - just WAIT ~30-60s and start again. If it persists, check the key \
