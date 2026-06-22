@@ -126,7 +126,7 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     }
     set_socket_nonblocking(&mut socket)?;
     overlay::set_status("ready - speak a command");
-    overlay::push_log("* connected; streaming screen + mic (smart brain)".to_string());
+    overlay::push_log("* connected; sending your WHOLE screen + mic each turn (smart brain)".to_string());
 
     // Steer/stop core: the Brain + its (possibly slow) actions run on a SEPARATE
     // thread so the reader keeps receiving mic + barge-in WHILE an action runs.
@@ -236,6 +236,21 @@ more precise page reading/acting. If they decline, call decline_browser_control.
             }
         }
 
+        // 0d) the server warned the session is ending (goAway). Reconnect PROACTIVELY
+        //     at the next gap (no tool call in flight) so we migrate the conversation
+        //     cleanly with our recap - instead of being force-closed mid-stream (which
+        //     dropped us with a gap + a "client failed to close" error).
+        if state.go_away && state.pending.id.is_none() {
+            state.go_away = false;
+            overlay::push_log("(goAway) reconnecting before the session ends".to_string());
+            if !reconnect_session(&mut socket, &key, target.as_deref(), &mut reconnects, &mut state)? {
+                break;
+            }
+            last_event = Instant::now();
+            last_frame = Instant::now();
+            continue;
+        }
+
         // 1) mic -> server. Open during TTS so you can barge in, unless echo_gate.
         let chunk = {
             let mut b = mic_buf.lock().unwrap();
@@ -280,6 +295,7 @@ more precise page reading/acting. If they decline, call decline_browser_control.
                     state.awaiting = false;
                 } else {
                     state.awaiting = true; // model owes the next action/turn
+                    state.think_start = Some(Instant::now()); // measure the next think-time
                 }
             }
             state.pending = Pending::default();

@@ -11,6 +11,7 @@
 mod browser;
 mod clipboard;
 mod coord_test;
+mod detector;
 mod executor;
 mod grid;
 mod human_input;
@@ -27,6 +28,11 @@ mod uia_task;
 mod vision_reader;
 
 pub use overlay::{is_active, render_overlay, show_overlay, stop_overlay};
+/// Detector model hooks for the Downloaded Tools settings UI (download/remove/probe).
+pub(crate) use detector::{
+    DOWNLOAD_TITLE as DETECTOR_DOWNLOAD_TITLE, detector_model_dir, download_detector_model,
+    is_detector_downloaded, remove_detector_model,
+};
 
 /// CLI entry for the de-risk probe: `--computer-control-probe [--cc-task "..."]`.
 pub fn run_probe_cli(task: &str) -> Result<(), String> {

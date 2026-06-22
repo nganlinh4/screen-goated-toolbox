@@ -15,7 +15,7 @@ impl Brain {
                 .unwrap_or_else(|_| "cc-trace".to_string())
         });
         std::fs::create_dir_all(&dir).ok();
-        let view = window_view(target.as_deref());
+        let view = window_view(target.as_deref(), false);
         Self {
             dir,
             grid: Grid::from_env(),
@@ -24,6 +24,7 @@ impl Brain {
             target,
             view,
             zoomed: false,
+            whole_screen: false,
             last_click: None,
             step: 0,
             recent_actions: Vec::new(),
@@ -60,7 +61,10 @@ impl Brain {
         let (b, v, _fp) = render_view(&self.dir, self.step, self.view, self.grid, None)?;
         self.view = v;
         self.prev_state_sig = Some(state_signature(&elements));
-        let state = format_state(&elements, self.target.as_deref(), self.view, self.grid);
+        let mut state = format_state(&elements, self.target.as_deref(), self.view, self.grid);
+        if let Some(marks) = self.detect_marks(&elements) {
+            state.push_str(&format!("\n{marks}"));
+        }
         Ok((b, state))
     }
 
@@ -113,8 +117,18 @@ impl Brain {
             }
             "reset_view" => {
                 self.zoomed = false;
+                self.whole_screen = false;
                 self.anchors.clear();
-                json!({"ok": true, "view": "whole window"})
+                json!({"ok": true, "view": "the active window"})
+            }
+            "see_whole_screen" => {
+                // Switch the base view to the WHOLE desktop for awareness / to find
+                // or reach another window. reset_view (or focus_window) goes back to
+                // the precise active-window view.
+                self.whole_screen = true;
+                self.zoomed = false;
+                self.anchors.clear();
+                json!({"ok": true, "view": "the whole screen"})
             }
             "look" => {
                 let q = args.get("question").and_then(Value::as_str).unwrap_or("Describe exactly what is on screen.");
@@ -132,20 +146,54 @@ impl Brain {
                     Some("right") => "right",
                     _ => "left",
                 };
-                match locate_in_view(self.view, desc, ctx, cancel) {
-                    Ok(loc) => {
-                        let (sx, sy) = self.view.to_screen_px(loc.x, loc.y);
-                        self.last_click = Some((sx, sy));
-                        self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
-                        append_click(&self.dir, json!({"step": step, "kind": "click_target", "desc": desc,
-                            "button": button, "view_norm": [loc.x.round(), loc.y.round()],
-                            "screen_px": [sx, sy], "saw": loc.note,
-                            "view": [self.view.x, self.view.y, self.view.w, self.view.h]}));
-                        eprintln!("[cc] step {step:02} CLICK_TARGET[{button}] '{desc}' -> screen({sx},{sy}) saw={:?}", loc.note);
-                        let r = click_screen(sx, sy, self.dry, button, &self.profile, cancel);
-                        json!({"ok": true, "located_view_norm": [loc.x, loc.y], "saw_at_target": loc.note, "click": r})
+                // In a Chromium browser, drive the click through the page's OWN
+                // trusted input (CDP) so canvas/WebGL games + cross-origin iframes
+                // that ignore synthetic OS clicks respond — and with crisper coords.
+                if !self.dry && super::super::browser::input_active() {
+                    browser_click(desc, button == "right", ctx, cancel)
+                } else {
+                    match locate_in_view(self.view, desc, ctx, cancel) {
+                        Ok(loc) => {
+                            let (sx, sy) = self.view.to_screen_px(loc.x, loc.y);
+                            self.last_click = Some((sx, sy));
+                            self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
+                            append_click(&self.dir, json!({"step": step, "kind": "click_target", "desc": desc,
+                                "button": button, "view_norm": [loc.x.round(), loc.y.round()],
+                                "screen_px": [sx, sy], "saw": loc.note,
+                                "view": [self.view.x, self.view.y, self.view.w, self.view.h]}));
+                            eprintln!("[cc] step {step:02} CLICK_TARGET[{button}] '{desc}' -> screen({sx},{sy}) saw={:?}", loc.note);
+                            let r = click_screen(sx, sy, self.dry, button, &self.profile, cancel);
+                            json!({"ok": true, "located_view_norm": [loc.x, loc.y], "saw_at_target": loc.note, "click": r})
+                        }
+                        Err(e) => json!({"ok": false, "error": format!("could not locate '{desc}': {e}")}),
                     }
-                    Err(e) => json!({"ok": false, "error": format!("could not locate '{desc}': {e}")}),
+                }
+            }
+            "drag_target" => {
+                // Precise drag: vision-locate BOTH endpoints and drag between them -
+                // for canvas drag-and-drop (place a card on a slot, move a slider).
+                let from = args.get("from").and_then(Value::as_str).unwrap_or("");
+                let to = args.get("to").and_then(Value::as_str).unwrap_or("");
+                // In a Chromium browser, drag through the page's trusted input (CDP):
+                // canvas/WebGL + HTML5 drag-and-drop ignore synthetic OS drags.
+                if !self.dry && super::super::browser::input_active() {
+                    browser_drag(from, to, ctx, cancel)
+                } else {
+                    match (locate_in_view(self.view, from, ctx, cancel), locate_in_view(self.view, to, ctx, cancel)) {
+                        (Ok(f), Ok(t)) => {
+                            let (fsx, fsy) = self.view.to_screen_px(f.x, f.y);
+                            let (tsx, tsy) = self.view.to_screen_px(t.x, t.y);
+                            self.last_click = Some((tsx, tsy));
+                            self.click_before = session::capture_region_fp(tsx, tsy, VC_HALF);
+                            append_click(&self.dir, json!({"step": step, "kind": "drag_target", "from": from, "to": to,
+                                "from_px": [fsx, fsy], "to_px": [tsx, tsy], "saw_from": f.note, "saw_to": t.note}));
+                            eprintln!("[cc] step {step:02} DRAG_TARGET '{from}' -> '{to}' : ({fsx},{fsy})->({tsx},{tsy})");
+                            let r = drag_screen(fsx, fsy, tsx, tsy, self.dry, &self.profile, cancel);
+                            json!({"ok": true, "from": f.note, "to": t.note, "drag": r})
+                        }
+                        (Err(e), _) => json!({"ok": false, "error": format!("could not locate from '{from}': {e}")}),
+                        (_, Err(e)) => json!({"ok": false, "error": format!("could not locate to '{to}': {e}")}),
+                    }
                 }
             }
             "point_at" => {
@@ -390,7 +438,7 @@ impl Brain {
     /// #2 state-delta notes.
     pub fn ground(&mut self, name: &str, args: &Value) -> Result<Grounded> {
         if !self.zoomed {
-            self.view = window_view(self.target.as_deref());
+            self.view = window_view(self.target.as_deref(), self.whole_screen);
         }
         let (b, v, fp) = render_view(&self.dir, self.step, self.view, self.grid, self.last_click)?;
         self.view = v;
@@ -430,11 +478,16 @@ impl Brain {
         if self.recent_actions.len() > 8 {
             self.recent_actions.remove(0);
         }
-        // Repeating a scroll / navigation key is legitimate ("scroll down a lot"),
-        // so don't flag those as a stuck loop.
+        // Repeating an action is only STUCK if nothing is changing. Paging through a
+        // long page (scroll down, down, down) legitimately repeats while NEW content
+        // keeps appearing - so gate on !ui_changed: a real loop (click not landing,
+        // or scrolled to the very bottom) stops changing the accessible state, while
+        // productive scrolling keeps changing it. Nav keys are exempt outright.
         let is_nav = name == "key_combination"
             && args.get("keys").and_then(Value::as_str).map(is_nav_keys).unwrap_or(false);
-        let stuck = !is_nav && self.recent_actions.iter().filter(|a| **a == act_sig).count() >= 3;
+        let stuck = !is_nav
+            && !ui_changed
+            && self.recent_actions.iter().filter(|a| **a == act_sig).count() >= 3;
         let mut notes: Vec<(&'static str, &'static str)> = Vec::new();
         if visual_no_change {
             eprintln!("[cc] step {:02} NO VISUAL CHANGE after {name}", self.step);
@@ -445,29 +498,89 @@ impl Brain {
         }
         if stuck {
             eprintln!("[cc] step {:02} STUCK: repeated '{act_sig}'", self.step);
-            notes.push(("stuck_warning", "You have repeated the same action ~3 times with no progress (the target likely isn't where you think, or the click isn't landing). Change approach: zoom in for a closer look, use a more specific click_target description, or restart."));
+            notes.push(("stuck_warning", "You have repeated the same action ~3 times with NOTHING changing. If you were scrolling, you have reached the end of the page/list - STOP scrolling and finish (answer the user or call done). Otherwise the target likely isn't where you think or the click isn't landing: change approach (zoom in, a more specific click_target, or read the page text directly)."));
         }
-        let state = format!(
+        let mut state = format!(
             "{}\n\n{}",
             self.context_block(),
             format_state(&elements, self.target.as_deref(), self.view, self.grid)
         );
+        if let Some(marks) = self.detect_marks(&elements) {
+            state.push_str(&format!("\n{marks}"));
+        }
         Ok(Grounded { frame_b64: b, state_text: state, notes })
     }
 
     /// Independent high-res vision check of a `done` claim. Returns (accepted,
     /// verdict text). On checker error it accepts (don't trap the agent).
     pub fn verify_done(&self, task: &str, cancel: &AtomicBool) -> (bool, String) {
-        let full = window_view(self.target.as_deref());
+        let full = window_view(self.target.as_deref(), self.whole_screen);
         let q = format!(
-            "A computer agent claims this task is COMPLETE: \"{task}\". Looking ONLY at this screenshot, is that goal \
-actually achieved right now? Start your answer with YES or NO, then quote the exact on-screen evidence (or state \
-what is actually shown instead)."
+            "A computer agent claims this task is COMPLETE: \"{task}\". \
+If the task is INFORMATIONAL - to read, summarize, explain, identify, find, compare or report what something is \
+(the deliverable is the agent's spoken answer; there is NO visible 'done' state on screen) - answer YES as long as \
+the relevant content is visible or has clearly been read. \
+If the task is an ACTION with a visible end-state (a setting changed, a form submitted, an item placed, a level won) \
+- answer YES only if that end-state is actually visible right now, otherwise NO. \
+Start your answer with YES or NO, then quote the exact on-screen evidence (or state what is shown instead)."
         );
         match read_view(full, &q, &format!("task: {task}"), cancel) {
             Ok(a) => (a.trim_start().to_lowercase().starts_with("yes"), a),
             Err(e) => (true, format!("(vision check unavailable: {e})")),
         }
+    }
+
+    /// On a UIA-blind surface (canvas/game/custom-drawn) auto-run the local detector
+    /// to mark clickable regions the accessibility tree can't see, populate
+    /// `click_mark` anchors, and return a MARKS section for the state. `None` when not
+    /// blind, no model installed, or nothing found. Throttled: only (re)detects while
+    /// there are no anchors yet (zoom/reset_view clear them, re-triggering).
+    fn detect_marks(&mut self, elements: &[UiElement]) -> Option<String> {
+        if !super::super::detector::available() {
+            return None;
+        }
+        // "Blind" = almost nothing actionable is visible in the current view.
+        let visible = elements
+            .iter()
+            .filter(|e| {
+                !e.name.trim().is_empty() && is_clickable(e.control_type) && {
+                    let (cx, cy) = e.center();
+                    cx >= self.view.x
+                        && cx <= self.view.x + self.view.w
+                        && cy >= self.view.y
+                        && cy <= self.view.y + self.view.h
+                }
+            })
+            .count();
+        if visible > 2 {
+            return None;
+        }
+        if self.anchors.is_empty() {
+            self.anchors = super::super::detector::detect_view(self.view)
+                .into_iter()
+                .map(|b| (b.cx, b.cy, Some("clickable".to_string())))
+                .collect();
+        }
+        if self.anchors.is_empty() {
+            return None;
+        }
+        let mut s = String::from(
+            "DETECTED CLICKABLE MARKS (this surface exposes NO UIA elements; these clickable \
+regions were found visually - click_mark by its number; @cellN is where it sits):\n",
+        );
+        for (i, (sx, sy, note)) in self.anchors.iter().enumerate() {
+            let mx = (*sx - self.view.x) as f64 / self.view.w.max(1) as f64 * 1000.0;
+            let my = (*sy - self.view.y) as f64 / self.view.h.max(1) as f64 * 1000.0;
+            let cell = if (0.0..=1000.0).contains(&mx) && (0.0..=1000.0).contains(&my) {
+                format!("@cell{}", self.grid.cell_at(mx, my))
+            } else {
+                "@off-view".to_string()
+            };
+            let what = note.as_deref().unwrap_or("clickable");
+            s.push_str(&format!("[{}] {what} {cell}\n", i + 1));
+        }
+        eprintln!("[cc] {} clickable marks on UIA-blind surface", self.anchors.len());
+        Some(s)
     }
 
     pub fn final_review(&self, note: &str) {

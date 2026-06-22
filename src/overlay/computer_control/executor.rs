@@ -356,7 +356,12 @@ fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Resul
         press_enter();
         return Ok(json!({"ok": true, "typed_chars": n, "method": "paste", "submitted": enter}));
     }
-    if profile.humanized() && n > 0 {
+    // Slow, human-paced per-key typing ONLY when explicitly asked for (a rare field
+    // that demands paced keystrokes). It is NOT tied to the cursor profile: a
+    // humanized cursor should still type instantly - pacing a 66-char path to 20s is
+    // pointless. Default falls through to the instant batch below.
+    let slow = args.get("slow").and_then(Value::as_bool).unwrap_or(false);
+    if slow && n > 0 {
         let r = human_input::human_type(
             &text,
             profile,

@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::time::Instant;
 
 use serde_json::Value;
 
@@ -47,6 +48,19 @@ pub(super) struct Reader {
     /// Set once we've nudged the model during the CURRENT silent spell, so we poke
     /// it only once before escalating to a reconnect. Cleared on any server event.
     pub(super) nudged: bool,
+    /// The server sent a `goAway` (session is hitting its duration limit). The run
+    /// loop reconnects PROACTIVELY at the next gap so we migrate cleanly with our
+    /// recap, instead of being force-closed mid-stream.
+    pub(super) go_away: bool,
+    /// When the model started OWING us a response (user spoke, or we answered a tool
+    /// call). Used to log model THINK-time and to catch turns that end mid-task with
+    /// no action ("narrated but didn't act").
+    pub(super) think_start: Option<Instant>,
+    // Rolling diagnostics, logged as a [PROFILE] line every 12 actions.
+    pub(super) tool_calls: u32,
+    pub(super) think_total_ms: u128,
+    pub(super) spoke_count: u32,
+    pub(super) stall_count: u32,
 }
 
 /// Cap on history entries kept (rolling); older turns drop off. Sized to retain
@@ -159,6 +173,7 @@ pub(super) fn handle_event(
                 state.last_cmd = t.clone(); // task context for vision
                 state.active = true; // a fresh request - resume pushing frames
                 state.awaiting = true; // model now owes a response
+                state.think_start = Some(Instant::now()); // start the think-time clock
             }
             overlay::set_user_text(t);
             overlay::set_listening(false);
@@ -176,13 +191,40 @@ pub(super) fn handle_event(
             // pollute the spoken transcript or the vision intent context.
         }
         ServerEvent::TurnComplete => {
-            // The model finished a turn cleanly — record its spoken reply, and it no
-            // longer owes a response (it's waiting for the user now).
+            // The model finished a turn. If it was mid-task and produced NO tool call,
+            // it narrated INSTEAD of acting (the "it stopped" failure) - flag it + the
+            // gap so we can see it in the log.
+            if state.active
+                && let Some(t) = state.think_start.take()
+            {
+                state.stall_count += 1;
+                overlay::push_log(format!(
+                    "[~] turn ended after {}ms mid-task with NO action (narrated only)",
+                    t.elapsed().as_millis()
+                ));
+            }
             flush_reply(state);
             state.awaiting = false;
         }
         ServerEvent::ToolCall { id, name, args } => {
             state.awaiting = false; // model responded (with an action)
+            if let Some(t) = state.think_start.take() {
+                let ms = t.elapsed().as_millis();
+                let spoke = !state.reasoning.trim().is_empty(); // narrated this turn? (~2s tax)
+                overlay::push_log(format!("[think {ms}ms{}]", if spoke { ", spoke" } else { "" }));
+                state.tool_calls += 1;
+                state.think_total_ms += ms;
+                state.spoke_count += u32::from(spoke);
+                if state.tool_calls.is_multiple_of(12) {
+                    overlay::push_log(format!(
+                        "[PROFILE] {} actions | avg think {}ms | {} spoke | {} stalls",
+                        state.tool_calls,
+                        state.think_total_ms / u128::from(state.tool_calls),
+                        state.spoke_count,
+                        state.stall_count,
+                    ));
+                }
+            }
             let intent = state.reasoning.trim().to_string();
             state.reasoning.clear();
             overlay::push_log(format!(">{name} {}", compact_args(&args)));
@@ -192,7 +234,8 @@ pub(super) fn handle_event(
             let _ = exec_tx.send((id, name, args, state.last_cmd.clone(), intent));
         }
         ServerEvent::GoAway { time_left } => {
-            overlay::push_log(format!("server goAway ({time_left}) - session will end"))
+            overlay::push_log(format!("server goAway ({time_left}) - reconnecting proactively"));
+            state.go_away = true;
         }
         _ => {}
     }

@@ -32,23 +32,32 @@ mod vision;
 use render::*;
 use vision::*;
 
-const SYS: &str = "You control a Windows PC, ONE tool action per turn. Each turn you get the focused window's \
-READOUTS and CLICKABLE elements (Windows accessibility = ground truth, each tagged @cellN = its grid cell) and a \
-SCREENSHOT with a NUMBERED GRID over it. The view follows the foreground window. \
+const SYS: &str = "You control a Windows PC, ONE tool action per turn. Each turn you get a SCREENSHOT of the ACTIVE \
+window with a NUMBERED GRID over it, plus its READOUTS and CLICKABLE elements (Windows accessibility = ground truth, \
+each tagged @cellN = its grid cell). zoom() into a cell for detail. To see your WHOLE screen (all windows) - for \
+awareness, counting/finding across windows, or to reach another window - call see_whole_screen; reset_view returns \
+to the precise active-window view. \
 click_at(cell): click that grid number. zoom(cell): magnify it (grid redrawn with new numbers); reset_view undoes \
 it. click_element(name): click a listed element. Also type_text, key_combination. \
 A board/canvas has NO element: READ it with look(question) before deciding (never guess), and CLICK it with \
 click_target(description) - a high-res model locates the exact pixel, far more accurate than click_at for small/ \
-precise targets. Use zoom + click_at(cell) only for coarse navigation. \
+precise targets. Use zoom + click_at(cell) only for coarse navigation. To DRAG-AND-DROP on a canvas (place a card on \
+a slot, drop an item, move a slider) use drag_target(from, to) - it vision-locates BOTH endpoints precisely; the \
+grid-cell drag(from_cell,to_cell) is too coarse to hit small game targets. On such a UIA-blind surface you may also \
+be given a DETECTED CLICKABLE MARKS list (found by a local detector) - click_mark its number for a precise click. \
 Open a web page: open_url(url) opens it as a new foreground tab. Launch an app: launch_app(name). These OS-level \
 tools beat driving the Start menu / address bar by keystrokes - prefer them. Wait for slow/async results (image \
 generation, page loads) with wait(seconds). \
-KEYBOARD-FIRST: a keystroke is INSTANT and reliable; locating a button with vision is slow and can misfire - so when \
-a key does the job, use it instead of clicking. You ALREADY KNOW the shortcuts for whatever you're using (the OS, \
-dialogs, browsers, editors, specific apps) - REASON OUT the most efficient keys for THIS app and moment; don't limit \
-yourself to a fixed list. Common ones, as illustration only: Enter to confirm a dialog/form (type_text press_enter), \
-Escape to cancel/close, Tab between fields, Ctrl+A/C/V/X/Z, Ctrl+S save, Ctrl+F find, Ctrl+L address bar, Alt+Left \
-back, arrows+Enter for menus/lists. Only click a button when there's genuinely no keyboard path, or a key didn't register. \
+EFFICIENCY (you have been TOO SLOW and over-deliberate - fix this): ACT directly, emit the tool call FIRST. Do NOT \
+zoom->act->reset_view for every step - zoom ONLY for a genuinely tiny target, and you can act + re-read WITHOUT \
+resetting. look() the board ONCE, plan SEVERAL moves, then execute them back-to-back; do NOT look() before every \
+single move. Speak RARELY: a spoken sentence costs ~2s and silence while you act is fine - narrate only to answer a \
+question or to flag you're stuck. \
+STAY ON TASK: keep doing the user's CURRENT task; do NOT open new pages/apps/tabs or switch context unless the task \
+needs it. If unsure what to do next, look() and continue the SAME task - never wander off to an unrelated app. \
+KEYBOARD-FIRST: a keystroke is instant and reliable, vision is slow - when a key does the job, use it. You know the \
+shortcuts for the OS/app in use; reason out the most efficient keys (Enter confirm, Esc cancel, Tab, Ctrl+A/C/V/X/Z, \
+Ctrl+S/F/L, Alt+Left, arrows+Enter). Only click when there's no keyboard path or a key didn't register. \
 POINTING: if the user refers to what THEY are hovering/pointing at ('this', 'the one I'm hovering on', 'where my \
 mouse is'), use click_here - it acts at their ACTUAL cursor. Do NOT guess the target by description (you'll pick the \
 wrong thing). Your context shows 'Cursor at (x,y)' if you need the position. If instead the user wants YOU to point \
@@ -60,13 +69,12 @@ if that fails, minimize_window the covering app first. list_windows() shows what
 MEMORY: search_memory/open_memory recall our PAST conversations. When the user asks about something from BEFORE, \
 answer from the open_memory TRANSCRIPT - NOT from the current screen. Quote what the transcript actually says; if a \
 detail isn't in it, say it's not in your memory rather than guessing from what's on screen. \
-DOING TASKS FOR THE USER: when the user asks you to set something up or perform a task, DO it yourself with your \
-tools - don't narrate a list of steps for them to do. To submit a typed URL/search, use type_text with \
-press_enter:true (never type a literal '{enter}'). For DEEP browser control, call browser_setup and then carry out \
-its checklist yourself, pausing only at the extension permission prompt. Before flipping a setting (e.g. the \
-Developer mode switch), look() to check whether it's ALREADY in the wanted state - don't toggle what's already on. \
-After clicking a small toggle/switch, VERIFY the new state with look() - the screen-change detector misses tiny \
-toggles, so do NOT retry just because it reports 'no visual change'; click ONCE, then look() to confirm it flipped. \
+DOING TASKS: DO the task yourself with your tools, don't narrate a step list for the user; submit a typed URL/search \
+with type_text press_enter:true (never a literal '{enter}'). An element's STATE is a [tag] in your list - [on]/[off] \
+(toggles/checkboxes), [selected] (tabs), [expanded]/[collapsed], [value N] - READ that, never eyeball a tiny toggle \
+(vision guesses on a few pixels - this caused real dev-mode thrash). If untagged, use a consequence signal \
+(Developer mode is ON exactly when a 'Load unpacked' button appears), or ZOOM before look(). Click a toggle ONCE; \
+don't retry on 'no visual change' (the detector misses tiny toggles). \
 SETUP IS DONE the instant browser_status (or browser_setup) reports connected:true - say it's ready and STOP: do NOT \
 re-run browser_setup, re-open chrome://extensions, re-toggle Developer mode, or look() to 'verify' the extension. \
 Then just USE the browser tools for the user's actual task. \
@@ -86,6 +94,10 @@ BROWSER CONTROL SETUP: if the USER asks to set up / enable / turn on browser con
 RIGHT AWAY - do NOT offer or ask 'would you like'. Offering is ONLY for the proactive heads-up: when a heads-up tells \
 you the user is browsing without deep control, you may offer ONCE, briefly; if they accept, run browser_setup; if they \
 decline, call decline_browser_control and drop it. Never offer twice. \
+READING/SUMMARIZING A WEB PAGE: when deep browser control is connected, call browser_read_page ONCE to get the \
+ENTIRE page's text in one shot - do NOT scroll screen-by-screen to read a page (slow, you lose your place, and you \
+loop). Use scroll + look ONLY to inspect a SPECIFIC figure/chart/image the text refers to. Then answer from the \
+full text - don't keep scrolling once you have it. \
 To answer a question, look() at the CURRENT screen FIRST - it reads ONLY what is on screen now (it does NOT search \
 the web). If the answer is already visible, just read it - do NOT open a search. ONLY when the needed information \
 is genuinely NOT on the current screen, open_url('https://www.google.com/search?q=...') and read the results. \
@@ -94,18 +106,23 @@ Report ONLY what the screenshot shows; if it is not what you expected, say so an
 NEVER judge the screen state or claim done from your own low-res view - call look() and QUOTE what it says; your \
 own view is unreliable for fine detail. Do NOT call look() twice without acting in between. You ALREADY have \
 high-res tools (look to read, zoom to magnify) - use them yourself; never ask the user for a clearer or zoomed-in view. \
-One tool call per reply, but keep going AUTONOMOUSLY: after each tool result, IMMEDIATELY make the next tool call \
-toward the goal - do NOT pause, wait, or ask the user what to do between steps. A single request like 'play and \
-win' or 'book the flight' means do the WHOLE task yourself, many actions in a row, until it is finished. Only call \
-done when the goal is fully achieved (a fresh look() confirms it; an independent check will verify) - and only \
-THEN stop and wait for the user's next request, without acting further on your own. Don't narrate every routine \
-step, but DO speak up briefly when it matters: answer the user's questions, and proactively tell them when you \
-are stuck, when an action isn't registering, or what you're seeing - never go silent while struggling. Before a \
-SLOW step (a look or a page load can take 10-20s), say a quick word ('one sec, reading that') so the user knows \
-you're working, not frozen.";
+AUTONOMY: one tool call per reply, but keep going - after each result IMMEDIATELY make the next tool call toward the \
+goal; do NOT pause or ask what to do between steps. 'Play and win' / 'book the flight' = do the WHOLE task, many \
+actions in a row, until finished. Call done ONLY when the goal is fully achieved (a fresh look() confirms it; an \
+independent check verifies), then stop and wait for the next request. If you get STUCK or an action isn't \
+registering, say so briefly - never go silent while struggling. \
+GAMES: read the board with look()/zoom and plan the WHOLE sequence before moving; never act blindly. Play by whatever \
+the game uses - keyboard for arrow/key games (2048), or click_target / drag_target for pointer, card and tile games. \
+If a game running in a BROWSER ignores your clicks or drags (a canvas/WebGL game often does - plain OS clicks aren't \
+trusted by the page), that is exactly when to set up deep browser control with browser_setup: once it is connected, \
+click_target and drag_target automatically drive the page's OWN trusted input, which works on canvas/WebGL/iframe \
+games. Then retry the same move.";
 
 pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Value {
-    let think = std::env::var("CC_THINK").unwrap_or_else(|_| "medium".to_string());
+    // "low" (not "medium") for a fast, action-oriented real-time agent: medium
+    // thinking noticeably slows every turn and made it over-deliberate (narrate
+    // instead of act). Override with CC_THINK=minimal|low|medium|high.
+    let think = std::env::var("CC_THINK").unwrap_or_else(|_| "low".to_string());
     // Raise the per-turn output cap so a long spoken summary isn't cut off mid-word.
     // maxOutputTokens IS honored by the Live API (it's not in the documented
     // unsupported list); the server clamps anything above the model's own ceiling.
@@ -142,7 +159,9 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"cell": {"type": "integer", "description": "The grid number printed over the target."}}, "required": ["cell"]}},
             {"name": "zoom", "description": "Magnify the numbered GRID CELL so small targets become large and a fresh finer grid is drawn over it. Pass the cell's printed number.",
              "parameters": {"type": "object", "properties": {"cell": {"type": "integer", "description": "The grid number to magnify."}}, "required": ["cell"]}},
-            {"name": "reset_view", "description": "Return the view to the whole focused window (undo zoom).",
+            {"name": "reset_view", "description": "Return the view to the ACTIVE window (the default; undoes zoom and see_whole_screen).",
+             "parameters": {"type": "object", "properties": {}}},
+            {"name": "see_whole_screen", "description": "Switch the view to your ENTIRE screen (all windows) instead of just the active window. Use it for awareness - 'what's on my screen', counting/finding things across windows, or locating another window to switch to. Acting precisely (clicks) is best in the default active-window view, so reset_view (or focus_window) afterward.",
              "parameters": {"type": "object", "properties": {}}},
             {"name": "look", "description": "Get a precise HIGH-RESOLUTION reading of what is currently on screen, for content you cannot read clearly yourself (game boards, charts, images, tiny text). Ask a specific question; a dedicated vision model answers from a clean high-res capture of the current view. Use this to read a board/canvas state before deciding a move, and to check results.",
              "parameters": {"type": "object", "properties": {"question": {"type": "string", "description": "What to read, e.g. 'List each of the 9 tic-tac-toe cells row by row as X, O, or empty.'"}}, "required": ["question"]}},
@@ -154,12 +173,14 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"mark": {"type": "integer", "description": "The anchor number from map_targets."}, "button": {"type": "string", "enum": ["left", "right"]}}, "required": ["mark"]}},
             {"name": "wait", "description": "Pause for N seconds, for slow or asynchronous operations (e.g. waiting for an image to finish generating or a page to load). Then re-observe.",
              "parameters": {"type": "object", "properties": {"seconds": {"type": "number", "description": "Seconds to wait (max 30)."}}, "required": ["seconds"]}},
-            {"name": "type_text", "description": "Type text at the current keyboard focus. Set press_enter=true to submit afterward (e.g. an address bar or search box) - do NOT put '{enter}' inside the text, it would be typed literally.",
-             "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "press_enter": {"type": "boolean", "description": "Press Enter after typing (to submit)."}}, "required": ["text"]}},
+            {"name": "type_text", "description": "Type text at the current keyboard focus (FAST - instant/paste). Set press_enter=true to submit afterward (e.g. an address bar or search box) - do NOT put '{enter}' inside the text, it would be typed literally.",
+             "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "press_enter": {"type": "boolean", "description": "Press Enter after typing (to submit)."}, "slow": {"type": "boolean", "description": "Rarely needed: type slowly key-by-key for a field that genuinely demands paced input. Default false (fast)."}}, "required": ["text"]}},
             {"name": "scroll", "description": "Scroll with the REAL mouse wheel (not PageDown) over the page/list. direction up/down (or left/right); 'amount' is how far (default 5; larger scrolls more). Optionally pass a grid 'cell' to scroll over a specific area, else it scrolls over the centre. Prefer this for natural scrolling.",
              "parameters": {"type": "object", "properties": {"direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "number"}, "cell": {"type": "integer"}}, "required": ["direction"]}},
             {"name": "drag", "description": "Press at one grid cell, glide to another, and release - for sliders, reordering items, drawing, or click-drag to SELECT text/items. Pass from_cell and to_cell (the printed grid numbers). zoom() first for finer cells when precision matters.",
              "parameters": {"type": "object", "properties": {"from_cell": {"type": "integer", "description": "Grid cell to press at."}, "to_cell": {"type": "integer", "description": "Grid cell to release at."}}, "required": ["from_cell", "to_cell"]}},
+            {"name": "drag_target", "description": "PRECISE drag-and-drop: a vision model locates the EXACT pixel of BOTH endpoints (described in plain words) and drags from one to the other. Use this - NOT drag(cells) - to place a card on a board slot, drop an item, or move a slider on a canvas/game, where grid cells are too coarse to hit the small targets.",
+             "parameters": {"type": "object", "properties": {"from": {"type": "string", "description": "What to grab, e.g. 'the selected Full Moon card in my hand'."}, "to": {"type": "string", "description": "Where to drop it, e.g. 'the empty center slot of the board'."}}, "required": ["from", "to"]}},
             {"name": "click_here", "description": "Click EXACTLY where the mouse cursor currently is, without moving it (button='right' for a context menu). Use when the user refers to what THEY are pointing at - 'this', 'the one I'm hovering on', 'where my mouse is' - because their pointer is already on the target. Far more reliable than guessing the target by description with click_target.",
              "parameters": {"type": "object", "properties": {"button": {"type": "string", "enum": ["left", "right", "middle"]}}}},
             {"name": "point_at", "description": "MOVE the mouse onto a target described in plain words and STOP there - point/hover, NO click. Use when the user wants you to POINT something OUT to them ('point at the save button', 'show me which one', 'where is X') rather than act on it, OR to HOVER and reveal a tooltip / hover-menu. A high-res vision model locates the exact pixel (same as click_target). Set dwell_seconds to linger so a hover reveal can appear before you look() again.",
@@ -263,7 +284,7 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
 /// click marker and no trace I/O — for the voice runtime's initial + periodic
 /// idle frames (kept consistent with the grid the `Brain` renders after actions).
 pub(super) fn snapshot(target: Option<&str>) -> Result<String> {
-    let view = window_view(target);
+    let view = window_view(target, false);
     let cap = session::capture_virtual()?;
     let (jpeg, _) = session::encode_view(&cap, view, VIEW_SHORT, Some(Grid::from_env()), None)?;
     Ok(general_purpose::STANDARD.encode(&jpeg))
@@ -298,6 +319,9 @@ pub(super) struct Brain {
     pub target: Option<String>,
     pub view: View,
     zoomed: bool,
+    /// When set (the model called see_whole_screen), the base view is the WHOLE
+    /// desktop for awareness; default false = the active window for precise acting.
+    whole_screen: bool,
     last_click: Option<(i32, i32)>,
     pub step: usize,
     recent_actions: Vec<String>,
@@ -502,7 +526,7 @@ pub fn run_vision_test(target: Option<&str>, question: &str) -> Result<()> {
     // routes through that worker (image-attach -> audio -> outputTranscription).
     crate::api::gemini_live::init_gemini_live();
     std::thread::sleep(Duration::from_millis(200));
-    let view = window_view(target);
+    let view = window_view(target, false);
     eprintln!("[vision-test] reading view ({},{},{},{})", view.x, view.y, view.w, view.h);
     let never = AtomicBool::new(false);
     let answer = read_view(view, question, "", &never)?;
@@ -521,7 +545,7 @@ pub fn run_vision_test(target: Option<&str>, question: &str) -> Result<()> {
 /// can eyeball label legibility / tune `CC_GRID_COLS`/`CC_GRID_ROWS`. No model.
 pub fn run_grid_test(target: Option<&str>) -> Result<()> {
     let grid = Grid::from_env();
-    let view = window_view(target);
+    let view = window_view(target, false);
     let cap = session::capture_virtual()?;
     let (jpeg, shown) = session::encode_view(&cap, view, VIEW_SHORT, Some(grid), None)?;
     let dir = std::env::var("CC_TRACE_DIR").unwrap_or_else(|_| "cc-grid".to_string());
