@@ -13,7 +13,17 @@ const DEFAULT_PORT = 47800;
 let ws = null;          // the current active socket (for unsolicited events)
 let connecting = false; // guard against overlapping connect() calls
 let backoff = 1000;
+let detachTimer = null; // detach the debugger if we stay disconnected
 const attached = new Set(); // tabIds we hold a debugger session on
+
+// Detach chrome.debugger from every tab we hold - so the "being debugged" banner
+// clears and DevTools is usable when CC is no longer driving the browser.
+async function detachAll() {
+  for (const tabId of [...attached]) {
+    try { await chrome.debugger.detach({ tabId }); } catch (_) {}
+    attached.delete(tabId);
+  }
+}
 
 async function cfg() {
   const o = await chrome.storage.local.get(["port", "secret"]);
@@ -56,12 +66,15 @@ async function connect() {
   sock.onopen = () => {
     connecting = false;
     backoff = 1000;
+    if (detachTimer) { clearTimeout(detachTimer); detachTimer = null; } // reconnected in time
     reply({ type: "hello", extId: chrome.runtime.id, hasSecret: !!secret });
   };
   sock.onmessage = (ev) => onMessage(ev.data, reply).catch((e) => console.error("[sgt]", e));
   sock.onclose = () => {
     connecting = false;
     if (ws === sock) ws = null;
+    // If we don't reconnect within the grace period, release the debugger.
+    if (!detachTimer) detachTimer = setTimeout(() => { detachTimer = null; detachAll(); }, 15000);
     scheduleReconnect();
   };
   sock.onerror = () => {

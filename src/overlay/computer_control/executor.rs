@@ -106,6 +106,16 @@ fn norm_to_screen(x: f64, y: f64) -> (i32, i32) {
     )
 }
 
+/// Absolute screen pixel -> 0..1000 normalized (the space `click`/`scroll`/`drag`
+/// take). Inverse of `norm_to_screen`; lets Brain-side screen px feed those tools.
+pub(super) fn screen_to_norm(sx: i32, sy: i32) -> (f64, f64) {
+    let (vx, vy, vw, vh) = virtual_desktop();
+    (
+        (sx - vx) as f64 / vw.max(1) as f64 * 1000.0,
+        (sy - vy) as f64 / vh.max(1) as f64 * 1000.0,
+    )
+}
+
 /// Absolute screen pixel -> 0..65535 virtual-desktop space (for `SendInput`).
 fn screen_to_abs(sx: i32, sy: i32) -> (i32, i32) {
     let (vx, vy, vw, vh) = virtual_desktop();
@@ -310,13 +320,18 @@ fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Resul
     // (slow for paragraphs, mangles non-ASCII). Save/restore the user's clipboard.
     // Short inputs still type, to leave the clipboard alone and play nice with
     // type-as-you-search fields.
-    if n > 12 {
-        let saved = super::clipboard::get_text();
+    let saved = super::clipboard::get_text();
+    // Only take the paste fast-path when it won't DESTROY non-text clipboard data
+    // (an image / copied files) we can't restore. Otherwise fall through to typing.
+    let would_clobber = saved.is_empty() && super::clipboard::has_nontext();
+    if n > 12 && !would_clobber {
         super::clipboard::set_text(&text);
         sleep(Duration::from_millis(30));
         send_ctrl_v();
         sleep(Duration::from_millis(140));
-        if !saved.is_empty() {
+        if saved.is_empty() {
+            super::clipboard::clear(); // don't leave our text on a previously-empty clipboard
+        } else {
             super::clipboard::set_text(&saved);
         }
         press_enter();
