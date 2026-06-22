@@ -75,6 +75,7 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
         "open_url" => open_url(args),
         "launch_app" => launch_app(args),
         "run_command" => run_command(args),
+        "click_here" => click_here(args),
         other => Err(anyhow!("unknown action: {other}")),
     };
     match result {
@@ -250,6 +251,16 @@ fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Val
     sleep(Duration::from_millis(40));
     send(&[mouse(0, 0, 0, MOUSEEVENTF_LEFTUP)]);
     Ok(json!({"ok": true, "drag": [[x, y], [dx, dy]]}))
+}
+
+/// Click (or right/middle-click) at the CURRENT cursor position WITHOUT moving
+/// the mouse - for "this / the one I'm hovering on", where the user's pointer is
+/// already on the target (so we don't have to guess it by description).
+fn click_here(args: &Value) -> Result<Value> {
+    super::uia::focus_foreground();
+    let (down, up) = button_flags(args);
+    send(&[mouse(0, 0, 0, down), mouse(0, 0, 0, up)]);
+    Ok(json!({"ok": true, "clicked": "at the current cursor position"}))
 }
 
 fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
