@@ -45,6 +45,9 @@ dialogs, browsers, editors, specific apps) - REASON OUT the most efficient keys 
 yourself to a fixed list. Common ones, as illustration only: Enter to confirm a dialog/form (type_text press_enter), \
 Escape to cancel/close, Tab between fields, Ctrl+A/C/V/X/Z, Ctrl+S save, Ctrl+F find, Ctrl+L address bar, Alt+Left \
 back, arrows+Enter for menus/lists. Only click a button when there's genuinely no keyboard path, or a key didn't register. \
+POINTING: if the user refers to what THEY are hovering/pointing at ('this', 'the one I'm hovering on', 'where my \
+mouse is'), use click_here - it acts at their ACTUAL cursor. Do NOT guess the target by description (you'll pick the \
+wrong thing). Your context shows 'Cursor at (x,y)' if you need the position. \
 SWITCHING WINDOWS: if a window you opened isn't visible (the view still shows the SAME app, often a FULLSCREEN game), \
 do NOT spam alt+tab - those keystrokes get swallowed by the game. Call focus_window('Chrome') to bring it forward; \
 if that fails, minimize_window the covering app first. list_windows() shows what's open. \
@@ -148,6 +151,8 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "number"}, "cell": {"type": "integer"}}, "required": ["direction"]}},
             {"name": "drag", "description": "Press at one grid cell, glide to another, and release - for sliders, reordering items, drawing, or click-drag to SELECT text/items. Pass from_cell and to_cell (the printed grid numbers). zoom() first for finer cells when precision matters.",
              "parameters": {"type": "object", "properties": {"from_cell": {"type": "integer", "description": "Grid cell to press at."}, "to_cell": {"type": "integer", "description": "Grid cell to release at."}}, "required": ["from_cell", "to_cell"]}},
+            {"name": "click_here", "description": "Click EXACTLY where the mouse cursor currently is, without moving it (button='right' for a context menu). Use when the user refers to what THEY are pointing at - 'this', 'the one I'm hovering on', 'where my mouse is' - because their pointer is already on the target. Far more reliable than guessing the target by description with click_target.",
+             "parameters": {"type": "object", "properties": {"button": {"type": "string", "enum": ["left", "right", "middle"]}}}},
             {"name": "key_combination", "description": "Press a keyboard shortcut, e.g. Enter, Control+C, Alt+Tab.",
              "parameters": {"type": "object", "properties": {"keys": {"type": "string"}}, "required": ["keys"]}},
             {"name": "open_url", "description": "Open an http(s) URL in the default browser as a NEW foreground tab (via the OS shell). Use this to go to a web page directly - far more reliable than typing into the address bar.",
@@ -503,7 +508,7 @@ impl Brain {
                 let aborted = human_input::sleep_cancellable((secs * 1000.0) as u64, cancel);
                 json!({"ok": !aborted, "waited_seconds": secs})
             }
-            "type_text" | "key_combination" | "open_url" | "launch_app" | "run_command" => {
+            "type_text" | "key_combination" | "open_url" | "launch_app" | "run_command" | "click_here" => {
                 if self.dry {
                     json!({"ok": true, "note": "dry"})
                 } else {

@@ -196,7 +196,7 @@ pub(super) fn setup() -> Value {
             json!(format!("Your default browser ({}) isn't Chromium - deep browser control needs Chrome/Edge/Brave.", browser.name))
         },
         "do_yourself": [
-            format!("In the EXISTING browser window (focus_window it if needed - do NOT open a new window), go to {} by typing it in the ADDRESS BAR: key_combination 'Ctrl+L', then type_text '{}' with press_enter:true.", browser.ext_url, browser.ext_url),
+            format!("Open a NEW TAB first so you don't lose the user's current page: key_combination 'Ctrl+T'. Then in that new tab go to {} via the address bar: key_combination 'Ctrl+L', then type_text '{}' with press_enter:true. Stay in the SAME window (no new window).", browser.ext_url, browser.ext_url),
             "Toggle ON 'Developer mode' (top-right) ONLY if it's off - look() first; don't toggle what's already on. Click the SWITCH (far right), then look() to confirm it flipped - DON'T retry on 'no visual change' (the detector misses tiny toggles).",
             "Click 'Load unpacked'. In the file dialog, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
             "A permission prompt USUALLY does NOT appear for unpacked extensions - do NOT wait for one or tell the user to confirm it. If one happens to show, pause for the user; otherwise just continue.",
