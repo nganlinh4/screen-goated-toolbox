@@ -53,6 +53,9 @@ Developer mode switch), look() to check whether it's ALREADY in the wanted state
 BROWSER NAVIGATION: once browser control is connected, use browser_navigate to go to a URL - it reuses the CURRENT \
 tab. Do NOT use open_url for that (it opens a NEW tab/window every time); reserve open_url for when the extension \
 isn't connected, or to leave a chrome:// page (which the extension can't drive). Work in the EXISTING browser window. \
+OFFERING BROWSER CONTROL: if a heads-up tells you the user is browsing without deep control set up, you may offer \
+ONCE, briefly and naturally, to set it up (more precise page reading/acting). If they accept, run browser_setup; if \
+they decline, call decline_browser_control and drop it - do not ask again. \
 To answer a question, look() at the CURRENT screen FIRST - it reads ONLY what is on screen now (it does NOT search \
 the web). If the answer is already visible, just read it - do NOT open a search. ONLY when the needed information \
 is genuinely NOT on the current screen, open_url('https://www.google.com/search?q=...') and read the results. \
@@ -178,7 +181,9 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
             {"name": "browser_switch_tab", "description": "Make a browser tab active by its id (from browser_tabs).",
              "parameters": {"type": "object", "properties": {"tab_id": {"type": "integer"}}, "required": ["tab_id"]}},
             {"name": "browser_network", "description": "Read recent network requests the page made (url + status). Enables capture if needed; call again after the page loads to see results.",
-             "parameters": {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring of the CDP event name, e.g. 'responseReceived'."}}}}
+             "parameters": {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring of the CDP event name, e.g. 'responseReceived'."}}}},
+            {"name": "decline_browser_control", "description": "Call ONLY when the user declines your offer to set up deep browser control - records it so you stop asking this session and don't nag (you may bring it up again much later). No args.",
+             "parameters": {"type": "object", "properties": {}}}
         ]}],
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
@@ -609,6 +614,10 @@ impl Brain {
             "browser_tabs" => super::browser::get_tabs(),
             "browser_switch_tab" => super::browser::switch_tab(args.get("tab_id").and_then(Value::as_i64).unwrap_or(0)),
             "browser_network" => super::browser::read_network(args.get("filter").and_then(Value::as_str).unwrap_or("")),
+            "decline_browser_control" => {
+                super::browser::record_decline();
+                json!({"ok": true, "noted": "won't ask again for a while"})
+            }
             _ => json!({"ok": false, "error": "unknown action"}),
         };
         // Per-action latency (excludes the settle wait) — the key refinement
@@ -650,7 +659,7 @@ impl Brain {
             name,
             "search_memory" | "open_memory" | "read_clipboard" | "list_windows"
             | "browser_setup" | "browser_status" | "browser_read_page" | "browser_query"
-            | "browser_eval" | "browser_tabs" | "browser_network"
+            | "browser_eval" | "browser_tabs" | "browser_network" | "decline_browser_control"
         ) {
             eprintln!("[cc] step {:02} (info tool — screen readouts suppressed)", self.step);
             return Ok(Grounded { frame_b64: b, state_text: self.context_block(), notes: Vec::new() });
