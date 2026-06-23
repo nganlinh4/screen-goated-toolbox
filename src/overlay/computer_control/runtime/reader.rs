@@ -91,8 +91,18 @@ pub(super) fn flush_reply(state: &mut Reader) {
 /// unreliable) and the agent can recall the sequence later — e.g. summarize all the
 /// dialogue it read, not just whatever happens to still be on screen.
 pub(super) fn record_observation(state: &mut Reader, name: &str, resp: &Value) {
-    let Some(reading) = resp.get("reading").and_then(Value::as_str) else {
-        return; // only look/read tools carry a "reading"; actions don't
+    // In the live path the tool output is nested under "action_result"; look/read
+    // tools put their text in "reading" and browser_read_page in page.text. Read
+    // whichever is present (falling back to the bare resp for non-wrapped callers)
+    // so the observation survives a reconnect via the recap - without this the
+    // wrapper hid every reading and the reconnect memory recorded nothing.
+    let inner = resp.get("action_result").unwrap_or(resp);
+    let Some(reading) = inner
+        .get("reading")
+        .and_then(Value::as_str)
+        .or_else(|| inner.get("page").and_then(|p| p.get("text")).and_then(Value::as_str))
+    else {
+        return; // only look/read/browser_read_page carry text; actions don't
     };
     let reading = reading.trim();
     if reading.is_empty() {
