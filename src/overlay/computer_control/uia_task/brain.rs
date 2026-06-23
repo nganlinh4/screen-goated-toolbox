@@ -328,6 +328,14 @@ impl Brain {
                 let title = args.get("title").and_then(Value::as_str).unwrap_or("");
                 let raised = super::super::uia::raise_window(title);
                 std::thread::sleep(Duration::from_millis(200)); // let the switch settle
+                if raised {
+                    // Return to the precise active-window view (the prompt promises
+                    // this): drop any whole-screen/zoom override and stale anchors so
+                    // grounding re-frames on the newly-focused window.
+                    self.whole_screen = false;
+                    self.zoomed = false;
+                    self.anchors.clear();
+                }
                 let now = super::super::uia::pointer_context().0;
                 json!({
                     "ok": raised,

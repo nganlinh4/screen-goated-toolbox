@@ -12,11 +12,10 @@
 //! a no-op and the feature is simply off. Runs on DirectML (CPU fallback), gated to
 //! blind surfaces so its cost is occasional, never per-turn.
 //!
-//! NOTE: the inference is written to RF-DETR's documented I/O (input `input`
-//! [1,3,RES,RES]; outputs `dets` [1,N,4] cxcywh-normalized + `labels` [1,N,C] logits)
-//! and the repo's `ort` 2.0 conventions, but the exact numerics (input name,
-//! normalization, resolution divisibility) need one verification pass against the
-//! real `.onnx` on a genuinely UIA-blind surface.
+//! I/O (verified against the real `.onnx`): input `input` [1,3,1024,1024]
+//! ImageNet-normalized; outputs `dets` [1,N,4] cxcywh-normalized + `labels` [1,N,C]
+//! logits. Outputs are looked up by name and `try_extract` is fallible, so an
+//! unexpected export degrades to a clean error (detector off) rather than a panic.
 
 use std::sync::{Mutex, OnceLock};
 
@@ -274,10 +273,14 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<Vec<DetBox>> 
     // Hold the lock through extraction: the output tensors borrow the session guard.
     let mut s = sess.lock().unwrap();
     let outputs = s.run(ort::inputs!["input" => input]).map_err(|e| anyhow::anyhow!("run: {e}"))?;
-    let (dshape, dets) = outputs["dets"]
+    // Look outputs up by NAME (not index) so an unexpected export fails cleanly with
+    // a clear message instead of panicking on a missing key.
+    let dets_v = outputs.get("dets").ok_or_else(|| anyhow::anyhow!("model has no 'dets' output"))?;
+    let labels_v = outputs.get("labels").ok_or_else(|| anyhow::anyhow!("model has no 'labels' output"))?;
+    let (dshape, dets) = dets_v
         .try_extract_tensor::<f32>()
         .map_err(|e| anyhow::anyhow!("dets: {e}"))?; // [1, N, 4] cxcywh 0..1
-    let (lshape, labels) = outputs["labels"]
+    let (lshape, labels) = labels_v
         .try_extract_tensor::<f32>()
         .map_err(|e| anyhow::anyhow!("labels: {e}"))?; // [1, N, C] logits
     let dd = dshape.as_ref();
