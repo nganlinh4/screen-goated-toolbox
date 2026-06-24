@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CC Assistant orb</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100vw; height:100vh; overflow:hidden; background:transparent; pointer-events:none; }
+  body { font-family:'Google Sans Flex','Google Sans','Product Sans',system-ui,'Segoe UI',sans-serif;
+         color:#eef0f6; -webkit-font-smoothing:antialiased; user-select:none; }
+  /*FONT_CSS*/
+  #c { position:fixed; inset:0; display:block; touch-action:none; pointer-events:auto; }
+  #caption { position:fixed; right:0; bottom:0; text-align:right; pointer-events:none;
+             font-size:17px; font-weight:450; line-height:1.32;
+             text-shadow:0 2px 18px rgba(0,0,0,.92),0 0 10px rgba(0,0,0,.65); }
+  #caption .w { display:inline-block; opacity:0; transform:translateY(10px); filter:blur(6px);
+                animation:wordin .5s cubic-bezier(.2,.8,.2,1) forwards; margin-right:.28em; }
+  @keyframes wordin { to { opacity:1; transform:none; filter:blur(0); } }
+  #glyph { position:fixed; left:0; top:0; z-index:2; color:#07070b; opacity:0;
+           pointer-events:none; will-change:transform,opacity; }
+  #glyph svg { width:100%; height:100%; display:block; fill:currentColor; }
+</style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="glyph"></div>
+  <div id="caption"></div>
+
+<script>
+(() => {
+  const TAU=Math.PI*2;
+  const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+  const oc=document.createElement('canvas'), octx=oc.getContext('2d');   // offscreen: the sharp body masked per-angle
+  const capEl=document.getElementById('caption'), glyphEl=document.getElementById('glyph');
+  let W,H,DPR,mag=0.18;                          // small corner orb (Rust can override via configurePlacement)
+  let CX_FRAC=0.9, CY_FRAC=0.86;                 // default bottom-right
+  // window.cc.moveTo glides the orb to a new corner (dodge the agent / return home): a smoothstep
+  // tween of the anchor, with the orb locked to it (spring bypassed) so the moving region never clips it.
+  let CX_TARGET=CX_FRAC, CY_TARGET=CY_FRAC, relocFromX=CX_FRAC, relocFromY=CY_FRAC, relocT=0, relocating=false;
+  function resize(){ DPR=Math.min(devicePixelRatio||1,1.5); W=innerWidth; H=innerHeight;   // cap DPR: the canvas spans the whole virtual screen
+    cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR); cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0);
+    oc.width=cv.width; oc.height=cv.height; reportRegion(); }
+  addEventListener('resize',resize);
+
+  const lerp=(a,b,t)=>a+(b-a)*t, clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+  function hash(n){const s=Math.sin(n)*43758.5453;return s-Math.floor(s);}
+  function noise1(x){const i=Math.floor(x),f=x-i,u=f*f*(3-2*f);return lerp(hash(i),hash(i+1),u)*2-1;}
+
+  // LIQUID blob: radius = a sum of angular harmonics whose phases TRAVEL around the rim over time
+  // (`ph`), interfering so lobes appear, swell, merge and vanish (metaball-like). `rot` adds a smooth
+  // swirl. Crisp vector path at any zoom. `amp` = deformation depth.
+  function blobPath(cx,cy,R,ph,amp,rot){
+    const M=96, P=new Path2D();
+    const pt=i=>{ const phi=i/M*TAU, a=phi-rot;
+      const r=R*(1 + amp*( 0.26*Math.sin(a*2 + ph*0.9)
+                         + 0.52*Math.sin(a*3 - ph*0.7 + 0.6)
+                         + 0.36*Math.sin(a*4 + ph*1.2 + 1.7) ));
+      return [cx+Math.cos(phi)*r, cy+Math.sin(phi)*r]; };
+    const a0=pt(M-1), b0=pt(0); P.moveTo((a0[0]+b0[0])/2,(a0[1]+b0[1])/2);
+    for(let i=0;i<M;i++){ const c=pt(i), n=pt((i+1)%M); P.quadraticCurveTo(c[0],c[1],(c[0]+n[0])/2,(c[1]+n[1])/2); }
+    return P;
+  }
+  const STOPS=[0,.34,.62,.85,1];
+  function gradFrom(cx,cy,s,ang,pal,br){ const r=s*.85,gx=Math.cos(ang)*r,gy=Math.sin(ang)*r,g=ctx.createLinearGradient(cx-gx,cy-gy,cx+gx,cy+gy);
+    for(let i=0;i<5;i++){ const c=pal[i], R=br?lerp(c[0],255,.3):c[0], G=br?lerp(c[1],255,.3):c[1], B=br?lerp(c[2],255,.3):c[2];
+      g.addColorStop(STOPS[i],`rgb(${R|0},${G|0},${B|0})`); } return g; }
+
+  // ---- per-state look: icon + undulation depth (amp) + churn speed (flow) + swirl direction (dir)
+  //      + edge-blur character (blur) + glow + palette. Driven from Rust via window.cc.setState(label).
+  function hx(h){return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+  // Google Material Symbols Rounded · filled · weight 700 · grade 200 · optical size 20 (the exact
+  // orb spec), viewBox 0 -960 960 960 — same source as html_components/icons.rs. Rendered in #glyph.
+  const ICONS={graphic_eq:"<path d=\"M260-262v-438q0-23.27 16.99-39.64Q293.98-756 316.79-756 341-756 357-739.64q16 16.37 16 39.64v439q0 23.28-15.6 39.64T317.71-205Q294-205 277-222.05T260-262Zm164 156v-748q0-23.27 16.3-39.64Q456.6-910 479.79-910t39.7 16.36Q536-877.27 536-854v748q0 23.28-16.3 39.64T480.21-50q-23.19 0-39.7-16.36T424-106ZM98-421v-119q0-24.67 16.29-40.34 16.29-15.66 40-15.66t40.21 16.35Q211-563.3 211-539v119q0 24.67-16.3 40.34Q178.4-364 155.21-364q-24.21 0-40.71-16.35T98-421Zm487 159v-438q0-23.27 16.99-39.64Q618.98-756 641.79-756 666-756 682-739.64q16 16.37 16 39.64v439q0 23.28-15.6 39.64T642.71-205Q619-205 602-222.05T585-262Zm164-159v-119q0-24.67 16.99-40.34Q782.98-596 805.79-596 830-596 846-579.65T862-539v119q0 24.67-15.6 40.34Q830.8-364 806.71-364 783-364 766-380.35T749-421Z\"/>",lightbulb:"<path d=\"M479.75-24Q444-24 418.5-52.65T394-123h172q1 42-24.75 70.5T479.75-24ZM369.28-172q-19.86 0-34.07-14.37T321-221.07q0-19.91 14.05-33.92Q349.1-269 368.96-269h221.76q19.85 0 34.07 13.89Q639-241.23 639-221.61 639-202 624.95-187t-33.91 15H369.28ZM308-318q-74-45-118-121.46T146-604q0-138.25 97.63-235.63Q341.26-937 479.88-937t236.37 97.37Q814-742.25 814-604q0 88-43.5 164.5T652-318H308Z\"/>",visibility:"<path d=\"M480.18-303q73.82 0 125.32-51.68 51.5-51.67 51.5-125.5 0-73.82-51.68-125.32-51.67-51.5-125.5-51.5-73.82 0-125.32 51.68-51.5 51.67-51.5 125.5 0 73.82 51.68 125.32 51.67 51.5 125.5 51.5Zm-.12-101q-31.64 0-53.85-22.15T404-479.94q0-31.64 22.15-53.85T479.94-556q31.64 0 53.85 22.15T556-480.06q0 31.64-22.15 53.85T480.06-404ZM480-149q-140 0-259-73.5T36-420q-8-14-11.5-29.23-3.5-15.22-3.5-30.46t3.5-30.78Q28-526 36-540q66-124 185-197.5T480-811q140 0 259 73.5T924-540q8 14 11.5 29.23 3.5 15.22 3.5 30.46t-3.5 30.78Q932-434 924-420q-66 124-185 197.5T480-149Z\"/>",arrow_selector_tool:"<path d=\"M616-40q-27 12-54.5 1.5T522-75L400-333l-89 111q-28 37-71 22.5T197-261v-560q0-41 36.5-58t67.5 7l442 359q35 29 20.5 72T703-398H527l123 264q12 26 2 54.5T616-40Z\"/>",rtt:"<path d=\"M450-127q-32 0-49.5-22.69T388-202.27Q392-225 409.41-241q17.4-16 40.87-16H457l82-446h-50l-17.88 89.88q-4.31 24.42-22.42 39.27Q430.59-559 408-559q-29.75 0-49.37-22.5Q339-604 344-635l25-134q4-27 25.4-45.5T445-833h357.93Q838-833 861-805.39T879-743l-23 130q-4.19 24.3-22.2 39.15Q815.79-559 793.34-559q-32.34 0-50.84-23.7T729-636l13-67h-72l-82 446h10q32 0 49.5 22.65 17.5 22.66 13.5 52.13Q657-159 638.9-143q-18.11 16-40.9 16H450ZM191-639q-21.45 0-35.23-16Q142-671 146-691.69q2.9-16.9 15.73-27.1Q174.55-729 191-729h138l-15 90H191Zm-25 144q-20.45 0-34.23-15.5Q118-526 122-546.69q2.9-16.9 14.73-27.6Q148.55-585 166-585h138l-14 90H166Zm-47 288q-21 0-34.5-15.5T75-259q2.9-14.56 14.73-26.28Q101.55-297 119-297h223l-15 90H119Zm23-144q-20.45 0-34.23-15.5Q94-382 98-402.69q2.83-16.9 14.31-27.6Q123.78-441 141.93-441H366l-15 90H142Z\"/>",gesture:"<path d=\"M573-98q-55 0-94-39.5T440-250q0-72 65-139t145-80q-6-38-21-56.5T588-544q-37 0-78 36.5T427-401q-30 61-84.5 102T234-258q-58 0-94-39t-36-102q0-35 21-80t60-95q57-76 73-102.5t16-46.5q0-9-5-16t-13-7q-7 0-15 5t-23 18q-18 14-41 15t-40-15q-18-17-18-41t18-40q35-31 66.5-44.5T266-862q54 0 85 36.5t31 84.5q0 49-25.5 102T280-519q-35 44-50 69t-15 42q0 11 8 21t20 10q11 0 23.5-6.5T291-404q10-8 18.5-21.5T325-454q71-105 134-154t127-49q71 0 118.5 50.5T761-473h45q23 0 39.5 16.5T862-417q0 23-16.5 39.5T806-361h-41q-2 101-61.5 182T573-98Zm3-115q24 0 48.5-44t29.5-98q-40 9-71.5 40.5T551-249q0 14 7.5 25t17.5 11Z\"/>",keyboard_double_arrow_down:"<path d=\"m480-302 145-146q20-20 46-19.5t44 19.5q20 20 20 45t-20 45L525-167q-8 8-20.5 13.5T480-148q-12 0-24.5-5.5T435-167L245-358q-20-20-18.5-46t19.5-44q20-20 45.5-20t44.5 20l144 146Zm0-344 145-146q20-20 46-19.5t44 20.5q20 20 20 45t-20 45L525-511q-8 8-20.5 13.5T480-492q-12 0-24.5-5.5T435-511L245-701q-20-20-18.5-45.5T246-791q20-21 45.5-21t45.5 21l143 145Z\"/>",backlight_high:"<path d=\"M108.26-360q-25.86 0-45.06-18.99Q44-397.98 44-423.79 44-451 63.02-469.5 82.05-488 107.91-488h71.83q25.86 0 45.06 18.29 19.2 18.29 19.2 45T224.98-379q-19.03 19-44.89 19h-71.83ZM322.5-584Q302-564 277-564t-45-20l-72-71q-21-20-20.5-45.61.5-25.6 21.11-44.5Q180-764 206.77-764q26.78 0 45.23 19l70 72q20 20 20.5 44.5t-20 44.5ZM348-184q-36.67 0-62.33-26Q260-236 260-272.47t25.67-62Q311.33-360 348-360h264q36.67 0 62.33 25.53 25.67 25.53 25.67 62T674.33-210q-25.66 26-62.33 26H348Zm132.21-464q-25.81 0-45.01-19.05T416-712v-128q0-27.3 18.99-45.65Q453.98-904 479.79-904t45.01 18.35Q544-867.3 544-840v128q0 25.9-18.99 44.95Q506.02-648 480.21-648ZM639-584q-20-21-19.5-45.48.5-24.48 20.5-44.52l69-71q21-20 47.17-19.5 26.16.5 44.83 21.5 18 19.18 17.5 45.09Q818-672 800-653l-71 71q-20 21-45 20t-45-22Zm141.26 224q-25.86 0-45.06-18.99-19.2-18.99-19.2-44.8 0-27.21 19.02-45.71 19.03-18.5 44.89-18.5h71.83q25.86 0 45.06 18.29 19.2 18.29 19.2 45T896.98-379q-19.03 19-44.89 19h-71.83Z\"/>",globe_asia:"<path d=\"M367-202q-7.59-11-12.79-22.5Q349-236 349-249.66q0-30.67 22.46-52.93 22.46-22.26 53.69-22.26L446-346q7-7 17.05-11.5Q473.11-362 484-362q23.49 0 38.25 14.78Q537-332.44 537-309.07v16.36q0 17.14 13.34 29.93Q563.67-250 580.66-250q13.25 0 24.32-8.5Q616.06-267 621-280l10-31q8.55-22.99 27.26-36.99 18.7-14 42.57-14h71q9.69-28.06 16.43-57.53Q795-449 795-479.89q0-87.92-44.5-159.01Q706-710 632-748v34.41q0 18.62-13.61 32.13-13.61 13.52-32.18 13.52h-47.27v69.98q0 19.54-13.98 33.71-13.99 14.17-33.13 14.17h-47.05v74.17q0 17.41-12.94 29.66Q418.91-434 402.34-434q-12.08 0-23.71-6.5t-16.38-17.19L294.71-550H256v46.22q0 28.44-17.63 48.55-17.64 20.1-46.37 20.96Q205-355 250.39-294.5 295.79-234 367-202Zm207.33-208q-14.71 0-25.02-10.5Q539-431 539-445t10.53-24q10.52-10 24.82-10h47.35q14.72 0 24.51 9.89 9.79 9.9 9.79 24 0 14.11-10.02 24.61T621.67-410h-47.34Zm66.52-118Q628-533 621-546.88q-7-13.88-1.13-27.12l13.87-43.64q5.7-13.36 18.98-20.36 13.28-7 26.48-2 12.8 5 19.8 18.27t1 26.37l-15 44.93q-5 14.43-17.92 20.93-12.93 6.5-26.23 1.5ZM491.74-50q-89.38 0-168.21-33.1-78.82-33.11-137.23-92.02T94.45-312.69Q61-391.36 61-480q0-89.9 33.5-168 33.51-78.1 92.02-136.97 58.51-58.86 137.23-91.95Q402.48-910 491.65-910q90.54 0 168.26 33.11 77.72 33.11 136.32 92.01 58.6 58.91 92.19 136.98Q922-569.83 922-479.92q0 88.92-33.58 167.41-33.59 78.48-92 137.33Q738-116.33 660.19-83.16 582.38-50 491.74-50Z\"/>",person_play:"<path d=\"m117-485-82-81q-19-18.64-19-45.32T35-657l82-82q19.64-19 45.32-19.5T207-739l83 83q20 18.64 19.5 44.32T290-567l-82 82q-18.64 20-45.32 20T117-485ZM398-50q-27.3 0-45.65-18.35Q334-86.7 334-114v-119q-44-2-86-10t-84-18q-23-6-34.5-26t-4.5-42.5q6-22.5 27-33t46.43-4.5q69.57 15 139.41 22T479-338q72.66 0 143.83-7 71.17-7 141.74-22 25.43-6 45.93 5t26.5 33.5q7 22.5-4.5 41.5T798-262q-43 10-85.5 18.5T626-233v119q0 27.3-18.35 45.65Q589.3-50 562-50H398Zm82-640q-57 0-97.5-40.5T342-828q0-57 40.5-97.5T480-966q57 0 97.5 40.5T618-828q0 57-40.5 97.5T480-690Zm-1.21 308q-37.79 0-64.29-26.71-26.5-26.71-26.5-64.5t26.71-64.29q26.71-26.5 64.5-26.5t64.29 26.71q26.5 26.71 26.5 64.5t-26.71 64.29q-26.71 26.5-64.5 26.5ZM691-519l-36-62q-9-14.1-9-31t9-31l36-62q9-15 24.21-24t32.24-9h69.1q18.03 0 33.24 9T874-705l35 62q9 14.1 9 31t-9 31l-35 62q-9 15-24.21 24t-33.24 9h-69.1q-17.03 0-32.24-9T691-519Z\"/>",terminal:"<path d=\"M180-149q-54.1 0-91.05-36.96Q52-222.92 52-277.04v-406.24q0-54.12 36.95-90.92Q125.9-811 180-811h600q54.1 0 91.05 36.96Q908-737.08 908-682.96v406.24q0 54.12-36.95 90.92Q834.1-149 780-149H180Zm0-128h600v-334H180v334Zm143-167-52-53q-13-12-13-28.5t13-28.98Q283-567 299.5-567t28.5 13l65 65q20 18.64 20 44.82T393-399l-65 65q-12 13-28 12.5T272-335q-13-12-13-28.5t13-28.5l51-52Zm193 137q-16.9 0-28.95-11.99T475-347.79q0-16.81 12.05-29.01Q499.1-389 516-389h168q16.9 0 28.95 11.99t12.05 28.8q0 16.81-12.05 29.01Q700.9-307 684-307H516Z\"/>",comment:"<path d=\"M270-385h420q15.3 0 25.65-10.29Q726-405.58 726-420.79 726-435 715.65-446T690-457H270q-15.3 0-25.65 10.79Q234-435.42 234-420.71t10.35 25.21Q254.7-385 270-385Zm0-137h420q15.3 0 25.65-10.79Q726-543.58 726-558.29t-10.35-25.21Q705.3-594 690-594H270q-15.3 0-25.65 10.29Q234-573.42 234-558.21 234-544 244.35-533T270-522Zm0-138h420q15.3 0 25.65-10.29Q726-680.58 726-695.79 726-710 715.65-721T690-732H270q-15.3 0-25.65 10.79Q234-710.42 234-695.71t10.35 25.21Q254.7-660 270-660Zm-92 460q-53.82 0-90.91-37.09Q50-274.17 50-328v-459q0-53.83 37.09-90.91Q124.18-915 178-915h604q53.83 0 90.91 37.09Q910-840.83 910-787v587q0 43.62-39.5 59.31Q831-125 800.88-155.12L756-200H178Z\"/>",check_small:"<path d=\"m405-443 225-224q20-20 44.5-20t44.5 20q21 20 21 45t-21 45L450-307q-19 20-45.5 20T359-307L250-416q-20-20-20-45t21-45q20-20 45-20t45 20l64 63Z\"/>"};
+  const STATES=[
+    {label:'idle',       icon:null,                  amp:0.045, flow:0.35, dir: 1, blur:0.15, glow:0.85,           pal:['#2b6cff','#566bff','#8a6cf0','#a98cf5','#c2acff']},
+    {label:'listening',  icon:'graphic_eq',          amp:0.080, flow:0.70, dir:-1, blur:0.50, glow:1.12, live:true, pal:['#7b5cff','#a84cf0','#e24b9a','#ff6f8e','#ffb073']},
+    {label:'thinking',   icon:'lightbulb',           amp:0.140, flow:2.00, dir: 1, blur:1.05, glow:1.25,           pal:['#1fd0e6','#3b8cff','#7b6cff','#b557ef','#e85bd0']},
+    {label:'look',       icon:'visibility',          amp:0.085, flow:0.80, dir:-1, blur:0.62, glow:1.10,           pal:['#5b6cff','#3b8cff','#1fb0e6','#3bd0c8','#6fe6b0']},
+    {label:'click',      icon:'arrow_selector_tool', amp:0.085, flow:1.45, dir: 1, blur:0.40, glow:1.00,           pal:['#3b8cff','#5b78ff','#8a6cf0','#b06ce0','#d98cff']},
+    {label:'type',       icon:'rtt',                 amp:0.070, flow:1.05, dir:-1, blur:0.35, glow:1.00,           pal:['#3bb0ff','#4b9cff','#6f8cff','#9b7cf0','#c78ce8']},
+    {label:'drag',       icon:'gesture',             amp:0.125, flow:1.15, dir: 1, blur:0.55, glow:1.05,           pal:['#9b6cff','#b15cf0','#d04ce0','#e25bb0','#ff7c9c']},
+    {label:'scroll',     icon:'keyboard_double_arrow_down', amp:0.100, flow:1.65, dir:-1, blur:0.50, glow:1.00,           pal:['#2fd0c8','#1fc8e6','#3b9cff','#6f8cff','#9b8cf0']},
+    {label:'point',      icon:'backlight_high',      amp:0.070, flow:0.90, dir: 1, blur:0.45, glow:1.08,           pal:['#ffc24d','#ff9a5c','#ff6f8e','#e25bb0','#b15cf0']},
+    {label:'navigate',   icon:'globe_asia',          amp:0.105, flow:1.50, dir:-1, blur:0.60, glow:1.05,           pal:['#3bd98c','#2fc8c8','#1fb0e6','#3b8cff','#7b7cf0']},
+    {label:'launch',     icon:'person_play',         amp:0.130, flow:1.75, dir: 1, blur:0.72, glow:1.20,           pal:['#ff9a3d','#ff7c5c','#ff5c8a','#e25bb0','#b15cf0']},
+    {label:'run',        icon:'terminal',            amp:0.090, flow:1.35, dir:-1, blur:0.45, glow:1.00,           pal:['#5be67c','#2fd96b','#1fc8a0','#2fb0d6','#4b9cff']},
+    {label:'responding', icon:'comment',             amp:0.110, flow:1.25, dir: 1, blur:0.78, glow:1.05, live:true, pal:['#2fd39b','#1fc8d6','#3b8cff','#7b6cff','#b15cf0']},
+    {label:'done',       icon:'check_small',         amp:0.060, flow:0.60, dir:-1, blur:0.30, glow:1.12,           pal:['#2fd98c','#2fd3b0','#3bd0d6','#4bb0e6','#6f9cff']},
+    {label:'error',      icon:null,                  amp:0.120, flow:0.95, dir: 1, blur:0.55, glow:1.12,           pal:['#ff5c5c','#ff6f7c','#ff8a6c','#ff6f8e','#e25b8a']},
+  ];
+  STATES.forEach(s=>s.rgb=s.pal.map(hx));
+  const LABELS={}; STATES.forEach((s,i)=>LABELS[s.label]=i);
+  let idx=0,tNow=0,curIcon=null,tgtIcon=null,surface=0;
+  let ampC=STATES[0].amp, flowC=STATES[0].flow, dirC=STATES[0].dir, blurC=STATES[0].blur, glow=STATES[0].glow, curPal=STATES[0].rgb.map(c=>c.slice());
+  let audio=0,audioT=0,liveNow=false, audioExt=0, audioExtActive=false;
+  let captionText="";
+  function enter(i){ idx=(i+STATES.length)%STATES.length; const c=STATES[idx];
+    tgtIcon=c.icon; liveNow=!!c.live; }
+  // Incremental: as the transcript GROWS, keep the words already shown and only animate the new tail
+  // (Live-Translate style) — so the full reply stays on screen instead of cutting to just the last words.
+  function renderCaption(){ const words=(captionText||'').split(/\s+/).filter(Boolean);
+    const reset = words.length===0 || (capEl.children[0] && capEl.children[0].textContent!==words[0]);
+    if(reset) capEl.innerHTML='';
+    for(let i=0;i<words.length;i++){ const c=capEl.children[i];
+      if(c){ if(c.textContent!==words[i]) c.textContent=words[i]; }   // mid-word growth: update in place
+      else { const sp=document.createElement('span'); sp.className='w'; sp.textContent=words[i];
+        sp.style.animationDelay=(reset?i*.045:0)+'s'; capEl.appendChild(sp); } }
+    while(capEl.children.length>words.length) capEl.removeChild(capEl.lastChild);
+    reportRegion(); }   // caption changed → reposition it and refresh the visible/clickable region
+
+  let last=performance.now();
+  // appear/dismiss: a small orb flies in from the NEAREST screen edge, blooms; on dismiss it flies back out.
+  let vis='gone', vp=0; const ENTER=1.05, EXIT=0.74;
+  let oscS={x:0.24,v:0}, flowPhase=0, flowBurst=5, rotPhase=0, pS={x:0,y:0,vx:0,vy:0}, reseed=true, launchOut=false;
+  let dragging=false, dragDX=0, dragDY=0;
+
+  // off-screen point just past the nearest screen edge, aligned with the orb (for fly in/out)
+  function nearestEdge(){
+    const ox=W*CX_FRAC, oy=H*CY_FRAC;
+    const m=Math.min(ox, W-ox, oy, H-oy);
+    if(m===W-ox) return [W*1.12, oy];
+    if(m===ox)   return [-W*0.12, oy];
+    if(m===H-oy) return [ox, H*1.12];
+    return [ox, -H*0.12];
+  }
+
+  function step(dt){ tNow+=dt;
+    if(vis==='in'){ vp=Math.min(1,vp+dt/ENTER); if(vp>=1){vis='live'; reportRegion();} }  // settled → snap region from full window back to the tight orb box
+    else if(vis==='out'){ vp=Math.min(1,vp+dt/EXIT); if(vp>=1){vis='gone';} }
+    // 'live' and 'gone' are steady — only window.cc.show()/hide() change them.
+    // Relocating (dodge / return-home): ease the anchor; the orb is locked to it below (no spring lag)
+    // and the region is reported every frame so the tight box tracks the glide — clicks outside the orb
+    // keep passing through to the desktop the whole way.
+    if(relocating && !dragging){
+      relocT=Math.min(1, relocT+dt/0.42);
+      const e=relocT*relocT*(3-2*relocT);
+      CX_FRAC=relocFromX+(CX_TARGET-relocFromX)*e;
+      CY_FRAC=relocFromY+(CY_TARGET-relocFromY)*e;
+      if(relocT>=1){ CX_FRAC=CX_TARGET; CY_FRAC=CY_TARGET; relocating=false; }
+      reportRegion();
+    }
+
+    const S=STATES[idx], k=Math.min(1,dt*3.3);
+    ampC+=(S.amp-ampC)*k; flowC+=(S.flow-flowC)*k; dirC+=(S.dir-dirC)*k; blurC+=(S.blur-blurC)*k; glow+=(S.glow-glow)*k;
+    for(let i=0;i<5;i++) for(let j=0;j<3;j++) curPal[i][j]+=(S.rgb[i][j]-curPal[i][j])*k;
+    if(curIcon!==tgtIcon){ surface=Math.max(0,surface-dt/0.26); if(surface<=0.001) curIcon=tgtIcon; }
+    else if(curIcon) surface=Math.min(1,surface+dt/0.34); else surface=Math.max(0,surface-dt/0.2);
+    if(audioExtActive){ audioT=audioExt; } else audioT=0;
+    audio+=(audioT-audio)*Math.min(1,dt*12);
+
+    flowBurst*=Math.exp(-1.7*dt);
+    flowPhase += (flowC + flowBurst)*dt;
+    rotPhase  += (dirC*(0.13 + flowC*0.20) + 0.10*noise1(tNow*0.05+7))*dt;
+    const base=Math.min(W,H)*0.16*mag, breathe=1+0.03*Math.sin(tNow*1.4)+0.12*audio;
+    let R=base*breathe, ang=-0.6;
+    const fcx=W*CX_FRAC + noise1(tNow*0.13)*17 + Math.sin(tNow*0.43)*10;
+    const fcy=H*CY_FRAC + noise1(60+tNow*0.11)*15 + Math.sin(tNow*0.57+1.3)*11;
+    const EDGE=nearestEdge();
+    if(reseed){ pS.x=EDGE[0]; pS.y=EDGE[1];
+      const dx=fcx-EDGE[0], dy=fcy-EDGE[1], a0=Math.atan2(dy,dx)-0.55, s0=Math.hypot(dx,dy)*1.7;
+      pS.vx=Math.cos(a0)*s0; pS.vy=Math.sin(a0)*s0; reseed=false; }
+    if(launchOut){ const dx=EDGE[0]-pS.x, dy=EDGE[1]-pS.y, aE=Math.atan2(dy,dx)+0.55, sE=Math.hypot(dx,dy)*1.7;
+      pS.vx=Math.cos(aE)*sE; pS.vy=Math.sin(aE)*sE; launchOut=false; }
+    if(dragging){ pS.x=W*CX_FRAC; pS.y=H*CY_FRAC; pS.vx=0; pS.vy=0; }
+    else if(relocating){ pS.x=fcx; pS.y=fcy; pS.vx=0; pS.vy=0; }  // lock to the tweened anchor so the moving region never clips the orb
+    else { const goOut=(vis==='out'||vis==='gone'), ptx=goOut?EDGE[0]:fcx, pty=goOut?EDGE[1]:fcy;
+      pS.vx += ((ptx-pS.x)*26 - pS.vx*5.8)*dt; pS.vy += ((pty-pS.y)*26 - pS.vy*5.8)*dt;
+      pS.x += pS.vx*dt; pS.y += pS.vy*dt; }
+    let cx=pS.x, cy=pS.y;
+    const sTgt = vis==='in' ? (vp<0.42?0.24:1) : vis==='out' ? (vp<0.13?1.12:0.16) : vis==='gone' ? 0.16 : 1;
+    oscS.v += ((sTgt-oscS.x)*220 - oscS.v*15)*dt; oscS.x += oscS.v*dt;
+    let vA = vis==='in' ? Math.min(1,vp/0.1) : vis==='out' ? Math.max(0,1-Math.max(0,(vp-0.72)/0.28)) : vis==='gone' ? 0 : 1;
+    R*=oscS.x;
+    const amp = ampC + audio*0.05;
+    ctx.clearRect(0,0,W,H);
+    if(vA<=0.002){ glyphEl.style.opacity='0'; return; }
+    const sh1=0.78+0.30*noise1(tNow*0.7+11), sh2=0.80+0.28*noise1(tNow*0.9+33);
+    const haloR=R*(0.5+0.12*noise1(tNow*0.33+50));
+    const bigBlob=blobPath(cx,cy,R*1.04,flowPhase,amp,rotPhase), blob=blobPath(cx,cy,R,flowPhase,amp,rotPhase);
+    ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.filter=`blur(${haloR}px)`; ctx.globalAlpha=0.26*glow*vA*sh1;
+    ctx.fillStyle=gradFrom(cx,cy,R,ang,curPal,true); ctx.fill(bigBlob); ctx.restore();
+    ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.filter=`blur(${R*0.22}px)`; ctx.globalAlpha=0.46*glow*vA*sh2;
+    ctx.fillStyle=gradFrom(cx,cy,R,ang,curPal,true); ctx.fill(bigBlob); ctx.restore();
+    const blurAmt=Math.max(0,blurC*(0.65+0.6*noise1(tNow*0.27+40)));
+    ctx.save(); ctx.filter=`blur(${R*(0.03+0.16*Math.min(1.2,blurAmt))}px)`; ctx.globalAlpha=vA;
+    ctx.fillStyle=gradFrom(cx,cy,R,ang,curPal,false); ctx.fill(blob); ctx.restore();
+    // restrict the costly offscreen pass to the orb's bounding box (the canvas spans the whole screen)
+    const bx=Math.max(0,(cx-R*2.2)|0), by=Math.max(0,(cy-R*2.2)|0);
+    const bw=Math.min(W,Math.ceil(cx+R*2.2))-bx, bh=Math.min(H,Math.ceil(cy+R*2.2))-by;
+    octx.setTransform(DPR,0,0,DPR,0,0); octx.clearRect(bx,by,bw,bh); octx.globalCompositeOperation='source-over';
+    octx.fillStyle=gradFrom(cx,cy,R,ang,curPal,false); octx.fill(blob);
+    octx.globalCompositeOperation='destination-in';
+    const eH2=0.30+0.55*noise1(tNow*0.21+2), eH3=0.32+0.55*noise1(tNow*0.17+9), eH5=0.22+0.50*noise1(tNow*0.13+17), eB=0.1+0.5*noise1(tNow*0.10+25);
+    const p2=tNow*0.13, p3=1.7-tNow*0.19, p5=0.6+tNow*0.11;
+    const cg=octx.createConicGradient(tNow*0.1,cx,cy);
+    for(let s=0;s<=24;s++){ const u=s/24, t2=u*TAU;
+      const soft=blurAmt*(eB + eH2*Math.sin(t2*2+p2) + eH3*Math.sin(t2*3+p3) + eH5*Math.sin(t2*5+p5));
+      cg.addColorStop(u,`rgba(0,0,0,${clamp(1-soft,0,1).toFixed(3)})`); }
+    octx.fillStyle=cg; octx.fillRect(bx,by,bw,bh); octx.globalCompositeOperation='source-over';
+    if(bw>0&&bh>0){ ctx.save(); ctx.globalAlpha=vA; ctx.drawImage(oc, bx*DPR,by*DPR,bw*DPR,bh*DPR, bx,by,bw,bh); ctx.restore(); }
+    if(vis==='live' && curIcon){ const ic=easeOut(surface);
+      if(glyphEl.dataset.icon!==curIcon){ glyphEl.dataset.icon=curIcon; const b=ICONS[curIcon];
+        glyphEl.innerHTML = b ? '<svg viewBox="0 -960 960 960">'+b+'</svg>' : ''; }
+      const sz=R*1.35; glyphEl.style.width=sz+'px'; glyphEl.style.height=sz+'px'; glyphEl.style.left=cx+'px'; glyphEl.style.top=cy+'px';
+      glyphEl.style.transform=`translate(-50%,-50%) scale(${lerp(0.84,1,ic)})`; glyphEl.style.opacity=String(0.93*ic*vA);
+    } else { glyphEl.style.opacity='0'; }
+  }
+  function easeOut(t){return 1-Math.pow(1-t,3);}
+  function frame(now){ const dt=Math.min(.05,(now-last)/1000); last=now; step(dt); requestAnimationFrame(frame); }
+
+  // ---- Rust bridge (wry IPC) ----
+  function postIPC(obj){ try{ if(window.ipc&&window.ipc.postMessage) window.ipc.postMessage(JSON.stringify(obj)); }catch(_){} }
+  // caption sits just above the orb, right edge near the orb's right, growing leftward (inside the region).
+  function positionCaption(){ if(!W) return; const ox=W*CX_FRAC, oy=H*CY_FRAC, Rn=Math.min(W,H)*0.16*mag;
+    capEl.style.right=Math.max(8,W-(ox+Rn*1.5))+'px'; capEl.style.bottom=Math.max(8,H-(oy-Rn*1.7))+'px';
+    capEl.style.maxWidth=Math.min(ox-24,420)+'px'; }
+  // The window region (SetWindowRgn) is the ONLY visible AND clickable area — it clips pixels too — so it
+  // must be generous enough that the orb's soft glow fully fades inside it, or you'd see a hard square edge.
+  function reportRegion(){ if(!W) return; positionCaption();
+    // While flying in/out, drop to the FULL window (orbDrag) so the orb appears from the real SCREEN
+    // edge, not the clipped box edge. It snaps back to the tight box when it settles (vis==='live').
+    if(vis==='in'||vis==='out'){ postIPC({type:'orbDrag'}); return; }
+    const ox=W*CX_FRAC, oy=H*CY_FRAC, Rn=Math.min(W,H)*0.16*mag, RR=Rn*2.4;  // region must COVER the full glow (SetWindowRgn clips visual too)
+    let x1=ox-RR, y1=oy-RR, x2=ox+RR, y2=oy+RR;
+    const cr=capEl.getBoundingClientRect();
+    if(captionText && cr.width>2){ x1=Math.min(x1,cr.left-12); y1=Math.min(y1,cr.top-10); x2=Math.max(x2,cr.right+12); y2=Math.max(y2,cr.bottom+10); }
+    x1=Math.max(0,x1); y1=Math.max(0,y1); x2=Math.min(W,x2); y2=Math.min(H,y2);
+    postIPC({type:'orbRegion', x:x1, y:y1, w:x2-x1, h:y2-y1}); }
+
+  // ---- drag (the user repositions the orb; Rust persists it) ----
+  cv.addEventListener('pointerdown', e=>{
+    const ox=W*CX_FRAC, oy=H*CY_FRAC, RR=Math.min(W,H)*0.16*mag*1.3;  // small grab radius — right on the orb
+    if(Math.hypot(e.clientX-ox, e.clientY-oy) <= RR){
+      dragging=true; try{cv.setPointerCapture(e.pointerId);}catch(_){}
+      dragDX=e.clientX-ox; dragDY=e.clientY-oy; cv.style.cursor='grabbing'; postIPC({type:'orbDrag'}); }
+  });
+  cv.addEventListener('pointermove', e=>{
+    if(!dragging){ const ox=W*CX_FRAC, oy=H*CY_FRAC, RR=Math.min(W,H)*0.16*mag*1.3;
+      cv.style.cursor = (Math.hypot(e.clientX-ox, e.clientY-oy) <= RR) ? 'grab' : 'default'; return; }
+    CX_FRAC=clamp((e.clientX-dragDX)/W, 0.06, 0.94);
+    CY_FRAC=clamp((e.clientY-dragDY)/H, 0.08, 0.92); });
+  cv.addEventListener('pointerup', e=>{ if(!dragging) return; dragging=false; cv.style.cursor='grab';
+    postIPC({type:'orbMoved', cxFrac:CX_FRAC, cyFrac:CY_FRAC}); reportRegion(); });
+
+  // ---- public API driven by Rust evaluate_script ----
+  let settleTimer=null;
+  window.cc = {
+    setState(label){ const i=LABELS[label]; if(i==null) return; enter(i);
+      if(settleTimer){ clearTimeout(settleTimer); settleTimer=null; }
+      // terminal states ease back to the resting "listening" look on their own
+      if(label==='done'||label==='error'||label==='responding'){
+        settleTimer=setTimeout(()=>{ enter(LABELS['listening']); captionText=''; renderCaption(); },
+          label==='responding'?3600:2600); } },
+    setCaption(text){ captionText=text||""; renderCaption(); },
+    setAudio(level){ audioExt=clamp(+level||0,0,1); audioExtActive=true; },
+    show(){ if(vis==='gone'||vis==='out'){ vis='in'; vp=0; flowBurst=5; reseed=true; } reportRegion(); },
+    hide(){ if(vis==='in'||vis==='live'){ vis='out'; vp=0; flowBurst=4; launchOut=true; } captionText=""; renderCaption(); },
+    configurePlacement(cfg){ cfg=cfg||{}; if(cfg.mag!=null)mag=cfg.mag;
+      if(cfg.cxFrac!=null)CX_FRAC=clamp(cfg.cxFrac,0.04,0.96); if(cfg.cyFrac!=null)CY_FRAC=clamp(cfg.cyFrac,0.06,0.94);
+      CX_TARGET=CX_FRAC; CY_TARGET=CY_FRAC; relocating=false; reportRegion(); },
+    // Glide to a new corner (Rust dodges the orb away from where the agent is about to act, or sends
+    // it back home). The spring-bypassed tween (see step) keeps the region locked to the orb en route.
+    moveTo(cx,cy){ if(dragging||vis!=='live') return; relocFromX=CX_FRAC; relocFromY=CY_FRAC;
+      CX_TARGET=clamp(cx,0.04,0.96); CY_TARGET=clamp(cy,0.06,0.94); relocT=0; relocating=true; },
+  };
+
+  resize(); enter(0); requestAnimationFrame(frame);
+  // Tell Rust the page has parsed + initialised, so it reveals the window only once we can paint our
+  // transparent canvas — otherwise the very FIRST show flashes the WebView's white default background.
+  postIPC({type:'orbReady'});
+})();
+</script>
+</body>
+</html>

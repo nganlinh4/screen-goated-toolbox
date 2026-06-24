@@ -193,7 +193,9 @@ pub(super) fn handle_event(
             // "voice". This is what SGT's canonical Live path records.
             state.reasoning.push_str(&t); // per-action intent (cleared each tool call)
             state.reply.push_str(&t); // spoken reply -> history + `said:` log
-            overlay::set_model_text(t);
+            // Caption shows the WHOLE reply so far (outputTranscription arrives as deltas) - so it
+            // grows word-by-word instead of cutting to just the latest chunk.
+            overlay::set_model_text(state.reply.clone());
         }
         ServerEvent::ModelText(_) => {
             // modelTurn text parts in AUDIO mode carry tool-call / internal text
@@ -239,6 +241,7 @@ pub(super) fn handle_event(
             state.reasoning.clear();
             overlay::push_log(format!(">{name} {}", compact_args(&args)));
             overlay::set_status(format!("doing: {name}"));
+            overlay::set_orb_tool(&name);
             state.pending = Pending { id: Some(id.clone()), cancelled: false };
             // Runs on the executor thread (the Brain dispatch + grounding).
             let _ = exec_tx.send((id, name, args, state.last_cmd.clone(), intent));

@@ -151,4 +151,21 @@ unrar = "0.5.8"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38.2"
-windows061 = { package = "windows", version = "0.61.3" }
+# Same windows version webview2-com binds against. The Computer Control orb hosts WebView2 in
+# DirectComposition mode (WS_EX_NOREDIRECTIONBITMAP) for true transparency that coexists with
+# WDA_EXCLUDEFROMCAPTURE; doing the DComp device/visual on 0.61 too avoids cross-version COM casts.
+windows061 = { package = "windows", version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_WinRT",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_HiDpi",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+] }

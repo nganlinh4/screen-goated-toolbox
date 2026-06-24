@@ -126,6 +126,7 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     }
     set_socket_nonblocking(&mut socket)?;
     overlay::set_status("ready - speak a command");
+    overlay::set_orb_listening();
     overlay::push_log("* connected; sending your WHOLE screen + mic each turn (smart brain)".to_string());
 
     // Steer/stop core: the Brain + its (possibly slow) actions run on a SEPARATE
@@ -259,6 +260,9 @@ more precise page reading/acting. If they decline, call decline_browser_control.
         let muted = echo_gate && sink.as_ref().map(|s| s.is_playing()).unwrap_or(false);
         if !chunk.is_empty() && !muted {
             overlay::set_listening(true);
+            let rms =
+                (chunk.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / chunk.len() as f64).sqrt();
+            overlay::set_orb_audio((rms / 6000.0).min(1.0) as f32);
             send_audio_chunk(&mut socket, &chunk)?;
         }
 
@@ -291,6 +295,7 @@ more precise page reading/acting. If they decline, call decline_browser_control.
                 // until the user speaks again. A rejected done keeps working.
                 if name == "done" && resp_ok {
                     overlay::push_log("[done] goal reached".to_string());
+                    overlay::set_orb_done();
                     state.active = false;
                     state.awaiting = false;
                 } else {

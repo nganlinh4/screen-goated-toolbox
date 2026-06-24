@@ -16,6 +16,7 @@ mod executor;
 mod grid;
 mod human_input;
 mod memory;
+mod orb;
 mod overlay;
 mod playback;
 mod probe;
@@ -27,7 +28,7 @@ mod uia;
 mod uia_task;
 mod vision_reader;
 
-pub use overlay::{is_active, render_overlay, show_overlay, stop_overlay};
+pub use overlay::{is_active, show_overlay, stop_overlay};
 /// Detector model hooks for the Downloaded Tools settings UI (download/remove/probe).
 pub(crate) use detector::{
     DOWNLOAD_TITLE as DETECTOR_DOWNLOAD_TITLE, detector_model_dir, download_detector_model,
