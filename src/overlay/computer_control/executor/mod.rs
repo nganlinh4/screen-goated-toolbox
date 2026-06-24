@@ -139,17 +139,21 @@ pub(super) fn move_humanized(
     profile: &HumanProfile,
     cancel: &AtomicBool,
 ) -> Outcome {
+    let (sx, sy) = norm_to_screen(x, y);
+    // Slide the orb out of the way if it sits where we're about to act. It's capture-excluded, so the
+    // agent can't see it — but a synthetic click would still land on it. No-op unless the orb is up.
+    super::orb::avoid_point(sx, sy);
+
     if profile.humanized() {
-        let (tx, ty) = norm_to_screen(x, y);
         let from = cursor_pos();
         human_input::human_move(
             from,
-            (tx as f64, ty as f64),
+            (sx as f64, sy as f64),
             target_w,
             profile,
             cancel,
-            &|sx, sy| {
-                let (ax, ay) = screen_to_abs(sx, sy);
+            &|px, py| {
+                let (ax, ay) = screen_to_abs(px, py);
                 move_abs(ax, ay);
             },
         )
