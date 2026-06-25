@@ -18,15 +18,20 @@ use windows::Win32::UI::Accessibility::{
     ToggleState_On, TreeScope_Children, TreeScope_Descendants, UIA_ExpandCollapsePatternId,
     UIA_RangeValuePatternId, UIA_SelectionItemPatternId, UIA_TogglePatternId,
 };
-use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
-use windows::Win32::Foundation::{HWND, POINT};
-use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics,
-    GetWindowTextW, GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MINIMIZE,
-    SW_RESTORE, SetForegroundWindow, SetWindowPos, ShowWindow,
+use windows::Win32::System::Threading::{
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT};
+use windows::Win32::UI::WindowsAndMessaging::{
+    BringWindowToTop, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow,
+    GetSystemMetrics, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+    SM_CXVIRTUALSCREEN,
+    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SW_MINIMIZE, SW_RESTORE, SetForegroundWindow, SetWindowPos, ShowWindow,
+};
+use windows_core::BOOL;
 
 #[derive(Debug, Clone)]
 pub(super) struct UiElement {
@@ -231,56 +236,124 @@ pub(super) fn target_window_rect(target: Option<&str>) -> Option<(i32, i32, i32,
 /// could not be forced (e.g. an exclusive-fullscreen app owns the foreground —
 /// which nothing short of minimizing it can move, elevated or not).
 pub(super) fn raise_window(target: &str) -> bool {
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let Ok(uia) =
-            CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-        else {
-            return false;
-        };
-        let Ok(el) = pick_window(&uia, Some(target)) else {
-            return false;
-        };
-        let Ok(hwnd) = el.CurrentNativeWindowHandle() else {
-            return false;
-        };
-        if hwnd.0.is_null() {
-            return false;
-        }
-        force_foreground_hwnd(hwnd)
+    match find_top_window(target) {
+        Some(hwnd) => unsafe { force_foreground_hwnd(hwnd) },
+        None => false,
     }
 }
 
-/// Titles of the visible top-level windows — the agent's situational awareness
-/// of what's open to switch to (`focus_window`) or push aside (`minimize_window`).
-/// Best-effort; empty on failure.
-pub(super) fn list_windows() -> Vec<String> {
+// --- Win32 EnumWindows: finds EVERY top-level window, including fullscreen GAMES (Unity/Unreal/
+//     native) that expose NO UI Automation provider and so never appear in the UIA tree. That gap
+//     is exactly why `focus_window` couldn't reach a minimized game and matched a browser tab by
+//     title instead. Mirrors the proven enumeration in `realtime_webview::app_selection`. ---
+
+/// Executable basename (e.g. "GenshinImpact.exe") owning `pid`; "" on failure.
+fn process_exe_name(pid: u32) -> String {
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let Ok(uia) =
-            CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-        else {
-            return Vec::new();
+        let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return String::new();
         };
-        let (Ok(root), Ok(cond)) = (uia.GetRootElement(), uia.CreateTrueCondition()) else {
-            return Vec::new();
-        };
-        let Ok(children) = root.FindAll(TreeScope_Children, &cond) else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        if let Ok(len) = children.Length() {
-            for i in 0..len {
-                let Ok(el) = children.GetElement(i) else { continue };
-                let name = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
-                let name = name.trim().to_string();
-                if !name.is_empty() && !out.contains(&name) {
-                    out.push(name);
-                }
-            }
+        let mut buf = [0u16; 520];
+        let mut size = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(
+            h,
+            PROCESS_NAME_WIN32,
+            windows::core::PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+        .is_ok();
+        let _ = CloseHandle(h);
+        if !ok || size == 0 {
+            return String::new();
         }
-        out
+        String::from_utf16_lossy(&buf[..size as usize])
+            .rsplit(['\\', '/'])
+            .next()
+            .unwrap_or("")
+            .to_string()
     }
+}
+
+/// (hwnd, title, exe basename) for each visible, titled top-level window of ANOTHER process (our
+/// own windows — the orb, the app — are skipped). Win32-level, so it sees games the UIA tree can't.
+pub(super) fn enum_top_windows() -> Vec<(HWND, String, String)> {
+    extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        unsafe {
+            if !IsWindowVisible(hwnd).as_bool() {
+                return BOOL(1);
+            }
+            // Resolve the owning process and skip our OWN windows (orb / app / splash) FIRST — this
+            // MUST precede GetWindowTextW: that call sends WM_GETTEXT and blocks INDEFINITELY on a
+            // same-process window whose thread isn't pumping (MS-documented), which hung the agent
+            // when it was asked to act on this very app. Other processes' titles read cached (safe).
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            if pid == 0 || pid == std::process::id() {
+                return BOOL(1);
+            }
+            let mut buf = [0u16; 512];
+            let len = GetWindowTextW(hwnd, &mut buf);
+            if len == 0 {
+                return BOOL(1);
+            }
+            let title = String::from_utf16_lossy(&buf[..len as usize]);
+            if title.is_empty() || title == "Program Manager" || title == "Settings" {
+                return BOOL(1);
+            }
+            let out = &mut *(lparam.0 as *mut Vec<(HWND, String, String)>);
+            out.push((hwnd, title, process_exe_name(pid)));
+            BOOL(1)
+        }
+    }
+    let mut out: Vec<(HWND, String, String)> = Vec::new();
+    unsafe {
+        let _ = EnumWindows(Some(cb), LPARAM(&mut out as *mut _ as isize));
+    }
+    out
+}
+
+/// Resolve `target` (a title OR exe-name substring, case-insensitive) to a top-level HWND. Ranks an
+/// EXE-name match above a title-only match — so "Genshin" finds GenshinImpact.exe, not a browser tab
+/// titled "…Genshin Impact Wiki…" — tie-breaking toward the current foreground window.
+pub(super) fn find_top_window(target: &str) -> Option<HWND> {
+    let want = target.trim().to_lowercase();
+    if want.is_empty() {
+        return None;
+    }
+    let fg = unsafe { GetForegroundWindow() };
+    let mut best: Option<HWND> = None;
+    let mut best_score = i32::MIN;
+    for (hwnd, title, exe) in enum_top_windows() {
+        let exe_hit = exe.to_lowercase().contains(&want);
+        if !exe_hit && !title.to_lowercase().contains(&want) {
+            continue;
+        }
+        let score = i32::from(exe_hit) * 2 + i32::from(hwnd.0 == fg.0);
+        if score > best_score {
+            best_score = score;
+            best = Some(hwnd);
+        }
+    }
+    best
+}
+
+/// Labels of the open top-level windows — the agent's situational awareness of what's open to
+/// switch to (`focus_window`) or push aside (`minimize_window`). Each is `"title  [exe]"` so the
+/// agent can disambiguate the GAME "Genshin Impact  [GenshinImpact.exe]" from a browser tab titled
+/// "…Genshin Impact Wiki…  [chrome.exe]". Best-effort.
+pub(super) fn list_windows() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for (_, title, exe) in enum_top_windows() {
+        let label = if exe.is_empty() {
+            title
+        } else {
+            format!("{title}  [{exe}]")
+        };
+        if !out.contains(&label) {
+            out.push(label);
+        }
+    }
+    out
 }
 
 /// Minimize the top-level window whose title contains `target` via a DIRECT
@@ -288,37 +361,18 @@ pub(super) fn list_windows() -> Vec<String> {
 /// fullscreen game that's swallowing keystrokes, unlike a synthetic Win+D).
 /// Returns whether a window matched. Non-elevated.
 pub(super) fn minimize_window(target: &str) -> bool {
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let Ok(uia) =
-            CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-        else {
-            return false;
-        };
-        let Ok(el) = pick_window(&uia, Some(target)) else {
-            return false;
-        };
-        let Ok(hwnd) = el.CurrentNativeWindowHandle() else {
-            return false;
-        };
-        if hwnd.0.is_null() {
-            return false;
-        }
-        let _ = ShowWindow(hwnd, SW_MINIMIZE);
-        true
+    match find_top_window(target) {
+        Some(hwnd) => unsafe {
+            let _ = ShowWindow(hwnd, SW_MINIMIZE);
+            true
+        },
+        None => false,
     }
 }
 
 /// Resolve the top-level window whose title contains `target` to its handle.
-unsafe fn find_window(target: &str) -> Option<HWND> {
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let uia: IUIAutomation =
-            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
-        let el = pick_window(&uia, Some(target)).ok()?;
-        let hwnd = el.CurrentNativeWindowHandle().ok()?;
-        (!hwnd.0.is_null()).then_some(hwnd)
-    }
+fn find_window(target: &str) -> Option<HWND> {
+    find_top_window(target)
 }
 
 /// Resize the window matching `target` to `w`x`h` pixels (restoring it first, so
@@ -359,7 +413,12 @@ unsafe fn force_foreground_hwnd(hwnd: HWND) -> bool {
             if GetForegroundWindow().0 == hwnd.0 {
                 return true;
             }
-            let _ = ShowWindow(hwnd, SW_RESTORE);
+            // Only UN-MINIMIZE; never SW_RESTORE a MAXIMIZED window — that un-maximizes it (the user
+            // saw a maximized Chrome shrink when focus_window switched to it). SW_RESTORE on a minimized
+            // window correctly brings back its prior maximized/normal state.
+            if IsIconic(hwnd).as_bool() {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+            }
             let fg_tid = GetWindowThreadProcessId(GetForegroundWindow(), None);
             let attach = fg_tid != 0 && fg_tid != this_tid;
             if attach {

@@ -54,6 +54,14 @@ static ORB_INTERACTIVE: AtomicBool = AtomicBool::new(true);
 /// for this before revealing the window, so the first show never flashes the white default.
 static ORB_PAGE_READY: AtomicBool = AtomicBool::new(false);
 
+/// True while the command text box is open: the window is briefly made activatable so the
+/// WebView's `<input>` can hold REAL keyboard focus (IME-capable — a key hook can't compose
+/// Korean/Vietnamese). The window proc reads this to (de)activate; reset on dismiss.
+static ORB_TEXT_MODE: AtomicBool = AtomicBool::new(false);
+/// The window that had focus when the box opened, restored when it closes (so we hand focus
+/// straight back and the agent's next action lands on the user's real window, not the orb).
+static ORB_PREV_FG: AtomicIsize = AtomicIsize::new(0);
+
 /// The orb's size factor — mirrors `mag` in `orb.html` (we never change it), used to size
 /// the "is the orb in the way?" danger zone.
 const ORB_MAG: f64 = 0.18;
@@ -70,6 +78,9 @@ const WM_APP_SHOW_ORB: u32 = WM_APP + 60;
 const WM_APP_HIDE_ORB: u32 = WM_APP + 61;
 const WM_APP_RUN_ORB_SCRIPT: u32 = WM_APP + 62;
 const HIDE_TIMER_ID: usize = 1;
+/// Polls the cursor while the command box is open → auto-dismiss when it leaves the orb's
+/// footprint (no manual close, per the "sensitive dismiss" design).
+const LEAVE_TIMER_ID: usize = 2;
 
 thread_local! {
     /// The composition-hosted WebView (owned by the orb thread) — the `ExecuteScript` target.

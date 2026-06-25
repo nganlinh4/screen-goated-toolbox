@@ -13,9 +13,38 @@ use windows::core::PCWSTR;
 /// tool (files, processes, volume, system info). Inherits THIS process's
 /// (non-elevated) privileges. `CREATE_NO_WINDOW` avoids a console flash.
 pub(super) fn run_command(args: &Value) -> Result<Value> {
+    let command = args.get("command").and_then(Value::as_str).ok_or_else(|| anyhow!("missing command"))?;
+    if let Some(why) = catastrophic_block(command) {
+        return Ok(json!({
+            "ok": false,
+            "refused": true,
+            "reason": format!("Refused (safety stop): this looks like {why}, which is irreversible and \
+system-destroying. If the user truly intends it, they should run it themselves."),
+        }));
+    }
+    // Run on a worker thread with a hard timeout: a command that waits for input or genuinely hangs
+    // must NEVER freeze the agent forever (the abandoned process just finishes in the background).
+    let cmd = command.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(exec_powershell(&cmd));
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(60)) {
+        Ok(r) => r,
+        Err(_) => Ok(json!({
+            "ok": false,
+            "timed_out": true,
+            "error": "the command did not finish within 60s (it may be waiting for input or hung) - \
+make it non-interactive, or break it into smaller steps",
+        })),
+    }
+}
+
+/// Spawn PowerShell (non-interactive, no profile) and capture its output. `CREATE_NO_WINDOW`
+/// avoids a console flash. Inherits THIS process's (possibly elevated) privileges.
+fn exec_powershell(command: &str) -> Result<Value> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let command = args.get("command").and_then(Value::as_str).ok_or_else(|| anyhow!("missing command"))?;
     let output = std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", command])
         .creation_flags(CREATE_NO_WINDOW)
@@ -28,6 +57,26 @@ pub(super) fn run_command(args: &Value) -> Result<Value> {
         "stdout": clip(&output.stdout),
         "stderr": clip(&output.stderr),
     }))
+}
+
+/// A TINY hard-stop list: ONLY the irreversible, system-destroying patterns the agent must never run
+/// unprompted — formatting/wiping a disk, killing a core OS process (instant bugcheck), or deleting a
+/// Windows system root. Everything else runs freely (smooth UX); the model asks before merely-unexpected
+/// ops per its prompt. Read-only commands (e.g. `Get-Process lsass`) are NOT blocked — only the kill.
+fn catastrophic_block(cmd: &str) -> Option<&'static str> {
+    let c = cmd.to_ascii_lowercase();
+    if c.contains("format-volume") || c.contains("clear-disk") || c.contains("diskpart") {
+        return Some("formatting / wiping a disk");
+    }
+    let killing = c.contains("stop-process") || c.contains("taskkill") || c.contains("kill-process");
+    if killing && ["csrss", "wininit", "winlogon", "lsass", "smss"].iter().any(|p| c.contains(p)) {
+        return Some("killing a core OS process (would crash Windows)");
+    }
+    let deleting = c.contains("remove-item") || c.contains("rmdir") || c.contains("del ");
+    if deleting && (c.contains("\\windows") || c.contains("system32")) {
+        return Some("deleting a Windows system directory");
+    }
+    None
 }
 
 fn to_wide(s: &str) -> Vec<u16> {

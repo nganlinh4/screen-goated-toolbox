@@ -12,7 +12,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 use windows061::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows061::Win32::Graphics::Gdi::SetWindowRgn;
 use windows061::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, GetForegroundWindow, HCURSOR, HWND_TOPMOST, IsWindow, KillTimer,
+    DefWindowProcW, GetForegroundWindow, HCURSOR, HWND_TOPMOST, IsWindow, KillTimer, MA_ACTIVATE,
     MA_NOACTIVATE, PostQuitMessage, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOZORDER,
     SetCursor, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, WM_CLOSE, WM_DESTROY,
     WM_DISPLAYCHANGE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_RBUTTONDOWN,
@@ -21,8 +21,8 @@ use windows061::Win32::UI::WindowsAndMessaging::{
 use windows061::core::{HSTRING, Interface, PCWSTR};
 
 use super::{
-    HIDE_TIMER_ID, ORB_COMP, ORB_INTERACTIVE, ORB_WEBVIEW, WM_APP_HIDE_ORB, WM_APP_RUN_ORB_SCRIPT,
-    WM_APP_SHOW_ORB,
+    HIDE_TIMER_ID, LEAVE_TIMER_ID, ORB_COMP, ORB_INTERACTIVE, ORB_TEXT_MODE, ORB_WEBVIEW,
+    WM_APP_HIDE_ORB, WM_APP_RUN_ORB_SCRIPT, WM_APP_SHOW_ORB,
 };
 
 pub(super) unsafe extern "system" fn orb_wnd_proc(
@@ -58,6 +58,10 @@ pub(super) unsafe extern "system" fn orb_wnd_proc(
                 if wparam.0 == HIDE_TIMER_ID {
                     let _ = KillTimer(Some(hwnd), HIDE_TIMER_ID);
                     let _ = ShowWindow(hwnd, SW_HIDE);
+                } else if wparam.0 == LEAVE_TIMER_ID && super::ipc::cursor_left_orb(hwnd) {
+                    // Cursor left the orb's footprint → auto-dismiss the command box (visual + focus).
+                    exec_script("window.cc&&window.cc.closeCmd&&window.cc.closeCmd();");
+                    super::ipc::end_text_mode(hwnd);
                 }
                 LRESULT(0)
             }
@@ -92,7 +96,13 @@ pub(super) unsafe extern "system" fn orb_wnd_proc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
 
-            WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+            // Normally never activate (dragging mustn't steal focus); but while the command box is
+            // open we WANT activation so the WebView's text input keeps real keyboard focus.
+            WM_MOUSEACTIVATE => LRESULT(if ORB_TEXT_MODE.load(Ordering::SeqCst) {
+                MA_ACTIVATE
+            } else {
+                MA_NOACTIVATE
+            } as isize),
 
             WM_DISPLAYCHANGE => {
                 handle_display_change(hwnd);

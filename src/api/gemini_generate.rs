@@ -43,6 +43,9 @@ pub fn gemini_content_url(model: &str, streaming: bool) -> String {
 /// * `error_label` — when `Some(label)`, non-auth errors become
 ///   `"{label}: {err}"`; when `None`, the raw error string is used.
 /// * `map_auth_errors` — when `true`, map HTTP 401/403 to `INVALID_API_KEY`.
+/// * `response_schema` — when `Some` and the model is Gemma 4, sent as
+///   `responseJsonSchema` (Gemma needs a full schema to emit JSON reliably;
+///   ignored for other models, which comply from the prompt).
 /// * `on_chunk` — invoked with each content chunk / thinking indicator.
 #[allow(clippy::too_many_arguments)]
 pub fn stream_gemini_generate<F>(
@@ -54,6 +57,7 @@ pub fn stream_gemini_generate<F>(
     cancel_token: &Option<Arc<AtomicBool>>,
     error_label: Option<&str>,
     map_auth_errors: bool,
+    response_schema: Option<&serde_json::Value>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
@@ -68,10 +72,25 @@ where
         }]
     });
 
+    let mut gen_config = serde_json::Map::new();
     if let Some(thinking_config) = crate::api::gemini_thinking_config(model) {
-        payload["generationConfig"] = serde_json::json!({
-            "thinkingConfig": thinking_config
-        });
+        gen_config.insert("thinkingConfig".to_string(), thinking_config);
+    }
+    // Gemma 4 ignores `responseMimeType` alone and free-rambles; it only emits
+    // reliable structured JSON when handed a full `responseJsonSchema`. Other Gemini
+    // models comply straight from the prompt, so attach it for Gemma only (forcing a
+    // schema on the others can derail their tuned output).
+    if let Some(schema) = response_schema
+        && model.contains("gemma-4")
+    {
+        gen_config.insert(
+            "responseMimeType".to_string(),
+            serde_json::json!("application/json"),
+        );
+        gen_config.insert("responseJsonSchema".to_string(), schema.clone());
+    }
+    if !gen_config.is_empty() {
+        payload["generationConfig"] = serde_json::Value::Object(gen_config);
     }
 
     if crate::model_config::model_supports_search_by_name(model) {

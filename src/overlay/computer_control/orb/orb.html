@@ -20,19 +20,27 @@
   #glyph { position:fixed; left:0; top:0; z-index:2; color:#07070b; opacity:0;
            pointer-events:none; will-change:transform,opacity; }
   #glyph svg { width:100%; height:100%; display:block; fill:currentColor; }
+  /* the typed-command box: click the orb to type a command instead of speaking */
+  #cmd { position:fixed; pointer-events:auto; display:none; z-index:4; font-family:inherit;
+         font-size:15px; font-weight:450; color:#eef0f6; background:rgba(16,16,26,.82);
+         -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+         border:1px solid rgba(255,255,255,.18); border-radius:13px; padding:10px 15px;
+         outline:none; caret-color:#9db4ff; box-shadow:0 12px 36px rgba(0,0,0,.55); }
+  #cmd::placeholder { color:rgba(238,240,246,.42); }
 </style>
 </head>
 <body>
   <canvas id="c"></canvas>
   <div id="glyph"></div>
   <div id="caption"></div>
+  <input id="cmd" type="text" placeholder="/*CMD_PLACEHOLDER*/" autocomplete="off" autocorrect="off" spellcheck="false" />
 
 <script>
 (() => {
   const TAU=Math.PI*2;
   const cv=document.getElementById('c'), ctx=cv.getContext('2d');
   const oc=document.createElement('canvas'), octx=oc.getContext('2d');   // offscreen: the sharp body masked per-angle
-  const capEl=document.getElementById('caption'), glyphEl=document.getElementById('glyph');
+  const capEl=document.getElementById('caption'), glyphEl=document.getElementById('glyph'), cmdEl=document.getElementById('cmd');
   let W,H,DPR,mag=0.18;                          // small corner orb (Rust can override via configurePlacement)
   let CX_FRAC=0.9, CY_FRAC=0.86;                 // default bottom-right
   // window.cc.moveTo glides the orb to a new corner (dodge the agent / return home): a smoothstep
@@ -95,6 +103,17 @@
   let ampC=STATES[0].amp, flowC=STATES[0].flow, dirC=STATES[0].dir, blurC=STATES[0].blur, glow=STATES[0].glow, curPal=STATES[0].rgb.map(c=>c.slice());
   let audio=0,audioT=0,liveNow=false, audioExt=0, audioExtActive=false;
   let captionText="";
+  // The caption mirrors SPEECH, so strip the markdown the model habitually emits (**bold**, *italic*,
+  // `code`, # headers, - bullets) → clean friendly text instead of raw syntax. Tolerant of the streaming
+  // partial (e.g. "**Fed" before its closer arrives) - the straggler pass removes lone * _ # too.
+  function stripMd(s){ return (s||'')
+    .replace(/`{1,3}/g,'')
+    .replace(/\*\*([^*]+)\*\*/g,'$1')
+    .replace(/\*([^*]+)\*/g,'$1')
+    .replace(/^\s*#{1,6}\s+/gm,'')
+    .replace(/^\s*[-*•]\s+/gm,'')
+    .replace(/[*_#`]/g,'')
+    .replace(/\n{2,}/g,'\n').trim(); }
   function enter(i){ idx=(i+STATES.length)%STATES.length; const c=STATES[idx];
     tgtIcon=c.icon; liveNow=!!c.live; }
   // Incremental: as the transcript GROWS, keep the words already shown and only animate the new tail
@@ -113,7 +132,7 @@
   // appear/dismiss: a small orb flies in from the NEAREST screen edge, blooms; on dismiss it flies back out.
   let vis='gone', vp=0; const ENTER=1.05, EXIT=0.74;
   let oscS={x:0.24,v:0}, flowPhase=0, flowBurst=5, rotPhase=0, pS={x:0,y:0,vx:0,vy:0}, reseed=true, launchOut=false;
-  let dragging=false, dragDX=0, dragDY=0;
+  let dragging=false, dragDX=0, dragDY=0, cmdOpen=false;
 
   // off-screen point just past the nearest screen edge, aligned with the orb (for fly in/out)
   function nearestEdge(){
@@ -225,37 +244,59 @@
     let x1=ox-RR, y1=oy-RR, x2=ox+RR, y2=oy+RR;
     const cr=capEl.getBoundingClientRect();
     if(captionText && cr.width>2){ x1=Math.min(x1,cr.left-12); y1=Math.min(y1,cr.top-10); x2=Math.max(x2,cr.right+12); y2=Math.max(y2,cr.bottom+10); }
+    if(cmdOpen){ const br=cmdEl.getBoundingClientRect(); if(br.width>2){ x1=Math.min(x1,br.left-12); y1=Math.min(y1,br.top-12); x2=Math.max(x2,br.right+12); y2=Math.max(y2,br.bottom+12); } }
     x1=Math.max(0,x1); y1=Math.max(0,y1); x2=Math.min(W,x2); y2=Math.min(H,y2);
     postIPC({type:'orbRegion', x:x1, y:y1, w:x2-x1, h:y2-y1}); }
 
+  // ---- typed command box: click (tap, no drag) the orb to type a command instead of speaking ----
+  function positionCmd(){ if(!W) return; const ox=W*CX_FRAC, oy=H*CY_FRAC, Rn=Math.min(W,H)*0.16*mag;
+    cmdEl.style.width=clamp(W*0.2,190,300)+'px';
+    cmdEl.style.right=Math.max(10,W-(ox+Rn*1.6))+'px';            // right edge near the orb's right
+    cmdEl.style.bottom=Math.max(10,H-(oy-Rn*2.0))+'px'; }         // sit just above the orb
+  function openCmd(){ if(cmdOpen||vis!=='live') return; cmdOpen=true; positionCmd();
+    cmdEl.value=''; cmdEl.style.display='block'; reportRegion(); postIPC({type:'openCommand'});
+    setTimeout(()=>{ try{cmdEl.focus();}catch(_){} },0); }        // focus after Rust takes window focus
+  function hideBox(){ if(!cmdOpen) return; cmdOpen=false; cmdEl.style.display='none';
+    try{cmdEl.blur();}catch(_){} reportRegion(); }                // visual only — Rust restores focus
+  function dismissCmd(){ hideBox(); postIPC({type:'closeCommand'}); }   // user-initiated (Esc / Enter)
+  function submitCmd(){ const t=(cmdEl.value||'').trim(); if(t) postIPC({type:'command',text:t}); dismissCmd(); }
+  cmdEl.addEventListener('keydown', e=>{ e.stopPropagation();
+    if(e.key==='Enter'){ e.preventDefault(); submitCmd(); }
+    else if(e.key==='Escape'){ e.preventDefault(); dismissCmd(); } });
+
   // ---- drag (the user repositions the orb; Rust persists it) ----
+  let downX=0, downY=0, moved=false;
   cv.addEventListener('pointerdown', e=>{
     const ox=W*CX_FRAC, oy=H*CY_FRAC, RR=Math.min(W,H)*0.16*mag*1.3;  // small grab radius — right on the orb
     if(Math.hypot(e.clientX-ox, e.clientY-oy) <= RR){
-      dragging=true; try{cv.setPointerCapture(e.pointerId);}catch(_){}
-      dragDX=e.clientX-ox; dragDY=e.clientY-oy; cv.style.cursor='grabbing'; postIPC({type:'orbDrag'}); }
+      dragging=true; moved=false; downX=e.clientX; downY=e.clientY;
+      dragDX=e.clientX-ox; dragDY=e.clientY-oy; try{cv.setPointerCapture(e.pointerId);}catch(_){} }
   });
   cv.addEventListener('pointermove', e=>{
     if(!dragging){ const ox=W*CX_FRAC, oy=H*CY_FRAC, RR=Math.min(W,H)*0.16*mag*1.3;
       cv.style.cursor = (Math.hypot(e.clientX-ox, e.clientY-oy) <= RR) ? 'grab' : 'default'; return; }
-    CX_FRAC=clamp((e.clientX-dragDX)/W, 0.06, 0.94);
-    CY_FRAC=clamp((e.clientY-dragDY)/H, 0.08, 0.92); });
+    if(!moved && Math.hypot(e.clientX-downX, e.clientY-downY) > 6){   // crossed the threshold → a real drag
+      moved=true; cv.style.cursor='grabbing'; postIPC({type:'orbDrag'}); }
+    if(moved){ CX_FRAC=clamp((e.clientX-dragDX)/W, 0.06, 0.94); CY_FRAC=clamp((e.clientY-dragDY)/H, 0.08, 0.92); } });
   cv.addEventListener('pointerup', e=>{ if(!dragging) return; dragging=false; cv.style.cursor='grab';
-    postIPC({type:'orbMoved', cxFrac:CX_FRAC, cyFrac:CY_FRAC}); reportRegion(); });
+    try{cv.releasePointerCapture(e.pointerId);}catch(_){}
+    if(moved){ postIPC({type:'orbMoved', cxFrac:CX_FRAC, cyFrac:CY_FRAC}); reportRegion(); }
+    else { cmdOpen ? dismissCmd() : openCmd(); } });   // a tap (no drag) toggles the command box
 
   // ---- public API driven by Rust evaluate_script ----
   let settleTimer=null;
   window.cc = {
     setState(label){ const i=LABELS[label]; if(i==null) return; enter(i);
       if(settleTimer){ clearTimeout(settleTimer); settleTimer=null; }
-      // terminal states ease back to the resting "listening" look on their own
-      if(label==='done'||label==='error'||label==='responding'){
-        settleTimer=setTimeout(()=>{ enter(LABELS['listening']); captionText=''; renderCaption(); },
-          label==='responding'?3600:2600); } },
-    setCaption(text){ captionText=text||""; renderCaption(); },
+      // done/error ease back on their own. 'responding' does NOT auto-clear: the reply AUDIO plays
+      // for many seconds after its transcript finishes, so the caption must persist until Rust signals
+      // real speech-end (set_model_idle) — otherwise the text vanishes mid-sentence.
+      if(label==='done'||label==='error'){
+        settleTimer=setTimeout(()=>{ enter(LABELS['listening']); captionText=''; renderCaption(); }, 2600); } },
+    setCaption(text){ captionText=stripMd(text); renderCaption(); },
     setAudio(level){ audioExt=clamp(+level||0,0,1); audioExtActive=true; },
     show(){ if(vis==='gone'||vis==='out'){ vis='in'; vp=0; flowBurst=5; reseed=true; } reportRegion(); },
-    hide(){ if(vis==='in'||vis==='live'){ vis='out'; vp=0; flowBurst=4; launchOut=true; } captionText=""; renderCaption(); },
+    hide(){ if(cmdOpen) dismissCmd(); if(vis==='in'||vis==='live'){ vis='out'; vp=0; flowBurst=4; launchOut=true; } captionText=""; renderCaption(); },
     configurePlacement(cfg){ cfg=cfg||{}; if(cfg.mag!=null)mag=cfg.mag;
       if(cfg.cxFrac!=null)CX_FRAC=clamp(cfg.cxFrac,0.04,0.96); if(cfg.cyFrac!=null)CY_FRAC=clamp(cfg.cyFrac,0.06,0.94);
       CX_TARGET=CX_FRAC; CY_TARGET=CY_FRAC; relocating=false; reportRegion(); },
@@ -263,6 +304,7 @@
     // it back home). The spring-bypassed tween (see step) keeps the region locked to the orb en route.
     moveTo(cx,cy){ if(dragging||vis!=='live') return; relocFromX=CX_FRAC; relocFromY=CY_FRAC;
       CX_TARGET=clamp(cx,0.04,0.96); CY_TARGET=clamp(cy,0.06,0.94); relocT=0; relocating=true; },
+    closeCmd(){ hideBox(); },   // Rust calls this to hide the box when the cursor leaves the orb
   };
 
   resize(); enter(0); requestAnimationFrame(frame);

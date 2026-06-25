@@ -32,6 +32,7 @@ where
         cancel_token,
         Some("Gemini Text API Error"),
         true,
+        None,
         on_chunk,
     )
 }

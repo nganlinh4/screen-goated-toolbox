@@ -477,10 +477,27 @@ pub(super) fn get_tabs() -> Value {
 
 pub(super) fn switch_tab(tab_id: i64) -> Value {
     require_conn!();
-    match bridge::rpc("tabs", json!({"action": "activate", "tabId": tab_id})) {
-        Ok(_) => json!({"ok": true, "switched": tab_id}),
-        Err(e) => err(e),
+    if let Err(e) = bridge::rpc("tabs", json!({"action": "activate", "tabId": tab_id})) {
+        return err(e);
     }
+    // Confirm WHERE we landed (title + url) so the agent doesn't keep reading/acting on the wrong tab.
+    let (title, url) = tab_title_url(tab_id);
+    json!({"ok": true, "switched": tab_id, "title": title, "url": url})
+}
+
+/// A tab's title + url from the live tab list (best-effort; nulls on miss).
+fn tab_title_url(tab_id: i64) -> (Value, Value) {
+    if let Ok(v) = bridge::rpc("tabs", json!({"action": "list"}))
+        && let Some(t) = v
+            .as_array()
+            .and_then(|tabs| tabs.iter().find(|t| t.get("id").and_then(Value::as_i64) == Some(tab_id)))
+    {
+        return (
+            t.get("title").cloned().unwrap_or(Value::Null),
+            t.get("url").cloned().unwrap_or(Value::Null),
+        );
+    }
+    (Value::Null, Value::Null)
 }
 
 pub(super) fn read_network(filter: &str) -> Value {

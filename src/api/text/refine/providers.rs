@@ -40,6 +40,7 @@ where
         cancel_token,
         Some("Gemini Refine Error"),
         false,
+        None,
         on_chunk,
     )
 }

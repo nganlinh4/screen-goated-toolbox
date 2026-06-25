@@ -35,6 +35,34 @@ mod keyboard;
 mod mouse;
 mod shell;
 
+/// Whether THIS process is running elevated (full administrator). The agent is told its privilege
+/// level each session so it knows what it can do directly vs. when to relaunch a command via UAC.
+pub(super) fn is_elevated() -> bool {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{
+        GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    unsafe {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut ret = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut ret,
+        )
+        .is_ok();
+        let _ = CloseHandle(token);
+        ok && elevation.TokenIsElevated != 0
+    }
+}
+
 /// Map a 0..1000 normalized model coordinate to the 0..65535 virtual-desktop
 /// absolute space used by `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK`.
 /// The model reports points on a 0-1000 grid over the screenshot (verified by

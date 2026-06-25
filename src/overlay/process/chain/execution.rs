@@ -286,6 +286,7 @@ fn execute_image_block(request: ExecuteImageBlockRequest<'_>) -> anyhow::Result<
                 original_bytes: Some(img_data.clone()),
                 streaming_enabled,
                 use_json_format: use_json,
+                response_schema: None,
                 cancel_token: Some(api_cancel),
             },
             move |chunk| {
