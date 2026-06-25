@@ -67,9 +67,10 @@ pub(super) struct Reader {
 /// a whole session for conversation MEMORY (the reconnect recap is bounded
 /// separately by RECAP_BUDGET, so a larger window costs only a little RAM).
 const MAX_HISTORY: usize = 600;
-/// Cap on the recap text seeded on reconnect (kept well under the 1007
-/// "invalid argument" size threshold).
-const RECAP_BUDGET: usize = 1500;
+/// Cap on the recap text seeded on reconnect. Kept modest (~600 tokens) so the seed message
+/// stays small — a giant text seed risks the server's "invalid argument" close and would just get
+/// sliding-window-compressed away anyway. A frame is re-seeded alongside this for the visual state.
+const RECAP_BUDGET: usize = 2400;
 
 /// Close out the assistant's accumulated reply into the conversation history.
 pub(super) fn flush_reply(state: &mut Reader) {

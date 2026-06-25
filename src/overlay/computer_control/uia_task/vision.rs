@@ -18,10 +18,84 @@ pub(super) const VISION_SHORT: u32 = 1600;
 /// Read the current view with the aux vision stack (clean crop, no grid overlay).
 /// `ctx` is task/intent context for disambiguation. Returns the plain answer.
 pub(super) fn read_view(view: View, question: &str, ctx: &str, cancel: &AtomicBool) -> Result<String> {
+    read_view_pref(view, question, ctx, cancel, &[])
+}
+
+/// [`read_view`] but trying `prefer` model ids first — the stall planner prefers
+/// the benchmark-winning 2.5 vision models before the standard chain.
+pub(super) fn read_view_pref(
+    view: View,
+    question: &str,
+    ctx: &str,
+    cancel: &AtomicBool,
+    prefer: &[&str],
+) -> Result<String> {
     let cap = session::capture_virtual()?;
     let (jpeg, _shown) = session::encode_view(&cap, view, VISION_SHORT, None, None)?;
     let (q, c) = (question.to_string(), ctx.to_string());
-    run_cancellable(cancel, move || super::super::vision_reader::read_image(&jpeg, &q, &c))
+    let prefer: Vec<String> = prefer.iter().map(|s| s.to_string()).collect();
+    run_cancellable(cancel, move || {
+        let p: Vec<&str> = prefer.iter().map(String::as_str).collect();
+        super::super::vision_reader::read_image_pref(&jpeg, &q, &c, &p)
+    })
+}
+
+/// Stall-planner vision chain: the benchmark's strongest vision PLANNERS first
+/// (`gemini-flash-lite` = 2.5-flash-lite — fast, no harmful picks; `gemini-flash`
+/// = 2.5-flash — top score), then the abundant 3.1-flash-lite default takes over
+/// via the standard fallback chain (those 2.5 ids are 20/day; stalls are rare).
+const PLANNER_VISION_PREFER: &[&str] = &["gemini-flash-lite", "gemini-flash"];
+
+impl Brain {
+    /// Independent high-res vision check of a `done` claim. Returns (accepted,
+    /// verdict text). On checker error it accepts (don't trap the agent).
+    pub fn verify_done(&self, task: &str, cancel: &AtomicBool) -> (bool, String) {
+        let full = window_view(self.target.as_deref(), self.whole_screen);
+        let q = format!(
+            "A computer agent claims this task is COMPLETE: \"{task}\". \
+If the task is INFORMATIONAL - to read, summarize, explain, identify, find, compare or report what something is \
+(the deliverable is the agent's spoken answer; there is NO visible 'done' state on screen) - answer YES as long as \
+the relevant content is visible or has clearly been read. \
+If the task is an ACTION with a visible end-state (a setting changed, a form submitted, an item placed, a level won) \
+- answer YES only if that end-state is actually visible right now, otherwise NO. \
+Start your answer with YES or NO, then quote the exact on-screen evidence (or state what is shown instead)."
+        );
+        match read_view(full, &q, &format!("task: {task}"), cancel) {
+            Ok(a) => (a.trim_start().to_lowercase().starts_with("yes"), a),
+            Err(e) => (true, format!("(vision check unavailable: {e})")),
+        }
+    }
+
+    /// Stall safety-net — the "merge" planner: ONE grounded vision call that SEES
+    /// the screen and proposes the single best NEXT action when the agent is
+    /// looping (perception + plan in one shot). Prefers the fast/accurate 2.5
+    /// vision models. None on vision failure (the static stuck_warning note still
+    /// stands). Cancellable, so a barge-in returns immediately.
+    pub fn stuck_advice(&self, task: &str, cancel: &AtomicBool) -> Option<String> {
+        let view = window_view(self.target.as_deref(), self.whole_screen);
+        let trail = if self.recent_actions.is_empty() {
+            "(none)".to_string()
+        } else {
+            self.recent_actions.join("  |  ")
+        };
+        let q = format!(
+            "A computer-control agent is STUCK: it repeated the same action ~3 times and NOTHING on screen changed. \
+Task: \"{task}\". Its recent actions: {trail}. \
+Look at the screenshot, work out WHY it is stuck, and give the single best NEXT action. \
+Be concrete and grounded in what you SEE - name the exact on-screen element, where it is, and its state \
+(greyed-out, behind a dialog, off-screen, wrong tab, or the task is already done). \
+Answer in ONE or TWO sentences as a direct instruction to the agent. No preamble."
+        );
+        let advice = read_view_pref(view, &q, &format!("task: {task}"), cancel, PLANNER_VISION_PREFER)
+            .ok()?
+            .trim()
+            .to_string();
+        (!advice.is_empty()).then_some(advice)
+    }
+
+    pub fn final_review(&self, note: &str) {
+        final_review(&self.dir, self.target.as_deref(), note);
+    }
 }
 
 /// Run a (slow, blocking) vision call on a worker thread while polling `cancel`

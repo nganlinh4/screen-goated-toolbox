@@ -94,13 +94,26 @@ BROWSER CONTROL SETUP: if the USER asks to set up / enable / turn on browser con
 RIGHT AWAY - do NOT offer or ask 'would you like'. Offering is ONLY for the proactive heads-up: when a heads-up tells \
 you the user is browsing without deep control, you may offer ONCE, briefly; if they accept, run browser_setup; if they \
 decline, call decline_browser_control and drop it. Never offer twice. \
-READING/SUMMARIZING A WEB PAGE: when deep browser control is connected, call browser_read_page ONCE to get the \
-ENTIRE page's text in one shot - do NOT scroll screen-by-screen to read a page (slow, you lose your place, and you \
-loop). Use scroll + look ONLY to inspect a SPECIFIC figure/chart/image the text refers to. Then answer from the \
-full text - don't keep scrolling once you have it. \
+WEB BROWSING - when deep browser control is connected, do web work THROUGH the bridge, NOT visually: browser_read_page \
+returns the WHOLE page's text in one shot (read it and answer; do NOT scroll screen-by-screen, you'll loop); \
+browser_click(css selector) and browser_eval act on the page; browser_navigate moves it. With several tabs open it is \
+easy to land on the WRONG one, so VERIFY the url/title that browser_switch_tab and browser_read_page report is the page you \
+meant before reading or acting. Do NOT click_mark / click_target \
+/ zoom / scroll a web page (use scroll + look ONLY to eyeball a SPECIFIC image the text points to), and do NOT try to read \
+a VIDEO (e.g. a YouTube result) - choose a TEXT source (wiki, Reddit, forums). If an action no-ops or errors twice, CHANGE \
+approach - never repeat the same failing call. When a result carries a 'stuck_advice' field, a high-res look at the \
+current screen has diagnosed WHY you are stuck and the single best next move - trust it and do exactly that next. \
 To answer a question, look() at the CURRENT screen FIRST - it reads ONLY what is on screen now (it does NOT search \
-the web). If the answer is already visible, just read it - do NOT open a search. ONLY when the needed information \
-is genuinely NOT on the current screen, open_url('https://www.google.com/search?q=...') and read the results. \
+the web). If the answer is already visible, just read it - do NOT open a search. Lore, a story/quest, or any 'look up X' \
+is NOT inside the on-screen app or game - web-search it directly, do NOT hunt through a game's menus for it. ONLY when the needed information \
+is genuinely NOT on the current screen, SEARCH THE WEB - and if deep browser control is connected, do it INVISIBLY: \
+browser_navigate('https://www.google.com/search?q=...') then browser_read_page reads the answer through the browser's \
+debugger WITHOUT bringing it to the front (works even while a fullscreen game covers the screen, and never disturbs what \
+the user is doing). Only fall back to open_url + look() when browser control is NOT connected. \
+FULLSCREEN GAME (an exclusive-fullscreen / UIA-blind surface in front, e.g. a game the user is playing): you CANNOT bring \
+another window in front of it and you must NOT minimize it - to read web content use browser_read_page (it needs no \
+foreground) and SPEAK the answer. NEVER loop focus_window / minimize_window / Win+D against a fullscreen game - they do NOT \
+work on it; if something truly needs that covered window visible, just ask the user to alt-tab to it. \
 NEVER pass a 'search for X' question to look(), and NEVER claim you searched when you only read the screen. \
 Report ONLY what the screenshot shows; if it is not what you expected, say so and correct course. \
 NEVER judge the screen state or claim done from your own low-res view - call look() and QUOTE what it says; your \
@@ -111,6 +124,12 @@ goal; do NOT pause or ask what to do between steps. 'Play and win' / 'book the f
 actions in a row, until finished. Call done ONLY when the goal is fully achieved (a fresh look() confirms it; an \
 independent check verifies), then stop and wait for the next request. If you get STUCK or an action isn't \
 registering, say so briefly - never go silent while struggling. \
+SYSTEM TASKS - for anything about the COMPUTER ITSELF (kill/list processes, services, files & folders, registry, network, \
+volume, power/shutdown, installed apps, disk space, system info) act through run_command (PowerShell = the real system APIs) \
+- do NOT hunt through Task Manager / Settings / Explorer GUIs for what a one-line command does: 'close/kill X' -> \
+Stop-Process -Name X; 'is X running' / 'what's open' -> Get-Process. Click through a GUI only when there is genuinely no \
+command for it. Most system tasks just DO - keep it smooth, never ask permission for routine ones; ONLY pause to confirm \
+before something CATASTROPHIC or clearly unexpected (formatting/wiping, shutting down, deleting the user's files). \
 GAMES: read the board with look()/zoom and plan the WHOLE sequence before moving; never act blindly. Play by whatever \
 the game uses - keyboard for arrow/key games (2048), or click_target / drag_target for pointer, card and tile games. \
 If a game running in a BROWSER ignores your clicks or drags (a canvas/WebGL game often does - plain OS clicks aren't \
@@ -142,6 +161,13 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
         Some(h) => json!({ "handle": h }),
         None => json!({}),
     };
+    // Tell the agent its current privilege level so it reaches the most powerful action available in
+    // the current mode — and knows when to escalate via UAC rather than silently failing.
+    let privilege = if executor::is_elevated() {
+        "PRIVILEGE: you are running ELEVATED (full administrator) - run_command has admin rights, so do system tasks directly."
+    } else {
+        "PRIVILEGE: you are running as a STANDARD user (not elevated). run_command still does most things; but admin-only tasks (stop a service, kill another user's or a protected process, system-wide settings) fail with Access Denied - for THOSE, relaunch just that command via run_command with Start-Process -Verb RunAs (the user approves one UAC prompt), then verify."
+    };
     let mut setup = json!({ "setup": {
         "model": format!("models/{}", super::protocol::MODEL),
         "generationConfig": {
@@ -151,7 +177,7 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
             "maxOutputTokens": max_out,
             "thinkingConfig": {"thinkingLevel": think}
         },
-        "systemInstruction": {"parts": [{"text": SYS}]},
+        "systemInstruction": {"parts": [{"text": format!("{SYS}\n{privilege}")}]},
         "tools": [{"googleSearch": {}}, {"functionDeclarations": [
             {"name": "click_element", "description": "Click the UI element with this exact name (copied verbatim from the element list).",
              "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
@@ -191,11 +217,11 @@ pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
             {"name": "launch_app", "description": "Launch or focus a Windows app by name/path via the OS shell, e.g. 'chrome', 'notepad', 'explorer'. Pass 'args' to give it arguments - e.g. open a file in an app: name='notepad', args='C:\\\\path\\\\file.txt' (or just launch_app the file path itself to open it in its default app). Do NOT cram args into 'name'.",
              "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "string", "description": "Optional command-line arguments / file to open."}}, "required": ["name"]}},
-            {"name": "run_command", "description": "Run a Windows PowerShell command and get its text output - your most GENERAL tool, for anything without a dedicated action: file operations (Get-ChildItem, Get-Content, Set-Content, Copy-Item, New-Item), processes (Get-Process), system info, audio volume, etc. Runs non-elevated and non-interactive (commands that prompt will fail rather than hang). Returns stdout/stderr (truncated). Prefer a real tool when one exists (e.g. open_url, type_text).",
+            {"name": "run_command", "description": "Run a PowerShell command and get its output - your SYSTEM-CONTROL plane and most general tool. PowerShell IS the Windows system API: processes (Get-Process / Stop-Process), services (Get-/Start-/Stop-Service), files & folders (Get-ChildItem / Copy-Item / Move-Item / Remove-Item), registry (Get-/Set-ItemProperty), network (Get-NetTCPConnection / Get-NetIPAddress), power, audio volume, installed apps, disk space, system info. Add '| ConvertTo-Json -Depth 4' when you need to READ structured data back. Non-interactive: a command that prompts FAILS rather than hangs. If a task needs ADMIN and you are NOT elevated (see PRIVILEGE), relaunch JUST that command elevated via Start-Process -Verb RunAs (one UAC prompt for the user), then verify. Returns stdout/stderr/exit (truncated). Prefer a dedicated tool when one fits (open_url, type_text, focus_window).",
              "parameters": {"type": "object", "properties": {"command": {"type": "string", "description": "The PowerShell command line to run."}}, "required": ["command"]}},
-            {"name": "focus_window", "description": "Bring an already-open window to the FRONT by a piece of its title (e.g. 'Chrome', 'Notepad', a document name). Use this when a window you opened isn't visible because another window (often a FULLSCREEN game) is covering it - alt+tab keystrokes go to the game instead, so use this to switch reliably. Returns the window now in front so you can confirm. If it reports the same covering window, that app is likely exclusive-fullscreen: minimize_window it first.",
+            {"name": "focus_window", "description": "Bring an already-open window to the FRONT by a piece of its title OR its app/exe name (e.g. 'Chrome', 'Notepad', 'GenshinImpact'). It matches the EXE name too, so target a FULLSCREEN GAME by its app name from list_windows (its on-screen title may collide with a browser tab about it). Restores the window if it was minimized. Returns the window now in front so you can confirm. If it reports the SAME covering window, that app is exclusive-fullscreen (a game) — you canNOT switch away from it and must not minimize what the user is playing; read any web content with browser_read_page instead, or ask the user to alt-tab.",
              "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "A substring of the target window's title bar."}}, "required": ["title"]}},
-            {"name": "list_windows", "description": "List the titles of all open top-level windows, so you know what's available to focus_window or minimize_window. No arguments.",
+            {"name": "list_windows", "description": "List every open top-level window as 'title [app.exe]' — INCLUDING fullscreen GAMES that have no normal title bar and don't appear to other tools — so you know what's open to focus_window or minimize_window, and can target a game by its app name. No arguments.",
              "parameters": {"type": "object", "properties": {}}},
             {"name": "minimize_window", "description": "Minimize a window by a piece of its title - use this to get a FULLSCREEN game or app OUT OF THE WAY when it covers what you need (it works even when the game swallows alt+tab/Win+D keystrokes, because it acts on the window directly). Returns what's in front afterward.",
              "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "A substring of the window to minimize."}}, "required": ["title"]}},
@@ -505,6 +531,12 @@ above). Do not finish - keep working until it is actually done.",
                     let mut resp = json!({"action_result": action_result, "new_state": g.state_text});
                     for (k, v) in &g.notes {
                         resp[*k] = json!(*v);
+                    }
+                    // On a stall, one grounded vision call proposes a concrete next action.
+                    if g.notes.iter().any(|(k, _)| *k == "stuck_warning")
+                        && let Some(advice) = brain.stuck_advice(task, &cancel)
+                    {
+                        resp["stuck_advice"] = json!(advice);
                     }
                     send(&mut socket, tool_response(&id, &name, resp))?; // answer first
                     send(&mut socket, realtime_video_jpeg_b64(&g.frame_b64))?; // then the new frame

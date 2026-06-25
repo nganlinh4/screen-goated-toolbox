@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use tungstenite::Message;
 
 use crate::api::realtime_audio::websocket::{
@@ -25,12 +25,16 @@ use super::protocol::{
     ServerEvent, parse_server_message, realtime_text, realtime_video_jpeg_b64, tool_response,
 };
 use super::session::{self, Sock, connect_ws, send};
-use super::uia_task::{self, Brain};
+use super::uia_task;
 
+mod action_worker;
 mod reader;
+use action_worker::executor_loop;
 use reader::{Pending, Reader, build_recap, flush_reply, handle_event, record_observation};
 
-/// How often a fresh (gridded) screenshot is pushed while idle.
+/// How often a fresh (gridded) screenshot is streamed while you're talking or a request is
+/// active. A frame is ALSO pushed immediately on speech onset so it leads the turn (the model
+/// needs the frame ingested before the turn closes, or it sees no image).
 const FRAME_INTERVAL: Duration = Duration::from_millis(1800);
 const MAX_RECONNECTS: u32 = 6;
 /// The preview Live model often goes silent mid-turn without closing the socket.
@@ -44,6 +48,20 @@ const RECONNECT_SILENCE: Duration = Duration::from_secs(18);
 type Job = (String, String, Value, String, String);
 /// A finished action from the executor: (id, name, response, optional frame b64).
 type Done = (String, String, Value, Option<String>);
+
+/// Sink for typed commands from the orb's text box → the live session, set on each session
+/// start. The orb thread calls [`submit_text_command`]; `run_inner` drains it each loop.
+static TEXT_COMMAND_TX: Mutex<Option<mpsc::Sender<String>>> = Mutex::new(None);
+
+/// Submit a typed command (from the orb's text box) into the active session as a user text
+/// turn — lets you drive the agent silently in a quiet place. No-op when no session is up.
+pub(super) fn submit_text_command(text: String) {
+    if let Ok(g) = TEXT_COMMAND_TX.lock()
+        && let Some(tx) = g.as_ref()
+    {
+        let _ = tx.send(text);
+    }
+}
 
 pub(super) fn run(stop: Arc<AtomicBool>) {
     match run_inner(&stop) {
@@ -71,27 +89,17 @@ matches your AI Studio project, or use a billing-enabled key."
     overlay::set_listening(false);
 }
 
-fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
-    let key = session::load_key()?;
-    let target = std::env::var("CC_UIA_WINDOW").ok();
-    overlay::set_status("connecting...");
-
-    // AUDIO FIRST: cpal/WASAPI must claim this thread's COM apartment BEFORE the
-    // WebSocket's TLS (or UIA) initializes COM in a conflicting mode - otherwise
-    // building the mic stream fails with RPC_E_CHANGED_MODE ("cannot change thread
-    // mode after it is set").
-    let mic_buf: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
-    let mic_pause = Arc::new(AtomicBool::new(false));
-    // Build the mic stream, retrying a few times (WASAPI can transiently report
-    // "insufficient system resources" while a device is being reassigned).
-    let init_mic = || -> anyhow::Result<cpal::Stream> {
+/// Owns the microphone for the whole session on a DEDICATED thread: builds the cpal stream, watches
+/// for a default-input-device change, and rebuilds on its own. Keeping all cpal/WASAPI calls on this
+/// one thread isolates their per-thread COM apartment from the session loop's TLS/UIA churn, so a
+/// device switch can't trip RPC_E_CHANGED_MODE. Audio flows to the loop via the shared `buf`.
+fn mic_thread(buf: Arc<Mutex<Vec<i16>>>, pause: Arc<AtomicBool>, stop: Arc<AtomicBool>) {
+    // Build the mic stream, retrying a few times (WASAPI transiently reports "device busy" mid-switch).
+    let build = || -> anyhow::Result<cpal::Stream> {
         let mut attempt = 0;
         loop {
-            match crate::api::realtime_audio::start_mic_capture(
-                mic_buf.clone(),
-                stop.clone(),
-                mic_pause.clone(),
-            ) {
+            match crate::api::realtime_audio::start_mic_capture(buf.clone(), stop.clone(), pause.clone())
+            {
                 Ok(s) => return Ok(s),
                 Err(_) if attempt < 4 => {
                     attempt += 1;
@@ -102,15 +110,53 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
             }
         }
     };
-    let mut _mic_stream = init_mic()?;
-    let mut sink = AudioSink::new(); // output voice (24 kHz); optional
+    let mut stream = build().map_err(|e| overlay::push_log(format!("(mic init failed: {e})"))).ok();
+    let mut device = crate::api::realtime_audio::current_input_device_name();
+    let mut last_check = Instant::now();
+    while !stop.load(Ordering::SeqCst) {
+        std::thread::sleep(Duration::from_millis(200));
+        if last_check.elapsed() < Duration::from_secs(2) {
+            continue;
+        }
+        last_check = Instant::now();
+        let now = crate::api::realtime_audio::current_input_device_name();
+        if now != device {
+            overlay::push_log(format!(
+                "(audio device changed -> {} - re-initializing mic)",
+                now.as_deref().unwrap_or("none")
+            ));
+            device = now;
+            drop(stream.take()); // release the OLD device before grabbing the new one
+            std::thread::sleep(Duration::from_millis(300)); // let the switch settle
+            stream = build()
+                .map_err(|e| overlay::push_log(format!("(mic re-init failed: {e})")))
+                .ok();
+        }
+    }
+    drop(stream);
+}
+
+fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
+    let key = session::load_key()?;
+    let target = std::env::var("CC_UIA_WINDOW").ok();
+    overlay::set_status("connecting...");
+
+    // The MIC runs on its OWN thread (`mic_thread`): it owns cpal's per-thread COM apartment, the
+    // stream, and every default-device rebuild. That isolates it from this loop's TLS/UIA COM churn —
+    // a reconnect would otherwise change the apartment mode out from under a mic re-init and trip
+    // RPC_E_CHANGED_MODE on a device switch, going silently deaf.
+    let mic_buf: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let mic_pause = Arc::new(AtomicBool::new(false));
+    {
+        let buf = mic_buf.clone();
+        let pause = mic_pause.clone();
+        let mic_stop = Arc::clone(stop);
+        std::thread::spawn(move || mic_thread(buf, pause, mic_stop));
+    }
+    let sink = AudioSink::new(); // output voice (24 kHz); the TTS player self-heals on output-device change. optional
     if sink.is_none() {
         overlay::push_log("(no audio output device - replies shown as text only)".to_string());
     }
-    // Track the default input device so we can RE-INIT mic + output if it changes
-    // mid-session (e.g. you plug in headphones), instead of going silently deaf.
-    let mut audio_device = crate::api::realtime_audio::current_input_device_name();
-    let mut last_device_check = Instant::now();
 
     // Try WITH Google Search grounding; if setup is rejected (grounding needs a
     // billing-enabled project / quota), fall back to a search-less session so it
@@ -142,6 +188,8 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     let cancel = Arc::new(AtomicBool::new(false));
     let (exec_tx, exec_rx) = mpsc::channel::<Job>();
     let (res_tx, res_rx) = mpsc::channel::<Done>();
+    let (cmd_tx, cmd_rx) = mpsc::channel::<String>();
+    *TEXT_COMMAND_TX.lock().unwrap() = Some(cmd_tx);
     let exec_cancel = cancel.clone();
     let exec_target = target.clone();
     let exec_thread = std::thread::spawn(move || executor_loop(exec_target, exec_rx, res_tx, exec_cancel));
@@ -150,7 +198,37 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     if !f0.is_empty() {
         send(&mut socket, realtime_video_jpeg_b64(&f0))?;
     }
+
+    // Screen capture costs ~1-2s/frame here (PrintWindow forces a full re-render of GPU/browser
+    // windows), so run it on a BACKGROUND thread into a latest-wins slot. The session loop only ever
+    // reads the cached frame (instant) — it must NEVER block on capture, or it stalls the reply-audio
+    // pump (which is what made speech choppy + responses slow). `capture_on` idles it when nothing's
+    // happening so it doesn't peg a core.
+    let frame_slot: Arc<Mutex<Option<String>>> =
+        Arc::new(Mutex::new(Some(f0).filter(|s| !s.is_empty())));
+    let capture_on = Arc::new(AtomicBool::new(true));
+    {
+        let slot = frame_slot.clone();
+        let on = capture_on.clone();
+        let cap_stop = Arc::clone(stop);
+        let cap_target = target.clone();
+        std::thread::spawn(move || {
+            while !cap_stop.load(Ordering::SeqCst) {
+                if on.load(Ordering::SeqCst) {
+                    if let Ok(f) = uia_task::snapshot(cap_target.as_deref()) {
+                        *slot.lock().unwrap() = Some(f);
+                    }
+                } else {
+                    std::thread::sleep(Duration::from_millis(120));
+                }
+            }
+        });
+    }
+
     let mut last_frame = Instant::now();
+    let mut last_voice = Instant::now();
+    let mut was_playing = false;
+    let mut speech_quiet: Option<Instant> = None;
     let mut last_event = Instant::now();
     let mut state = Reader::default();
     let mut reconnects = 0u32;
@@ -171,28 +249,6 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     let echo_gate = std::env::var("CC_MIC_GATE").is_ok();
 
     while !stop.load(Ordering::SeqCst) {
-        // 0) default audio device changed (e.g. headphones in/out)? re-init mic +
-        //    output on the NEW device so the session keeps hearing/speaking.
-        if last_device_check.elapsed() >= Duration::from_secs(2) {
-            last_device_check = Instant::now();
-            let now_device = crate::api::realtime_audio::current_input_device_name();
-            if now_device != audio_device {
-                overlay::push_log(format!(
-                    "(audio device changed -> {} - re-initializing)",
-                    now_device.as_deref().unwrap_or("none")
-                ));
-                audio_device = now_device;
-                std::thread::sleep(Duration::from_millis(300)); // let the new device settle
-                match init_mic() {
-                    Ok(s) => {
-                        _mic_stream = s; // dropping the old stream releases the old device
-                        sink = AudioSink::new();
-                    }
-                    Err(e) => overlay::push_log(format!("(mic re-init failed: {e})")),
-                }
-            }
-        }
-
         // 0b) capture a representative clean frame each time the foreground window
         //     changes, for conversation memory (keep the newest 6 distinct screens).
         if last_mem_check.elapsed() >= Duration::from_secs(3) {
@@ -257,20 +313,59 @@ more precise page reading/acting. If they decline, call decline_browser_control.
             let mut b = mic_buf.lock().unwrap();
             std::mem::take(&mut *b)
         };
-        let muted = echo_gate && sink.as_ref().map(|s| s.is_playing()).unwrap_or(false);
-        if !chunk.is_empty() && !muted {
+        let playing = sink.as_ref().map(|s| s.is_playing()).unwrap_or(false);
+        // Orb caption lifetime: the spoken reply keeps playing for many seconds AFTER its transcript
+        // finishes, so clear it (and rest the orb) on REAL speech-end — not on a transcript-idle timer
+        // (which made the text vanish mid-sentence). Debounced so a gap between audio chunks won't fire.
+        if playing {
+            speech_quiet = None;
+        } else if was_playing {
+            speech_quiet = Some(Instant::now());
+        }
+        was_playing = playing;
+        if let Some(t) = speech_quiet
+            && t.elapsed() > Duration::from_millis(1200)
+        {
+            overlay::set_model_idle();
+            speech_quiet = None;
+        }
+        let muted = echo_gate && playing;
+        let voiced = !chunk.is_empty() && !muted;
+        // Speech ONSET (first audio after a gap), ONLY when the model isn't speaking. The model needs
+        // a fresh frame to LEAD the turn: video + audio are concurrent streams with NO ordering
+        // guarantee, and a frame sent at/after the turn closes isn't ingested in time — the model
+        // receives no image (verified: 0s lead → "no image"; ≥0.5s lead → it reads the screen).
+        // Pushing a frame the instant you start talking gives it the whole utterance (≥0.5s) to be
+        // ingested before the turn.
+        let onset = voiced && !playing && last_voice.elapsed() >= Duration::from_millis(500);
+        if voiced {
             overlay::set_listening(true);
             let rms =
                 (chunk.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / chunk.len() as f64).sqrt();
             overlay::set_orb_audio((rms / 6000.0).min(1.0) as f32);
             send_audio_chunk(&mut socket, &chunk)?;
+            last_voice = Instant::now();
         }
 
-        // 2) periodic gridded frame WHILE a request is active (so the agent keeps
-        //    seeing the screen as it works, but goes quiet - and stops acting -
-        //    once a request is done, until the user speaks again).
-        if state.active && state.pending.id.is_none() && last_frame.elapsed() >= FRAME_INTERVAL {
-            if let Ok(f) = uia_task::snapshot(target.as_deref()) {
+        // 2) send the model a fresh (cached) frame so it can SEE: immediately on speech onset (so a
+        //    frame LEADS the turn), then at ~1 frame/FRAME_INTERVAL while you keep talking (3s tail) or
+        //    a request is active. NOT while the model is speaking (wasteful input). The capturer stays
+        //    warm while there's an active request or recent speech so the cache is fresh.
+        capture_on.store(
+            state.active || last_voice.elapsed() < Duration::from_secs(5),
+            Ordering::SeqCst,
+        );
+        // Don't stream periodic frames while the model is mid-generation (`awaiting`) — they just
+        // bloat the context it's already chewing on and slow the next decision. Onset (your speech)
+        // and after-action frames still flow, so it never goes blind.
+        let engaged = !playing
+            && !state.awaiting
+            && (state.active || last_voice.elapsed() < Duration::from_secs(3));
+        if state.pending.id.is_none()
+            && (onset || (engaged && last_frame.elapsed() >= FRAME_INTERVAL))
+        {
+            let f = frame_slot.lock().unwrap().clone();
+            if let Some(f) = f {
                 let _ = send(&mut socket, realtime_video_jpeg_b64(&f));
             }
             last_frame = Instant::now();
@@ -306,7 +401,24 @@ more precise page reading/acting. If they decline, call decline_browser_control.
             state.pending = Pending::default();
             cancel.store(false, Ordering::SeqCst);
             last_frame = Instant::now();
+            // Restart the silence clock here: the model only "owes" us a response from
+            // the moment we hand back the tool result, so a slow action (e.g. a 20s
+            // vision look, or the stall planner) must NOT count as silence and trip a
+            // false reconnect the instant it returns.
+            last_event = Instant::now();
+            state.nudged = false;
             overlay::set_status("ready - speak a command");
+        }
+
+        // 3b) a typed command from the orb's text box → inject it as a user text turn, taking the
+        // exact same path the spoken transcript does (so it drives the agent identically).
+        if let Ok(cmd) = cmd_rx.try_recv() {
+            let cmd = cmd.trim().to_string();
+            if !cmd.is_empty() {
+                let _ = send(&mut socket, realtime_text(&cmd));
+                handle_event(ServerEvent::InputTranscript(cmd), sink.as_ref(), &cancel, &exec_tx, &mut state);
+                last_event = Instant::now();
+            }
         }
 
         // 4) read one event (reconnect on unexpected close/error).
@@ -355,7 +467,7 @@ more precise page reading/acting. If they decline, call decline_browser_control.
                         // stream, so it can't be mistaken for a new request.
                         state.nudged = true;
                         overlay::push_log("(nudging the model with a fresh frame)".to_string());
-                        if let Ok(f) = uia_task::snapshot(target.as_deref()) {
+                        if let Some(f) = frame_slot.lock().unwrap().clone() {
                             let _ = send(&mut socket, realtime_video_jpeg_b64(&f));
                         }
                     }
@@ -392,58 +504,6 @@ more precise page reading/acting. If they decline, call decline_browser_control.
     drop(exec_tx); // close the channel -> executor thread exits
     let _ = exec_thread.join();
     Ok(())
-}
-
-/// The executor thread: owns the `Brain` and runs every tool call (including the
-/// independent `done` verification) off the reader thread.
-fn executor_loop(target: Option<String>, rx: mpsc::Receiver<Job>, tx: mpsc::Sender<Done>, cancel: Arc<AtomicBool>) {
-    let mut brain = Brain::new(target);
-    while let Ok((id, name, args, task, intent)) = rx.recv() {
-        cancel.store(false, Ordering::SeqCst); // each action starts fresh
-        let done: Done = if name == "done" {
-            // Independent high-res check - the Live agent confabulates success.
-            let (ok, verdict) = brain.verify_done(&task, &cancel);
-            if ok {
-                (id, name, json!({"ok": true, "verdict": verdict}), None)
-            } else {
-                let (state_text, frame) = match brain.ground(&name, &args) {
-                    Ok(g) => (g.state_text, Some(g.frame_b64)),
-                    Err(e) => (format!("(ground failed: {e})"), None),
-                };
-                (
-                    id,
-                    name,
-                    json!({
-                        "ok": false,
-                        "independent_check": verdict,
-                        "instruction": "An independent high-res check says the goal is NOT yet achieved. Keep \
-working until it is actually done.",
-                        "new_state": state_text,
-                    }),
-                    frame,
-                )
-            }
-        } else {
-            let ctx = format!(
-                "task: {task}; agent intent: {}",
-                if intent.is_empty() { "(none stated)" } else { intent.as_str() }
-            );
-            let action_result = brain.dispatch(&name, &args, &ctx, &cancel);
-            match brain.ground(&name, &args) {
-                Ok(g) => {
-                    let mut resp = json!({"action_result": action_result, "new_state": g.state_text});
-                    for (k, v) in &g.notes {
-                        resp[*k] = json!(*v);
-                    }
-                    (id, name, resp, Some(g.frame_b64))
-                }
-                Err(e) => (id, name, json!({"action_result": action_result, "ground_error": e.to_string()}), None),
-            }
-        };
-        if tx.send(done).is_err() {
-            break;
-        }
-    }
 }
 
 /// Reconnect to a FRESH session (resumption is rejected on this preview model) and

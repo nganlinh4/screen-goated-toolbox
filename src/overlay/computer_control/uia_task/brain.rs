@@ -74,6 +74,17 @@ impl Brain {
         self.step += 1;
         let step = self.step;
         let t0 = Instant::now();
+        // Strengthen the (stateless) aux models' context: hand them what the agent has already DONE
+        // this task (last few actions), not just the one-line task+intent — so "the other one" / "the
+        // next button" disambiguate and the stall planner sees the trajectory. ~Free: a few tokens.
+        let enriched_ctx;
+        let ctx: &str = if self.trail.is_empty() {
+            ctx
+        } else {
+            let recent = &self.trail[self.trail.len().saturating_sub(6)..];
+            enriched_ctx = format!("{ctx}; already did: {}", recent.join("  ->  "));
+            &enriched_ctx
+        };
         let result = match name {
             "click_element" => {
                 let elements = uia::enumerate(self.target.as_deref()).unwrap_or_default();
@@ -340,7 +351,7 @@ impl Brain {
                 json!({
                     "ok": raised,
                     "foreground_now": now,
-                    "note": if raised { "switched" } else { "could not bring it to front - it may be covered by an exclusive-fullscreen app; minimize_window that app first" }
+                    "note": if raised { "switched" } else { "BLOCKED: the foreground is holding the screen — an exclusive-fullscreen game won't let any window in front of it, ignores minimize, and swallows hotkeys. Do NOT retry this or minimize the game the user is playing. To read WEB content, use browser_read_page (it reads via the browser's debugger, no foreground needed); otherwise ask the user to alt-tab." }
                 })
             }
             "list_windows" => {
@@ -456,7 +467,7 @@ impl Brain {
         // elements — which made the agent answer from the SCREEN, not from memory.
         if matches!(
             name,
-            "search_memory" | "open_memory" | "read_clipboard" | "list_windows"
+            "search_memory" | "open_memory" | "read_clipboard" | "list_windows" | "run_command"
             | "browser_setup" | "browser_status" | "browser_reset" | "browser_read_page"
             | "browser_query" | "browser_eval" | "browser_tabs" | "browser_network"
             | "decline_browser_control"
@@ -519,25 +530,6 @@ impl Brain {
         Ok(Grounded { frame_b64: b, state_text: state, notes })
     }
 
-    /// Independent high-res vision check of a `done` claim. Returns (accepted,
-    /// verdict text). On checker error it accepts (don't trap the agent).
-    pub fn verify_done(&self, task: &str, cancel: &AtomicBool) -> (bool, String) {
-        let full = window_view(self.target.as_deref(), self.whole_screen);
-        let q = format!(
-            "A computer agent claims this task is COMPLETE: \"{task}\". \
-If the task is INFORMATIONAL - to read, summarize, explain, identify, find, compare or report what something is \
-(the deliverable is the agent's spoken answer; there is NO visible 'done' state on screen) - answer YES as long as \
-the relevant content is visible or has clearly been read. \
-If the task is an ACTION with a visible end-state (a setting changed, a form submitted, an item placed, a level won) \
-- answer YES only if that end-state is actually visible right now, otherwise NO. \
-Start your answer with YES or NO, then quote the exact on-screen evidence (or state what is shown instead)."
-        );
-        match read_view(full, &q, &format!("task: {task}"), cancel) {
-            Ok(a) => (a.trim_start().to_lowercase().starts_with("yes"), a),
-            Err(e) => (true, format!("(vision check unavailable: {e})")),
-        }
-    }
-
     /// On a UIA-blind surface (canvas/game/custom-drawn) auto-run the local detector
     /// to mark clickable regions the accessibility tree can't see, populate
     /// `click_mark` anchors, and return a MARKS section for the state. `None` when not
@@ -589,9 +581,5 @@ regions were found visually - click_mark by its number; @cellN is where it sits)
         }
         eprintln!("[cc] {} clickable marks on UIA-blind surface", self.anchors.len());
         Some(s)
-    }
-
-    pub fn final_review(&self, note: &str) {
-        final_review(&self.dir, self.target.as_deref(), note);
     }
 }

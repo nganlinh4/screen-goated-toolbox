@@ -9,6 +9,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static CC_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// True while the orb is showing a spoken reply (Responding). `set_model_idle` only clears the
+/// caption when this is set, so a narration that's immediately followed by a tool call (which moves
+/// the orb into an action state) doesn't get yanked back to "listening" mid-task.
+static ORB_RESPONDING: AtomicBool = AtomicBool::new(false);
 static CC_STOP: std::sync::LazyLock<Arc<AtomicBool>> =
     std::sync::LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
@@ -102,6 +106,7 @@ pub fn stop_overlay() {
 
 pub(super) fn set_orb_state(state: OrbState, caption: Option<&str>) {
     super::orb::set_interactive(state.interactive());
+    ORB_RESPONDING.store(matches!(state, OrbState::Responding), Ordering::SeqCst);
     // When the agent rests (not mid-task), glide the orb back to the user's spot; during active work
     // it stays wherever it last dodged so it isn't constantly hopping corners between clicks.
     if matches!(
@@ -208,6 +213,19 @@ pub(super) fn set_user_text(text: impl Into<String>) {
 /// The model is speaking → responding; show the reply as the caption.
 pub(super) fn set_model_text(text: impl Into<String>) {
     set_orb_state(OrbState::Responding, Some(&text.into()));
+}
+
+/// The reply AUDIO finished playing — drop the caption and rest the orb. Driven by the runtime's
+/// speech-end detection: the caption must outlive the transcript (which completes many seconds
+/// before the audio does), so the text never vanishes mid-sentence.
+pub(super) fn set_model_idle() {
+    // Only act if the orb is STILL showing the reply — if a tool call already moved it into an
+    // action state, leave it alone (don't flash to "listening" mid-task).
+    if !ORB_RESPONDING.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    set_orb_state(OrbState::Listening, None);
+    super::orb::post_orb_script("window.cc&&window.cc.setCaption('');".to_string());
 }
 
 pub(super) fn push_log(line: impl Into<String>) {

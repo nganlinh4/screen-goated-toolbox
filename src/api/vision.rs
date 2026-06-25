@@ -21,6 +21,10 @@ pub struct TranslateImageRequest<'a> {
     pub original_bytes: Option<Vec<u8>>,
     pub streaming_enabled: bool,
     pub use_json_format: bool,
+    /// When `Some` and the model is Gemma 4, sent as `responseJsonSchema` so Gemma
+    /// emits clean structured JSON (it ignores `responseMimeType` alone). Ignored
+    /// for other models / providers.
+    pub response_schema: Option<serde_json::Value>,
     pub cancel_token: Option<Arc<AtomicBool>>,
 }
 
@@ -41,6 +45,7 @@ where
         original_bytes,
         streaming_enabled,
         use_json_format,
+        response_schema,
         cancel_token,
     } = request;
 
@@ -209,6 +214,7 @@ where
             &cancel_token,
             None,
             true,
+            response_schema.as_ref(),
             &mut on_chunk,
         )?;
     } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {

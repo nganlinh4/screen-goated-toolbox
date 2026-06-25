@@ -51,15 +51,15 @@ const CC_VISION_FALLBACKS: &[&str] = &["gemini-live-vision-3.1", "gemma-4-26b-a4
 /// (or `CC_VISION_MODEL` override), then the CC fallbacks, then the user's
 /// `image_to_text` chain. A preferred (e.g. faster) model is tried first but
 /// ALWAYS falls back to the accurate default — it can never lose correctness.
-fn chain_ids(config: &Config, prefer: Option<&str>) -> Vec<String> {
+fn chain_ids(config: &Config, prefer: &[&str]) -> Vec<String> {
     let default_first = std::env::var("CC_VISION_MODEL")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| CC_DEFAULT_VISION_MODEL.to_string());
     let candidates = prefer
+        .iter()
         .map(|p| p.trim().to_string())
-        .into_iter()
         .chain(std::iter::once(default_first))
         .chain(CC_VISION_FALLBACKS.iter().map(|s| s.to_string()))
         .chain(config.model_priority_chains.image_to_text.iter().cloned());
@@ -72,9 +72,9 @@ fn chain_ids(config: &Config, prefer: Option<&str>) -> Vec<String> {
     ids
 }
 
-/// Run `prompt` over `jpeg` through the model chain (`prefer` tried first if set),
+/// Run `prompt` over `jpeg` through the model chain (`prefer` ids tried first),
 /// returning the first non-empty answer.
-fn run_chain(jpeg: &[u8], prompt: &str, prefer: Option<&str>) -> Result<String> {
+fn run_chain(jpeg: &[u8], prompt: &str, prefer: &[&str], schema: Option<serde_json::Value>) -> Result<String> {
     let config = crate::load_config();
     let gemini_key = key_for("google", &config).unwrap_or_default();
     let groq_key = key_for("groq", &config).unwrap_or_default();
@@ -103,6 +103,7 @@ fn run_chain(jpeg: &[u8], prompt: &str, prefer: Option<&str>) -> Result<String> 
             original_bytes: Some(jpeg.to_vec()),
             streaming_enabled: false,
             use_json_format: false,
+            response_schema: schema.clone(),
             cancel_token: None,
         };
         match translate_image_streaming(req, |_| {}) {
@@ -118,6 +119,43 @@ fn run_chain(jpeg: &[u8], prompt: &str, prefer: Option<&str>) -> Result<String> 
         }
     }
     Err(last_err.unwrap_or_else(|| anyhow!("no usable model in image_to_text chain")))
+}
+
+// JSON schemas for the localization calls — handed to Gemma 4 as
+// `responseJsonSchema` (it ignores `responseMimeType` alone and otherwise
+// free-rambles instead of emitting JSON). Loose on purpose (nothing required) so
+// the "not visible" / error variant is still allowed; other models ignore them
+// and answer straight from the prompt.
+fn point_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer"}, "y": {"type": "integer"},
+            "what": {"type": "string"}, "error": {"type": "string"}
+        }
+    })
+}
+
+fn box_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "box_2d": {"type": "array", "items": {"type": "integer"}},
+            "error": {"type": "string"}
+        }
+    })
+}
+
+fn points_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer"}, "y": {"type": "integer"}, "what": {"type": "string"}
+            }
+        }
+    })
 }
 
 /// A located click point (0-1000 over the image) plus what the vision model
@@ -140,9 +178,11 @@ fn ctx_prefix(ctx: &str) -> String {
     }
 }
 
-/// Read `question` about `jpeg` with the vision stack (with optional `ctx`).
-pub(super) fn read_image(jpeg: &[u8], question: &str, ctx: &str) -> Result<String> {
-    run_chain(jpeg, &format!("{}{question}", ctx_prefix(ctx)), None)
+/// Read `question` about `jpeg` with the vision stack (optional `ctx`), trying
+/// `prefer` model ids first (then the standard chain) — the stall planner prefers
+/// the benchmark-winning 2.5 vision models; pass `&[]` for the default chain.
+pub(super) fn read_image_pref(jpeg: &[u8], question: &str, ctx: &str, prefer: &[&str]) -> Result<String> {
+    run_chain(jpeg, &format!("{}{question}", ctx_prefix(ctx)), prefer, None)
 }
 
 /// Ask the vision stack for the click point of `description` (+ what's there).
@@ -166,7 +206,8 @@ fn locate_point_pref(jpeg: &[u8], description: &str, prefer: Option<&str>, ctx: 
 visible, output {{\"error\": \"not visible\"}}.",
         ctx_prefix(ctx)
     );
-    let answer = run_chain(jpeg, &prompt, prefer)?;
+    let pref: Vec<&str> = prefer.into_iter().collect();
+    let answer = run_chain(jpeg, &prompt, &pref, Some(point_schema()))?;
     let (x, y) = parse_point(&answer)
         .ok_or_else(|| anyhow!("could not parse a point from vision answer: {answer}"))?;
     Ok(Located { x, y, note: parse_str_field(&answer, "what") })
@@ -182,7 +223,7 @@ pub(super) fn locate_box(jpeg: &[u8], description: &str, ctx: &str) -> Result<Lo
 visible, output {{\"error\": \"not visible\"}}.",
         ctx_prefix(ctx)
     );
-    let answer = run_chain(jpeg, &prompt, None)?;
+    let answer = run_chain(jpeg, &prompt, &[], Some(box_schema()))?;
     parse_box(&answer)
         // box_2d order is [ymin, xmin, ymax, xmax]; center = (x mid, y mid).
         .map(|[ymin, xmin, ymax, xmax]| Located {
@@ -203,7 +244,7 @@ order (top row left-to-right, then next row): [{{\"x\": <int>, \"y\": <int>, \"w
 - x,y are the CENTER on a 0-1000 grid (x 0 left..1000 right, y 0 top..1000 bottom). Output [] if none. Cap at 60.",
         ctx_prefix(ctx)
     );
-    let answer = run_chain(jpeg, &prompt, None)?;
+    let answer = run_chain(jpeg, &prompt, &[], Some(points_schema()))?;
     let pts = parse_points(&answer);
     if pts.is_empty() {
         anyhow::bail!("no points parsed from vision answer: {answer}");
