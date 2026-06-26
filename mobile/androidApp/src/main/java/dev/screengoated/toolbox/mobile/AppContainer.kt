@@ -26,7 +26,9 @@ import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogService
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionStore
+import dev.screengoated.toolbox.mobile.updater.AppUpdateController
 import dev.screengoated.toolbox.mobile.updater.AppUpdateRepository
+import dev.screengoated.toolbox.mobile.updater.PlayInAppUpdateManager
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -80,7 +82,13 @@ class AppContainer(
     val downloaderRepository = DownloaderRepository(appContext, downloaderPersistence).also {
         it.checkTools() // Check tool status on app startup so Settings UI shows correct state
     }
-    val appUpdateRepository = AppUpdateRepository(httpClient)
+    // `play` builds update through Google Play In-App Updates; `full` (sideload)
+    // builds keep checking GitHub releases.
+    val appUpdateController: AppUpdateController = if (BuildConfig.FLAVOR == "play") {
+        PlayInAppUpdateManager(appContext)
+    } else {
+        AppUpdateRepository(httpClient)
+    }
 
     private val textApiClient = TextApiClient(httpClient)
     val helpAssistantClient = HelpAssistantClient(helpAssistantHttpClient)

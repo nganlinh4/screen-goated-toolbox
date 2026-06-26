@@ -19,7 +19,7 @@ class AppUpdateRepository(
     private val httpClient: OkHttpClient,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     currentVersionName: String = BuildConfig.CANONICAL_APP_VERSION,
-) {
+) : AppUpdateController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val currentVersion = canonicalAppVersion(currentVersionName)
     private var autoCheckStarted = false
@@ -27,9 +27,9 @@ class AppUpdateRepository(
     private val mutableState = MutableStateFlow(
         AppUpdateUiState(currentVersion = currentVersion),
     )
-    val state: StateFlow<AppUpdateUiState> = mutableState.asStateFlow()
+    override val state: StateFlow<AppUpdateUiState> = mutableState.asStateFlow()
 
-    fun autoCheckForUpdates() {
+    override fun autoCheckForUpdates() {
         if (autoCheckStarted) {
             return
         }
@@ -37,7 +37,7 @@ class AppUpdateRepository(
         checkForUpdates()
     }
 
-    fun checkForUpdates() {
+    override fun checkForUpdates() {
         if (mutableState.value.status == AppUpdateStatus.CHECKING) {
             return
         }

@@ -13,6 +13,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,9 +21,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import dev.screengoated.toolbox.mobile.BuildConfig
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.updater.AppUpdateStatus
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
+import dev.screengoated.toolbox.mobile.updater.PlayInAppUpdateManager
 import dev.screengoated.toolbox.mobile.updater.openAppUpdate
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -34,8 +40,26 @@ internal fun AppUpdateSection(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    // The `play` flavor drives Google Play In-App Updates; the `full` (sideload)
+    // flavor keeps the GitHub-release flow. See `.claude/parity/app-update.md`.
+    val isPlayFlavor = BuildConfig.FLAVOR == "play"
+    val playController = if (isPlayFlavor) {
+        remember(context) {
+            (context.applicationContext as? SgtMobileApplication)
+                ?.appContainer
+                ?.appUpdateController as? PlayInAppUpdateManager
+        }
+    } else {
+        null
+    }
+    // Flexible-update acceptance is reported here; download progress and completion
+    // are tracked by the install listener inside PlayInAppUpdateManager.
+    val updateFlowLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { }
+
     val accent = when (state.status) {
-        AppUpdateStatus.UPDATE_AVAILABLE -> MaterialTheme.colorScheme.primary
+        AppUpdateStatus.UPDATE_AVAILABLE, AppUpdateStatus.DOWNLOADED -> MaterialTheme.colorScheme.primary
         AppUpdateStatus.ERROR -> MaterialTheme.colorScheme.error
         AppUpdateStatus.UP_TO_DATE -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.secondary
@@ -61,19 +85,9 @@ internal fun AppUpdateSection(
                 }
 
                 AppUpdateStatus.CHECKING -> {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Text(
-                            text = locale.checkingGithub,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
+                    UpdateProgressRow(
+                        label = if (isPlayFlavor) locale.checkingPlayUpdates else locale.checkingGithub,
+                    )
                 }
 
                 AppUpdateStatus.UP_TO_DATE -> {
@@ -87,12 +101,18 @@ internal fun AppUpdateSection(
 
                 AppUpdateStatus.UPDATE_AVAILABLE -> {
                     Text(
-                        text = "${locale.newVersionAvailableLabel} ${state.latestVersion.orEmpty()}",
+                        text = if (isPlayFlavor) {
+                            locale.newVersionAvailableLabel
+                        } else {
+                            "${locale.newVersionAvailableLabel} ${state.latestVersion.orEmpty()}"
+                        },
                         style = MaterialTheme.typography.titleSmall,
                         color = accent,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    if (state.releaseNotes.isNotBlank()) {
+                    // GitHub (sideload) builds render the release notes inline; Play owns
+                    // the changelog for the play flavor, so notes are omitted there.
+                    if (!isPlayFlavor && state.releaseNotes.isNotBlank()) {
                         ExpressiveSettingsInsetCard(
                             accent = accent,
                             verticalPadding = 10.dp,
@@ -123,9 +143,11 @@ internal fun AppUpdateSection(
                         }
                     }
                     UpdateSectionPrimaryButton(
-                        text = locale.downloadUpdateButton,
+                        text = if (isPlayFlavor) locale.updateNowButton else locale.downloadUpdateButton,
                         onClick = {
-                            if (!openAppUpdate(context, state)) {
+                            if (isPlayFlavor) {
+                                playController?.startFlexibleUpdate(updateFlowLauncher)
+                            } else if (!openAppUpdate(context, state)) {
                                 Toast.makeText(
                                     context,
                                     locale.updateFailedLabel,
@@ -133,6 +155,23 @@ internal fun AppUpdateSection(
                                 ).show()
                             }
                         },
+                    )
+                }
+
+                AppUpdateStatus.DOWNLOADING -> {
+                    UpdateProgressRow(label = locale.updateDownloadingLabel)
+                }
+
+                AppUpdateStatus.DOWNLOADED -> {
+                    Text(
+                        text = locale.updateDownloadedLabel,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = accent,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    UpdateSectionPrimaryButton(
+                        text = locale.restartToUpdateButton,
+                        onClick = { playController?.completeUpdate() },
                     )
                 }
 
@@ -149,6 +188,24 @@ internal fun AppUpdateSection(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun UpdateProgressRow(label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            strokeWidth = 2.dp,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 

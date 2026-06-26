@@ -130,6 +130,11 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
         updateFailedLabel = "Update Failed:",
         retryButton = "Retry",
         updateAvailableNotification = "New update available!",
+        checkingPlayUpdates = "Checking Google Play...",
+        updateDownloadingLabel = "Downloading update...",
+        updateDownloadedLabel = "Update downloaded",
+        restartToUpdateButton = "Restart to Update",
+        updateNowButton = "Update",
         usageTipsTitle = "Usage Tips",
         usageTipsClickHint = "Tap to view the full tip list",
         usageTipsList = listOf(

@@ -1,11 +1,26 @@
 package dev.screengoated.toolbox.mobile.updater
 
+import kotlinx.coroutines.flow.StateFlow
+
 enum class AppUpdateStatus {
     IDLE,
     CHECKING,
     UP_TO_DATE,
     UPDATE_AVAILABLE,
+    // Play In-App Update (play flavor) flexible-download states.
+    DOWNLOADING,
+    DOWNLOADED,
     ERROR,
+}
+
+/**
+ * Update source abstraction. The `full` (sideload) flavor uses [AppUpdateRepository]
+ * (GitHub releases); the `play` flavor uses PlayInAppUpdateManager (Play In-App Updates).
+ */
+interface AppUpdateController {
+    val state: StateFlow<AppUpdateUiState>
+    fun autoCheckForUpdates()
+    fun checkForUpdates()
 }
 
 data class AppUpdateUiState(

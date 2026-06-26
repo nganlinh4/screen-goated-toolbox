@@ -432,6 +432,8 @@ dependencies {
     implementation(libs.commonmark.ext.task.list.items)
     implementation(libs.youtubedl.android.library)
     implementation(libs.youtubedl.android.ffmpeg)
+    // Google Play In-App Updates (used by the `play` flavor; no-ops on sideload installs).
+    implementation(libs.play.app.update.ktx)
 
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
