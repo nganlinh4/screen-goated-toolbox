@@ -130,6 +130,11 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
         updateFailedLabel = "업데이트 실패:",
         retryButton = "재시도",
         updateAvailableNotification = "새 업데이트 이용 가능!",
+        checkingPlayUpdates = "Google Play 확인 중...",
+        updateDownloadingLabel = "업데이트 다운로드 중...",
+        updateDownloadedLabel = "업데이트 다운로드됨",
+        restartToUpdateButton = "다시 시작하여 업데이트",
+        updateNowButton = "업데이트",
         usageTipsTitle = "사용 팁",
         usageTipsClickHint = "탭해서 전체 팁 목록 보기",
         usageTipsList = listOf(

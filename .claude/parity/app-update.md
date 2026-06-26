@@ -25,16 +25,18 @@
   - `UpToDate(currentVersion)`
   - `UpdateAvailable(version, body, releaseUrl, optionalAssetUrl)`
   - `Error(message)`
+  - Play-flavor-only flexible-download states: `Downloading`, `Downloaded` (no Windows/`full` equivalent — they reflect Play's in-app flexible update progress).
 - Transition rules:
   - Comparison is against the canonical shared app version, not platform-specific debug/flavor suffixes.
-  - GitHub release `tag_name` is normalized by removing the leading `v`.
+  - GitHub release `tag_name` is normalized by removing the leading `v` (`full` flavor only).
   - Android flavor/build suffixes such as `-full`, `-play`, and `-debug` are ignored for update comparison.
-  - The Android update **action target depends on the distribution flavor**:
-    - `play` flavor: the action opens the Google Play listing (`market://details?id=dev.screengoated.toolbox.mobile`, web fallback `https://play.google.com/store/apps/details?id=...`). Play performs the actual update.
-    - `full` (sideload) flavor: prefer the latest `.apk` asset URL; fall back to the release page URL when no `.apk` exists. (Legacy path — being phased out as Android moves to Play-only.)
+  - The Android update **source and action depend on the distribution flavor**:
+    - `play` flavor: uses the **Google Play In-App Updates API** (`com.google.android.play:app-update-ktx`), not GitHub. The startup/manual check queries `AppUpdateManager.appUpdateInfo`; if an update is available the primary action launches Play's **flexible** update flow (`startUpdateFlowForResult`), download progress is tracked via an `InstallStateUpdatedListener` (`Downloading` → `Downloaded`), and the `Downloaded` action calls `completeUpdate()` to restart and apply. No GitHub call and no hand-rendered release notes (Play owns the changelog). Implemented in `updater/PlayInAppUpdateManager.kt`.
+    - `full` (sideload) flavor: GitHub-driven (`updater/AppUpdateRepository.kt`) — prefer the latest `.apk` asset URL; fall back to the release page URL when no `.apk` exists.
 - Output contract:
-  - Android must show the same latest-version and release-notes data that Windows uses from GitHub Releases.
-  - Android must perform the same startup auto-check semantics once per app launch.
+  - `full` flavor must show the same latest-version and release-notes data that Windows uses from GitHub Releases.
+  - `play` flavor mirrors Play's update availability instead of GitHub; it shows the current version, a check action, and the in-app flexible update flow.
+  - Android performs the same startup auto-check-once-per-launch semantics for both flavors (GitHub for `full`, Play for `play`).
 
 ## Failure And Recovery
 - Permission/runtime failures:
@@ -53,6 +55,6 @@
 
 ## Deviations
 - Windows performs an in-place executable update and can request restart.
-- Android cannot mirror Windows' in-place replacement from the app UI:
-  - `play` flavor delegates updates to Google Play — the action opens the Play listing and Play auto-updates installed builds.
-  - `full` (sideload) flavor opens the GitHub `.apk` asset or release page for a user-driven install. This path is being retired in favor of Play-only distribution; existing sideload installs must reinstall from Play (different signing key) to migrate.
+- Android cannot mirror Windows' in-place executable replacement, so update delivery diverges by flavor:
+  - `play` flavor uses Google Play In-App Updates (flexible flow): the update downloads in-app and `completeUpdate()` restarts to apply it. This is the closest Android analog to Windows' in-place update; release notes are owned by Play rather than mirrored from GitHub.
+  - `full` (sideload) flavor opens the GitHub `.apk` asset or release page for a user-driven install. Existing sideload installs must reinstall from Play (different signing key) to migrate.

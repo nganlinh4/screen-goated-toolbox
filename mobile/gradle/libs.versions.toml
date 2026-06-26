@@ -34,6 +34,7 @@ media3 = "1.10.1"
 moonshine-voice = "0.0.51"
 commonmark = "0.28.0"
 youtubedl-android = "0.18.1"
+play-app-update = "2.1.0"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -83,3 +84,4 @@ commonmark-ext-gfm-strikethrough = { group = "org.commonmark", name = "commonmar
 commonmark-ext-task-list-items = { group = "org.commonmark", name = "commonmark-ext-task-list-items", version.ref = "commonmark" }
 youtubedl-android-library = { group = "io.github.junkfood02.youtubedl-android", name = "library", version.ref = "youtubedl-android" }
 youtubedl-android-ffmpeg = { group = "io.github.junkfood02.youtubedl-android", name = "ffmpeg", version.ref = "youtubedl-android" }
+play-app-update-ktx = { group = "com.google.android.play", name = "app-update-ktx", version.ref = "play-app-update" }

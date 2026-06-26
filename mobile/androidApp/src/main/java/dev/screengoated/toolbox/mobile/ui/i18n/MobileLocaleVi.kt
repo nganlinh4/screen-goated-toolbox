@@ -130,6 +130,11 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
         updateFailedLabel = "Cập nhật thất bại:",
         retryButton = "Thử lại",
         updateAvailableNotification = "Có bản cập nhật mới!",
+        checkingPlayUpdates = "Đang kiểm tra Google Play...",
+        updateDownloadingLabel = "Đang tải bản cập nhật...",
+        updateDownloadedLabel = "Đã tải xong bản cập nhật",
+        restartToUpdateButton = "Khởi động lại để cập nhật",
+        updateNowButton = "Cập nhật",
         usageTipsTitle = "Mẹo sử dụng",
         usageTipsClickHint = "Chạm để xem toàn bộ danh sách mẹo",
         usageTipsList = listOf(

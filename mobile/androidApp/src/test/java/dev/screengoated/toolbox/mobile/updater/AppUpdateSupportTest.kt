@@ -92,7 +92,7 @@ class AppUpdateSupportTest {
         assertTrue(repositorySource.contains("fun autoCheckForUpdates()"))
         assertTrue(repositorySource.contains("if (autoCheckStarted)"))
         assertTrue(repositorySource.contains("autoCheckStarted = true"))
-        assertTrue(viewModelSource.contains("appUpdateRepository.autoCheckForUpdates()"))
+        assertTrue(viewModelSource.contains("appUpdateController.autoCheckForUpdates()"))
     }
 
     private fun loadFixture(): JsonObject {
