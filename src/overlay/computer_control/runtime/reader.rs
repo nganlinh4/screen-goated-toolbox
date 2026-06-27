@@ -28,8 +28,17 @@ pub(super) struct Reader {
     pub(super) pending: Pending,
     /// The model's spoken output since the last tool call - its "intent" context.
     pub(super) reasoning: String,
-    /// The latest spoken user command - the task context handed to vision.
+    /// The model's SILENT thinking (includeThoughts) since the last tool call - the
+    /// preferred intent source: captured even when the model says nothing aloud.
+    pub(super) thinking: String,
+    /// The MODEL's own understanding of the current task (its first stated intent this
+    /// turn) - the goal handed to vision + done-verification. NOT the raw input
+    /// transcription: that text is display-only, so a mis-hear can't pollute the task.
     pub(super) last_cmd: String,
+    /// True once the user has issued any command this session - gates the one-time
+    /// browser-control offer (replaces using `last_cmd` non-empty for that, since
+    /// `last_cmd` now tracks the model's intent, not "did the user speak").
+    pub(super) has_command: bool,
     /// True while a spoken request is being worked on. Idle frames are pushed only
     /// while active, so after `done` the agent waits for the user instead of
     /// treating each new frame as a cue to keep acting.
@@ -174,14 +183,16 @@ pub(super) fn handle_event(
             overlay::push_log(format!("[~] halting current step + re-planning {ids:?}"));
         }
         ServerEvent::InputTranscript(t) => {
+            // This is Gemini's text of your AUDIO and can mis-hear ("play it" -> "Vai é").
+            // The MODEL reasons on the audio, not this text, so we keep it OUT of history and
+            // the task/vision context - it drives ONLY the orb caption. The turn's real task is
+            // captured from the model's own intent at its first action (see ToolCall below).
             if !t.trim().is_empty() {
                 flush_reply(state); // close the assistant's prior reply into history
-                state.history.push(format!("User: {}", t.trim()));
-                if state.history.len() > MAX_HISTORY {
-                    let drop = state.history.len() - MAX_HISTORY;
-                    state.history.drain(0..drop);
-                }
-                state.last_cmd = t.clone(); // task context for vision
+                state.reasoning.clear(); // this turn's intent starts fresh - don't inherit last turn's narration
+                state.thinking.clear();
+                state.last_cmd.clear(); // new turn - the goal is re-derived from the model's intent
+                state.has_command = true; // the user has spoken (gates the browser offer)
                 state.active = true; // a fresh request - resume pushing frames
                 state.awaiting = true; // model now owes a response
                 state.think_start = Some(Instant::now()); // start the think-time clock
@@ -202,6 +213,11 @@ pub(super) fn handle_event(
             // modelTurn text parts in AUDIO mode carry tool-call / internal text
             // (e.g. "call:look{...}"), NOT spoken words — ignore so they don't
             // pollute the spoken transcript or the vision intent context.
+        }
+        ServerEvent::Thought(t) => {
+            // The model's SILENT reasoning (thinking) — never spoken, never shown. Feed it to
+            // the intent buffer so the turn's task is captured even on a wordless turn.
+            state.thinking.push_str(&t);
         }
         ServerEvent::TurnComplete => {
             // The model finished a turn. If it was mid-task and produced NO tool call,
@@ -238,11 +254,25 @@ pub(super) fn handle_event(
                     ));
                 }
             }
-            let intent = state.reasoning.trim().to_string();
+            // Intent = the model's SILENT thinking if present (preferred - it's the real
+            // reasoning and costs no speech), else its spoken words. Capped so a long thought
+            // summary can't bloat the vision context.
+            let from_think = !state.thinking.trim().is_empty();
+            let src = if from_think { state.thinking.trim() } else { state.reasoning.trim() };
+            let intent: String = src.chars().take(500).collect();
             state.reasoning.clear();
+            state.thinking.clear();
+            // The model's first stated intent this turn IS the task (it replaces the raw input
+            // transcription as the goal for vision + done-verification). Log it once per turn with
+            // its source so a test can confirm thought-capture (includeThoughts) is working.
+            if state.last_cmd.is_empty() && !intent.is_empty() {
+                state.last_cmd = intent.clone();
+                let preview: String = intent.chars().take(80).collect();
+                overlay::push_log(format!("[intent/{}] {preview}", if from_think { "thought" } else { "spoken" }));
+            }
             overlay::push_log(format!(">{name} {}", compact_args(&args)));
             overlay::set_status(format!("doing: {name}"));
-            overlay::set_orb_tool(&name);
+            overlay::set_orb_tool(&name, &args);
             state.pending = Pending { id: Some(id.clone()), cancelled: false };
             // Runs on the executor thread (the Brain dispatch + grounding).
             let _ = exec_tx.send((id, name, args, state.last_cmd.clone(), intent));

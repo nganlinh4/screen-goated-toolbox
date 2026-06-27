@@ -27,8 +27,11 @@ use super::session::{self, Sock, View, connect_ws, send};
 use super::uia::{self, UiElement};
 
 mod brain;
+mod dispatch;
+mod prompt;
 mod render;
 mod vision;
+pub(crate) use prompt::build_setup;
 use render::*;
 use vision::*;
 
@@ -38,7 +41,7 @@ each tagged @cellN = its grid cell). zoom() into a cell for detail. To see your 
 awareness, counting/finding across windows, or to reach another window - call see_whole_screen; reset_view returns \
 to the precise active-window view. \
 click_at(cell): click that grid number. zoom(cell): magnify it (grid redrawn with new numbers); reset_view undoes \
-it. click_element(name): click a listed element. Also type_text, key_combination. \
+it. Also type_text, key_combination. \
 A board/canvas has NO element: READ it with look(question) before deciding (never guess), and CLICK it with \
 click_target(description) - a high-res model locates the exact pixel, far more accurate than click_at for small/ \
 precise targets. Use zoom + click_at(cell) only for coarse navigation. To DRAG-AND-DROP on a canvas (place a card on \
@@ -78,13 +81,16 @@ don't retry on 'no visual change' (the detector misses tiny toggles). \
 SETUP IS DONE the instant browser_status (or browser_setup) reports connected:true - say it's ready and STOP: do NOT \
 re-run browser_setup, re-open chrome://extensions, re-toggle Developer mode, or look() to 'verify' the extension. \
 Then just USE the browser tools for the user's actual task. \
+BROWSER RECONNECTS ITSELF: if a browser tool says it is 'reconnecting' (the extension's background worker briefly napped), \
+just RETRY in a moment - it returns on its own; do NOT re-run browser_setup, do NOT offer setup, do NOT tell the user to \
+install anything. browser_setup is only for when a tool says it's NOT set up or 'may have been removed'. \
 BROWSER NAVIGATION: once connected, open URLs with the extension, NOT open_url (which opens a new WINDOW). Choose: \
 browser_navigate replaces the CURRENT tab - use it when the current page is disposable or the user wants to go \
 somewhere fresh; browser_open_tab opens a NEW tab in the same window, keeping the current page - use it when the user \
 is working with the current page or wants something opened alongside. When unsure, prefer a new tab (less \
 disruptive). Reserve open_url for when the extension isn't connected or to leave a chrome:// page. \
-The DOM tools (browser_query/click/fill) see the MAIN page, not CROSS-ORIGIN iframes (some login/payment/embed \
-widgets) - if a selector isn't found, the target may be in such a frame: fall back to vision (click_target / \
+observe()/act() read + act on the MAIN page, not CROSS-ORIGIN iframes (some login/payment/embed widgets) - if an \
+element you need is not in observe()'s list, it may be in such a frame: fall back to vision (click_target / \
 click_here on what the user points at). \
 MULTI-STEP TASKS: once you START a multi-step task (e.g. browser setup), carry out ALL its steps BACK-TO-BACK in one \
 go - do NOT do one step then stop and wait for the user. If the user makes a remark or asks a status question ('are \
@@ -96,7 +102,7 @@ you the user is browsing without deep control, you may offer ONCE, briefly; if t
 decline, call decline_browser_control and drop it. Never offer twice. \
 WEB BROWSING - when deep browser control is connected, do web work THROUGH the bridge, NOT visually: browser_read_page \
 returns the WHOLE page's text in one shot (read it and answer; do NOT scroll screen-by-screen, you'll loop); \
-browser_click(css selector) and browser_eval act on the page; browser_navigate moves it. With several tabs open it is \
+observe()/act() read + act on page elements; browser_eval runs JS; browser_navigate moves the page. With several tabs open it is \
 easy to land on the WRONG one, so VERIFY the url/title that browser_switch_tab and browser_read_page report is the page you \
 meant before reading or acting. Do NOT click_mark / click_target \
 / zoom / scroll a web page (use scroll + look ONLY to eyeball a SPECIFIC image the text points to), and do NOT try to read \
@@ -132,179 +138,13 @@ command for it. Most system tasks just DO - keep it smooth, never ask permission
 before something CATASTROPHIC or clearly unexpected (formatting/wiping, shutting down, deleting the user's files). \
 GAMES: read the board with look()/zoom and plan the WHOLE sequence before moving; never act blindly. Play by whatever \
 the game uses - keyboard for arrow/key games (2048), or click_target / drag_target for pointer, card and tile games. \
+To MOVE a character that walks while a key is HELD (most action games), a quick tap won't register - use \
+key_combination with hold_seconds (e.g. keys:'d' or 'Right', hold_seconds:1-2) so the key stays down long enough to \
+move; a normal tap is only for discrete inputs (jump, confirm). \
 If a game running in a BROWSER ignores your clicks or drags (a canvas/WebGL game often does - plain OS clicks aren't \
 trusted by the page), that is exactly when to set up deep browser control with browser_setup: once it is connected, \
 click_target and drag_target automatically drive the page's OWN trusted input, which works on canvas/WebGL/iframe \
 games. Then retry the same move.";
-
-pub(super) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Value {
-    // "low" (not "medium") for a fast, action-oriented real-time agent: medium
-    // thinking noticeably slows every turn and made it over-deliberate (narrate
-    // instead of act). Override with CC_THINK=minimal|low|medium|high.
-    let think = std::env::var("CC_THINK").unwrap_or_else(|_| "low".to_string());
-    // Raise the per-turn output cap so a long spoken summary isn't cut off mid-word.
-    // maxOutputTokens IS honored by the Live API (it's not in the documented
-    // unsupported list); the server clamps anything above the model's own ceiling.
-    let max_out: u32 = std::env::var("CC_MAX_OUTPUT_TOKENS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(16384);
-    // Match the global TTS voice preference ("Cài đặt giọng đọc" in settings) so
-    // the agent speaks in the user's chosen Gemini voice, not a hardcoded one.
-    let voice_name = {
-        let v = crate::load_config().tts_voice.trim().to_string();
-        if v.is_empty() { "Aoede".to_string() } else { v }
-    };
-    // On a reconnect, resume the prior session by its handle so the server
-    // restores the full conversation (survives an intermittent server drop).
-    let resumption = match resume {
-        Some(h) => json!({ "handle": h }),
-        None => json!({}),
-    };
-    // Tell the agent its current privilege level so it reaches the most powerful action available in
-    // the current mode — and knows when to escalate via UAC rather than silently failing.
-    let privilege = if executor::is_elevated() {
-        "PRIVILEGE: you are running ELEVATED (full administrator) - run_command has admin rights, so do system tasks directly."
-    } else {
-        "PRIVILEGE: you are running as a STANDARD user (not elevated). run_command still does most things; but admin-only tasks (stop a service, kill another user's or a protected process, system-wide settings) fail with Access Denied - for THOSE, relaunch just that command via run_command with Start-Process -Verb RunAs (the user approves one UAC prompt), then verify."
-    };
-    let mut setup = json!({ "setup": {
-        "model": format!("models/{}", super::protocol::MODEL),
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}},
-            "mediaResolution": "MEDIA_RESOLUTION_HIGH",
-            "maxOutputTokens": max_out,
-            "thinkingConfig": {"thinkingLevel": think}
-        },
-        "systemInstruction": {"parts": [{"text": format!("{SYS}\n{privilege}")}]},
-        "tools": [{"googleSearch": {}}, {"functionDeclarations": [
-            {"name": "click_element", "description": "Click the UI element with this exact name (copied verbatim from the element list).",
-             "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
-            {"name": "click_at", "description": "Click the CENTER of the numbered GRID CELL shown over the current screenshot. Pass the cell's printed number. Use for targets NOT in the element list, e.g. a game board, canvas, or image.",
-             "parameters": {"type": "object", "properties": {"cell": {"type": "integer", "description": "The grid number printed over the target."}}, "required": ["cell"]}},
-            {"name": "zoom", "description": "Magnify the numbered GRID CELL so small targets become large and a fresh finer grid is drawn over it. Pass the cell's printed number.",
-             "parameters": {"type": "object", "properties": {"cell": {"type": "integer", "description": "The grid number to magnify."}}, "required": ["cell"]}},
-            {"name": "reset_view", "description": "Return the view to the ACTIVE window (the default; undoes zoom and see_whole_screen).",
-             "parameters": {"type": "object", "properties": {}}},
-            {"name": "see_whole_screen", "description": "Switch the view to your ENTIRE screen (all windows) instead of just the active window. Use it for awareness - 'what's on my screen', counting/finding things across windows, or locating another window to switch to. Acting precisely (clicks) is best in the default active-window view, so reset_view (or focus_window) afterward.",
-             "parameters": {"type": "object", "properties": {}}},
-            {"name": "look", "description": "Get a precise HIGH-RESOLUTION reading of what is currently on screen, for content you cannot read clearly yourself (game boards, charts, images, tiny text). Ask a specific question; a dedicated vision model answers from a clean high-res capture of the current view. Use this to read a board/canvas state before deciding a move, and to check results.",
-             "parameters": {"type": "object", "properties": {"question": {"type": "string", "description": "What to read, e.g. 'List each of the 9 tic-tac-toe cells row by row as X, O, or empty.'"}}, "required": ["question"]}},
-            {"name": "click_target", "description": "Click a target described in plain words; a high-resolution vision model locates its EXACT pixel and we click there. Use this for PRECISE clicks on canvas/board/image/button targets instead of click_at(cell) - it is far more accurate because it does not round to a grid cell. Set button='right' to open a context menu (e.g. to 'Save image as').",
-             "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Unambiguous target, e.g. 'the generated chicken image' or 'the download button'."}, "button": {"type": "string", "enum": ["left", "right"], "description": "left (default) or right for a context menu."}}, "required": ["description"]}},
-            {"name": "map_targets", "description": "Build a reusable set of click ANCHORS in ONE vision call: a high-res model finds EVERY target matching your description (e.g. 'every cell of the game board', 'each toolbar button') and returns them as numbered anchors. Then click any anchor by number with click_mark - NO per-click vision, so it is far faster for repetitive clicking on a board/grid/menu. Re-run map_targets if the layout changes (resize/scroll/new screen); it is auto-cleared when you zoom.",
-             "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "What set of targets to map, e.g. 'every empty cell of the board'."}}, "required": ["description"]}},
-            {"name": "click_mark", "description": "Click a numbered anchor previously built by map_targets (exact pixel, no vision cost). Set button='right' for a context menu.",
-             "parameters": {"type": "object", "properties": {"mark": {"type": "integer", "description": "The anchor number from map_targets."}, "button": {"type": "string", "enum": ["left", "right"]}}, "required": ["mark"]}},
-            {"name": "wait", "description": "Pause for N seconds, for slow or asynchronous operations (e.g. waiting for an image to finish generating or a page to load). Then re-observe.",
-             "parameters": {"type": "object", "properties": {"seconds": {"type": "number", "description": "Seconds to wait (max 30)."}}, "required": ["seconds"]}},
-            {"name": "type_text", "description": "Type text at the current keyboard focus (FAST - instant/paste). Set press_enter=true to submit afterward (e.g. an address bar or search box) - do NOT put '{enter}' inside the text, it would be typed literally.",
-             "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "press_enter": {"type": "boolean", "description": "Press Enter after typing (to submit)."}, "slow": {"type": "boolean", "description": "Rarely needed: type slowly key-by-key for a field that genuinely demands paced input. Default false (fast)."}}, "required": ["text"]}},
-            {"name": "scroll", "description": "Scroll with the REAL mouse wheel (not PageDown) over the page/list. direction up/down (or left/right); 'amount' is how far (default 5; larger scrolls more). Optionally pass a grid 'cell' to scroll over a specific area, else it scrolls over the centre. Prefer this for natural scrolling.",
-             "parameters": {"type": "object", "properties": {"direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "number"}, "cell": {"type": "integer"}}, "required": ["direction"]}},
-            {"name": "drag", "description": "Press at one grid cell, glide to another, and release - for sliders, reordering items, drawing, or click-drag to SELECT text/items. Pass from_cell and to_cell (the printed grid numbers). zoom() first for finer cells when precision matters.",
-             "parameters": {"type": "object", "properties": {"from_cell": {"type": "integer", "description": "Grid cell to press at."}, "to_cell": {"type": "integer", "description": "Grid cell to release at."}}, "required": ["from_cell", "to_cell"]}},
-            {"name": "drag_target", "description": "PRECISE drag-and-drop: a vision model locates the EXACT pixel of BOTH endpoints (described in plain words) and drags from one to the other. Use this - NOT drag(cells) - to place a card on a board slot, drop an item, or move a slider on a canvas/game, where grid cells are too coarse to hit the small targets.",
-             "parameters": {"type": "object", "properties": {"from": {"type": "string", "description": "What to grab, e.g. 'the selected Full Moon card in my hand'."}, "to": {"type": "string", "description": "Where to drop it, e.g. 'the empty center slot of the board'."}}, "required": ["from", "to"]}},
-            {"name": "click_here", "description": "Click EXACTLY where the mouse cursor currently is, without moving it (button='right' for a context menu). Use when the user refers to what THEY are pointing at - 'this', 'the one I'm hovering on', 'where my mouse is' - because their pointer is already on the target. Far more reliable than guessing the target by description with click_target.",
-             "parameters": {"type": "object", "properties": {"button": {"type": "string", "enum": ["left", "right", "middle"]}}}},
-            {"name": "point_at", "description": "MOVE the mouse onto a target described in plain words and STOP there - point/hover, NO click. Use when the user wants you to POINT something OUT to them ('point at the save button', 'show me which one', 'where is X') rather than act on it, OR to HOVER and reveal a tooltip / hover-menu. A high-res vision model locates the exact pixel (same as click_target). Set dwell_seconds to linger so a hover reveal can appear before you look() again.",
-             "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Unambiguous target to point at, e.g. 'the settings gear' or 'the second result'."}, "dwell_seconds": {"type": "number", "description": "Optional: seconds to hover in place (0-10) to let a tooltip / hover-menu surface. Default 0."}}, "required": ["description"]}},
-            {"name": "key_combination", "description": "Press a keyboard shortcut, e.g. Enter, Control+C, Alt+Tab.",
-             "parameters": {"type": "object", "properties": {"keys": {"type": "string"}}, "required": ["keys"]}},
-            {"name": "open_url", "description": "Open an http(s) URL in the default browser as a NEW foreground tab (via the OS shell). Use this to go to a web page directly - far more reliable than typing into the address bar.",
-             "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-            {"name": "launch_app", "description": "Launch or focus a Windows app by name/path via the OS shell, e.g. 'chrome', 'notepad', 'explorer'. Pass 'args' to give it arguments - e.g. open a file in an app: name='notepad', args='C:\\\\path\\\\file.txt' (or just launch_app the file path itself to open it in its default app). Do NOT cram args into 'name'.",
-             "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "string", "description": "Optional command-line arguments / file to open."}}, "required": ["name"]}},
-            {"name": "run_command", "description": "Run a PowerShell command and get its output - your SYSTEM-CONTROL plane and most general tool. PowerShell IS the Windows system API: processes (Get-Process / Stop-Process), services (Get-/Start-/Stop-Service), files & folders (Get-ChildItem / Copy-Item / Move-Item / Remove-Item), registry (Get-/Set-ItemProperty), network (Get-NetTCPConnection / Get-NetIPAddress), power, audio volume, installed apps, disk space, system info. Add '| ConvertTo-Json -Depth 4' when you need to READ structured data back. Non-interactive: a command that prompts FAILS rather than hangs. If a task needs ADMIN and you are NOT elevated (see PRIVILEGE), relaunch JUST that command elevated via Start-Process -Verb RunAs (one UAC prompt for the user), then verify. Returns stdout/stderr/exit (truncated). Prefer a dedicated tool when one fits (open_url, type_text, focus_window).",
-             "parameters": {"type": "object", "properties": {"command": {"type": "string", "description": "The PowerShell command line to run."}}, "required": ["command"]}},
-            {"name": "focus_window", "description": "Bring an already-open window to the FRONT by a piece of its title OR its app/exe name (e.g. 'Chrome', 'Notepad', 'GenshinImpact'). It matches the EXE name too, so target a FULLSCREEN GAME by its app name from list_windows (its on-screen title may collide with a browser tab about it). Restores the window if it was minimized. Returns the window now in front so you can confirm. If it reports the SAME covering window, that app is exclusive-fullscreen (a game) — you canNOT switch away from it and must not minimize what the user is playing; read any web content with browser_read_page instead, or ask the user to alt-tab.",
-             "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "A substring of the target window's title bar."}}, "required": ["title"]}},
-            {"name": "list_windows", "description": "List every open top-level window as 'title [app.exe]' — INCLUDING fullscreen GAMES that have no normal title bar and don't appear to other tools — so you know what's open to focus_window or minimize_window, and can target a game by its app name. No arguments.",
-             "parameters": {"type": "object", "properties": {}}},
-            {"name": "minimize_window", "description": "Minimize a window by a piece of its title - use this to get a FULLSCREEN game or app OUT OF THE WAY when it covers what you need (it works even when the game swallows alt+tab/Win+D keystrokes, because it acts on the window directly). Returns what's in front afterward.",
-             "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "A substring of the window to minimize."}}, "required": ["title"]}},
-            {"name": "resize_window", "description": "Resize a window (matched by a piece of its title) to width x height in PIXELS. Restores it first if maximized, so you can make it smaller. e.g. resize_window('Notepad', 700, 500).",
-             "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "width": {"type": "integer"}, "height": {"type": "integer"}}, "required": ["title", "width", "height"]}},
-            {"name": "move_window", "description": "Move a window (matched by a piece of its title) so its top-left corner is at screen pixel (x, y). Keeps its current size.",
-             "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["title", "x", "y"]}},
-            {"name": "read_clipboard", "description": "Read the text currently on the Windows clipboard (e.g. what you or the user just copied). Lets you grab a selection without retyping it. No arguments. (type_text already PASTES via the clipboard, so writing long text is fast.)",
-             "parameters": {"type": "object", "properties": {}}},
-            {"name": "done", "description": "Call ONLY when the goal is confirmed achieved; quote the evidence.",
-             "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}},
-            {"name": "search_memory", "description": "Search YOUR memory of PAST conversations (every prior session is saved). Use when the user refers to something from before ('remember when we...', 'what did we decide about X', 'last time'). Returns matching past conversations as numbered results with a title + snippet + id. Then call open_memory(id) to read the full one.",
-             "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "What to recall, in plain words, e.g. 'the plan for the memory feature' or 'the Genshin quest story'."}}, "required": ["query"]}},
-            {"name": "open_memory", "description": "Read the FULL transcript of one past conversation returned by search_memory. Pass its id.",
-             "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "The conversation id from a search_memory result."}}, "required": ["id"]}},
-            {"name": "browser_setup", "description": "Bring up DEEP browser control (read/act on the real page DOM, not just pixels) via the SGT browser extension. It writes the extension folder and returns it plus a 'do_yourself' checklist. DO the install YOURSELF with your tools (toggle Developer mode, Load unpacked the folder) - do NOT recite steps to the user. It auto-pairs over the socket, so there is NO code to paste and NO popup. Pause ONLY if a permission prompt appears. Then poll browser_status.",
-             "parameters": {"type": "object", "properties": {}}},
-            {"name": "browser_status", "description": "Check whether the deep-browser extension is connected. Returns connected, port, and whether a pairing window is open.",
-             "parameters": {"type": "object", "properties": {}}},
-            {"name": "browser_reset", "description": "Reset/repair browser control when it's stuck or won't connect (e.g. the user says 'reset/fix/forget browser control'): re-opens the pairing window so a loaded extension re-pairs cleanly and re-enables the setup offer. To fully UNINSTALL, the user removes the extension on the browser's extensions page.",
-             "parameters": {"type": "object", "properties": {}}},
-            {"name": "browser_read_page", "description": "Read the current page's real DOM: title, url, and visible text. Far more complete/reliable than look() for web pages once the extension is connected.",
-             "parameters": {"type": "object", "properties": {}}},
-            {"name": "browser_query", "description": "Find elements by CSS selector on the page; returns up to 50 with their text, tag, and on-screen rect. Use to locate things precisely before browser_click/browser_fill.",
-             "parameters": {"type": "object", "properties": {"selector": {"type": "string", "description": "A CSS selector, e.g. 'button.submit' or 'a[href*=login]'."}}, "required": ["selector"]}},
-            {"name": "browser_click", "description": "Click the element matching a CSS selector, using a TRUSTED page click (more reliable than pixel clicks). Scrolls it into view first.",
-             "parameters": {"type": "object", "properties": {"selector": {"type": "string"}}, "required": ["selector"]}},
-            {"name": "browser_fill", "description": "Focus the input/textarea matching a CSS selector, select its contents, and type text into it (trusted, fires input events).",
-             "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "text": {"type": "string"}}, "required": ["selector", "text"]}},
-            {"name": "browser_wait_for", "description": "Wait until an element matching a CSS selector appears (or timeout). Use after a click/navigation that loads content.",
-             "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "timeout_ms": {"type": "integer"}}, "required": ["selector"]}},
-            {"name": "browser_eval", "description": "Run JavaScript in the page and return its (JSON-able) result. Your general escape hatch for extracting structured data or doing precise DOM work.",
-             "parameters": {"type": "object", "properties": {"code": {"type": "string", "description": "A JS expression; its value is returned (use an IIFE for statements)."}}, "required": ["code"]}},
-            {"name": "browser_navigate", "description": "Navigate the CURRENT tab to a URL (replaces what's on it). Use when the current page is disposable or the user wants to go somewhere fresh.",
-             "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-            {"name": "browser_open_tab", "description": "Open a URL in a NEW tab in the same window (keeps the current page). Use when the user is working with the current page or wants something opened alongside. Prefer this over browser_navigate when unsure (less disruptive).",
-             "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-            {"name": "browser_upload", "description": "Set the file for a file <input> matching a CSS selector (real upload via DevTools). Pass an absolute file path.",
-             "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "path": {"type": "string"}}, "required": ["selector", "path"]}},
-            {"name": "browser_tabs", "description": "List the open browser tabs (id, title, url, active).",
-             "parameters": {"type": "object", "properties": {}}},
-            {"name": "browser_switch_tab", "description": "Make a browser tab active by its id (from browser_tabs).",
-             "parameters": {"type": "object", "properties": {"tab_id": {"type": "integer"}}, "required": ["tab_id"]}},
-            {"name": "browser_network", "description": "Read recent network requests the page made (url + status). Enables capture if needed; call again after the page loads to see results.",
-             "parameters": {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring of the CDP event name, e.g. 'responseReceived'."}}}},
-            {"name": "decline_browser_control", "description": "Call ONLY when the user declines your offer to set up deep browser control - records it so you stop asking this session and don't nag (you may bring it up again much later). No args.",
-             "parameters": {"type": "object", "properties": {}}}
-        ]}],
-        "inputAudioTranscription": {},
-        "outputAudioTranscription": {},
-        "sessionResumption": resumption,
-        "contextWindowCompression": {"slidingWindow": {}}
-    }});
-    // Voice sessions need VAD + barge-in so a spoken command (or "stop") can
-    // interrupt; the headless harness omits it (no mic).
-    if voice {
-        setup["setup"]["realtimeInputConfig"] = json!({
-            "automaticActivityDetection": {
-                "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
-                "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH",
-                "prefixPaddingMs": 30,
-                "silenceDurationMs": 250
-            },
-            // Native barge-in: when you START speaking, the server interrupts the
-            // model - it stops talking (we clear the audio sink on `interrupted`) and
-            // cancels any pending tool call (handled as ToolCancellation: the action
-            // still physically finishes, its result is dropped, and the model re-plans
-            // from your new words). The Live API couples speech + action interruption
-            // into this one switch, so getting "stop talking" back means actions are
-            // interruptible too. Requires headphones - on open speakers the agent's own
-            // voice leaks into the mic and self-interrupts, so set CC_MIC_GATE=1 to mute
-            // the mic during playback (which trades away barge-in to stop the echo).
-            "activityHandling": "START_OF_ACTIVITY_INTERRUPTS"
-        });
-    }
-    // Google Search grounding needs a billing-enabled project / grounding quota;
-    // without it the server rejects the whole session ("exceeded quota"). So it's
-    // OPT-IN per call — callers retry without it if setup fails.
-    if !search && let Some(tools) = setup["setup"]["tools"].as_array_mut() {
-        tools.retain(|t| t.get("googleSearch").is_none());
-    }
-    setup
-}
 
 /// A gridded snapshot of the current foreground window as base64 JPEG, with NO
 /// click marker and no trace I/O — for the voice runtime's initial + periodic
@@ -366,6 +206,10 @@ pub(super) struct Brain {
     /// clicks these by id (click_mark) with no per-click vision. Cleared whenever
     /// the layout changes (zoom/reset) so stale points can't cause wrong clicks.
     anchors: Vec<(i32, i32, Option<String>)>,
+    /// The deterministic controller (resolve→execute→verify→gate) behind the
+    /// observe/act/do_steps tools — drives the browser surface (and native windows
+    /// via UIA), always on.
+    controller: super::controller::Controller,
 }
 
 /// Result of grounding after an action: the frame to send, the textual state, and

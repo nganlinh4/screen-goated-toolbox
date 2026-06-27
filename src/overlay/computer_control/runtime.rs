@@ -28,8 +28,10 @@ use super::session::{self, Sock, connect_ws, send};
 use super::uia_task;
 
 mod action_worker;
+mod mic;
 mod reader;
 use action_worker::executor_loop;
+use mic::mic_thread;
 use reader::{Pending, Reader, build_recap, flush_reply, handle_event, record_observation};
 
 /// How often a fresh (gridded) screenshot is streamed while you're talking or a request is
@@ -41,8 +43,12 @@ const MAX_RECONNECTS: u32 = 6;
 /// When it owes us a response and we've heard nothing for `NUDGE_SILENCE`, poke it
 /// with a fresh frame (cheap, keeps session memory). Only if it's STILL silent at
 /// `RECONNECT_SILENCE` do we tear down + reconnect (which drops in-flight context).
-const NUDGE_SILENCE: Duration = Duration::from_secs(7);
-const RECONNECT_SILENCE: Duration = Duration::from_secs(18);
+/// RECONNECT is deliberately GENEROUS: this model legitimately THINKS for 20-30s on a
+/// complex turn, and reconnecting mid-think drops its working context and sends it
+/// flailing (clicking the wrong thing, redoing work) - far worse than waiting a bit
+/// longer for a genuinely hung session. Don't drop this below the real think latency.
+const NUDGE_SILENCE: Duration = Duration::from_secs(8);
+const RECONNECT_SILENCE: Duration = Duration::from_secs(40);
 
 /// A tool call handed to the executor thread: (id, name, args, task, intent).
 type Job = (String, String, Value, String, String);
@@ -89,53 +95,6 @@ matches your AI Studio project, or use a billing-enabled key."
     overlay::set_listening(false);
 }
 
-/// Owns the microphone for the whole session on a DEDICATED thread: builds the cpal stream, watches
-/// for a default-input-device change, and rebuilds on its own. Keeping all cpal/WASAPI calls on this
-/// one thread isolates their per-thread COM apartment from the session loop's TLS/UIA churn, so a
-/// device switch can't trip RPC_E_CHANGED_MODE. Audio flows to the loop via the shared `buf`.
-fn mic_thread(buf: Arc<Mutex<Vec<i16>>>, pause: Arc<AtomicBool>, stop: Arc<AtomicBool>) {
-    // Build the mic stream, retrying a few times (WASAPI transiently reports "device busy" mid-switch).
-    let build = || -> anyhow::Result<cpal::Stream> {
-        let mut attempt = 0;
-        loop {
-            match crate::api::realtime_audio::start_mic_capture(buf.clone(), stop.clone(), pause.clone())
-            {
-                Ok(s) => return Ok(s),
-                Err(_) if attempt < 4 => {
-                    attempt += 1;
-                    overlay::push_log(format!("(audio device busy - retrying {attempt}/4)"));
-                    std::thread::sleep(Duration::from_millis(500));
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    };
-    let mut stream = build().map_err(|e| overlay::push_log(format!("(mic init failed: {e})"))).ok();
-    let mut device = crate::api::realtime_audio::current_input_device_name();
-    let mut last_check = Instant::now();
-    while !stop.load(Ordering::SeqCst) {
-        std::thread::sleep(Duration::from_millis(200));
-        if last_check.elapsed() < Duration::from_secs(2) {
-            continue;
-        }
-        last_check = Instant::now();
-        let now = crate::api::realtime_audio::current_input_device_name();
-        if now != device {
-            overlay::push_log(format!(
-                "(audio device changed -> {} - re-initializing mic)",
-                now.as_deref().unwrap_or("none")
-            ));
-            device = now;
-            drop(stream.take()); // release the OLD device before grabbing the new one
-            std::thread::sleep(Duration::from_millis(300)); // let the switch settle
-            stream = build()
-                .map_err(|e| overlay::push_log(format!("(mic re-init failed: {e})")))
-                .ok();
-        }
-    }
-    drop(stream);
-}
-
 fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     let key = session::load_key()?;
     let target = std::env::var("CC_UIA_WINDOW").ok();
@@ -172,7 +131,7 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     }
     set_socket_nonblocking(&mut socket)?;
     overlay::set_status("ready - speak a command");
-    overlay::set_orb_listening();
+    overlay::set_orb_resting();
     overlay::push_log("* connected; sending your WHOLE screen + mic each turn (smart brain)".to_string());
 
     // Steer/stop core: the Brain + its (possibly slow) actions run on a SEPARATE
@@ -271,12 +230,13 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
         if !offered_browser
             && !state.active
             && !state.awaiting
-            && !state.last_cmd.trim().is_empty()
+            && state.has_command
             && last_event.elapsed() > Duration::from_secs(6) // genuinely idle, not mid-request
             && last_offer_check.elapsed() >= Duration::from_secs(4)
         {
             last_offer_check = Instant::now();
             if !super::browser::is_connected()
+                && !super::browser::recently_connected()
                 && super::browser::offer_due()
                 && foreground_is_browser()
             {
@@ -331,6 +291,16 @@ more precise page reading/acting. If they decline, call decline_browser_control.
         }
         let muted = echo_gate && playing;
         let voiced = !chunk.is_empty() && !muted;
+        // Drive the orb's VOLUME reaction every tick (0 when quiet) so the resting orb pulses with
+        // your voice and settles the moment you stop. The visual gain is amplified in orb.html; the
+        // Idle orb's reaction to this IS the "I hear you" feedback (no separate listening state).
+        let level = if voiced {
+            let rms = (chunk.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / chunk.len() as f64).sqrt();
+            (rms / 4000.0).min(1.0) as f32
+        } else {
+            0.0
+        };
+        overlay::set_orb_audio(level);
         // Speech ONSET (first audio after a gap), ONLY when the model isn't speaking. The model needs
         // a fresh frame to LEAD the turn: video + audio are concurrent streams with NO ordering
         // guarantee, and a frame sent at/after the turn closes isn't ingested in time — the model
@@ -340,9 +310,6 @@ more precise page reading/acting. If they decline, call decline_browser_control.
         let onset = voiced && !playing && last_voice.elapsed() >= Duration::from_millis(500);
         if voiced {
             overlay::set_listening(true);
-            let rms =
-                (chunk.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / chunk.len() as f64).sqrt();
-            overlay::set_orb_audio((rms / 6000.0).min(1.0) as f32);
             send_audio_chunk(&mut socket, &chunk)?;
             last_voice = Instant::now();
         }
@@ -537,14 +504,19 @@ fn reconnect_session(
         send(socket, realtime_video_jpeg_b64(&f))?;
     }
     let recap = build_recap(&state.history);
+    // A reconnect is a SEAMLESS internal event, NOT a new user request. Re-establish
+    // context, then let the model DECIDE whether to act or wait - it must not fire a
+    // fresh (let alone consequential) action just because the socket reconnected.
+    let judge = "JUDGE before doing anything: only finish a step if you were CLEARLY mid-way through an action the \
+user already asked for AND the current screen is that task. Otherwise - task looks done, screen is unrelated, or \
+you're unsure - take NO action and simply wait for the user (no narration needed). NEVER start a new or consequential \
+action just because the connection reconnected.";
     let msg = if recap.is_empty() {
-        "(reconnected after a dropped connection) Continue helping with the user's latest request, based on the \
-current screen."
-            .to_string()
+        format!("(reconnected seamlessly - not a new request) The current screen is shown. {judge}")
     } else {
         format!(
-            "(reconnected after a dropped connection) Here is our conversation so far - keep this context and \
-continue:\n{recap}\n\nContinue from the CURRENT screen."
+            "(reconnected seamlessly - not a new request) Our conversation so far, keep it as context:\n{recap}\n\nThe \
+current screen is shown. {judge}"
         )
     };
     send(socket, realtime_text(&msg))?;

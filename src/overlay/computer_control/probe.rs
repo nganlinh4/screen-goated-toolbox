@@ -154,6 +154,7 @@ fn finish(audio_bytes: usize, tool_calls: usize) -> Result<()> {
 fn log_event(ev: &ServerEvent) {
     match ev {
         ServerEvent::ModelText(t) => eprintln!("[cc-probe] model: {t}"),
+        ServerEvent::Thought(t) => eprintln!("[cc-probe] thinks: {t}"),
         ServerEvent::OutputTranscript(t) => eprintln!("[cc-probe] model says: {t}"),
         ServerEvent::InputTranscript(t) => eprintln!("[cc-probe] heard: {t}"),
         ServerEvent::TurnComplete => eprintln!("[cc-probe] turnComplete"),

@@ -8,56 +8,15 @@
 
 mod bridge;
 mod crypto;
+mod prefs;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 pub(super) use bridge::{ensure_started, is_connected};
-
-// ── Proactive-offer preferences (persisted across sessions) ──────────────────
-
-/// Tracks whether/when we may proactively offer to set up browser control, so a
-/// user who declined isn't nagged - but is asked again much later.
-#[derive(Serialize, Deserialize, Default)]
-struct OfferPrefs {
-    declined: u32,
-    snooze_until: u64, // unix seconds; offers are suppressed until this time
-}
-
-fn prefs_path() -> std::path::PathBuf {
-    crate::paths::app_config_dir().join("cc_browser_prefs.json")
-}
-
-fn load_prefs() -> OfferPrefs {
-    std::fs::File::open(prefs_path())
-        .ok()
-        .and_then(|f| serde_json::from_reader(f).ok())
-        .unwrap_or_default()
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
-}
-
-/// Whether a proactive offer is allowed now (past any post-decline snooze).
-pub(super) fn offer_due() -> bool {
-    now_secs() >= load_prefs().snooze_until
-}
-
-/// The user declined the offer → back off, longer each time, but never forever
-/// (3 days, then 2 weeks, then ~2 months — after which we ask again once).
-pub(super) fn record_decline() {
-    let mut p = load_prefs();
-    p.declined = p.declined.saturating_add(1);
-    let days: u64 = match p.declined {
-        1 => 3,
-        2 => 14,
-        _ => 60,
-    };
-    p.snooze_until = now_secs() + days * 86_400;
-    let _ = crate::atomic_json::write_json_atomic(&prefs_path(), &p);
-}
+pub(super) use prefs::{
+    ever_connected, offer_due, recently_connected, record_connection, record_decline,
+};
 
 // The unpacked extension, shipped in the binary and written to disk on setup.
 const EXT_MANIFEST: &[u8] = include_bytes!("../browser_ext/manifest.json");
@@ -80,16 +39,71 @@ fn not_connected() -> Value {
     })
 }
 
-/// Run `Runtime.evaluate` and return its by-value result (or a JS-exception error).
-fn eval_value(expr: &str) -> anyhow::Result<Value> {
-    let r = bridge::cdp(
+/// Run `Runtime.evaluate` in the TOP frame and return its by-value result.
+pub(super) fn eval_value(expr: &str) -> anyhow::Result<Value> {
+    eval_value_in(expr, None)
+}
+
+/// Like `eval_value`, but optionally inside a specific cross-origin FRAME's CDP
+/// session (`None` = top frame). Lets the controller read + act inside an
+/// out-of-process iframe the top document can't reach.
+pub(super) fn eval_value_in(expr: &str, session_id: Option<&str>) -> anyhow::Result<Value> {
+    let r = bridge::cdp_in(
         "Runtime.evaluate",
         json!({ "expression": expr, "returnByValue": true, "awaitPromise": true }),
+        session_id,
     )?;
     if let Some(exc) = r.get("exceptionDetails") {
-        anyhow::bail!("js exception: {}", exc.get("text").and_then(Value::as_str).unwrap_or("error"));
+        anyhow::bail!("js exception: {}", js_exception_text(exc));
     }
     Ok(r.get("result").and_then(|x| x.get("value")).cloned().unwrap_or(Value::Null))
+}
+
+/// A CDP `exceptionDetails` as a DEBUGGABLE message - real error name + message + stack
+/// (`exception.description`), not just "Uncaught" - so a failing `browser_eval` can be fixed.
+/// A thrown primitive (`throw "x"`) has only `exception.value`, so add where it threw.
+fn js_exception_text(exc: &Value) -> String {
+    let detail = exc
+        .pointer("/exception/description")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| exc.pointer("/exception/value").map(|v| {
+            v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())
+        }))
+        .or_else(|| exc.get("text").and_then(Value::as_str).map(str::to_string))
+        .unwrap_or_else(|| "error".to_string());
+    let detail: String = detail.chars().take(800).collect();
+    let line = exc.get("lineNumber").and_then(Value::as_u64);
+    let col = exc.get("columnNumber").and_then(Value::as_u64);
+    match (detail.contains("\n    at "), line, col) {
+        (false, Some(l), Some(c)) => format!("{detail} (at line {l}, col {c})"),
+        _ => detail,
+    }
+}
+
+/// CDP sessions of the cross-origin (out-of-process) iframes flat-attached to the
+/// tab, learned from the auto-attach events. Best-effort: a dead/detached session
+/// just errors when used and is skipped. Used to perceive + act inside frames the
+/// top document can't reach (login / payment / embed widgets).
+pub(super) fn child_frames() -> Vec<String> {
+    use std::collections::HashSet;
+    let detached: HashSet<String> = bridge::recent_events("Target.detachedFromTarget", 50)
+        .iter()
+        .filter_map(|e| e.get("params").and_then(|p| p.get("sessionId")).and_then(Value::as_str).map(str::to_string))
+        .collect();
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for e in bridge::recent_events("Target.attachedToTarget", 50) {
+        let p = e.get("params");
+        let ttype = p.and_then(|p| p.get("targetInfo")).and_then(|t| t.get("type")).and_then(Value::as_str);
+        let Some(sid) = p.and_then(|p| p.get("sessionId")).and_then(Value::as_str) else {
+            continue;
+        };
+        if ttype == Some("iframe") && !detached.contains(sid) && seen.insert(sid.to_string()) {
+            out.push(sid.to_string());
+        }
+    }
+    out
 }
 
 // ── Setup / status ───────────────────────────────────────────────────────────
@@ -189,7 +203,7 @@ pub(super) fn setup() -> Value {
         Err(e) => return err(e),
     };
     let browser = detect_browser();
-    bridge::open_pairing_window(); // ~2 min: a fresh extension auto-pairs, no popup
+    bridge::open_pairing_window(); // a fresh extension auto-pairs INSTANTLY on connect, no popup
     json!({
         "ok": true,
         "connected": is_connected(),
@@ -206,8 +220,9 @@ pub(super) fn setup() -> Value {
             "Developer mode must be ON - but DON'T read the tiny toggle visually (vision misreads it). It is ON exactly when a 'Load unpacked' button appears in your CLICKABLE list. If you already see 'Load unpacked', it's on - skip ahead. If NOT, click the 'Developer mode' toggle (top-right) ONCE, then re-check your CLICKABLE list for 'Load unpacked' (toggle at most once per check).",
             "Once 'Load unpacked' is listed, click it. In the file dialog, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
             "A permission prompt USUALLY does NOT appear for unpacked extensions - do NOT wait for one or tell the user to confirm it. If one happens to show, pause for the user; otherwise just continue.",
-            "That's it - NO popup, NO pairing code. The extension auto-pairs over the socket within ~2 minutes.",
-            "Poll browser_status (wait a few seconds between tries) until 'connected' is true, then STOP."
+            "That's it - NO popup, NO pairing code. Once the extension is ENABLED it connects over the socket in a second or two; pairing is instant, there is NOTHING slow to wait for.",
+            "Check browser_status once or twice, a couple seconds apart. If 'connected' is true, STOP - you're done. Do NOT sit in a long wait/poll loop.",
+            "RECOVERY if browser_status is still connected:false after those couple seconds: it is NOT slow pairing - the extension is DISABLED or blocked. Chrome very often loads the unpacked extension but leaves it DISABLED (its card is greyed-out / its on-off toggle won't move, even though Developer mode is on). Do NOT reinstall and do NOT keep waiting - toggle the 'Developer mode' switch (top-right) OFF then back ON to re-activate it (tell the user you're doing so), then re-check browser_status. If it STILL won't connect, say so - it may be a Chrome policy blocking debugger extensions."
         ]
     })
 }
@@ -216,11 +231,11 @@ pub(super) fn setup() -> Value {
 /// stale-secret extension re-pairs cleanly, and re-enable the proactive offer.
 /// The clean alternative to manually deleting files - no raw deletion, bounded.
 pub(super) fn reset() -> Value {
-    let _ = std::fs::remove_file(prefs_path()); // re-enable the setup offer
+    prefs::clear(); // re-enable the setup offer
     bridge::open_pairing_window(); // a loaded extension re-pairs within the window
     json!({
         "ok": true,
-        "note": "Browser-control pairing reset: a loaded extension re-pairs within ~2 minutes. If it still won't connect, reload it on the browser's extensions page; to fully UNINSTALL, the user removes it there."
+        "note": "Browser-control pairing reset: a loaded, ENABLED extension re-pairs in a second or two (instant, not minutes). If it stays disconnected, toggle Developer mode off/on (Chrome often soft-disables it) or reload it on the extensions page; to fully UNINSTALL, the user removes it there."
     })
 }
 
@@ -239,10 +254,48 @@ pub(super) fn status() -> Value {
 
 macro_rules! require_conn {
     () => {
-        if !is_connected() {
-            return not_connected();
+        if let Some(v) = conn_guard() {
+            return v;
         }
     };
+}
+
+/// Connection gate for the page tools. Three cases when not currently connected:
+///  - recently connected → the installed extension is just napping/restarting (it
+///    auto-reconnects on the fixed port); wait briefly, then ask the model to retry.
+///  - connected before but not for a while → it may have been removed or the browser
+///    closed; let the model re-run setup if the user still wants it.
+///  - never connected → not set up; point at browser_setup.
+///
+/// `Some(error)` = bail, `None` = proceed.
+fn conn_guard() -> Option<Value> {
+    if is_connected() {
+        return None;
+    }
+    if ever_connected() {
+        // Set up before → it auto-reconnects on the fixed port. Wait briefly for the
+        // service worker / restarted browser to come back before deciding it's gone.
+        for _ in 0..20 {
+            std::thread::sleep(Duration::from_millis(100));
+            if is_connected() {
+                return None;
+            }
+        }
+        return Some(if recently_connected() {
+            json!({
+                "ok": false,
+                "error": "the browser extension is reconnecting",
+                "hint": "Browser control IS installed here - its background service worker just went idle and reconnects on its own. Do NOT run browser_setup and do NOT tell the user to set anything up; wait a moment and retry this call."
+            })
+        } else {
+            json!({
+                "ok": false,
+                "error": "browser control isn't responding",
+                "hint": "It was set up here before but hasn't connected for a while - the extension may have been removed or the browser closed. If the user still wants deep browser control, run browser_setup; otherwise just proceed without it (use the on-screen tools)."
+            })
+        });
+    }
+    Some(not_connected())
 }
 
 pub(super) fn read_page() -> Value {
@@ -269,24 +322,6 @@ pub(super) fn eval_js(code: &str) -> Value {
     require_conn!();
     match eval_value(code) {
         Ok(v) => json!({"ok": true, "result": v}),
-        Err(e) => err(e),
-    }
-}
-
-pub(super) fn query(selector: &str) -> Value {
-    require_conn!();
-    let js = format!(
-        r#"(() => {{
-            const els = [...document.querySelectorAll({sel})].slice(0, 50);
-            return els.map(e => {{ const r = e.getBoundingClientRect();
-                return {{ text: (e.innerText || e.value || "").slice(0,120).trim(),
-                    tag: e.tagName.toLowerCase(),
-                    rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] }}; }});
-        }})()"#,
-        sel = json!(selector)
-    );
-    match eval_value(&js) {
-        Ok(v) => json!({"ok": true, "matches": v}),
         Err(e) => err(e),
     }
 }
@@ -393,14 +428,16 @@ pub(super) fn drag(fx: f64, fy: f64, tx: f64, ty: f64) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(super) fn fill(selector: &str, text: &str) -> Value {
+/// Focus the element (in its frame - `session` None = top, Some = a cross-origin
+/// iframe) and type `text` via a trusted `Input.insertText` so input/change fire.
+pub(super) fn fill_in(selector: &str, text: &str, session: Option<&str>) -> Value {
     require_conn!();
     let js = format!(
         r#"(() => {{ const e = document.querySelector({sel}); if (!e) return false;
             e.focus(); if (e.select) e.select(); return true; }})()"#,
         sel = json!(selector)
     );
-    match eval_value(&js) {
+    match eval_value_in(&js, session) {
         Ok(Value::Bool(true)) => {}
         Ok(_) => return json!({"ok": false, "error": format!("no element matches {selector}")}),
         Err(e) => return err(e),
@@ -518,4 +555,41 @@ pub(super) fn read_network(filter: &str) -> Value {
         .collect();
     json!({"ok": true, "events": items,
         "note": "Network just enabled if it wasn't - call again after the page makes requests."})
+}
+
+/// Read the page's recent CONSOLE output - both console.log/info/warn/error(...)
+/// calls and browser LOG entries (CORS / security / network / deprecation errors).
+/// Enables the feed if needed, so the FIRST call may be empty - call again after the
+/// page runs. Lets the agent debug a web app without opening DevTools.
+pub(super) fn read_console() -> Value {
+    require_conn!();
+    let _ = bridge::cdp("Runtime.enable", json!({})); // console.* calls
+    let _ = bridge::cdp("Log.enable", json!({})); // browser log entries (CORS, etc.)
+    let mut items: Vec<Value> = Vec::new();
+    for e in bridge::recent_events("consoleAPICalled", 25) {
+        let p = e.get("params").cloned().unwrap_or_else(|| json!({}));
+        let text = p
+            .get("args")
+            .and_then(Value::as_array)
+            .map(|args| {
+                args.iter()
+                    .map(|a| {
+                        a.get("value")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                            .or_else(|| a.get("description").and_then(Value::as_str).map(str::to_string))
+                            .unwrap_or_default()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default();
+        items.push(json!({"level": p.get("type"), "text": text}));
+    }
+    for e in bridge::recent_events("Log.entryAdded", 25) {
+        let entry = e.get("params").and_then(|p| p.get("entry")).cloned().unwrap_or_else(|| json!({}));
+        items.push(json!({"level": entry.get("level"), "text": entry.get("text"), "url": entry.get("url")}));
+    }
+    json!({"ok": true, "console": items,
+        "note": "console.* + browser log entries since capture started - call again after the page runs/logs more."})
 }
