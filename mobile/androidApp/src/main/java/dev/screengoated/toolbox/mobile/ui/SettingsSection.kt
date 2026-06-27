@@ -230,5 +230,6 @@ internal fun GlobalSection(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        DonateSection(locale = locale, modifier = Modifier.fillMaxWidth())
     }
 }

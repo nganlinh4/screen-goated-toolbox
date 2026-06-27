@@ -4,6 +4,10 @@
 
 Screen Goated Toolbox (SGT) is a native Windows utility that bridges your screen, system audio, and microphone with the world's most powerful AI models. It allows you to create custom AI workflows using a visual node graph to automate tasks like OCR, translation, meeting transcription, generative audio, and text analysis. SGT also includes a full-featured **Screen Recorder** with GPU-accelerated export and a companion **Android app** for on-the-go live translation.
 
+## 💙 Ủng hộ / Support
+
+For Vietnamese users — you can support the developer via VietQR (bank transfer): [click here](https://img.vietqr.io/image/970418-8850273958-compact2.png?accountName=NGUYEN%20BAO%20LINH&addInfo=Ung%20ho%20SGT).
+
 ## Key Features
 
 ### Multi-Modal AI Support

@@ -135,6 +135,10 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
         updateDownloadedLabel = "업데이트 다운로드됨",
         restartToUpdateButton = "다시 시작하여 업데이트",
         updateNowButton = "업데이트",
+        donateHeader = "개발자 후원",
+        donateBody = "SGT는 무료 소프트웨어입니다. 유용하셨다면 베트남 은행 송금(VietQR)으로 개발자를 후원하실 수 있습니다. 감사합니다!",
+        donateNote = "은행 송금은 베트남 후원자만 이용할 수 있습니다.",
+        donateVietnamese = false,
         usageTipsTitle = "사용 팁",
         usageTipsClickHint = "탭해서 전체 팁 목록 보기",
         usageTipsList = listOf(

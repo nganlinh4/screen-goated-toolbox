@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 mod api_keys;
 mod custom_models;
+mod donate_section;
 mod downloaded_tools;
 mod model_priority;
 mod tts_settings;
@@ -18,6 +19,7 @@ mod usage_stats;
 use crate::gui::settings_ui::download_manager::DownloadManager;
 use api_keys::{ApiKeyCardStyle, ApiKeyVisibility, render_api_keys_card};
 use custom_models::render_custom_models_modal;
+use donate_section::render_donate_section_content;
 use downloaded_tools::render_downloaded_tools_modal;
 use model_priority::render_model_priority_modal;
 use tts_settings::render_tts_settings_modal;
@@ -237,6 +239,19 @@ pub fn render_global_settings(
             });
             ui.add_space(6.0);
             render_update_section_content(ui, updater, update_status, text);
+        });
+
+    ui.add_space(10.0);
+
+    // === DONATE CARD (Vietnamese-only — supports Vietnamese donors via VietQR) ===
+    egui::Frame::new()
+        .fill(card_bg)
+        .stroke(card_stroke)
+        .inner_margin(12.0)
+        .corner_radius(10.0)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            render_donate_section_content(ui, text);
         });
 
     ui.add_space(10.0);
