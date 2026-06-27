@@ -10,6 +10,7 @@
 
 mod browser;
 mod clipboard;
+mod controller;
 mod coord_test;
 mod detector;
 mod executor;

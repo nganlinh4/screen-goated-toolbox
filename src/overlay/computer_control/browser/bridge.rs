@@ -145,7 +145,11 @@ fn listen_loop() {
         if let Err(e) = handle_conn(stream) {
             eprintln!("[cc-browser] connection ended: {e}");
         }
-        bridge().connected.store(false, Ordering::SeqCst);
+        // Only stamp the last-live moment if we were actually paired (not a failed probe),
+        // so `recently_connected()` tracks real connectivity, not random socket attempts.
+        if bridge().connected.swap(false, Ordering::SeqCst) {
+            super::record_connection();
+        }
         *bridge().req_tx.lock().unwrap() = None;
     }
 }
@@ -189,6 +193,7 @@ fn handle_conn(stream: TcpStream) -> anyhow::Result<()> {
     }
     eprintln!("[cc-browser] extension paired + connected");
     bridge().connected.store(true, Ordering::SeqCst);
+    super::record_connection(); // stamp the live moment - so a later nap reads as "reconnecting", not "set me up"
     let (tx, rx) = mpsc::channel::<Outbound>();
     *bridge().req_tx.lock().unwrap() = Some(tx);
     pump(&mut ws, rx)
@@ -341,10 +346,23 @@ fn request(json_msg: Value) -> anyhow::Result<Value> {
         .map_err(|_| anyhow::anyhow!("browser request timed out"))
 }
 
-/// Run a raw CDP command in the active tab and return its `result` (or error).
+/// Run a raw CDP command in the active tab's TOP frame and return its `result`.
 pub(super) fn cdp(method: &str, params: Value) -> anyhow::Result<Value> {
+    cdp_in(method, params, None)
+}
+
+/// Run a raw CDP command, optionally inside a specific (cross-origin) FRAME's CDP
+/// session, and return its `result`. `None` = the active tab's top frame (== `cdp`).
+/// The extension reads `sessionId` and routes via `chrome.debugger.sendCommand`
+/// against that flat-attached child target - so out-of-process iframes (login /
+/// payment / embed widgets) are reachable without any extension change.
+pub(super) fn cdp_in(method: &str, params: Value, session_id: Option<&str>) -> anyhow::Result<Value> {
     let id = bridge().next_id.fetch_add(1, Ordering::SeqCst);
-    let resp = request(json!({"id": id, "type": "cdp", "method": method, "params": params}))?;
+    let mut env = json!({"id": id, "type": "cdp", "method": method, "params": params});
+    if let Some(sid) = session_id {
+        env["sessionId"] = json!(sid);
+    }
+    let resp = request(env)?;
     if resp.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(resp.get("result").cloned().unwrap_or_else(|| json!({})))
     } else {

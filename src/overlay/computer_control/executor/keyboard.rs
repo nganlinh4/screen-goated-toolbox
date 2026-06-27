@@ -121,11 +121,23 @@ pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value
     if vks.is_empty() {
         return Err(anyhow!("empty key combination"));
     }
+    // HOLD the key(s) down before releasing. A game polls input each frame (~16ms
+    // @60fps), so a 0-duration down->up tap is missed entirely - exactly why a key
+    // "didn't move the character". Default a few frames so any tap lands;
+    // `hold_seconds` holds longer for sustained movement (walk/run in a game).
+    let hold_ms = args
+        .get("hold_seconds")
+        .and_then(Value::as_f64)
+        .map(|s| (s.clamp(0.0, 10.0) * 1000.0) as u64)
+        .unwrap_or(0)
+        .max(45);
     // Press all down in order, release in reverse (so modifiers wrap the key).
-    let mut inputs: Vec<INPUT> = vks.iter().map(|&vk| super::key_vk(vk, false)).collect();
-    inputs.extend(vks.iter().rev().map(|&vk| super::key_vk(vk, true)));
-    super::send(&inputs);
-    Ok(json!({"ok": true, "keys": combo}))
+    let downs: Vec<INPUT> = vks.iter().map(|&vk| super::key_vk(vk, false)).collect();
+    let ups: Vec<INPUT> = vks.iter().rev().map(|&vk| super::key_vk(vk, true)).collect();
+    super::send(&downs);
+    human_input::sleep_cancellable(hold_ms, cancel); // wakes early on barge-in
+    super::send(&ups); // ALWAYS release, even if interrupted, so no key sticks down
+    Ok(json!({"ok": true, "keys": combo, "held_ms": hold_ms}))
 }
 
 fn token_to_vk(token: &str) -> Option<VIRTUAL_KEY> {

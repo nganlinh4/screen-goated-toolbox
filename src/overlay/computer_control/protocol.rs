@@ -101,7 +101,10 @@ pub fn build_setup(system_instruction: &str) -> Value {
             "mediaResolution": "MEDIA_RESOLUTION_HIGH",
             // 3.1 uses thinkingLevel (NOT the legacy thinkingBudget); "low"
             // balances tool-call reasoning against latency.
-            "thinkingConfig": {"thinkingLevel": thinking_level()}
+            // includeThoughts surfaces the model's SILENT reasoning as text parts (thought:true),
+            // which we capture as per-turn intent — never spoken, never shown. (If the preview model
+            // rejects this field with INVALID_ARGUMENT, drop includeThoughts.)
+            "thinkingConfig": {"thinkingLevel": thinking_level(), "includeThoughts": true}
         },
         "systemInstruction": {"parts": [{"text": system_instruction}]},
         "tools": tool_declarations(),
@@ -110,6 +113,33 @@ pub fn build_setup(system_instruction: &str) -> Value {
         "sessionResumption": {},
         "contextWindowCompression": {"slidingWindow": {}}
     }})
+}
+
+/// Behavioural overlay appended to the LIVE system prompt — the JUDGMENT layer SYS underweights (it pushes
+/// autonomy in 4 places with only one weak "ask" escape): when to act vs. ASK (questions, the user's own
+/// data / account choices, unclear requests), and never blind-clicking destructive controls that can wipe
+/// the user's work. Balanced — autonomous by default, asks only for the three named cases. NO language
+/// anchoring; works in any language; the user never sees this.
+pub fn session_rules() -> &'static str {
+    "INTENT FIRST: at the start of a turn, silently settle in ONE line what the user wants from what you \
+HEARD (e.g. 'play this video', 'go back') - never from a word on screen - then pursue THAT. \
+JUDGMENT (act vs. ask): DEFAULT TO ACTING and keep going - carry out the task's mechanical steps \
+back-to-back; do NOT pause to ask 'shall we / do you want' between them, and do NOT narrate every step \
+(it is slow and the user finds it tiring). BUT if one step or your thinking is taking a WHILE (writing code, a \
+long search or read), say ONE short line about what you're doing so the user knows you're still on it - many \
+seconds of silence reads as 'frozen'. Only STOP to ask when: (a) the user asks you a question or for \
+advice ('what should I', 'do you think', 'what would') - answer in WORDS, do not act on it; (b) a step needs \
+the user's OWN data or choice you were NOT given (a username, which account or email, a password, payment \
+details) - NEVER invent it from what is on screen; (c) the request makes no sense for what's on screen - it \
+sounds garbled, or you catch yourself GUESSING what a word means or wanting to look UP its meaning: that is a \
+MIS-HEARING, not a task. Say what you heard in ONE short line and ask them to repeat it - do NOT act on the \
+guess, and NEVER both act on it AND research what it means (doing both is proof you did not understand). Also \
+do ONE thing per command: if you have done it, STOP - do not wander into nearby actions you were not asked for; or (d) you \
+are about to do something CONSEQUENTIAL or IRREVERSIBLE - send or post a message / email / comment, publish \
+content, pay / buy / transfer money, create or delete an account, or submit personal or financial data - in \
+that case confirm THAT exact action with the user first, and only then do it (for the act tool, pass \
+confirm:true only after they agree). If something unexpected or destructive happens, STOP and tell the user - \
+do NOT silently undo or redo it."
 }
 
 /// `realtimeInput` carrying one JPEG screen frame (base64).
@@ -134,6 +164,8 @@ pub enum ServerEvent {
     /// Decoded model output audio (PCM16 mono 24 kHz).
     Audio(Vec<i16>),
     ModelText(String),
+    /// The model's SILENT thinking (includeThoughts) - routed to intent, never spoken/shown.
+    Thought(String),
     InputTranscript(String),
     OutputTranscript(String),
     ToolCall { id: String, name: String, args: Value },
@@ -168,7 +200,13 @@ pub fn parse_server_message(raw: &str) -> Vec<ServerEvent> {
                 if let Some(t) = part.get("text").and_then(Value::as_str)
                     && !t.is_empty()
                 {
-                    out.push(ServerEvent::ModelText(t.to_string()));
+                    // A thought part (includeThoughts) is the model's SILENT reasoning - route it
+                    // to intent, not to the spoken/ignored ModelText path.
+                    if part.get("thought").and_then(Value::as_bool) == Some(true) {
+                        out.push(ServerEvent::Thought(t.to_string()));
+                    } else {
+                        out.push(ServerEvent::ModelText(t.to_string()));
+                    }
                 }
             }
         }

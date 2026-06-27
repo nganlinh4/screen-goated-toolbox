@@ -255,61 +255,11 @@ pub(super) fn format_state(elements: &[UiElement], target: Option<&str>, view: V
     }
     format!(
         "WINDOW: {title}\n\nREADOUTS (live values, with grid cell):\n{readouts}\nCLICKABLE \
-(click_element by exact name; @cellN = its grid cell; a [tag] like [on]/[off]/[selected]/[expanded]/[value N] \
+(click_target by its name, or click_at its @cellN grid cell; a [tag] like [on]/[off]/[selected]/[expanded]/[value N] \
 is its CURRENT state - TRUST that over the screenshot):\n{clickable}\nNote: targets with NO \
 UIA element (game boards, canvas, images) are not listed - locate them visually, using the @cell anchors \
 above as reference, then zoom that cell and click_at.\n"
     )
-}
-
-/// Resolve an element by exact name (case-insensitive) and click its true center.
-/// Prefers an enabled, on-screen match; falls back to a unique substring match.
-pub(super) fn click_by_name(
-    elements: &[UiElement],
-    want: &str,
-    dry: bool,
-    profile: &HumanProfile,
-    cancel: &AtomicBool,
-) -> Value {
-    let want_l = want.trim().to_lowercase();
-    if want_l.is_empty() {
-        return json!({"ok": false, "error": "missing name"});
-    }
-    let exact: Vec<&UiElement> = elements
-        .iter()
-        .filter(|e| e.name.to_lowercase() == want_l)
-        .collect();
-    let candidates = if !exact.is_empty() {
-        exact
-    } else {
-        elements
-            .iter()
-            .filter(|e| e.name.to_lowercase().contains(&want_l))
-            .collect()
-    };
-    let Some(e) = candidates.iter().find(|e| e.enabled).or_else(|| candidates.first()) else {
-        return json!({"ok": false, "error": format!("no element named '{want}' on screen")});
-    };
-    if !e.enabled {
-        return json!({"ok": false, "error": format!("element '{}' is disabled", e.name)});
-    }
-    let (cx, cy) = e.center();
-    let (vx, vy, vw, vh) = uia::virtual_desktop();
-    let nx = (cx - vx) as f64 / vw.max(1) as f64 * 1000.0;
-    let ny = (cy - vy) as f64 / vh.max(1) as f64 * 1000.0;
-    if dry {
-        return json!({"ok": true, "note": "dry", "clicked": e.name, "norm": [nx.round(), ny.round()], "screen_px": [cx, cy]});
-    }
-    // Pass the element's true width so the humanized cursor's Fitts-law timing
-    // and aim-jitter scale to the real target size.
-    let target_w = (e.right - e.left).max(1) as f64;
-    let r = executor::execute_ex(
-        "click",
-        &json!({"x": nx, "y": ny, "target_w": target_w}),
-        profile,
-        cancel,
-    );
-    json!({"ok": true, "clicked": e.name, "control_type": e.control_type, "result": r, "screen_px": [cx, cy]})
 }
 
 pub(super) fn wait_for_setup(socket: &mut Sock) -> Result<()> {
