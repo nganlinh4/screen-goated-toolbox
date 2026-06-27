@@ -216,7 +216,7 @@ internal class OverlayPaneHolder(
             }
             if (
                 previousSettings?.targetLanguage != settings.targetLanguage ||
-                previousSettings?.targetLanguageCode != settings.targetLanguageCode
+                previousSettings.targetLanguageCode != settings.targetLanguageCode
             ) {
                 append("if(window.setTargetLanguage) window.setTargetLanguage(")
                 append(JSONObject.quote(settings.targetLanguage))

@@ -181,7 +181,9 @@ fun SgtMobileApp(
         CustomModelsDialog(
             models = customModels,
             openRouterApiKey = providerKeys.openRouterApiKey,
+            ollamaBaseUrl = providerKeys.ollamaUrl,
             locale = locale,
+            uiLanguage = uiPreferences.uiLanguage,
             onDismiss = { showCustomModels = false },
             onSave = onCustomModelsChanged,
         )

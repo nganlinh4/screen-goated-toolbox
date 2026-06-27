@@ -106,10 +106,9 @@ internal fun UsageTipsCard(
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
+                    SettingsCardTitle(
                         text = locale.usageTipsTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
                     )
                     Text(
                         text = locale.usageTipsClickHint,

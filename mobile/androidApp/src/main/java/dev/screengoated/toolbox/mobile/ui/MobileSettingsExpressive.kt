@@ -124,7 +124,7 @@ internal fun ExpressiveSettingsHeader(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            SettingsCardTitle(text = title)
             if (supporting != null) {
                 Text(
                     text = supporting,
@@ -134,6 +134,23 @@ internal fun ExpressiveSettingsHeader(
             }
         }
     }
+}
+
+@Composable
+internal fun SettingsCardTitle(
+    text: String,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 2,
+    minLines: Int = 1,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = maxLines,
+        minLines = minLines,
+        modifier = modifier,
+    )
 }
 
 @Composable

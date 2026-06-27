@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "canonical_windows_files": [
+    "src/gui/settings_ui/global/custom_models/mod.rs",
+    "src/gui/settings_ui/global/custom_models/openrouter_import.rs",
+    "src/config/types/custom_models.rs",
+    "src/model_config.rs"
+  ],
+  "editable_provider_order": [
+    "GOOGLE",
+    "GROQ",
+    "CEREBRAS",
+    "OPENROUTER",
+    "OLLAMA"
+  ],
+  "required_sections": [
+    "built_in_locked",
+    "user_models",
+    "discovered"
+  ],
+  "provider_card_actions": [
+    "add_openrouter",
+    "scan_openrouter",
+    "scan_ollama"
+  ],
+  "layout_contract": {
+    "header_actions": "close_only",
+    "commit_behavior": "immediate",
+    "provider_surface": "provider_grouped_cards",
+    "locked_models": "visible_read_only_rows",
+    "locked_model_name_source": "localized_catalog_name",
+    "user_models": "editable_rows_inside_provider_section"
+  }
+}
