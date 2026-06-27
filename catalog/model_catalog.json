@@ -366,7 +366,7 @@
     {
       "id": "gemini-pro-1.6",
       "provider": "google",
-      "name_vi": "Siêu ch.xác, mới",
+      "name_vi": "Siêu chính xác, mới",
       "name_ko": "신 초정밀",
       "name_en": "Super Accurate, New",
       "full_name": "gemini-robotics-er-1.6-preview",
@@ -626,7 +626,7 @@
     {
       "id": "text_gemini_pro_1_6",
       "provider": "google",
-      "name_vi": "Siêu ch.xác, mới",
+      "name_vi": "Siêu chính xác, mới",
       "name_ko": "신 초정밀",
       "name_en": "Super Accurate, New",
       "full_name": "gemini-robotics-er-1.6-preview",

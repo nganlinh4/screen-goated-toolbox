@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -46,7 +47,6 @@ internal fun SettingsActionButton(
     destructive: Boolean = false,
 ) {
     val accent = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    val labelColor = MaterialTheme.colorScheme.onSurface
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val morphProgress by animateFloatAsState(
@@ -85,13 +85,17 @@ internal fun SettingsActionButton(
                     tint = accent,
                 )
             }
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelLargeEmphasized,
-                color = labelColor,
-                maxLines = 2,
-                modifier = Modifier.weight(1f),
-            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 48.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                SettingsCardTitle(
+                    text = text,
+                    maxLines = 2,
+                )
+            }
         }
     }
 }
@@ -114,10 +118,9 @@ internal fun OverlayOpacityCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
             ) {
-                Text(
+                SettingsCardTitle(
                     text = compactOverlayOpacityLabel(locale),
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
                     modifier = Modifier.width(112.dp),
                 )
                 Slider(
@@ -141,10 +144,8 @@ internal fun OverlayOpacityCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
                 ) {
-                    Text(
+                    SettingsCardTitle(
                         text = locale.overlayOpacityLabel,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
