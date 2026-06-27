@@ -135,6 +135,10 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
         updateDownloadedLabel = "Đã tải xong bản cập nhật",
         restartToUpdateButton = "Khởi động lại để cập nhật",
         updateNowButton = "Cập nhật",
+        donateHeader = "Ủng hộ tác giả",
+        donateBody = "SGT là phần mềm miễn phí. Nếu thấy hữu ích, bạn có thể ủng hộ tác giả qua chuyển khoản ngân hàng (VietQR). Cảm ơn bạn rất nhiều!",
+        donateNote = "",
+        donateVietnamese = true,
         usageTipsTitle = "Mẹo sử dụng",
         usageTipsClickHint = "Chạm để xem toàn bộ danh sách mẹo",
         usageTipsList = listOf(

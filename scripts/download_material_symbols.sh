@@ -58,6 +58,7 @@ declare -A ICONS=(
   ["open_in_new"]="open_in_new"
   ["photo_camera"]="photo_camera"
   ["play_arrow"]="play_arrow"
+  ["potted_plant"]="potted_plant"
   ["public"]="public"
   ["qr_code_scanner"]="qr_code_scanner"
   ["question_answer"]="question_answer"

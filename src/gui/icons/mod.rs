@@ -100,6 +100,7 @@ pub enum Icon {
     Upgrade,
     CheckCircle,
     Warning,
+    PottedPlant, // Donation section (Material Symbols potted_plant)
 
     // Window Controls
     Minimize,
@@ -167,6 +168,7 @@ fn icon_svg_bytes(icon: Icon) -> &'static [u8] {
         Icon::Upgrade => include_bytes!("svg/upgrade.svg"),
         Icon::CheckCircle => include_bytes!("svg/check_circle.svg"),
         Icon::Warning => include_bytes!("svg/warning.svg"),
+        Icon::PottedPlant => include_bytes!("svg/potted_plant.svg"),
         Icon::Minimize => include_bytes!("svg/remove.svg"),
         Icon::Maximize => include_bytes!("svg/maximize.svg"),
         Icon::Restore => include_bytes!("svg/restore.svg"),

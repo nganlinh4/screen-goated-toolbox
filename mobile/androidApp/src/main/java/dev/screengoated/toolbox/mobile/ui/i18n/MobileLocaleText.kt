@@ -143,6 +143,13 @@ data class MobileLocaleText(
     val updateDownloadedLabel: String,
     val restartToUpdateButton: String,
     val updateNowButton: String,
+    // Donation section (Vietnamese-only feature). donateVietnamese is true only for the
+    // Vietnamese locale; EN/KO show donateBody as a "VN donors only" note and hide the
+    // bank details / actions.
+    val donateHeader: String,
+    val donateBody: String,
+    val donateNote: String,
+    val donateVietnamese: Boolean,
     val usageTipsTitle: String,
     val usageTipsClickHint: String,
     val usageTipsList: List<String>,

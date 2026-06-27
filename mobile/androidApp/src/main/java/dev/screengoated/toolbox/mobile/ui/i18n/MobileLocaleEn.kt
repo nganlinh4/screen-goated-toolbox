@@ -135,6 +135,10 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
         updateDownloadedLabel = "Update downloaded",
         restartToUpdateButton = "Restart to Update",
         updateNowButton = "Update",
+        donateHeader = "Support the Developer",
+        donateBody = "SGT is free software. If you find it useful, you can support the developer with a Vietnamese bank transfer (VietQR). Thank you!",
+        donateNote = "Bank transfer is available to Vietnamese donors only.",
+        donateVietnamese = false,
         usageTipsTitle = "Usage Tips",
         usageTipsClickHint = "Tap to view the full tip list",
         usageTipsList = listOf(

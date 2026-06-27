@@ -132,6 +132,15 @@ pub struct LocaleText {
     pub api_keys_header: &'static str,
     pub groq_label: &'static str,
     pub software_update_header: &'static str,
+    /// Donation section (Vietnamese-only feature). `donate_vietnamese` is true only
+    /// for the Vietnamese locale; EN/KO instead show `donate_body` as a "VN donors
+    /// only" note and hide the bank details / actions.
+    pub donate_header: &'static str,
+    pub donate_body: &'static str,
+    /// Extra "bank transfer is for Vietnamese donors only" line, shown below the bank
+    /// details on EN/KO (empty for the Vietnamese locale). Gated by `donate_vietnamese`.
+    pub donate_note: &'static str,
+    pub donate_vietnamese: bool,
     pub startup_display_header: &'static str,
     pub favorite_overlay_opacity_label: &'static str,
     pub model_thinking: &'static str,

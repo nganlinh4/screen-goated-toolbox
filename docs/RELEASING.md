@@ -17,7 +17,13 @@ Android ships to Google Play (`.aab`). Replace `<VERSION>` with the semver (e.g.
 1. **Read every commit since the last release** (`git log <last-tag>..HEAD`). Base the notes on what actually changed.
 2. **Write** the notes into `tmp-release-notes-<VERSION>.txt`:
    - English bullet list first, then a `---`, then the Vietnamese section (`_Phiên bản tiếng Việt:_`).
-   - End with the Zalo support-group line.
+   - End with the Zalo support-group line, then the **donation footer** below — one clean line, identical on every release (VietQR link only, never a bundled image):
+
+```
+---
+
+💙 **Ủng hộ tác giả** — Người dùng Việt Nam có thể ủng hộ qua VietQR: [bấm vào đây](https://img.vietqr.io/image/970418-8850273958-compact2.png?accountName=NGUYEN%20BAO%20LINH&addInfo=Ung%20ho%20SGT).
+```
 3. **Verify each line you wrote maps to a real commit** — no invented or hallucinated entries. Cross-check every bullet against the commit log.
 4. **Hand it to the user to check & edit.** Do not proceed past this point until the user has reviewed and approved the notes.
 
