@@ -20,8 +20,8 @@ mod window;
 mod wnd_proc;
 
 use std::cell::RefCell;
-use std::sync::{Mutex, Once};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::{Mutex, Once};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2, ICoreWebView2CompositionController,
@@ -39,16 +39,6 @@ static ORB_HWND: AtomicIsize = AtomicIsize::new(0);
 static ORB_WARMED_UP: AtomicBool = AtomicBool::new(false);
 static ORB_INITIALIZING: AtomicBool = AtomicBool::new(false);
 static REGISTER_ORB_CLASS: Once = Once::new();
-
-/// Whether the orb responds to the pointer (drag). Action states (Click/Type/…) set this
-/// false so a synthetic agent click never grabs/moves the orb; the window proc reads it
-/// live on each mouse message.
-///
-/// NOTE: on a DirectComposition window `SetWindowRgn` clips the VISUAL and INPUT together,
-/// so the orb cannot be both visible AND click-through. It is kept visible (its small
-/// corner footprint stays topmost) to show the agent's activity; this flag only gates
-/// dragging. The agent's synthetic clicks land everywhere except the orb's own footprint.
-static ORB_INTERACTIVE: AtomicBool = AtomicBool::new(true);
 
 /// Set once the orb page has parsed + initialised (the `orbReady` IPC). `show_orb` waits
 /// for this before revealing the window, so the first show never flashes the white default.
@@ -191,13 +181,6 @@ pub(super) fn post_orb_script(script: String) {
     }
 }
 
-/// Allow (true) or block (false) dragging the orb with the pointer. Action states pass
-/// `false` so the agent's synthetic clicks never grab the orb. The window proc reads this
-/// live on each mouse message, so no window message is needed.
-pub(super) fn set_interactive(on: bool) {
-    ORB_INTERACTIVE.store(on, Ordering::SeqCst);
-}
-
 // --- intelligent dodging: keep the orb out from under the agent's clicks ---
 //
 // On a DComp window the orb's footprint is topmost + opaque to input, so a synthetic click
@@ -233,8 +216,16 @@ pub(super) fn avoid_point(sx: i32, sy: i32) {
         return; // not in the way — leave it where the user put it
     }
     // Dodge to the corner diagonally opposite the action point.
-    let nx = if (sx as f64) < vx as f64 + vw as f64 / 2.0 { 0.90 } else { 0.10 };
-    let ny = if (sy as f64) < vy as f64 + vh as f64 / 2.0 { 0.86 } else { 0.14 };
+    let nx = if (sx as f64) < vx as f64 + vw as f64 / 2.0 {
+        0.90
+    } else {
+        0.10
+    };
+    let ny = if (sy as f64) < vy as f64 + vh as f64 / 2.0 {
+        0.86
+    } else {
+        0.14
+    };
     {
         let mut curr = ORB_CUR.lock().unwrap();
         if (curr.0 - nx).abs() < 0.01 && (curr.1 - ny).abs() < 0.01 {

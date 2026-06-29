@@ -13,6 +13,7 @@ use super::super::overlay;
 use super::super::playback::AudioSink;
 use super::super::protocol::ServerEvent;
 use super::Job;
+use super::speech_gate::{SpeechGate, TranscriptDecision};
 
 /// The single in-flight tool call (synchronous FC ⇒ at most one), plus whether the
 /// server cancelled it (in which case we must NOT answer it).
@@ -70,6 +71,7 @@ pub(super) struct Reader {
     pub(super) think_total_ms: u128,
     pub(super) spoke_count: u32,
     pub(super) stall_count: u32,
+    pub(super) speech_gate: SpeechGate,
 }
 
 /// Cap on history entries kept (rolling); older turns drop off. Sized to retain
@@ -107,11 +109,12 @@ pub(super) fn record_observation(state: &mut Reader, name: &str, resp: &Value) {
     // so the observation survives a reconnect via the recap - without this the
     // wrapper hid every reading and the reconnect memory recorded nothing.
     let inner = resp.get("action_result").unwrap_or(resp);
-    let Some(reading) = inner
-        .get("reading")
-        .and_then(Value::as_str)
-        .or_else(|| inner.get("page").and_then(|p| p.get("text")).and_then(Value::as_str))
-    else {
+    let Some(reading) = inner.get("reading").and_then(Value::as_str).or_else(|| {
+        inner
+            .get("page")
+            .and_then(|p| p.get("text"))
+            .and_then(Value::as_str)
+    }) else {
         return; // only look/read/browser_read_page carry text; actions don't
     };
     let reading = reading.trim();
@@ -150,9 +153,7 @@ pub(super) fn handle_event(
 ) {
     match ev {
         ServerEvent::Audio(pcm) => {
-            if let Some(sink) = sink {
-                sink.push(&pcm);
-            }
+            state.speech_gate.push_audio(&pcm, sink);
         }
         ServerEvent::Interrupted => {
             // Barge-in: stop TALKING so the agent listens, but let the in-flight
@@ -191,6 +192,7 @@ pub(super) fn handle_event(
                 flush_reply(state); // close the assistant's prior reply into history
                 state.reasoning.clear(); // this turn's intent starts fresh - don't inherit last turn's narration
                 state.thinking.clear();
+                state.speech_gate.reset();
                 state.last_cmd.clear(); // new turn - the goal is re-derived from the model's intent
                 state.has_command = true; // the user has spoken (gates the browser offer)
                 state.active = true; // a fresh request - resume pushing frames
@@ -203,11 +205,23 @@ pub(super) fn handle_event(
         ServerEvent::OutputTranscript(t) => {
             // The CLEAN spoken transcript (outputAudioTranscription) — the real
             // "voice". This is what SGT's canonical Live path records.
-            state.reasoning.push_str(&t); // per-action intent (cleared each tool call)
-            state.reply.push_str(&t); // spoken reply -> history + `said:` log
-            // Caption shows the WHOLE reply so far (outputTranscription arrives as deltas) - so it
-            // grows word-by-word instead of cutting to just the latest chunk.
-            overlay::set_model_text(state.reply.clone());
+            match state.speech_gate.transcript(&t, sink) {
+                TranscriptDecision::Allow(text) => {
+                    state.reasoning.push_str(text); // per-action intent (cleared each tool call)
+                    state.reply.push_str(text); // spoken reply -> history + `said:` log
+                    // Caption shows the WHOLE reply so far (outputTranscription arrives as deltas) - so it
+                    // grows word-by-word instead of cutting to just the latest chunk.
+                    overlay::set_model_text(state.reply.clone());
+                }
+                TranscriptDecision::Block => {
+                    state.reasoning.clear();
+                    state.reply.clear();
+                    overlay::set_model_text(String::new());
+                    overlay::push_log(
+                        "[speech-filter] suppressed internal/tool-plan speech".to_string(),
+                    );
+                }
+            }
         }
         ServerEvent::ModelText(_) => {
             // modelTurn text parts in AUDIO mode carry tool-call / internal text
@@ -232,15 +246,20 @@ pub(super) fn handle_event(
                     t.elapsed().as_millis()
                 ));
             }
+            state.speech_gate.finish_turn(sink);
             flush_reply(state);
             state.awaiting = false;
         }
         ServerEvent::ToolCall { id, name, args } => {
+            state.speech_gate.finish_turn(sink);
             state.awaiting = false; // model responded (with an action)
             if let Some(t) = state.think_start.take() {
                 let ms = t.elapsed().as_millis();
                 let spoke = !state.reasoning.trim().is_empty(); // narrated this turn? (~2s tax)
-                overlay::push_log(format!("[think {ms}ms{}]", if spoke { ", spoke" } else { "" }));
+                overlay::push_log(format!(
+                    "[think {ms}ms{}]",
+                    if spoke { ", spoke" } else { "" }
+                ));
                 state.tool_calls += 1;
                 state.think_total_ms += ms;
                 state.spoke_count += u32::from(spoke);
@@ -258,7 +277,11 @@ pub(super) fn handle_event(
             // reasoning and costs no speech), else its spoken words. Capped so a long thought
             // summary can't bloat the vision context.
             let from_think = !state.thinking.trim().is_empty();
-            let src = if from_think { state.thinking.trim() } else { state.reasoning.trim() };
+            let src = if from_think {
+                state.thinking.trim()
+            } else {
+                state.reasoning.trim()
+            };
             let intent: String = src.chars().take(500).collect();
             state.reasoning.clear();
             state.thinking.clear();
@@ -268,17 +291,25 @@ pub(super) fn handle_event(
             if state.last_cmd.is_empty() && !intent.is_empty() {
                 state.last_cmd = intent.clone();
                 let preview: String = intent.chars().take(80).collect();
-                overlay::push_log(format!("[intent/{}] {preview}", if from_think { "thought" } else { "spoken" }));
+                overlay::push_log(format!(
+                    "[intent/{}] {preview}",
+                    if from_think { "thought" } else { "spoken" }
+                ));
             }
             overlay::push_log(format!(">{name} {}", compact_args(&args)));
             overlay::set_status(format!("doing: {name}"));
             overlay::set_orb_tool(&name, &args);
-            state.pending = Pending { id: Some(id.clone()), cancelled: false };
+            state.pending = Pending {
+                id: Some(id.clone()),
+                cancelled: false,
+            };
             // Runs on the executor thread (the Brain dispatch + grounding).
             let _ = exec_tx.send((id, name, args, state.last_cmd.clone(), intent));
         }
         ServerEvent::GoAway { time_left } => {
-            overlay::push_log(format!("server goAway ({time_left}) - reconnecting proactively"));
+            overlay::push_log(format!(
+                "server goAway ({time_left}) - reconnecting proactively"
+            ));
             state.go_away = true;
         }
         _ => {}

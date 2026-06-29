@@ -21,8 +21,8 @@ use windows061::Win32::UI::WindowsAndMessaging::{
 use windows061::core::{HSTRING, Interface, PCWSTR};
 
 use super::{
-    HIDE_TIMER_ID, LEAVE_TIMER_ID, ORB_COMP, ORB_INTERACTIVE, ORB_TEXT_MODE, ORB_WEBVIEW,
-    WM_APP_HIDE_ORB, WM_APP_RUN_ORB_SCRIPT, WM_APP_SHOW_ORB,
+    HIDE_TIMER_ID, LEAVE_TIMER_ID, ORB_COMP, ORB_TEXT_MODE, ORB_WEBVIEW, WM_APP_HIDE_ORB,
+    WM_APP_RUN_ORB_SCRIPT, WM_APP_SHOW_ORB,
 };
 
 pub(super) unsafe extern "system" fn orb_wnd_proc(
@@ -67,31 +67,27 @@ pub(super) unsafe extern "system" fn orb_wnd_proc(
             }
 
             // Composition-hosted WebView2 receives no input automatically — forward it so the orb's
-            // pointer/drag handlers fire. Only reaches here inside the window region (the orb box),
-            // and only while interactive (action states pass false so a synthetic click can't grab it).
+            // pointer/drag handlers fire. Only reaches here inside the window region (the orb box); the
+            // orb is always grabbable (the dodge keeps its footprint clear of the agent's clicks).
             WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP => {
-                if ORB_INTERACTIVE.load(Ordering::SeqCst) {
-                    forward_mouse(msg, wparam, lparam);
-                }
+                forward_mouse(msg, wparam, lparam);
                 LRESULT(0)
             }
 
             // Apply the WebView's own cursor (grab / grabbing) — composition hosting won't do it for us.
             WM_SETCURSOR => {
-                if ORB_INTERACTIVE.load(Ordering::SeqCst) {
-                    let mut handled = false;
-                    ORB_COMP.with(|c| {
-                        if let Some(comp) = c.borrow().as_ref() {
-                            let mut cur = HCURSOR::default();
-                            if comp.Cursor(&mut cur).is_ok() && !cur.is_invalid() {
-                                let _ = SetCursor(Some(cur));
-                                handled = true;
-                            }
+                let mut handled = false;
+                ORB_COMP.with(|c| {
+                    if let Some(comp) = c.borrow().as_ref() {
+                        let mut cur = HCURSOR::default();
+                        if comp.Cursor(&mut cur).is_ok() && !cur.is_invalid() {
+                            let _ = SetCursor(Some(cur));
+                            handled = true;
                         }
-                    });
-                    if handled {
-                        return LRESULT(1);
                     }
+                });
+                if handled {
+                    return LRESULT(1);
                 }
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }

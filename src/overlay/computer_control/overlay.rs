@@ -69,29 +69,6 @@ impl OrbState {
             OrbState::Error => "error",
         }
     }
-
-    /// Whether the orb is draggable in this state. Action states are click-through
-    /// so the agent's synthetic clicks are never intercepted by the orb.
-    fn interactive(self) -> bool {
-        !matches!(
-            self,
-            OrbState::Look
-                | OrbState::Observe
-                | OrbState::Click
-                | OrbState::Act
-                | OrbState::DoSteps
-                | OrbState::Type
-                | OrbState::Drag
-                | OrbState::Scroll
-                | OrbState::Point
-                | OrbState::Navigate
-                | OrbState::Launch
-                | OrbState::Run
-                | OrbState::Wait
-                | OrbState::Memory
-                | OrbState::Console
-        )
-    }
 }
 
 pub fn is_active() -> bool {
@@ -128,7 +105,6 @@ pub fn stop_overlay() {
 // --- orb activity drivers (called from the runtime/reader thread) ---
 
 pub(super) fn set_orb_state(state: OrbState, caption: Option<&str>) {
-    super::orb::set_interactive(state.interactive());
     ORB_RESPONDING.store(matches!(state, OrbState::Responding), Ordering::SeqCst);
     // Track the reply text for the live-sentiment thread: keep it while speaking, drop
     // it the moment we leave Responding so a stale reply can't drive the next turn's
@@ -148,15 +124,15 @@ pub(super) fn set_orb_state(state: OrbState, caption: Option<&str>) {
     }
     // When the agent rests (not mid-task), glide the orb back to the user's spot; during active work
     // it stays wherever it last dodged so it isn't constantly hopping corners between clicks.
-    if matches!(
-        state,
-        OrbState::Idle | OrbState::Done | OrbState::Error
-    ) {
+    if matches!(state, OrbState::Idle | OrbState::Done | OrbState::Error) {
         super::orb::restore_home();
     }
     let mut js = format!("window.cc&&window.cc.setState('{}');", state.label());
     if let Some(c) = caption {
-        js.push_str(&format!("window.cc&&window.cc.setCaption(`{}`);", js_escape(c)));
+        js.push_str(&format!(
+            "window.cc&&window.cc.setCaption(`{}`);",
+            js_escape(c)
+        ));
     }
     super::orb::post_orb_script(js);
 }
@@ -248,7 +224,9 @@ pub(super) fn set_orb_tool(name: &str, args: &serde_json::Value) {
     let state = match name {
         "observe" => OrbState::Observe,
         "look" | "map_targets" | "see_whole_screen" | "browser_read_page" | "list_windows"
-        | "read_clipboard" | "browser_network" | "browser_status" | "browser_tabs" => OrbState::Look,
+        | "read_clipboard" | "browser_network" | "browser_status" | "browser_tabs" => {
+            OrbState::Look
+        }
         "search_memory" | "open_memory" => OrbState::Memory,
         "browser_console" => OrbState::Console,
         "act" => OrbState::Act,

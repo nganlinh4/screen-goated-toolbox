@@ -34,6 +34,7 @@ impl Brain {
             wait_accum: 0.0,
             anchors: Vec::new(),
             controller: super::super::controller::Controller::new(),
+            setup_guard: super::setup_guard::SetupGuard::default(),
         }
     }
 
@@ -42,11 +43,18 @@ impl Brain {
     /// how long it's been waiting. Cheap situational awareness.
     fn context_block(&self) -> String {
         let (title, cx, cy) = uia::pointer_context();
-        let title: String = if title.is_empty() { "(unknown)".into() } else { title.chars().take(70).collect() };
-        let trail = if self.trail.is_empty() { "(none yet)".to_string() } else { self.trail.join("  |  ") };
-        let mut s = format!(
-            "Active window: {title}\nCursor at ({cx},{cy})\nYour recent actions: {trail}"
-        );
+        let title: String = if title.is_empty() {
+            "(unknown)".into()
+        } else {
+            title.chars().take(70).collect()
+        };
+        let trail = if self.trail.is_empty() {
+            "(none yet)".to_string()
+        } else {
+            self.trail.join("  |  ")
+        };
+        let mut s =
+            format!("Active window: {title}\nCursor at ({cx},{cy})\nYour recent actions: {trail}");
         if self.wait_accum > 0.0 {
             s.push_str(&format!(
                 "\nWaited {:.0}s so far on this - if nothing has changed, stop waiting and act.",
@@ -84,14 +92,39 @@ impl Brain {
         // elements — which made the agent answer from the SCREEN, not from memory.
         if matches!(
             name,
-            "observe" | "act" | "do_steps"
-            | "search_memory" | "open_memory" | "read_clipboard" | "list_windows" | "run_command"
-            | "browser_setup" | "browser_status" | "browser_reset" | "browser_read_page"
-            | "browser_eval" | "browser_tabs" | "browser_network" | "browser_console"
-            | "decline_browser_control"
+            "observe"
+                | "act"
+                | "do_steps"
+                | "search_memory"
+                | "open_memory"
+                | "read_clipboard"
+                | "list_windows"
+                | "run_command"
+                | "browser_setup"
+                | "browser_status"
+                | "browser_reset"
+                | "browser_read_page"
+                | "browser_eval"
+                | "browser_tabs"
+                | "browser_network"
+                | "browser_console"
+                | "decline_browser_control"
+                | "list_app_integrations"
+                | "setup_app_integration"
+                | "app_integration_status"
+                | "read_app_integration_docs"
+                | "remove_app_integration"
+                | "decline_app_integration"
         ) {
-            eprintln!("[cc] step {:02} (info tool — screen readouts suppressed)", self.step);
-            return Ok(Grounded { frame_b64: b, state_text: self.context_block(), notes: Vec::new() });
+            eprintln!(
+                "[cc] step {:02} (info tool — screen readouts suppressed)",
+                self.step
+            );
+            return Ok(Grounded {
+                frame_b64: b,
+                state_text: self.context_block(),
+                notes: Vec::new(),
+            });
         }
         let elements = uia::enumerate(self.target.as_deref()).unwrap_or_default();
         // Did the click change ITS OWN target cell? Compare the region snapshot
@@ -105,11 +138,18 @@ impl Brain {
         let ro = readouts_inline(&elements);
         let ro_short: String = ro.chars().take(220).collect();
         let more = if ro.chars().count() > 220 { " ..." } else { "" };
-        eprintln!("[cc] step {:02} READOUTS ({} els): {ro_short}{more}", self.step, elements.len());
+        eprintln!(
+            "[cc] step {:02} READOUTS ({} els): {ro_short}{more}",
+            self.step,
+            elements.len()
+        );
         let new_sig = state_signature(&elements);
         let ui_changed = self.prev_state_sig.as_deref() != Some(new_sig.as_str());
         self.prev_state_sig = Some(new_sig);
-        let uia_action = matches!(name, "type_text" | "key_combination" | "open_url" | "launch_app");
+        let uia_action = matches!(
+            name,
+            "type_text" | "key_combination" | "open_url" | "launch_app"
+        );
         let act_sig = format!("{name}|{}", compact_args(args));
         self.recent_actions.push(act_sig.clone());
         if self.recent_actions.len() > 8 {
@@ -121,10 +161,19 @@ impl Brain {
         // or scrolled to the very bottom) stops changing the accessible state, while
         // productive scrolling keeps changing it. Nav keys are exempt outright.
         let is_nav = name == "key_combination"
-            && args.get("keys").and_then(Value::as_str).map(is_nav_keys).unwrap_or(false);
+            && args
+                .get("keys")
+                .and_then(Value::as_str)
+                .map(is_nav_keys)
+                .unwrap_or(false);
         let stuck = !is_nav
             && !ui_changed
-            && self.recent_actions.iter().filter(|a| **a == act_sig).count() >= 3;
+            && self
+                .recent_actions
+                .iter()
+                .filter(|a| **a == act_sig)
+                .count()
+                >= 3;
         let mut notes: Vec<(&'static str, &'static str)> = Vec::new();
         if visual_no_change {
             eprintln!("[cc] step {:02} NO VISUAL CHANGE after {name}", self.step);
@@ -137,6 +186,10 @@ impl Brain {
             eprintln!("[cc] step {:02} STUCK: repeated '{act_sig}'", self.step);
             notes.push(("stuck_warning", "You have repeated the same action ~3 times with NOTHING changing. If you were scrolling, you have reached the end of the page/list - STOP scrolling and finish (answer the user or call done). Otherwise the target likely isn't where you think or the click isn't landing: change approach (zoom in, a more specific click_target, or read the page text directly)."));
         }
+        self.setup_guard.after_ground(&notes);
+        if let Some(note) = self.setup_guard.note() {
+            notes.push(note);
+        }
         let mut state = format!(
             "{}\n\n{}",
             self.context_block(),
@@ -145,7 +198,11 @@ impl Brain {
         if let Some(marks) = self.detect_marks(&elements) {
             state.push_str(&format!("\n{marks}"));
         }
-        Ok(Grounded { frame_b64: b, state_text: state, notes })
+        Ok(Grounded {
+            frame_b64: b,
+            state_text: state,
+            notes,
+        })
     }
 
     /// On a UIA-blind surface (canvas/game/custom-drawn) auto-run the local detector
@@ -197,7 +254,10 @@ regions were found visually - click_mark by its number; @cellN is where it sits)
             let what = note.as_deref().unwrap_or("clickable");
             s.push_str(&format!("[{}] {what} {cell}\n", i + 1));
         }
-        eprintln!("[cc] {} clickable marks on UIA-blind surface", self.anchors.len());
+        eprintln!(
+            "[cc] {} clickable marks on UIA-blind surface",
+            self.anchors.len()
+        );
         Some(s)
     }
 }

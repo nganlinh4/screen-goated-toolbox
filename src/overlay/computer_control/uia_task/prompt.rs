@@ -59,7 +59,7 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
             "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}},
             "mediaResolution": "MEDIA_RESOLUTION_HIGH",
             "maxOutputTokens": max_out,
-            "thinkingConfig": {"thinkingLevel": think}
+            "thinkingConfig": {"thinkingLevel": think, "includeThoughts": true}
         },
         "systemInstruction": {"parts": [{"text": format!("{}\n{}\n{}\n{privilege}", super::SYS, CONTROLLER_RULES, protocol::session_rules())}]},
         "tools": [{"googleSearch": {}}, {"functionDeclarations": [
@@ -162,7 +162,19 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
             {"name": "browser_console", "description": "Read the page's CONSOLE output - console.log/info/warn/error(...) calls AND browser log entries (CORS / security / network / deprecation errors). Use this to DEBUG a web app or read the 'real developer error' behind a failure, instead of opening DevTools. Enables capture if needed, so the first call may be empty - run the page, then call again.",
              "parameters": {"type": "object", "properties": {}}},
             {"name": "decline_browser_control", "description": "Call ONLY when the user declines your offer to set up deep browser control - records it so you stop asking this session and don't nag (you may bring it up again much later). No args.",
-             "parameters": {"type": "object", "properties": {}}}
+             "parameters": {"type": "object", "properties": {}}},
+            {"name": "list_app_integrations", "description": "List the CURATED app-control integrations available - dedicated MCP tools that drive a specific app's real API far more precisely than clicking its UI - and whether each is installed/connected. Use to see what deeper control you can offer for the app the user is working in. No args.",
+             "parameters": {"type": "object", "properties": {}}},
+            {"name": "setup_app_integration", "description": "Install + activate a curated app-control integration by its id (from list_app_integrations) so you gain its precise tools instead of guessing clicks. It INSTALLS AND RUNS third-party software, so get the user's explicit YES first, THEN call with confirmed:true. Its tools become available after a brief reconnect.",
+             "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id from list_app_integrations."}, "confirmed": {"type": "boolean", "description": "Pass true ONLY after the user agreed to install it."}}, "required": ["id"]}},
+            {"name": "app_integration_status", "description": "Check whether a curated app-control integration is actually ready: pinned MCP server connected, app-side readiness probe passed, and tools active after reconnect. Use this to verify setup and stop; do not guess from screenshots.",
+             "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}},
+            {"name": "read_app_integration_docs", "description": "Fetch the curated integration's own README/docs from its catalog source URL. Use this to research in-app setup. This cannot fetch arbitrary model-provided URLs.",
+             "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}},
+            {"name": "remove_app_integration", "description": "Uninstall and disconnect a curated app-control integration by id (stops its server, forgets it). Use when the user wants it gone.",
+             "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}},
+            {"name": "decline_app_integration", "description": "Call ONLY when the user declines your proactive offer to set up an app integration - snoozes that offer so you don't nag (you may bring it up again much later).",
+             "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}}
         ]}],
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
@@ -196,6 +208,21 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
     // OPT-IN per call — callers retry without it if setup fails.
     if !search && let Some(tools) = setup["setup"]["tools"].as_array_mut() {
         tools.retain(|t| t.get("googleSearch").is_none());
+    }
+    // Append any connected MCP integrations' tools. Gemini freezes the tool set at setup, so
+    // installing/removing an integration triggers a reconnect that re-runs build_setup.
+    let mcp_decls = super::super::mcp::active_tool_declarations();
+    if !mcp_decls.is_empty()
+        && let Some(fd) = setup["setup"]["tools"]
+            .as_array_mut()
+            .and_then(|tools| {
+                tools
+                    .iter_mut()
+                    .find_map(|t| t.get_mut("functionDeclarations"))
+            })
+            .and_then(|d| d.as_array_mut())
+    {
+        fd.extend(mcp_decls);
     }
     setup
 }
