@@ -22,6 +22,9 @@ impl Brain {
             enriched_ctx = format!("{ctx}; already did: {}", recent.join("  ->  "));
             &enriched_ctx
         };
+        if let Some(blocked) = self.setup_guard.before_action(name) {
+            return blocked;
+        }
         let result = match name {
             // Deterministic controller (Stage 1): the model reads the indexed world
             // and acts by @id; the controller resolves/executes/verifies/gates.
@@ -37,7 +40,9 @@ impl Brain {
                     args.get("verb").and_then(Value::as_str).unwrap_or(""),
                     args.get("value").and_then(Value::as_str),
                     ctx,
-                    args.get("confirm").and_then(Value::as_bool).unwrap_or(false),
+                    args.get("confirm")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                     &act_ctx,
                 )
             }
@@ -47,7 +52,11 @@ impl Brain {
                     cancel,
                     dry: self.dry,
                 };
-                let steps = args.get("steps").and_then(Value::as_array).cloned().unwrap_or_default();
+                let steps = args
+                    .get("steps")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
                 self.controller.do_steps(&steps, ctx, &act_ctx)
             }
             "click_at" => {
@@ -57,12 +66,17 @@ impl Brain {
                         let (sx, sy) = self.view.to_screen_px(mx, my);
                         self.last_click = Some((sx, sy));
                         self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
-                        append_click(&self.dir, json!({"step": step, "kind": "click_at", "cell": cell,
+                        append_click(
+                            &self.dir,
+                            json!({"step": step, "kind": "click_at", "cell": cell,
                             "view_norm": [mx.round(), my.round()], "screen_px": [sx, sy],
-                            "view": [self.view.x, self.view.y, self.view.w, self.view.h]}));
+                            "view": [self.view.x, self.view.y, self.view.w, self.view.h]}),
+                        );
                         click_screen(sx, sy, self.dry, "left", &self.profile, cancel)
                     }
-                    None => json!({"ok": false, "error": format!("cell {cell} out of range 1..={}", self.grid.cell_count())}),
+                    None => {
+                        json!({"ok": false, "error": format!("cell {cell} out of range 1..={}", self.grid.cell_count())})
+                    }
                 }
             }
             "zoom" => {
@@ -74,7 +88,9 @@ impl Brain {
                         self.anchors.clear(); // view changed -> old anchors are stale
                         json!({"ok": true, "zoomed_cell": cell})
                     }
-                    None => json!({"ok": false, "error": format!("cell {cell} out of range 1..={}", self.grid.cell_count())}),
+                    None => {
+                        json!({"ok": false, "error": format!("cell {cell} out of range 1..={}", self.grid.cell_count())})
+                    }
                 }
             }
             "reset_view" => {
@@ -93,7 +109,10 @@ impl Brain {
                 json!({"ok": true, "view": "the whole screen"})
             }
             "look" => {
-                let q = args.get("question").and_then(Value::as_str).unwrap_or("Describe exactly what is on screen.");
+                let q = args
+                    .get("question")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Describe exactly what is on screen.");
                 match read_view(self.view, q, ctx, cancel) {
                     Ok(answer) => {
                         eprintln!("[cc] step {step:02} LOOK: {answer}");
@@ -103,7 +122,10 @@ impl Brain {
                 }
             }
             "click_target" => {
-                let desc = args.get("description").and_then(Value::as_str).unwrap_or("");
+                let desc = args
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let button = match args.get("button").and_then(Value::as_str) {
                     Some("right") => "right",
                     _ => "left",
@@ -119,15 +141,23 @@ impl Brain {
                             let (sx, sy) = self.view.to_screen_px(loc.x, loc.y);
                             self.last_click = Some((sx, sy));
                             self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
-                            append_click(&self.dir, json!({"step": step, "kind": "click_target", "desc": desc,
+                            append_click(
+                                &self.dir,
+                                json!({"step": step, "kind": "click_target", "desc": desc,
                                 "button": button, "view_norm": [loc.x.round(), loc.y.round()],
                                 "screen_px": [sx, sy], "saw": loc.note,
-                                "view": [self.view.x, self.view.y, self.view.w, self.view.h]}));
-                            eprintln!("[cc] step {step:02} CLICK_TARGET[{button}] '{desc}' -> screen({sx},{sy}) saw={:?}", loc.note);
+                                "view": [self.view.x, self.view.y, self.view.w, self.view.h]}),
+                            );
+                            eprintln!(
+                                "[cc] step {step:02} CLICK_TARGET[{button}] '{desc}' -> screen({sx},{sy}) saw={:?}",
+                                loc.note
+                            );
                             let r = click_screen(sx, sy, self.dry, button, &self.profile, cancel);
                             json!({"ok": true, "located_view_norm": [loc.x, loc.y], "saw_at_target": loc.note, "click": r})
                         }
-                        Err(e) => json!({"ok": false, "error": format!("could not locate '{desc}': {e}")}),
+                        Err(e) => {
+                            json!({"ok": false, "error": format!("could not locate '{desc}': {e}")})
+                        }
                     }
                 }
             }
@@ -141,20 +171,33 @@ impl Brain {
                 if !self.dry && super::super::browser::input_active() {
                     browser_drag(from, to, ctx, cancel)
                 } else {
-                    match (locate_in_view(self.view, from, ctx, cancel), locate_in_view(self.view, to, ctx, cancel)) {
+                    match (
+                        locate_in_view(self.view, from, ctx, cancel),
+                        locate_in_view(self.view, to, ctx, cancel),
+                    ) {
                         (Ok(f), Ok(t)) => {
                             let (fsx, fsy) = self.view.to_screen_px(f.x, f.y);
                             let (tsx, tsy) = self.view.to_screen_px(t.x, t.y);
                             self.last_click = Some((tsx, tsy));
                             self.click_before = session::capture_region_fp(tsx, tsy, VC_HALF);
-                            append_click(&self.dir, json!({"step": step, "kind": "drag_target", "from": from, "to": to,
-                                "from_px": [fsx, fsy], "to_px": [tsx, tsy], "saw_from": f.note, "saw_to": t.note}));
-                            eprintln!("[cc] step {step:02} DRAG_TARGET '{from}' -> '{to}' : ({fsx},{fsy})->({tsx},{tsy})");
-                            let r = drag_screen(fsx, fsy, tsx, tsy, self.dry, &self.profile, cancel);
+                            append_click(
+                                &self.dir,
+                                json!({"step": step, "kind": "drag_target", "from": from, "to": to,
+                                "from_px": [fsx, fsy], "to_px": [tsx, tsy], "saw_from": f.note, "saw_to": t.note}),
+                            );
+                            eprintln!(
+                                "[cc] step {step:02} DRAG_TARGET '{from}' -> '{to}' : ({fsx},{fsy})->({tsx},{tsy})"
+                            );
+                            let r =
+                                drag_screen(fsx, fsy, tsx, tsy, self.dry, &self.profile, cancel);
                             json!({"ok": true, "from": f.note, "to": t.note, "drag": r})
                         }
-                        (Err(e), _) => json!({"ok": false, "error": format!("could not locate from '{from}': {e}")}),
-                        (_, Err(e)) => json!({"ok": false, "error": format!("could not locate to '{to}': {e}")}),
+                        (Err(e), _) => {
+                            json!({"ok": false, "error": format!("could not locate from '{from}': {e}")})
+                        }
+                        (_, Err(e)) => {
+                            json!({"ok": false, "error": format!("could not locate to '{to}': {e}")})
+                        }
                     }
                 }
             }
@@ -162,24 +205,49 @@ impl Brain {
                 // Same vision-locate as click_target, but MOVE the cursor onto the
                 // target and stop - no click. For "point at / show me X" or to hover
                 // and reveal a tooltip / hover-menu (dwell_seconds lets it surface).
-                let desc = args.get("description").and_then(Value::as_str).unwrap_or("");
-                let dwell = args.get("dwell_seconds").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 10.0);
+                let desc = args
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let dwell = args
+                    .get("dwell_seconds")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+                    .clamp(0.0, 10.0);
                 match locate_in_view(self.view, desc, ctx, cancel) {
                     Ok(loc) => {
                         let (sx, sy) = self.view.to_screen_px(loc.x, loc.y);
                         self.last_click = Some((sx, sy)); // mark where we pointed on the next frame
-                        append_click(&self.dir, json!({"step": step, "kind": "point_at", "desc": desc,
+                        append_click(
+                            &self.dir,
+                            json!({"step": step, "kind": "point_at", "desc": desc,
                             "view_norm": [loc.x.round(), loc.y.round()], "screen_px": [sx, sy],
-                            "saw": loc.note, "view": [self.view.x, self.view.y, self.view.w, self.view.h]}));
-                        eprintln!("[cc] step {step:02} POINT_AT '{desc}' -> screen({sx},{sy}) saw={:?}", loc.note);
-                        let r = point_screen(sx, sy, (dwell * 1000.0) as u64, self.dry, &self.profile, cancel);
+                            "saw": loc.note, "view": [self.view.x, self.view.y, self.view.w, self.view.h]}),
+                        );
+                        eprintln!(
+                            "[cc] step {step:02} POINT_AT '{desc}' -> screen({sx},{sy}) saw={:?}",
+                            loc.note
+                        );
+                        let r = point_screen(
+                            sx,
+                            sy,
+                            (dwell * 1000.0) as u64,
+                            self.dry,
+                            &self.profile,
+                            cancel,
+                        );
                         json!({"ok": true, "pointed_view_norm": [loc.x, loc.y], "saw_at_target": loc.note, "move": r})
                     }
-                    Err(e) => json!({"ok": false, "error": format!("could not point at '{desc}': {e}")}),
+                    Err(e) => {
+                        json!({"ok": false, "error": format!("could not point at '{desc}': {e}")})
+                    }
                 }
             }
             "map_targets" => {
-                let desc = args.get("description").and_then(Value::as_str).unwrap_or("");
+                let desc = args
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 match map_in_view(self.view, desc, ctx, cancel) {
                     Ok(pts) => {
                         self.anchors = pts
@@ -195,7 +263,10 @@ impl Brain {
                             .enumerate()
                             .map(|(i, (_, _, note))| json!({"mark": i + 1, "what": note}))
                             .collect();
-                        eprintln!("[cc] step {step:02} MAP_TARGETS '{desc}' -> {} anchors", self.anchors.len());
+                        eprintln!(
+                            "[cc] step {step:02} MAP_TARGETS '{desc}' -> {} anchors",
+                            self.anchors.len()
+                        );
                         json!({"ok": true, "anchor_count": self.anchors.len(), "anchors": list,
                             "note": "Click any of these by its mark number with click_mark(mark). They stay valid until the layout changes - then re-run map_targets."})
                     }
@@ -208,26 +279,39 @@ impl Brain {
                     Some("right") => "right",
                     _ => "left",
                 };
-                let anchor = self.anchors.get(id.wrapping_sub(1)).map(|(sx, sy, n)| (*sx, *sy, n.clone()));
+                let anchor = self
+                    .anchors
+                    .get(id.wrapping_sub(1))
+                    .map(|(sx, sy, n)| (*sx, *sy, n.clone()));
                 match anchor {
                     Some((sx, sy, note)) => {
                         self.last_click = Some((sx, sy));
                         self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
-                        append_click(&self.dir, json!({"step": step, "kind": "click_mark", "mark": id,
-                            "button": button, "screen_px": [sx, sy], "saw": note}));
+                        append_click(
+                            &self.dir,
+                            json!({"step": step, "kind": "click_mark", "mark": id,
+                            "button": button, "screen_px": [sx, sy], "saw": note}),
+                        );
                         eprintln!("[cc] step {step:02} CLICK_MARK {id} -> screen({sx},{sy})");
                         let r = click_screen(sx, sy, self.dry, button, &self.profile, cancel);
                         json!({"ok": true, "clicked_mark": id, "what": note, "click": r})
                     }
-                    None => json!({"ok": false, "error": format!("no anchor #{id} (have {}); run map_targets first", self.anchors.len())}),
+                    None => {
+                        json!({"ok": false, "error": format!("no anchor #{id} (have {}); run map_targets first", self.anchors.len())})
+                    }
                 }
             }
             "wait" => {
-                let secs = args.get("seconds").and_then(Value::as_f64).unwrap_or(3.0).clamp(0.0, 30.0);
+                let secs = args
+                    .get("seconds")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(3.0)
+                    .clamp(0.0, 30.0);
                 let aborted = human_input::sleep_cancellable((secs * 1000.0) as u64, cancel);
                 json!({"ok": !aborted, "waited_seconds": secs})
             }
-            "type_text" | "key_combination" | "open_url" | "launch_app" | "run_command" | "click_here" => {
+            "type_text" | "key_combination" | "open_url" | "launch_app" | "run_command"
+            | "click_here" => {
                 if self.dry {
                     json!({"ok": true, "note": "dry"})
                 } else {
@@ -357,51 +441,105 @@ impl Brain {
             "browser_read_page" => super::super::browser::read_page(),
             "browser_wait_for" => super::super::browser::wait_for(
                 args.get("selector").and_then(Value::as_str).unwrap_or(""),
-                args.get("timeout_ms").and_then(Value::as_u64).unwrap_or(8000),
+                args.get("timeout_ms")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(8000),
             ),
-            "browser_eval" => super::super::browser::eval_js(args.get("code").and_then(Value::as_str).unwrap_or("")),
-            "browser_navigate" => super::super::browser::navigate(args.get("url").and_then(Value::as_str).unwrap_or("")),
-            "browser_open_tab" => super::super::browser::open_tab(args.get("url").and_then(Value::as_str).unwrap_or("")),
+            "browser_eval" => super::super::browser::eval_js(
+                args.get("code").and_then(Value::as_str).unwrap_or(""),
+            ),
+            "browser_navigate" => super::super::browser::navigate(
+                args.get("url").and_then(Value::as_str).unwrap_or(""),
+            ),
+            "browser_open_tab" => super::super::browser::open_tab(
+                args.get("url").and_then(Value::as_str).unwrap_or(""),
+            ),
             "browser_upload" => super::super::browser::upload_file(
                 args.get("selector").and_then(Value::as_str).unwrap_or(""),
                 args.get("path").and_then(Value::as_str).unwrap_or(""),
             ),
             "browser_tabs" => super::super::browser::get_tabs(),
-            "browser_switch_tab" => super::super::browser::switch_tab(args.get("tab_id").and_then(Value::as_i64).unwrap_or(0)),
-            "browser_network" => super::super::browser::read_network(args.get("filter").and_then(Value::as_str).unwrap_or("")),
+            "browser_switch_tab" => super::super::browser::switch_tab(
+                args.get("tab_id").and_then(Value::as_i64).unwrap_or(0),
+            ),
+            "browser_network" => super::super::browser::read_network(
+                args.get("filter").and_then(Value::as_str).unwrap_or(""),
+            ),
             "browser_console" => super::super::browser::read_console(),
             "decline_browser_control" => {
                 super::super::browser::record_decline();
                 json!({"ok": true, "noted": "won't ask again for a while"})
             }
-            _ => json!({"ok": false, "error": "unknown action"}),
+            "list_app_integrations" => super::super::mcp::list_tool(),
+            "setup_app_integration" => super::super::mcp::setup_tool(
+                args.get("id").and_then(Value::as_str).unwrap_or(""),
+                args.get("confirmed")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            ),
+            "app_integration_status" => {
+                super::super::mcp::status_tool(args.get("id").and_then(Value::as_str).unwrap_or(""))
+            }
+            "read_app_integration_docs" => {
+                super::super::mcp::docs_tool(args.get("id").and_then(Value::as_str).unwrap_or(""))
+            }
+            "remove_app_integration" => {
+                super::super::mcp::remove_tool(args.get("id").and_then(Value::as_str).unwrap_or(""))
+            }
+            "decline_app_integration" => super::super::mcp::decline_tool(
+                args.get("id").and_then(Value::as_str).unwrap_or(""),
+            ),
+            // Tools from an installed MCP integration are namespaced `mcp__id__tool`.
+            _ => super::super::mcp::try_dispatch(name, args)
+                .unwrap_or_else(|| json!({"ok": false, "error": "unknown action"})),
         };
+        self.setup_guard.record_result(name, &result);
         // Per-action latency (excludes the settle wait) — the key refinement
         // signal for vision/click cost. Full result is truncated to avoid bloat;
         // look()/click_target log their rich detail on their own lines above.
         let ms = t0.elapsed().as_millis();
-        let settle = if name == "open_url" || name == "launch_app" { 1100 } else { 250 };
+        let settle = if name == "open_url" || name == "launch_app" {
+            1100
+        } else {
+            250
+        };
         std::thread::sleep(Duration::from_millis(settle));
         // Rich, low-bloat per-tool log: observe/act surface their @id + verdict (so a
         // stale-id miss, a blocked gate, or a failed verify is VISIBLE at a glance);
         // every other tool gets a short truncated result.
         let short: String = match name {
-            "observe" => format!("{} elements", result.get("count").and_then(Value::as_u64).unwrap_or(0)),
+            "observe" => format!(
+                "{} elements",
+                result.get("count").and_then(Value::as_u64).unwrap_or(0)
+            ),
             "act" => {
                 let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
                 let verb = args.get("verb").and_then(Value::as_str).unwrap_or("act");
-                let nm = result.get("target").and_then(|t| t.get("name")).and_then(Value::as_str).unwrap_or("");
+                let nm = result
+                    .get("target")
+                    .and_then(|t| t.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let outcome = result
                     .get("verify")
                     .and_then(Value::as_str)
                     .or_else(|| result.get("blocked").and_then(Value::as_str))
                     .or_else(|| result.get("error").and_then(Value::as_str))
                     .unwrap_or("ok");
-                format!("{verb} @{id} {nm:?} -> {}", outcome.chars().take(110).collect::<String>())
+                format!(
+                    "{verb} @{id} {nm:?} -> {}",
+                    outcome.chars().take(110).collect::<String>()
+                )
             }
             "wait" => {
-                let w = result.get("waited_seconds").and_then(Value::as_f64).unwrap_or(0.0);
-                format!("{w:.0}s (~{:.0}s total waiting — if nothing's changing, STOP)", self.wait_accum + w)
+                let w = result
+                    .get("waited_seconds")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0);
+                format!(
+                    "{w:.0}s (~{:.0}s total waiting — if nothing's changing, STOP)",
+                    self.wait_accum + w
+                )
             }
             _ => result.to_string().chars().take(120).collect(),
         };
@@ -414,12 +552,16 @@ impl Brain {
         }
         // Record the action trail (for situational context) + consecutive wait time.
         let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(true);
-        self.trail.push(format!("{name}={}", if ok { "ok" } else { "fail" }));
+        self.trail
+            .push(format!("{name}={}", if ok { "ok" } else { "fail" }));
         if self.trail.len() > 6 {
             self.trail.remove(0);
         }
         if name == "wait" {
-            self.wait_accum += result.get("waited_seconds").and_then(Value::as_f64).unwrap_or(0.0);
+            self.wait_accum += result
+                .get("waited_seconds")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
         } else {
             self.wait_accum = 0.0;
         }

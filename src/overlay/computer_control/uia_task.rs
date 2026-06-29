@@ -30,6 +30,7 @@ mod brain;
 mod dispatch;
 mod prompt;
 mod render;
+mod setup_guard;
 mod vision;
 pub(crate) use prompt::build_setup;
 use render::*;
@@ -165,7 +166,12 @@ enum ReadOutcome {
 }
 
 /// Reconnect the Live session, resuming the prior conversation by `resume` handle.
-pub(super) fn reconnect(key: &str, resume: Option<&str>, voice: bool, search: bool) -> Result<Sock> {
+pub(super) fn reconnect(
+    key: &str,
+    resume: Option<&str>,
+    voice: bool,
+    search: bool,
+) -> Result<Sock> {
     let mut s = connect_ws(key).context("reconnect")?;
     send(&mut s, build_setup(resume, voice, search))?;
     wait_for_setup(&mut s)?;
@@ -210,6 +216,7 @@ pub(super) struct Brain {
     /// observe/act/do_steps tools — drives the browser surface (and native windows
     /// via UIA), always on.
     controller: super::controller::Controller,
+    setup_guard: setup_guard::SetupGuard,
 }
 
 /// Result of grounding after an action: the frame to send, the textual state, and
@@ -262,7 +269,10 @@ active, foreground one (its title must contain {t:?})"
     // Turn 0 (no pending tool): send the VIEW crop, then the state + task.
     let (b0, st0) = brain.initial()?;
     send(&mut socket, realtime_video_jpeg_b64(&b0))?;
-    send(&mut socket, realtime_text(&format!("{st0}\n\nYOUR TASK: {task}\nBegin.")))?;
+    send(
+        &mut socket,
+        realtime_text(&format!("{st0}\n\nYOUR TASK: {task}\nBegin.")),
+    )?;
 
     let deadline_secs: u64 = std::env::var("CC_DEADLINE_SECS")
         .ok()
@@ -278,7 +288,10 @@ active, foreground one (its title must contain {t:?})"
             && n.parse::<usize>().ok() == Some(brain.step)
         {
             forced_drop = true;
-            eprintln!("[cc] CC_FORCE_DROP: simulating connection drop at step {}", brain.step);
+            eprintln!(
+                "[cc] CC_FORCE_DROP: simulating connection drop at step {}",
+                brain.step
+            );
             let _ = socket.close(None);
         }
         let outcome = match socket.read() {
@@ -322,17 +335,22 @@ active, foreground one (its title must contain {t:?})"
                 // current state (like turn 0, which is always valid).
                 let g = brain.ground("(reconnect)", &json!({}))?;
                 send(&mut socket, realtime_video_jpeg_b64(&g.frame_b64))?;
-                send(&mut socket, realtime_text(&format!(
-                    "(reconnected after a dropped connection) Resume this task: {task}\nContinue from the CURRENT \
+                send(
+                    &mut socket,
+                    realtime_text(&format!(
+                        "(reconnected after a dropped connection) Resume this task: {task}\nContinue from the CURRENT \
 state shown below.\n{}",
-                    g.state_text
-                )))?;
+                        g.state_text
+                    )),
+                )?;
                 continue;
             }
         };
         for ev in parse_server_message(&frame) {
             match ev {
-                ServerEvent::ModelText(t) | ServerEvent::OutputTranscript(t) => reasoning.push_str(&t),
+                ServerEvent::ModelText(t) | ServerEvent::OutputTranscript(t) => {
+                    reasoning.push_str(&t)
+                }
                 ServerEvent::ToolCall { id, name, args } => {
                     let say = reasoning.trim().to_string();
                     if !say.is_empty() {
@@ -344,7 +362,11 @@ state shown below.\n{}",
                     // descriptions ("the other one").
                     let ctx = format!(
                         "task: {task}; agent intent: {}",
-                        if say.is_empty() { "(none stated)" } else { say.as_str() }
+                        if say.is_empty() {
+                            "(none stated)"
+                        } else {
+                            say.as_str()
+                        }
                     );
 
                     if name == "done" {
@@ -362,7 +384,7 @@ state shown below.\n{}",
                             "ok": false,
                             "independent_check": verdict,
                             "instruction": "An independent high-res check says the goal is NOT yet achieved (see \
-above). Do not finish - keep working until it is actually done.",
+                        above). Do not finish - keep working until it is actually done.",
                             "new_state": g.state_text,
                         });
                         send(&mut socket, tool_response(&id, &name, resp))?; // answer first
@@ -372,7 +394,8 @@ above). Do not finish - keep working until it is actually done.",
 
                     let action_result = brain.dispatch(&name, &args, &ctx, &cancel);
                     let g = brain.ground(&name, &args)?;
-                    let mut resp = json!({"action_result": action_result, "new_state": g.state_text});
+                    let mut resp =
+                        json!({"action_result": action_result, "new_state": g.state_text});
                     for (k, v) in &g.notes {
                         resp[*k] = json!(*v);
                     }
@@ -389,7 +412,10 @@ above). Do not finish - keep working until it is actually done.",
             }
         }
     }
-    eprintln!("[cc] STOPPED at step {} (timeout/max-steps without done)", brain.step);
+    eprintln!(
+        "[cc] STOPPED at step {} (timeout/max-steps without done)",
+        brain.step
+    );
     brain.final_review("(stopped without done)");
     Ok(())
 }
@@ -403,7 +429,10 @@ pub fn run_vision_test(target: Option<&str>, question: &str) -> Result<()> {
     crate::api::gemini_live::init_gemini_live();
     std::thread::sleep(Duration::from_millis(200));
     let view = window_view(target, false);
-    eprintln!("[vision-test] reading view ({},{},{},{})", view.x, view.y, view.w, view.h);
+    eprintln!(
+        "[vision-test] reading view ({},{},{},{})",
+        view.x, view.y, view.w, view.h
+    );
     let never = AtomicBool::new(false);
     let answer = read_view(view, question, "", &never)?;
     eprintln!("[vision-test] ANSWER:\n{answer}");
@@ -412,7 +441,10 @@ pub fn run_vision_test(target: Option<&str>, question: &str) -> Result<()> {
     {
         let loc = locate_in_view(view, &desc, "", &never)?;
         let (sx, sy) = view.to_screen_px(loc.x, loc.y);
-        eprintln!("[vision-test] LOCATE '{desc}' -> view_norm({:.0},{:.0}) screen_px({sx},{sy}) saw={:?}", loc.x, loc.y, loc.note);
+        eprintln!(
+            "[vision-test] LOCATE '{desc}' -> view_norm({:.0},{:.0}) screen_px({sx},{sy}) saw={:?}",
+            loc.x, loc.y, loc.note
+        );
     }
     Ok(())
 }

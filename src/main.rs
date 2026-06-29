@@ -310,9 +310,10 @@ fn main() -> eframe::Result<()> {
     // Standalone CLI test for the Gemini Translate narration streaming: feed a
     // 16 kHz mono WAV, write `<wav>.narration.wav`, exit. No GUI / app wiring.
     if let Some(input_wav) = parse_arg_value(&startup_args, "--gt-narration-test") {
-        let target_language =
-            parse_arg_value(&startup_args, "--gt-narration-lang").unwrap_or_else(|| "vi".to_string());
-        match crate::overlay::screen_record::run_gt_narration_test_cli(&input_wav, &target_language) {
+        let target_language = parse_arg_value(&startup_args, "--gt-narration-lang")
+            .unwrap_or_else(|| "vi".to_string());
+        match crate::overlay::screen_record::run_gt_narration_test_cli(&input_wav, &target_language)
+        {
             Ok(()) => std::process::exit(0),
             Err(error) => {
                 eprintln!("[gt-test] ERROR: {error}");
@@ -323,9 +324,13 @@ fn main() -> eframe::Result<()> {
 
     // De-risk probe for the Computer Control feature: open a real Gemini Live
     // session, stream one screenshot + a text task, log tool calls / usage, exit.
-    if startup_args.iter().any(|arg| arg == "--computer-control-probe") {
-        let task = parse_arg_value(&startup_args, "--cc-task")
-            .unwrap_or_else(|| "Look at the screen and describe what you see, then call done.".to_string());
+    if startup_args
+        .iter()
+        .any(|arg| arg == "--computer-control-probe")
+    {
+        let task = parse_arg_value(&startup_args, "--cc-task").unwrap_or_else(|| {
+            "Look at the screen and describe what you see, then call done.".to_string()
+        });
         match crate::overlay::computer_control::run_probe_cli(&task) {
             Ok(()) => std::process::exit(0),
             Err(error) => {
@@ -336,7 +341,10 @@ fn main() -> eframe::Result<()> {
     }
 
     // Headless Computer Control session (mic + screen + execute, stderr logs, no GUI).
-    if startup_args.iter().any(|arg| arg == "--computer-control-run") {
+    if startup_args
+        .iter()
+        .any(|arg| arg == "--computer-control-run")
+    {
         crate::overlay::computer_control::run_headless();
         std::process::exit(0);
     }
@@ -369,8 +377,9 @@ fn main() -> eframe::Result<()> {
     if startup_args.iter().any(|arg| arg == "--cc-vision-test") {
         let target = parse_arg_value(&startup_args, "--cc-window")
             .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
-        let question = parse_arg_value(&startup_args, "--cc-task")
-            .unwrap_or_else(|| "In one sentence, what application and content is shown?".to_string());
+        let question = parse_arg_value(&startup_args, "--cc-task").unwrap_or_else(|| {
+            "In one sentence, what application and content is shown?".to_string()
+        });
         match crate::overlay::computer_control::run_vision_test_cli(target.as_deref(), &question) {
             Ok(()) => std::process::exit(0),
             Err(e) => {
@@ -407,6 +416,27 @@ fn main() -> eframe::Result<()> {
             Ok(()) => std::process::exit(0),
             Err(e) => {
                 eprintln!("[uia-task] ERROR: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // MCP stdio bridge smoke test (no Gemini): spawn a catalog server, list + health probe.
+    if startup_args.iter().any(|arg| arg == "--cc-mcp-test") {
+        let id =
+            parse_arg_value(&startup_args, "--cc-mcp-test").unwrap_or_else(|| "time".to_string());
+        let tool = parse_arg_value(&startup_args, "--cc-mcp-tool");
+        let args_json = parse_arg_value(&startup_args, "--cc-mcp-args-json");
+        let list_only = startup_args.iter().any(|arg| arg == "--cc-mcp-list-only");
+        match crate::overlay::computer_control::run_mcp_test_cli(
+            &id,
+            tool.as_deref(),
+            args_json.as_deref(),
+            list_only,
+        ) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[mcp-test] ERROR: {e}");
                 std::process::exit(1);
             }
         }

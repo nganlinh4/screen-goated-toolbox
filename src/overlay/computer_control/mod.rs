@@ -16,6 +16,7 @@ mod detector;
 mod executor;
 mod grid;
 mod human_input;
+mod mcp;
 mod memory;
 mod orb;
 mod overlay;
@@ -29,12 +30,14 @@ mod uia;
 mod uia_task;
 mod vision_reader;
 
-pub use overlay::{is_active, show_overlay, stop_overlay};
 /// Detector model hooks for the Downloaded Tools settings UI (download/remove/probe).
 pub(crate) use detector::{
     DOWNLOAD_TITLE as DETECTOR_DOWNLOAD_TITLE, detector_model_dir, download_detector_model,
     is_detector_downloaded, remove_detector_model,
 };
+/// MCP capability-store hooks for the Downloaded Tools settings UI (list/install/remove).
+pub(crate) use mcp::{ui_install, ui_list, ui_remove, ui_remove_all};
+pub use overlay::{is_active, show_overlay, stop_overlay};
 
 /// CLI entry for the de-risk probe: `--computer-control-probe [--cc-task "..."]`.
 pub fn run_probe_cli(task: &str) -> Result<(), String> {
@@ -69,6 +72,16 @@ pub fn run_grid_test_cli(target: Option<&str>) -> Result<(), String> {
 /// CLI entry for the aux vision-stack smoke test: `--cc-vision-test`.
 pub fn run_vision_test_cli(target: Option<&str>, question: &str) -> Result<(), String> {
     uia_task::run_vision_test(target, question).map_err(|e| format!("{e:?}"))
+}
+
+/// CLI entry for the MCP stdio bridge smoke test: `--cc-mcp-test <id>` (no Gemini).
+pub fn run_mcp_test_cli(
+    id: &str,
+    tool: Option<&str>,
+    args_json: Option<&str>,
+    list_only: bool,
+) -> Result<(), String> {
+    mcp::run_mcp_test(id, tool, args_json, list_only)
 }
 
 /// CLI entry for the model-free human-cursor demo: `--cc-cursor-demo`.

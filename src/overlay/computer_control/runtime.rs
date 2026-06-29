@@ -30,6 +30,7 @@ use super::uia_task;
 mod action_worker;
 mod mic;
 mod reader;
+mod speech_gate;
 use action_worker::executor_loop;
 use mic::mic_thread;
 use reader::{Pending, Reader, build_recap, flush_reply, handle_event, record_observation};
@@ -78,7 +79,10 @@ pub(super) fn run(stop: Arc<AtomicBool>) {
                 // You stopped during connect/setup (e.g. toggling the hotkey fast) -
                 // a clean shutdown, NOT an error.
                 overlay::set_status("stopped");
-            } else if msg.contains("quota") || msg.contains("exceeded") || msg.contains("resource_exhausted") {
+            } else if msg.contains("quota")
+                || msg.contains("exceeded")
+                || msg.contains("resource_exhausted")
+            {
                 overlay::push_log(
                     "Gemini rate limit hit (a burst of Live connections). This is usually the per-minute / \
 concurrent-session cap, NOT your daily quota - just WAIT ~30-60s and start again. If it persists, check the key \
@@ -124,7 +128,9 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     send(&mut socket, uia_task::build_setup(None, true, true))?;
     if wait_for_setup(&mut socket, stop).is_err() {
         let _ = socket.close(None);
-        overlay::push_log("(Google Search unavailable on this key — starting without it)".to_string());
+        overlay::push_log(
+            "(Google Search unavailable on this key — starting without it)".to_string(),
+        );
         socket = connect_ws(&key)?;
         send(&mut socket, uia_task::build_setup(None, true, false))?;
         wait_for_setup(&mut socket, stop)?;
@@ -132,7 +138,9 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     set_socket_nonblocking(&mut socket)?;
     overlay::set_status("ready - speak a command");
     overlay::set_orb_resting();
-    overlay::push_log("* connected; sending your WHOLE screen + mic each turn (smart brain)".to_string());
+    overlay::push_log(
+        "* connected; sending your WHOLE screen + mic each turn (smart brain)".to_string(),
+    );
 
     // Steer/stop core: the Brain + its (possibly slow) actions run on a SEPARATE
     // thread so the reader keeps receiving mic + barge-in WHILE an action runs.
@@ -143,6 +151,10 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     // Bring up the browser-control bridge server so the extension (if installed)
     // can connect; idempotent across sessions.
     super::browser::ensure_started();
+    // Bring any installed MCP app-control integrations back online (each on its own
+    // thread, since a cold spawn can block); the reconnect-on-tools-changed gap then
+    // re-runs build_setup to declare their tools.
+    super::mcp::connect_all_installed();
 
     let cancel = Arc::new(AtomicBool::new(false));
     let (exec_tx, exec_rx) = mpsc::channel::<Job>();
@@ -151,7 +163,8 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     *TEXT_COMMAND_TX.lock().unwrap() = Some(cmd_tx);
     let exec_cancel = cancel.clone();
     let exec_target = target.clone();
-    let exec_thread = std::thread::spawn(move || executor_loop(exec_target, exec_rx, res_tx, exec_cancel));
+    let exec_thread =
+        std::thread::spawn(move || executor_loop(exec_target, exec_rx, res_tx, exec_cancel));
 
     let f0 = uia_task::snapshot(target.as_deref()).unwrap_or_default();
     if !f0.is_empty() {
@@ -201,6 +214,10 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     // browsing without it (and hasn't recently declined).
     let mut offered_browser = false;
     let mut last_offer_check = Instant::now();
+    // Proactive offer for a curated MCP app integration when the foreground app has one
+    // (offered at most once per session per id; declines snooze via mcp::prefs).
+    let mut offered_mcp: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
+    let mut last_mcp_offer_check = Instant::now();
     // By default the mic stays OPEN while the agent talks, so you can barge in and
     // interrupt its speech (native Live behaviour). On open speakers (no headphones
     // / no echo cancellation) the agent's own voice can leak into the mic and make
@@ -228,10 +245,9 @@ fn run_inner(stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
         //     set up, and they haven't recently declined → nudge the model to offer
         //     (it phrases it in the user's language). Only when idle + mid-session.
         if !offered_browser
-            && !state.active
             && !state.awaiting
             && state.has_command
-            && last_event.elapsed() > Duration::from_secs(6) // genuinely idle, not mid-request
+            && last_event.elapsed() > Duration::from_secs(6) // genuinely idle (state.active sticks true → don't gate on it)
             && last_offer_check.elapsed() >= Duration::from_secs(4)
         {
             last_offer_check = Instant::now();
@@ -253,6 +269,32 @@ more precise page reading/acting. If they decline, call decline_browser_control.
             }
         }
 
+        // 0c-mcp) proactive offer: the foreground app has a curated MCP integration that
+        //     isn't installed (and hasn't been declined) → nudge the model to offer it once.
+        if !state.awaiting
+            && state.has_command
+            && last_event.elapsed() > Duration::from_secs(6) // idle (not mid-response); state.active sticks true so don't gate on it
+            && last_mcp_offer_check.elapsed() >= Duration::from_secs(4)
+        {
+            last_mcp_offer_check = Instant::now();
+            let title = super::uia::pointer_context().0;
+            if let Some(id) = super::mcp::detect_uninstalled_match(&title)
+                && offered_mcp.insert(id)
+                && let Some(name) = super::mcp::display_name(id)
+            {
+                let _ = send(
+                    &mut socket,
+                    realtime_text(&format!(
+                        "(Heads-up for you, not the user: they're using {name}, which has a CURATED app-control \
+integration giving you precise tools instead of clicking its UI. If it fits the moment, briefly offer ONCE - in \
+their language - to set it up. They must say YES first (it installs + runs software), then call \
+setup_app_integration with id:'{id}', confirmed:true. If they decline, call decline_app_integration with id:'{id}'.)"
+                    )),
+                );
+                state.awaiting = true;
+            }
+        }
+
         // 0d) the server warned the session is ending (goAway). Reconnect PROACTIVELY
         //     at the next gap (no tool call in flight) so we migrate the conversation
         //     cleanly with our recap - instead of being force-closed mid-stream (which
@@ -260,7 +302,39 @@ more precise page reading/acting. If they decline, call decline_browser_control.
         if state.go_away && state.pending.id.is_none() {
             state.go_away = false;
             overlay::push_log("(goAway) reconnecting before the session ends".to_string());
-            if !reconnect_session(&mut socket, &key, target.as_deref(), &mut reconnects, &mut state)? {
+            if !reconnect_session(
+                &mut socket,
+                &key,
+                target.as_deref(),
+                &mut reconnects,
+                &mut state,
+            )? {
+                break;
+            }
+            last_event = Instant::now();
+            last_frame = Instant::now();
+            continue;
+        }
+
+        // 0e) an MCP integration connected/removed → the tool set changed. Gemini freezes
+        //     tools at setup, so reconnect at the next safe gap to re-declare them. Clear the
+        //     flag FIRST (no reconnect storm); skip while a tool call is in flight, the model
+        //     is mid-think, or it's speaking (don't cut off its "done, it's ready").
+        if super::mcp::tools_changed()
+            && state.pending.id.is_none()
+            && !state.awaiting
+            && last_event.elapsed() > Duration::from_secs(2)
+            && !sink.as_ref().map(|s| s.is_playing()).unwrap_or(false)
+        {
+            super::mcp::clear_tools_changed();
+            overlay::push_log("(mcp) tools changed - reconnecting to activate".to_string());
+            if !reconnect_session(
+                &mut socket,
+                &key,
+                target.as_deref(),
+                &mut reconnects,
+                &mut state,
+            )? {
                 break;
             }
             last_event = Instant::now();
@@ -295,7 +369,8 @@ more precise page reading/acting. If they decline, call decline_browser_control.
         // your voice and settles the moment you stop. The visual gain is amplified in orb.html; the
         // Idle orb's reaction to this IS the "I hear you" feedback (no separate listening state).
         let level = if voiced {
-            let rms = (chunk.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / chunk.len() as f64).sqrt();
+            let rms = (chunk.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / chunk.len() as f64)
+                .sqrt();
             (rms / 4000.0).min(1.0) as f32
         } else {
             0.0
@@ -342,12 +417,15 @@ more precise page reading/acting. If they decline, call decline_browser_control.
         if let Ok((id, name, resp, frame)) = res_rx.try_recv()
             && state.pending.id.as_deref() == Some(id.as_str())
         {
+            let mut reconnect_for_mcp_activation = false;
             if state.pending.cancelled {
                 // The action finished (or was stopped); its result is dropped
                 // because you spoke and the model already moved on.
                 overlay::push_log("[~] step done; result dropped (you spoke)".to_string());
             } else {
                 let resp_ok = resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                reconnect_for_mcp_activation =
+                    name == "app_integration_status" && activation_pending(&resp);
                 record_observation(&mut state, &name, &resp); // durable memory of what we saw
                 send(&mut socket, tool_response(&id, &name, resp))?; // answer first
                 if let Some(f) = frame {
@@ -359,6 +437,8 @@ more precise page reading/acting. If they decline, call decline_browser_control.
                     overlay::push_log("[done] goal reached".to_string());
                     overlay::set_orb_done();
                     state.active = false;
+                    state.awaiting = false;
+                } else if reconnect_for_mcp_activation {
                     state.awaiting = false;
                 } else {
                     state.awaiting = true; // model owes the next action/turn
@@ -375,6 +455,23 @@ more precise page reading/acting. If they decline, call decline_browser_control.
             last_event = Instant::now();
             state.nudged = false;
             overlay::set_status("ready - speak a command");
+            if reconnect_for_mcp_activation {
+                super::mcp::clear_tools_changed();
+                overlay::push_log(
+                    "(mcp) health passed - reconnecting now to activate tools".to_string(),
+                );
+                if !reconnect_session(
+                    &mut socket,
+                    &key,
+                    target.as_deref(),
+                    &mut reconnects,
+                    &mut state,
+                )? {
+                    break;
+                }
+                last_frame = Instant::now();
+                continue;
+            }
         }
 
         // 3b) a typed command from the orb's text box → inject it as a user text turn, taking the
@@ -383,7 +480,13 @@ more precise page reading/acting. If they decline, call decline_browser_control.
             let cmd = cmd.trim().to_string();
             if !cmd.is_empty() {
                 let _ = send(&mut socket, realtime_text(&cmd));
-                handle_event(ServerEvent::InputTranscript(cmd), sink.as_ref(), &cancel, &exec_tx, &mut state);
+                handle_event(
+                    ServerEvent::InputTranscript(cmd),
+                    sink.as_ref(),
+                    &cancel,
+                    &exec_tx,
+                    &mut state,
+                );
                 last_event = Instant::now();
             }
         }
@@ -397,7 +500,13 @@ more precise page reading/acting. If they decline, call decline_browser_control.
             },
             Ok(Message::Close(frame)) => {
                 overlay::push_log(format!("socket closed: {frame:?} - reconnecting"));
-                if !reconnect_session(&mut socket, &key, target.as_deref(), &mut reconnects, &mut state)? {
+                if !reconnect_session(
+                    &mut socket,
+                    &key,
+                    target.as_deref(),
+                    &mut reconnects,
+                    &mut state,
+                )? {
                     break;
                 }
                 last_frame = Instant::now();
@@ -418,7 +527,13 @@ more precise page reading/acting. If they decline, call decline_browser_control.
                     let silent = last_event.elapsed();
                     if silent > RECONNECT_SILENCE {
                         overlay::push_log("(session still silent - reconnecting)".to_string());
-                        if !reconnect_session(&mut socket, &key, target.as_deref(), &mut reconnects, &mut state)? {
+                        if !reconnect_session(
+                            &mut socket,
+                            &key,
+                            target.as_deref(),
+                            &mut reconnects,
+                            &mut state,
+                        )? {
                             break;
                         }
                         last_event = Instant::now();
@@ -444,7 +559,13 @@ more precise page reading/acting. If they decline, call decline_browser_control.
             }
             Err(e) => {
                 overlay::push_log(format!("read error: {e} - reconnecting"));
-                if !reconnect_session(&mut socket, &key, target.as_deref(), &mut reconnects, &mut state)? {
+                if !reconnect_session(
+                    &mut socket,
+                    &key,
+                    target.as_deref(),
+                    &mut reconnects,
+                    &mut state,
+                )? {
                     break;
                 }
                 last_frame = Instant::now();
@@ -470,7 +591,18 @@ more precise page reading/acting. If they decline, call decline_browser_control.
     cancel.store(true, Ordering::SeqCst);
     drop(exec_tx); // close the channel -> executor thread exits
     let _ = exec_thread.join();
+    super::mcp::disconnect_all(); // kill MCP server children so none outlive the session
     Ok(())
+}
+
+fn activation_pending(resp: &Value) -> bool {
+    resp.get("activation_pending")
+        .and_then(Value::as_bool)
+        .or_else(|| {
+            resp.pointer("/action_result/activation_pending")
+                .and_then(Value::as_bool)
+        })
+        .unwrap_or(false)
 }
 
 /// Reconnect to a FRESH session (resumption is rejected on this preview model) and
@@ -493,8 +625,19 @@ fn reconnect_session(
     match uia_task::reconnect(key, None, true, false) {
         Ok(s) => *socket = s,
         Err(e) => {
-            overlay::push_log(format!("reconnect failed: {e}"));
-            return Ok(false);
+            // A bad MCP tool schema can make setupComplete fail. Never brick the session:
+            // suppress MCP tools and retry once so we always come back (just without them).
+            overlay::push_log(format!(
+                "reconnect failed: {e} - retrying without MCP tools"
+            ));
+            super::mcp::set_suppress_tools(true);
+            match uia_task::reconnect(key, None, true, false) {
+                Ok(s) => *socket = s,
+                Err(e2) => {
+                    overlay::push_log(format!("reconnect failed again: {e2}"));
+                    return Ok(false);
+                }
+            }
         }
     }
     state.pending = Pending::default();
@@ -529,9 +672,11 @@ current screen is shown. {judge}"
 /// titles are language-stable, e.g. "… - Google Chrome", "… - Microsoft Edge".)
 fn foreground_is_browser() -> bool {
     let title = super::uia::pointer_context().0.to_lowercase();
-    ["chrome", "edge", "brave", "opera", "firefox", "chromium", "vivaldi"]
-        .iter()
-        .any(|b| title.contains(b))
+    [
+        "chrome", "edge", "brave", "opera", "firefox", "chromium", "vivaldi",
+    ]
+    .iter()
+    .any(|b| title.contains(b))
 }
 
 fn wait_for_setup(socket: &mut Sock, stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
