@@ -8,12 +8,14 @@
 
 mod bridge;
 mod crypto;
+mod page;
 mod prefs;
 
 use serde_json::{Value, json};
 use std::time::Duration;
 
 pub(super) use bridge::{ensure_started, is_connected};
+pub(super) use page::{extract_page, read_page};
 pub(super) use prefs::{
     ever_connected, offer_due, recently_connected, record_connection, record_decline,
 };
@@ -296,26 +298,6 @@ fn conn_guard() -> Option<Value> {
         });
     }
     Some(not_connected())
-}
-
-pub(super) fn read_page() -> Value {
-    require_conn!();
-    // Include SAME-ORIGIN iframe text (cross-origin frames throw and are skipped -
-    // those need per-frame CDP, which query/click/fill don't yet do either).
-    let js = r#"(() => {
-        const frameText = (doc, depth) => {
-            let t = doc.body ? doc.body.innerText : "";
-            if (depth < 3) for (const f of doc.querySelectorAll("iframe")) {
-                try { if (f.contentDocument) t += "\n\n[iframe] " + frameText(f.contentDocument, depth + 1); } catch (e) {}
-            }
-            return t;
-        };
-        return { title: document.title, url: location.href, text: frameText(document, 0).slice(0, 12000) };
-    })()"#;
-    match eval_value(js) {
-        Ok(v) => json!({"ok": true, "page": v}),
-        Err(e) => err(e),
-    }
 }
 
 pub(super) fn eval_js(code: &str) -> Value {

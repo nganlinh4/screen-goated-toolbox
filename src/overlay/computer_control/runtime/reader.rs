@@ -256,6 +256,13 @@ pub(super) fn handle_event(
             if let Some(t) = state.think_start.take() {
                 let ms = t.elapsed().as_millis();
                 let spoke = !state.reasoning.trim().is_empty(); // narrated this turn? (~2s tax)
+                if spoke {
+                    let preview: String = state.reasoning.trim().chars().take(220).collect();
+                    overlay::push_log(format!(
+                        "[speech before {name}] {} chars: {preview}",
+                        state.reasoning.trim().chars().count()
+                    ));
+                }
                 overlay::push_log(format!(
                     "[think {ms}ms{}]",
                     if spoke { ", spoke" } else { "" }

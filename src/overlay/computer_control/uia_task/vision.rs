@@ -47,9 +47,73 @@ pub(super) fn read_view_pref(
 const PLANNER_VISION_PREFER: &[&str] = &["gemini-flash-lite", "gemini-flash"];
 
 impl Brain {
+    /// Some goals are completed by speaking/returning information, not by changing
+    /// the screen. A screen-only verifier will reject those and make the model read
+    /// the same answer again. Accept them when a recent read/info tool succeeded.
+    fn informational_done_verdict(&self, task: &str) -> Option<String> {
+        let lower = task.to_lowercase();
+        let wants_spoken_answer = [
+            "read",
+            "read out",
+            "read aloud",
+            "say",
+            "tell me",
+            "summarize",
+            "summary",
+            "explain",
+            "answer",
+            "what",
+            "who",
+            "clipboard",
+            "clip",
+            "lore",
+        ]
+        .iter()
+        .any(|needle| lower.contains(needle));
+        let visible_destination = [
+            "paste",
+            "put into",
+            "copy into",
+            "word",
+            "document",
+            "file",
+            "send",
+            "submit",
+            "click",
+            "turn on",
+            "change",
+            "create",
+            "install",
+        ]
+        .iter()
+        .any(|needle| lower.contains(needle));
+        if !wants_spoken_answer || visible_destination {
+            return None;
+        }
+        let info_tool = self.trail.iter().rev().find(|entry| {
+            [
+                "read_clipboard=ok",
+                "browser_read_page=ok",
+                "browser_extract_page=ok",
+                "artifact_info=ok",
+                "search_memory=ok",
+                "open_memory=ok",
+                "look=ok",
+            ]
+            .iter()
+            .any(|prefix| entry.starts_with(prefix))
+        })?;
+        Some(format!(
+            "YES - accepted as an informational/spoken-output task; recent evidence: {info_tool}. Screen state is not the completion signal for this task."
+        ))
+    }
+
     /// Independent high-res vision check of a `done` claim. Returns (accepted,
     /// verdict text). On checker error it accepts (don't trap the agent).
     pub fn verify_done(&self, task: &str, cancel: &AtomicBool) -> (bool, String) {
+        if let Some(verdict) = self.informational_done_verdict(task) {
+            return (true, verdict);
+        }
         let full = window_view(self.target.as_deref(), self.whole_screen);
         let q = format!(
             "A computer agent claims this task is COMPLETE: \"{task}\". \

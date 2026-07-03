@@ -439,6 +439,7 @@ impl Brain {
             "browser_status" => super::super::browser::status(),
             "browser_reset" => super::super::browser::reset(),
             "browser_read_page" => super::super::browser::read_page(),
+            "browser_extract_page" => super::super::browser::extract_page(),
             "browser_wait_for" => super::super::browser::wait_for(
                 args.get("selector").and_then(Value::as_str).unwrap_or(""),
                 args.get("timeout_ms")
@@ -489,9 +490,12 @@ impl Brain {
             "decline_app_integration" => super::super::mcp::decline_tool(
                 args.get("id").and_then(Value::as_str).unwrap_or(""),
             ),
-            // Tools from an installed MCP integration are namespaced `mcp__id__tool`.
-            _ => super::super::mcp::try_dispatch(name, args)
-                .unwrap_or_else(|| json!({"ok": false, "error": "unknown action"})),
+            // Local artifact tools and installed MCP tools are dynamic-ish surfaces.
+            _ => {
+                super::super::artifacts::dispatch_tool(name, args, &self.profile, cancel, self.dry)
+                    .or_else(|| super::super::mcp::try_dispatch(name, args))
+                    .unwrap_or_else(|| json!({"ok": false, "error": "unknown action"}))
+            }
         };
         self.setup_guard.record_result(name, &result);
         // Per-action latency (excludes the settle wait) — the key refinement
