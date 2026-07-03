@@ -223,10 +223,18 @@ fn sentiment_icon(reply: &str) -> Option<&'static str> {
 pub(super) fn set_orb_tool(name: &str, args: &serde_json::Value) {
     let state = match name {
         "observe" => OrbState::Observe,
-        "look" | "map_targets" | "see_whole_screen" | "browser_read_page" | "list_windows"
-        | "read_clipboard" | "browser_network" | "browser_status" | "browser_tabs" => {
-            OrbState::Look
-        }
+        "look"
+        | "map_targets"
+        | "see_whole_screen"
+        | "browser_read_page"
+        | "browser_extract_page"
+        | "artifact_info"
+        | "save_artifact"
+        | "list_windows"
+        | "read_clipboard"
+        | "browser_network"
+        | "browser_status"
+        | "browser_tabs" => OrbState::Look,
         "search_memory" | "open_memory" => OrbState::Memory,
         "browser_console" => OrbState::Console,
         "act" => OrbState::Act,
@@ -235,7 +243,7 @@ pub(super) fn set_orb_tool(name: &str, args: &serde_json::Value) {
         "drag" | "drag_target" => OrbState::Drag,
         "scroll" => OrbState::Scroll,
         "point" | "point_at" => OrbState::Point,
-        "type_text" | "key_combination" | "browser_eval" => OrbState::Type,
+        "type_text" | "key_combination" | "browser_eval" | "paste_artifact" => OrbState::Type,
         "open_url" | "browser_navigate" | "browser_open_tab" | "browser_switch_tab"
         | "focus_window" => OrbState::Navigate,
         "launch_app" | "browser_setup" => OrbState::Launch,

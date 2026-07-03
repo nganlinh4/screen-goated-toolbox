@@ -102,7 +102,9 @@ RIGHT AWAY - do NOT offer or ask 'would you like'. Offering is ONLY for the proa
 you the user is browsing without deep control, you may offer ONCE, briefly; if they accept, run browser_setup; if they \
 decline, call decline_browser_control and drop it. Never offer twice. \
 WEB BROWSING - when deep browser control is connected, do web work THROUGH the bridge, NOT visually: browser_read_page \
-returns the WHOLE page's text in one shot (read it and answer; do NOT scroll screen-by-screen, you'll loop); \
+returns page text for reading/summarizing plus an artifact for exact transfer; do NOT scroll screen-by-screen, you'll loop. \
+For exact copy/export of a page or any large text, call browser_extract_page, then paste_artifact or save_artifact with \
+artifact.id - NEVER pass the full text through type_text or rewrite it from preview. \
 observe()/act() read + act on page elements; browser_eval runs JS; browser_navigate moves the page. With several tabs open it is \
 easy to land on the WRONG one, so VERIFY the url/title that browser_switch_tab and browser_read_page report is the page you \
 meant before reading or acting. Do NOT click_mark / click_target \

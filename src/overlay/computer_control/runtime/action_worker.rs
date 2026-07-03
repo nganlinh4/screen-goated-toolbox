@@ -27,6 +27,7 @@ pub(super) fn executor_loop(
         let done: Done = if name == "done" {
             // Independent high-res check - the Live agent confabulates success.
             let (ok, verdict) = brain.verify_done(&task, &cancel);
+            eprintln!("[cc] DONE-claim verdict: {verdict}");
             if ok {
                 (id, name, json!({"ok": true, "verdict": verdict}), None)
             } else {
