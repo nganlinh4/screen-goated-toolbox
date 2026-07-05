@@ -133,7 +133,10 @@ fn select_probe_tool(tools: &[McpTool]) -> Option<(&McpTool, Value)> {
         })
         .collect();
     candidates.sort_by_key(|(score, tool, _)| (*score, tool.name.clone()));
-    candidates.into_iter().next().map(|(_, tool, args)| (tool, args))
+    candidates
+        .into_iter()
+        .next()
+        .map(|(_, tool, args)| (tool, args))
 }
 
 fn safe_tool_score(tool: &McpTool) -> Option<u8> {
@@ -197,7 +200,10 @@ fn probe_value_for(key: &str, schema: &Value) -> Option<(Value, u8)> {
             0,
         ));
     }
-    let ty = schema.get("type").and_then(Value::as_str).unwrap_or("string");
+    let ty = schema
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("string");
     match ty {
         "string" => Some((json!("health-check"), 8)),
         "integer" => Some((json!(1), 4)),

@@ -17,8 +17,11 @@ pub(super) fn mic_thread(buf: Arc<Mutex<Vec<i16>>>, pause: Arc<AtomicBool>, stop
     let build = || -> anyhow::Result<cpal::Stream> {
         let mut attempt = 0;
         loop {
-            match crate::api::realtime_audio::start_mic_capture(buf.clone(), stop.clone(), pause.clone())
-            {
+            match crate::api::realtime_audio::start_mic_capture(
+                buf.clone(),
+                stop.clone(),
+                pause.clone(),
+            ) {
                 Ok(s) => return Ok(s),
                 Err(_) if attempt < 4 => {
                     attempt += 1;
@@ -29,7 +32,9 @@ pub(super) fn mic_thread(buf: Arc<Mutex<Vec<i16>>>, pause: Arc<AtomicBool>, stop
             }
         }
     };
-    let mut stream = build().map_err(|e| overlay::push_log(format!("(mic init failed: {e})"))).ok();
+    let mut stream = build()
+        .map_err(|e| overlay::push_log(format!("(mic init failed: {e})")))
+        .ok();
     let mut device = crate::api::realtime_audio::current_input_device_name();
     let mut last_check = Instant::now();
     while !stop.load(Ordering::SeqCst) {

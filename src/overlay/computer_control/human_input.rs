@@ -36,12 +36,20 @@ impl HumanProfile {
     /// The default: instant teleport-click + bulk typing (fast, deterministic —
     /// keeps tests and the speed-sensitive paths unchanged).
     pub fn instant() -> Self {
-        Self { mode: Humanize::Off, wpm: 0.0, typos: false }
+        Self {
+            mode: Humanize::Off,
+            wpm: 0.0,
+            typos: false,
+        }
     }
 
     /// A realistic persona (used by the cursor demo / as a humanized fallback).
     pub fn realistic() -> Self {
-        Self { mode: Humanize::Realistic, wpm: 55.0, typos: false }
+        Self {
+            mode: Humanize::Realistic,
+            wpm: 55.0,
+            typos: false,
+        }
     }
 
     /// Read `CC_HUMANIZE` (+ `CC_WPM`, `CC_TYPOS`). Unset/`off` ⇒ instant.
@@ -366,7 +374,11 @@ mod tests {
     #[test]
     fn move_reaches_target_and_is_continuous() {
         let cancel = AtomicBool::new(false);
-        let p = HumanProfile { mode: Humanize::Realistic, wpm: 0.0, typos: false };
+        let p = HumanProfile {
+            mode: Humanize::Realistic,
+            wpm: 0.0,
+            typos: false,
+        };
         let last = std::cell::Cell::new((0i32, 0i32));
         let n = std::cell::Cell::new(0u32);
         human_move((0.0, 0.0), (640.0, 480.0), 30.0, &p, &cancel, &|x, y| {
@@ -376,7 +388,10 @@ mod tests {
         let (lx, ly) = last.get();
         // Lands inside the target — aim is intentionally jittered off dead-center
         // by up to target_w*0.25 (here 30*0.25 ≈ 8px).
-        assert!((lx - 640).abs() <= 10 && (ly - 480).abs() <= 10, "ended at {lx},{ly}");
+        assert!(
+            (lx - 640).abs() <= 10 && (ly - 480).abs() <= 10,
+            "ended at {lx},{ly}"
+        );
         assert!(n.get() > 10, "expected many steps, got {}", n.get());
     }
 
@@ -394,7 +409,11 @@ mod tests {
     #[test]
     fn typing_emits_each_unit_and_can_abort() {
         let cancel = AtomicBool::new(false);
-        let p = HumanProfile { mode: Humanize::Smooth, wpm: 9000.0, typos: false };
+        let p = HumanProfile {
+            mode: Humanize::Smooth,
+            wpm: 9000.0,
+            typos: false,
+        };
         let downs = std::cell::RefCell::new(Vec::new());
         let r = human_type("hi!", &p, &cancel, &|u| downs.borrow_mut().push(u), &|_| {});
         assert_eq!(r, Outcome::Done);

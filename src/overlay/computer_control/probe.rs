@@ -46,7 +46,10 @@ pub fn run(task: &str) -> Result<()> {
     } else {
         build_setup(SYSTEM_INSTRUCTION)
     };
-    eprintln!("[cc-probe] sending setup ({} bytes)", setup_payload.to_string().len());
+    eprintln!(
+        "[cc-probe] sending setup ({} bytes)",
+        setup_payload.to_string().len()
+    );
     send(&mut socket, setup_payload).context("send setup")?;
 
     wait_for_setup(&mut socket)?;
@@ -55,11 +58,20 @@ pub fn run(task: &str) -> Result<()> {
     let execute_enabled = std::env::var("CC_EXECUTE").is_ok();
     eprintln!(
         "[cc-probe] execution {}",
-        if execute_enabled { "ENABLED (will drive mouse/keyboard)" } else { "disabled (observe only)" }
+        if execute_enabled {
+            "ENABLED (will drive mouse/keyboard)"
+        } else {
+            "disabled (observe only)"
+        }
     );
 
     let (frame, geom) = capture_frame().context("capture initial frame")?;
-    eprintln!("[cc-probe] sending first frame ({} b64 chars, {}x{}) + task", frame.len(), geom.frame_w, geom.frame_h);
+    eprintln!(
+        "[cc-probe] sending first frame ({} b64 chars, {}x{}) + task",
+        frame.len(),
+        geom.frame_w,
+        geom.frame_h
+    );
     send(&mut socket, realtime_video_jpeg_b64(&frame))?;
     send(&mut socket, realtime_text(task))?;
 
@@ -92,7 +104,10 @@ pub fn run(task: &str) -> Result<()> {
                     tool_calls += 1;
                     eprintln!("[cc-probe] TOOLCALL #{tool_calls} {name}({args}) id={id}");
                     if name == "done" {
-                        send(&mut socket, tool_response(&id, &name, serde_json::json!({"ok": true})))?;
+                        send(
+                            &mut socket,
+                            tool_response(&id, &name, serde_json::json!({"ok": true})),
+                        )?;
                         eprintln!("[cc-probe] model called done — finishing");
                         return finish(audio_bytes, tool_calls);
                     }
@@ -146,7 +161,9 @@ fn wait_for_setup(socket: &mut Sock) -> Result<()> {
 fn finish(audio_bytes: usize, tool_calls: usize) -> Result<()> {
     eprintln!("[cc-probe] DONE — tool calls: {tool_calls}, audio samples: {audio_bytes}");
     if tool_calls == 0 {
-        eprintln!("[cc-probe] NOTE: zero tool calls — the model did not emit functionCalls this run.");
+        eprintln!(
+            "[cc-probe] NOTE: zero tool calls — the model did not emit functionCalls this run."
+        );
     }
     Ok(())
 }

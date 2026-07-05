@@ -79,12 +79,8 @@ with type_text press_enter:true (never a literal '{enter}'). An element's STATE 
 (vision guesses on a few pixels - this caused real dev-mode thrash). If untagged, use a consequence signal \
 (Developer mode is ON exactly when a 'Load unpacked' button appears), or ZOOM before look(). Click a toggle ONCE; \
 don't retry on 'no visual change' (the detector misses tiny toggles). \
-SETUP IS DONE the instant browser_status (or browser_setup) reports connected:true - say it's ready and STOP: do NOT \
-re-run browser_setup, re-open chrome://extensions, re-toggle Developer mode, or look() to 'verify' the extension. \
-Then just USE the browser tools for the user's actual task. \
-BROWSER RECONNECTS ITSELF: if a browser tool says it is 'reconnecting' (the extension's background worker briefly napped), \
-just RETRY in a moment - it returns on its own; do NOT re-run browser_setup, do NOT offer setup, do NOT tell the user to \
-install anything. browser_setup is only for when a tool says it's NOT set up or 'may have been removed'. \
+SETUP COMPLETION: trust typed status fields. If browser_status/browser_setup reports connected:true, stop setup and use \
+browser tools. If a browser tool returns a code/state, follow that result instead of repeating the same GUI action. \
 BROWSER NAVIGATION: once connected, open URLs with the extension, NOT open_url (which opens a new WINDOW). Choose: \
 browser_navigate replaces the CURRENT tab - use it when the current page is disposable or the user wants to go \
 somewhere fresh; browser_open_tab opens a NEW tab in the same window, keeping the current page - use it when the user \
@@ -97,10 +93,8 @@ MULTI-STEP TASKS: once you START a multi-step task (e.g. browser setup), carry o
 go - do NOT do one step then stop and wait for the user. If the user makes a remark or asks a status question ('are \
 you doing it?', 'why did you stop?') mid-task, answer in ONE short sentence if needed but KEEP GOING immediately with \
 the next step in the same turn. Only stop for an explicit 'stop'/'wait' or when you truly need their input. \
-BROWSER CONTROL SETUP: if the USER asks to set up / enable / turn on browser control, just call browser_setup \
-RIGHT AWAY - do NOT offer or ask 'would you like'. Offering is ONLY for the proactive heads-up: when a heads-up tells \
-you the user is browsing without deep control, you may offer ONCE, briefly; if they accept, run browser_setup; if they \
-decline, call decline_browser_control and drop it. Never offer twice. \
+BROWSER CONTROL SETUP: if the user asks for browser control, call browser_setup; follow its bounded result fields and \
+the setup_guard notes, not an open-ended manual checklist. \
 WEB BROWSING - when deep browser control is connected, do web work THROUGH the bridge, NOT visually: browser_read_page \
 returns page text for reading/summarizing plus an artifact for exact transfer; do NOT scroll screen-by-screen, you'll loop. \
 For exact copy/export of a page or any large text, call browser_extract_page, then paste_artifact or save_artifact with \
@@ -133,12 +127,12 @@ goal; do NOT pause or ask what to do between steps. 'Play and win' / 'book the f
 actions in a row, until finished. Call done ONLY when the goal is fully achieved (a fresh look() confirms it; an \
 independent check verifies), then stop and wait for the next request. If you get STUCK or an action isn't \
 registering, say so briefly - never go silent while struggling. \
-SYSTEM TASKS - for anything about the COMPUTER ITSELF (kill/list processes, services, files & folders, registry, network, \
-volume, power/shutdown, installed apps, disk space, system info) act through run_command (PowerShell = the real system APIs) \
-- do NOT hunt through Task Manager / Settings / Explorer GUIs for what a one-line command does: 'close/kill X' -> \
-Stop-Process -Name X; 'is X running' / 'what's open' -> Get-Process. Click through a GUI only when there is genuinely no \
-command for it. Most system tasks just DO - keep it smooth, never ask permission for routine ones; ONLY pause to confirm \
-before something CATASTROPHIC or clearly unexpected (formatting/wiping, shutting down, deleting the user's files). \
+SYSTEM TASKS - for facts about the COMPUTER ITSELF, use system_query FIRST (audio.active_sessions, window.list, \
+process.list_basic, clipboard.text, or capabilities.list). Do NOT hunt through Task Manager / Settings / Explorer GUIs \
+for facts the OS can report directly. Use run_command only when no dedicated tool/system_query domain fits, or for \
+actual shell operations like files, services, registry, network, power/shutdown, installed apps, disk space, and system \
+info. Most system tasks just DO - keep it smooth, never ask permission for routine ones; ONLY pause to confirm before \
+something CATASTROPHIC or clearly unexpected (formatting/wiping, shutting down, deleting the user's files). \
 GAMES: read the board with look()/zoom and plan the WHOLE sequence before moving; never act blindly. Play by whatever \
 the game uses - keyboard for arrow/key games (2048), or click_target / drag_target for pointer, card and tile games. \
 To MOVE a character that walks while a key is HELD (most action games), a quick tap won't register - use \
@@ -153,6 +147,7 @@ games. Then retry the same move.";
 /// click marker and no trace I/O — for the voice runtime's initial + periodic
 /// idle frames (kept consistent with the grid the `Brain` renders after actions).
 pub(super) fn snapshot(target: Option<&str>) -> Result<String> {
+    let _frame_id = super::telemetry::next_frame("snapshot");
     let view = window_view(target, false);
     let cap = session::capture_virtual()?;
     let (jpeg, _) = session::encode_view(&cap, view, VIEW_SHORT, Some(Grid::from_env()), None)?;
@@ -218,6 +213,9 @@ pub(super) struct Brain {
     /// observe/act/do_steps tools — drives the browser surface (and native windows
     /// via UIA), always on.
     controller: super::controller::Controller,
+    /// Consecutive grounded actions where the harness detected no useful effect.
+    /// This is code-owned state, so recovery is not left entirely to prompt text.
+    no_effect_strikes: u32,
     setup_guard: setup_guard::SetupGuard,
 }
 

@@ -9,9 +9,7 @@ use super::*;
 /// foreground one. When `whole_screen` is set (the model called see_whole_screen for
 /// awareness / to find another window) it's the WHOLE virtual desktop instead.
 pub(super) fn window_view(target: Option<&str>, whole_screen: bool) -> View {
-    if !whole_screen
-        && let Some((x, y, w, h)) = uia::target_window_rect(target)
-    {
+    if !whole_screen && let Some((x, y, w, h)) = uia::target_window_rect(target) {
         return View { x, y, w, h };
     }
     let (x, y, w, h) = uia::virtual_desktop();
@@ -30,7 +28,10 @@ pub(super) const VC_HALF: i32 = 90;
 /// in that box. Above the cursor's own footprint, below a placed mark / reveal.
 /// Tunable via CC_VC_MIN.
 pub(super) fn vc_min() -> u32 {
-    std::env::var("CC_VC_MIN").ok().and_then(|s| s.parse().ok()).unwrap_or(14)
+    std::env::var("CC_VC_MIN")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(14)
 }
 
 pub(super) fn render_view(
@@ -182,7 +183,9 @@ pub(super) fn readouts_inline(elements: &[UiElement]) -> String {
 pub(super) fn state_signature(elements: &[UiElement]) -> String {
     let mut names: Vec<&str> = elements
         .iter()
-        .filter(|e| !e.name.trim().is_empty() && (e.control_type == "Text" || is_clickable(e.control_type)))
+        .filter(|e| {
+            !e.name.trim().is_empty() && (e.control_type == "Text" || is_clickable(e.control_type))
+        })
         .map(|e| e.name.as_str())
         .collect();
     names.sort_unstable();
@@ -201,7 +204,12 @@ pub(super) fn compact_args(args: &Value) -> String {
 /// the model ground-truth spatial anchors in the SAME coordinate system it
 /// clicks with — so it can locate canvas/board targets (which have no UIA
 /// element) by reasoning relative to the named anchors instead of guessing.
-pub(super) fn format_state(elements: &[UiElement], target: Option<&str>, view: View, grid: Grid) -> String {
+pub(super) fn format_state(
+    elements: &[UiElement],
+    target: Option<&str>,
+    view: View,
+    grid: Grid,
+) -> String {
     let title = elements
         .iter()
         .find(|e| e.control_type == "Window" && !e.name.trim().is_empty())
@@ -236,7 +244,11 @@ pub(super) fn format_state(elements: &[UiElement], target: Option<&str>, view: V
         }
         // Ground-truth control state (on/off/selected/expanded/value) as a tag,
         // so the model reads state as text instead of guessing from pixels.
-        let state = e.state.as_deref().map(|s| format!(" [{s}]")).unwrap_or_default();
+        let state = e
+            .state
+            .as_deref()
+            .map(|s| format!(" [{s}]"))
+            .unwrap_or_default();
         if e.control_type == "Text" {
             let line = format!("- {name}{state}{}\n", cell_of(e));
             if seen.insert(line.clone()) {
@@ -244,7 +256,11 @@ pub(super) fn format_state(elements: &[UiElement], target: Option<&str>, view: V
             }
         } else if is_clickable(e.control_type) {
             let flag = if e.enabled { "" } else { " [disabled]" };
-            let line = format!("- {} \"{name}\"{flag}{state}{}\n", e.control_type, cell_of(e));
+            let line = format!(
+                "- {} \"{name}\"{flag}{state}{}\n",
+                e.control_type,
+                cell_of(e)
+            );
             if seen.insert(line.clone()) {
                 clickable.push_str(&line);
             }

@@ -9,6 +9,7 @@ use std::sync::mpsc;
 
 use serde_json::json;
 
+use super::super::telemetry::{self, Privacy};
 use super::super::uia_task::Brain;
 use super::{Done, Job};
 
@@ -42,7 +43,7 @@ pub(super) fn executor_loop(
                         "ok": false,
                         "independent_check": verdict,
                         "instruction": "An independent high-res check says the goal is NOT yet achieved. Keep \
-working until it is actually done.",
+                    working until it is actually done.",
                         "new_state": state_text,
                     }),
                     frame,
@@ -51,14 +52,59 @@ working until it is actually done.",
         } else {
             let ctx = format!(
                 "task: {task}; agent intent: {}",
-                if intent.is_empty() { "(none stated)" } else { intent.as_str() }
+                if intent.is_empty() {
+                    "(none stated)"
+                } else {
+                    intent.as_str()
+                }
             );
             let action_result = brain.dispatch(&name, &args, &ctx, &cancel);
             match brain.ground(&name, &args) {
                 Ok(g) => {
-                    let mut resp = json!({"action_result": action_result, "new_state": g.state_text});
+                    let mut resp =
+                        json!({"action_result": action_result, "new_state": g.state_text});
                     for (k, v) in &g.notes {
                         resp[*k] = json!(*v);
+                    }
+                    let no_effect = g.notes.iter().any(|(k, _)| {
+                        matches!(
+                            *k,
+                            "screen_change" | "ui_change" | "stuck_warning" | "postcondition_block"
+                        )
+                    });
+                    if no_effect {
+                        let repeated = g.notes.iter().any(|(k, _)| *k == "postcondition_block");
+                        resp["postcondition"] = json!({
+                            "ok": false,
+                            "effect": "none_detected",
+                            "repeated": repeated,
+                            "instruction": if repeated {
+                                "Do not retry the same action. Use a different route or stop with the blocker."
+                            } else {
+                                "Re-observe/replan or change tool family before acting again."
+                            },
+                        });
+                        telemetry::typed_error(
+                            "ERR_POSTCONDITION_NO_EFFECT",
+                            "action_worker",
+                            "grounding detected no useful effect after an action",
+                            json!({
+                                "tool": name.clone(),
+                                "repeated": repeated,
+                                "notes": g.notes.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+                            }),
+                        );
+                    } else {
+                        resp["postcondition"] = json!({
+                            "ok": true,
+                            "effect": "changed_or_not_applicable",
+                        });
+                        telemetry::event(
+                            "postcondition",
+                            "action_worker",
+                            Privacy::Safe,
+                            json!({"tool": name.clone(), "ok": true}),
+                        );
                     }
                     // On a detected stall, spend ONE grounded vision call (the merge
                     // planner) to propose a concrete next action — perception + plan in
@@ -70,7 +116,12 @@ working until it is actually done.",
                     }
                     (id, name, resp, Some(g.frame_b64))
                 }
-                Err(e) => (id, name, json!({"action_result": action_result, "ground_error": e.to_string()}), None),
+                Err(e) => (
+                    id,
+                    name,
+                    json!({"action_result": action_result, "ground_error": e.to_string()}),
+                    None,
+                ),
             }
         };
         if tx.send(done).is_err() {

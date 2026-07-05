@@ -96,13 +96,20 @@ fn save_inner(transcript: Vec<String>, frames: Vec<Vec<u8>>) -> anyhow::Result<(
     // Write the full transcript sidecar FIRST, so even if embedding fails the
     // conversation is fully recoverable and openable.
     let conv_path = dir.join(format!("conv_{id}.json"));
-    crate::atomic_json::write_json_atomic(&conv_path, &Transcript { lines: transcript.clone() })?;
+    crate::atomic_json::write_json_atomic(
+        &conv_path,
+        &Transcript {
+            lines: transcript.clone(),
+        },
+    )?;
 
     // Embed the transcript text + representative frames, interleaved, into one
     // cross-modal vector. Empty on failure (re-embedded on a later launch).
     let embedding = embed_conversation(&transcript, &frames).unwrap_or_default();
     if embedding.is_empty() {
-        eprintln!("[cc-mem] saved conversation {id} WITHOUT embedding (keyword-only until re-embedded)");
+        eprintln!(
+            "[cc-mem] saved conversation {id} WITHOUT embedding (keyword-only until re-embedded)"
+        );
     }
 
     let mut index = load_index();
@@ -205,7 +212,11 @@ pub(super) fn search(query: &str, top_k: usize) -> Vec<Hit> {
                 .unwrap_or(0.0);
             // Keyword fallback/boost on title+snippet.
             let hay = format!("{} {}", m.title, m.snippet).to_lowercase();
-            let keyword = if !ql.is_empty() && hay.contains(&ql) { 0.5 } else { 0.0 };
+            let keyword = if !ql.is_empty() && hay.contains(&ql) {
+                0.5
+            } else {
+                0.0
+            };
             let recency = 1.0 - (rank as f32 / n); // 1.0 newest .. ~0 oldest
             Hit {
                 id: m.id,
@@ -216,7 +227,11 @@ pub(super) fn search(query: &str, top_k: usize) -> Vec<Hit> {
             }
         })
         .collect();
-    scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     scored.retain(|h| h.score > 0.0);
     scored.truncate(top_k.max(1));
     scored

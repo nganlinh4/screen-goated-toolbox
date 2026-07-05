@@ -79,7 +79,9 @@ pub fn run(task: &str) -> Result<()> {
         };
         for ev in parse_server_message(&frame) {
             match ev {
-                ServerEvent::ModelText(t) | ServerEvent::OutputTranscript(t) => reasoning.push_str(&t),
+                ServerEvent::ModelText(t) | ServerEvent::OutputTranscript(t) => {
+                    reasoning.push_str(&t)
+                }
                 ServerEvent::InputTranscript(t) => eprintln!("[trace] heard: {t}"),
                 ServerEvent::ToolCall { id, name, args } => {
                     step += 1;
@@ -92,7 +94,10 @@ pub fn run(task: &str) -> Result<()> {
                     if name == "done" {
                         let summary = args.get("summary").and_then(|v| v.as_str()).unwrap_or("");
                         eprintln!("[trace] step {step:02} DONE: {summary}");
-                        send(&mut socket, tool_response(&id, &name, serde_json::json!({"ok": true})))?;
+                        send(
+                            &mut socket,
+                            tool_response(&id, &name, serde_json::json!({"ok": true})),
+                        )?;
                         save_and_send_frame(&mut socket, &dir, step)?;
                         eprintln!("[trace] FINAL screen saved as step-{step:02}.jpg");
                         return Ok(());

@@ -17,15 +17,25 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 
 use super::super::human_input::{self, HumanProfile, Outcome};
 
-pub(super) fn type_text(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
+pub(super) fn type_text(
+    args: &Value,
+    profile: &HumanProfile,
+    cancel: &AtomicBool,
+) -> Result<Value> {
     super::super::uia::focus_foreground(); // text must land on the on-screen window
-    let raw = args.get("text").and_then(Value::as_str).ok_or_else(|| anyhow!("missing text"))?;
+    let raw = args
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing text"))?;
     // Submit handling: models routinely append a submit token ("…{enter}", a
     // trailing newline) or pass press_enter. Honor all of them — type the literal
     // text, then press Enter. Without this the field just gets
     // "chrome://extensions{enter}" typed verbatim (what stalled browser setup).
     let mut text = raw.to_string();
-    let mut enter = args.get("press_enter").and_then(Value::as_bool).unwrap_or(false);
+    let mut enter = args
+        .get("press_enter")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let lower = text.to_lowercase();
     for tok in ["{enter}", "{return}", "\n"] {
         if lower.ends_with(tok) {
@@ -113,7 +123,10 @@ pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value
         return Ok(super::aborted());
     }
     super::super::uia::focus_foreground(); // keys must land on the on-screen window
-    let combo = args.get("keys").and_then(Value::as_str).ok_or_else(|| anyhow!("missing keys"))?;
+    let combo = args
+        .get("keys")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing keys"))?;
     let mut vks = Vec::new();
     for token in combo.split('+').map(str::trim).filter(|t| !t.is_empty()) {
         vks.push(token_to_vk(token).ok_or_else(|| anyhow!("unknown key: {token}"))?);
@@ -133,7 +146,11 @@ pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value
         .max(45);
     // Press all down in order, release in reverse (so modifiers wrap the key).
     let downs: Vec<INPUT> = vks.iter().map(|&vk| super::key_vk(vk, false)).collect();
-    let ups: Vec<INPUT> = vks.iter().rev().map(|&vk| super::key_vk(vk, true)).collect();
+    let ups: Vec<INPUT> = vks
+        .iter()
+        .rev()
+        .map(|&vk| super::key_vk(vk, true))
+        .collect();
     super::send(&downs);
     human_input::sleep_cancellable(hold_ms, cancel); // wakes early on barge-in
     super::send(&ups); // ALWAYS release, even if interrupted, so no key sticks down

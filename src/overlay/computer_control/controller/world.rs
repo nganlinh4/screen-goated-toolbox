@@ -46,7 +46,10 @@ pub struct IndexedElement {
 pub enum ElHandle {
     /// Browser: the stamped selector `[data-sgt-id="N"]`, plus the CDP session of
     /// the cross-origin frame it lives in (`None` = the top frame).
-    Browser { selector: String, session: Option<String> },
+    Browser {
+        selector: String,
+        session: Option<String>,
+    },
     /// Native (desktop UIA): the screen-pixel center to click / read-back at.
     Native { cx: i32, cy: i32 },
 }
@@ -68,7 +71,9 @@ impl WorldState {
     pub fn empty_required_in_form(&self, el: &IndexedElement) -> Vec<&str> {
         self.elements
             .iter()
-            .filter(|e| e.required && e.form == el.form && e.value.as_deref().unwrap_or("").is_empty())
+            .filter(|e| {
+                e.required && e.form == el.form && e.value.as_deref().unwrap_or("").is_empty()
+            })
             .map(|e| e.name.as_str())
             .collect()
     }

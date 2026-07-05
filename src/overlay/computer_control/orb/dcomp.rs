@@ -20,9 +20,9 @@ use webview2_com::{
     CreateCoreWebView2EnvironmentCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR,
-        CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2, ICoreWebView2CompositionController,
-        ICoreWebView2Controller, ICoreWebView2Controller2, ICoreWebView2Controller3,
-        ICoreWebView2Environment3,
+        CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2,
+        ICoreWebView2CompositionController, ICoreWebView2Controller, ICoreWebView2Controller2,
+        ICoreWebView2Controller3, ICoreWebView2Environment3,
     },
     WebMessageReceivedEventHandler,
 };

@@ -318,6 +318,7 @@ impl Brain {
                     executor::execute_ex(name, args, &self.profile, cancel)
                 }
             }
+            "system_query" => super::super::system_query::query(args),
             "scroll" => {
                 // Real mouse-wheel scroll. Resolve where to scroll: a given grid
                 // cell, else the centre of the current view (the wheel acts on the
@@ -547,7 +548,19 @@ impl Brain {
             }
             _ => result.to_string().chars().take(120).collect(),
         };
-        eprintln!("[cc] step {step:02} {name} {ms}ms -> {short}");
+        super::super::telemetry::human("cc", format!("step {step:02} {name} {ms}ms -> {short}"));
+        super::super::telemetry::tool_result(
+            name,
+            step,
+            ms,
+            result.get("ok").and_then(Value::as_bool),
+            json!({
+                "result_preview": short,
+                "blocked": result.get("blocked").cloned(),
+                "error": result.get("error").cloned(),
+                "code": result.get("code").cloned(),
+            }),
+        );
         // The controller's cached world is valid only right after observe/act; any
         // OTHER tool may have moved the screen, so invalidate it — the next act()
         // then re-syncs instead of resolving a STALE @id onto the wrong element.

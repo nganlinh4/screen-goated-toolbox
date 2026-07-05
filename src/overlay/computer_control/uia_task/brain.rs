@@ -34,6 +34,7 @@ impl Brain {
             wait_accum: 0.0,
             anchors: Vec::new(),
             controller: super::super::controller::Controller::new(),
+            no_effect_strikes: 0,
             setup_guard: super::setup_guard::SetupGuard::default(),
         }
     }
@@ -99,6 +100,7 @@ impl Brain {
                 | "open_memory"
                 | "read_clipboard"
                 | "list_windows"
+                | "system_query"
                 | "run_command"
                 | "browser_setup"
                 | "browser_status"
@@ -185,6 +187,24 @@ impl Brain {
         if stuck {
             eprintln!("[cc] step {:02} STUCK: repeated '{act_sig}'", self.step);
             notes.push(("stuck_warning", "You have repeated the same action ~3 times with NOTHING changing. If you were scrolling, you have reached the end of the page/list - STOP scrolling and finish (answer the user or call done). Otherwise the target likely isn't where you think or the click isn't landing: change approach (zoom in, a more specific click_target, or read the page text directly)."));
+        }
+        let no_effect = notes
+            .iter()
+            .any(|(k, _)| matches!(*k, "screen_change" | "ui_change" | "stuck_warning"));
+        if no_effect {
+            self.no_effect_strikes += 1;
+            notes.push((
+                "postcondition",
+                "This action produced no confirmed effect. Re-observe/replan or change tool family; do not repeat the same action.",
+            ));
+            if self.no_effect_strikes >= 2 {
+                notes.push((
+                    "postcondition_block",
+                    "Repeated no-effect actions detected. Stop retrying; use a different route or explain the concrete blocker.",
+                ));
+            }
+        } else {
+            self.no_effect_strikes = 0;
         }
         self.setup_guard.after_ground(&notes);
         if let Some(note) = self.setup_guard.note() {

@@ -35,7 +35,10 @@ const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
 
 fn score_threshold() -> f32 {
-    std::env::var("CC_DETECTOR_THRESH").ok().and_then(|s| s.parse().ok()).unwrap_or(0.45)
+    std::env::var("CC_DETECTOR_THRESH")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.45)
 }
 
 /// Models dir for the detector (a single `.onnx` lives here). Doubles as the
@@ -49,8 +52,7 @@ fn model_path() -> std::path::PathBuf {
 }
 
 /// Hosted on the SGT runtime-bundles release; fetched once into the models dir.
-const MODEL_URL: &str =
-    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/ui-detr-1.onnx";
+const MODEL_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/ui-detr-1.onnx";
 /// Title used in REALTIME_STATE + the badge; the Downloaded Tools card matches it.
 pub(crate) const DOWNLOAD_TITLE: &str = "Downloading UI detector";
 
@@ -96,12 +98,20 @@ pub(crate) fn download_detector_model(
         &path,
         &stop,
         |downloaded, total| {
-            let progress = if total > 0 { (downloaded as f32 / total as f32) * 100.0 } else { 0.0 };
+            let progress = if total > 0 {
+                (downloaded as f32 / total as f32) * 100.0
+            } else {
+                0.0
+            };
             if let Ok(mut s) = REALTIME_STATE.lock() {
                 s.download_progress = progress;
             }
             if use_badge {
-                show_progress_notification(DOWNLOAD_TITLE, "Downloading UI element detector...", progress);
+                show_progress_notification(
+                    DOWNLOAD_TITLE,
+                    "Downloading UI element detector...",
+                    progress,
+                );
             }
         },
     );
@@ -186,7 +196,9 @@ fn build_session(path: &std::path::Path) -> anyhow::Result<Session> {
             ort::ep::CPU::default().build().error_on_failure(),
         ])
         .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?;
-    builder.commit_from_file(path).map_err(|e| anyhow::anyhow!("commit model: {e}"))
+    builder
+        .commit_from_file(path)
+        .map_err(|e| anyhow::anyhow!("commit model: {e}"))
 }
 
 /// True when the image is so close to one flat colour (e.g. all-black GPU content
@@ -233,9 +245,14 @@ pub(super) fn detect_view(view: View) -> Vec<DetBox> {
     if x1 <= x0 || y1 <= y0 {
         return Vec::new();
     }
-    let crop =
-        image::imageops::crop_imm(&cap.rgb, x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32)
-            .to_image();
+    let crop = image::imageops::crop_imm(
+        &cap.rgb,
+        x0 as u32,
+        y0 as u32,
+        (x1 - x0) as u32,
+        (y1 - y0) as u32,
+    )
+    .to_image();
     // Skip inference on a near-uniform/black crop (GPU content the capture still
     // couldn't grab) - it would only emit noise and wastes ~1s.
     if crop_near_uniform(&crop) {
@@ -259,7 +276,12 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<Vec<DetBox>> 
     // Square resize to RES×RES + ImageNet normalize → NCHW f32 (matches RF-DETR's
     // transform; boxes come back normalized so the square distortion is undone by
     // scaling back to the crop's own width/height).
-    let resized = image::imageops::resize(crop, RES as u32, RES as u32, image::imageops::FilterType::Triangle);
+    let resized = image::imageops::resize(
+        crop,
+        RES as u32,
+        RES as u32,
+        image::imageops::FilterType::Triangle,
+    );
     let plane = RES * RES;
     let mut chw = vec![0f32; 3 * plane];
     for (i, px) in resized.pixels().enumerate() {
@@ -272,11 +294,17 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<Vec<DetBox>> 
 
     // Hold the lock through extraction: the output tensors borrow the session guard.
     let mut s = sess.lock().unwrap();
-    let outputs = s.run(ort::inputs!["input" => input]).map_err(|e| anyhow::anyhow!("run: {e}"))?;
+    let outputs = s
+        .run(ort::inputs!["input" => input])
+        .map_err(|e| anyhow::anyhow!("run: {e}"))?;
     // Look outputs up by NAME (not index) so an unexpected export fails cleanly with
     // a clear message instead of panicking on a missing key.
-    let dets_v = outputs.get("dets").ok_or_else(|| anyhow::anyhow!("model has no 'dets' output"))?;
-    let labels_v = outputs.get("labels").ok_or_else(|| anyhow::anyhow!("model has no 'labels' output"))?;
+    let dets_v = outputs
+        .get("dets")
+        .ok_or_else(|| anyhow::anyhow!("model has no 'dets' output"))?;
+    let labels_v = outputs
+        .get("labels")
+        .ok_or_else(|| anyhow::anyhow!("model has no 'labels' output"))?;
     let (dshape, dets) = dets_v
         .try_extract_tensor::<f32>()
         .map_err(|e| anyhow::anyhow!("dets: {e}"))?; // [1, N, 4] cxcywh 0..1
@@ -286,7 +314,11 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<Vec<DetBox>> 
     let dd = dshape.as_ref();
     let ld = lshape.as_ref();
     let n = if dd.len() >= 2 { dd[1] as usize } else { 0 };
-    let nc = if ld.len() >= 3 { ld[2].max(1) as usize } else { 1 };
+    let nc = if ld.len() >= 3 {
+        ld[2].max(1) as usize
+    } else {
+        1
+    };
 
     let thr = score_threshold();
     let mut out = Vec::new();
@@ -304,7 +336,11 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<Vec<DetBox>> 
         let cyn = dets[i * 4 + 1];
         let sx = ox + (cxn * cw).round() as i32;
         let sy = oy + (cyn * ch).round() as i32;
-        out.push(DetBox { cx: sx, cy: sy, score });
+        out.push(DetBox {
+            cx: sx,
+            cy: sy,
+            score,
+        });
     }
     out.sort_by(|a, b| b.score.total_cmp(&a.score));
     out.truncate(MAX_MARKS);

@@ -71,7 +71,13 @@ impl Verb {
 /// A surface the controller can perceive and act on. One impl per surface.
 trait Surface {
     fn observe(&mut self) -> anyhow::Result<WorldState>;
-    fn execute(&mut self, el: &IndexedElement, verb: Verb, value: Option<&str>, act: &ActCtx) -> anyhow::Result<()>;
+    fn execute(
+        &mut self,
+        el: &IndexedElement,
+        verb: Verb,
+        value: Option<&str>,
+        act: &ActCtx,
+    ) -> anyhow::Result<()>;
     fn read_back(&mut self, el: &IndexedElement) -> ReadBack;
 }
 
@@ -118,13 +124,23 @@ impl Controller {
                     "note": "Act on any element by its @id with act(id, verb[, value]). verbs: click, fill (value=text), select (value=option), submit, toggle. Re-observe after the view changes."
                 })
             }
-            Err(e) => json!({"ok": false, "error": format!("could not read the current view: {e}")}),
+            Err(e) => {
+                json!({"ok": false, "error": format!("could not read the current view: {e}")})
+            }
         }
     }
 
     /// Resolve `id` → gate → execute → verify → re-observe. Returns the tool result
     /// the model reads: the verify verdict plus the fresh indexed world.
-    pub fn act(&mut self, id: u32, verb_str: &str, value: Option<&str>, ctx: &str, confirm: bool, act: &ActCtx) -> Value {
+    pub fn act(
+        &mut self,
+        id: u32,
+        verb_str: &str,
+        value: Option<&str>,
+        ctx: &str,
+        confirm: bool,
+        act: &ActCtx,
+    ) -> Value {
         let mut s = self.surface();
         let Some(verb) = Verb::parse(verb_str) else {
             return json!({"ok": false,
@@ -157,7 +173,9 @@ impl Controller {
             return json!({"ok": false, "error": format!("could not {} {:?}: {e}", verb.as_str(), el.name)});
         }
         // VERIFY (fill/select) by reading the value back.
-        let verify = verb.verifies().then(|| verify::verify_fill(value.unwrap_or(""), &s.read_back(&el)));
+        let verify = verb
+            .verifies()
+            .then(|| verify::verify_fill(value.unwrap_or(""), &s.read_back(&el)));
         // RE-OBSERVE so the model's next decision is from the post-action world.
         let elements = self.reobserve(&mut *s);
         let mut r = json!({
@@ -199,27 +217,47 @@ impl Controller {
             }
             let id = step.get("id").and_then(Value::as_u64).unwrap_or(0) as u32;
             let value = step.get("value").and_then(Value::as_str);
-            let confirm = step.get("confirm").and_then(Value::as_bool).unwrap_or(false);
-            let Some(verb) = step.get("verb").and_then(Value::as_str).and_then(Verb::parse) else {
+            let confirm = step
+                .get("confirm")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let Some(verb) = step
+                .get("verb")
+                .and_then(Value::as_str)
+                .and_then(Verb::parse)
+            else {
                 stopped = Some(format!("step {n}: missing/unknown verb"));
                 break;
             };
             let Some(el) = ws.get(id).cloned() else {
-                stopped = Some(format!("step {n}: no @{id} in the planned view (re-observe and re-plan)"));
+                stopped = Some(format!(
+                    "step {n}: no @{id} in the planned view (re-observe and re-plan)"
+                ));
                 break;
             };
-            if let gate::Gate::Block(reason) = gate::gate_action(&ws, &el, verb, value, ctx, confirm) {
+            if let gate::Gate::Block(reason) =
+                gate::gate_action(&ws, &el, verb, value, ctx, confirm)
+            {
                 stopped = Some(format!("step {n} blocked: {reason}"));
                 break;
             }
             if let Err(e) = s.execute(&el, verb, value, act) {
-                stopped = Some(format!("step {n} ({} @{id} {:?}) failed: {e}", verb.as_str(), el.name));
+                stopped = Some(format!(
+                    "step {n} ({} @{id} {:?}) failed: {e}",
+                    verb.as_str(),
+                    el.name
+                ));
                 break;
             }
             if verb.verifies() {
                 let v = verify::verify_fill(value.unwrap_or(""), &s.read_back(&el));
                 if !v.is_ok() {
-                    stopped = Some(format!("step {n} ({} @{id} {:?}) {}", verb.as_str(), el.name, v.describe()));
+                    stopped = Some(format!(
+                        "step {n} ({} @{id} {:?}) {}",
+                        verb.as_str(),
+                        el.name,
+                        v.describe()
+                    ));
                     break;
                 }
             }

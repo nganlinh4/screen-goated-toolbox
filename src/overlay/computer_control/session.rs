@@ -275,7 +275,15 @@ fn patch_foreground_gpu(rgb: &mut image::RgbImage, origin_x: i32, origin_y: i32)
                 },
                 ..Default::default()
             };
-            GetDIBits(hdc_mem, hbm, 0, wh as u32, Some(bgra.as_mut_ptr().cast()), &mut bmi, DIB_RGB_COLORS);
+            GetDIBits(
+                hdc_mem,
+                hbm,
+                0,
+                wh as u32,
+                Some(bgra.as_mut_ptr().cast()),
+                &mut bmi,
+                DIB_RGB_COLORS,
+            );
         }
         let _ = SelectObject(hdc_mem, old);
         let _ = DeleteObject(hbm.into());
@@ -336,7 +344,8 @@ pub(super) fn encode_view(
         w,
         h,
     };
-    let sub = image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
+    let sub =
+        image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
     let mut dynimg = image::DynamicImage::ImageRgb8(sub);
     let short = dynimg.width().min(dynimg.height());
     if short > max_short {
@@ -352,8 +361,10 @@ pub(super) fn encode_view(
     // Mark exactly where the last click landed, mapping screen px -> frame px via
     // the clamped view (the screen rect this image represents).
     if let Some((sx, sy)) = marker {
-        let fx = ((sx - clamped.x) as f64 / clamped.w.max(1) as f64 * rgb.width() as f64).round() as i32;
-        let fy = ((sy - clamped.y) as f64 / clamped.h.max(1) as f64 * rgb.height() as f64).round() as i32;
+        let fx =
+            ((sx - clamped.x) as f64 / clamped.w.max(1) as f64 * rgb.width() as f64).round() as i32;
+        let fy = ((sy - clamped.y) as f64 / clamped.h.max(1) as f64 * rgb.height() as f64).round()
+            as i32;
         if fx >= 0 && fy >= 0 && (fx as u32) < rgb.width() && (fy as u32) < rgb.height() {
             super::grid::draw_click_marker(&mut rgb, fx, fy);
         }
@@ -372,7 +383,8 @@ pub(super) fn view_fingerprint(cap: &Capture, view: View) -> Vec<u8> {
     let y = (view.y - cap.origin_y).clamp(0, ih.saturating_sub(1).max(0));
     let w = view.w.clamp(1, iw - x);
     let h = view.h.clamp(1, ih - y);
-    let sub = image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
+    let sub =
+        image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
     let small = image::imageops::resize(&sub, 32, 32, image::imageops::FilterType::Triangle);
     small
         .pixels()
@@ -387,14 +399,21 @@ pub(super) fn view_fingerprint(cap: &Capture, view: View) -> Vec<u8> {
 /// pixel — for detecting whether a CLICK changed its own target cell, ignoring a
 /// timer/animation elsewhere on screen.
 pub(super) fn region_fingerprint(cap: &Capture, cx: i32, cy: i32, half: i32) -> Vec<u8> {
-    let v = View { x: cx - half, y: cy - half, w: half * 2, h: half * 2 };
+    let v = View {
+        x: cx - half,
+        y: cy - half,
+        w: half * 2,
+        h: half * 2,
+    };
     view_fingerprint(cap, v)
 }
 
 /// Capture the screen now and fingerprint the box around (cx, cy) — the "before"
 /// snapshot taken just prior to a click.
 pub(super) fn capture_region_fp(cx: i32, cy: i32, half: i32) -> Option<Vec<u8>> {
-    capture_virtual().ok().map(|cap| region_fingerprint(&cap, cx, cy, half))
+    capture_virtual()
+        .ok()
+        .map(|cap| region_fingerprint(&cap, cx, cy, half))
 }
 
 /// Count of fingerprint cells that changed appreciably between two frames. Robust

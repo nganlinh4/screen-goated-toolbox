@@ -30,15 +30,31 @@ const EXT_ICON48: &[u8] = include_bytes!("../browser_ext/icon48.png");
 const EXT_ICON128: &[u8] = include_bytes!("../browser_ext/icon128.png");
 
 fn err(e: anyhow::Error) -> Value {
-    json!({"ok": false, "error": e.to_string()})
+    json!({"ok": false, "code": "ERR_BROWSER_TOOL_FAILED", "error": e.to_string()})
 }
 
 fn not_connected() -> Value {
     json!({
         "ok": false,
+        "code": "ERR_BROWSER_NOT_CONNECTED",
+        "state": connection_state(),
         "error": "the browser extension isn't connected",
         "hint": "Call browser_setup and follow its do_yourself steps to load the unpacked extension yourself; it auto-pairs (no code to paste). Then poll browser_status until connected."
     })
+}
+
+fn connection_state() -> &'static str {
+    if is_connected() {
+        "connected"
+    } else if bridge::pairing_window_open() {
+        "pairing_window_open"
+    } else if recently_connected() {
+        "reconnecting"
+    } else if ever_connected() {
+        "disconnected_was_connected"
+    } else {
+        "not_setup"
+    }
 }
 
 /// Run `Runtime.evaluate` in the TOP frame and return its by-value result.
@@ -58,7 +74,10 @@ pub(super) fn eval_value_in(expr: &str, session_id: Option<&str>) -> anyhow::Res
     if let Some(exc) = r.get("exceptionDetails") {
         anyhow::bail!("js exception: {}", js_exception_text(exc));
     }
-    Ok(r.get("result").and_then(|x| x.get("value")).cloned().unwrap_or(Value::Null))
+    Ok(r.get("result")
+        .and_then(|x| x.get("value"))
+        .cloned()
+        .unwrap_or(Value::Null))
 }
 
 /// A CDP `exceptionDetails` as a DEBUGGABLE message - real error name + message + stack
@@ -69,9 +88,13 @@ fn js_exception_text(exc: &Value) -> String {
         .pointer("/exception/description")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .or_else(|| exc.pointer("/exception/value").map(|v| {
-            v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())
-        }))
+        .or_else(|| {
+            exc.pointer("/exception/value").map(|v| {
+                v.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| v.to_string())
+            })
+        })
         .or_else(|| exc.get("text").and_then(Value::as_str).map(str::to_string))
         .unwrap_or_else(|| "error".to_string());
     let detail: String = detail.chars().take(800).collect();
@@ -91,13 +114,21 @@ pub(super) fn child_frames() -> Vec<String> {
     use std::collections::HashSet;
     let detached: HashSet<String> = bridge::recent_events("Target.detachedFromTarget", 50)
         .iter()
-        .filter_map(|e| e.get("params").and_then(|p| p.get("sessionId")).and_then(Value::as_str).map(str::to_string))
+        .filter_map(|e| {
+            e.get("params")
+                .and_then(|p| p.get("sessionId"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .collect();
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for e in bridge::recent_events("Target.attachedToTarget", 50) {
         let p = e.get("params");
-        let ttype = p.and_then(|p| p.get("targetInfo")).and_then(|t| t.get("type")).and_then(Value::as_str);
+        let ttype = p
+            .and_then(|p| p.get("targetInfo"))
+            .and_then(|t| t.get("type"))
+            .and_then(Value::as_str);
         let Some(sid) = p.and_then(|p| p.get("sessionId")).and_then(Value::as_str) else {
             continue;
         };
@@ -131,7 +162,10 @@ fn write_extension() -> anyhow::Result<std::path::PathBuf> {
     // connect to receive the durable secret - so the secret is never handed to an
     // unauthenticated local socket. (Re)written every setup so a fresh extract pairs.
     let boot = serde_json::to_string(&bridge::bootstrap_secret()).unwrap_or_else(|_| "\"\"".into());
-    std::fs::write(dir.join("bootstrap.js"), format!("self.SGT_BOOTSTRAP = {boot};\n").as_bytes())?;
+    std::fs::write(
+        dir.join("bootstrap.js"),
+        format!("self.SGT_BOOTSTRAP = {boot};\n").as_bytes(),
+    )?;
     std::fs::write(dir.join("popup.html"), EXT_POPUP_HTML)?;
     std::fs::write(dir.join("popup.js"), EXT_POPUP_JS)?;
     std::fs::write(dir.join("icon16.png"), EXT_ICON16)?;
@@ -154,15 +188,35 @@ struct BrowserInfo {
 fn detect_browser() -> BrowserInfo {
     let prog = default_https_progid().unwrap_or_default().to_lowercase();
     if prog.contains("msedge") || prog.contains("edge") {
-        BrowserInfo { ext_url: "edge://extensions", name: "Microsoft Edge", chromium: true }
+        BrowserInfo {
+            ext_url: "edge://extensions",
+            name: "Microsoft Edge",
+            chromium: true,
+        }
     } else if prog.contains("brave") {
-        BrowserInfo { ext_url: "brave://extensions", name: "Brave", chromium: true }
+        BrowserInfo {
+            ext_url: "brave://extensions",
+            name: "Brave",
+            chromium: true,
+        }
     } else if prog.contains("opera") {
-        BrowserInfo { ext_url: "opera://extensions", name: "Opera", chromium: true }
+        BrowserInfo {
+            ext_url: "opera://extensions",
+            name: "Opera",
+            chromium: true,
+        }
     } else if prog.contains("firefox") {
-        BrowserInfo { ext_url: "chrome://extensions", name: "Firefox", chromium: false }
+        BrowserInfo {
+            ext_url: "chrome://extensions",
+            name: "Firefox",
+            chromium: false,
+        }
     } else {
-        BrowserInfo { ext_url: "chrome://extensions", name: "Google Chrome", chromium: true }
+        BrowserInfo {
+            ext_url: "chrome://extensions",
+            name: "Google Chrome",
+            chromium: true,
+        }
     }
 }
 
@@ -185,7 +239,6 @@ fn default_https_progid() -> Option<String> {
         .map(str::to_string)
 }
 
-
 /// Bring the bridge up, lay down the extension files, and open chrome://extensions.
 /// Returns what the agent needs to finish the install ITSELF (it should perform
 /// the clicks, not recite them to the user) — pausing only at the permission grant.
@@ -197,6 +250,7 @@ pub(super) fn setup() -> Value {
         return json!({
             "ok": true,
             "connected": true,
+            "state": "connected",
             "note": "Browser control is ALREADY set up and connected - do NOT install again. Tell the user it's ready and stop."
         });
     }
@@ -209,6 +263,8 @@ pub(super) fn setup() -> Value {
     json!({
         "ok": true,
         "connected": is_connected(),
+        "state": connection_state(),
+        "code": if is_connected() { Value::Null } else { json!("BROWSER_SETUP_NEEDS_EXTENSION_LOAD") },
         "browser": browser.name,
         "chromium": browser.chromium,
         "extensions_page": browser.ext_url,
@@ -218,13 +274,10 @@ pub(super) fn setup() -> Value {
             json!(format!("Your default browser ({}) isn't Chromium - deep browser control needs Chrome/Edge/Brave.", browser.name))
         },
         "do_yourself": [
-            format!("Open a NEW TAB first so you don't lose the user's current page: key_combination 'Ctrl+T'. Then in that new tab go to {} via the address bar: key_combination 'Ctrl+L', then type_text '{}' with press_enter:true. Stay in the SAME window (no new window).", browser.ext_url, browser.ext_url),
-            "Developer mode must be ON - but DON'T read the tiny toggle visually (vision misreads it). It is ON exactly when a 'Load unpacked' button appears in your CLICKABLE list. If you already see 'Load unpacked', it's on - skip ahead. If NOT, click the 'Developer mode' toggle (top-right) ONCE, then re-check your CLICKABLE list for 'Load unpacked' (toggle at most once per check).",
+            format!("Open a new tab in the current browser window, go to {}, and use observe/act or keyboard controls from there.", browser.ext_url),
+            "Developer mode is ON when 'Load unpacked' appears. Toggle Developer mode at most once per observe/status check.",
             "Once 'Load unpacked' is listed, click it. In the file dialog, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
-            "A permission prompt USUALLY does NOT appear for unpacked extensions - do NOT wait for one or tell the user to confirm it. If one happens to show, pause for the user; otherwise just continue.",
-            "That's it - NO popup, NO pairing code. Once the extension is ENABLED it connects over the socket in a second or two; pairing is instant, there is NOTHING slow to wait for.",
-            "Check browser_status once or twice, a couple seconds apart. If 'connected' is true, STOP - you're done. Do NOT sit in a long wait/poll loop.",
-            "RECOVERY if browser_status is still connected:false after those couple seconds: it is NOT slow pairing - the extension is DISABLED or blocked. Chrome very often loads the unpacked extension but leaves it DISABLED (its card is greyed-out / its on-off toggle won't move, even though Developer mode is on). Do NOT reinstall and do NOT keep waiting - toggle the 'Developer mode' switch (top-right) OFF then back ON to re-activate it (tell the user you're doing so), then re-check browser_status. If it STILL won't connect, say so - it may be a Chrome policy blocking debugger extensions."
+            "Check browser_status after each visible setup step. If connected is true, stop; if it remains false after a bounded recovery, report the blocker instead of looping."
         ]
     })
 }
@@ -237,6 +290,7 @@ pub(super) fn reset() -> Value {
     bridge::open_pairing_window(); // a loaded extension re-pairs within the window
     json!({
         "ok": true,
+        "state": connection_state(),
         "note": "Browser-control pairing reset: a loaded, ENABLED extension re-pairs in a second or two (instant, not minutes). If it stays disconnected, toggle Developer mode off/on (Chrome often soft-disables it) or reload it on the extensions page; to fully UNINSTALL, the user removes it there."
     })
 }
@@ -247,6 +301,7 @@ pub(super) fn status() -> Value {
     json!({
         "ok": true,
         "connected": is_connected(),
+        "state": connection_state(),
         "pairing_window_open": bridge::pairing_window_open(),
         "port": bridge::port_for_display()
     })
@@ -286,12 +341,16 @@ fn conn_guard() -> Option<Value> {
         return Some(if recently_connected() {
             json!({
                 "ok": false,
+                "code": "ERR_BROWSER_RECONNECTING",
+                "state": connection_state(),
                 "error": "the browser extension is reconnecting",
                 "hint": "Browser control IS installed here - its background service worker just went idle and reconnects on its own. Do NOT run browser_setup and do NOT tell the user to set anything up; wait a moment and retry this call."
             })
         } else {
             json!({
                 "ok": false,
+                "code": "ERR_BROWSER_DISCONNECTED",
+                "state": connection_state(),
                 "error": "browser control isn't responding",
                 "hint": "It was set up here before but hasn't connected for a while - the extension may have been removed or the browser closed. If the user still wants deep browser control, run browser_setup; otherwise just proceed without it (use the on-screen tools)."
             })
@@ -318,7 +377,9 @@ pub(super) fn click_selector(selector: &str) -> Value {
         sel = json!(selector)
     );
     let pt = match eval_value(&js) {
-        Ok(Value::Null) => return json!({"ok": false, "error": format!("no element matches {selector}")}),
+        Ok(Value::Null) => {
+            return json!({"ok": false, "error": format!("no element matches {selector}")});
+        }
         Ok(v) => v,
         Err(e) => return err(e),
     };
@@ -363,8 +424,14 @@ pub(super) fn shot() -> anyhow::Result<(Vec<u8>, f64, f64)> {
         anyhow::bail!("browser viewport has no size");
     }
     let _ = bridge::cdp("Page.enable", json!({})); // idempotent; some builds need it
-    let r = bridge::cdp("Page.captureScreenshot", json!({"format": "jpeg", "quality": 65}))?;
-    let b64 = r.get("data").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("no screenshot data"))?;
+    let r = bridge::cdp(
+        "Page.captureScreenshot",
+        json!({"format": "jpeg", "quality": 65}),
+    )?;
+    let b64 = r
+        .get("data")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("no screenshot data"))?;
     use base64::Engine as _;
     let jpeg = base64::engine::general_purpose::STANDARD.decode(b64)?;
     Ok((jpeg, cw, ch))
@@ -373,11 +440,18 @@ pub(super) fn shot() -> anyhow::Result<(Vec<u8>, f64, f64)> {
 /// Trusted left/right click at a CSS-px point.
 pub(super) fn click(x: f64, y: f64, right: bool) -> anyhow::Result<()> {
     let (button, mask) = if right { ("right", 2) } else { ("left", 1) };
-    bridge::cdp("Input.dispatchMouseEvent", json!({"type":"mouseMoved","x":x,"y":y}))?;
-    bridge::cdp("Input.dispatchMouseEvent",
-        json!({"type":"mousePressed","x":x,"y":y,"button":button,"buttons":mask,"clickCount":1}))?;
-    bridge::cdp("Input.dispatchMouseEvent",
-        json!({"type":"mouseReleased","x":x,"y":y,"button":button,"buttons":0,"clickCount":1}))?;
+    bridge::cdp(
+        "Input.dispatchMouseEvent",
+        json!({"type":"mouseMoved","x":x,"y":y}),
+    )?;
+    bridge::cdp(
+        "Input.dispatchMouseEvent",
+        json!({"type":"mousePressed","x":x,"y":y,"button":button,"buttons":mask,"clickCount":1}),
+    )?;
+    bridge::cdp(
+        "Input.dispatchMouseEvent",
+        json!({"type":"mouseReleased","x":x,"y":y,"button":button,"buttons":0,"clickCount":1}),
+    )?;
     Ok(())
 }
 
@@ -393,20 +467,29 @@ pub(super) fn drag(fx: f64, fy: f64, tx: f64, ty: f64) -> anyhow::Result<()> {
     const GRAB_HOLD_MS: u64 = 110; // settle the grab before moving
     const DROP_HOLD_MS: u64 = 110; // settle on the target before releasing
     const STEPS: i32 = 28;
-    bridge::cdp("Input.dispatchMouseEvent", json!({"type":"mouseMoved","x":fx,"y":fy}))?;
-    bridge::cdp("Input.dispatchMouseEvent",
-        json!({"type":"mousePressed","x":fx,"y":fy,"button":"left","buttons":1,"clickCount":1}))?;
+    bridge::cdp(
+        "Input.dispatchMouseEvent",
+        json!({"type":"mouseMoved","x":fx,"y":fy}),
+    )?;
+    bridge::cdp(
+        "Input.dispatchMouseEvent",
+        json!({"type":"mousePressed","x":fx,"y":fy,"button":"left","buttons":1,"clickCount":1}),
+    )?;
     std::thread::sleep(Duration::from_millis(GRAB_HOLD_MS));
     for i in 1..=STEPS {
         let t = f64::from(i) / f64::from(STEPS);
         let (x, y) = (fx + (tx - fx) * t, fy + (ty - fy) * t);
-        bridge::cdp("Input.dispatchMouseEvent",
-            json!({"type":"mouseMoved","x":x,"y":y,"button":"left","buttons":1}))?;
+        bridge::cdp(
+            "Input.dispatchMouseEvent",
+            json!({"type":"mouseMoved","x":x,"y":y,"button":"left","buttons":1}),
+        )?;
         std::thread::sleep(Duration::from_millis(14));
     }
     std::thread::sleep(Duration::from_millis(DROP_HOLD_MS));
-    bridge::cdp("Input.dispatchMouseEvent",
-        json!({"type":"mouseReleased","x":tx,"y":ty,"button":"left","buttons":0,"clickCount":1}))?;
+    bridge::cdp(
+        "Input.dispatchMouseEvent",
+        json!({"type":"mouseReleased","x":tx,"y":ty,"button":"left","buttons":0,"clickCount":1}),
+    )?;
     Ok(())
 }
 
@@ -434,7 +517,10 @@ pub(super) fn fill_in(selector: &str, text: &str, session: Option<&str>) -> Valu
 pub(super) fn wait_for(selector: &str, timeout_ms: u64) -> Value {
     require_conn!();
     let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms.min(30_000));
-    let js = format!("(() => !!document.querySelector({sel}))()", sel = json!(selector));
+    let js = format!(
+        "(() => !!document.querySelector({sel}))()",
+        sel = json!(selector)
+    );
     loop {
         match eval_value(&js) {
             Ok(Value::Bool(true)) => return json!({"ok": true, "found": selector}),
@@ -471,8 +557,15 @@ pub(super) fn upload_file(selector: &str, path: &str) -> Value {
         Ok(v) => v,
         Err(e) => return err(e),
     };
-    let root = doc.get("root").and_then(|r| r.get("nodeId")).and_then(Value::as_i64).unwrap_or(0);
-    let q = match bridge::cdp("DOM.querySelector", json!({"nodeId": root, "selector": selector})) {
+    let root = doc
+        .get("root")
+        .and_then(|r| r.get("nodeId"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let q = match bridge::cdp(
+        "DOM.querySelector",
+        json!({"nodeId": root, "selector": selector}),
+    ) {
         Ok(v) => v,
         Err(e) => return err(e),
     };
@@ -480,7 +573,10 @@ pub(super) fn upload_file(selector: &str, path: &str) -> Value {
     if node == 0 {
         return json!({"ok": false, "error": format!("no element matches {selector}")});
     }
-    match bridge::cdp("DOM.setFileInputFiles", json!({"nodeId": node, "files": [path]})) {
+    match bridge::cdp(
+        "DOM.setFileInputFiles",
+        json!({"nodeId": node, "files": [path]}),
+    ) {
         Ok(_) => json!({"ok": true, "uploaded": path}),
         Err(e) => err(e),
     }
@@ -507,9 +603,10 @@ pub(super) fn switch_tab(tab_id: i64) -> Value {
 /// A tab's title + url from the live tab list (best-effort; nulls on miss).
 fn tab_title_url(tab_id: i64) -> (Value, Value) {
     if let Ok(v) = bridge::rpc("tabs", json!({"action": "list"}))
-        && let Some(t) = v
-            .as_array()
-            .and_then(|tabs| tabs.iter().find(|t| t.get("id").and_then(Value::as_i64) == Some(tab_id)))
+        && let Some(t) = v.as_array().and_then(|tabs| {
+            tabs.iter()
+                .find(|t| t.get("id").and_then(Value::as_i64) == Some(tab_id))
+        })
     {
         return (
             t.get("title").cloned().unwrap_or(Value::Null),
@@ -522,7 +619,11 @@ fn tab_title_url(tab_id: i64) -> (Value, Value) {
 pub(super) fn read_network(filter: &str) -> Value {
     require_conn!();
     let _ = bridge::cdp("Network.enable", json!({})); // idempotent; starts the feed
-    let want = if filter.is_empty() { "Network." } else { filter };
+    let want = if filter.is_empty() {
+        "Network."
+    } else {
+        filter
+    };
     let items: Vec<Value> = bridge::recent_events(want, 30)
         .iter()
         .map(|e| {
@@ -559,7 +660,11 @@ pub(super) fn read_console() -> Value {
                         a.get("value")
                             .and_then(Value::as_str)
                             .map(str::to_string)
-                            .or_else(|| a.get("description").and_then(Value::as_str).map(str::to_string))
+                            .or_else(|| {
+                                a.get("description")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_string)
+                            })
                             .unwrap_or_default()
                     })
                     .collect::<Vec<_>>()
@@ -569,7 +674,11 @@ pub(super) fn read_console() -> Value {
         items.push(json!({"level": p.get("type"), "text": text}));
     }
     for e in bridge::recent_events("Log.entryAdded", 25) {
-        let entry = e.get("params").and_then(|p| p.get("entry")).cloned().unwrap_or_else(|| json!({}));
+        let entry = e
+            .get("params")
+            .and_then(|p| p.get("entry"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         items.push(json!({"level": entry.get("level"), "text": entry.get("text"), "url": entry.get("url")}));
     }
     json!({"ok": true, "console": items,
