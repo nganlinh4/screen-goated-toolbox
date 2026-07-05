@@ -168,12 +168,21 @@ pub enum ServerEvent {
     Thought(String),
     InputTranscript(String),
     OutputTranscript(String),
-    ToolCall { id: String, name: String, args: Value },
+    ToolCall {
+        id: String,
+        name: String,
+        args: Value,
+    },
     ToolCancellation(Vec<String>),
     TurnComplete,
     Interrupted,
-    GoAway { time_left: String },
-    SessionResumption { handle: Option<String>, resumable: bool },
+    GoAway {
+        time_left: String,
+    },
+    SessionResumption {
+        handle: Option<String>,
+        resumable: bool,
+    },
     Usage(Value),
     Other(String),
 }
@@ -210,10 +219,16 @@ pub fn parse_server_message(raw: &str) -> Vec<ServerEvent> {
                 }
             }
         }
-        if let Some(t) = sc.pointer("/inputTranscription/text").and_then(|t| t.as_str()) {
+        if let Some(t) = sc
+            .pointer("/inputTranscription/text")
+            .and_then(|t| t.as_str())
+        {
             out.push(ServerEvent::InputTranscript(t.to_string()));
         }
-        if let Some(t) = sc.pointer("/outputTranscription/text").and_then(|t| t.as_str()) {
+        if let Some(t) = sc
+            .pointer("/outputTranscription/text")
+            .and_then(|t| t.as_str())
+        {
             out.push(ServerEvent::OutputTranscript(t.to_string()));
         }
         if sc.get("interrupted").and_then(Value::as_bool) == Some(true) {
@@ -223,28 +238,51 @@ pub fn parse_server_message(raw: &str) -> Vec<ServerEvent> {
             out.push(ServerEvent::TurnComplete);
         }
     }
-    if let Some(calls) = v.pointer("/toolCall/functionCalls").and_then(|c| c.as_array()) {
+    if let Some(calls) = v
+        .pointer("/toolCall/functionCalls")
+        .and_then(|c| c.as_array())
+    {
         for c in calls {
             out.push(ServerEvent::ToolCall {
-                id: c.get("id").and_then(Value::as_str).unwrap_or("").to_string(),
-                name: c.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                id: c
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                name: c
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
                 args: c.get("args").cloned().unwrap_or(Value::Null),
             });
         }
     }
-    if let Some(ids) = v.pointer("/toolCallCancellation/ids").and_then(|i| i.as_array()) {
+    if let Some(ids) = v
+        .pointer("/toolCallCancellation/ids")
+        .and_then(|i| i.as_array())
+    {
         out.push(ServerEvent::ToolCancellation(
-            ids.iter().filter_map(|x| x.as_str().map(str::to_string)).collect(),
+            ids.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect(),
         ));
     }
     if let Some(g) = v.get("goAway") {
         out.push(ServerEvent::GoAway {
-            time_left: g.get("timeLeft").and_then(Value::as_str).unwrap_or("").to_string(),
+            time_left: g
+                .get("timeLeft")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
         });
     }
     if let Some(s) = v.get("sessionResumptionUpdate") {
         out.push(ServerEvent::SessionResumption {
-            handle: s.get("newHandle").and_then(Value::as_str).map(str::to_string),
+            handle: s
+                .get("newHandle")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             resumable: s.get("resumable").and_then(Value::as_bool).unwrap_or(false),
         });
     }
@@ -254,10 +292,17 @@ pub fn parse_server_message(raw: &str) -> Vec<ServerEvent> {
     // Only surface as "Other" if NO known top-level key was present — a known
     // frame that simply carried nothing we model (e.g. `generationComplete`-only
     // serverContent) is not noise.
-    let recognized = ["setupComplete", "serverContent", "toolCall", "toolCallCancellation",
-        "goAway", "sessionResumptionUpdate", "usageMetadata"]
-        .iter()
-        .any(|k| v.get(k).is_some());
+    let recognized = [
+        "setupComplete",
+        "serverContent",
+        "toolCall",
+        "toolCallCancellation",
+        "goAway",
+        "sessionResumptionUpdate",
+        "usageMetadata",
+    ]
+    .iter()
+    .any(|k| v.get(k).is_some());
     if out.is_empty() && !recognized {
         out.push(ServerEvent::Other(truncate(raw)));
     }
@@ -291,7 +336,8 @@ mod tests {
 
     #[test]
     fn parses_tool_call() {
-        let raw = r#"{"toolCall":{"functionCalls":[{"id":"c1","name":"click","args":{"x":10,"y":20}}]}}"#;
+        let raw =
+            r#"{"toolCall":{"functionCalls":[{"id":"c1","name":"click","args":{"x":10,"y":20}}]}}"#;
         let evs = parse_server_message(raw);
         match &evs[0] {
             ServerEvent::ToolCall { id, name, args } => {
@@ -307,8 +353,14 @@ mod tests {
     fn server_content_yields_audio_transcript_and_turn() {
         let raw = r#"{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"data":"AAAA"}}]},"outputTranscription":{"text":"ok"},"turnComplete":true}}"#;
         let evs = parse_server_message(raw);
-        assert!(evs.iter().any(|e| matches!(e, ServerEvent::Audio(pcm) if !pcm.is_empty())));
-        assert!(evs.iter().any(|e| matches!(e, ServerEvent::OutputTranscript(t) if t == "ok")));
+        assert!(
+            evs.iter()
+                .any(|e| matches!(e, ServerEvent::Audio(pcm) if !pcm.is_empty()))
+        );
+        assert!(
+            evs.iter()
+                .any(|e| matches!(e, ServerEvent::OutputTranscript(t) if t == "ok"))
+        );
         assert!(evs.iter().any(|e| matches!(e, ServerEvent::TurnComplete)));
     }
 }

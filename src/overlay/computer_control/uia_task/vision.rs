@@ -3,8 +3,8 @@
 //! out of `uia_task.rs` for the file-size limit. `use super::*` pulls in the
 //! shared imports/types; `super::super::` reaches the sibling CC modules.
 
-use super::*;
 use super::super::vision_reader::Located;
+use super::*;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 
@@ -17,7 +17,12 @@ pub(super) const VISION_SHORT: u32 = 1600;
 
 /// Read the current view with the aux vision stack (clean crop, no grid overlay).
 /// `ctx` is task/intent context for disambiguation. Returns the plain answer.
-pub(super) fn read_view(view: View, question: &str, ctx: &str, cancel: &AtomicBool) -> Result<String> {
+pub(super) fn read_view(
+    view: View,
+    question: &str,
+    ctx: &str,
+    cancel: &AtomicBool,
+) -> Result<String> {
     read_view_pref(view, question, ctx, cancel, &[])
 }
 
@@ -150,10 +155,16 @@ Be concrete and grounded in what you SEE - name the exact on-screen element, whe
 (greyed-out, behind a dialog, off-screen, wrong tab, or the task is already done). \
 Answer in ONE or TWO sentences as a direct instruction to the agent. No preamble."
         );
-        let advice = read_view_pref(view, &q, &format!("task: {task}"), cancel, PLANNER_VISION_PREFER)
-            .ok()?
-            .trim()
-            .to_string();
+        let advice = read_view_pref(
+            view,
+            &q,
+            &format!("task: {task}"),
+            cancel,
+            PLANNER_VISION_PREFER,
+        )
+        .ok()?
+        .trim()
+        .to_string();
         (!advice.is_empty()).then_some(advice)
     }
 
@@ -182,7 +193,9 @@ where
         match rx.recv_timeout(Duration::from_millis(50)) {
             Ok(r) => return r,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => anyhow::bail!("vision worker disconnected"),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("vision worker disconnected")
+            }
         }
     }
 }
@@ -192,18 +205,27 @@ where
 /// point-based so it's accurate for normal targets). `CC_LOCATE_MODE=refine` adds
 /// a second zoomed pass for tiny adjacent cells (2x the latency); `=box` uses one
 /// bounding-box call.
-pub(super) fn locate_in_view(view: View, description: &str, ctx: &str, cancel: &AtomicBool) -> Result<Located> {
+pub(super) fn locate_in_view(
+    view: View,
+    description: &str,
+    ctx: &str,
+    cancel: &AtomicBool,
+) -> Result<Located> {
     let cap = session::capture_virtual()?;
     let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None)?;
     match std::env::var("CC_LOCATE_MODE").as_deref() {
         Ok("refine") => refine_in_view(&cap, view, &jpeg, description, ctx, cancel),
         Ok("box") => {
             let (j, d, c) = (jpeg.clone(), description.to_string(), ctx.to_string());
-            match run_cancellable(cancel, move || super::super::vision_reader::locate_box(&j, &d, &c)) {
+            match run_cancellable(cancel, move || {
+                super::super::vision_reader::locate_box(&j, &d, &c)
+            }) {
                 Ok(p) => Ok(p),
                 Err(_) => {
                     let (j, d, c) = (jpeg, description.to_string(), ctx.to_string());
-                    run_cancellable(cancel, move || super::super::vision_reader::locate_point(&j, &d, &c))
+                    run_cancellable(cancel, move || {
+                        super::super::vision_reader::locate_point(&j, &d, &c)
+                    })
                 }
             }
         }
@@ -211,7 +233,9 @@ pub(super) fn locate_in_view(view: View, description: &str, ctx: &str, cancel: &
         // normal UI; opt into refine for tiny adjacent cells (game boards).
         _ => {
             let (j, d, c) = (jpeg, description.to_string(), ctx.to_string());
-            run_cancellable(cancel, move || super::super::vision_reader::locate_point(&j, &d, &c))
+            run_cancellable(cancel, move || {
+                super::super::vision_reader::locate_point(&j, &d, &c)
+            })
         }
     }
 }
@@ -219,11 +243,18 @@ pub(super) fn locate_in_view(view: View, description: &str, ctx: &str, cancel: &
 /// Ask the aux vision stack to map EVERY target matching `description` to a list
 /// of points (0-1000 over `view`), cancellable. Used to build reusable click
 /// anchors in one call.
-pub(super) fn map_in_view(view: View, description: &str, ctx: &str, cancel: &AtomicBool) -> Result<Vec<Located>> {
+pub(super) fn map_in_view(
+    view: View,
+    description: &str,
+    ctx: &str,
+    cancel: &AtomicBool,
+) -> Result<Vec<Located>> {
     let cap = session::capture_virtual()?;
     let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None)?;
     let (d, c) = (description.to_string(), ctx.to_string());
-    run_cancellable(cancel, move || super::super::vision_reader::locate_points(&jpeg, &d, &c))
+    run_cancellable(cancel, move || {
+        super::super::vision_reader::locate_points(&jpeg, &d, &c)
+    })
 }
 
 /// Two-call coarse-to-fine locate: point over the whole view, then ZOOM a box
@@ -237,13 +268,24 @@ pub(super) fn refine_in_view(
     cancel: &AtomicBool,
 ) -> Result<Located> {
     let coarse = {
-        let (j, d, c) = (coarse_jpeg.to_vec(), description.to_string(), ctx.to_string());
-        run_cancellable(cancel, move || super::super::vision_reader::locate_point(&j, &d, &c))?
+        let (j, d, c) = (
+            coarse_jpeg.to_vec(),
+            description.to_string(),
+            ctx.to_string(),
+        );
+        run_cancellable(cancel, move || {
+            super::super::vision_reader::locate_point(&j, &d, &c)
+        })?
     };
     let (csx, csy) = view.to_screen_px(coarse.x, coarse.y);
     let zw = (view.w / 4).max(160);
     let zh = (view.h / 4).max(120);
-    let zoom = View { x: csx - zw / 2, y: csy - zh / 2, w: zw, h: zh };
+    let zoom = View {
+        x: csx - zw / 2,
+        y: csy - zh / 2,
+        w: zw,
+        h: zh,
+    };
     let Ok((fine_jpeg, shown)) = session::encode_view(cap, zoom, VISION_SHORT, None, None) else {
         return Ok(coarse);
     };
@@ -252,7 +294,9 @@ pub(super) fn refine_in_view(
     // the accurate default if it fails. Stateless; never loses correctness.
     let fine = {
         let (d, c) = (description.to_string(), ctx.to_string());
-        let fine_model = std::env::var("CC_VISION_FINE_MODEL").ok().filter(|m| !m.trim().is_empty());
+        let fine_model = std::env::var("CC_VISION_FINE_MODEL")
+            .ok()
+            .filter(|m| !m.trim().is_empty());
         run_cancellable(cancel, move || match fine_model {
             Some(m) => super::super::vision_reader::locate_point_with(&fine_jpeg, &d, m.trim(), &c),
             None => super::super::vision_reader::locate_point(&fine_jpeg, &d, &c),
@@ -263,8 +307,15 @@ pub(super) fn refine_in_view(
             let (fsx, fsy) = shown.to_screen_px(f.x, f.y);
             let mx = ((fsx - view.x) as f64 / view.w.max(1) as f64 * 1000.0).clamp(0.0, 1000.0);
             let my = ((fsy - view.y) as f64 / view.h.max(1) as f64 * 1000.0).clamp(0.0, 1000.0);
-            eprintln!("[cc] locate refine: coarse({:.0},{:.0}) -> fine({mx:.0},{my:.0})", coarse.x, coarse.y);
-            Ok(Located { x: mx, y: my, note: f.note.or(coarse.note) })
+            eprintln!(
+                "[cc] locate refine: coarse({:.0},{:.0}) -> fine({mx:.0},{my:.0})",
+                coarse.x, coarse.y
+            );
+            Ok(Located {
+                x: mx,
+                y: my,
+                note: f.note.or(coarse.note),
+            })
         }
         Err(_) => Ok(coarse),
     }
@@ -280,10 +331,16 @@ pub(super) fn refine_in_view(
 
 /// Locate `description` in the controlled browser's viewport via a CDP screenshot,
 /// returning the point in CSS px (the space CDP input uses) plus what was seen.
-pub(super) fn locate_css(description: &str, ctx: &str, cancel: &AtomicBool) -> Result<(f64, f64, Option<String>)> {
+pub(super) fn locate_css(
+    description: &str,
+    ctx: &str,
+    cancel: &AtomicBool,
+) -> Result<(f64, f64, Option<String>)> {
     let (jpeg, cw, ch) = super::super::browser::shot()?;
     let (d, c) = (description.to_string(), ctx.to_string());
-    let loc = run_cancellable(cancel, move || super::super::vision_reader::locate_point(&jpeg, &d, &c))?;
+    let loc = run_cancellable(cancel, move || {
+        super::super::vision_reader::locate_point(&jpeg, &d, &c)
+    })?;
     Ok((loc.x / 1000.0 * cw, loc.y / 1000.0 * ch, loc.note))
 }
 
@@ -293,7 +350,9 @@ pub(super) fn browser_click(desc: &str, right: bool, ctx: &str, cancel: &AtomicB
         Ok((x, y, note)) => {
             eprintln!("[cc] CLICK_TARGET(browser) '{desc}' -> css({x:.0},{y:.0}) saw={note:?}");
             match super::super::browser::click(x, y, right) {
-                Ok(()) => json!({"ok": true, "via": "browser", "css_px": [x.round(), y.round()], "saw_at_target": note}),
+                Ok(()) => {
+                    json!({"ok": true, "via": "browser", "css_px": [x.round(), y.round()], "saw_at_target": note})
+                }
                 Err(e) => json!({"ok": false, "error": e.to_string()}),
             }
         }
@@ -305,13 +364,18 @@ pub(super) fn browser_click(desc: &str, right: bool, ctx: &str, cancel: &AtomicB
 pub(super) fn browser_drag(from: &str, to: &str, ctx: &str, cancel: &AtomicBool) -> Value {
     let f = match locate_css(from, ctx, cancel) {
         Ok(v) => v,
-        Err(e) => return json!({"ok": false, "error": format!("could not locate from '{from}': {e}")}),
+        Err(e) => {
+            return json!({"ok": false, "error": format!("could not locate from '{from}': {e}")});
+        }
     };
     let t = match locate_css(to, ctx, cancel) {
         Ok(v) => v,
         Err(e) => return json!({"ok": false, "error": format!("could not locate to '{to}': {e}")}),
     };
-    eprintln!("[cc] DRAG_TARGET(browser) '{from}'->'{to}' : css({:.0},{:.0})->({:.0},{:.0})", f.0, f.1, t.0, t.1);
+    eprintln!(
+        "[cc] DRAG_TARGET(browser) '{from}'->'{to}' : css({:.0},{:.0})->({:.0},{:.0})",
+        f.0, f.1, t.0, t.1
+    );
     match super::super::browser::drag(f.0, f.1, t.0, t.1) {
         Ok(()) => json!({"ok": true, "via": "browser", "from": f.2, "to": t.2,
             "from_css": [f.0.round(), f.1.round()], "to_css": [t.0.round(), t.1.round()]}),
@@ -324,7 +388,8 @@ pub(super) fn browser_drag(from: &str, to: &str, ctx: &str, cancel: &AtomicBool)
 /// them. A combo with a non-nav key (e.g. Ctrl+C) is not navigation.
 pub(super) fn is_nav_keys(keys: &str) -> bool {
     const NAV: &[&str] = &[
-        "up", "down", "left", "right", "pageup", "pagedown", "home", "end", "space", "tab", "scroll",
+        "up", "down", "left", "right", "pageup", "pagedown", "home", "end", "space", "tab",
+        "scroll",
     ];
     let toks: Vec<String> = keys
         .split(['+', ' '])
@@ -390,8 +455,10 @@ pub(super) fn final_review(dir: &str, target: Option<&str>, note: &str) {
     {
         let mut rgb = img.to_rgb8();
         for (sx, sy) in read_click_points(dir) {
-            let fx = ((sx - clamped.x) as f64 / clamped.w.max(1) as f64 * rgb.width() as f64).round() as i32;
-            let fy = ((sy - clamped.y) as f64 / clamped.h.max(1) as f64 * rgb.height() as f64).round() as i32;
+            let fx = ((sx - clamped.x) as f64 / clamped.w.max(1) as f64 * rgb.width() as f64)
+                .round() as i32;
+            let fy = ((sy - clamped.y) as f64 / clamped.h.max(1) as f64 * rgb.height() as f64)
+                .round() as i32;
             super::super::grid::draw_click_marker(&mut rgb, fx, fy);
         }
         let mut buf = std::io::Cursor::new(Vec::new());

@@ -74,7 +74,12 @@ fn chain_ids(config: &Config, prefer: &[&str]) -> Vec<String> {
 
 /// Run `prompt` over `jpeg` through the model chain (`prefer` ids tried first),
 /// returning the first non-empty answer.
-fn run_chain(jpeg: &[u8], prompt: &str, prefer: &[&str], schema: Option<serde_json::Value>) -> Result<String> {
+fn run_chain(
+    jpeg: &[u8],
+    prompt: &str,
+    prefer: &[&str],
+    schema: Option<serde_json::Value>,
+) -> Result<String> {
     let config = crate::load_config();
     let gemini_key = key_for("google", &config).unwrap_or_default();
     let groq_key = key_for("groq", &config).unwrap_or_default();
@@ -181,8 +186,18 @@ fn ctx_prefix(ctx: &str) -> String {
 /// Read `question` about `jpeg` with the vision stack (optional `ctx`), trying
 /// `prefer` model ids first (then the standard chain) — the stall planner prefers
 /// the benchmark-winning 2.5 vision models; pass `&[]` for the default chain.
-pub(super) fn read_image_pref(jpeg: &[u8], question: &str, ctx: &str, prefer: &[&str]) -> Result<String> {
-    run_chain(jpeg, &format!("{}{question}", ctx_prefix(ctx)), prefer, None)
+pub(super) fn read_image_pref(
+    jpeg: &[u8],
+    question: &str,
+    ctx: &str,
+    prefer: &[&str],
+) -> Result<String> {
+    run_chain(
+        jpeg,
+        &format!("{}{question}", ctx_prefix(ctx)),
+        prefer,
+        None,
+    )
 }
 
 /// Ask the vision stack for the click point of `description` (+ what's there).
@@ -194,11 +209,21 @@ pub(super) fn locate_point(jpeg: &[u8], description: &str, ctx: &str) -> Result<
 /// is easy localization, so a faster stack model often suffices) — falling back
 /// to the accurate default if it fails. Stateless and per-call: never loses
 /// correctness, only speeds the common case.
-pub(super) fn locate_point_with(jpeg: &[u8], description: &str, model: &str, ctx: &str) -> Result<Located> {
+pub(super) fn locate_point_with(
+    jpeg: &[u8],
+    description: &str,
+    model: &str,
+    ctx: &str,
+) -> Result<Located> {
     locate_point_pref(jpeg, description, Some(model), ctx)
 }
 
-fn locate_point_pref(jpeg: &[u8], description: &str, prefer: Option<&str>, ctx: &str) -> Result<Located> {
+fn locate_point_pref(
+    jpeg: &[u8],
+    description: &str,
+    prefer: Option<&str>,
+    ctx: &str,
+) -> Result<Located> {
     let prompt = format!(
         "{}Find this target in the image: {description}. Output ONLY JSON \
 {{\"x\": <int>, \"y\": <int>, \"what\": \"<2-4 words: what is AT that location, e.g. empty cell, an X, a button>\"}} \
@@ -210,7 +235,11 @@ visible, output {{\"error\": \"not visible\"}}.",
     let answer = run_chain(jpeg, &prompt, &pref, Some(point_schema()))?;
     let (x, y) = parse_point(&answer)
         .ok_or_else(|| anyhow!("could not parse a point from vision answer: {answer}"))?;
-    Ok(Located { x, y, note: parse_str_field(&answer, "what") })
+    Ok(Located {
+        x,
+        y,
+        note: parse_str_field(&answer, "what"),
+    })
 }
 
 /// Ask the vision stack for the target's bounding BOX (Gemini `box_2d`) and
@@ -261,14 +290,18 @@ fn parse_points(s: &str) -> Vec<Located> {
     if b <= a {
         return Vec::new();
     }
-    let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(&s[a..=b]) else {
+    let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(&s[a..=b])
+    else {
         return Vec::new();
     };
     arr.iter()
         .filter_map(|item| {
             let x = item.get("x").and_then(serde_json::Value::as_f64)?;
             let y = item.get("y").and_then(serde_json::Value::as_f64)?;
-            let note = item.get("what").and_then(serde_json::Value::as_str).map(str::to_string);
+            let note = item
+                .get("what")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
             Some(Located { x, y, note })
         })
         .collect()

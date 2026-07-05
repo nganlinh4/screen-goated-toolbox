@@ -232,6 +232,7 @@ pub(super) fn set_orb_tool(name: &str, args: &serde_json::Value) {
         | "save_artifact"
         | "list_windows"
         | "read_clipboard"
+        | "system_query"
         | "browser_network"
         | "browser_status"
         | "browser_tabs" => OrbState::Look,
@@ -284,7 +285,13 @@ fn js_escape(s: &str) -> String {
 /// resting Idle state is set explicitly at connect/reconnect.)
 pub(super) fn set_status(status: impl Into<String>) {
     let status = status.into();
-    eprintln!("[cc] status: {status}");
+    super::telemetry::human("cc", format!("status: {status}"));
+    super::telemetry::event(
+        "status",
+        "overlay",
+        super::telemetry::Privacy::Safe,
+        serde_json::json!({"status": status.clone()}),
+    );
     if status.starts_with("error")
         || status.starts_with("rate limited")
         || status.starts_with("halting")
@@ -305,20 +312,40 @@ pub(super) fn set_orb_resting() {
 pub(super) fn set_listening(on: bool) {
     static LAST: AtomicBool = AtomicBool::new(false);
     if LAST.swap(on, Ordering::SeqCst) != on {
-        eprintln!("[cc] listening: {on}");
+        super::telemetry::human("cc", format!("listening: {on}"));
+        super::telemetry::event(
+            "listening",
+            "overlay",
+            super::telemetry::Privacy::Safe,
+            serde_json::json!({"on": on}),
+        );
     }
 }
 
 /// The user just spoke → the model is thinking; show the command as the caption.
 pub(super) fn set_user_text(text: impl Into<String>) {
     let text = text.into();
-    eprintln!("[cc] you: {text}");
+    super::telemetry::start_turn("user_audio_transcript");
+    super::telemetry::human("cc", format!("you: {text}"));
+    super::telemetry::event(
+        "user_transcript",
+        "speech",
+        super::telemetry::Privacy::UserText,
+        serde_json::json!({"text_preview": text.chars().take(240).collect::<String>(), "char_count": text.chars().count()}),
+    );
     set_orb_state(OrbState::Thinking, Some(&text));
 }
 
 /// The model is speaking → responding; show the reply as the caption.
 pub(super) fn set_model_text(text: impl Into<String>) {
-    set_orb_state(OrbState::Responding, Some(&text.into()));
+    let text = text.into();
+    super::telemetry::event(
+        "assistant_transcript_delta",
+        "speech",
+        super::telemetry::Privacy::UserText,
+        serde_json::json!({"text_preview": text.chars().take(240).collect::<String>(), "char_count": text.chars().count()}),
+    );
+    set_orb_state(OrbState::Responding, Some(&text));
 }
 
 /// The reply AUDIO finished playing — drop the caption and rest the orb. Driven by the runtime's
@@ -335,5 +362,12 @@ pub(super) fn set_model_idle() {
 }
 
 pub(super) fn push_log(line: impl Into<String>) {
-    eprintln!("[cc] {}", line.into());
+    let line = line.into();
+    super::telemetry::human("cc", &line);
+    super::telemetry::event(
+        "log",
+        "runtime",
+        super::telemetry::Privacy::Safe,
+        serde_json::json!({"line": line.clone()}),
+    );
 }

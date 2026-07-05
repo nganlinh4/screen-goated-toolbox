@@ -55,5 +55,7 @@ pub(super) fn clear() {
 /// True if the clipboard holds NON-text content (an image or copied files) that a
 /// paste fast-path would destroy - the caller should type by keystroke instead.
 pub(super) fn has_nontext() -> bool {
-    NONTEXT_FORMATS.iter().any(|&f| unsafe { IsClipboardFormatAvailable(f).is_ok() })
+    NONTEXT_FORMATS
+        .iter()
+        .any(|&f| unsafe { IsClipboardFormatAvailable(f).is_ok() })
 }

@@ -68,13 +68,21 @@ impl Surface for BrowserSurface {
         for sid in web::child_frames() {
             let base = world.elements.len() as u32;
             if let Ok(v) = web::eval_value_in(&perception_js(base), Some(&sid)) {
-                world.elements.extend(parse_world(&v, Some(sid.clone())).elements);
+                world
+                    .elements
+                    .extend(parse_world(&v, Some(sid.clone())).elements);
             }
         }
         Ok(world)
     }
 
-    fn execute(&mut self, el: &IndexedElement, verb: Verb, value: Option<&str>, _act: &ActCtx) -> Result<()> {
+    fn execute(
+        &mut self,
+        el: &IndexedElement,
+        verb: Verb,
+        value: Option<&str>,
+        _act: &ActCtx,
+    ) -> Result<()> {
         let ElHandle::Browser { selector, session } = &el.handle else {
             anyhow::bail!("not a browser element");
         };
@@ -82,8 +90,12 @@ impl Surface for BrowserSurface {
             (Verb::Fill, sess) => ok_or_err(&web::fill_in(selector, value.unwrap_or(""), sess)),
             (Verb::Select, sess) => self.select(selector, sess, value.unwrap_or("")),
             // Top frame: trusted coordinate click. Cross-origin frame: JS click.
-            (Verb::Click | Verb::Submit | Verb::Toggle, None) => ok_or_err(&web::click_selector(selector)),
-            (Verb::Click | Verb::Submit | Verb::Toggle, Some(sess)) => self.click_in_frame(selector, sess),
+            (Verb::Click | Verb::Submit | Verb::Toggle, None) => {
+                ok_or_err(&web::click_selector(selector))
+            }
+            (Verb::Click | Verb::Submit | Verb::Toggle, Some(sess)) => {
+                self.click_in_frame(selector, sess)
+            }
         }
     }
 
@@ -118,7 +130,12 @@ fn ok_or_err(v: &Value) -> Result<()> {
     if v.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(())
     } else {
-        anyhow::bail!("{}", v.get("error").and_then(Value::as_str).unwrap_or("action failed"))
+        anyhow::bail!(
+            "{}",
+            v.get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("action failed")
+        )
     }
 }
 
@@ -139,14 +156,26 @@ fn parse_el(e: &Value, session: &Option<String>) -> Option<IndexedElement> {
     let id = e.get("id").and_then(Value::as_u64)? as u32;
     Some(IndexedElement {
         id,
-        role: e.get("role").and_then(Value::as_str).unwrap_or("button").to_string(),
-        name: e.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+        role: e
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("button")
+            .to_string(),
+        name: e
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         value: e.get("value").and_then(Value::as_str).map(str::to_string),
         state: e.get("state").and_then(Value::as_str).map(str::to_string),
         enabled: !e.get("disabled").and_then(Value::as_bool).unwrap_or(false),
         required: e.get("required").and_then(Value::as_bool).unwrap_or(false),
         submit: e.get("submit").and_then(Value::as_bool).unwrap_or(false),
-        form: e.get("form").and_then(Value::as_i64).map(|f| f as i32).filter(|f| *f >= 0),
+        form: e
+            .get("form")
+            .and_then(Value::as_i64)
+            .map(|f| f as i32)
+            .filter(|f| *f >= 0),
         risk: e.get("risk").and_then(Value::as_str).map(str::to_string),
         handle: ElHandle::Browser {
             selector: format!("[data-sgt-id=\"{id}\"]"),

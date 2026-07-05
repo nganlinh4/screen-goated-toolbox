@@ -39,7 +39,8 @@ impl VerifyOutcome {
                 format!("the field reports invalid input: {message}")
             }
             VerifyOutcome::Unknown => {
-                "could not read the field back to confirm — proceed, but verify the result".to_string()
+                "could not read the field back to confirm — proceed, but verify the result"
+                    .to_string()
             }
         }
     }
@@ -50,7 +51,9 @@ impl VerifyOutcome {
 /// the requested text counts as confirmed — e.g. a phone field that adds spacing).
 pub fn verify_fill(expected: &str, rb: &ReadBack) -> VerifyOutcome {
     if let Some(msg) = rb.validity.as_deref().filter(|m| !m.is_empty()) {
-        return VerifyOutcome::Invalid { message: msg.to_string() };
+        return VerifyOutcome::Invalid {
+            message: msg.to_string(),
+        };
     }
     match &rb.value {
         Some(got) => {
@@ -58,7 +61,10 @@ pub fn verify_fill(expected: &str, rb: &ReadBack) -> VerifyOutcome {
             if g == e || (!e.is_empty() && g.contains(e)) {
                 VerifyOutcome::Confirmed
             } else {
-                VerifyOutcome::Mismatch { expected: e.to_string(), got: g.to_string() }
+                VerifyOutcome::Mismatch {
+                    expected: e.to_string(),
+                    got: g.to_string(),
+                }
             }
         }
         None => VerifyOutcome::Unknown,

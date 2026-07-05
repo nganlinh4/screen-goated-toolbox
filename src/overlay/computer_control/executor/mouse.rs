@@ -17,7 +17,12 @@ use super::super::human_input::{self, HumanProfile, Outcome};
 
 const WHEEL_DELTA: i32 = 120;
 
-pub(super) fn click(args: &Value, times: u32, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
+pub(super) fn click(
+    args: &Value,
+    times: u32,
+    profile: &HumanProfile,
+    cancel: &AtomicBool,
+) -> Result<Value> {
     let (x, y) = super::xy(args)?;
     let target_w = args.get("target_w").and_then(Value::as_f64).unwrap_or(40.0);
     let (down, up) = super::button_flags(args);
@@ -27,12 +32,19 @@ pub(super) fn click(args: &Value, times: u32, profile: &HumanProfile, cancel: &A
     // Confidence-gated hesitation: on an uncertain (vision/grid-located) click,
     // settle on the target before committing so the user can still barge in.
     if profile.humanized()
-        && args.get("uncertain").and_then(Value::as_bool).unwrap_or(false)
+        && args
+            .get("uncertain")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
         && human_input::sleep_cancellable(human_input::hesitation_ms(), cancel)
     {
         return Ok(super::aborted());
     }
-    let dwell = if profile.humanized() { human_input::click_dwell_ms() } else { 20 };
+    let dwell = if profile.humanized() {
+        human_input::click_dwell_ms()
+    } else {
+        20
+    };
     sleep(Duration::from_millis(20));
     for _ in 0..times {
         if cancel.load(Ordering::Relaxed) {
@@ -49,8 +61,14 @@ pub(super) fn click(args: &Value, times: u32, profile: &HumanProfile, cancel: &A
 
 pub(super) fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
     let (x, y) = super::xy(args)?;
-    let dx = args.get("dest_x").and_then(Value::as_f64).ok_or_else(|| anyhow!("missing dest_x"))?;
-    let dy = args.get("dest_y").and_then(Value::as_f64).ok_or_else(|| anyhow!("missing dest_y"))?;
+    let dx = args
+        .get("dest_x")
+        .and_then(Value::as_f64)
+        .ok_or_else(|| anyhow!("missing dest_x"))?;
+    let dy = args
+        .get("dest_y")
+        .and_then(Value::as_f64)
+        .ok_or_else(|| anyhow!("missing dest_y"))?;
     if super::move_humanized(x, y, 40.0, profile, cancel) == Outcome::Aborted {
         return Ok(super::aborted());
     }
@@ -75,7 +93,11 @@ pub(super) fn point(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -
     if super::move_humanized(x, y, 40.0, profile, cancel) == Outcome::Aborted {
         return Ok(super::aborted());
     }
-    let dwell = args.get("dwell_ms").and_then(Value::as_u64).unwrap_or(0).min(10_000);
+    let dwell = args
+        .get("dwell_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(10_000);
     if dwell > 0 && human_input::sleep_cancellable(dwell, cancel) {
         return Ok(super::aborted());
     }
@@ -88,7 +110,10 @@ pub(super) fn point(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -
 pub(super) fn click_here(args: &Value) -> Result<Value> {
     super::super::uia::focus_foreground();
     let (down, up) = super::button_flags(args);
-    super::send(&[super::mouse_input(0, 0, 0, down), super::mouse_input(0, 0, 0, up)]);
+    super::send(&[
+        super::mouse_input(0, 0, 0, down),
+        super::mouse_input(0, 0, 0, up),
+    ]);
     Ok(json!({"ok": true, "clicked": "at the current cursor position"}))
 }
 
@@ -97,9 +122,16 @@ pub(super) fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) 
     if super::move_humanized(x, y, 40.0, profile, cancel) == Outcome::Aborted {
         return Ok(super::aborted());
     }
-    let magnitude = args.get("magnitude").and_then(Value::as_f64).unwrap_or(3.0).max(0.0);
+    let magnitude = args
+        .get("magnitude")
+        .and_then(Value::as_f64)
+        .unwrap_or(3.0)
+        .max(0.0);
     let ticks = (magnitude * WHEEL_DELTA as f64) as i32;
-    let dir = args.get("direction").and_then(Value::as_str).unwrap_or("down");
+    let dir = args
+        .get("direction")
+        .and_then(Value::as_str)
+        .unwrap_or("down");
     let (flag, data) = match dir {
         "up" => (MOUSEEVENTF_WHEEL, ticks),
         "down" => (MOUSEEVENTF_WHEEL, -ticks),

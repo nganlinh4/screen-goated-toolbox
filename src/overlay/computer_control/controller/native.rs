@@ -33,7 +33,13 @@ impl Surface for NativeSurface {
         Ok(build_world(&uia::enumerate(None)?))
     }
 
-    fn execute(&mut self, el: &IndexedElement, verb: Verb, value: Option<&str>, act: &ActCtx) -> Result<()> {
+    fn execute(
+        &mut self,
+        el: &IndexedElement,
+        verb: Verb,
+        value: Option<&str>,
+        act: &ActCtx,
+    ) -> Result<()> {
         let ElHandle::Native { cx, cy } = el.handle else {
             anyhow::bail!("not a native element");
         };
@@ -74,7 +80,10 @@ impl Surface for NativeSurface {
         let ElHandle::Native { cx, cy } = el.handle else {
             return ReadBack::default();
         };
-        ReadBack { value: uia::read_value_at(cx, cy), validity: None }
+        ReadBack {
+            value: uia::read_value_at(cx, cy),
+            validity: None,
+        }
     }
 }
 
@@ -123,8 +132,10 @@ fn nearest_label(e: &UiElement, labels: &[&UiElement]) -> Option<String> {
     let mut best: Option<(i64, String)> = None;
     for l in labels {
         let ly = (l.top + l.bottom) / 2;
-        let left_of = l.right <= e.left + 5 && (e.left - l.right) < 400 && (ly - ey).abs() <= row_tol;
-        let above = l.bottom <= e.top + 5 && (e.top - l.bottom) < 80 && (l.left - e.left).abs() < 200;
+        let left_of =
+            l.right <= e.left + 5 && (e.left - l.right) < 400 && (ly - ey).abs() <= row_tol;
+        let above =
+            l.bottom <= e.top + 5 && (e.top - l.bottom) < 80 && (l.left - e.left).abs() < 200;
         let d = if left_of {
             (e.left - l.right) as i64 // closest-left wins
         } else if above {
@@ -142,8 +153,10 @@ fn nearest_label(e: &UiElement, labels: &[&UiElement]) -> Option<String> {
 /// Build the indexed world from a UIA enumeration: keep interactive elements,
 /// pair unlabeled ones with a nearby Text label, drop anonymous noise.
 fn build_world(els: &[UiElement]) -> WorldState {
-    let labels: Vec<&UiElement> =
-        els.iter().filter(|e| e.control_type == "Text" && !e.name.trim().is_empty()).collect();
+    let labels: Vec<&UiElement> = els
+        .iter()
+        .filter(|e| e.control_type == "Text" && !e.name.trim().is_empty())
+        .collect();
     let mut out = Vec::new();
     let mut id = 0u32;
     for e in els {
@@ -177,5 +190,9 @@ fn build_world(els: &[UiElement]) -> WorldState {
             break;
         }
     }
-    WorldState { elements: out, url: None, title: None }
+    WorldState {
+        elements: out,
+        url: None,
+        title: None,
+    }
 }

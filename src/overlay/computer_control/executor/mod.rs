@@ -18,10 +18,10 @@ use serde_json::{Value, json};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MAPVK_VK_TO_VSC, MapVirtualKeyW,
-    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, SendInput, VIRTUAL_KEY, VK_DELETE,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MAPVK_VK_TO_VSC, MOUSE_EVENT_FLAGS,
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
+    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+    MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, MapVirtualKeyW, SendInput, VIRTUAL_KEY, VK_DELETE,
     VK_DOWN, VK_END, VK_HOME, VK_INSERT, VK_LEFT, VK_NEXT, VK_PRIOR, VK_RIGHT, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -82,7 +82,12 @@ pub(super) fn move_to(x: f64, y: f64) {
 
 /// Back-compat: instant, non-cancellable execution (coord-test / legacy callers).
 pub fn execute(name: &str, args: &Value) -> Value {
-    execute_ex(name, args, &HumanProfile::instant(), &AtomicBool::new(false))
+    execute_ex(
+        name,
+        args,
+        &HumanProfile::instant(),
+        &AtomicBool::new(false),
+    )
 }
 
 /// Dispatch one tool call to a real OS action. `profile` selects humanization
@@ -145,8 +150,12 @@ pub(super) fn screen_to_norm(sx: i32, sy: i32) -> (f64, f64) {
 /// Absolute screen pixel -> 0..65535 virtual-desktop space (for `SendInput`).
 fn screen_to_abs(sx: i32, sy: i32) -> (i32, i32) {
     let (vx, vy, vw, vh) = virtual_desktop();
-    let nx = ((sx - vx) as f64 / vw.max(1) as f64 * 65535.0).round().clamp(0.0, 65535.0) as i32;
-    let ny = ((sy - vy) as f64 / vh.max(1) as f64 * 65535.0).round().clamp(0.0, 65535.0) as i32;
+    let nx = ((sx - vx) as f64 / vw.max(1) as f64 * 65535.0)
+        .round()
+        .clamp(0.0, 65535.0) as i32;
+    let ny = ((sy - vy) as f64 / vh.max(1) as f64 * 65535.0)
+        .round()
+        .clamp(0.0, 65535.0) as i32;
     (nx, ny)
 }
 
@@ -219,10 +228,17 @@ pub fn cursor_demo() {
     let mut max_err = 0.0f64;
     for &(tx, ty) in &tour {
         let from = cursor_pos();
-        human_input::human_move(from, (tx as f64, ty as f64), 40.0, &profile, &cancel, &|sx, sy| {
-            let (ax, ay) = screen_to_abs(sx, sy);
-            move_abs(ax, ay);
-        });
+        human_input::human_move(
+            from,
+            (tx as f64, ty as f64),
+            40.0,
+            &profile,
+            &cancel,
+            &|sx, sy| {
+                let (ax, ay) = screen_to_abs(sx, sy);
+                move_abs(ax, ay);
+            },
+        );
         // Harness-accuracy probe: where did the cursor ACTUALLY land vs intended?
         let after = cursor_pos();
         let err = (after.0 - tx as f64).hypot(after.1 - ty as f64);
@@ -237,8 +253,14 @@ pub fn cursor_demo() {
 }
 
 fn xy(args: &Value) -> Result<(f64, f64)> {
-    let x = args.get("x").and_then(Value::as_f64).ok_or_else(|| anyhow!("missing x"))?;
-    let y = args.get("y").and_then(Value::as_f64).ok_or_else(|| anyhow!("missing y"))?;
+    let x = args
+        .get("x")
+        .and_then(Value::as_f64)
+        .ok_or_else(|| anyhow!("missing x"))?;
+    let y = args
+        .get("y")
+        .and_then(Value::as_f64)
+        .ok_or_else(|| anyhow!("missing y"))?;
     Ok((x, y))
 }
 
@@ -303,7 +325,11 @@ fn key_unicode(scan: u16, up: bool) -> INPUT {
 /// physical one. Extended keys (arrows, nav cluster) need the EXTENDEDKEY flag.
 fn key_vk(vk: VIRTUAL_KEY, up: bool) -> INPUT {
     let scan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
-    let mut flags = if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) };
+    let mut flags = if up {
+        KEYEVENTF_KEYUP
+    } else {
+        KEYBD_EVENT_FLAGS(0)
+    };
     if is_extended_key(vk) {
         flags |= KEYEVENTF_EXTENDEDKEY;
     }
@@ -315,7 +341,16 @@ fn key_vk(vk: VIRTUAL_KEY, up: bool) -> INPUT {
 fn is_extended_key(vk: VIRTUAL_KEY) -> bool {
     matches!(
         vk,
-        VK_LEFT | VK_UP | VK_RIGHT | VK_DOWN | VK_HOME | VK_END | VK_PRIOR | VK_NEXT | VK_INSERT | VK_DELETE
+        VK_LEFT
+            | VK_UP
+            | VK_RIGHT
+            | VK_DOWN
+            | VK_HOME
+            | VK_END
+            | VK_PRIOR
+            | VK_NEXT
+            | VK_INSERT
+            | VK_DELETE
     )
 }
 

@@ -499,7 +499,9 @@ pub fn run_mcp_test(
     }
     if let Some(tool_name) = tool {
         let args = match args_json {
-            Some(s) => serde_json::from_str::<Value>(s).map_err(|e| format!("bad args JSON: {e}"))?,
+            Some(s) => {
+                serde_json::from_str::<Value>(s).map_err(|e| format!("bad args JSON: {e}"))?
+            }
             None => json!({}),
         };
         eprintln!("[mcp-test] calling {tool_name} {args}...");

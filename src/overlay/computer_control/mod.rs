@@ -26,6 +26,8 @@ mod probe;
 mod protocol;
 mod runtime;
 mod session;
+mod system_query;
+mod telemetry;
 mod trace;
 mod uia;
 mod uia_task;
@@ -83,6 +85,39 @@ pub fn run_mcp_test_cli(
     list_only: bool,
 ) -> Result<(), String> {
     mcp::run_mcp_test(id, tool, args_json, list_only)
+}
+
+/// CLI entry for typed OS fact queries: `--cc-system-query-test audio.active_sessions`.
+pub fn run_system_query_test_cli(spec: &str, args_json: Option<&str>) -> Result<(), String> {
+    let (domain, query) = spec
+        .split_once('.')
+        .ok_or_else(|| "expected <domain>.<query>, e.g. audio.active_sessions".to_string())?;
+    let args = match args_json {
+        Some(raw) => serde_json::from_str(raw).map_err(|e| format!("invalid args JSON: {e}"))?,
+        None => serde_json::json!({}),
+    };
+    let result = system_query::query(&serde_json::json!({
+        "domain": domain,
+        "query": query,
+        "args": args,
+    }));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?
+    );
+    if result
+        .get("ok")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        Ok(())
+    } else {
+        Err(result
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("system_query failed")
+            .to_string())
+    }
 }
 
 /// CLI entry for the model-free human-cursor demo: `--cc-cursor-demo`.

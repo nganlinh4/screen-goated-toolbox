@@ -6,6 +6,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceResponse
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -22,6 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.screengoated.toolbox.mobile.service.dj.DjJsBridge
 import dev.screengoated.toolbox.mobile.service.dj.DjWebViewHolder
+import java.io.FileNotFoundException
+import java.util.Locale
 
 @SuppressLint("JavascriptInterface", "SetJavaScriptEnabled")
 @Composable
@@ -53,11 +56,10 @@ internal fun DjScreen(
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
-            settings.allowFileAccess = true
-            // Harden against local-file exfiltration: the promptdj bundle is loaded from
-            // file:// and is then handed the user's Gemini API key, so a script in it must
-            // not be able to read other local files cross-origin. Mirrors the overlay
-            // WebViews (PresetOverlayWindowSupport).
+            // Serve the local DJ bundle from a synthetic HTTPS origin instead of file://.
+            // Module scripts are blocked from null-origin file pages, and the page receives
+            // the user's API key, so keep broad local-file access disabled.
+            settings.allowFileAccess = false
             @Suppress("DEPRECATION")
             settings.allowFileAccessFromFileURLs = false
             @Suppress("DEPRECATION")
@@ -107,10 +109,29 @@ internal fun DjScreen(
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 return false
             }
+
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?,
+            ): WebResourceResponse? {
+                val url = request?.url ?: return null
+                if (url.scheme != "https" || url.host != DJ_ASSET_HOST) return null
+
+                val assetPath = djAssetPathFor(url.path ?: return null) ?: return null
+                return try {
+                    WebResourceResponse(
+                        mimeTypeForAsset(assetPath),
+                        "UTF-8",
+                        appContext.assets.open(assetPath),
+                    )
+                } catch (_: FileNotFoundException) {
+                    null
+                }
+            }
         }
 
         if (!isReuse) {
-            webView.loadUrl("file:///android_asset/promptdj/index.html")
+            webView.loadUrl(DJ_INDEX_URL)
         } else {
             // Already loaded — only push theme/lang, NOT api key.
             // Re-sending pm-dj-set-api-key would create a new LiveMusicHelper,
@@ -163,3 +184,26 @@ private fun escapeJs(value: String): String =
         .replace("'", "\\'")
         .replace("\n", "\\n")
         .replace("\r", "\\r")
+
+private const val DJ_ASSET_HOST = "promptdj.screengoated.local"
+private const val DJ_INDEX_URL = "https://$DJ_ASSET_HOST/promptdj/index.html"
+
+private fun djAssetPathFor(path: String): String? {
+    val normalized = path.removePrefix("/").substringBefore('?').substringBefore('#')
+    return when {
+        normalized == "promptdj/index.html" -> normalized
+        normalized.startsWith("promptdj/assets/") -> normalized
+        normalized == "GoogleSansFlex.ttf" -> normalized
+        else -> null
+    }
+}
+
+private fun mimeTypeForAsset(path: String): String {
+    return when (path.substringAfterLast('.', "").lowercase(Locale.US)) {
+        "html" -> "text/html"
+        "js" -> "application/javascript"
+        "css" -> "text/css"
+        "ttf" -> "font/ttf"
+        else -> "application/octet-stream"
+    }
+}

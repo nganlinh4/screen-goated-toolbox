@@ -25,6 +25,7 @@ use super::protocol::{
     ServerEvent, parse_server_message, realtime_text, realtime_video_jpeg_b64, tool_response,
 };
 use super::session::{self, Sock, connect_ws, send};
+use super::telemetry::{self, Privacy};
 use super::uia_task;
 
 mod action_worker;
@@ -619,9 +620,21 @@ fn reconnect_session(
     *reconnects += 1;
     if *reconnects > MAX_RECONNECTS {
         overlay::push_log(format!("giving up after {MAX_RECONNECTS} reconnects"));
+        telemetry::typed_error(
+            "ERR_SESSION_RECONNECT_LIMIT",
+            "runtime",
+            "session reconnect limit reached",
+            serde_json::json!({"max_reconnects": MAX_RECONNECTS}),
+        );
         return Ok(false);
     }
     overlay::set_status("reconnecting...");
+    telemetry::event(
+        "session_reconnect_start",
+        "runtime",
+        Privacy::Safe,
+        serde_json::json!({"attempt": *reconnects, "active": state.active, "awaiting": state.awaiting}),
+    );
     match uia_task::reconnect(key, None, true, false) {
         Ok(s) => *socket = s,
         Err(e) => {
@@ -646,6 +659,17 @@ fn reconnect_session(
     if let Ok(f) = uia_task::snapshot(target) {
         send(socket, realtime_video_jpeg_b64(&f))?;
     }
+    if !state.active {
+        overlay::push_log("(reconnected - idle; waiting for user)".to_string());
+        overlay::set_status("ready - speak a command");
+        telemetry::event(
+            "session_reconnect_idle",
+            "runtime",
+            Privacy::Safe,
+            serde_json::json!({"attempt": *reconnects}),
+        );
+        return Ok(true);
+    }
     let recap = build_recap(&state.history);
     // A reconnect is a SEAMLESS internal event, NOT a new user request. Re-establish
     // context, then let the model DECIDE whether to act or wait - it must not fire a
@@ -665,6 +689,12 @@ current screen is shown. {judge}"
     send(socket, realtime_text(&msg))?;
     overlay::push_log("(reconnected - conversation memory restored)".to_string());
     overlay::set_status("ready - speak a command");
+    telemetry::event(
+        "session_reconnect_reseeded",
+        "runtime",
+        Privacy::Safe,
+        serde_json::json!({"attempt": *reconnects, "recap_chars": recap.chars().count()}),
+    );
     Ok(true)
 }
 

@@ -13,13 +13,16 @@ use windows::core::PCWSTR;
 /// tool (files, processes, volume, system info). Inherits THIS process's
 /// (non-elevated) privileges. `CREATE_NO_WINDOW` avoids a console flash.
 pub(super) fn run_command(args: &Value) -> Result<Value> {
-    let command = args.get("command").and_then(Value::as_str).ok_or_else(|| anyhow!("missing command"))?;
+    let command = args
+        .get("command")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing command"))?;
     if let Some(why) = catastrophic_block(command) {
         return Ok(json!({
             "ok": false,
             "refused": true,
             "reason": format!("Refused (safety stop): this looks like {why}, which is irreversible and \
-system-destroying. If the user truly intends it, they should run it themselves."),
+        system-destroying. If the user truly intends it, they should run it themselves."),
         }));
     }
     // Run on a worker thread with a hard timeout: a command that waits for input or genuinely hangs
@@ -35,7 +38,7 @@ system-destroying. If the user truly intends it, they should run it themselves."
             "ok": false,
             "timed_out": true,
             "error": "the command did not finish within 60s (it may be waiting for input or hung) - \
-make it non-interactive, or break it into smaller steps",
+        make it non-interactive, or break it into smaller steps",
         })),
     }
 }
@@ -50,7 +53,13 @@ fn exec_powershell(command: &str) -> Result<Value> {
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| anyhow!("failed to launch powershell: {e}"))?;
-    let clip = |b: &[u8]| -> String { String::from_utf8_lossy(b).trim().chars().take(4000).collect() };
+    let clip = |b: &[u8]| -> String {
+        String::from_utf8_lossy(b)
+            .trim()
+            .chars()
+            .take(4000)
+            .collect()
+    };
     Ok(json!({
         "ok": output.status.success(),
         "exit_code": output.status.code(),
@@ -68,8 +77,13 @@ fn catastrophic_block(cmd: &str) -> Option<&'static str> {
     if c.contains("format-volume") || c.contains("clear-disk") || c.contains("diskpart") {
         return Some("formatting / wiping a disk");
     }
-    let killing = c.contains("stop-process") || c.contains("taskkill") || c.contains("kill-process");
-    if killing && ["csrss", "wininit", "winlogon", "lsass", "smss"].iter().any(|p| c.contains(p)) {
+    let killing =
+        c.contains("stop-process") || c.contains("taskkill") || c.contains("kill-process");
+    if killing
+        && ["csrss", "wininit", "winlogon", "lsass", "smss"]
+            .iter()
+            .any(|p| c.contains(p))
+    {
         return Some("killing a core OS process (would crash Windows)");
     }
     let deleting = c.contains("remove-item") || c.contains("rmdir") || c.contains("del ");
@@ -90,7 +104,9 @@ fn shell_open(file: &str, params: Option<&str>) -> Result<()> {
     let op = to_wide("open");
     let file_w = to_wide(file);
     let params_w = params.filter(|p| !p.is_empty()).map(to_wide);
-    let params_ptr = params_w.as_ref().map_or(PCWSTR::null(), |p| PCWSTR(p.as_ptr()));
+    let params_ptr = params_w
+        .as_ref()
+        .map_or(PCWSTR::null(), |p| PCWSTR(p.as_ptr()));
     let r = unsafe {
         ShellExecuteW(
             None,
@@ -112,7 +128,10 @@ fn shell_open(file: &str, params: Option<&str>) -> Result<()> {
 /// Open an http(s) URL in the default browser (a new, foreground tab). Far more
 /// reliable than driving the address bar by keystrokes.
 pub(super) fn open_url(args: &Value) -> Result<Value> {
-    let url = args.get("url").and_then(Value::as_str).ok_or_else(|| anyhow!("missing url"))?;
+    let url = args
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing url"))?;
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err(anyhow!("url must start with http:// or https://"));
     }
@@ -125,7 +144,10 @@ pub(super) fn open_url(args: &Value) -> Result<Value> {
 /// name="notepad", args="C:\path\file.txt"). More reliable than the Win+type
 /// Start-menu dance.
 pub(super) fn launch_app(args: &Value) -> Result<Value> {
-    let name = args.get("name").and_then(Value::as_str).ok_or_else(|| anyhow!("missing name"))?;
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing name"))?;
     let app_args = args.get("args").and_then(Value::as_str);
     shell_open(name, app_args)?;
     Ok(json!({"ok": true, "launched": name, "args": app_args}))

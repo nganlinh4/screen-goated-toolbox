@@ -34,8 +34,17 @@ pub fn run() -> Result<()> {
 
     let (frame, geom) = capture_frame()?;
     let (fw, fh) = (geom.frame_w as f64, geom.frame_h as f64);
-    eprintln!("[coord] frame sent = {} x {} px", geom.frame_w, geom.frame_h);
-    eprintln!("[coord] if PIXELS: center≈({:.0},{:.0}) bottom-right≈({:.0},{:.0})", fw / 2.0, fh / 2.0, fw, fh);
+    eprintln!(
+        "[coord] frame sent = {} x {} px",
+        geom.frame_w, geom.frame_h
+    );
+    eprintln!(
+        "[coord] if PIXELS: center≈({:.0},{:.0}) bottom-right≈({:.0},{:.0})",
+        fw / 2.0,
+        fh / 2.0,
+        fw,
+        fh
+    );
     eprintln!("[coord] if 0-1000: center≈(500,500) bottom-right≈(1000,1000)");
     send(&mut socket, realtime_video_jpeg_b64(&frame))?;
     send(
@@ -71,7 +80,10 @@ pub fn run() -> Result<()> {
             match ev {
                 ServerEvent::ToolCall { id, name, args } => {
                     if name == "done" {
-                        send(&mut socket, tool_response(&id, &name, serde_json::json!({"ok": true})))?;
+                        send(
+                            &mut socket,
+                            tool_response(&id, &name, serde_json::json!({"ok": true})),
+                        )?;
                         eprintln!("[coord] done");
                         return Ok(());
                     }
@@ -99,7 +111,10 @@ pub fn run() -> Result<()> {
                     unsafe {
                         let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut pt);
                     }
-                    eprintln!("[coord]   -> cursor landed at screen px ({}, {})", pt.x, pt.y);
+                    eprintln!(
+                        "[coord]   -> cursor landed at screen px ({}, {})",
+                        pt.x, pt.y
+                    );
                     send(
                         &mut socket,
                         tool_response(&id, &name, serde_json::json!({"ok": true, "note": "debug"})),

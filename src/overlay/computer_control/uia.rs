@@ -7,9 +7,11 @@
 //! specific top-level window instead of the foreground one).
 
 use anyhow::{Result, anyhow};
+use windows::Win32::Foundation::POINT;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
+use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, ExpandCollapseState_Collapsed, ExpandCollapseState_Expanded,
     ExpandCollapseState_PartiallyExpanded, IUIAutomation, IUIAutomationElement,
@@ -19,8 +21,6 @@ use windows::Win32::UI::Accessibility::{
     UIA_ExpandCollapsePatternId, UIA_RangeValuePatternId, UIA_SelectionItemPatternId,
     UIA_TogglePatternId, UIA_ValuePatternId,
 };
-use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowTextW,
     GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
@@ -213,11 +213,22 @@ fn enumerate_inner(target: Option<&str>) -> Result<Vec<UiElement>> {
             let enabled = el.CurrentIsEnabled().map(|b| b.as_bool()).unwrap_or(false);
             // Read control state only for named elements (the ones we display), to
             // bound the extra per-element pattern probes.
-            let state = if name.trim().is_empty() { None } else { read_state(&el) };
+            let state = if name.trim().is_empty() {
+                None
+            } else {
+                read_state(&el)
+            };
             // Text value (Edit/Document/ComboBox) + required-for-form — powers the
             // native controller's perception, gates, and fill verification.
-            let value = if matches!(ct, 50004 | 50030 | 50003) { read_value(&el) } else { None };
-            let required = el.CurrentIsRequiredForForm().map(|b| b.as_bool()).unwrap_or(false);
+            let value = if matches!(ct, 50004 | 50030 | 50003) {
+                read_value(&el)
+            } else {
+                None
+            };
+            let required = el
+                .CurrentIsRequiredForForm()
+                .map(|b| b.as_bool())
+                .unwrap_or(false);
             out.push(UiElement {
                 name,
                 control_type: control_type_name(ct),
@@ -269,7 +280,9 @@ unsafe fn pick_window(uia: &IUIAutomation, target: Option<&str>) -> Result<IUIAu
             let cond = uia.CreateTrueCondition()?;
             let children = root.FindAll(TreeScope_Children, &cond)?;
             for i in 0..children.Length()? {
-                let Ok(el) = children.GetElement(i) else { continue };
+                let Ok(el) = children.GetElement(i) else {
+                    continue;
+                };
                 let name = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
                 if name.to_lowercase().contains(&want) {
                     return Ok(el);
@@ -331,7 +344,10 @@ fn focus_foreground_inner() {
         let mut buf = [0u16; 128];
         let n = GetWindowTextW(hwnd, &mut buf);
         let title = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
-        eprintln!("[cc] keys -> '{}'", title.chars().take(50).collect::<String>());
+        eprintln!(
+            "[cc] keys -> '{}'",
+            title.chars().take(50).collect::<String>()
+        );
         let this_tid = GetCurrentThreadId();
         let fg_tid = GetWindowThreadProcessId(hwnd, None);
         let attach = fg_tid != 0 && fg_tid != this_tid;
@@ -356,7 +372,12 @@ fn focus_foreground_inner() {
 /// and `GetWindowTextW` can block on a non-pumping foreground window) so
 /// grounding never freezes here.
 pub(super) fn pointer_context() -> (String, i32, i32) {
-    with_timeout("pointer_context", 4, (String::new(), 0, 0), pointer_context_inner)
+    with_timeout(
+        "pointer_context",
+        4,
+        (String::new(), 0, 0),
+        pointer_context_inner,
+    )
 }
 
 fn pointer_context_inner() -> (String, i32, i32) {

@@ -93,7 +93,9 @@ fn goal_authorizes(ctx: &str, el: &IndexedElement) -> bool {
 fn looks_like_credential(v: &str) -> bool {
     let v = v.trim();
     let len = v.chars().count();
-    (3..=40).contains(&len) && !v.contains(char::is_whitespace) && v.chars().any(|c| c.is_alphabetic())
+    (3..=40).contains(&len)
+        && !v.contains(char::is_whitespace)
+        && v.chars().any(|c| c.is_alphabetic())
 }
 
 fn ctx_contains(ctx: &str, v: &str) -> bool {

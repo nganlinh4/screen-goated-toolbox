@@ -442,6 +442,26 @@ fn main() -> eframe::Result<()> {
         }
     }
 
+    // Typed system-query smoke test (no Gemini): print structured OS facts.
+    if startup_args
+        .iter()
+        .any(|arg| arg == "--cc-system-query-test")
+    {
+        let spec = parse_arg_value(&startup_args, "--cc-system-query-test")
+            .unwrap_or_else(|| "capabilities.list".to_string());
+        let args_json = parse_arg_value(&startup_args, "--cc-system-query-args-json");
+        match crate::overlay::computer_control::run_system_query_test_cli(
+            &spec,
+            args_json.as_deref(),
+        ) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[system-query-test] ERROR: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     // Task-trace harness (multi-step task + per-step screenshots).
     if startup_args.iter().any(|arg| arg == "--cc-task-trace") {
         let task = parse_arg_value(&startup_args, "--cc-task")

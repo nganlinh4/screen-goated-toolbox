@@ -12,6 +12,7 @@ use serde_json::Value;
 use super::super::overlay;
 use super::super::playback::AudioSink;
 use super::super::protocol::ServerEvent;
+use super::super::telemetry::{self, Privacy};
 use super::Job;
 use super::speech_gate::{SpeechGate, TranscriptDecision};
 
@@ -88,7 +89,18 @@ pub(super) fn flush_reply(state: &mut Reader) {
     let r = state.reply.trim();
     if !r.is_empty() {
         let clipped: String = r.chars().take(600).collect();
-        eprintln!("[cc] said: {clipped}"); // surface the spoken reply for debugging
+        let utterance_id = telemetry::next_utterance("assistant_reply_flushed");
+        telemetry::human("cc", format!("said: {clipped}")); // surface the spoken reply for debugging
+        telemetry::event(
+            "assistant_reply",
+            "speech",
+            Privacy::UserText,
+            serde_json::json!({
+                "utterance_id": utterance_id,
+                "text_preview": clipped,
+                "char_count": r.chars().count(),
+            }),
+        );
         state.history.push(format!("Assistant: {clipped}"));
         if state.history.len() > MAX_HISTORY {
             let drop = state.history.len() - MAX_HISTORY;
@@ -162,6 +174,12 @@ pub(super) fn handle_event(
             if let Some(sink) = sink {
                 sink.clear();
             }
+            telemetry::event(
+                "interrupted",
+                "speech",
+                Privacy::Safe,
+                serde_json::json!({"pending_tool": state.pending.id.clone()}),
+            );
         }
         ServerEvent::ToolCancellation(ids) => {
             // The user spoke while a tool call was pending, so the server cancelled
@@ -182,6 +200,12 @@ pub(super) fn handle_event(
                 overlay::set_status("halting...");
             }
             overlay::push_log(format!("[~] halting current step + re-planning {ids:?}"));
+            telemetry::typed_error(
+                "ERR_TOOL_CANCELLED",
+                "runtime",
+                "server cancelled a pending tool call after barge-in",
+                serde_json::json!({"ids": ids, "pending_cancelled": state.pending.cancelled}),
+            );
         }
         ServerEvent::InputTranscript(t) => {
             // This is Gemini's text of your AUDIO and can mis-hear ("play it" -> "Vai é").
@@ -241,10 +265,16 @@ pub(super) fn handle_event(
                 && let Some(t) = state.think_start.take()
             {
                 state.stall_count += 1;
+                let elapsed_ms = t.elapsed().as_millis();
                 overlay::push_log(format!(
-                    "[~] turn ended after {}ms mid-task with NO action (narrated only)",
-                    t.elapsed().as_millis()
+                    "[~] turn ended after {elapsed_ms}ms mid-task with NO action (narrated only)"
                 ));
+                telemetry::typed_error(
+                    "ERR_TURN_COMPLETE_NO_ACTION",
+                    "runtime",
+                    "model ended an active turn without a tool call",
+                    serde_json::json!({"elapsed_ms": elapsed_ms, "stall_count": state.stall_count}),
+                );
             }
             state.speech_gate.finish_turn(sink);
             flush_reply(state);
@@ -262,11 +292,27 @@ pub(super) fn handle_event(
                         "[speech before {name}] {} chars: {preview}",
                         state.reasoning.trim().chars().count()
                     ));
+                    telemetry::event(
+                        "speech_before_tool",
+                        "runtime",
+                        Privacy::UserText,
+                        serde_json::json!({
+                            "tool": name.clone(),
+                            "char_count": state.reasoning.trim().chars().count(),
+                            "preview": preview,
+                        }),
+                    );
                 }
                 overlay::push_log(format!(
                     "[think {ms}ms{}]",
                     if spoke { ", spoke" } else { "" }
                 ));
+                telemetry::event(
+                    "think_complete",
+                    "runtime",
+                    Privacy::Safe,
+                    serde_json::json!({"tool": name.clone(), "duration_ms": ms, "spoke": spoke}),
+                );
                 state.tool_calls += 1;
                 state.think_total_ms += ms;
                 state.spoke_count += u32::from(spoke);
@@ -303,7 +349,21 @@ pub(super) fn handle_event(
                     if from_think { "thought" } else { "spoken" }
                 ));
             }
+            let step_id = telemetry::next_step(&name);
             overlay::push_log(format!(">{name} {}", compact_args(&args)));
+            telemetry::event(
+                "tool_call",
+                "runtime",
+                Privacy::Safe,
+                serde_json::json!({
+                    "step_id": step_id,
+                    "tool_call_id": id.clone(),
+                    "name": name.clone(),
+                    "args_preview": compact_args(&args),
+                    "task_preview": state.last_cmd.chars().take(240).collect::<String>(),
+                    "intent_preview": intent.chars().take(240).collect::<String>(),
+                }),
+            );
             overlay::set_status(format!("doing: {name}"));
             overlay::set_orb_tool(&name, &args);
             state.pending = Pending {
