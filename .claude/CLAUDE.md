@@ -73,6 +73,8 @@ cargo test               # Run tests
 - Use `cargo check` or `cargo clippy` for verification instead
 - **Always fix all warnings** - code must compile with zero warnings
 - **Never use `#[allow(dead_code)]`** - remove unused code instead of suppressing warnings
+- **Do not bake incident-specific examples or keywords into reusable code, prompts, tests, or comments.** Harness and prompt rules must stay domain-agnostic. If behavior was learned from one session, generalize it by intent/capability/failure mode (for example: "uncertain definition needs web verification"), not by topic, product, site, person, game, or vendor names.
+- Before finishing Computer Control or prompt/harness work, scan touched files for leaked one-off terms from the debugging session and remove or replace them with neutral examples.
 - Keep this `CLAUDE.md` updated whenever stable workflow/process knowledge changes.
 - Do not add volatile details that are likely to change often; update when needed, not routinely.
 

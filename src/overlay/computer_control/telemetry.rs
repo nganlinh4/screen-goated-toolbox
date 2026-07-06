@@ -88,6 +88,30 @@ pub(super) fn next_frame(reason: &str) -> u64 {
     id
 }
 
+pub(super) fn frame_ready(
+    frame_id: u64,
+    reason: &str,
+    capture_ms: u128,
+    encode_ms: u128,
+    byte_count: usize,
+    target: Option<&str>,
+) {
+    event(
+        "frame_ready",
+        "capture",
+        Privacy::Safe,
+        json!({
+            "frame_id": frame_id,
+            "reason": reason,
+            "capture_ms": capture_ms,
+            "encode_ms": encode_ms,
+            "byte_count": byte_count,
+            "target": target,
+            "turn_id": current_turn(),
+        }),
+    );
+}
+
 pub(super) fn human(component: &str, line: impl AsRef<str>) {
     crate::log_info!("[{component}] {}", line.as_ref());
 }

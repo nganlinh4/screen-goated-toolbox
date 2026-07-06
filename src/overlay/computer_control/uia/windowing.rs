@@ -101,8 +101,8 @@ pub(crate) fn enum_top_windows() -> Vec<(HWND, String, String)> {
 }
 
 /// Resolve `target` (a title OR exe-name substring, case-insensitive) to a top-level HWND. Ranks an
-/// EXE-name match above a title-only match — so "Genshin" finds GenshinImpact.exe, not a browser tab
-/// titled "…Genshin Impact Wiki…" — tie-breaking toward the current foreground window.
+/// EXE-name match above a title-only match — so an app-name target finds the
+/// real app window, not a browser tab whose title happens to mention it.
 pub(crate) fn find_top_window(target: &str) -> Option<HWND> {
     let want = target.trim().to_lowercase();
     if want.is_empty() {
@@ -127,8 +127,8 @@ pub(crate) fn find_top_window(target: &str) -> Option<HWND> {
 
 /// Labels of the open top-level windows — the agent's situational awareness of what's open to
 /// switch to (`focus_window`) or push aside (`minimize_window`). Each is `"title  [exe]"` so the
-/// agent can disambiguate the GAME "Genshin Impact  [GenshinImpact.exe]" from a browser tab titled
-/// "…Genshin Impact Wiki…  [chrome.exe]". Best-effort.
+/// agent can disambiguate a fullscreen game/app from a browser tab whose title
+/// mentions the same thing. Best-effort.
 pub(crate) fn list_windows() -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for (_, title, exe) in enum_top_windows() {

@@ -440,6 +440,7 @@ impl Brain {
             "browser_status" => super::super::browser::status(),
             "browser_reset" => super::super::browser::reset(),
             "browser_read_page" => super::super::browser::read_page(),
+            "research_web" => super::super::research::research_web(args),
             "browser_extract_page" => super::super::browser::extract_page(),
             "browser_wait_for" => super::super::browser::wait_for(
                 args.get("selector").and_then(Value::as_str).unwrap_or(""),

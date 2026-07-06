@@ -10,6 +10,7 @@ use std::sync::mpsc;
 use serde_json::json;
 
 use super::super::telemetry::{self, Privacy};
+use super::super::turn_policy;
 use super::super::uia_task::Brain;
 use super::{Done, Job};
 
@@ -23,12 +24,25 @@ pub(super) fn executor_loop(
     cancel: Arc<AtomicBool>,
 ) {
     let mut brain = Brain::new(target);
-    while let Ok((id, name, args, task, intent)) = rx.recv() {
+    while let Ok((id, name, args, task, intent, user_text)) = rx.recv() {
         cancel.store(false, Ordering::SeqCst); // each action starts fresh
         let done: Done = if name == "done" {
             // Independent high-res check - the Live agent confabulates success.
+            let t0 = std::time::Instant::now();
             let (ok, verdict) = brain.verify_done(&task, &cancel);
-            eprintln!("[cc] DONE-claim verdict: {verdict}");
+            let duration_ms = t0.elapsed().as_millis();
+            telemetry::human("cc", format!("DONE-claim verdict: {verdict}"));
+            telemetry::event(
+                "done_verifier_result",
+                "done_verifier",
+                Privacy::Safe,
+                json!({
+                    "ok": ok,
+                    "duration_ms": duration_ms,
+                    "verdict_preview": verdict.chars().take(500).collect::<String>(),
+                    "task_preview": task.chars().take(240).collect::<String>(),
+                }),
+            );
             if ok {
                 (id, name, json!({"ok": true, "verdict": verdict}), None)
             } else {
@@ -50,6 +64,28 @@ pub(super) fn executor_loop(
                 )
             }
         } else {
+            let route_args =
+                turn_policy::auto_research_args(&user_text, &task, &intent, &name, &args);
+            let (dispatch_name, dispatch_args, rerouted_from) = match route_args {
+                Some(research_args) => {
+                    telemetry::typed_error(
+                        "ERR_WEAK_TOOL_FOR_TURN",
+                        "turn_policy",
+                        "rerouted weak tool to research_web",
+                        json!({
+                            "requested_tool": name.clone(),
+                            "task": task.chars().take(240).collect::<String>(),
+                            "intent": intent.chars().take(240).collect::<String>(),
+                        }),
+                    );
+                    (
+                        "research_web".to_string(),
+                        research_args,
+                        Some(name.clone()),
+                    )
+                }
+                None => (name.clone(), args.clone(), None),
+            };
             let ctx = format!(
                 "task: {task}; agent intent: {}",
                 if intent.is_empty() {
@@ -58,11 +94,18 @@ pub(super) fn executor_loop(
                     intent.as_str()
                 }
             );
-            let action_result = brain.dispatch(&name, &args, &ctx, &cancel);
-            match brain.ground(&name, &args) {
+            let action_result = brain.dispatch(&dispatch_name, &dispatch_args, &ctx, &cancel);
+            match brain.ground(&dispatch_name, &dispatch_args) {
                 Ok(g) => {
                     let mut resp =
                         json!({"action_result": action_result, "new_state": g.state_text});
+                    if let Some(from) = rerouted_from {
+                        resp["policy"] = json!({
+                            "rerouted_from": from,
+                            "actual_tool": dispatch_name,
+                            "reason": "weak tool for current user turn",
+                        });
+                    }
                     for (k, v) in &g.notes {
                         resp[*k] = json!(*v);
                     }
@@ -89,7 +132,7 @@ pub(super) fn executor_loop(
                             "action_worker",
                             "grounding detected no useful effect after an action",
                             json!({
-                                "tool": name.clone(),
+                                "tool": dispatch_name.clone(),
                                 "repeated": repeated,
                                 "notes": g.notes.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
                             }),
@@ -103,7 +146,7 @@ pub(super) fn executor_loop(
                             "postcondition",
                             "action_worker",
                             Privacy::Safe,
-                            json!({"tool": name.clone(), "ok": true}),
+                            json!({"tool": dispatch_name.clone(), "ok": true}),
                         );
                     }
                     // On a detected stall, spend ONE grounded vision call (the merge
