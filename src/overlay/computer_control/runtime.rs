@@ -34,7 +34,10 @@ mod reader;
 mod speech_gate;
 use action_worker::executor_loop;
 use mic::mic_thread;
-use reader::{Pending, Reader, build_recap, flush_reply, handle_event, record_observation};
+use reader::{
+    Pending, Reader, build_recap, emit_turn_summary, flush_reply, handle_event, record_observation,
+    record_tool_result,
+};
 
 /// How often a fresh (gridded) screenshot is streamed while you're talking or a request is
 /// active. A frame is ALSO pushed immediately on speech onset so it leads the turn (the model
@@ -52,8 +55,9 @@ const MAX_RECONNECTS: u32 = 6;
 const NUDGE_SILENCE: Duration = Duration::from_secs(8);
 const RECONNECT_SILENCE: Duration = Duration::from_secs(40);
 
-/// A tool call handed to the executor thread: (id, name, args, task, intent).
-type Job = (String, String, Value, String, String);
+/// A tool call handed to the executor thread:
+/// (id, name, args, task, intent, raw user text for policy).
+type Job = (String, String, Value, String, String, String);
 /// A finished action from the executor: (id, name, response, optional frame b64).
 type Done = (String, String, Value, Option<String>);
 
@@ -428,6 +432,7 @@ setup_app_integration with id:'{id}', confirmed:true. If they decline, call decl
                 reconnect_for_mcp_activation =
                     name == "app_integration_status" && activation_pending(&resp);
                 record_observation(&mut state, &name, &resp); // durable memory of what we saw
+                record_tool_result(&mut state, &name, &resp);
                 send(&mut socket, tool_response(&id, &name, resp))?; // answer first
                 if let Some(f) = frame {
                     let _ = send(&mut socket, realtime_video_jpeg_b64(&f)); // then frame
@@ -437,6 +442,7 @@ setup_app_integration with id:'{id}', confirmed:true. If they decline, call decl
                 if name == "done" && resp_ok {
                     overlay::push_log("[done] goal reached".to_string());
                     overlay::set_orb_done();
+                    emit_turn_summary(&mut state, "done");
                     state.active = false;
                     state.awaiting = false;
                 } else if reconnect_for_mcp_activation {
@@ -549,6 +555,7 @@ setup_app_integration with id:'{id}', confirmed:true. If they decline, call decl
                         // story). A bare frame is the same ambient input we already
                         // stream, so it can't be mistaken for a new request.
                         state.nudged = true;
+                        overlay::set_status("still working...");
                         overlay::push_log("(nudging the model with a fresh frame)".to_string());
                         if let Some(f) = frame_slot.lock().unwrap().clone() {
                             let _ = send(&mut socket, realtime_video_jpeg_b64(&f));
@@ -579,11 +586,19 @@ setup_app_integration with id:'{id}', confirmed:true. If they decline, call decl
         for ev in parse_server_message(&text) {
             handle_event(ev, sink.as_ref(), &cancel, &exec_tx, &mut state);
         }
+        if let Some(nudge) = state.control_nudge.take() {
+            overlay::set_status("recovering...");
+            let _ = send(&mut socket, realtime_text(&nudge));
+            state.awaiting = true;
+            state.think_start = Some(Instant::now());
+            last_event = Instant::now();
+        }
     }
     // Persist the whole session to searchable memory (saved + embedded on a
     // detached thread, so this returns immediately). The agent can recall it in a
     // future session via search_memory/open_memory.
     flush_reply(&mut state); // close the final spoken reply into the transcript
+    emit_turn_summary(&mut state, "session_stop");
     super::memory::save(state.history.clone(), std::mem::take(&mut mem_frames));
 
     // On stop, abort any in-flight action so the executor frees up promptly - else

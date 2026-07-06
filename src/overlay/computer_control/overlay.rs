@@ -339,12 +339,14 @@ pub(super) fn set_user_text(text: impl Into<String>) {
 /// The model is speaking → responding; show the reply as the caption.
 pub(super) fn set_model_text(text: impl Into<String>) {
     let text = text.into();
-    super::telemetry::event(
-        "assistant_transcript_delta",
-        "speech",
-        super::telemetry::Privacy::UserText,
-        serde_json::json!({"text_preview": text.chars().take(240).collect::<String>(), "char_count": text.chars().count()}),
-    );
+    if std::env::var("CC_TELEMETRY_VERBOSE").is_ok() {
+        super::telemetry::event(
+            "assistant_transcript_delta",
+            "speech",
+            super::telemetry::Privacy::UserText,
+            serde_json::json!({"text_preview": text.chars().take(240).collect::<String>(), "char_count": text.chars().count()}),
+        );
+    }
     set_orb_state(OrbState::Responding, Some(&text));
 }
 

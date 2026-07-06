@@ -13,6 +13,7 @@ use super::super::overlay;
 use super::super::playback::AudioSink;
 use super::super::protocol::ServerEvent;
 use super::super::telemetry::{self, Privacy};
+use super::super::turn_policy;
 use super::Job;
 use super::speech_gate::{SpeechGate, TranscriptDecision};
 
@@ -37,6 +38,17 @@ pub(super) struct Reader {
     /// turn) - the goal handed to vision + done-verification. NOT the raw input
     /// transcription: that text is display-only, so a mis-hear can't pollute the task.
     pub(super) last_cmd: String,
+    /// Raw user transcript for the current turn. Unlike `last_cmd`, this preserves
+    /// explicit user directives such as "search Google" for code-owned policy.
+    pub(super) last_user_text: String,
+    /// When the current user turn started, for compact turn summaries.
+    pub(super) turn_started_at: Option<Instant>,
+    pub(super) turn_tools: Vec<String>,
+    pub(super) turn_research_count: u32,
+    pub(super) turn_stall_count: u32,
+    pub(super) turn_summary_emitted: bool,
+    /// Control nudge to send after the current server frame is fully processed.
+    pub(super) control_nudge: Option<String>,
     /// True once the user has issued any command this session - gates the one-time
     /// browser-control offer (replaces using `last_cmd` non-empty for that, since
     /// `last_cmd` now tracks the model's intent, not "did the user speak").
@@ -141,6 +153,44 @@ pub(super) fn record_observation(state: &mut Reader, name: &str, resp: &Value) {
     }
 }
 
+pub(super) fn record_tool_result(state: &mut Reader, name: &str, resp: &Value) {
+    if name == "research_web"
+        || resp
+            .pointer("/action_result/rerouted_from")
+            .is_some_and(|v| !v.is_null())
+    {
+        state.turn_research_count += 1;
+    }
+}
+
+pub(super) fn emit_turn_summary(state: &mut Reader, outcome: &str) {
+    if state.turn_summary_emitted {
+        return;
+    }
+    let duration_ms = state
+        .turn_started_at
+        .map(|started| started.elapsed().as_millis())
+        .unwrap_or(0);
+    let class = turn_policy::classify(&state.last_user_text, &state.last_cmd);
+    telemetry::event(
+        "turn_summary",
+        "runtime",
+        Privacy::Safe,
+        serde_json::json!({
+            "outcome": outcome,
+            "task_class": class.as_str(),
+            "duration_ms": duration_ms,
+            "tool_count": state.turn_tools.len(),
+            "tools": state.turn_tools.clone(),
+            "stall_count": state.turn_stall_count,
+            "research_count": state.turn_research_count,
+            "user_preview": state.last_user_text.chars().take(180).collect::<String>(),
+            "intent_preview": state.last_cmd.chars().take(180).collect::<String>(),
+        }),
+    );
+    state.turn_summary_emitted = true;
+}
+
 /// Build a recap of the most recent conversation (newest-biased, length-capped).
 pub(super) fn build_recap(history: &[String]) -> String {
     let mut picked: Vec<&str> = Vec::new();
@@ -218,6 +268,13 @@ pub(super) fn handle_event(
                 state.thinking.clear();
                 state.speech_gate.reset();
                 state.last_cmd.clear(); // new turn - the goal is re-derived from the model's intent
+                state.last_user_text = t.trim().to_string();
+                state.turn_started_at = Some(Instant::now());
+                state.turn_tools.clear();
+                state.turn_research_count = 0;
+                state.turn_stall_count = 0;
+                state.turn_summary_emitted = false;
+                state.control_nudge = None;
                 state.has_command = true; // the user has spoken (gates the browser offer)
                 state.active = true; // a fresh request - resume pushing frames
                 state.awaiting = true; // model now owes a response
@@ -265,6 +322,7 @@ pub(super) fn handle_event(
                 && let Some(t) = state.think_start.take()
             {
                 state.stall_count += 1;
+                state.turn_stall_count += 1;
                 let elapsed_ms = t.elapsed().as_millis();
                 overlay::push_log(format!(
                     "[~] turn ended after {elapsed_ms}ms mid-task with NO action (narrated only)"
@@ -275,6 +333,11 @@ pub(super) fn handle_event(
                     "model ended an active turn without a tool call",
                     serde_json::json!({"elapsed_ms": elapsed_ms, "stall_count": state.stall_count}),
                 );
+                state.control_nudge = Some(turn_policy::stall_nudge(
+                    &state.last_user_text,
+                    &state.last_cmd,
+                    state.turn_stall_count,
+                ));
             }
             state.speech_gate.finish_turn(sink);
             flush_reply(state);
@@ -350,6 +413,7 @@ pub(super) fn handle_event(
                 ));
             }
             let step_id = telemetry::next_step(&name);
+            state.turn_tools.push(name.clone());
             overlay::push_log(format!(">{name} {}", compact_args(&args)));
             telemetry::event(
                 "tool_call",
@@ -371,7 +435,14 @@ pub(super) fn handle_event(
                 cancelled: false,
             };
             // Runs on the executor thread (the Brain dispatch + grounding).
-            let _ = exec_tx.send((id, name, args, state.last_cmd.clone(), intent));
+            let _ = exec_tx.send((
+                id,
+                name,
+                args,
+                state.last_cmd.clone(),
+                intent,
+                state.last_user_text.clone(),
+            ));
         }
         ServerEvent::GoAway { time_left } => {
             overlay::push_log(format!(

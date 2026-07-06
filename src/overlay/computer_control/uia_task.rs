@@ -147,10 +147,21 @@ games. Then retry the same move.";
 /// click marker and no trace I/O — for the voice runtime's initial + periodic
 /// idle frames (kept consistent with the grid the `Brain` renders after actions).
 pub(super) fn snapshot(target: Option<&str>) -> Result<String> {
-    let _frame_id = super::telemetry::next_frame("snapshot");
+    let frame_id = super::telemetry::next_frame("snapshot");
     let view = window_view(target, false);
+    let capture_t0 = Instant::now();
     let cap = session::capture_virtual()?;
+    let capture_ms = capture_t0.elapsed().as_millis();
+    let encode_t0 = Instant::now();
     let (jpeg, _) = session::encode_view(&cap, view, VIEW_SHORT, Some(Grid::from_env()), None)?;
+    super::telemetry::frame_ready(
+        frame_id,
+        "snapshot",
+        capture_ms,
+        encode_t0.elapsed().as_millis(),
+        jpeg.len(),
+        target,
+    );
     Ok(general_purpose::STANDARD.encode(&jpeg))
 }
 

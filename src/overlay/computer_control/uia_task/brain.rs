@@ -106,6 +106,7 @@ impl Brain {
                 | "browser_status"
                 | "browser_reset"
                 | "browser_read_page"
+                | "research_web"
                 | "browser_eval"
                 | "browser_tabs"
                 | "browser_network"
