@@ -132,13 +132,13 @@ fn search_links(max_sources: usize) -> Vec<String> {
 }
 
 fn clean_google_url(url: &str) -> String {
-    if let Ok(parsed) = url::Url::parse(url) {
-        if parsed.domain().is_some_and(|d| d.contains("google.")) && parsed.path().contains("/url")
-        {
-            for (key, value) in parsed.query_pairs() {
-                if key == "q" || key == "url" {
-                    return value.to_string();
-                }
+    if let Ok(parsed) = url::Url::parse(url)
+        && parsed.domain().is_some_and(|d| d.contains("google."))
+        && parsed.path().contains("/url")
+    {
+        for (key, value) in parsed.query_pairs() {
+            if key == "q" || key == "url" {
+                return value.to_string();
             }
         }
     }

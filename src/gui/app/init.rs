@@ -31,7 +31,7 @@ impl SettingsApp {
         let app_name = "ScreenGoatedToolbox";
         let app_path = std::env::current_exe().unwrap();
         let app_path_str = app_path.to_str().unwrap_or("");
-        let args: &[&str] = &[];
+        let args: &[&str] = &[crate::startup_launch::AUTOSTART_ARG];
 
         let auto = AutoLaunch::new(app_name, app_path_str, WindowsEnableMode::CurrentUser, args);
 

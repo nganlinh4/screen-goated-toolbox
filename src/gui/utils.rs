@@ -180,7 +180,7 @@ pub fn set_admin_startup(enable: bool) -> bool {
             return false;
         }
 
-        let tr = format!("\"{}\"", exe_str);
+        let tr = format!("\"{}\" {}", exe_str, crate::startup_launch::AUTOSTART_ARG);
         run_schtasks(&[
             "/create", "/tn", TASK_NAME, "/tr", &tr, "/sc", "onlogon", "/rl", "highest", "/f",
         ])
@@ -224,7 +224,9 @@ pub fn is_admin_startup_pointing_to_current_exe() -> bool {
         // The XML contains the path, likely quoted.
         // We just check if the path substring is present.
         // This handles cases where it might be "C:\Path\To\App.exe" or just C:\Path\To\App.exe
-        return xml_content.to_lowercase().contains(&exe_str.to_lowercase());
+        let xml_content = xml_content.to_lowercase();
+        return xml_content.contains(&exe_str.to_lowercase())
+            && xml_content.contains(crate::startup_launch::AUTOSTART_ARG);
     }
     false
 }
