@@ -262,7 +262,9 @@ fn handle_ipc_message(body: &str) {
                         "document.getElementById('bubble-check-container').innerHTML = '{}';",
                         if new_state {
                             super::BUBBLE_CHECK_SVG
-                        } else { "" }
+                        } else {
+                            ""
+                        }
                     );
                     let _ = webview.evaluate_script(&js);
                 }

@@ -100,14 +100,18 @@ mod tests {
             &[10.0, 0.2, 0.2, 0.6],
             "one two three four five six seven eight nine ten",
         );
-        assert!(counts.iter().all(|&c| c >= 1), "no cue may be empty: {counts:?}");
+        assert!(
+            counts.iter().all(|&c| c >= 1),
+            "no cue may be empty: {counts:?}"
+        );
         assert_eq!(counts.iter().sum::<usize>(), 10);
         assert_eq!(counts, vec![7, 1, 1, 1]);
     }
 
     #[test]
     fn no_words_are_lost_or_duplicated() {
-        let lines = redistribute_words_by_weight(&[2.3, 0.1, 6.6], "one two three four five six seven");
+        let lines =
+            redistribute_words_by_weight(&[2.3, 0.1, 6.6], "one two three four five six seven");
         let rejoined = lines
             .iter()
             .filter(|line| !line.is_empty())

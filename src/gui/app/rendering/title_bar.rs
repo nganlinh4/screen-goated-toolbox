@@ -196,11 +196,7 @@ impl SettingsApp {
                 ui.close();
             }
             if ui
-                .selectable_value(
-                    &mut self.config.ui_language,
-                    "vi".to_string(),
-                    "Tiếng Việt",
-                )
+                .selectable_value(&mut self.config.ui_language, "vi".to_string(), "Tiếng Việt")
                 .clicked()
             {
                 ui.close();

@@ -91,7 +91,9 @@ fn serve(
     let mut last_content_at: Option<Instant> = None;
 
     loop {
-        if !manager.is_generation_valid(request.generation) || manager.shutdown.load(Ordering::SeqCst) {
+        if !manager.is_generation_valid(request.generation)
+            || manager.shutdown.load(Ordering::SeqCst)
+        {
             break;
         }
 
@@ -172,7 +174,8 @@ fn serve(
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut =>
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
             {
                 if let Some(last) = last_content_at
                     && last.elapsed() >= idle_finalize_after
@@ -181,7 +184,9 @@ fn serve(
                     break;
                 }
                 if !content_started && response_start.elapsed() >= response_timeout {
-                    let _ = request.response_tx.send(LiveEvent::Error("Response timeout".to_string()));
+                    let _ = request
+                        .response_tx
+                        .send(LiveEvent::Error("Response timeout".to_string()));
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(10));
@@ -190,7 +195,9 @@ fn serve(
                 if !content_started && response_start.elapsed() < Duration::from_millis(500) {
                     return Err(()); // stale warm socket — let caller retry cold
                 }
-                let _ = request.response_tx.send(LiveEvent::Error(format!("Read error: {e}")));
+                let _ = request
+                    .response_tx
+                    .send(LiveEvent::Error(format!("Read error: {e}")));
                 break;
             }
         }
@@ -224,21 +231,31 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         };
 
         if !manager.is_generation_valid(request.generation) {
-            let _ = request.response_tx.send(LiveEvent::Error("Request cancelled".to_string()));
+            let _ = request
+                .response_tx
+                .send(LiveEvent::Error("Request cancelled".to_string()));
             continue;
         }
 
         let api_key = match APP.lock() {
             Ok(app) => app.config.gemini_api_key.clone(),
             Err(_) => {
-                let _ = request.response_tx.send(LiveEvent::Error("Failed to get config".to_string()));
+                let _ = request
+                    .response_tx
+                    .send(LiveEvent::Error("Failed to get config".to_string()));
                 continue;
             }
         };
         if api_key.trim().is_empty() {
-            let lang = APP.lock().ok().map(|a| a.config.ui_language.clone()).unwrap_or_else(|| "en".to_string());
+            let lang = APP
+                .lock()
+                .ok()
+                .map(|a| a.config.ui_language.clone())
+                .unwrap_or_else(|| "en".to_string());
             crate::overlay::utils::show_api_key_error_notification("NO_API_KEY:gemini", &lang);
-            let _ = request.response_tx.send(LiveEvent::Error("NO_API_KEY:gemini".to_string()));
+            let _ = request
+                .response_tx
+                .send(LiveEvent::Error("NO_API_KEY:gemini".to_string()));
             continue;
         }
 
@@ -256,7 +273,9 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
             match connect_and_setup(&api_key, &model, instr_opt, request.req.show_thinking) {
                 Ok(s) => s,
                 Err(e) => {
-                    let _ = request.response_tx.send(LiveEvent::Error(format!("Connection failed: {e}")));
+                    let _ = request
+                        .response_tx
+                        .send(LiveEvent::Error(format!("Connection failed: {e}")));
                     continue;
                 }
             }
@@ -271,7 +290,9 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                     let _ = fresh.close(None);
                 }
                 Err(e) => {
-                    let _ = request.response_tx.send(LiveEvent::Error(format!("Connection failed: {e}")));
+                    let _ = request
+                        .response_tx
+                        .send(LiveEvent::Error(format!("Connection failed: {e}")));
                 }
             }
         } else {
