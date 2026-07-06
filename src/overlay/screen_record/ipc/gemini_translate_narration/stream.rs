@@ -217,8 +217,7 @@ fn process_clip(
         // Gemini's continuous live socket keeps streaming silence after it finishes
         // speaking, so "any audio" is not an end signal. Stop once the real voice
         // has been quiet for a short tail, or if the socket goes fully idle.
-        let voice_done = last_output_speech
-            .is_some_and(|at| at.elapsed() > Duration::from_secs(4));
+        let voice_done = last_output_speech.is_some_and(|at| at.elapsed() > Duration::from_secs(4));
         let socket_idle = !drain.had_activity && last_activity.elapsed() > Duration::from_secs(8);
         if voice_done || socket_idle {
             break;
@@ -226,7 +225,12 @@ fn process_clip(
         std::thread::sleep(Duration::from_millis(20));
     }
     if let Some(region) = vad.finish() {
-        emitted.push(emit_region(clip, &region, &mut last_audio_out_point, snapshot));
+        emitted.push(emit_region(
+            clip,
+            &region,
+            &mut last_audio_out_point,
+            snapshot,
+        ));
     }
     if emitted.is_empty() && !full_output.is_empty() {
         let region = OutputRegion {
@@ -235,7 +239,12 @@ fn process_clip(
             end_sample: full_output.len(),
             samples: full_output.clone(),
         };
-        emitted.push(emit_region(clip, &region, &mut last_audio_out_point, snapshot));
+        emitted.push(emit_region(
+            clip,
+            &region,
+            &mut last_audio_out_point,
+            snapshot,
+        ));
     }
     // full_output is now the contiguous, complete Gemini output (no wall-clock
     // padding). The output VAD only marks natural pause boundaries; the resegment
@@ -299,7 +308,8 @@ fn process_clip(
         let source_duration = clip.source_duration.max(0.0);
         let anchor_compact = source_onset
             .or_else(|| {
-                first_input_text_elapsed.map(|elapsed| (elapsed - NARRATION_ANCHOR_LEAD_SEC).max(0.0))
+                first_input_text_elapsed
+                    .map(|elapsed| (elapsed - NARRATION_ANCHOR_LEAD_SEC).max(0.0))
             })
             .unwrap_or(0.0)
             .clamp(0.0, source_duration);
@@ -483,7 +493,10 @@ fn redistribute_segment_text(emitted: &mut [RegionMeta], source_text: &str, targ
         return;
     }
     for meta in emitted.iter_mut() {
-        let take_start = meta.result.narration_start_time.unwrap_or(meta.result.start_time);
+        let take_start = meta
+            .result
+            .narration_start_time
+            .unwrap_or(meta.result.start_time);
         let take_duration = (meta.audio_out_point - meta.audio_in_point).max(0.05);
         meta.result.start_time = take_start;
         meta.result.end_time = take_start + take_duration;

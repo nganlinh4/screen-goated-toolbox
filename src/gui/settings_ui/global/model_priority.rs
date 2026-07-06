@@ -101,12 +101,9 @@ fn render_chain_section(
     ui.group(|ui| {
         ui.set_min_width(340.0);
         ui.horizontal(|ui| {
-            crate::gui::icons::arrow_label(
-                ui,
-                section_title,
-                Some(section_title_color),
-                |rt| rt.strong().size(13.0).color(section_title_color),
-            );
+            crate::gui::icons::arrow_label(ui, section_title, Some(section_title_color), |rt| {
+                rt.strong().size(13.0).color(section_title_color)
+            });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button(text.reset_defaults_btn).clicked() {
                     let defaults = ModelPriorityChains::default();

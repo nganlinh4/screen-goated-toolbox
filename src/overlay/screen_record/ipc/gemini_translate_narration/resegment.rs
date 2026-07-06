@@ -70,7 +70,10 @@ mod tests {
 
     fn assert_contiguous(spans: &[(f64, f64)], start: f64, end: f64) {
         assert!((spans[0].0 - start).abs() < 1e-6, "starts at {start}");
-        assert!((spans[spans.len() - 1].1 - end).abs() < 1e-6, "ends at {end}");
+        assert!(
+            (spans[spans.len() - 1].1 - end).abs() < 1e-6,
+            "ends at {end}"
+        );
         for window in spans.windows(2) {
             assert!((window[0].1 - window[1].0).abs() < 1e-6, "contiguous");
         }

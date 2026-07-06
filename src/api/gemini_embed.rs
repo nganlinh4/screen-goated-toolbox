@@ -55,7 +55,9 @@ pub fn embed(parts: &[EmbedPart], api_key: &str) -> Result<Vec<f32>> {
         .iter()
         .map(|p| match p {
             EmbedPart::Text(t) => json!({ "text": t }),
-            EmbedPart::Image(mime, data) => json!({ "inlineData": { "mimeType": mime, "data": data } }),
+            EmbedPart::Image(mime, data) => {
+                json!({ "inlineData": { "mimeType": mime, "data": data } })
+            }
         })
         .collect();
     let payload = json!({
@@ -65,9 +67,8 @@ pub fn embed(parts: &[EmbedPart], api_key: &str) -> Result<Vec<f32>> {
 
     let mut last_err = None;
     for model in model_candidates() {
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent"
-        );
+        let url =
+            format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent");
         for attempt in 0..2u64 {
             match try_embed(&url, api_key, &payload) {
                 Ok(v) if !v.is_empty() => {
@@ -89,7 +90,10 @@ fn try_embed(url: &str, api_key: &str, payload: &Value) -> Result<Vec<f32>> {
         .header("x-goog-api-key", api_key)
         .send_json(payload)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let root: Value = resp.into_body().read_json().context("parse embed response")?;
+    let root: Value = resp
+        .into_body()
+        .read_json()
+        .context("parse embed response")?;
     // Embedding 2: { "embeddings": [ { "values": [...] } ] }
     // Single (001): { "embedding": { "values": [...] } } — accept both.
     let values = root
@@ -99,7 +103,10 @@ fn try_embed(url: &str, api_key: &str, payload: &Value) -> Result<Vec<f32>> {
         .or_else(|| root.get("embedding").and_then(|e| e.get("values")))
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow::anyhow!("no embedding values in response"))?;
-    Ok(values.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect())
+    Ok(values
+        .iter()
+        .filter_map(|v| v.as_f64().map(|f| f as f32))
+        .collect())
 }
 
 /// Cosine similarity of two equal-length vectors; 0 if either is empty or the

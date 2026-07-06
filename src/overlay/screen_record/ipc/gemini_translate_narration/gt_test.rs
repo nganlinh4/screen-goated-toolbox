@@ -127,10 +127,8 @@ fn stream_to_output(
             saw_turn_complete = true;
             break;
         }
-        let voice_done =
-            last_output_speech.is_some_and(|at| at.elapsed() > Duration::from_secs(4));
-        let socket_idle =
-            !drained.had_activity && last_activity.elapsed() > Duration::from_secs(8);
+        let voice_done = last_output_speech.is_some_and(|at| at.elapsed() > Duration::from_secs(4));
+        let socket_idle = !drained.had_activity && last_activity.elapsed() > Duration::from_secs(8);
         if voice_done || socket_idle {
             break;
         }
@@ -181,7 +179,10 @@ fn gap_free_spans(regions: &[Region], speech_end: usize) -> Vec<Region> {
         .iter()
         .enumerate()
         .map(|(index, &(start, _))| {
-            let end = regions.get(index + 1).map(|&(next, _)| next).unwrap_or(speech_end);
+            let end = regions
+                .get(index + 1)
+                .map(|&(next, _)| next)
+                .unwrap_or(speech_end);
             (start, end.max(start))
         })
         .collect()

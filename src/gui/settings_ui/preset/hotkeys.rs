@@ -83,7 +83,10 @@ pub(super) fn render_hotkeys(
             )
             .on_hover_cursor(egui::CursorIcon::PointingHand);
             let icon_rect = egui::Rect::from_center_size(
-                egui::pos2(resp.rect.right() - icon_px * 0.5 - 8.0, resp.rect.center().y),
+                egui::pos2(
+                    resp.rect.right() - icon_px * 0.5 - 8.0,
+                    resp.rect.center().y,
+                ),
                 egui::vec2(icon_px, icon_px),
             );
             crate::gui::icons::paint_icon(
