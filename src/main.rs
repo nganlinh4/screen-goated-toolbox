@@ -21,6 +21,7 @@ mod registry_integration;
 mod retry_model_chain;
 mod runtime_support;
 mod screen_capture;
+mod startup_launch;
 mod unpack_dlls;
 mod updater;
 pub mod win_types;
@@ -29,6 +30,8 @@ use config::{Config, ThemeMode, load_config};
 use gui::locale::LocaleText;
 use history::HistoryManager;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Instant;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
@@ -78,6 +81,7 @@ pub static APP: LazyLock<Arc<Mutex<AppState>>> = LazyLock::new(|| {
 const PROCESS_WITH_SGT_FLAG: &str = "--process-with-sgt";
 const SCREEN_RECORD_WRY_SMOKE_FLAG: &str = "--screen-record-wry-smoke";
 const SCREEN_RECORD_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--screen-record-webview2-debug-port";
+const EFRAME_RENDERER_ENV: &str = "SGT_EFRAME_RENDERER";
 
 fn parse_arg_value(args: &[String], key: &str) -> Option<String> {
     let mut idx = 0usize;
@@ -152,6 +156,138 @@ fn configure_screen_record_wry_smoke(args: &[String]) -> bool {
     }
     crate::log_info!("[WrySmoke] Enabled WebView2 remote debugging on port {port}");
     smoke_enabled
+}
+
+fn renderer_attempts_from_env() -> Vec<eframe::Renderer> {
+    match std::env::var(EFRAME_RENDERER_ENV) {
+        Ok(value) if value.eq_ignore_ascii_case("wgpu") => vec![eframe::Renderer::Wgpu],
+        Ok(value) if value.eq_ignore_ascii_case("glow") => vec![eframe::Renderer::Glow],
+        Ok(value) => {
+            crate::log_info!(
+                "[Main] Ignoring invalid {EFRAME_RENDERER_ENV}={value:?}; using WGPU first"
+            );
+            vec![eframe::Renderer::Wgpu, eframe::Renderer::Glow]
+        }
+        Err(_) => vec![eframe::Renderer::Wgpu, eframe::Renderer::Glow],
+    }
+}
+
+fn run_settings_window(
+    renderer: eframe::Renderer,
+    screen_record_wry_smoke: bool,
+    pending_file_path: Option<PathBuf>,
+    app_created: Arc<AtomicBool>,
+) -> eframe::Result<()> {
+    // Rebuild per renderer attempt because tray menu items are moved into SettingsApp.
+    let initial_config = APP.lock().unwrap().config.clone();
+
+    let tray_locale = LocaleText::get(&initial_config.ui_language);
+    let tray_menu = Menu::new();
+
+    let has_favorites = initial_config.presets.iter().any(|p| p.is_favorite);
+    let favorite_bubble_text = if has_favorites {
+        tray_locale.tray_favorite_bubble
+    } else {
+        tray_locale.tray_favorite_bubble_disabled
+    };
+    let tray_favorite_bubble_item = CheckMenuItem::with_id(
+        "1003",
+        favorite_bubble_text,
+        true,
+        initial_config.show_favorite_bubble,
+        None,
+    );
+
+    let tray_settings_item = MenuItem::with_id("1002", tray_locale.tray_settings, true, None);
+    let tray_quit_item = MenuItem::with_id("1001", tray_locale.tray_quit, true, None);
+    let _ = tray_menu.append(&tray_favorite_bubble_item);
+    let _ = tray_menu.append(&tray_settings_item);
+    let _ = tray_menu.append(&tray_quit_item);
+
+    let mut viewport_builder = eframe::egui::ViewportBuilder::default()
+        .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
+        .with_min_inner_size([MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT])
+        .with_resizable(true)
+        .with_visible(false)
+        .with_transparent(false)
+        .with_decorations(true);
+
+    let system_dark = gui::utils::is_system_in_dark_mode();
+    let effective_dark = match initial_config.theme_mode {
+        ThemeMode::Dark => true,
+        ThemeMode::Light => false,
+        ThemeMode::System => system_dark,
+    };
+
+    let icon_data = crate::icon_gen::get_window_icon(effective_dark);
+    viewport_builder = viewport_builder.with_icon(std::sync::Arc::new(icon_data));
+
+    let options = eframe::NativeOptions {
+        viewport: viewport_builder,
+        renderer,
+        ..Default::default()
+    };
+
+    crate::log_info!("[Main] Starting eframe with {renderer} renderer");
+    eframe::run_native(
+        "Screen Goated Toolbox (SGT by nganlinh4)",
+        options,
+        Box::new(move |cc| {
+            app_created.store(true, Ordering::SeqCst);
+
+            gui::configure_fonts(&cc.egui_ctx);
+            *gui::GUI_CONTEXT.lock().unwrap() = Some(cc.egui_ctx.clone());
+            gui::theme::AppTheme::apply_global_style(&cc.egui_ctx, effective_dark);
+            gui::utils::update_window_icon_native(effective_dark);
+
+            if screen_record_wry_smoke {
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    crate::log_info!("[WrySmoke] Opening SGT Record window");
+                    crate::overlay::screen_record::show_screen_record();
+                });
+            }
+
+            Ok(Box::new(gui::SettingsApp::new(gui::SettingsAppInit {
+                config: initial_config,
+                app_state: APP.clone(),
+                tray_menu,
+                tray_settings_item,
+                tray_quit_item,
+                tray_favorite_bubble_item,
+                ctx: cc.egui_ctx.clone(),
+                pending_file_path,
+            })))
+        }),
+    )
+}
+
+fn run_settings_window_with_renderer_fallback(
+    screen_record_wry_smoke: bool,
+    pending_file_path: Option<PathBuf>,
+) -> eframe::Result<()> {
+    let attempts = renderer_attempts_from_env();
+    let last_attempt_idx = attempts.len().saturating_sub(1);
+
+    for (idx, renderer) in attempts.into_iter().enumerate() {
+        let app_created = Arc::new(AtomicBool::new(false));
+        match run_settings_window(
+            renderer,
+            screen_record_wry_smoke,
+            pending_file_path.clone(),
+            app_created.clone(),
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) if !app_created.load(Ordering::SeqCst) && idx < last_attempt_idx => {
+                crate::log_info!(
+                    "[Main] {renderer} renderer initialization failed before app creation: {err}; retrying"
+                );
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Ok(())
 }
 
 fn load_replay_payload(replay_path: &str) -> std::result::Result<serde_json::Value, String> {
@@ -479,6 +615,7 @@ fn main() -> eframe::Result<()> {
         std::process::exit(exit_code);
     }
     let screen_record_wry_smoke = configure_screen_record_wry_smoke(&startup_args);
+    startup_launch::maybe_delay_for_windows_autostart(&startup_args);
 
     // Cleanup temp files
     initialization::cleanup_temporary_files();
@@ -588,96 +725,7 @@ fn main() -> eframe::Result<()> {
     initialization::spawn_warmup_thread();
     runtime_support::show_startup_compatibility_notice_if_needed();
 
-    // Load config for tray setup
-    let initial_config = APP.lock().unwrap().config.clone();
-
-    // Tray menu setup
-    let tray_locale = LocaleText::get(&initial_config.ui_language);
-    let tray_menu = Menu::new();
-
-    let has_favorites = initial_config.presets.iter().any(|p| p.is_favorite);
-    let favorite_bubble_text = if has_favorites {
-        tray_locale.tray_favorite_bubble
-    } else {
-        tray_locale.tray_favorite_bubble_disabled
-    };
-    let tray_favorite_bubble_item = CheckMenuItem::with_id(
-        "1003",
-        favorite_bubble_text,
-        true,
-        initial_config.show_favorite_bubble,
-        None,
-    );
-
-    let tray_settings_item = MenuItem::with_id("1002", tray_locale.tray_settings, true, None);
-    let tray_quit_item = MenuItem::with_id("1001", tray_locale.tray_quit, true, None);
-    let _ = tray_menu.append(&tray_favorite_bubble_item);
-    let _ = tray_menu.append(&tray_settings_item);
-    let _ = tray_menu.append(&tray_quit_item);
-
-    // Window setup
-    let mut viewport_builder = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
-        .with_min_inner_size([MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT])
-        .with_resizable(true)
-        .with_visible(false)
-        .with_transparent(false)
-        .with_decorations(true);
-
-    // Detect system theme
-    let system_dark = gui::utils::is_system_in_dark_mode();
-
-    // Resolve initial theme
-    let effective_dark = match initial_config.theme_mode {
-        ThemeMode::Dark => true,
-        ThemeMode::Light => false,
-        ThemeMode::System => system_dark,
-    };
-
-    // Set window icon
-    let icon_data = crate::icon_gen::get_window_icon(effective_dark);
-    viewport_builder = viewport_builder.with_icon(std::sync::Arc::new(icon_data));
-
-    let options = eframe::NativeOptions {
-        viewport: viewport_builder,
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "Screen Goated Toolbox (SGT by nganlinh4)",
-        options,
-        Box::new(move |cc| {
-            gui::configure_fonts(&cc.egui_ctx);
-
-            // Store global context for background threads
-            *gui::GUI_CONTEXT.lock().unwrap() = Some(cc.egui_ctx.clone());
-
-            // Set initial Material-style global style
-            gui::theme::AppTheme::apply_global_style(&cc.egui_ctx, effective_dark);
-
-            // Set native icon
-            gui::utils::update_window_icon_native(effective_dark);
-
-            if screen_record_wry_smoke {
-                std::thread::spawn(|| {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    crate::log_info!("[WrySmoke] Opening SGT Record window");
-                    crate::overlay::screen_record::show_screen_record();
-                });
-            }
-
-            Ok(Box::new(gui::SettingsApp::new(gui::SettingsAppInit {
-                config: initial_config,
-                app_state: APP.clone(),
-                tray_menu,
-                tray_settings_item,
-                tray_quit_item,
-                tray_favorite_bubble_item,
-                ctx: cc.egui_ctx.clone(),
-                pending_file_path,
-            })))
-        }),
-    )
+    run_settings_window_with_renderer_fallback(screen_record_wry_smoke, pending_file_path)
 }
 
 // Re-export hotkey functions for external access

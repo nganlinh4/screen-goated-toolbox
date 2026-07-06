@@ -50,7 +50,7 @@ unicode-normalization = "0.1"
 encoding_rs = "0.8"
 
 # GUI & Media
-eframe = { version = "0.34", default-features = false, features = ["glow", "persistence"] }
+eframe = { version = "0.34", default-features = false, features = ["wgpu", "glow", "persistence"] }
 egui-snarl = { path = "libs/egui-snarl", features = ["serde"] }
 tray-icon = "0.24.1"
 cpal = "0.18"
