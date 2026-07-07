@@ -155,7 +155,7 @@ impl eframe::App for SettingsApp {
         }
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         crate::overlay::screen_record::cleanup_on_app_exit();
         self.tray_icon = None;
     }
