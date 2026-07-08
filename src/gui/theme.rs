@@ -539,11 +539,14 @@ impl AppTheme {
         // (`cargo run`): `warn_if_rect_changes_id` paints a 2px red outline on
         // every widget whose rect changed id, and `show_unaligned` highlights
         // sub-pixel-misaligned widgets. They flicker over the UI on interaction
-        // and are dev-only diagnostics we don't use — keep them off everywhere.
-        style.debug.warn_if_rect_changes_id = false;
-        style.debug.show_unaligned = false;
-        style.debug.show_interactive_widgets = false;
-        style.debug.show_widget_hits = false;
+        // and are dev-only diagnostics we don't use.
+        #[cfg(debug_assertions)]
+        {
+            style.debug.warn_if_rect_changes_id = false;
+            style.debug.show_unaligned = false;
+            style.debug.show_interactive_widgets = false;
+            style.debug.show_widget_hits = false;
+        }
 
         ctx.set_global_style(style);
     }
