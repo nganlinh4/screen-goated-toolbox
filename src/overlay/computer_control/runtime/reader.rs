@@ -1,13 +1,11 @@
-//! Reader-side session state (the `Reader` state machine + rolling conversation
-//! history) and the server-event handler — split out of `runtime.rs` to keep it
-//! within the file-size limit.
+//! Reader state, rolling conversation history, and server-event handling.
 
+use serde_json::Value;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Instant;
-
-use serde_json::Value;
 
 use super::super::overlay;
 use super::super::playback::AudioSink;
@@ -15,7 +13,7 @@ use super::super::protocol::ServerEvent;
 use super::super::telemetry::{self, Privacy};
 use super::super::turn_policy;
 use super::Job;
-use super::speech_gate::{SpeechGate, TranscriptDecision};
+use super::speech_gate::SpeechGate;
 
 /// The single in-flight tool call (synchronous FC ⇒ at most one), plus whether the
 /// server cancelled it (in which case we must NOT answer it).
@@ -23,6 +21,29 @@ use super::speech_gate::{SpeechGate, TranscriptDecision};
 pub(super) struct Pending {
     pub(super) id: Option<String>,
     pub(super) cancelled: bool,
+    pub(super) cancel: Option<Arc<AtomicBool>>,
+}
+
+impl Pending {
+    /// Cancel only this job. The token is never reused by a later action.
+    pub(super) fn request_cancel(&mut self) -> bool {
+        let had_job = self.id.is_some();
+        if had_job {
+            self.cancelled = true;
+            if let Some(cancel) = &self.cancel {
+                cancel.store(true, Ordering::SeqCst);
+            }
+        }
+        had_job
+    }
+
+    pub(super) fn matches_result(&self, id: &str, cancel: &Arc<AtomicBool>) -> bool {
+        self.id.as_deref() == Some(id)
+            && self
+                .cancel
+                .as_ref()
+                .is_some_and(|pending_cancel| Arc::ptr_eq(pending_cancel, cancel))
+    }
 }
 
 /// Mutable reader-side session state threaded through `handle_event`.
@@ -47,8 +68,26 @@ pub(super) struct Reader {
     pub(super) turn_research_count: u32,
     pub(super) turn_stall_count: u32,
     pub(super) turn_summary_emitted: bool,
+    /// Authorization/lifecycle mode for the current user turn.
+    pub(super) turn_mode: turn_policy::TurnMode,
+    /// Durable revocation latch. It is cleared only by a later explicit action
+    /// request in the user's transcript, never by model reasoning or reconnect.
+    pub(super) control_revoked: bool,
+    /// The ASR text was genuinely ambiguous, so the model's first action intent
+    /// may clarify it. Clear questions/restrictions never get this escape hatch.
+    pub(super) intent_may_authorize_action: bool,
+    /// Policy-owned responses waiting for the socket loop to send.
+    pub(super) immediate_tool_responses: VecDeque<super::reader_policy::ImmediateToolResponse>,
     /// Control nudge to send after the current server frame is fully processed.
     pub(super) control_nudge: Option<String>,
+    /// Exact latest frame successfully sent to the Live model.
+    pub(super) source_frame_id: Option<u64>,
+    pub(super) assistant_utterance_id: Option<u64>,
+    pub(super) connection_generation: u32,
+    pub(super) reconnect_total: u32,
+    /// An accepted `done` still receives one final server `TurnComplete`. Do not
+    /// let that old boundary close a newer user turn.
+    pub(super) awaiting_done_boundary: bool,
     /// True once the user has issued any command this session - gates the one-time
     /// browser-control offer (replaces using `last_cmd` non-empty for that, since
     /// `last_cmd` now tracks the model's intent, not "did the user speak").
@@ -101,8 +140,16 @@ pub(super) fn flush_reply(state: &mut Reader) {
     let r = state.reply.trim();
     if !r.is_empty() {
         let clipped: String = r.chars().take(600).collect();
-        let utterance_id = telemetry::next_utterance("assistant_reply_flushed");
-        telemetry::human("cc", format!("said: {clipped}")); // surface the spoken reply for debugging
+        let utterance_id = state
+            .assistant_utterance_id
+            .unwrap_or_else(|| telemetry::next_utterance("assistant_reply_flushed"));
+        telemetry::human(
+            "cc",
+            format!(
+                "generated transcript ({} chars): {clipped}",
+                state.reply.chars().count()
+            ),
+        );
         telemetry::event(
             "assistant_reply",
             "speech",
@@ -179,6 +226,8 @@ pub(super) fn emit_turn_summary(state: &mut Reader, outcome: &str) {
         serde_json::json!({
             "outcome": outcome,
             "task_class": class.as_str(),
+            "turn_mode": state.turn_mode.as_str(),
+            "control_revoked": state.control_revoked,
             "duration_ms": duration_ms,
             "tool_count": state.turn_tools.len(),
             "tools": state.turn_tools.clone(),
@@ -209,47 +258,34 @@ pub(super) fn build_recap(history: &[String]) -> String {
 pub(super) fn handle_event(
     ev: ServerEvent,
     sink: Option<&AudioSink>,
-    cancel: &Arc<AtomicBool>,
     exec_tx: &mpsc::Sender<Job>,
     state: &mut Reader,
 ) {
     match ev {
-        ServerEvent::Audio(pcm) => {
-            state.speech_gate.push_audio(&pcm, sink);
-        }
+        ServerEvent::Audio(pcm) => super::speech_events::audio(state, &pcm, sink),
         ServerEvent::Interrupted => {
             // Barge-in: stop TALKING so the agent listens, but let the in-flight
             // ACTION finish (the user just wants to comment/steer, not abort the
-            // click). Only an explicit "stop" (below) aborts the action.
-            if let Some(sink) = sink {
-                sink.clear();
-            }
-            telemetry::event(
-                "interrupted",
-                "speech",
-                Privacy::Safe,
-                serde_json::json!({"pending_tool": state.pending.id.clone()}),
-            );
+            // click). Only an explicit stop aborts the action.
+            super::speech_events::interrupted(state, sink);
         }
         ServerEvent::ToolCancellation(ids) => {
-            // The user spoke while a tool call was pending, so the server cancelled
-            // it. We must NOT answer that id (invalid), AND we ABORT the in-flight
-            // action: the model is about to re-plan from the new input, so letting a
-            // now-irrelevant long action (a wait, a vision call, a humanized glide)
-            // run to completion just wastes time. This IS our "stop" - it's driven by
+            // A server-cancelled id must not receive a response; abort its in-flight
+            // action because the model is about to re-plan from the new input. This is
             // the server's voice-activity barge-in, which works in ANY language, so
-            // no spoken-keyword list is needed.
-            if let Some(sink) = sink {
-                sink.clear();
-            }
+            // language-independent and needs no spoken-keyword list.
+            super::speech_events::interrupted(state, sink);
             if let Some(p) = state.pending.id.as_ref()
                 && ids.iter().any(|i| i == p)
             {
-                state.pending.cancelled = true; // don't answer it...
-                cancel.store(true, Ordering::SeqCst); // ...and abort the action now
+                state.pending.request_cancel(); // don't answer it; abort only that job
+                state.awaiting = true;
+                state.think_start = Some(Instant::now());
                 overlay::set_status("halting...");
             }
-            overlay::push_log(format!("[~] halting current step + re-planning {ids:?}"));
+            overlay::push_log(format!(
+                "[~] cancellation requested; the action may already have taken effect {ids:?}"
+            ));
             telemetry::typed_error(
                 "ERR_TOOL_CANCELLED",
                 "runtime",
@@ -258,12 +294,34 @@ pub(super) fn handle_event(
             );
         }
         ServerEvent::InputTranscript(t) => {
-            // This is Gemini's text of your AUDIO and can mis-hear ("play it" -> "Vai é").
-            // The MODEL reasons on the audio, not this text, so we keep it OUT of history and
-            // the task/vision context - it drives ONLY the orb caption. The turn's real task is
-            // captured from the model's own intent at its first action (see ToolCall below).
+            // ASR can mis-hear, so this stays out of task/vision context; the model's
+            // first intent still supplies that. The transcript is authoritative only
+            // for explicit safety restrictions and code-owned capability policy.
             if !t.trim().is_empty() {
+                let incoming_mode = turn_policy::turn_mode(&t, "");
+                if state.active && !state.turn_summary_emitted {
+                    emit_turn_summary(
+                        state,
+                        if incoming_mode == turn_policy::TurnMode::Stopped {
+                            "stopped_by_user"
+                        } else {
+                            "superseded"
+                        },
+                    );
+                }
                 flush_reply(state); // close the assistant's prior reply into history
+                telemetry::start_turn("user_transcript");
+                telemetry::human("cc", format!("you: {}", t.trim()));
+                telemetry::event(
+                    "user_transcript",
+                    "speech",
+                    Privacy::UserText,
+                    serde_json::json!({
+                        "text_preview": t.trim().chars().take(240).collect::<String>(),
+                        "char_count": t.trim().chars().count(),
+                    }),
+                );
+                state.assistant_utterance_id = None;
                 state.reasoning.clear(); // this turn's intent starts fresh - don't inherit last turn's narration
                 state.thinking.clear();
                 state.speech_gate.reset();
@@ -274,36 +332,32 @@ pub(super) fn handle_event(
                 state.turn_research_count = 0;
                 state.turn_stall_count = 0;
                 state.turn_summary_emitted = false;
-                state.control_nudge = None;
                 state.has_command = true; // the user has spoken (gates the browser offer)
-                state.active = true; // a fresh request - resume pushing frames
-                state.awaiting = true; // model now owes a response
-                state.think_start = Some(Instant::now()); // start the think-time clock
+                let cancelled_pending =
+                    super::reader_policy::apply_user_turn_policy(state, t.trim());
+                if state.turn_mode == turn_policy::TurnMode::Stopped {
+                    overlay::set_status(if cancelled_pending {
+                        "halting control..."
+                    } else {
+                        "control stopped"
+                    });
+                    emit_turn_summary(state, "stopped_by_user");
+                }
+                telemetry::event(
+                    "turn_policy_applied",
+                    "turn_policy",
+                    Privacy::Safe,
+                    serde_json::json!({
+                        "turn_mode": state.turn_mode.as_str(),
+                        "control_revoked": state.control_revoked,
+                        "cancelled_pending": cancelled_pending,
+                    }),
+                );
             }
             overlay::set_user_text(t);
             overlay::set_listening(false);
         }
-        ServerEvent::OutputTranscript(t) => {
-            // The CLEAN spoken transcript (outputAudioTranscription) — the real
-            // "voice". This is what SGT's canonical Live path records.
-            match state.speech_gate.transcript(&t, sink) {
-                TranscriptDecision::Allow(text) => {
-                    state.reasoning.push_str(text); // per-action intent (cleared each tool call)
-                    state.reply.push_str(text); // spoken reply -> history + `said:` log
-                    // Caption shows the WHOLE reply so far (outputTranscription arrives as deltas) - so it
-                    // grows word-by-word instead of cutting to just the latest chunk.
-                    overlay::set_model_text(state.reply.clone());
-                }
-                TranscriptDecision::Block => {
-                    state.reasoning.clear();
-                    state.reply.clear();
-                    overlay::set_model_text(String::new());
-                    overlay::push_log(
-                        "[speech-filter] suppressed internal/tool-plan speech".to_string(),
-                    );
-                }
-            }
-        }
+        ServerEvent::OutputTranscript(t) => super::speech_events::transcript(state, &t, sink),
         ServerEvent::ModelText(_) => {
             // modelTurn text parts in AUDIO mode carry tool-call / internal text
             // (e.g. "call:look{...}"), NOT spoken words — ignore so they don't
@@ -315,10 +369,27 @@ pub(super) fn handle_event(
             state.thinking.push_str(&t);
         }
         ServerEvent::TurnComplete => {
-            // The model finished a turn. If it was mid-task and produced NO tool call,
-            // it narrated INSTEAD of acting (the "it stopped" failure) - flag it + the
-            // gap so we can see it in the log.
+            if state.awaiting_done_boundary {
+                state.awaiting_done_boundary = false;
+                super::speech_events::generation_complete(state, sink);
+                flush_reply(state);
+                if !state.active {
+                    state.awaiting = false;
+                }
+                telemetry::event(
+                    "done_turn_boundary",
+                    "runtime",
+                    Privacy::Safe,
+                    serde_json::json!({"active_newer_turn": state.active}),
+                );
+                return;
+            }
+            // Only an authorized action task can stall by ending without a tool.
+            // A spoken answer/read-only response is itself the requested result and
+            // must not be revived by a visual-DONE recovery loop.
             if state.active
+                && state.turn_mode.needs_action_completion()
+                && !state.control_revoked
                 && let Some(t) = state.think_start.take()
             {
                 state.stall_count += 1;
@@ -338,17 +409,21 @@ pub(super) fn handle_event(
                     &state.last_cmd,
                     state.turn_stall_count,
                 ));
+            } else if super::reader_policy::finish_without_action_recovery(state) {
+                emit_turn_summary(state, "answered");
+                overlay::set_status("ready - speak a command");
             }
-            state.speech_gate.finish_turn(sink);
+            super::speech_events::generation_complete(state, sink);
             flush_reply(state);
             state.awaiting = false;
         }
         ServerEvent::ToolCall { id, name, args } => {
-            state.speech_gate.finish_turn(sink);
+            let pre_tool_speech_suppressed =
+                super::speech_events::generation_before_tool(state, sink);
             state.awaiting = false; // model responded (with an action)
             if let Some(t) = state.think_start.take() {
                 let ms = t.elapsed().as_millis();
-                let spoke = !state.reasoning.trim().is_empty(); // narrated this turn? (~2s tax)
+                let spoke = !pre_tool_speech_suppressed && !state.reasoning.trim().is_empty();
                 if spoke {
                     let preview: String = state.reasoning.trim().chars().take(220).collect();
                     overlay::push_log(format!(
@@ -412,7 +487,9 @@ pub(super) fn handle_event(
                     if from_think { "thought" } else { "spoken" }
                 ));
             }
-            let step_id = telemetry::next_step(&name);
+            super::reader_policy::refine_turn_mode(state, &intent, &name);
+            let action = telemetry::next_step(&name);
+            let step_id = action.action_id;
             state.turn_tools.push(name.clone());
             overlay::push_log(format!(">{name} {}", compact_args(&args)));
             telemetry::event(
@@ -426,29 +503,87 @@ pub(super) fn handle_event(
                     "args_preview": compact_args(&args),
                     "task_preview": state.last_cmd.chars().take(240).collect::<String>(),
                     "intent_preview": intent.chars().take(240).collect::<String>(),
+                    "turn_mode": state.turn_mode.as_str(),
+                    "control_revoked": state.control_revoked,
+                    "source_frame_id": state.source_frame_id,
                 }),
             );
+
+            if super::reader_policy::guard_tool_call(state, &id, &name, &args, action) {
+                return;
+            }
+
             overlay::set_status(format!("doing: {name}"));
             overlay::set_orb_tool(&name, &args);
+            let cancel = Arc::new(AtomicBool::new(false));
             state.pending = Pending {
                 id: Some(id.clone()),
                 cancelled: false,
+                cancel: Some(cancel.clone()),
             };
             // Runs on the executor thread (the Brain dispatch + grounding).
-            let _ = exec_tx.send((
-                id,
-                name,
+            let job = Job {
+                id: id.clone(),
+                name: name.clone(),
                 args,
-                state.last_cmd.clone(),
+                task: state.last_cmd.clone(),
                 intent,
-                state.last_user_text.clone(),
-            ));
+                user_text: state.last_user_text.clone(),
+                action,
+                source_frame_id: state.source_frame_id,
+                queued_at: Instant::now(),
+                cancel,
+            };
+            if exec_tx.send(job).is_err() {
+                state.pending.request_cancel();
+                state.pending = Pending::default();
+                state.immediate_tool_responses.push_back((
+                    id.clone(),
+                    name.clone(),
+                    serde_json::json!({
+                        "ok": false,
+                        "error": {
+                            "code": "executor_unavailable",
+                            "message": "The local action worker is unavailable; no action was performed."
+                        }
+                    }),
+                ));
+                state.awaiting = true;
+                state.think_start = Some(Instant::now());
+                telemetry::typed_error(
+                    "ERR_ACTION_EXECUTOR_UNAVAILABLE",
+                    "runtime",
+                    "failed to enqueue a tool call because the action worker stopped",
+                    serde_json::json!({"tool": name}),
+                );
+                telemetry::event_for_action(
+                    "action_outcome",
+                    "runtime",
+                    Privacy::Safe,
+                    action,
+                    serde_json::json!({
+                        "tool_call_id": id,
+                        "requested_tool": name,
+                        "executed": false,
+                        "status": "executor_unavailable",
+                        "ok": false,
+                    }),
+                );
+            }
         }
         ServerEvent::GoAway { time_left } => {
             overlay::push_log(format!(
                 "server goAway ({time_left}) - reconnecting proactively"
             ));
             state.go_away = true;
+        }
+        ServerEvent::Usage(usage) => {
+            telemetry::event(
+                "model_usage",
+                "runtime",
+                Privacy::Safe,
+                serde_json::json!({"usage": usage}),
+            );
         }
         _ => {}
     }

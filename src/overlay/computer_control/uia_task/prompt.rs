@@ -6,20 +6,20 @@ use serde_json::{Value, json};
 
 use super::super::{executor, protocol};
 
-/// The default controller guidance: observe/act are the primary way to read and
-/// act on real UI - on connected browser PAGES and on DESKTOP apps with accessible
-/// controls. Vision tools (look / click_target / click_at) are for canvas/games.
-const CONTROLLER_RULES: &str = "CONTROLLER (your PRIMARY way to read + act on real UI - works on connected browser \
-pages AND on desktop apps with accessible controls): call observe() to get the current view as an INDEXED list of \
-interactive elements (each @id has a role, its paired label, current value, flags like required/disabled, and a \
-'⚠ reason' when acting on it is consequential), then act(id, verb, value) to act on one BY ITS @id. The controller \
-pairs every label to its field (so you never click the wrong control), VERIFIES a fill actually landed (reads the \
-value back), and is a SAFETY CHECKPOINT - it BLOCKS a ⚠ consequential act (sign-out, payment, purchase, account \
-delete) and a submit with a required field still empty; to proceed past a ⚠ you must confirm with the user, then \
-re-issue the SAME act with confirm:true. Prefer observe/act for all normal UI work and re-observe() whenever the view \
-changes. For a KNOWN multi-step run on a stable view (e.g. filling a form), observe() then do_steps([{id,verb,value}, \
-...]) runs them all in ONE call, each verified, stopping at the first problem. For a canvas / board / game, or \
-anything observe() returns no elements for, use look() + click_target / click_at instead.";
+/// A compact route map keeps the broad tool kit usable without repeating every
+/// declaration in the system prompt. Each declaration remains available; this
+/// only tells the model which mutually-exclusive lane to try first.
+const CONTROLLER_RULES: &str = "TOOL ROUTING - choose the narrowest lane that fits; do not explore tools merely \
+because they exist. ACCESSIBLE UI: observe() once, then act() by @id; use do_steps() only for a short known sequence \
+on the same stable view. These calls pair labels to controls, verify results, block incomplete required fields, and \
+gate consequential actions; set confirm:true only after the user explicitly approves that exact action. VISUAL-ONLY \
+UI: when observe() has no usable target, use look() to read, click_target/drag_target for precise action, or grid \
+tools for coarse action. CURRENT WEB PAGE: prefer browser_read_page and observe/act; use browser_eval only as an \
+escape hatch. WEB FACTS: use research_web without changing the foreground. COMPUTER FACTS: use system_query before \
+run_command. RAW INPUT: use type_text, key_combination, scroll, or drag only when focus and the intended input are \
+known. Re-read after a view change, and switch lanes only when the result shows the first lane cannot reach the \
+target. STRUCTURED COLLECTIONS: when the goal names an item in a collection such as tabs, windows, files, or \
+records, enumerate once and select the exact returned id; never cycle next/previous controls to discover items.";
 
 pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Value {
     // "low" (not "medium") for a fast, action-oriented real-time agent: medium
@@ -79,7 +79,7 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
                      "value": {"type": "string"}, "confirm": {"type": "boolean"}
                  }, "required": ["id", "verb"]}}
              }, "required": ["steps"]}},
-            {"name": "click_at", "description": "Click the CENTER of the numbered GRID CELL shown over the current screenshot. Pass the cell's printed number. Use for targets NOT in the element list, e.g. a game board, canvas, or image.",
+            {"name": "click_at", "description": "Click the CENTER of a numbered grid cell. Only for UIA-blind canvas/image space; native elements in the cell are blocked. Never use to choose among collection items.",
              "parameters": {"type": "object", "properties": {"cell": {"type": "integer", "description": "The grid number printed over the target."}}, "required": ["cell"]}},
             {"name": "zoom", "description": "Magnify the numbered GRID CELL so small targets become large and a fresh finer grid is drawn over it. Pass the cell's printed number.",
              "parameters": {"type": "object", "properties": {"cell": {"type": "integer", "description": "The grid number to magnify."}}, "required": ["cell"]}},
@@ -115,12 +115,21 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
             {"name": "launch_app", "description": "Launch or focus a Windows app by name/path via the OS shell, e.g. 'chrome', 'notepad', 'explorer'. Pass 'args' to give it arguments - e.g. open a file in an app: name='notepad', args='C:\\\\path\\\\file.txt' (or just launch_app the file path itself to open it in its default app). Do NOT cram args into 'name'.",
              "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "string", "description": "Optional command-line arguments / file to open."}}, "required": ["name"]}},
-            {"name": "system_query", "description": "Read structured facts about the COMPUTER ITSELF through trusted built-in providers. Use this BEFORE run_command for OS facts: active audio apps -> domain:'audio', query:'active_sessions'; open windows -> domain:'window', query:'list'; process list -> domain:'process', query:'list_basic'; clipboard text -> domain:'clipboard', query:'text'. Start with domain:'capabilities', query:'list' if unsure. Read-only: it never changes the system.",
+            {"name": "system_query", "description": "Read trusted OS facts without mutation; capabilities.list describes domains.",
              "parameters": {"type": "object", "properties": {
                  "domain": {"type": "string", "enum": ["capabilities", "audio", "clipboard", "process", "window"]},
                  "query": {"type": "string", "description": "The query inside the domain, e.g. 'active_sessions', 'list_basic', 'list', or 'text'."},
-                 "args": {"type": "object", "description": "Optional query args, e.g. {\"include_inactive\": true}, {\"limit\": 50}, or {\"name_contains\": \"chrome\"}."}
+                 "args": {"type": "object", "description": "Optional query filters."}
              }, "required": ["domain", "query"]}},
+            {"name": "list_files", "description": "Read-only directory metadata. For relative choices, sort and use the returned rank and exact name.",
+             "parameters": {"type": "object", "properties": {
+                 "path": {"type": "string", "description": "Absolute path or standard folder name."},
+                 "kind": {"type": "string", "enum": ["any", "file", "directory"]},
+                 "extensions": {"type": "array", "items": {"type": "string"}},
+                 "sort_by": {"type": "string", "enum": ["modified", "created", "name", "size"]},
+                 "order": {"type": "string", "enum": ["descending", "ascending"]},
+                 "limit": {"type": "integer"}
+             }, "required": ["path"]}},
             {"name": "run_command", "description": "Run a PowerShell command and get stdout/stderr/exit. Use as a LAST-RESORT system escape hatch when no dedicated tool or system_query domain fits, or for a user-requested shell operation. Add '| ConvertTo-Json -Depth 4' when you need structured data back. Non-interactive: a command that prompts FAILS rather than hangs. If a task needs ADMIN and you are NOT elevated (see PRIVILEGE), relaunch JUST that command elevated via Start-Process -Verb RunAs (one UAC prompt for the user), then verify. Returns truncated stdout/stderr.",
              "parameters": {"type": "object", "properties": {"command": {"type": "string", "description": "The PowerShell command line to run."}}, "required": ["command"]}},
             {"name": "focus_window", "description": "Bring an already-open window to the FRONT by a piece of its title OR its app/exe name (e.g. 'Chrome', 'Notepad', 'Game.exe'). It matches the EXE name too, so target a FULLSCREEN GAME by its app name from list_windows (its on-screen title may collide with a browser tab about it). Restores the window if it was minimized. Returns the window now in front so you can confirm. If it reports the SAME covering window, that app is exclusive-fullscreen (a game) — you canNOT switch away from it and must not minimize what the user is playing; read any web content with browser_read_page instead, or ask the user to alt-tab.",
@@ -141,7 +150,7 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "parameters": {"type": "object", "properties": {"id": {"type": "string"}, "path": {"type": "string", "description": "Optional absolute output path."}, "overwrite": {"type": "boolean", "description": "Default false; true to overwrite an existing file."}}, "required": ["id"]}},
             {"name": "paste_artifact", "description": "Paste a local text artifact into the currently focused app by setting the clipboard from the artifact and pressing Ctrl+V. Use this for large/exact transfers into Word, Notepad, email, chats, etc. Do NOT use type_text with the artifact preview/full text.",
              "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Artifact id returned by browser_extract_page/browser_read_page, or an artifact file path."}}, "required": ["id"]}},
-            {"name": "done", "description": "Call ONLY when the goal is confirmed achieved; quote the evidence.",
+            {"name": "done", "description": "Finish a confirmed computer action; quote evidence. Never use for an answer.",
              "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}},
             {"name": "search_memory", "description": "Search YOUR memory of PAST conversations (every prior session is saved). Use when the user refers to something from before ('remember when we...', 'what did we decide about X', 'last time'). Returns matching past conversations as numbered results with a title + snippet + id. Then call open_memory(id) to read the full one.",
              "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "What to recall, in plain words, e.g. 'the plan for the memory feature' or 'the quest story'."}}, "required": ["query"]}},
@@ -246,4 +255,64 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
         fd.extend(mcp_decls);
     }
     setup
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use serde_json::Value;
+
+    fn declarations(setup: &Value) -> &[Value] {
+        setup["setup"]["tools"]
+            .as_array()
+            .and_then(|tools| {
+                tools
+                    .iter()
+                    .find_map(|tool| tool.get("functionDeclarations"))
+            })
+            .and_then(Value::as_array)
+            .expect("function declarations")
+    }
+
+    #[test]
+    fn setup_catalog_has_unique_named_tools() {
+        let setup = super::build_setup(None, false, false);
+        let declarations = declarations(&setup);
+        let mut names = HashSet::new();
+        for declaration in declarations {
+            let name = declaration["name"].as_str().expect("tool name");
+            assert!(names.insert(name), "duplicate tool declaration: {name}");
+            assert!(
+                declaration["description"]
+                    .as_str()
+                    .is_some_and(|d| !d.trim().is_empty()),
+                "missing description: {name}"
+            );
+        }
+        eprintln!(
+            "setup profile: {} tools, {} system bytes, {} declaration bytes, {} total bytes",
+            declarations.len(),
+            setup["setup"]["systemInstruction"].to_string().len(),
+            serde_json::to_string(declarations).unwrap().len(),
+            setup.to_string().len()
+        );
+        assert_eq!(
+            declarations.len(),
+            58,
+            "built-in capability was added or lost"
+        );
+        assert!(
+            serde_json::to_string(declarations).unwrap().len() <= 27_000,
+            "function catalog exceeded its reviewed prompt budget"
+        );
+        assert!(
+            setup["setup"]["systemInstruction"].to_string().len() <= 15_000,
+            "system instruction exceeded its reviewed prompt budget"
+        );
+        assert!(
+            setup.to_string().len() <= 42_000,
+            "base Live setup exceeded its reviewed prompt budget"
+        );
+    }
 }

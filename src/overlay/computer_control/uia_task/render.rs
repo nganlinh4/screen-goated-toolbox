@@ -13,6 +13,14 @@ pub(super) fn window_view(target: Option<&str>, whole_screen: bool) -> View {
         return View { x, y, w, h };
     }
     let (x, y, w, h) = uia::virtual_desktop();
+    if target.is_some() && !whole_screen {
+        super::super::telemetry::typed_error(
+            "ERR_TARGET_VIEW_FALLBACK",
+            "capture",
+            "target window could not be resolved; capture fell back to the virtual desktop",
+            json!({"target": target, "fallback_view": [x, y, w, h]}),
+        );
+    }
     View { x, y, w, h }
 }
 
@@ -40,9 +48,37 @@ pub(super) fn render_view(
     view: View,
     grid: Grid,
     marker: Option<(i32, i32)>,
-) -> Result<(String, View, Vec<u8>)> {
-    let cap = session::capture_virtual()?;
-    let (jpeg, shown) = session::encode_view(&cap, view, VIEW_SHORT, Some(grid), marker)?;
+    reason: &str,
+    action: Option<super::super::telemetry::ActionTrace>,
+) -> Result<(String, View, Vec<u8>, u64)> {
+    use super::super::telemetry;
+    let frame_id = telemetry::next_frame_for(reason, action);
+    let capture_t0 = Instant::now();
+    let cap = match session::capture_virtual() {
+        Ok(cap) => cap,
+        Err(error) => {
+            frame_event(
+                "frame_failed",
+                action,
+                json!({"frame_id": frame_id, "reason": reason, "phase": "capture", "error": error.to_string()}),
+            );
+            return Err(error);
+        }
+    };
+    let capture_ms = capture_t0.elapsed().as_millis();
+    let encode_t0 = Instant::now();
+    let (jpeg, shown) = match session::encode_view(&cap, view, VIEW_SHORT, Some(grid), marker) {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            frame_event(
+                "frame_failed",
+                action,
+                json!({"frame_id": frame_id, "reason": reason, "phase": "encode", "error": error.to_string()}),
+            );
+            return Err(error);
+        }
+    };
+    let encode_ms = encode_t0.elapsed().as_millis();
     // Fingerprint the CLEAN region around the click (no grid/marker overlay), so we
     // can tell whether the click changed ITS OWN cell - ignoring a timer/animation
     // elsewhere. With no marker (turn 0 / keyboard) fall back to the whole view.
@@ -50,9 +86,51 @@ pub(super) fn render_view(
         Some((mx, my)) => session::region_fingerprint(&cap, mx, my, VC_HALF),
         None => session::view_fingerprint(&cap, shown),
     };
-    std::fs::write(format!("{dir}/step-{step:02}.jpg"), &jpeg).ok();
-    eprintln!("[cc] step {step:02} frame {} KB", jpeg.len() / 1024);
-    Ok((general_purpose::STANDARD.encode(&jpeg), shown, fp))
+    let turn_id = action.map_or_else(telemetry::current_turn, |trace| trace.turn_id);
+    let file_name = frame_file_name(frame_id, turn_id, action.map(|trace| trace.action_id), step);
+    let path = std::path::Path::new(dir).join(&file_name);
+    let artifact_write_ok = match std::fs::write(&path, &jpeg) {
+        Ok(()) => true,
+        Err(error) => {
+            telemetry::artifact_write_failed("frame", &path, action, &error);
+            false
+        }
+    };
+    frame_event(
+        "frame_ready",
+        action,
+        json!({
+            "frame_id": frame_id,
+            "reason": reason,
+            "step": step,
+            "capture_ms": capture_ms,
+            "encode_ms": encode_ms,
+            "byte_count": jpeg.len(),
+            "artifact_path": file_name,
+            "artifact_write_ok": artifact_write_ok,
+            "view": [shown.x, shown.y, shown.w, shown.h],
+            "marker_screen_px": marker.map(|(x, y)| [x, y]),
+        }),
+    );
+    eprintln!(
+        "[cc] step {step:02} frame {frame_id} {} KB -> {}",
+        jpeg.len() / 1024,
+        path.display()
+    );
+    Ok((general_purpose::STANDARD.encode(&jpeg), shown, fp, frame_id))
+}
+
+fn frame_event(event: &str, action: Option<super::super::telemetry::ActionTrace>, fields: Value) {
+    use super::super::telemetry::{self, Privacy};
+    match action {
+        Some(trace) => telemetry::event_for_action(event, "capture", Privacy::Safe, trace, fields),
+        None => telemetry::event(event, "capture", Privacy::Safe, fields),
+    }
+}
+
+fn frame_file_name(frame_id: u64, turn_id: u64, action_id: Option<u64>, step: usize) -> String {
+    let action = action_id.map_or_else(|| "none".to_string(), |id| format!("{id:06}"));
+    format!("frame-{frame_id:06}-turn-{turn_id:04}-action-{action}-step-{step:04}.jpg")
 }
 
 /// Click at an absolute screen pixel (maps to 0-1000 over the virtual desktop,
@@ -79,6 +157,50 @@ pub(super) fn click_screen(
         &json!({"x": nx, "y": ny, "button": button, "uncertain": true}),
         profile,
         cancel,
+    )
+}
+
+/// Wrap a pointer executor result with both coordinate spaces used to derive it.
+/// Keeping these fields at the top level makes truncated human logs and JSONL
+/// telemetry auditable without reverse-engineering the desktop/view transform.
+pub(super) fn pointer_result(
+    input_result: Value,
+    view: View,
+    view_norm: (f64, f64),
+    screen_px: (i32, i32),
+    extra: Value,
+) -> Value {
+    let ok = input_result
+        .get("ok")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut fields = match extra {
+        Value::Object(fields) => fields,
+        _ => serde_json::Map::new(),
+    };
+    fields.insert("ok".to_string(), json!(ok));
+    fields.insert("view_norm".to_string(), json!([view_norm.0, view_norm.1]));
+    fields.insert("screen_px".to_string(), json!([screen_px.0, screen_px.1]));
+    fields.insert(
+        "view_rect".to_string(),
+        json!([view.x, view.y, view.w, view.h]),
+    );
+    fields.insert(
+        "coordinate_spaces".to_string(),
+        json!({
+            "view_norm": "0..1000 relative to view_rect",
+            "screen_px": "virtual-desktop pixels",
+            "view_rect": "screen pixels [x,y,width,height]",
+        }),
+    );
+    fields.insert("input_result".to_string(), input_result);
+    Value::Object(fields)
+}
+
+pub(super) fn screen_to_view_norm(view: View, sx: i32, sy: i32) -> (f64, f64) {
+    (
+        (sx - view.x) as f64 / view.w.max(1) as f64 * 1000.0,
+        (sy - view.y) as f64 / view.h.max(1) as f64 * 1000.0,
     )
 }
 
@@ -301,5 +423,21 @@ pub(super) fn wait_for_setup(socket: &mut Sock) -> Result<()> {
                 return Ok(());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frame_file_name;
+
+    #[test]
+    fn frame_names_are_unique_and_carry_correlation_ids() {
+        let first = frame_file_name(8, 3, Some(21), 5);
+        let second = frame_file_name(9, 3, Some(21), 5);
+
+        assert_ne!(first, second);
+        assert!(first.contains("turn-0003"));
+        assert!(first.contains("action-000021"));
+        assert!(first.contains("step-0005"));
     }
 }

@@ -3,12 +3,13 @@
 
 use super::super::playback::AudioSink;
 
-const MAX_BUFFERED_SAMPLES: usize = 24_000 * 4;
+const MAX_BUFFERED_SAMPLES: usize = 24_000 * 30;
 
 #[derive(Default)]
 pub(super) struct SpeechGate {
     checked: bool,
     blocked: bool,
+    defer_until_boundary: bool,
     pending_audio: Vec<i16>,
     transcript_prefix: String,
 }
@@ -51,7 +52,7 @@ impl SpeechGate {
             }
             return TranscriptDecision::Block;
         }
-        if !self.checked && safe_to_release(&self.transcript_prefix) {
+        if !self.defer_until_boundary && !self.checked && safe_to_release(&self.transcript_prefix) {
             self.checked = true;
             if let Some(sink) = sink {
                 sink.push(&self.pending_audio);
@@ -66,6 +67,27 @@ impl SpeechGate {
         self.blocked = false;
         self.pending_audio.clear();
         self.transcript_prefix.clear();
+        self.defer_until_boundary = false;
+    }
+
+    pub(super) fn defer_until_boundary(&mut self, defer: bool) {
+        self.defer_until_boundary = defer;
+    }
+
+    pub(super) fn is_deferred(&self) -> bool {
+        self.defer_until_boundary
+    }
+
+    pub(super) fn finish_before_tool(&mut self, sink: Option<&AudioSink>) -> bool {
+        if !self.defer_until_boundary {
+            self.finish_turn(sink);
+            return false;
+        }
+        self.pending_audio.clear();
+        self.transcript_prefix.clear();
+        self.checked = false;
+        self.blocked = false;
+        true
     }
 
     pub(super) fn finish_turn(&mut self, sink: Option<&AudioSink>) {
@@ -119,5 +141,18 @@ mod tests {
     fn allows_normal_speech() {
         assert!(!looks_internal("I found the setting and it is ready."));
         assert!(safe_to_release("Okay, checking."));
+    }
+
+    #[test]
+    fn deferred_speech_is_discarded_before_a_tool() {
+        let mut gate = SpeechGate::default();
+        gate.defer_until_boundary(true);
+        assert!(matches!(
+            gate.transcript("A draft answer before evidence.", None),
+            TranscriptDecision::Allow(_)
+        ));
+        assert!(gate.finish_before_tool(None));
+        assert!(gate.defer_until_boundary);
+        assert!(gate.pending_audio.is_empty());
     }
 }

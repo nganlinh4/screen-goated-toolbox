@@ -5,28 +5,51 @@
 
 use super::*;
 impl Brain {
+    pub(crate) fn bind_action(&mut self, action: super::super::telemetry::ActionTrace) {
+        self.active_action = Some(action);
+    }
+
     pub fn new(target: Option<String>) -> Self {
-        // Per-action frame + click traces (the key accuracy-refinement record).
-        // Default to app-data so a released launch doesn't litter the cwd; a dev
-        // run can override with CC_TRACE_DIR.
-        let dir = std::env::var("CC_TRACE_DIR").unwrap_or_else(|_| {
-            std::env::var("LOCALAPPDATA")
-                .map(|p| format!("{p}/screen-goated-toolbox/cc-trace"))
-                .unwrap_or_else(|_| "cc-trace".to_string())
-        });
-        std::fs::create_dir_all(&dir).ok();
+        // Frames, clicks and structured events share one session-scoped folder.
+        // The session suffix is mandatory even when CC_TRACE_DIR is overridden.
+        super::super::telemetry::begin_session();
+        let trace_dir = super::super::telemetry::trace_dir();
+        if let Err(error) = std::fs::create_dir_all(&trace_dir) {
+            super::super::telemetry::artifact_write_failed(
+                "trace_directory",
+                &trace_dir,
+                None,
+                &error,
+            );
+        }
+        let dir = trace_dir.to_string_lossy().into_owned();
         let view = window_view(target.as_deref(), false);
+        let dry = std::env::var("CC_DRY").is_ok();
+        let desktop = uia::virtual_desktop();
+        super::super::telemetry::record_session_start(json!({
+            "app_version": env!("CARGO_PKG_VERSION"),
+            "live_model": super::super::protocol::MODEL,
+            "dry_run": dry,
+            "target": target,
+            "trace_dir": dir,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "virtual_desktop": [desktop.0, desktop.1, desktop.2, desktop.3],
+            "initial_view": [view.x, view.y, view.w, view.h],
+            "executable": executable_provenance(),
+        }));
         Self {
             dir,
             grid: Grid::from_env(),
             profile: HumanProfile::from_env(),
-            dry: std::env::var("CC_DRY").is_ok(),
+            dry,
             target,
             view,
             zoomed: false,
             whole_screen: false,
             last_click: None,
             step: 0,
+            active_action: None,
             recent_actions: Vec::new(),
             prev_state_sig: None,
             click_before: None,
@@ -37,6 +60,115 @@ impl Brain {
             no_effect_strikes: 0,
             setup_guard: super::setup_guard::SetupGuard::default(),
         }
+    }
+
+    pub(super) fn finish_dispatch(
+        &mut self,
+        action: super::super::telemetry::ActionTrace,
+        name: &str,
+        args: &Value,
+        result: Value,
+        started: Instant,
+    ) -> Value {
+        self.setup_guard.record_result(name, &result);
+        let dispatch_ms = started.elapsed().as_millis();
+        let settle_ms = if matches!(name, "open_url" | "launch_app") {
+            1100
+        } else {
+            250
+        };
+        std::thread::sleep(Duration::from_millis(settle_ms));
+        let total_ms = started.elapsed().as_millis();
+        let short = match name {
+            "observe" => format!(
+                "{} elements",
+                result.get("count").and_then(Value::as_u64).unwrap_or(0)
+            ),
+            "act" => {
+                let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
+                let verb = args.get("verb").and_then(Value::as_str).unwrap_or("act");
+                let target = result
+                    .pointer("/target/name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let outcome = result
+                    .get("verify")
+                    .and_then(Value::as_str)
+                    .or_else(|| result.get("blocked").and_then(Value::as_str))
+                    .or_else(|| result.get("error").and_then(Value::as_str))
+                    .unwrap_or("ok");
+                format!(
+                    "{verb} @{id} {target:?} -> {}",
+                    outcome.chars().take(110).collect::<String>()
+                )
+            }
+            "click_at" | "click_target" | "click_mark" | "point_at" => format!(
+                "ok={} view_norm={} screen_px={} view_rect={}",
+                result.get("ok").unwrap_or(&Value::Null),
+                result.get("view_norm").unwrap_or(&Value::Null),
+                result.get("screen_px").unwrap_or(&Value::Null),
+                result.get("view_rect").unwrap_or(&Value::Null),
+            ),
+            "wait" => {
+                let seconds = result
+                    .get("waited_seconds")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0);
+                format!(
+                    "{seconds:.0}s (~{:.0}s total waiting; if nothing's changing, STOP)",
+                    self.wait_accum + seconds
+                )
+            }
+            _ => result.to_string().chars().take(120).collect(),
+        };
+        super::super::telemetry::human(
+            "cc",
+            format!("step {:02} {name} {total_ms}ms -> {short}", self.step),
+        );
+        super::super::telemetry::tool_result(
+            action,
+            name,
+            self.step,
+            total_ms,
+            result.get("ok").and_then(Value::as_bool),
+            json!({
+                "result_preview": short,
+                "blocked": result.get("blocked"),
+                "error": result.get("error"),
+                "code": result.get("code"),
+                "input_injection": super::super::executor::input_injection(&result),
+                "timing": {
+                    "dispatch_ms": dispatch_ms,
+                    "settle_ms": settle_ms,
+                    "total_ms": total_ms,
+                },
+                "coordinates": {
+                    "view_norm": result.get("view_norm"),
+                    "screen_px": result.get("screen_px"),
+                    "view_rect": result.get("view_rect"),
+                    "coordinate_spaces": result.get("coordinate_spaces"),
+                },
+            }),
+        );
+        if !matches!(name, "observe" | "act") {
+            self.controller.invalidate();
+        }
+        let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(true);
+        self.trail
+            .push(format!("{name}={}", if ok { "ok" } else { "fail" }));
+        if self.trail.len() > 6 {
+            self.trail.remove(0);
+        }
+        self.wait_accum = if name == "wait" {
+            self.wait_accum
+                + result
+                    .get("waited_seconds")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        result
     }
 
     /// Per-turn grounding context the model gets above the element list: where it
@@ -67,12 +199,28 @@ impl Brain {
 
     /// Turn-0 grounding: (frame_b64, state_text). No click marker yet.
     pub fn initial(&mut self) -> Result<(String, String)> {
-        let elements = uia::enumerate(self.target.as_deref()).unwrap_or_default();
-        let (b, v, _fp) = render_view(&self.dir, self.step, self.view, self.grid, None)?;
+        let semantic = self.semantic_surface_state();
+        let elements = if semantic.is_none() {
+            uia::enumerate(self.target.as_deref()).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let (b, v, _fp, _frame_id) = render_view(
+            &self.dir, self.step, self.view, self.grid, None, "initial", None,
+        )?;
         self.view = v;
-        self.prev_state_sig = Some(state_signature(&elements));
-        let mut state = format_state(&elements, self.target.as_deref(), self.view, self.grid);
-        if let Some(marks) = self.detect_marks(&elements) {
+        self.prev_state_sig = Some(
+            semantic
+                .as_ref()
+                .map(|state| format!("structured:{state}"))
+                .unwrap_or_else(|| state_signature(&elements)),
+        );
+        let mut state = semantic.unwrap_or_else(|| {
+            format_state(&elements, self.target.as_deref(), self.view, self.grid)
+        });
+        if !elements.is_empty()
+            && let Some(marks) = self.detect_marks(&elements)
+        {
             state.push_str(&format!("\n{marks}"));
         }
         Ok((b, state))
@@ -85,7 +233,16 @@ impl Brain {
         if !self.zoomed {
             self.view = window_view(self.target.as_deref(), self.whole_screen);
         }
-        let (b, v, fp) = render_view(&self.dir, self.step, self.view, self.grid, self.last_click)?;
+        let action = self.active_action.take();
+        let (b, v, fp, frame_id) = render_view(
+            &self.dir,
+            self.step,
+            self.view,
+            self.grid,
+            self.last_click,
+            name,
+            action,
+        )?;
         self.view = v;
         // Informational tools don't change the screen; skip the heavy UIA readout
         // dump so their OWN result (memory transcript, clipboard text, window list)
@@ -120,16 +277,22 @@ impl Brain {
                 | "decline_app_integration"
         ) {
             eprintln!(
-                "[cc] step {:02} (info tool — screen readouts suppressed)",
+                "[cc] step {:02} (info tool; screen readouts suppressed)",
                 self.step
             );
             return Ok(Grounded {
                 frame_b64: b,
+                frame_id,
                 state_text: self.context_block(),
                 notes: Vec::new(),
             });
         }
-        let elements = uia::enumerate(self.target.as_deref()).unwrap_or_default();
+        let semantic = self.semantic_surface_state();
+        let elements = if semantic.is_none() {
+            uia::enumerate(self.target.as_deref()).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         // Did the click change ITS OWN target cell? Compare the region snapshot
         // taken just before the click (`click_before`) to the same region now
         // (`fp`, fingerprinted around the click point). Localized, so a timer or
@@ -138,15 +301,31 @@ impl Brain {
             Some(before) => session::fingerprint_change(&before, &fp) < vc_min(),
             None => false,
         };
-        let ro = readouts_inline(&elements);
-        let ro_short: String = ro.chars().take(220).collect();
-        let more = if ro.chars().count() > 220 { " ..." } else { "" };
-        eprintln!(
-            "[cc] step {:02} READOUTS ({} els): {ro_short}{more}",
-            self.step,
-            elements.len()
-        );
-        let new_sig = state_signature(&elements);
+        if let Some(state) = &semantic {
+            super::super::telemetry::event(
+                "semantic_surface_observed",
+                "grounding",
+                super::super::telemetry::Privacy::Safe,
+                json!({
+                    "provider": "browser_bridge",
+                    "state_preview": state.chars().take(240).collect::<String>(),
+                    "input_target": uia::input_target_snapshot(),
+                }),
+            );
+        } else {
+            let ro = readouts_inline(&elements);
+            let ro_short: String = ro.chars().take(220).collect();
+            let more = if ro.chars().count() > 220 { " ..." } else { "" };
+            eprintln!(
+                "[cc] step {:02} READOUTS ({} els): {ro_short}{more}",
+                self.step,
+                elements.len()
+            );
+        }
+        let new_sig = semantic
+            .as_ref()
+            .map(|state| format!("structured:{state}"))
+            .unwrap_or_else(|| state_signature(&elements));
         let ui_changed = self.prev_state_sig.as_deref() != Some(new_sig.as_str());
         self.prev_state_sig = Some(new_sig);
         let uia_action = matches!(
@@ -211,19 +390,43 @@ impl Brain {
         if let Some(note) = self.setup_guard.note() {
             notes.push(note);
         }
-        let mut state = format!(
-            "{}\n\n{}",
-            self.context_block(),
+        let surface_state = semantic.unwrap_or_else(|| {
             format_state(&elements, self.target.as_deref(), self.view, self.grid)
-        );
-        if let Some(marks) = self.detect_marks(&elements) {
+        });
+        let mut state = format!("{}\n\n{}", self.context_block(), surface_state);
+        if !elements.is_empty()
+            && let Some(marks) = self.detect_marks(&elements)
+        {
             state.push_str(&format!("\n{marks}"));
         }
         Ok(Grounded {
             frame_b64: b,
+            frame_id,
             state_text: state,
             notes,
         })
+    }
+
+    fn semantic_surface_state(&mut self) -> Option<String> {
+        if !super::super::browser::input_active() {
+            return None;
+        }
+        let observed = self.controller.observe();
+        if observed.get("ok").and_then(Value::as_bool) != Some(true) {
+            return None;
+        }
+        let elements = observed.get("elements").and_then(Value::as_str)?;
+        let title = observed.get("title").and_then(Value::as_str).unwrap_or("");
+        let url = observed.get("url").and_then(Value::as_str).unwrap_or("");
+        super::super::telemetry::human(
+            "cc",
+            format!(
+                "semantic provider=browser_bridge title={:?} url={:?}",
+                title.chars().take(70).collect::<String>(),
+                url.chars().take(100).collect::<String>()
+            ),
+        );
+        Some(elements.to_string())
     }
 
     /// On a UIA-blind surface (canvas/game/custom-drawn) auto-run the local detector
@@ -281,4 +484,37 @@ regions were found visually - click_mark by its number; @cellN is where it sits)
         );
         Some(s)
     }
+}
+
+fn executable_provenance() -> Value {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let Ok(path) = std::env::current_exe() else {
+        return json!({"error": "current executable path unavailable"});
+    };
+    let metadata = std::fs::metadata(&path).ok();
+    let modified_ms = metadata
+        .as_ref()
+        .and_then(|value| value.modified().ok())
+        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|value| value.as_millis());
+    let sha256 = std::fs::File::open(&path).ok().and_then(|mut file| {
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let count = file.read(&mut buffer).ok()?;
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
+        }
+        Some(format!("{:x}", hasher.finalize()))
+    });
+    json!({
+        "path": path,
+        "byte_count": metadata.map(|value| value.len()),
+        "modified_unix_ms": modified_ms,
+        "sha256": sha256,
+    })
 }

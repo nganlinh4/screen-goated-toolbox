@@ -4,13 +4,12 @@
 //! are reached via `super::`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::sleep;
-use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_WHEEL,
+    MOUSE_EVENT_FLAGS, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_WHEEL,
 };
 
 use super::super::human_input::{self, HumanProfile, Outcome};
@@ -26,7 +25,7 @@ pub(super) fn click(
     let (x, y) = super::xy(args)?;
     let target_w = args.get("target_w").and_then(Value::as_f64).unwrap_or(40.0);
     let (down, up) = super::button_flags(args);
-    if super::move_humanized(x, y, target_w, profile, cancel) == Outcome::Aborted {
+    if super::move_humanized(x, y, target_w, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
     // Confidence-gated hesitation: on an uncertain (vision/grid-located) click,
@@ -45,16 +44,24 @@ pub(super) fn click(
     } else {
         20
     };
-    sleep(Duration::from_millis(20));
+    if human_input::sleep_cancellable(20, cancel) {
+        return Ok(super::aborted());
+    }
+    let mut completed = 0;
     for _ in 0..times {
         if cancel.load(Ordering::Relaxed) {
-            return Ok(super::aborted());
+            return Ok(aborted_click(completed));
         }
-        // down -> dwell -> up always completes together (never leaves a held button).
-        super::send(&[super::mouse_input(0, 0, 0, down)]);
-        sleep(Duration::from_millis(dwell));
-        super::send(&[super::mouse_input(0, 0, 0, up)]);
-        sleep(Duration::from_millis(20));
+        press_button(down, up)?;
+        let interrupted = human_input::sleep_cancellable(dwell, cancel);
+        release_button(up)?;
+        completed += 1;
+        if interrupted {
+            return Ok(aborted_click(completed));
+        }
+        if human_input::sleep_cancellable(20, cancel) {
+            return Ok(aborted_click(completed));
+        }
     }
     Ok(json!({"ok": true, "clicked": [x, y], "times": times}))
 }
@@ -69,18 +76,33 @@ pub(super) fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) ->
         .get("dest_y")
         .and_then(Value::as_f64)
         .ok_or_else(|| anyhow!("missing dest_y"))?;
-    if super::move_humanized(x, y, 40.0, profile, cancel) == Outcome::Aborted {
+    if super::move_humanized(x, y, 40.0, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
-    sleep(Duration::from_millis(30));
-    super::send(&[super::mouse_input(0, 0, 0, MOUSEEVENTF_LEFTDOWN)]);
-    sleep(Duration::from_millis(40));
-    if super::move_humanized(dx, dy, 40.0, profile, cancel) == Outcome::Aborted {
-        super::send(&[super::mouse_input(0, 0, 0, MOUSEEVENTF_LEFTUP)]); // release the held button
+    if human_input::sleep_cancellable(30, cancel) {
         return Ok(super::aborted());
     }
-    sleep(Duration::from_millis(40));
-    super::send(&[super::mouse_input(0, 0, 0, MOUSEEVENTF_LEFTUP)]);
+    press_button(MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)?;
+    if human_input::sleep_cancellable(40, cancel) {
+        release_button(MOUSEEVENTF_LEFTUP)?;
+        return Ok(super::aborted());
+    }
+    match super::move_humanized(dx, dy, 40.0, profile, cancel) {
+        Ok(Outcome::Done) => {}
+        Ok(Outcome::Aborted) => {
+            release_button(MOUSEEVENTF_LEFTUP)?;
+            return Ok(super::aborted());
+        }
+        Err(move_error) => {
+            release_button(MOUSEEVENTF_LEFTUP)?;
+            return Err(move_error);
+        }
+    }
+    let interrupted = human_input::sleep_cancellable(40, cancel);
+    release_button(MOUSEEVENTF_LEFTUP)?;
+    if interrupted {
+        return Ok(super::aborted());
+    }
     Ok(json!({"ok": true, "drag": [[x, y], [dx, dy]]}))
 }
 
@@ -90,7 +112,7 @@ pub(super) fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) ->
 /// before the next frame is captured. Pollable by `cancel` like every motion.
 pub(super) fn point(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
     let (x, y) = super::xy(args)?;
-    if super::move_humanized(x, y, 40.0, profile, cancel) == Outcome::Aborted {
+    if super::move_humanized(x, y, 40.0, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
     let dwell = args
@@ -107,19 +129,20 @@ pub(super) fn point(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -
 /// Click (or right/middle-click) at the CURRENT cursor position WITHOUT moving
 /// the mouse - for "this / the one I'm hovering on", where the user's pointer is
 /// already on the target (so we don't have to guess it by description).
-pub(super) fn click_here(args: &Value) -> Result<Value> {
+pub(super) fn click_here(args: &Value, cancel: &AtomicBool) -> Result<Value> {
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(super::aborted());
+    }
     super::super::uia::focus_foreground();
     let (down, up) = super::button_flags(args);
-    super::send(&[
-        super::mouse_input(0, 0, 0, down),
-        super::mouse_input(0, 0, 0, up),
-    ]);
+    press_button(down, up)?;
+    release_button(up)?;
     Ok(json!({"ok": true, "clicked": "at the current cursor position"}))
 }
 
 pub(super) fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
     let (x, y) = super::xy(args)?;
-    if super::move_humanized(x, y, 40.0, profile, cancel) == Outcome::Aborted {
+    if super::move_humanized(x, y, 40.0, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
     let magnitude = args
@@ -139,6 +162,36 @@ pub(super) fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) 
         "left" => (MOUSEEVENTF_HWHEEL, -ticks),
         other => return Err(anyhow!("bad scroll direction: {other}")),
     };
-    super::send(&[super::mouse_input(0, 0, data, flag)]);
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(super::aborted());
+    }
+    super::send(&[super::mouse_input(0, 0, data, flag)])?;
     Ok(json!({"ok": true, "scroll": dir, "magnitude": magnitude}))
+}
+
+fn press_button(down: MOUSE_EVENT_FLAGS, up: MOUSE_EVENT_FLAGS) -> Result<()> {
+    if let Err(error) = super::send(&[super::mouse_input(0, 0, 0, down)]) {
+        // A one-event dispatch should be all-or-nothing, but an unconditional
+        // up is the safe response if a driver reports anything unexpected.
+        let _ = super::release(&[super::mouse_input(0, 0, 0, up)]);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+fn release_button(up: MOUSE_EVENT_FLAGS) -> Result<()> {
+    let release = super::mouse_input(0, 0, 0, up);
+    if let Err(error) = super::send(std::slice::from_ref(&release)) {
+        let _ = super::release(std::slice::from_ref(&release));
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+fn aborted_click(completed: u32) -> Value {
+    json!({
+        "ok": false,
+        "status": "aborted_by_user",
+        "completed_clicks": completed,
+    })
 }

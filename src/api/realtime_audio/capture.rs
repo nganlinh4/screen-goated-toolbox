@@ -378,10 +378,58 @@ pub fn start_device_loopback_capture_resilient(
 /// Name of the current default input device — for detecting a device change (e.g.
 /// headphones plugged/unplugged switching the default mic) so a caller can re-init.
 pub fn current_input_device_name() -> Option<String> {
-    cpal::default_host()
-        .default_input_device()
+    concrete_default_input_device()
         .and_then(|d| d.description().ok())
         .map(|desc| desc.name().to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn current_default_endpoint_id(flow: EDataFlow) -> Option<String> {
+    unsafe {
+        let com = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let result = (|| {
+            let enumerator: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+            let device = enumerator.GetDefaultAudioEndpoint(flow, eConsole).ok()?;
+            device.GetId().ok()?.to_string().ok()
+        })();
+        if com.is_ok() {
+            CoUninitialize();
+        }
+        result
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn concrete_default_input_device() -> Option<cpal::Device> {
+    let endpoint_id = current_default_endpoint_id(eCapture)?;
+    cpal::default_host().input_devices().ok()?.find(|device| {
+        device
+            .id()
+            .ok()
+            .is_some_and(|id| id.id().eq_ignore_ascii_case(&endpoint_id))
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn concrete_default_input_device() -> Option<cpal::Device> {
+    cpal::default_host().default_input_device()
+}
+
+#[cfg(target_os = "windows")]
+pub fn concrete_default_output_device() -> Option<cpal::Device> {
+    let endpoint_id = current_default_endpoint_id(eRender)?;
+    cpal::default_host().output_devices().ok()?.find(|device| {
+        device
+            .id()
+            .ok()
+            .is_some_and(|id| id.id().eq_ignore_ascii_case(&endpoint_id))
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn concrete_default_output_device() -> Option<cpal::Device> {
+    cpal::default_host().default_output_device()
 }
 
 /// Start microphone capture
@@ -391,9 +439,7 @@ pub fn start_mic_capture(
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
 ) -> Result<cpal::Stream> {
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
+    let device = concrete_default_input_device()
         .ok_or_else(|| anyhow::anyhow!("No microphone available. Please connect a microphone."))?;
     let config = device.default_input_config()?;
 

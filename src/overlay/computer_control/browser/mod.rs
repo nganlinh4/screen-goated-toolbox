@@ -10,24 +10,18 @@ mod bridge;
 mod crypto;
 mod page;
 mod prefs;
+mod setup;
 
 use serde_json::{Value, json};
 use std::time::Duration;
 
 pub(super) use bridge::{ensure_started, is_connected};
+pub(super) use page::read_page_on_tab;
 pub(super) use page::{extract_page, read_page};
 pub(super) use prefs::{
     ever_connected, offer_due, recently_connected, record_connection, record_decline,
 };
-
-// The unpacked extension, shipped in the binary and written to disk on setup.
-const EXT_MANIFEST: &[u8] = include_bytes!("../browser_ext/manifest.json");
-const EXT_SW: &[u8] = include_bytes!("../browser_ext/sw.js");
-const EXT_POPUP_HTML: &[u8] = include_bytes!("../browser_ext/popup.html");
-const EXT_POPUP_JS: &[u8] = include_bytes!("../browser_ext/popup.js");
-const EXT_ICON16: &[u8] = include_bytes!("../browser_ext/icon16.png");
-const EXT_ICON48: &[u8] = include_bytes!("../browser_ext/icon48.png");
-const EXT_ICON128: &[u8] = include_bytes!("../browser_ext/icon128.png");
+pub(super) use setup::{reset, setup, status};
 
 fn err(e: anyhow::Error) -> Value {
     json!({"ok": false, "code": "ERR_BROWSER_TOOL_FAILED", "error": e.to_string()})
@@ -60,6 +54,21 @@ fn connection_state() -> &'static str {
 /// Run `Runtime.evaluate` in the TOP frame and return its by-value result.
 pub(super) fn eval_value(expr: &str) -> anyhow::Result<Value> {
     eval_value_in(expr, None)
+}
+
+pub(super) fn eval_value_on_tab(expr: &str, tab_id: i64) -> anyhow::Result<Value> {
+    let r = bridge::cdp_on_tab(
+        "Runtime.evaluate",
+        json!({ "expression": expr, "returnByValue": true, "awaitPromise": true }),
+        tab_id,
+    )?;
+    if let Some(exc) = r.get("exceptionDetails") {
+        anyhow::bail!("js exception: {}", js_exception_text(exc));
+    }
+    Ok(r.get("result")
+        .and_then(|x| x.get("value"))
+        .cloned()
+        .unwrap_or(Value::Null))
 }
 
 /// Like `eval_value`, but optionally inside a specific cross-origin FRAME's CDP
@@ -137,174 +146,6 @@ pub(super) fn child_frames() -> Vec<String> {
         }
     }
     out
-}
-
-// ── Setup / status ───────────────────────────────────────────────────────────
-
-fn ext_dir() -> std::path::PathBuf {
-    crate::paths::app_config_dir().join("cc_browser_ext")
-}
-
-/// Extract the bundled extension to disk and return its folder (for "Load unpacked").
-fn write_extension() -> anyhow::Result<std::path::PathBuf> {
-    let dir = ext_dir();
-    std::fs::create_dir_all(&dir)?;
-    // Centralize the version on Cargo.toml: stamp it into the manifest at extract
-    // time (Chrome wants a plain x.y.z, so drop any -pre/+build suffix).
-    let ver = env!("CARGO_PKG_VERSION");
-    let ver = ver.split(['-', '+']).next().unwrap_or(ver);
-    let manifest = String::from_utf8_lossy(EXT_MANIFEST)
-        .replace("\"version\": \"0.1.0\"", &format!("\"version\": \"{ver}\""));
-    std::fs::write(dir.join("manifest.json"), manifest.as_bytes())?;
-    std::fs::write(dir.join("sw.js"), EXT_SW)?;
-    // Stamp the per-install bootstrap key into a script the service worker loads via
-    // importScripts() on startup. The extension proves knowledge of it on first
-    // connect to receive the durable secret - so the secret is never handed to an
-    // unauthenticated local socket. (Re)written every setup so a fresh extract pairs.
-    let boot = serde_json::to_string(&bridge::bootstrap_secret()).unwrap_or_else(|_| "\"\"".into());
-    std::fs::write(
-        dir.join("bootstrap.js"),
-        format!("self.SGT_BOOTSTRAP = {boot};\n").as_bytes(),
-    )?;
-    std::fs::write(dir.join("popup.html"), EXT_POPUP_HTML)?;
-    std::fs::write(dir.join("popup.js"), EXT_POPUP_JS)?;
-    std::fs::write(dir.join("icon16.png"), EXT_ICON16)?;
-    std::fs::write(dir.join("icon48.png"), EXT_ICON48)?;
-    std::fs::write(dir.join("icon128.png"), EXT_ICON128)?;
-    Ok(dir)
-}
-
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-/// The user's browser, as far as the extension flow needs to know.
-struct BrowserInfo {
-    ext_url: &'static str, // the …://extensions page
-    name: &'static str,    // display name
-    chromium: bool,        // deep control only works on Chromium browsers
-}
-
-/// Detect the default browser from the https UserChoice ProgId and map it to a
-/// Chromium browser. Firefox/unknown → fall back to Chrome (and flag it).
-fn detect_browser() -> BrowserInfo {
-    let prog = default_https_progid().unwrap_or_default().to_lowercase();
-    if prog.contains("msedge") || prog.contains("edge") {
-        BrowserInfo {
-            ext_url: "edge://extensions",
-            name: "Microsoft Edge",
-            chromium: true,
-        }
-    } else if prog.contains("brave") {
-        BrowserInfo {
-            ext_url: "brave://extensions",
-            name: "Brave",
-            chromium: true,
-        }
-    } else if prog.contains("opera") {
-        BrowserInfo {
-            ext_url: "opera://extensions",
-            name: "Opera",
-            chromium: true,
-        }
-    } else if prog.contains("firefox") {
-        BrowserInfo {
-            ext_url: "chrome://extensions",
-            name: "Firefox",
-            chromium: false,
-        }
-    } else {
-        BrowserInfo {
-            ext_url: "chrome://extensions",
-            name: "Google Chrome",
-            chromium: true,
-        }
-    }
-}
-
-fn default_https_progid() -> Option<String> {
-    use std::os::windows::process::CommandExt;
-    let out = std::process::Command::new("reg")
-        .args([
-            "query",
-            r"HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
-            "/v",
-            "ProgId",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()?;
-    let s = String::from_utf8_lossy(&out.stdout);
-    s.lines()
-        .find(|l| l.contains("ProgId") && l.contains("REG_SZ"))
-        .and_then(|l| l.split_whitespace().last())
-        .map(str::to_string)
-}
-
-/// Bring the bridge up, lay down the extension files, and open chrome://extensions.
-/// Returns what the agent needs to finish the install ITSELF (it should perform
-/// the clicks, not recite them to the user) — pausing only at the permission grant.
-pub(super) fn setup() -> Value {
-    ensure_started();
-    // Already connected → nothing to do. Without this the agent would re-open
-    // chrome://extensions and re-run the whole install, looping after success.
-    if is_connected() {
-        return json!({
-            "ok": true,
-            "connected": true,
-            "state": "connected",
-            "note": "Browser control is ALREADY set up and connected - do NOT install again. Tell the user it's ready and stop."
-        });
-    }
-    let dir = match write_extension() {
-        Ok(d) => d.display().to_string(),
-        Err(e) => return err(e),
-    };
-    let browser = detect_browser();
-    bridge::open_pairing_window(); // a fresh extension auto-pairs INSTANTLY on connect, no popup
-    json!({
-        "ok": true,
-        "connected": is_connected(),
-        "state": connection_state(),
-        "code": if is_connected() { Value::Null } else { json!("BROWSER_SETUP_NEEDS_EXTENSION_LOAD") },
-        "browser": browser.name,
-        "chromium": browser.chromium,
-        "extensions_page": browser.ext_url,
-        "extension_folder": dir,
-        "port": bridge::port_for_display(),
-        "warning": if browser.chromium { Value::Null } else {
-            json!(format!("Your default browser ({}) isn't Chromium - deep browser control needs Chrome/Edge/Brave.", browser.name))
-        },
-        "do_yourself": [
-            format!("Open a new tab in the current browser window, go to {}, and use observe/act or keyboard controls from there.", browser.ext_url),
-            "Developer mode is ON when 'Load unpacked' appears. Toggle Developer mode at most once per observe/status check.",
-            "Once 'Load unpacked' is listed, click it. In the file dialog, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
-            "Check browser_status after each visible setup step. If connected is true, stop; if it remains false after a bounded recovery, report the blocker instead of looping."
-        ]
-    })
-}
-
-/// Reset / repair browser control: re-open the pairing window so a stuck or
-/// stale-secret extension re-pairs cleanly, and re-enable the proactive offer.
-/// The clean alternative to manually deleting files - no raw deletion, bounded.
-pub(super) fn reset() -> Value {
-    prefs::clear(); // re-enable the setup offer
-    bridge::open_pairing_window(); // a loaded extension re-pairs within the window
-    json!({
-        "ok": true,
-        "state": connection_state(),
-        "note": "Browser-control pairing reset: a loaded, ENABLED extension re-pairs in a second or two (instant, not minutes). If it stays disconnected, toggle Developer mode off/on (Chrome often soft-disables it) or reload it on the extensions page; to fully UNINSTALL, the user removes it there."
-    })
-}
-
-pub(super) fn status() -> Value {
-    // Deliberately does NOT return the pairing secret: with auto-pair the model
-    // never needs it, and exposing it widens the blast radius if a transcript leaks.
-    json!({
-        "ok": true,
-        "connected": is_connected(),
-        "state": connection_state(),
-        "pairing_window_open": bridge::pairing_window_open(),
-        "port": bridge::port_for_display()
-    })
 }
 
 // ── Page tools (all guard on connection) ─────────────────────────────────────
@@ -549,6 +390,26 @@ pub(super) fn open_tab(url: &str) -> Value {
         Ok(v) => json!({"ok": true, "tab": v}),
         Err(e) => err(e),
     }
+}
+
+pub(super) fn open_background_tab(url: &str) -> anyhow::Result<i64> {
+    if bridge::protocol_version() < 2 {
+        anyhow::bail!(
+            "browser extension update is staged but must be reloaded before background tabs are safe"
+        );
+    }
+    let tab = bridge::rpc(
+        "tabs",
+        json!({"action": "create", "url": url, "active": false}),
+    )?;
+    tab.get("id")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| anyhow::anyhow!("browser did not return a temporary tab id"))
+}
+
+pub(super) fn close_tab(tab_id: i64) -> anyhow::Result<()> {
+    bridge::rpc("tabs", json!({"action": "remove", "tabId": tab_id}))?;
+    Ok(())
 }
 
 pub(super) fn upload_file(selector: &str, path: &str) -> Value {

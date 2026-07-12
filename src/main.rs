@@ -384,6 +384,11 @@ fn maybe_run_headless_export_replay(args: &[String]) -> Option<i32> {
 }
 
 fn main() -> eframe::Result<()> {
+    if initialization::setup_console_utf8() {
+        println!("[Console] UTF-8 input/output enabled");
+    } else {
+        eprintln!("[Console] WARNING: failed to enable UTF-8 input/output");
+    }
     let startup_args: Vec<String> = std::env::args().collect();
     if startup_args
         .iter()
@@ -430,7 +435,27 @@ fn main() -> eframe::Result<()> {
         let task = parse_arg_value(&startup_args, "--cc-task").unwrap_or_else(|| {
             "Look at the screen and describe what you see, then call done.".to_string()
         });
-        match crate::overlay::computer_control::run_probe_cli(&task) {
+        let tasks = match parse_arg_value(&startup_args, "--cc-turns-json") {
+            Some(raw) => match serde_json::from_str::<Vec<String>>(&raw) {
+                Ok(tasks)
+                    if !tasks.is_empty() && tasks.iter().all(|task| !task.trim().is_empty()) =>
+                {
+                    tasks
+                }
+                Ok(_) => {
+                    eprintln!(
+                        "[cc-probe] ERROR: --cc-turns-json must contain non-empty task strings"
+                    );
+                    std::process::exit(2);
+                }
+                Err(error) => {
+                    eprintln!("[cc-probe] ERROR: invalid --cc-turns-json: {error}");
+                    std::process::exit(2);
+                }
+            },
+            None => vec![task],
+        };
+        match crate::overlay::computer_control::run_probe_cli(&tasks) {
             Ok(()) => std::process::exit(0),
             Err(error) => {
                 eprintln!("[cc-probe] ERROR: {error}");
@@ -444,8 +469,25 @@ fn main() -> eframe::Result<()> {
         .iter()
         .any(|arg| arg == "--computer-control-run")
     {
-        crate::overlay::computer_control::run_headless();
-        std::process::exit(0);
+        let scripted_turns = parse_arg_value(&startup_args, "--cc-turns-json").map(|raw| {
+            serde_json::from_str::<Vec<String>>(&raw).unwrap_or_else(|error| {
+                eprintln!("[cc-runtime] ERROR: invalid --cc-turns-json: {error}");
+                std::process::exit(2);
+            })
+        });
+        if scripted_turns.as_ref().is_some_and(|turns| {
+            turns.is_empty() || turns.iter().any(|turn| turn.trim().is_empty())
+        }) {
+            eprintln!("[cc-runtime] ERROR: scripted turns must be non-empty strings");
+            std::process::exit(2);
+        }
+        match crate::overlay::computer_control::run_headless(scripted_turns) {
+            Ok(()) => std::process::exit(0),
+            Err(error) => {
+                eprintln!("[cc-runtime] ERROR: {error}");
+                std::process::exit(1);
+            }
+        }
     }
 
     // Coordinate-convention debug harness.

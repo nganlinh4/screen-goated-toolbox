@@ -11,7 +11,15 @@ struct PageText {
 }
 
 pub(in crate::overlay::computer_control) fn read_page() -> Value {
-    let page = match extract_current_page() {
+    read_page_impl(None)
+}
+
+pub(in crate::overlay::computer_control) fn read_page_on_tab(tab_id: i64) -> Value {
+    read_page_impl(Some(tab_id))
+}
+
+fn read_page_impl(tab_id: Option<i64>) -> Value {
+    let page = match extract_current_page(tab_id) {
         Ok(page) => page,
         Err(v) => return v,
     };
@@ -40,7 +48,7 @@ pub(in crate::overlay::computer_control) fn read_page() -> Value {
 }
 
 pub(in crate::overlay::computer_control) fn extract_page() -> Value {
-    let page = match extract_current_page() {
+    let page = match extract_current_page(None) {
         Ok(page) => page,
         Err(v) => return v,
     };
@@ -58,7 +66,7 @@ pub(in crate::overlay::computer_control) fn extract_page() -> Value {
     })
 }
 
-fn extract_current_page() -> Result<PageText, Value> {
+fn extract_current_page(tab_id: Option<i64>) -> Result<PageText, Value> {
     if let Some(v) = super::conn_guard() {
         return Err(v);
     }
@@ -94,7 +102,11 @@ fn extract_current_page() -> Result<PageText, Value> {
             skippedIframes
         };
     })()"#;
-    match super::eval_value(js) {
+    let result = match tab_id {
+        Some(id) => super::eval_value_on_tab(js, id),
+        None => super::eval_value(js),
+    };
+    match result {
         Ok(v) => Ok(PageText {
             title: v
                 .get("title")
