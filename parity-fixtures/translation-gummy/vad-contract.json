@@ -19,7 +19,10 @@
     "endSensitivity": "END_SENSITIVITY_HIGH",
     "prefixPaddingMs": 80,
     "silenceDurationMs": 320,
-    "thinkingBudget": 0,
+    "thinkingByModel": {
+      "gemini-2.5-flash-native-audio-preview-12-2025": { "thinkingBudget": 0 },
+      "gemini-3.1-flash-live-preview": { "thinkingLevel": "minimal" }
+    },
     "mediaResolution": "MEDIA_RESOLUTION_LOW",
     "activityHandling": "START_OF_ACTIVITY_INTERRUPTS",
     "turnCoverage": "TURN_INCLUDES_ONLY_ACTIVITY"

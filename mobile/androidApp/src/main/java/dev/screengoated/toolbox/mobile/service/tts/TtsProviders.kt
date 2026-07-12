@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Base64
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.service.LIVE_WS_ENDPOINT
+import dev.screengoated.toolbox.mobile.shared.live.geminiLiveThinkingJson
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -280,7 +281,7 @@ internal class GeminiTtsProvider(
                 ),
             )
 
-        generationConfig.put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+        geminiLiveThinkingJson(settings.geminiModel)?.let { generationConfig.put("thinkingConfig", it) }
 
         return JSONObject()
             .put(

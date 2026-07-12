@@ -1,6 +1,8 @@
 package dev.screengoated.toolbox.mobile.translationgummy
 
 import android.util.Base64
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveThinkingConfig
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -44,7 +46,17 @@ internal fun buildTranslationGummySetupPayload(
                     buildJsonObject {
                         put("responseModalities", buildJsonArray { add(JsonPrimitive("AUDIO")) })
                         put("mediaResolution", "MEDIA_RESOLUTION_LOW")
-                        put("thinkingConfig", buildJsonObject { put("thinkingBudget", 0) })
+                        when (val thinking = GeneratedLiveModelCatalog.thinkingConfig(model)) {
+                            is GeneratedLiveThinkingConfig.Budget -> put(
+                                "thinkingConfig",
+                                buildJsonObject { put("thinkingBudget", thinking.value) },
+                            )
+                            is GeneratedLiveThinkingConfig.Level -> put(
+                                "thinkingConfig",
+                                buildJsonObject { put("thinkingLevel", thinking.value) },
+                            )
+                            null -> Unit
+                        }
                         put(
                             "speechConfig",
                             buildJsonObject {

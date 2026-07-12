@@ -39,7 +39,7 @@ fn key_for(provider: &str, config: &Config) -> Option<String> {
 /// preferred over the user's OCR-tuned `image_to_text` stack (whose first entry
 /// can be too weak for fine board reading / pixel pointing). Overridable via
 /// `CC_VISION_MODEL`.
-const CC_DEFAULT_VISION_MODEL: &str = "gemini-3.1-flash-lite-preview";
+const CC_DEFAULT_VISION_MODEL: &str = "gemini-3.1-flash-lite";
 
 /// CC vision fallback order AFTER the accurate default (flash-lite): the Live
 /// model as a vision model (Unlimited quota, comparable accuracy, ~2x slower) and

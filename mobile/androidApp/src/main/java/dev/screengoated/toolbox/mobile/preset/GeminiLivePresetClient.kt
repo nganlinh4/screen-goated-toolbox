@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.core.graphics.scale
 import dev.screengoated.toolbox.mobile.model.TtsDefaults
+import dev.screengoated.toolbox.mobile.shared.live.geminiLiveThinkingJson
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -186,7 +187,7 @@ private fun buildGeminiLiveSetup(
             ),
         )
 
-    generationConfig.put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+    geminiLiveThinkingJson(model)?.let { generationConfig.put("thinkingConfig", it) }
 
     val setup = JSONObject()
         .put(

@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.service
 
 import android.util.Log
+import dev.screengoated.toolbox.mobile.shared.live.geminiLiveThinkingJson
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -335,7 +336,7 @@ class GeminiLiveSocketClient(
         val generationConfig = JSONObject()
             .put("responseModalities", JSONArray().put("AUDIO"))
             .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
-            .put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+        geminiLiveThinkingJson(model)?.let { generationConfig.put("thinkingConfig", it) }
 
         val setup = JSONObject()
             .put(

@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn disables_thinking_for_gemini_3_1_flash_lite() {
-        let config = gemini_thinking_config("gemini-3.1-flash-lite-preview")
+        let config = gemini_thinking_config("gemini-3.1-flash-lite")
             .expect("3.1 flash lite should get explicit thinking config");
 
         assert_eq!(

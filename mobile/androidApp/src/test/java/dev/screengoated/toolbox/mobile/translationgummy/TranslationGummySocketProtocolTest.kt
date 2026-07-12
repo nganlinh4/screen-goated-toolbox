@@ -57,8 +57,8 @@ class TranslationGummySocketProtocolTest {
         assertEquals("models/${fixture.model}", setup.getValue("model").jsonPrimitive.content)
         assertEquals("AUDIO", generation.getValue("responseModalities").jsonArray[0].jsonPrimitive.content)
         assertEquals(1, generation.getValue("responseModalities").jsonArray.size)
-        assertEquals(0, generation.getValue("thinkingConfig").jsonObject.getValue("thinkingBudget").jsonPrimitive.int)
-        assertFalse(generation.containsKey("thinkingLevel"))
+        assertEquals("minimal", generation.getValue("thinkingConfig").jsonObject.getValue("thinkingLevel").jsonPrimitive.content)
+        assertFalse(generation.getValue("thinkingConfig").jsonObject.containsKey("thinkingBudget"))
         assertEquals(
             "Aoede",
             generation
@@ -92,6 +92,26 @@ class TranslationGummySocketProtocolTest {
         assertEquals("TURN_INCLUDES_ONLY_ACTIVITY", realtime.getValue("turnCoverage").jsonPrimitive.content)
         assertTrue(setup.containsKey("inputAudioTranscription"))
         assertTrue(setup.containsKey("outputAudioTranscription"))
+    }
+
+    @Test
+    fun `Gemini 2_5 setup uses budget while 3_1 uses level`() {
+        val instruction = "translate"
+        val twoFive = json.parseToJsonElement(
+            buildTranslationGummySetupPayload(
+                "gemini-2.5-flash-native-audio-preview-12-2025",
+                instruction,
+                "Aoede",
+            ),
+        ).jsonObject["setup"]!!.jsonObject["generationConfig"]!!.jsonObject["thinkingConfig"]!!.jsonObject
+        val threeOne = json.parseToJsonElement(
+            buildTranslationGummySetupPayload("gemini-3.1-flash-live-preview", instruction, "Aoede"),
+        ).jsonObject["setup"]!!.jsonObject["generationConfig"]!!.jsonObject["thinkingConfig"]!!.jsonObject
+
+        assertEquals(0, twoFive.getValue("thinkingBudget").jsonPrimitive.int)
+        assertFalse(twoFive.containsKey("thinkingLevel"))
+        assertEquals("minimal", threeOne.getValue("thinkingLevel").jsonPrimitive.content)
+        assertFalse(threeOne.containsKey("thinkingBudget"))
     }
 
     @Test

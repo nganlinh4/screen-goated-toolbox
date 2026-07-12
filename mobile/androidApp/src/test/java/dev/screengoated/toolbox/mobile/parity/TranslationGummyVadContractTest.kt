@@ -52,9 +52,10 @@ class TranslationGummyVadContractTest {
     @Test
     fun `setup payload matches parity fixture`() {
         val setupFixture = loadFixture().getValue("setup").jsonObject
+        val model = "gemini-3.1-flash-live-preview"
         val payload = json.parseToJsonElement(
             buildTranslationGummySetupPayload(
-                model = "model-x",
+                model = model,
                 instruction = "instruction",
                 voiceName = "VoiceX",
             ),
@@ -81,8 +82,8 @@ class TranslationGummyVadContractTest {
             activity.getValue("silenceDurationMs").jsonPrimitive.int,
         )
         assertEquals(
-            setupFixture.getValue("thinkingBudget").jsonPrimitive.int,
-            generation.getValue("thinkingConfig").jsonObject.getValue("thinkingBudget").jsonPrimitive.int,
+            setupFixture.getValue("thinkingByModel").jsonObject.getValue(model).jsonObject,
+            generation.getValue("thinkingConfig").jsonObject,
         )
         assertEquals(
             setupFixture.getValue("mediaResolution").jsonPrimitive.content,
