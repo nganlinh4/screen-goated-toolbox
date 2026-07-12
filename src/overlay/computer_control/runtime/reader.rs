@@ -384,33 +384,12 @@ pub(super) fn handle_event(
                 );
                 return;
             }
-            // Only an authorized action task can stall by ending without a tool.
-            // A spoken answer/read-only response is itself the requested result and
-            // must not be revived by a visual-DONE recovery loop.
-            if state.active
-                && state.turn_mode.needs_action_completion()
-                && !state.control_revoked
-                && let Some(t) = state.think_start.take()
-            {
-                state.stall_count += 1;
-                state.turn_stall_count += 1;
-                let elapsed_ms = t.elapsed().as_millis();
-                overlay::push_log(format!(
-                    "[~] turn ended after {elapsed_ms}ms mid-task with NO action (narrated only)"
-                ));
-                telemetry::typed_error(
-                    "ERR_TURN_COMPLETE_NO_ACTION",
-                    "runtime",
-                    "model ended an active turn without a tool call",
-                    serde_json::json!({"elapsed_ms": elapsed_ms, "stall_count": state.stall_count}),
-                );
-                state.control_nudge = Some(turn_policy::stall_nudge(
-                    &state.last_user_text,
-                    &state.last_cmd,
-                    state.turn_stall_count,
-                ));
-            } else if super::reader_policy::finish_without_action_recovery(state) {
-                emit_turn_summary(state, "answered");
+            // The server's boundary ends this response. Never turn it into a
+            // synthetic "continue" request: that creates unsolicited speech and
+            // can loop forever when the model does not call done explicitly.
+            if super::reader_policy::finish_at_model_boundary(state) {
+                emit_turn_summary(state, "model_turn_complete");
+                overlay::set_orb_done();
                 overlay::set_status("ready - speak a command");
             }
             super::speech_events::generation_complete(state, sink);

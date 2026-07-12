@@ -68,14 +68,16 @@ pub(super) fn refine_turn_mode(state: &mut Reader, intent: &str, tool: &str) {
     }
 }
 
-/// Close a non-action turn without scheduling action recovery. Returns whether
-/// this call transitioned an active turn to idle.
-pub(super) fn finish_without_action_recovery(state: &mut Reader) -> bool {
-    if state.turn_mode.needs_action_completion() && !state.control_revoked {
+/// Treat the model's own turn boundary as terminal once no tool is in flight.
+/// A boundary is not permission for the harness to manufacture another user
+/// turn: doing that makes a completed task repeatedly talk and keep exploring.
+pub(super) fn finish_at_model_boundary(state: &mut Reader) -> bool {
+    if state.pending.id.is_some() {
         return false;
     }
     state.think_start = None;
     state.control_nudge = None;
+    state.awaiting = false;
     std::mem::replace(&mut state.active, false)
 }
 
@@ -274,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn a_spoken_answer_finishes_without_action_recovery() {
+    fn a_model_boundary_finishes_answers_and_actions_without_self_reviving() {
         let mut answer = Reader {
             active: true,
             turn_mode: turn_policy::TurnMode::ReadOnly,
@@ -282,7 +284,7 @@ mod tests {
             control_nudge: Some("continue acting".to_string()),
             ..Reader::default()
         };
-        assert!(finish_without_action_recovery(&mut answer));
+        assert!(finish_at_model_boundary(&mut answer));
         assert!(!answer.active);
         assert!(answer.think_start.is_none());
         assert!(answer.control_nudge.is_none());
@@ -293,9 +295,22 @@ mod tests {
             think_start: Some(Instant::now()),
             ..Reader::default()
         };
-        assert!(!finish_without_action_recovery(&mut action));
-        assert!(action.active);
-        assert!(action.think_start.is_some());
+        assert!(finish_at_model_boundary(&mut action));
+        assert!(!action.active);
+        assert!(action.think_start.is_none());
+        assert!(action.control_nudge.is_none());
+
+        let mut in_flight = Reader {
+            pending: Pending {
+                id: Some("tool-call".to_string()),
+                ..Pending::default()
+            },
+            active: true,
+            turn_mode: turn_policy::TurnMode::Action,
+            ..Reader::default()
+        };
+        assert!(!finish_at_model_boundary(&mut in_flight));
+        assert!(in_flight.active);
     }
 
     #[test]
