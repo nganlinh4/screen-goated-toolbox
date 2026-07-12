@@ -29,7 +29,6 @@ pub(super) fn executor_loop(
             name,
             args,
             task,
-            intent,
             user_text,
             action,
             source_frame_id,
@@ -86,45 +85,9 @@ pub(super) fn executor_loop(
             }
         } else {
             let research_circuit_open = research_failed_turn == Some(action.turn_id);
-            let route_args = (!research_circuit_open)
-                .then(|| turn_policy::auto_research_args(&user_text, &task, &intent, &name, &args))
-                .flatten();
-            let (dispatch_name, dispatch_args, rerouted_from) = match route_args {
-                Some(research_args) => {
-                    telemetry::human(
-                        "cc",
-                        format!("policy reroute requested={name} effective=research_web"),
-                    );
-                    telemetry::typed_error(
-                        "ERR_WEAK_TOOL_FOR_TURN",
-                        "turn_policy",
-                        "rerouted weak tool to research_web",
-                        json!({
-                            "requested_tool": name.clone(),
-                            "effective_tool": "research_web",
-                            "task": task.chars().take(240).collect::<String>(),
-                            "intent": intent.chars().take(240).collect::<String>(),
-                        }),
-                    );
-                    telemetry::event_for_action(
-                        "policy_reroute",
-                        "turn_policy",
-                        Privacy::Safe,
-                        action,
-                        json!({
-                            "tool_call_id": id.clone(),
-                            "requested_tool": name.clone(),
-                            "effective_tool": "research_web",
-                        }),
-                    );
-                    (
-                        "research_web".to_string(),
-                        research_args,
-                        Some(name.clone()),
-                    )
-                }
-                None => (name.clone(), args.clone(), None),
-            };
+            let dispatch_name = name.clone();
+            let dispatch_args = args.clone();
+            let rerouted_from: Option<String> = None;
             let ctx = format!("user request: {user_text}");
             let dispatch_started = std::time::Instant::now();
             let action_result = if research_circuit_open && dispatch_name == "research_web" {
@@ -171,17 +134,6 @@ pub(super) fn executor_loop(
                         });
                         if let Some(ok) = execution_ok {
                             resp["ok"] = json!(ok);
-                        }
-                        if turn_policy::request_is_edit_only(&user_text)
-                            && action_result.get("did").and_then(|value| value.as_str())
-                                == Some("fill")
-                            && execution_ok == Some(true)
-                        {
-                            resp["scope_completion"] = json!({
-                                "requested_effect_complete": true,
-                                "submission_forbidden": true,
-                                "instruction": "The requested edit is verified. Call done now; do not click, submit, send, or continue the prior task."
-                            });
                         }
                         if let Some(from) = rerouted_from {
                             resp["policy"] = json!({

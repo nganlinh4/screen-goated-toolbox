@@ -36,7 +36,6 @@ pub fn gate_action(
     if matches!(verb, Verb::Click | Verb::Submit | Verb::Toggle)
         && let Some(reason) = el.risk.as_deref()
         && !confirm
-        && !goal_authorizes(ctx, el)
     {
         return Gate::Block(format!(
             "Did NOT {} {:?}: this {reason}. It is a consequential/irreversible action the task did not clearly ask \
@@ -49,11 +48,6 @@ confirm:true. Never set confirm:true unless the user explicitly agreed to it jus
 
     // 2) Premature submit — required fields still empty in the SAME form.
     if matches!(verb, Verb::Submit | Verb::Click) && el.submit {
-        if !super::super::turn_policy::request_authorizes_submission(ctx) {
-            return Gate::Block(
-                "Did not submit: the user authorized editing or typing, not sending. Leave the content in the field and finish.".to_string(),
-            );
-        }
         let empty = ws.empty_required_in_form(el);
         if !empty.is_empty() {
             return Gate::Block(format!(
@@ -80,17 +74,6 @@ you. Ask the user for it instead of guessing.",
     }
 
     Gate::Allow
-}
-
-/// Whether the task/intent text plainly asked for this high-stakes action — a
-/// significant word of its label appears in the context (works within whatever
-/// language both are written in; no hard-coded keyword list).
-fn goal_authorizes(ctx: &str, el: &IndexedElement) -> bool {
-    let ctx = ctx.to_lowercase();
-    el.name
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| w.chars().count() >= 4)
-        .any(|w| ctx.contains(&w.to_lowercase()))
 }
 
 /// Heuristic "this string is a handle/email/token, not prose" — no whitespace,

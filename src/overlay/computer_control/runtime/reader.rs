@@ -59,8 +59,8 @@ pub(super) struct Reader {
     /// turn) - the goal handed to vision + done-verification. NOT the raw input
     /// transcription: that text is display-only, so a mis-hear can't pollute the task.
     pub(super) last_cmd: String,
-    /// Raw user transcript for the current turn. Unlike `last_cmd`, this preserves
-    /// explicit user directives such as "search Google" for code-owned policy.
+    /// Raw user transcript for the current turn, retained for model context and
+    /// completion evidence but never parsed to grant or deny tools.
     pub(super) last_user_text: String,
     /// When the current user turn started, for compact turn summaries.
     pub(super) turn_started_at: Option<Instant>,
@@ -70,12 +70,6 @@ pub(super) struct Reader {
     pub(super) turn_summary_emitted: bool,
     /// Authorization/lifecycle mode for the current user turn.
     pub(super) turn_mode: turn_policy::TurnMode,
-    /// Durable revocation latch. It is cleared only by a later explicit action
-    /// request in the user's transcript, never by model reasoning or reconnect.
-    pub(super) control_revoked: bool,
-    /// The ASR text was genuinely ambiguous, so the model's first action intent
-    /// may clarify it. Clear questions/restrictions never get this escape hatch.
-    pub(super) intent_may_authorize_action: bool,
     /// Policy-owned responses waiting for the socket loop to send.
     pub(super) immediate_tool_responses: VecDeque<super::reader_policy::ImmediateToolResponse>,
     /// Control nudge to send after the current server frame is fully processed.
@@ -218,16 +212,15 @@ pub(super) fn emit_turn_summary(state: &mut Reader, outcome: &str) {
         .turn_started_at
         .map(|started| started.elapsed().as_millis())
         .unwrap_or(0);
-    let class = turn_policy::classify(&state.last_user_text, &state.last_cmd);
+    let class = turn_policy::task_class_from_tools(&state.turn_tools);
     telemetry::event(
         "turn_summary",
         "runtime",
         Privacy::Safe,
         serde_json::json!({
             "outcome": outcome,
-            "task_class": class.as_str(),
+            "task_class": class,
             "turn_mode": state.turn_mode.as_str(),
-            "control_revoked": state.control_revoked,
             "duration_ms": duration_ms,
             "tool_count": state.turn_tools.len(),
             "tools": state.turn_tools.clone(),
@@ -265,8 +258,8 @@ pub(super) fn handle_event(
         ServerEvent::Audio(pcm) => super::speech_events::audio(state, &pcm, sink),
         ServerEvent::Interrupted => {
             // Barge-in: stop TALKING so the agent listens, but let the in-flight
-            // ACTION finish (the user just wants to comment/steer, not abort the
-            // click). Only an explicit stop aborts the action.
+            // ACTION finish until the server identifies which pending call its
+            // voice-activity barge-in cancelled.
             super::speech_events::interrupted(state, sink);
         }
         ServerEvent::ToolCancellation(ids) => {
@@ -298,16 +291,8 @@ pub(super) fn handle_event(
             // first intent still supplies that. The transcript is authoritative only
             // for explicit safety restrictions and code-owned capability policy.
             if !t.trim().is_empty() {
-                let incoming_mode = turn_policy::turn_mode(&t, "");
                 if state.active && !state.turn_summary_emitted {
-                    emit_turn_summary(
-                        state,
-                        if incoming_mode == turn_policy::TurnMode::Stopped {
-                            "stopped_by_user"
-                        } else {
-                            "superseded"
-                        },
-                    );
+                    emit_turn_summary(state, "superseded");
                 }
                 flush_reply(state); // close the assistant's prior reply into history
                 telemetry::start_turn("user_transcript");
@@ -335,21 +320,12 @@ pub(super) fn handle_event(
                 state.has_command = true; // the user has spoken (gates the browser offer)
                 let cancelled_pending =
                     super::reader_policy::apply_user_turn_policy(state, t.trim());
-                if state.turn_mode == turn_policy::TurnMode::Stopped {
-                    overlay::set_status(if cancelled_pending {
-                        "halting control..."
-                    } else {
-                        "control stopped"
-                    });
-                    emit_turn_summary(state, "stopped_by_user");
-                }
                 telemetry::event(
                     "turn_policy_applied",
                     "turn_policy",
                     Privacy::Safe,
                     serde_json::json!({
                         "turn_mode": state.turn_mode.as_str(),
-                        "control_revoked": state.control_revoked,
                         "cancelled_pending": cancelled_pending,
                     }),
                 );
@@ -483,7 +459,6 @@ pub(super) fn handle_event(
                     "task_preview": state.last_cmd.chars().take(240).collect::<String>(),
                     "intent_preview": intent.chars().take(240).collect::<String>(),
                     "turn_mode": state.turn_mode.as_str(),
-                    "control_revoked": state.control_revoked,
                     "source_frame_id": state.source_frame_id,
                 }),
             );
@@ -506,7 +481,6 @@ pub(super) fn handle_event(
                 name: name.clone(),
                 args,
                 task: state.last_cmd.clone(),
-                intent,
                 user_text: state.last_user_text.clone(),
                 action,
                 source_frame_id: state.source_frame_id,

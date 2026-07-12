@@ -69,6 +69,7 @@ cargo test               # Run tests
   - `./mobile/scripts/sgtp-wsl.sh gradle :androidApp:testFullDebugUnitTest --console=plain`
 
 ## Claude Code Rules
+- **Computer Control work must follow `docs/COMPUTER_CONTROL_DEVELOPMENT.md`.** Its no-language-gating and capability-derived lifecycle rules are normative.
 - **Never run `cargo build --release`** - the user will build manually when ready
 - Use `cargo check` or `cargo clippy` for verification instead
 - **Always fix all warnings** - code must compile with zero warnings
