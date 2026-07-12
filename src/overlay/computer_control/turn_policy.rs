@@ -456,30 +456,6 @@ fn intent_describes_surface_action(intent: &str) -> bool {
     any(&text, ACTION_TERMS) || any(&text, &["fill", "use the current", "current search field"])
 }
 
-pub(super) fn stall_nudge(user_text: &str, intent: &str, stall_count: u32) -> String {
-    let class = classify(user_text, intent);
-    let guidance = match class {
-        TaskClass::WebResearch => {
-            "The user asked for verification/search. Call research_web now; do not ask whether to search."
-        }
-        TaskClass::ScreenAnswer => {
-            "If the answer is already spoken, call done with the evidence. Otherwise call look with a specific question."
-        }
-        TaskClass::BrowserAction => {
-            "Use browser_read_page/browser tools if connected; avoid visual browsing loops."
-        }
-        TaskClass::Setup => {
-            "Check the typed setup status tool and stop with a blocker if setup is not converging."
-        }
-        _ => {
-            "If you have answered, call done. If more evidence is needed, take the next tool action now."
-        }
-    };
-    format!(
-        "(Harness recovery after no-action turn #{stall_count}; not a new user request.) {guidance}"
-    )
-}
-
 fn is_weak_for_research(tool: &str) -> bool {
     matches!(
         tool,
