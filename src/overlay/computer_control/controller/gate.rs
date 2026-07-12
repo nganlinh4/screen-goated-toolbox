@@ -49,6 +49,11 @@ confirm:true. Never set confirm:true unless the user explicitly agreed to it jus
 
     // 2) Premature submit — required fields still empty in the SAME form.
     if matches!(verb, Verb::Submit | Verb::Click) && el.submit {
+        if !super::super::turn_policy::request_authorizes_submission(ctx) {
+            return Gate::Block(
+                "Did not submit: the user authorized editing or typing, not sending. Leave the content in the field and finish.".to_string(),
+            );
+        }
         let empty = ws.empty_required_in_form(el);
         if !empty.is_empty() {
             return Gate::Block(format!(

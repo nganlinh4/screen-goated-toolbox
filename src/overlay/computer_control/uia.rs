@@ -332,6 +332,34 @@ pub(super) fn focus_foreground() {
     with_timeout("focus_foreground", 4, (), focus_foreground_inner);
 }
 
+pub(super) fn input_target_snapshot() -> serde_json::Value {
+    with_timeout(
+        "input_target_snapshot",
+        2,
+        serde_json::json!({"available": false, "reason": "timeout"}),
+        || unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.0.is_null() {
+                return serde_json::json!({"available": false, "reason": "no_foreground_window"});
+            }
+            let mut title_buf = [0u16; 256];
+            let title_len = GetWindowTextW(hwnd, &mut title_buf).max(0) as usize;
+            let mut class_buf = [0u16; 128];
+            let class_len = GetClassNameW(hwnd, &mut class_buf).max(0) as usize;
+            let mut pid = 0u32;
+            let thread_id = GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            serde_json::json!({
+                "available": true,
+                "hwnd": hwnd.0 as usize,
+                "pid": pid,
+                "thread_id": thread_id,
+                "title": String::from_utf16_lossy(&title_buf[..title_len]),
+                "class": String::from_utf16_lossy(&class_buf[..class_len]),
+            })
+        },
+    )
+}
+
 fn focus_foreground_inner() {
     unsafe {
         let hwnd = GetForegroundWindow();
@@ -359,10 +387,24 @@ fn focus_foreground_inner() {
         // that moves keyboard focus to the TOP-LEVEL window, wiping the child
         // control (e.g. Explorer's file list) that a prior click just focused, so
         // shortcuts like Shift+Delete / F2 land on nothing.
-        let _ = SetForegroundWindow(hwnd);
+        let requested = SetForegroundWindow(hwnd).as_bool();
         if attach {
             let _ = AttachThreadInput(this_tid, fg_tid, false);
         }
+        let after = GetForegroundWindow();
+        super::telemetry::event(
+            "input_focus_verified",
+            "input",
+            super::telemetry::Privacy::Safe,
+            serde_json::json!({
+                "requested_hwnd": hwnd.0 as usize,
+                "requested_title": title,
+                "set_foreground_returned": requested,
+                "foreground_after_hwnd": after.0 as usize,
+                "verified": after.0 == hwnd.0,
+                "attached_thread_input": attach,
+            }),
+        );
     }
 }
 

@@ -5,7 +5,9 @@
 //!
 //! By default it does NOT execute actions (every tool call is answered with a
 //! "not executed" note + a fresh screenshot). Set `CC_EXECUTE=1` to actually
-//! drive mouse/keyboard via the executor. Single-threaded on purpose.
+//! drive mouse/keyboard via the executor. Set `CC_PROBE_FULL=1` to declare the
+//! production toolkit, and `--cc-turns-json '["...", "..."]'` for a scripted
+//! multi-turn session. Single-threaded on purpose.
 
 use std::time::{Duration, Instant};
 
@@ -30,9 +32,16 @@ Use the click and type_text tools (coordinates NORMALIZED to a 0-1000 grid over 
 x=1000 right, y=0 top, y=1000 bottom) to carry out the user's request, then call done with a short summary. \
 This is a TEST probe: do NOT perform destructive actions; if unsure, just describe what you see and call done.";
 
-pub fn run(task: &str) -> Result<()> {
+pub fn run(tasks: &[String]) -> Result<()> {
+    let Some(first_task) = tasks.first() else {
+        anyhow::bail!("probe needs at least one task");
+    };
     let key = session::load_key()?;
-    eprintln!("[cc-probe] model={} task={task:?}", protocol::MODEL);
+    eprintln!(
+        "[cc-probe] model={} scripted_turns={} first_task={first_task:?}",
+        protocol::MODEL,
+        tasks.len()
+    );
 
     let mut socket = connect_ws(&key).context("connect websocket")?;
     let setup_payload = if std::env::var("CC_MINIMAL").is_ok() {
@@ -43,12 +52,16 @@ pub fn run(task: &str) -> Result<()> {
             "model": format!("models/{model}"),
             "generationConfig": {"responseModalities": ["AUDIO"]}
         }})
+    } else if std::env::var("CC_PROBE_FULL").is_ok() {
+        eprintln!("[cc-probe] using full production Computer Control toolkit");
+        super::uia_task::build_setup(None, false, false)
     } else {
         build_setup(SYSTEM_INSTRUCTION)
     };
+    let (function_count, instruction_chars) = setup_profile(&setup_payload);
     eprintln!(
-        "[cc-probe] sending setup ({} bytes)",
-        setup_payload.to_string().len()
+        "[cc-probe] sending setup ({} bytes, {function_count} functions, {instruction_chars} instruction chars)",
+        setup_payload.to_string().len(),
     );
     send(&mut socket, setup_payload).context("send setup")?;
 
@@ -73,11 +86,13 @@ pub fn run(task: &str) -> Result<()> {
         geom.frame_h
     );
     send(&mut socket, realtime_video_jpeg_b64(&frame))?;
-    send(&mut socket, realtime_text(task))?;
+    send(&mut socket, realtime_text(first_task))?;
 
-    let deadline = Instant::now() + Duration::from_secs(PROBE_SECS);
+    let mut deadline = Instant::now() + Duration::from_secs(PROBE_SECS);
     let mut audio_bytes = 0usize;
     let mut tool_calls = 0usize;
+    let mut turn_tool_calls = 0usize;
+    let mut turn_index = 0usize;
 
     while Instant::now() < deadline {
         let text = match socket.read() {
@@ -102,14 +117,41 @@ pub fn run(task: &str) -> Result<()> {
                 ServerEvent::Audio(pcm) => audio_bytes += pcm.len(),
                 ServerEvent::ToolCall { id, name, args } => {
                     tool_calls += 1;
-                    eprintln!("[cc-probe] TOOLCALL #{tool_calls} {name}({args}) id={id}");
+                    turn_tool_calls += 1;
+                    eprintln!(
+                        "[cc-probe] turn {}/{} TOOLCALL #{} (total #{tool_calls}) {name}({args}) id={id}",
+                        turn_index + 1,
+                        tasks.len(),
+                        turn_tool_calls
+                    );
                     if name == "done" {
                         send(
                             &mut socket,
                             tool_response(&id, &name, serde_json::json!({"ok": true})),
                         )?;
-                        eprintln!("[cc-probe] model called done — finishing");
-                        return finish(audio_bytes, tool_calls);
+                        eprintln!(
+                            "[cc-probe] turn {}/{} complete after {} tool call(s)",
+                            turn_index + 1,
+                            tasks.len(),
+                            turn_tool_calls
+                        );
+                        turn_index += 1;
+                        if let Some(next_task) = tasks.get(turn_index) {
+                            if let Ok((next_frame, _)) = capture_frame() {
+                                send(&mut socket, realtime_video_jpeg_b64(&next_frame))?;
+                            }
+                            eprintln!(
+                                "[cc-probe] starting scripted turn {}/{}: {next_task:?}",
+                                turn_index + 1,
+                                tasks.len()
+                            );
+                            send(&mut socket, realtime_text(next_task))?;
+                            turn_tool_calls = 0;
+                            deadline = Instant::now() + Duration::from_secs(PROBE_SECS);
+                            continue;
+                        }
+                        eprintln!("[cc-probe] all scripted turns complete");
+                        return finish(audio_bytes, tool_calls, turn_index);
                     }
                     let resp = if execute_enabled {
                         let r = executor::execute(&name, &args);
@@ -127,7 +169,7 @@ pub fn run(task: &str) -> Result<()> {
             }
         }
     }
-    finish(audio_bytes, tool_calls)
+    finish(audio_bytes, tool_calls, turn_index)
 }
 
 fn wait_for_setup(socket: &mut Sock) -> Result<()> {
@@ -158,8 +200,10 @@ fn wait_for_setup(socket: &mut Sock) -> Result<()> {
     }
 }
 
-fn finish(audio_bytes: usize, tool_calls: usize) -> Result<()> {
-    eprintln!("[cc-probe] DONE — tool calls: {tool_calls}, audio samples: {audio_bytes}");
+fn finish(audio_bytes: usize, tool_calls: usize, turns_completed: usize) -> Result<()> {
+    eprintln!(
+        "[cc-probe] DONE — completed turns: {turns_completed}, tool calls: {tool_calls}, audio samples: {audio_bytes}"
+    );
     if tool_calls == 0 {
         eprintln!(
             "[cc-probe] NOTE: zero tool calls — the model did not emit functionCalls this run."
@@ -184,5 +228,46 @@ fn log_event(ev: &ServerEvent) {
         ServerEvent::Usage(u) => eprintln!("[cc-probe] usageMetadata {u}"),
         ServerEvent::Other(s) => eprintln!("[cc-probe] (unparsed) {s}"),
         ServerEvent::Audio(_) | ServerEvent::SetupComplete | ServerEvent::ToolCall { .. } => {}
+    }
+}
+
+fn setup_profile(setup: &serde_json::Value) -> (usize, usize) {
+    let function_count = setup
+        .pointer("/setup/tools")
+        .and_then(serde_json::Value::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|tool| tool.get("functionDeclarations"))
+                .filter_map(serde_json::Value::as_array)
+                .map(Vec::len)
+                .sum()
+        })
+        .unwrap_or(0);
+    let instruction_chars = setup
+        .pointer("/setup/systemInstruction/parts/0/text")
+        .and_then(serde_json::Value::as_str)
+        .map(|text| text.chars().count())
+        .unwrap_or(0);
+    (function_count, instruction_chars)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::setup_profile;
+
+    #[test]
+    fn profiles_setup_without_assuming_tool_groups() {
+        let setup = json!({"setup": {
+            "systemInstruction": {"parts": [{"text": "short"}]},
+            "tools": [
+                {"functionDeclarations": [{"name": "one"}, {"name": "two"}]},
+                {"googleSearch": {}},
+                {"functionDeclarations": [{"name": "three"}]}
+            ]
+        }});
+        assert_eq!(setup_profile(&setup), (3, 5));
     }
 }

@@ -9,6 +9,7 @@
 //! `shell` submodules; this module holds the dispatch, the coordinate math, and the
 //! raw `SendInput` builders they share.
 
+use std::cell::RefCell;
 use std::sync::atomic::AtomicBool;
 use std::thread::sleep;
 use std::time::Duration;
@@ -21,8 +22,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MAPVK_VK_TO_VSC, MOUSE_EVENT_FLAGS,
     MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
     MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-    MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, MapVirtualKeyW, SendInput, VIRTUAL_KEY, VK_DELETE,
-    VK_DOWN, VK_END, VK_HOME, VK_INSERT, VK_LEFT, VK_NEXT, VK_PRIOR, VK_RIGHT, VK_UP,
+    MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, MapVirtualKeyW, VIRTUAL_KEY, VK_DELETE, VK_DOWN, VK_END,
+    VK_HOME, VK_INSERT, VK_LEFT, VK_NEXT, VK_PRIOR, VK_RIGHT, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
@@ -31,6 +32,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::human_input::{self, HumanProfile, Outcome};
 
+mod input;
 mod keyboard;
 mod mouse;
 mod shell;
@@ -77,7 +79,9 @@ fn norm_to_absolute(x: f64, y: f64) -> (i32, i32) {
 /// coordinate-accuracy debug harness.
 pub(super) fn move_to(x: f64, y: f64) {
     let (nx, ny) = norm_to_absolute(x, y);
-    move_abs(nx, ny);
+    if let Err(error) = move_abs(nx, ny) {
+        eprintln!("[computer-control] coordinate probe input failed: {error}");
+    }
 }
 
 /// Back-compat: instant, non-cancellable execution (coord-test / legacy callers).
@@ -95,6 +99,7 @@ pub fn execute(name: &str, args: &Value) -> Value {
 /// polled between micro-steps (every cursor segment / keystroke). Returns a JSON
 /// result suitable for the `toolResponse`; never panics on bad args.
 pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Value {
+    input::begin_action();
     let result: Result<Value> = match name {
         "click" => mouse::click(args, 1, profile, cancel),
         "double_click" => mouse::click(args, 2, profile, cancel),
@@ -105,13 +110,62 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
         "open_url" => shell::open_url(args),
         "launch_app" => shell::launch_app(args),
         "run_command" => shell::run_command(args),
-        "click_here" => mouse::click_here(args),
+        "click_here" => mouse::click_here(args, cancel),
         "point" => mouse::point(args, profile, cancel),
         other => Err(anyhow!("unknown action: {other}")),
     };
-    match result {
+    let mut value = match result {
         Ok(v) => v,
-        Err(e) => json!({"ok": false, "error": e.to_string()}),
+        Err(e) => {
+            if let Some(error) = e.downcast_ref::<input::SendInputError>() {
+                json!({
+                    "ok": false,
+                    "status": error.status(),
+                    "error": error.to_string(),
+                    // Replaying a partially accepted click/chord/type batch can
+                    // duplicate the prefix that already reached the desktop.
+                    "retryable": false,
+                })
+            } else {
+                json!({"ok": false, "error": e.to_string()})
+            }
+        }
+    };
+    if let Some(telemetry) = input::finish_action()
+        && let Some(object) = value.as_object_mut()
+    {
+        object.insert("input_injection".to_string(), telemetry);
+    }
+    value
+}
+
+/// Input receipts may be returned directly by the native executor or nested by
+/// higher-level pointer tools. Consumers must use one canonical lookup so a
+/// successful injection cannot disappear from telemetry after wrapping.
+pub(super) fn input_injection(value: &Value) -> Option<&Value> {
+    value
+        .get("input_injection")
+        .or_else(|| value.pointer("/input_result/input_injection"))
+        .or_else(|| value.pointer("/action_result/input_injection"))
+        .or_else(|| value.pointer("/action_result/input_result/input_injection"))
+}
+
+#[cfg(test)]
+mod receipt_tests {
+    use super::*;
+
+    #[test]
+    fn finds_direct_and_wrapped_input_receipts() {
+        let direct = json!({"input_injection": {"fully_inserted": true}});
+        let wrapped = json!({"input_result": {"input_injection": {"fully_inserted": true}}});
+        assert_eq!(
+            input_injection(&direct).and_then(|v| v.get("fully_inserted")),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            input_injection(&wrapped).and_then(|v| v.get("fully_inserted")),
+            Some(&Value::Bool(true))
+        );
     }
 }
 
@@ -175,7 +229,7 @@ pub(super) fn move_humanized(
     target_w: f64,
     profile: &HumanProfile,
     cancel: &AtomicBool,
-) -> Outcome {
+) -> Result<Outcome> {
     let (sx, sy) = norm_to_screen(x, y);
     // Slide the orb out of the way if it sits where we're about to act. It's capture-excluded, so the
     // agent can't see it — but a synthetic click would still land on it. No-op unless the orb is up.
@@ -183,21 +237,32 @@ pub(super) fn move_humanized(
 
     if profile.humanized() {
         let from = cursor_pos();
-        human_input::human_move(
+        let failure = RefCell::new(None);
+        let outcome = human_input::human_move(
             from,
             (sx as f64, sy as f64),
             target_w,
             profile,
             cancel,
             &|px, py| {
+                if failure.borrow().is_some() {
+                    return;
+                }
                 let (ax, ay) = screen_to_abs(px, py);
-                move_abs(ax, ay);
+                if let Err(error) = move_abs(ax, ay) {
+                    *failure.borrow_mut() = Some(error);
+                }
             },
-        )
+        );
+        if let Some(error) = failure.into_inner() {
+            Err(error.into())
+        } else {
+            Ok(outcome)
+        }
     } else {
         let (nx, ny) = norm_to_absolute(x, y);
-        move_abs(nx, ny);
-        Outcome::Done
+        move_abs(nx, ny)?;
+        Ok(Outcome::Done)
     }
 }
 
@@ -228,6 +293,7 @@ pub fn cursor_demo() {
     let mut max_err = 0.0f64;
     for &(tx, ty) in &tour {
         let from = cursor_pos();
+        let failure = RefCell::new(None);
         human_input::human_move(
             from,
             (tx as f64, ty as f64),
@@ -235,10 +301,19 @@ pub fn cursor_demo() {
             &profile,
             &cancel,
             &|sx, sy| {
+                if failure.borrow().is_some() {
+                    return;
+                }
                 let (ax, ay) = screen_to_abs(sx, sy);
-                move_abs(ax, ay);
+                if let Err(error) = move_abs(ax, ay) {
+                    *failure.borrow_mut() = Some(error);
+                }
             },
         );
+        if let Some(error) = failure.into_inner() {
+            eprintln!("[cursor-demo] input failed: {error}");
+            break;
+        }
         // Harness-accuracy probe: where did the cursor ACTUALLY land vs intended?
         let after = cursor_pos();
         let err = (after.0 - tx as f64).hypot(after.1 - ty as f64);
@@ -274,22 +349,21 @@ fn button_flags(args: &Value) -> (MOUSE_EVENT_FLAGS, MOUSE_EVENT_FLAGS) {
 
 // --- raw SendInput helpers (shared by the action submodules via `super::`) ---
 
-fn send(inputs: &[INPUT]) {
-    if inputs.is_empty() {
-        return;
-    }
-    unsafe {
-        SendInput(inputs, std::mem::size_of::<INPUT>() as i32);
-    }
+fn send(inputs: &[INPUT]) -> std::result::Result<(), input::SendInputError> {
+    input::send(inputs)
 }
 
-fn move_abs(nx: i32, ny: i32) {
+fn release(inputs: &[INPUT]) -> std::result::Result<(), input::SendInputError> {
+    input::release(inputs)
+}
+
+fn move_abs(nx: i32, ny: i32) -> std::result::Result<(), input::SendInputError> {
     send(&[mouse_input(
         nx,
         ny,
         0,
         MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
-    )]);
+    )])
 }
 
 fn mouse_input(dx: i32, dy: i32, data: i32, flags: MOUSE_EVENT_FLAGS) -> INPUT {

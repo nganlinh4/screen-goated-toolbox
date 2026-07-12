@@ -24,10 +24,24 @@ use windows_core::BOOL;
 /// could not be forced (e.g. an exclusive-fullscreen app owns the foreground —
 /// which nothing short of minimizing it can move, elevated or not).
 pub(crate) fn raise_window(target: &str) -> bool {
-    match find_top_window(target) {
-        Some(hwnd) => unsafe { force_foreground_hwnd(hwnd) },
-        None => false,
-    }
+    let before = unsafe { GetForegroundWindow() };
+    let selected = find_top_window(target);
+    let raised = selected.is_some_and(|hwnd| unsafe { force_foreground_hwnd(hwnd) });
+    let after = unsafe { GetForegroundWindow() };
+    super::super::telemetry::event(
+        "focus_window_result",
+        "windowing",
+        super::super::telemetry::Privacy::Safe,
+        serde_json::json!({
+            "requested_target": target,
+            "selected_hwnd": selected.map(|hwnd| hwnd.0 as usize),
+            "foreground_before_hwnd": before.0 as usize,
+            "foreground_after_hwnd": after.0 as usize,
+            "raised": raised,
+            "verified": selected.is_some_and(|hwnd| hwnd.0 == after.0),
+        }),
+    );
+    raised
 }
 
 // --- Win32 EnumWindows: finds EVERY top-level window, including fullscreen GAMES (Unity/Unreal/
@@ -100,29 +114,81 @@ pub(crate) fn enum_top_windows() -> Vec<(HWND, String, String)> {
     out
 }
 
-/// Resolve `target` (a title OR exe-name substring, case-insensitive) to a top-level HWND. Ranks an
-/// EXE-name match above a title-only match — so an app-name target finds the
-/// real app window, not a browser tab whose title happens to mention it.
+/// Resolve `target` (a title OR exe-name substring, case-insensitive) to a top-level HWND.
+/// Exact/executable and title-prefix matches outrank a loose title substring. That
+/// keeps a real app window ahead of another window whose document title merely
+/// mentions the requested app. Foreground is only a tie-breaker; it must never make
+/// a weak substring beat a precise match.
 pub(crate) fn find_top_window(target: &str) -> Option<HWND> {
     let want = target.trim().to_lowercase();
     if want.is_empty() {
         return None;
     }
     let fg = unsafe { GetForegroundWindow() };
-    let mut best: Option<HWND> = None;
+    let mut best: Option<(HWND, String, String, i32, bool)> = None;
     let mut best_score = i32::MIN;
+    let mut matched_count = 0usize;
     for (hwnd, title, exe) in enum_top_windows() {
-        let exe_hit = exe.to_lowercase().contains(&want);
-        if !exe_hit && !title.to_lowercase().contains(&want) {
+        let foreground = hwnd.0 == fg.0;
+        let Some(score) = window_match_score(&want, &title, &exe, foreground) else {
             continue;
-        }
-        let score = i32::from(exe_hit) * 2 + i32::from(hwnd.0 == fg.0);
+        };
+        matched_count += 1;
         if score > best_score {
             best_score = score;
-            best = Some(hwnd);
+            best = Some((hwnd, title, exe, score, foreground));
         }
     }
-    best
+    let mut pid = 0u32;
+    if let Some((hwnd, ..)) = best.as_ref() {
+        unsafe { GetWindowThreadProcessId(*hwnd, Some(&mut pid)) };
+    }
+    super::super::telemetry::event(
+        "window_resolution",
+        "windowing",
+        super::super::telemetry::Privacy::Safe,
+        serde_json::json!({
+            "requested_target": target,
+            "normalized_target": want,
+            "matched_count": matched_count,
+            "selected": best.as_ref().map(|(hwnd, title, exe, score, foreground)| serde_json::json!({
+                "hwnd": hwnd.0 as usize,
+                "pid": pid,
+                "title": title,
+                "exe": exe,
+                "score": score,
+                "was_foreground": foreground,
+            })),
+        }),
+    );
+    best.map(|(hwnd, ..)| hwnd)
+}
+
+fn window_match_score(want: &str, title: &str, exe: &str, foreground: bool) -> Option<i32> {
+    let title = title.trim().to_lowercase();
+    let exe = exe.trim().to_lowercase();
+    let exe_stem = exe.strip_suffix(".exe").unwrap_or(&exe);
+
+    let (base, matched_len) = if exe == want || exe_stem == want {
+        (1_000, exe_stem.len())
+    } else if exe_stem.starts_with(want) {
+        (900, exe_stem.len())
+    } else if exe_stem.contains(want) {
+        (800, exe_stem.len())
+    } else if title == want {
+        (700, title.len())
+    } else if title.starts_with(want) {
+        (600, title.len())
+    } else if title.contains(want) {
+        (400, title.len())
+    } else {
+        return None;
+    };
+
+    // Prefer the least-surprising match within the same tier: less unrelated
+    // trailing title text, then the window already in front.
+    let extra = matched_len.saturating_sub(want.len()).min(100) as i32;
+    Some(base - extra + i32::from(foreground) * 10)
 }
 
 /// Labels of the open top-level windows — the agent's situational awareness of what's open to
@@ -226,5 +292,44 @@ unsafe fn force_foreground_hwnd(hwnd: HWND) -> bool {
             }
         }
         GetForegroundWindow().0 == hwnd.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_match_score;
+
+    #[test]
+    fn executable_match_beats_document_title_mention() {
+        let app = window_match_score("editor", "Untitled", "editor.exe", false).unwrap();
+        let mention = window_match_score(
+            "editor",
+            "Editor usage guide - Web Browser",
+            "browser.exe",
+            true,
+        )
+        .unwrap();
+        assert!(app > mention);
+    }
+
+    #[test]
+    fn title_prefix_beats_loose_foreground_substring() {
+        let app = window_match_score("sample app", "Sample App 2.0 - Project", "host.exe", false)
+            .unwrap();
+        let mention = window_match_score(
+            "sample app",
+            "Article about Sample App - Web Browser",
+            "browser.exe",
+            true,
+        )
+        .unwrap();
+        assert!(app > mention);
+    }
+
+    #[test]
+    fn foreground_breaks_ties_without_overriding_match_quality() {
+        let background = window_match_score("notes", "Notes - A", "host.exe", false).unwrap();
+        let foreground = window_match_score("notes", "Notes - B", "host.exe", true).unwrap();
+        assert!(foreground > background);
     }
 }

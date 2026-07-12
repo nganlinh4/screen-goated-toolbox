@@ -7,9 +7,18 @@ use super::*;
 impl Brain {
     /// Execute one tool call (NOT `done`). Returns the action result JSON; polls
     /// `cancel` (set on barge-in) between micro-steps via the humanized executor.
-    pub fn dispatch(&mut self, name: &str, args: &Value, ctx: &str, cancel: &AtomicBool) -> Value {
+    pub fn dispatch(
+        &mut self,
+        name: &str,
+        args: &Value,
+        ctx: &str,
+        cancel: &AtomicBool,
+        trace: Option<super::super::telemetry::ActionTrace>,
+    ) -> Value {
         self.step += 1;
         let step = self.step;
+        let action = trace.unwrap_or_else(|| super::super::telemetry::claim_action(name));
+        self.active_action = Some(action);
         let t0 = Instant::now();
         // Strengthen the (stateless) aux models' context: hand them what the agent has already DONE
         // this task (last few actions), not just the one-line task+intent — so "the other one" / "the
@@ -23,7 +32,7 @@ impl Brain {
             &enriched_ctx
         };
         if let Some(blocked) = self.setup_guard.before_action(name) {
-            return blocked;
+            return self.finish_dispatch(action, name, args, blocked, t0);
         }
         let result = match name {
             // Deterministic controller (Stage 1): the model reads the indexed world
@@ -61,6 +70,14 @@ impl Brain {
             }
             "click_at" => {
                 let cell = args.get("cell").and_then(Value::as_u64).unwrap_or(0) as u32;
+                if let Some(blocked) = super::dispatch_guard::block_grid_click(
+                    self.view,
+                    &self.grid,
+                    cell,
+                    self.target.as_deref(),
+                ) {
+                    return self.finish_dispatch(action, name, args, blocked, t0);
+                }
                 match self.grid.center_norm(cell) {
                     Some((mx, my)) => {
                         let (sx, sy) = self.view.to_screen_px(mx, my);
@@ -68,11 +85,19 @@ impl Brain {
                         self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
                         append_click(
                             &self.dir,
+                            action,
                             json!({"step": step, "kind": "click_at", "cell": cell,
                             "view_norm": [mx.round(), my.round()], "screen_px": [sx, sy],
-                            "view": [self.view.x, self.view.y, self.view.w, self.view.h]}),
+                            "view_rect": [self.view.x, self.view.y, self.view.w, self.view.h]}),
                         );
-                        click_screen(sx, sy, self.dry, "left", &self.profile, cancel)
+                        let input = click_screen(sx, sy, self.dry, "left", &self.profile, cancel);
+                        pointer_result(
+                            input,
+                            self.view,
+                            (mx, my),
+                            (sx, sy),
+                            json!({"kind": "click_at", "cell": cell}),
+                        )
                     }
                     None => {
                         json!({"ok": false, "error": format!("cell {cell} out of range 1..={}", self.grid.cell_count())})
@@ -143,17 +168,25 @@ impl Brain {
                             self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
                             append_click(
                                 &self.dir,
+                                action,
                                 json!({"step": step, "kind": "click_target", "desc": desc,
                                 "button": button, "view_norm": [loc.x.round(), loc.y.round()],
                                 "screen_px": [sx, sy], "saw": loc.note,
-                                "view": [self.view.x, self.view.y, self.view.w, self.view.h]}),
+                                "view_rect": [self.view.x, self.view.y, self.view.w, self.view.h]}),
                             );
                             eprintln!(
                                 "[cc] step {step:02} CLICK_TARGET[{button}] '{desc}' -> screen({sx},{sy}) saw={:?}",
                                 loc.note
                             );
-                            let r = click_screen(sx, sy, self.dry, button, &self.profile, cancel);
-                            json!({"ok": true, "located_view_norm": [loc.x, loc.y], "saw_at_target": loc.note, "click": r})
+                            let input =
+                                click_screen(sx, sy, self.dry, button, &self.profile, cancel);
+                            pointer_result(
+                                input,
+                                self.view,
+                                (loc.x, loc.y),
+                                (sx, sy),
+                                json!({"kind": "click_target", "saw_at_target": loc.note}),
+                            )
                         }
                         Err(e) => {
                             json!({"ok": false, "error": format!("could not locate '{desc}': {e}")})
@@ -182,6 +215,7 @@ impl Brain {
                             self.click_before = session::capture_region_fp(tsx, tsy, VC_HALF);
                             append_click(
                                 &self.dir,
+                                action,
                                 json!({"step": step, "kind": "drag_target", "from": from, "to": to,
                                 "from_px": [fsx, fsy], "to_px": [tsx, tsy], "saw_from": f.note, "saw_to": t.note}),
                             );
@@ -220,15 +254,16 @@ impl Brain {
                         self.last_click = Some((sx, sy)); // mark where we pointed on the next frame
                         append_click(
                             &self.dir,
+                            action,
                             json!({"step": step, "kind": "point_at", "desc": desc,
                             "view_norm": [loc.x.round(), loc.y.round()], "screen_px": [sx, sy],
-                            "saw": loc.note, "view": [self.view.x, self.view.y, self.view.w, self.view.h]}),
+                            "saw": loc.note, "view_rect": [self.view.x, self.view.y, self.view.w, self.view.h]}),
                         );
                         eprintln!(
                             "[cc] step {step:02} POINT_AT '{desc}' -> screen({sx},{sy}) saw={:?}",
                             loc.note
                         );
-                        let r = point_screen(
+                        let input = point_screen(
                             sx,
                             sy,
                             (dwell * 1000.0) as u64,
@@ -236,7 +271,13 @@ impl Brain {
                             &self.profile,
                             cancel,
                         );
-                        json!({"ok": true, "pointed_view_norm": [loc.x, loc.y], "saw_at_target": loc.note, "move": r})
+                        pointer_result(
+                            input,
+                            self.view,
+                            (loc.x, loc.y),
+                            (sx, sy),
+                            json!({"kind": "point_at", "saw_at_target": loc.note}),
+                        )
                     }
                     Err(e) => {
                         json!({"ok": false, "error": format!("could not point at '{desc}': {e}")})
@@ -285,16 +326,26 @@ impl Brain {
                     .map(|(sx, sy, n)| (*sx, *sy, n.clone()));
                 match anchor {
                     Some((sx, sy, note)) => {
+                        let view_norm = screen_to_view_norm(self.view, sx, sy);
                         self.last_click = Some((sx, sy));
                         self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
                         append_click(
                             &self.dir,
+                            action,
                             json!({"step": step, "kind": "click_mark", "mark": id,
-                            "button": button, "screen_px": [sx, sy], "saw": note}),
+                            "button": button, "view_norm": [view_norm.0, view_norm.1],
+                            "screen_px": [sx, sy], "saw": note,
+                            "view_rect": [self.view.x, self.view.y, self.view.w, self.view.h]}),
                         );
                         eprintln!("[cc] step {step:02} CLICK_MARK {id} -> screen({sx},{sy})");
-                        let r = click_screen(sx, sy, self.dry, button, &self.profile, cancel);
-                        json!({"ok": true, "clicked_mark": id, "what": note, "click": r})
+                        let input = click_screen(sx, sy, self.dry, button, &self.profile, cancel);
+                        pointer_result(
+                            input,
+                            self.view,
+                            view_norm,
+                            (sx, sy),
+                            json!({"kind": "click_mark", "clicked_mark": id, "what": note}),
+                        )
                     }
                     None => {
                         json!({"ok": false, "error": format!("no anchor #{id} (have {}); run map_targets first", self.anchors.len())})
@@ -319,6 +370,7 @@ impl Brain {
                 }
             }
             "system_query" => super::super::system_query::query(args),
+            "list_files" => super::super::system_query::list_files(args),
             "scroll" => {
                 // Real mouse-wheel scroll. Resolve where to scroll: a given grid
                 // cell, else the centre of the current view (the wheel acts on the
@@ -492,6 +544,17 @@ impl Brain {
             "decline_app_integration" => super::super::mcp::decline_tool(
                 args.get("id").and_then(Value::as_str).unwrap_or(""),
             ),
+            "integration_tool_search" => super::super::mcp::search_tools(
+                args.get("query").and_then(Value::as_str).unwrap_or(""),
+                args.get("integration_id").and_then(Value::as_str),
+            ),
+            "integration_tool_call" => super::super::mcp::call_tool(
+                args.get("integration_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                args.get("tool").and_then(Value::as_str).unwrap_or(""),
+                args.get("arguments").unwrap_or(&Value::Null),
+            ),
             // Local artifact tools and installed MCP tools are dynamic-ish surfaces.
             _ => {
                 super::super::artifacts::dispatch_tool(name, args, &self.profile, cancel, self.dry)
@@ -499,90 +562,6 @@ impl Brain {
                     .unwrap_or_else(|| json!({"ok": false, "error": "unknown action"}))
             }
         };
-        self.setup_guard.record_result(name, &result);
-        // Per-action latency (excludes the settle wait) — the key refinement
-        // signal for vision/click cost. Full result is truncated to avoid bloat;
-        // look()/click_target log their rich detail on their own lines above.
-        let ms = t0.elapsed().as_millis();
-        let settle = if name == "open_url" || name == "launch_app" {
-            1100
-        } else {
-            250
-        };
-        std::thread::sleep(Duration::from_millis(settle));
-        // Rich, low-bloat per-tool log: observe/act surface their @id + verdict (so a
-        // stale-id miss, a blocked gate, or a failed verify is VISIBLE at a glance);
-        // every other tool gets a short truncated result.
-        let short: String = match name {
-            "observe" => format!(
-                "{} elements",
-                result.get("count").and_then(Value::as_u64).unwrap_or(0)
-            ),
-            "act" => {
-                let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
-                let verb = args.get("verb").and_then(Value::as_str).unwrap_or("act");
-                let nm = result
-                    .get("target")
-                    .and_then(|t| t.get("name"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let outcome = result
-                    .get("verify")
-                    .and_then(Value::as_str)
-                    .or_else(|| result.get("blocked").and_then(Value::as_str))
-                    .or_else(|| result.get("error").and_then(Value::as_str))
-                    .unwrap_or("ok");
-                format!(
-                    "{verb} @{id} {nm:?} -> {}",
-                    outcome.chars().take(110).collect::<String>()
-                )
-            }
-            "wait" => {
-                let w = result
-                    .get("waited_seconds")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(0.0);
-                format!(
-                    "{w:.0}s (~{:.0}s total waiting — if nothing's changing, STOP)",
-                    self.wait_accum + w
-                )
-            }
-            _ => result.to_string().chars().take(120).collect(),
-        };
-        super::super::telemetry::human("cc", format!("step {step:02} {name} {ms}ms -> {short}"));
-        super::super::telemetry::tool_result(
-            name,
-            step,
-            ms,
-            result.get("ok").and_then(Value::as_bool),
-            json!({
-                "result_preview": short,
-                "blocked": result.get("blocked").cloned(),
-                "error": result.get("error").cloned(),
-                "code": result.get("code").cloned(),
-            }),
-        );
-        // The controller's cached world is valid only right after observe/act; any
-        // OTHER tool may have moved the screen, so invalidate it — the next act()
-        // then re-syncs instead of resolving a STALE @id onto the wrong element.
-        if !matches!(name, "observe" | "act") {
-            self.controller.invalidate();
-        }
-        // Record the action trail (for situational context) + consecutive wait time.
-        let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(true);
-        self.trail
-            .push(format!("{name}={}", if ok { "ok" } else { "fail" }));
-        if self.trail.len() > 6 {
-            self.trail.remove(0);
-        }
-        if name == "wait" {
-            self.wait_accum += result
-                .get("waited_seconds")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0);
-        } else {
-            self.wait_accum = 0.0;
-        }
-        result
+        self.finish_dispatch(action, name, args, result, t0)
     }
 }

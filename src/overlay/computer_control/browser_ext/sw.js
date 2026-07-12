@@ -15,6 +15,7 @@
 try { importScripts("bootstrap.js"); } catch (_) { /* no bootstrap file present */ }
 
 const DEFAULT_PORT = 47800;
+const BRIDGE_PROTOCOL = 2;
 let ws = null;          // the current active socket (for unsolicited events)
 let connecting = false; // guard against overlapping connect() calls
 let backoff = 1000;
@@ -72,7 +73,7 @@ async function connect() {
     connecting = false;
     backoff = 1000;
     if (detachTimer) { clearTimeout(detachTimer); detachTimer = null; } // reconnected in time
-    reply({ type: "hello", extId: chrome.runtime.id, hasSecret: !!secret, hasBootstrap: !!self.SGT_BOOTSTRAP });
+    reply({ type: "hello", bridgeProtocol: BRIDGE_PROTOCOL, extId: chrome.runtime.id, hasSecret: !!secret, hasBootstrap: !!self.SGT_BOOTSTRAP });
   };
   sock.onmessage = (ev) => onMessage(ev.data, reply).catch((e) => console.error("[sgt]", e));
   sock.onclose = () => {
@@ -150,8 +151,11 @@ async function handleTabs(msg, reply) {
       await chrome.tabs.update(msg.tabId, { active: true });
       reply({ id: msg.id, ok: true, result: {} });
     } else if (msg.action === "create") {
-      const tab = await chrome.tabs.create({ url: msg.url, active: true });
+      const tab = await chrome.tabs.create({ url: msg.url, active: msg.active !== false });
       reply({ id: msg.id, ok: true, result: { id: tab.id, url: tab.url } });
+    } else if (msg.action === "remove") {
+      await chrome.tabs.remove(msg.tabId);
+      reply({ id: msg.id, ok: true, result: {} });
     } else {
       reply({ id: msg.id, ok: false, error: "bad tabs action" });
     }

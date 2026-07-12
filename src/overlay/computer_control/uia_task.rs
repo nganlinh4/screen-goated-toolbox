@@ -28,12 +28,15 @@ use super::uia::{self, UiElement};
 
 mod brain;
 mod dispatch;
+mod dispatch_guard;
 mod prompt;
 mod render;
+mod review;
 mod setup_guard;
 mod vision;
 pub(crate) use prompt::build_setup;
 use render::*;
+use review::*;
 use vision::*;
 
 const SYS: &str = "You control a Windows PC, ONE tool action per turn. Each turn you get a SCREENSHOT of the ACTIVE \
@@ -41,8 +44,11 @@ window with a NUMBERED GRID over it, plus its READOUTS and CLICKABLE elements (W
 each tagged @cellN = its grid cell). zoom() into a cell for detail. To see your WHOLE screen (all windows) - for \
 awareness, counting/finding across windows, or to reach another window - call see_whole_screen; reset_view returns \
 to the precise active-window view. \
-click_at(cell): click that grid number. zoom(cell): magnify it (grid redrawn with new numbers); reset_view undoes \
-it. Also type_text, key_combination. \
+Grid cells are coarse; zoom refines them and reset_view restores the active-window view. Also type_text, \
+key_combination. \
+CONVERSATION: never mutate for greetings or feedback; questions may use read-only evidence tools. Without an explicit \
+action, clarify. Software-directed hostility is not self-harm. INFORMATIONAL: gather evidence, answer ONCE, end; \
+never call done. \
 A board/canvas has NO element: READ it with look(question) before deciding (never guess), and CLICK it with \
 click_target(description) - a high-res model locates the exact pixel, far more accurate than click_at for small/ \
 precise targets. Use zoom + click_at(cell) only for coarse navigation. To DRAG-AND-DROP on a canvas (place a card on \
@@ -52,16 +58,13 @@ be given a DETECTED CLICKABLE MARKS list (found by a local detector) - click_mar
 Open a web page: open_url(url) opens it as a new foreground tab. Launch an app: launch_app(name). These OS-level \
 tools beat driving the Start menu / address bar by keystrokes - prefer them. Wait for slow/async results (image \
 generation, page loads) with wait(seconds). \
-EFFICIENCY (you have been TOO SLOW and over-deliberate - fix this): ACT directly, emit the tool call FIRST. Do NOT \
-zoom->act->reset_view for every step - zoom ONLY for a genuinely tiny target, and you can act + re-read WITHOUT \
-resetting. look() the board ONCE, plan SEVERAL moves, then execute them back-to-back; do NOT look() before every \
-single move. Speak RARELY: a spoken sentence costs ~2s and silence while you act is fine - narrate only to answer a \
-question or to flag you're stuck. \
+EFFICIENCY: on an authorized action turn, emit the tool first. Zoom only for tiny targets; observe once, plan several \
+moves, and execute them without redundant resets. Narrate only when requested or when reporting a blocker. \
 STAY ON TASK: keep doing the user's CURRENT task; do NOT open new pages/apps/tabs or switch context unless the task \
 needs it. If unsure what to do next, look() and continue the SAME task - never wander off to an unrelated app. \
-KEYBOARD-FIRST: a keystroke is instant and reliable, vision is slow - when a key does the job, use it. You know the \
-shortcuts for the OS/app in use; reason out the most efficient keys (Enter confirm, Esc cancel, Tab, Ctrl+A/C/V/X/Z, \
-Ctrl+S/F/L, Alt+Left, arrows+Enter). Only click when there's no keyboard path or a key didn't register. \
+INPUT CHOICE: prefer exact structured ids and direct tools when available. Otherwise, when focus and target are \
+already certain, use a conventional shortcut (Enter confirm, Esc cancel, Ctrl+A/C/V/X/Z, Ctrl+S/F/L). Do not cycle \
+through an unknown collection with navigation keys; enumerate it and select the exact item. \
 POINTING: if the user refers to what THEY are hovering/pointing at ('this', 'the one I'm hovering on', 'where my \
 mouse is'), use click_here - it acts at their ACTUAL cursor. Do NOT guess the target by description (you'll pick the \
 wrong thing). Your context shows 'Cursor at (x,y)' if you need the position. If instead the user wants YOU to point \
@@ -103,7 +106,7 @@ observe()/act() read + act on page elements; browser_eval runs JS; browser_navig
 easy to land on the WRONG one, so VERIFY the url/title that browser_switch_tab and browser_read_page report is the page you \
 meant before reading or acting. Do NOT click_mark / click_target \
 / zoom / scroll a web page (use scroll + look ONLY to eyeball a SPECIFIC image the text points to), and do NOT try to read \
-a VIDEO (e.g. a YouTube result) - choose a TEXT source (wiki, Reddit, forums). If an action no-ops or errors twice, CHANGE \
+a VIDEO or other hard-to-read media - choose a text-first source instead. If an action no-ops or errors twice, CHANGE \
 approach - never repeat the same failing call. When a result carries a 'stuck_advice' field, a high-res look at the \
 current screen has diagnosed WHY you are stuck and the single best next move - trust it and do exactly that next. \
 To answer a question, look() at the CURRENT screen FIRST - it reads ONLY what is on screen now (it does NOT search \
@@ -127,11 +130,9 @@ goal; do NOT pause or ask what to do between steps. 'Play and win' / 'book the f
 actions in a row, until finished. Call done ONLY when the goal is fully achieved (a fresh look() confirms it; an \
 independent check verifies), then stop and wait for the next request. If you get STUCK or an action isn't \
 registering, say so briefly - never go silent while struggling. \
-SYSTEM TASKS - for facts about the COMPUTER ITSELF, use system_query FIRST (audio.active_sessions, window.list, \
-process.list_basic, clipboard.text, or capabilities.list). Do NOT hunt through Task Manager / Settings / Explorer GUIs \
-for facts the OS can report directly. Use run_command only when no dedicated tool/system_query domain fits, or for \
-actual shell operations like files, services, registry, network, power/shutdown, installed apps, disk space, and system \
-info. Most system tasks just DO - keep it smooth, never ask permission for routine ones; ONLY pause to confirm before \
+SYSTEM TASKS: use system_query for OS facts and list_files for directory facts/ranking; never hunt through GUIs for \
+facts a read-only provider can report. Use run_command only when no provider fits or for an actual shell operation. \
+Most system tasks just DO - keep it smooth, never ask permission for routine ones; ONLY pause to confirm before \
 something CATASTROPHIC or clearly unexpected (formatting/wiping, shutting down, deleting the user's files). \
 GAMES: read the board with look()/zoom and plan the WHOLE sequence before moving; never act blindly. Play by whatever \
 the game uses - keyboard for arrow/key games (2048), or click_target / drag_target for pointer, card and tile games. \
@@ -144,25 +145,57 @@ click_target and drag_target automatically drive the page's OWN trusted input, w
 games. Then retry the same move.";
 
 /// A gridded snapshot of the current foreground window as base64 JPEG, with NO
-/// click marker and no trace I/O — for the voice runtime's initial + periodic
-/// idle frames (kept consistent with the grid the `Brain` renders after actions).
-pub(super) fn snapshot(target: Option<&str>) -> Result<String> {
+/// click marker — for the voice runtime's initial + periodic idle frames.
+#[derive(Clone)]
+pub(super) struct SnapshotFrame {
+    pub b64: String,
+    pub frame_id: u64,
+    pub captured_at: Instant,
+    pub byte_count: usize,
+}
+
+pub(super) fn snapshot(target: Option<&str>) -> Result<SnapshotFrame> {
+    let origin_turn_id = super::telemetry::current_turn();
     let frame_id = super::telemetry::next_frame("snapshot");
     let view = window_view(target, false);
     let capture_t0 = Instant::now();
     let cap = session::capture_virtual()?;
+    let captured_at = Instant::now();
     let capture_ms = capture_t0.elapsed().as_millis();
     let encode_t0 = Instant::now();
     let (jpeg, _) = session::encode_view(&cap, view, VIEW_SHORT, Some(Grid::from_env()), None)?;
-    super::telemetry::frame_ready(
+    let window_title = super::uia::pointer_context().0;
+    let artifact_name = if frame_id == 1 || frame_id.is_multiple_of(30) {
+        let name = format!("live-frame-{frame_id:06}.jpg");
+        let path = super::telemetry::trace_dir().join(&name);
+        match std::fs::write(&path, &jpeg) {
+            Ok(()) => Some(name),
+            Err(error) => {
+                super::telemetry::artifact_write_failed("live_frame", &path, None, &error);
+                None
+            }
+        }
+    } else {
+        None
+    };
+    super::telemetry::frame_ready(super::telemetry::FrameReady {
+        turn_id: origin_turn_id,
         frame_id,
-        "snapshot",
+        reason: "snapshot",
         capture_ms,
-        encode_t0.elapsed().as_millis(),
-        jpeg.len(),
+        encode_ms: encode_t0.elapsed().as_millis(),
+        byte_count: jpeg.len(),
         target,
-    );
-    Ok(general_purpose::STANDARD.encode(&jpeg))
+        view: [view.x, view.y, view.w, view.h],
+        window_title: &window_title,
+        artifact_path: artifact_name.as_deref(),
+    });
+    Ok(SnapshotFrame {
+        b64: general_purpose::STANDARD.encode(&jpeg),
+        frame_id,
+        captured_at,
+        byte_count: jpeg.len(),
+    })
 }
 
 /// What a socket read yielded: a frame to process, nothing (skip), or an
@@ -181,7 +214,9 @@ pub(super) fn reconnect(
     search: bool,
 ) -> Result<Sock> {
     let mut s = connect_ws(key).context("reconnect")?;
-    send(&mut s, build_setup(resume, voice, search))?;
+    let setup = build_setup(resume, voice, search);
+    super::telemetry::record_model_setup(&setup, "reconnect");
+    send(&mut s, setup)?;
     wait_for_setup(&mut s)?;
     set_socket_nonblocking(&mut s)?;
     Ok(s)
@@ -204,6 +239,9 @@ pub(super) struct Brain {
     whole_screen: bool,
     last_click: Option<(i32, i32)>,
     pub step: usize,
+    /// Immutable ids for the action currently being executed. Captures the
+    /// originating turn so barge-in cannot relabel its click/frame evidence.
+    active_action: Option<super::telemetry::ActionTrace>,
     recent_actions: Vec<String>,
     prev_state_sig: Option<String>,
     /// Region snapshot taken JUST BEFORE a click (around the click point), so
@@ -234,6 +272,7 @@ pub(super) struct Brain {
 /// any robustness notes (#1 stuck-loop / #2 state-delta) to fold into the reply.
 pub(super) struct Grounded {
     pub frame_b64: String,
+    pub frame_id: u64,
     pub state_text: String,
     pub notes: Vec<(&'static str, &'static str)>,
 }
@@ -403,7 +442,7 @@ state shown below.\n{}",
                         continue;
                     }
 
-                    let action_result = brain.dispatch(&name, &args, &ctx, &cancel);
+                    let action_result = brain.dispatch(&name, &args, &ctx, &cancel, None);
                     let g = brain.ground(&name, &args)?;
                     let mut resp =
                         json!({"action_result": action_result, "new_state": g.state_text});
@@ -428,7 +467,9 @@ state shown below.\n{}",
         brain.step
     );
     brain.final_review("(stopped without done)");
-    Ok(())
+    anyhow::bail!(
+        "computer-control task did not complete within {deadline_secs}s / {max_steps} actions"
+    )
 }
 
 /// CLI: read the foreground window with the aux vision stack and print the

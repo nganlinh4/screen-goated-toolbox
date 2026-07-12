@@ -55,25 +55,25 @@ pub(super) fn research_web(args: &Value) -> Value {
         "https://www.google.com/search?q={}",
         urlencoding::encode(query)
     );
-    let opened = super::browser::open_tab(&search_url);
-    if opened.get("ok").and_then(Value::as_bool) != Some(true) {
-        return opened;
-    }
+    let search_tab = match TemporaryTab::open(&search_url) {
+        Ok(tab) => tab,
+        Err(error) => return browser_error(error),
+    };
     std::thread::sleep(std::time::Duration::from_millis(900));
-    let search_page = super::browser::read_page();
+    let search_page = super::browser::read_page_on_tab(search_tab.id);
     if search_page.get("ok").and_then(Value::as_bool) != Some(true) {
         return search_page;
     }
 
-    let links = search_links(max_sources);
+    let links = search_links(search_tab.id, max_sources);
     let mut sources = Vec::new();
     for link in links.iter().take(max_sources) {
-        let opened = super::browser::open_tab(link);
-        if opened.get("ok").and_then(Value::as_bool) != Some(true) {
-            continue;
-        }
+        let tab = match TemporaryTab::open(link) {
+            Ok(tab) => tab,
+            Err(_) => continue,
+        };
         std::thread::sleep(std::time::Duration::from_millis(900));
-        let page = super::browser::read_page();
+        let page = super::browser::read_page_on_tab(tab.id);
         if page.get("ok").and_then(Value::as_bool) != Some(true) {
             continue;
         }
@@ -113,13 +113,13 @@ pub(super) fn research_web(args: &Value) -> Value {
     })
 }
 
-fn search_links(max_sources: usize) -> Vec<String> {
+fn search_links(tab_id: i64, max_sources: usize) -> Vec<String> {
     let js = r#"(() => Array.from(document.querySelectorAll('a'))
       .map(a => a.href || '')
       .filter(h => /^https?:\/\//.test(h))
       .filter(h => !h.includes('google.') && !h.includes('/search?') && !h.includes('/preferences'))
       .slice(0, 12))()"#;
-    match super::browser::eval_value(js) {
+    match super::browser::eval_value_on_tab(js, tab_id) {
         Ok(Value::Array(arr)) => arr
             .iter()
             .filter_map(Value::as_str)
@@ -129,6 +129,43 @@ fn search_links(max_sources: usize) -> Vec<String> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+struct TemporaryTab {
+    id: i64,
+}
+
+impl TemporaryTab {
+    fn open(url: &str) -> anyhow::Result<Self> {
+        let id = super::browser::open_background_tab(url)?;
+        super::telemetry::event(
+            "research_surface_opened",
+            "research",
+            super::telemetry::Privacy::Safe,
+            json!({"tab_id": id, "foreground": false}),
+        );
+        Ok(Self { id })
+    }
+}
+
+impl Drop for TemporaryTab {
+    fn drop(&mut self) {
+        let result = super::browser::close_tab(self.id);
+        super::telemetry::event(
+            "research_surface_closed",
+            "research",
+            super::telemetry::Privacy::Safe,
+            json!({"tab_id": self.id, "ok": result.is_ok()}),
+        );
+    }
+}
+
+fn browser_error(error: anyhow::Error) -> Value {
+    json!({
+        "ok": false,
+        "code": "ERR_RESEARCH_BROWSER_TOOL_FAILED",
+        "error": error.to_string(),
+    })
 }
 
 fn clean_google_url(url: &str) -> String {

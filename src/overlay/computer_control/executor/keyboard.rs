@@ -3,6 +3,7 @@
 //! `key_combination` (named-key / chord parsing). The raw `SendInput` key builders
 //! live in the parent module and are reached via `super::`.
 
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
@@ -23,14 +24,16 @@ pub(super) fn type_text(
     cancel: &AtomicBool,
 ) -> Result<Value> {
     super::super::uia::focus_foreground(); // text must land on the on-screen window
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(super::aborted());
+    }
     let raw = args
         .get("text")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("missing text"))?;
     // Submit handling: models routinely append a submit token ("…{enter}", a
     // trailing newline) or pass press_enter. Honor all of them — type the literal
-    // text, then press Enter. Without this the field just gets
-    // "chrome://extensions{enter}" typed verbatim (what stalled browser setup).
+    // text, then press Enter instead of typing the submit marker verbatim.
     let mut text = raw.to_string();
     let mut enter = args
         .get("press_enter")
@@ -45,12 +48,6 @@ pub(super) fn type_text(
         }
     }
     let n = text.chars().count();
-    let press_enter = || {
-        if enter && let Some(vk) = token_to_vk("enter") {
-            super::send(&[super::key_vk(vk, false), super::key_vk(vk, true)]);
-        }
-    };
-
     // PASTE longer text via the clipboard instead of a keystroke per character
     // (slow for paragraphs, mangles non-ASCII). Save/restore the user's clipboard.
     // Short inputs still type, to leave the clipboard alone and play nice with
@@ -63,15 +60,28 @@ pub(super) fn type_text(
     let would_clobber = super::super::clipboard::has_nontext();
     if n > 12 && !would_clobber {
         super::super::clipboard::set_text(&text);
-        sleep(Duration::from_millis(30));
-        send_ctrl_v();
-        sleep(Duration::from_millis(140));
-        if saved.is_empty() {
-            super::super::clipboard::clear(); // don't leave our text on a previously-empty clipboard
+        let cancelled_before_paste = human_input::sleep_cancellable(30, cancel);
+        let paste_result = if cancelled_before_paste {
+            Ok(())
         } else {
-            super::super::clipboard::set_text(&saved);
+            send_ctrl_v()
+        };
+        let cancelled_after_paste = if paste_result.is_ok() && !cancelled_before_paste {
+            human_input::sleep_cancellable(140, cancel)
+        } else {
+            false
+        };
+        restore_clipboard(&saved);
+        paste_result?;
+        if cancelled_before_paste {
+            return Ok(super::aborted());
         }
-        press_enter();
+        if cancelled_after_paste {
+            return Ok(aborted_typing(n, false));
+        }
+        if enter {
+            send_key_tap(VK_RETURN)?;
+        }
         return Ok(json!({"ok": true, "typed_chars": n, "method": "paste", "submitted": enter}));
     }
     // Slow, human-paced per-key typing ONLY when explicitly asked for (a rare field
@@ -80,42 +90,97 @@ pub(super) fn type_text(
     // pointless. Default falls through to the instant batch below.
     let slow = args.get("slow").and_then(Value::as_bool).unwrap_or(false);
     if slow && n > 0 {
+        let failure = RefCell::new(None);
         let r = human_input::human_type(
             &text,
             profile,
             cancel,
-            &|unit| super::send(&[super::key_unicode(unit, false)]),
-            &|unit| super::send(&[super::key_unicode(unit, true)]),
+            &|unit| {
+                if failure.borrow().is_some() {
+                    return false;
+                }
+                match super::send(&[super::key_unicode(unit, false)]) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        let _ = super::release(&[super::key_unicode(unit, true)]);
+                        *failure.borrow_mut() = Some(error);
+                        false
+                    }
+                }
+            },
+            &|unit| {
+                if failure.borrow().is_some() {
+                    return false;
+                }
+                match super::send(&[super::key_unicode(unit, true)]) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        let _ = super::release(&[super::key_unicode(unit, true)]);
+                        *failure.borrow_mut() = Some(error);
+                        false
+                    }
+                }
+            },
         );
-        if r == Outcome::Aborted {
-            return Ok(json!({"ok": false, "status": "aborted_by_user", "typed_partial": true}));
+        if let Some(error) = failure.into_inner() {
+            return Err(error.into());
         }
-        press_enter();
+        if r == Outcome::Aborted {
+            return Ok(aborted_typing(n, true));
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(aborted_typing(n, false));
+        }
+        if enter {
+            send_key_tap(VK_RETURN)?;
+        }
         return Ok(json!({"ok": true, "typed_chars": n, "submitted": enter}));
     }
-    let mut inputs: Vec<INPUT> = Vec::new();
-    for unit in text.encode_utf16() {
-        inputs.push(super::key_unicode(unit, false));
-        inputs.push(super::key_unicode(unit, true));
-    }
+    let units: Vec<u16> = text.encode_utf16().collect();
     // Send in chunks so very long strings don't overflow a single call.
-    for chunk in inputs.chunks(64) {
-        super::send(chunk);
+    for chunk in units.chunks(32) {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(aborted_typing(n, true));
+        }
+        let mut inputs = Vec::with_capacity(chunk.len() * 2);
+        for &unit in chunk {
+            inputs.push(super::key_unicode(unit, false));
+            inputs.push(super::key_unicode(unit, true));
+        }
+        if let Err(error) = super::send(&inputs) {
+            let releases: Vec<INPUT> = chunk
+                .iter()
+                .rev()
+                .map(|&unit| super::key_unicode(unit, true))
+                .collect();
+            let _ = super::release(&releases);
+            return Err(error.into());
+        }
         sleep(Duration::from_millis(2));
     }
-    press_enter();
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(aborted_typing(n, false));
+    }
+    if enter {
+        send_key_tap(VK_RETURN)?;
+    }
     Ok(json!({"ok": true, "typed_chars": n, "submitted": enter}))
 }
 
 /// Press Ctrl+V (paste) — Ctrl down, V down, V up, Ctrl up.
-fn send_ctrl_v() {
+fn send_ctrl_v() -> Result<()> {
     let v = VIRTUAL_KEY(0x56); // 'V'
-    super::send(&[
+    let inputs = [
         super::key_vk(VK_CONTROL, false),
         super::key_vk(v, false),
         super::key_vk(v, true),
         super::key_vk(VK_CONTROL, true),
-    ]);
+    ];
+    if let Err(error) = super::send(&inputs) {
+        let _ = super::release(&[super::key_vk(v, true), super::key_vk(VK_CONTROL, true)]);
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value> {
@@ -127,13 +192,7 @@ pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value
         .get("keys")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("missing keys"))?;
-    let mut vks = Vec::new();
-    for token in combo.split('+').map(str::trim).filter(|t| !t.is_empty()) {
-        vks.push(token_to_vk(token).ok_or_else(|| anyhow!("unknown key: {token}"))?);
-    }
-    if vks.is_empty() {
-        return Err(anyhow!("empty key combination"));
-    }
+    let sequence = parse_key_sequence(combo)?;
     // HOLD the key(s) down before releasing. A game polls input each frame (~16ms
     // @60fps), so a 0-duration down->up tap is missed entirely - exactly why a key
     // "didn't move the character". Default a few frames so any tap lands;
@@ -144,17 +203,110 @@ pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value
         .map(|s| (s.clamp(0.0, 10.0) * 1000.0) as u64)
         .unwrap_or(0)
         .max(45);
-    // Press all down in order, release in reverse (so modifiers wrap the key).
+    let mut completed_groups = 0;
+    for vks in &sequence {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(aborted_keys(completed_groups));
+        }
+        if press_chord(vks, hold_ms, cancel)? {
+            return Ok(aborted_keys(completed_groups));
+        }
+        completed_groups += 1;
+        if completed_groups < sequence.len() && human_input::sleep_cancellable(20, cancel) {
+            return Ok(aborted_keys(completed_groups));
+        }
+    }
+    Ok(json!({
+        "ok": true,
+        "keys": combo,
+        "held_ms": hold_ms,
+        "sequence_groups": sequence.len(),
+    }))
+}
+
+fn parse_key_sequence(combo: &str) -> Result<Vec<Vec<VIRTUAL_KEY>>> {
+    if combo.trim().is_empty() {
+        return Err(anyhow!("empty key combination"));
+    }
+    combo
+        .split(',')
+        .enumerate()
+        .map(|(group_index, group)| {
+            if group.trim().is_empty() {
+                return Err(anyhow!("empty key group at position {}", group_index + 1));
+            }
+            group
+                .split('+')
+                .map(str::trim)
+                .map(|token| {
+                    if token.is_empty() {
+                        Err(anyhow!("empty key in group {}", group_index + 1))
+                    } else {
+                        token_to_vk(token).ok_or_else(|| anyhow!("unknown key: {token}"))
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Press all keys down in order and release them in reverse so modifiers wrap
+/// the primary key. Returns true when cancellation interrupted the hold.
+fn press_chord(vks: &[VIRTUAL_KEY], hold_ms: u64, cancel: &AtomicBool) -> Result<bool> {
     let downs: Vec<INPUT> = vks.iter().map(|&vk| super::key_vk(vk, false)).collect();
     let ups: Vec<INPUT> = vks
         .iter()
         .rev()
         .map(|&vk| super::key_vk(vk, true))
         .collect();
-    super::send(&downs);
-    human_input::sleep_cancellable(hold_ms, cancel); // wakes early on barge-in
-    super::send(&ups); // ALWAYS release, even if interrupted, so no key sticks down
-    Ok(json!({"ok": true, "keys": combo, "held_ms": hold_ms}))
+    if let Err(error) = super::send(&downs) {
+        let _ = super::release(&ups);
+        return Err(error.into());
+    }
+    let interrupted = human_input::sleep_cancellable(hold_ms, cancel);
+    if let Err(error) = super::send(&ups) {
+        let _ = super::release(&ups);
+        return Err(error.into());
+    }
+    Ok(interrupted)
+}
+
+fn send_key_tap(vk: VIRTUAL_KEY) -> Result<()> {
+    let up = super::key_vk(vk, true);
+    if let Err(error) = super::send(&[super::key_vk(vk, false)]) {
+        let _ = super::release(std::slice::from_ref(&up));
+        return Err(error.into());
+    }
+    if let Err(error) = super::send(std::slice::from_ref(&up)) {
+        let _ = super::release(std::slice::from_ref(&up));
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+fn restore_clipboard(saved: &str) {
+    if saved.is_empty() {
+        super::super::clipboard::clear();
+    } else {
+        super::super::clipboard::set_text(saved);
+    }
+}
+
+fn aborted_typing(requested_chars: usize, partial: bool) -> Value {
+    json!({
+        "ok": false,
+        "status": "aborted_by_user",
+        "requested_chars": requested_chars,
+        "typed_partial": partial,
+    })
+}
+
+fn aborted_keys(completed_groups: usize) -> Value {
+    json!({
+        "ok": false,
+        "status": "aborted_by_user",
+        "completed_groups": completed_groups,
+    })
 }
 
 fn token_to_vk(token: &str) -> Option<VIRTUAL_KEY> {
@@ -218,5 +370,22 @@ mod tests {
         assert_eq!(token_to_vk("enter"), Some(VK_RETURN));
         assert_eq!(token_to_vk("F5"), Some(VK_F5));
         assert!(token_to_vk("nope").is_none());
+    }
+
+    #[test]
+    fn parses_sequential_chords_without_changing_plus_semantics() {
+        let sequence = parse_key_sequence("Ctrl+Shift+K, Tab").unwrap();
+        assert_eq!(sequence.len(), 2);
+        assert_eq!(
+            sequence[0],
+            [VK_CONTROL, VK_SHIFT, VIRTUAL_KEY(b'K' as u16)]
+        );
+        assert_eq!(sequence[1], [VK_TAB]);
+    }
+
+    #[test]
+    fn rejects_empty_sequence_groups() {
+        let error = parse_key_sequence("A, ,B").unwrap_err();
+        assert!(error.to_string().contains("empty key group"));
     }
 }

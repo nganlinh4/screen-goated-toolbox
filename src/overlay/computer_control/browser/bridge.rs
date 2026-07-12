@@ -51,6 +51,7 @@ struct Bridge {
 }
 
 static BRIDGE: OnceLock<Bridge> = OnceLock::new();
+static PROTOCOL_VERSION: AtomicU64 = AtomicU64::new(0);
 
 fn port() -> u16 {
     std::env::var("CC_BROWSER_PORT")
@@ -122,6 +123,10 @@ pub(super) fn bootstrap_secret() -> String {
 
 pub(super) fn port_for_display() -> u16 {
     port()
+}
+
+pub(super) fn protocol_version() -> u64 {
+    PROTOCOL_VERSION.load(Ordering::SeqCst)
 }
 
 /// Start the local server once (idempotent). The extension connects in.
@@ -260,6 +265,13 @@ fn wait_for_type(
 fn do_pairing(ws: &mut WebSocket<TcpStream>) -> anyhow::Result<bool> {
     let deadline = Instant::now() + Duration::from_secs(12);
     let hello = wait_for_type(ws, deadline, "hello")?;
+    PROTOCOL_VERSION.store(
+        hello
+            .get("bridgeProtocol")
+            .and_then(Value::as_u64)
+            .unwrap_or(1),
+        Ordering::SeqCst,
+    );
     let ext_id = hello
         .get("extId")
         .and_then(Value::as_str)
@@ -409,6 +421,28 @@ fn request(json_msg: Value) -> anyhow::Result<Value> {
 /// Run a raw CDP command in the active tab's TOP frame and return its `result`.
 pub(super) fn cdp(method: &str, params: Value) -> anyhow::Result<Value> {
     cdp_in(method, params, None)
+}
+
+pub(super) fn cdp_on_tab(method: &str, params: Value, tab_id: i64) -> anyhow::Result<Value> {
+    let id = bridge().next_id.fetch_add(1, Ordering::SeqCst);
+    let env = json!({
+        "id": id,
+        "type": "cdp",
+        "method": method,
+        "params": params,
+        "tabId": tab_id,
+    });
+    let resp = request(env)?;
+    if resp.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(resp.get("result").cloned().unwrap_or_else(|| json!({})))
+    } else {
+        anyhow::bail!(
+            "{}",
+            resp.get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("cdp error")
+        )
+    }
 }
 
 /// Run a raw CDP command, optionally inside a specific (cross-origin) FRAME's CDP

@@ -44,9 +44,10 @@ pub(crate) use detector::{
 pub(crate) use mcp::{ui_install, ui_list, ui_remove, ui_remove_all};
 pub use overlay::{is_active, show_overlay, stop_overlay};
 
-/// CLI entry for the de-risk probe: `--computer-control-probe [--cc-task "..."]`.
-pub fn run_probe_cli(task: &str) -> Result<(), String> {
-    probe::run(task).map_err(|e| format!("{e:?}"))
+/// CLI entry for the de-risk probe. Multiple tasks run in one real Live session,
+/// which exercises conversation-state behavior without enabling input execution.
+pub fn run_probe_cli(tasks: &[String]) -> Result<(), String> {
+    probe::run(tasks).map_err(|e| format!("{e:?}"))
 }
 
 /// CLI entry for the coordinate-convention debug: `--cc-coord-test`.
@@ -130,7 +131,7 @@ pub fn run_cursor_demo_cli() {
 /// Headless CLI entry: run the real session loop (mic + screen + execute) with
 /// stderr logging and no GUI overlay. Runs until the process is killed.
 /// `--computer-control-run`.
-pub fn run_headless() {
+pub fn run_headless(scripted_turns: Option<Vec<String>>) -> anyhow::Result<()> {
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
     // The voice session may fall back to the gemini-live vision model, which needs
@@ -140,5 +141,13 @@ pub fn run_headless() {
     // COM apartment — main() has already CoInitialize'd this process's main thread
     // for the GUI, which would otherwise trip RPC_E_CHANGED_MODE.
     let stop = Arc::new(AtomicBool::new(false));
-    let _ = std::thread::spawn(move || runtime::run(stop)).join();
+    std::thread::spawn(move || match scripted_turns {
+        Some(turns) => runtime::run_scripted(stop, turns),
+        None => {
+            runtime::run(stop);
+            Ok(())
+        }
+    })
+    .join()
+    .map_err(|_| anyhow::anyhow!("computer-control runtime thread panicked"))?
 }

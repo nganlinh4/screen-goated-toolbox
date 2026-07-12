@@ -30,16 +30,16 @@ impl VerifyOutcome {
     /// One line the model reads to know whether the action took.
     pub fn describe(&self) -> String {
         match self {
-            VerifyOutcome::Confirmed => "confirmed — the field now holds the value".to_string(),
+            VerifyOutcome::Confirmed => "confirmed; the field now holds the value".to_string(),
             VerifyOutcome::Mismatch { expected, got } => format!(
-                "MISMATCH — requested {expected:?} but the field reads {got:?}; the input likely did NOT register \
+                "MISMATCH: requested {expected:?} but the field reads {got:?}; the input likely did NOT register \
 (wrong target, or it wasn't focused). Do not assume success — click the field first, or pick a different target."
             ),
             VerifyOutcome::Invalid { message } => {
                 format!("the field reports invalid input: {message}")
             }
             VerifyOutcome::Unknown => {
-                "could not read the field back to confirm — proceed, but verify the result"
+                "could not read the field back to confirm; proceed, but verify the result"
                     .to_string()
             }
         }

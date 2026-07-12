@@ -116,11 +116,17 @@ impl Controller {
         match s.observe() {
             Ok(ws) => {
                 let (text, n) = (ws.to_model_text(), ws.elements.len());
+                let title = ws.title.clone();
+                let url = ws.url.clone();
+                let surface = if url.is_some() { "browser" } else { "native" };
                 self.last = Some(ws);
                 json!({
                     "ok": true,
                     "count": n,
                     "elements": text,
+                    "surface": surface,
+                    "title": title,
+                    "url": url,
                     "note": "Act on any element by its @id with act(id, verb[, value]). verbs: click, fill (value=text), select (value=option), submit, toggle. Re-observe after the view changes."
                 })
             }

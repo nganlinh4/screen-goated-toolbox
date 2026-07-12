@@ -325,14 +325,6 @@ pub(super) fn set_listening(on: bool) {
 /// The user just spoke → the model is thinking; show the command as the caption.
 pub(super) fn set_user_text(text: impl Into<String>) {
     let text = text.into();
-    super::telemetry::start_turn("user_audio_transcript");
-    super::telemetry::human("cc", format!("you: {text}"));
-    super::telemetry::event(
-        "user_transcript",
-        "speech",
-        super::telemetry::Privacy::UserText,
-        serde_json::json!({"text_preview": text.chars().take(240).collect::<String>(), "char_count": text.chars().count()}),
-    );
     set_orb_state(OrbState::Thinking, Some(&text));
 }
 

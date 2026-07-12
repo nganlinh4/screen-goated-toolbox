@@ -273,15 +273,17 @@ fn qbezier(p0: (f64, f64), p1: (f64, f64), p2: (f64, f64), t: f64) -> (f64, f64)
 
 /// Type `text` one key at a time with human cadence. `down(unit)`/`up(unit)`
 /// emit a UTF-16 unit's key-down / key-up. Polls `cancel` before each key — a
-/// "stop" leaves a recoverable partial string. Typos are intentionally NOT
-/// injected (an assistant must never leave wrong text); `profile.typos` is
-/// reserved for an explicit opt-in and currently only widens timing variance.
+/// "stop" leaves a recoverable partial string. An emitter returns false when
+/// input dispatch failed, which stops before any further key is attempted.
+/// Typos are intentionally NOT injected (an assistant must never leave wrong
+/// text); `profile.typos` is reserved for an explicit opt-in and currently only
+/// widens timing variance.
 pub(super) fn human_type(
     text: &str,
     profile: &HumanProfile,
     cancel: &AtomicBool,
-    down: &dyn Fn(u16),
-    up: &dyn Fn(u16),
+    down: &dyn Fn(u16) -> bool,
+    up: &dyn Fn(u16) -> bool,
 ) -> Outcome {
     let mut rng = Rng::new();
     let wpm = if profile.wpm > 0.0 { profile.wpm } else { 60.0 };
@@ -320,9 +322,13 @@ pub(super) fn human_type(
         // Press the key (UTF-16 units) with a per-key dwell.
         let dwell = rng.normal(77.0, 22.0).clamp(35.0, 150.0) as u64;
         for &unit in ch.encode_utf16(&mut buf).iter() {
-            down(unit);
+            if !down(unit) {
+                return Outcome::Aborted;
+            }
             sleep(Duration::from_millis(dwell));
-            up(unit);
+            if !up(unit) {
+                return Outcome::Aborted;
+            }
         }
         prev = Some(ch);
     }
@@ -415,7 +421,16 @@ mod tests {
             typos: false,
         };
         let downs = std::cell::RefCell::new(Vec::new());
-        let r = human_type("hi!", &p, &cancel, &|u| downs.borrow_mut().push(u), &|_| {});
+        let r = human_type(
+            "hi!",
+            &p,
+            &cancel,
+            &|u| {
+                downs.borrow_mut().push(u);
+                true
+            },
+            &|_| true,
+        );
         assert_eq!(r, Outcome::Done);
         assert_eq!(downs.borrow().len(), 3);
     }

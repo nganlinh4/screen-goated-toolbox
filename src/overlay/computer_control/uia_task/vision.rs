@@ -35,14 +35,69 @@ pub(super) fn read_view_pref(
     cancel: &AtomicBool,
     prefer: &[&str],
 ) -> Result<String> {
-    let cap = session::capture_virtual()?;
-    let (jpeg, _shown) = session::encode_view(&cap, view, VISION_SHORT, None, None)?;
+    use super::super::telemetry::{self, Privacy};
+    let request_id = telemetry::next_artifact_id();
+    let started = Instant::now();
+    let cap = session::capture_virtual().inspect_err(|error| {
+        telemetry::typed_error(
+            "ERR_VISION_CAPTURE_FAILED",
+            "vision",
+            "failed to capture the exact input for an auxiliary vision request",
+            json!({"request_id": request_id, "error": error.to_string()}),
+        );
+    })?;
+    let (jpeg, shown) =
+        session::encode_view(&cap, view, VISION_SHORT, None, None).inspect_err(|error| {
+            telemetry::typed_error(
+                "ERR_VISION_ENCODE_FAILED",
+                "vision",
+                "failed to encode the auxiliary vision input",
+                json!({"request_id": request_id, "error": error.to_string()}),
+            );
+        })?;
+    let artifact_name = format!("vision-input-{request_id:06}.jpg");
+    let artifact_path = telemetry::trace_dir().join(&artifact_name);
+    let artifact_write_ok = match std::fs::write(&artifact_path, &jpeg) {
+        Ok(()) => true,
+        Err(error) => {
+            telemetry::artifact_write_failed("vision_input", &artifact_path, None, &error);
+            false
+        }
+    };
+    telemetry::event(
+        "vision_request",
+        "vision",
+        Privacy::UserText,
+        json!({
+            "request_id": request_id,
+            "question_preview": question.chars().take(200).collect::<String>(),
+            "context_preview": ctx.chars().take(200).collect::<String>(),
+            "preferred_models": prefer,
+            "byte_count": jpeg.len(),
+            "view": [shown.x, shown.y, shown.w, shown.h],
+            "artifact_path": artifact_name,
+            "artifact_write_ok": artifact_write_ok,
+        }),
+    );
     let (q, c) = (question.to_string(), ctx.to_string());
     let prefer: Vec<String> = prefer.iter().map(|s| s.to_string()).collect();
-    run_cancellable(cancel, move || {
+    let result = run_cancellable(cancel, move || {
         let p: Vec<&str> = prefer.iter().map(String::as_str).collect();
         super::super::vision_reader::read_image_pref(&jpeg, &q, &c, &p)
-    })
+    });
+    telemetry::event(
+        "vision_result",
+        "vision",
+        Privacy::UserText,
+        json!({
+            "request_id": request_id,
+            "ok": result.is_ok(),
+            "duration_ms": started.elapsed().as_millis(),
+            "response_preview": result.as_ref().ok().map(|text| text.chars().take(300).collect::<String>()),
+            "error": result.as_ref().err().map(ToString::to_string),
+        }),
+    );
+    result
 }
 
 /// Stall-planner vision chain: the benchmark's strongest vision PLANNERS first
@@ -114,7 +169,7 @@ impl Brain {
     }
 
     /// Independent high-res vision check of a `done` claim. Returns (accepted,
-    /// verdict text). On checker error it accepts (don't trap the agent).
+    /// verdict text). Checker errors are unknown and fail closed.
     pub fn verify_done(&self, task: &str, cancel: &AtomicBool) -> (bool, String) {
         if let Some(verdict) = self.informational_done_verdict(task) {
             return (true, verdict);
@@ -129,10 +184,7 @@ If the task is an ACTION with a visible end-state (a setting changed, a form sub
 - answer YES only if that end-state is actually visible right now, otherwise NO. \
 Start your answer with YES or NO, then quote the exact on-screen evidence (or state what is shown instead)."
         );
-        match read_view(full, &q, &format!("task: {task}"), cancel) {
-            Ok(a) => (a.trim_start().to_lowercase().starts_with("yes"), a),
-            Err(e) => (true, format!("(vision check unavailable: {e})")),
-        }
+        classify_done_read(read_view(full, &q, &format!("task: {task}"), cancel))
     }
 
     /// Stall safety-net — the "merge" planner: ONE grounded vision call that SEES
@@ -170,6 +222,21 @@ Answer in ONE or TWO sentences as a direct instruction to the agent. No preamble
 
     pub fn final_review(&self, note: &str) {
         final_review(&self.dir, self.target.as_deref(), note);
+    }
+}
+
+/// A missing independent reading is an unknown outcome, never proof that an
+/// action task succeeded. This also keeps cancellation from becoming fail-open.
+fn classify_done_read(reading: Result<String>) -> (bool, String) {
+    match reading {
+        Ok(answer) => (
+            answer.trim_start().to_lowercase().starts_with("yes"),
+            answer,
+        ),
+        Err(error) => (
+            false,
+            format!("UNKNOWN - independent vision check unavailable: {error}"),
+        ),
     }
 }
 
@@ -399,74 +466,55 @@ pub(super) fn is_nav_keys(keys: &str) -> bool {
     !toks.is_empty() && toks.iter().all(|t| NAV.contains(&t.as_str()))
 }
 
-/// Append one click record to `{dir}/clicks.jsonl` (the click-accuracy trace).
-pub(super) fn append_click(dir: &str, rec: Value) {
+/// Append one correlated click record to this session's `clicks.jsonl`.
+pub(super) fn append_click(dir: &str, action: super::super::telemetry::ActionTrace, fields: Value) {
+    use super::super::telemetry;
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new()
+    let click_id = telemetry::next_artifact_id();
+    let mut record = telemetry::artifact_record("click", click_id, Some(action), fields);
+    record["coordinate_spaces"] = json!({
+        "view_norm": "0..1000 relative to view_rect",
+        "screen_px": "virtual-desktop pixels",
+        "view_rect": "screen pixels [x,y,width,height]",
+    });
+    let path = std::path::Path::new(dir).join("clicks.jsonl");
+    let result = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(format!("{dir}/clicks.jsonl"))
-    {
-        let _ = writeln!(f, "{rec}");
+        .open(&path)
+        .and_then(|mut file| writeln!(file, "{record}"));
+    match result {
+        Ok(()) => telemetry::event_for_action(
+            "click_recorded",
+            "artifact",
+            super::super::telemetry::Privacy::Safe,
+            action,
+            json!({
+                "click_id": click_id,
+                "artifact_path": "clicks.jsonl",
+                "step": record.get("step"),
+                "kind": record.get("kind"),
+                "screen_px": record.get("screen_px"),
+            }),
+        ),
+        Err(error) => telemetry::artifact_write_failed("click", &path, Some(action), &error),
     }
 }
 
-/// Every recorded click's screen px, for the cumulative final overlay.
-pub(super) fn read_click_points(dir: &str) -> Vec<(i32, i32)> {
-    let mut out = Vec::new();
-    if let Ok(s) = std::fs::read_to_string(format!("{dir}/clicks.jsonl")) {
-        for line in s.lines() {
-            if let Ok(v) = serde_json::from_str::<Value>(line)
-                && let Some(p) = v.get("screen_px").and_then(|x| x.as_array())
-                && p.len() == 2
-            {
-                out.push((
-                    p[0].as_i64().unwrap_or(0) as i32,
-                    p[1].as_i64().unwrap_or(0) as i32,
-                ));
-            }
-        }
+#[cfg(test)]
+mod tests {
+    use super::classify_done_read;
+
+    #[test]
+    fn completion_check_errors_fail_closed() {
+        let (accepted, verdict) = classify_done_read(Err(anyhow::anyhow!("cancelled")));
+        assert!(!accepted);
+        assert!(verdict.starts_with("UNKNOWN"));
     }
-    out
-}
 
-/// After the task ends, do a final high-res vision reading of the result and
-/// save a frame with EVERY click point marked — so we can tell whether a wrong
-/// outcome was a harness mis-click or a model decision.
-pub(super) fn final_review(dir: &str, target: Option<&str>, note: &str) {
-    let view = window_view(target, false);
-    let reading = read_view(
-        view,
-        "Describe the final on-screen state in detail. If this is a game, state the exact result \
-(win / lose / draw) and the full final board.",
-        "",
-        &AtomicBool::new(false),
-    )
-    .unwrap_or_else(|e| format!("(vision read failed: {e})"));
-    let _ = std::fs::write(
-        format!("{dir}/final.txt"),
-        format!("NOTE: {note}\n\nFINAL VISION READING:\n{reading}\n"),
-    );
-    eprintln!("[cc] FINAL REVIEW ({note}):\n{reading}");
-
-    if let Ok(cap) = session::capture_virtual()
-        && let Ok((jpeg, clamped)) = session::encode_view(&cap, view, VISION_SHORT, None, None)
-        && let Ok(img) = image::load_from_memory(&jpeg)
-    {
-        let mut rgb = img.to_rgb8();
-        for (sx, sy) in read_click_points(dir) {
-            let fx = ((sx - clamped.x) as f64 / clamped.w.max(1) as f64 * rgb.width() as f64)
-                .round() as i32;
-            let fy = ((sy - clamped.y) as f64 / clamped.h.max(1) as f64 * rgb.height() as f64)
-                .round() as i32;
-            super::super::grid::draw_click_marker(&mut rgb, fx, fy);
-        }
-        let mut buf = std::io::Cursor::new(Vec::new());
-        if image::DynamicImage::ImageRgb8(rgb)
-            .write_to(&mut buf, image::ImageFormat::Jpeg)
-            .is_ok()
-        {
-            let _ = std::fs::write(format!("{dir}/final-clicks.jpg"), buf.into_inner());
-        }
+    #[test]
+    fn completion_check_requires_explicit_yes() {
+        assert!(classify_done_read(Ok("YES - visible".into())).0);
+        assert!(!classify_done_read(Ok("NO - not visible".into())).0);
     }
 }

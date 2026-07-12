@@ -126,8 +126,10 @@ pub(super) fn disconnect_all() {
     m.routes.clear();
 }
 
-/// Gemini `functionDeclaration`s for every connected integration's tools, namespaced
-/// `mcp__id__tool`. Rebuilds the dispatch route map as a side effect.
+/// Keep the live setup small: connected integrations are discovered and invoked
+/// through two stable proxy tools instead of injecting every schema every turn.
+/// The legacy route map is still refreshed so an in-flight pre-reconnect call can
+/// finish safely.
 pub(super) fn active_tool_declarations() -> Vec<Value> {
     if SUPPRESS_TOOLS.load(Ordering::SeqCst) {
         return Vec::new();
@@ -154,7 +156,9 @@ pub(super) fn active_tool_declarations() -> Vec<Value> {
             )
         })
         .collect();
-    let mut out = Vec::new();
+    if snapshot.is_empty() {
+        return Vec::new();
+    }
     let mut seen: HashSet<String> = HashSet::new();
     for (id, tools) in &snapshot {
         let display = catalog::get(id)
@@ -164,14 +168,78 @@ pub(super) fn active_tool_declarations() -> Vec<Value> {
             let name = unique_decl_name(id, tool_name, &mut seen);
             m.routes
                 .insert(name.clone(), (id.clone(), tool_name.clone()));
-            out.push(json!({
-                "name": name,
-                "description": format!("[{display}] {desc}"),
-                "parameters": sanitize_schema(schema),
-            }));
+            let _ = (display, desc, schema);
         }
     }
-    out
+    vec![
+        json!({
+            "name": "integration_tool_search",
+            "description": "Find relevant tools exposed by connected app integrations. Call once with the capability you need; returns a small ranked list with exact integration_id, tool name, description, and input schema.",
+            "parameters": {"type": "object", "properties": {
+                "query": {"type": "string", "description": "Capability or outcome needed."},
+                "integration_id": {"type": "string", "description": "Optional integration id to restrict the search."}
+            }, "required": ["query"]}
+        }),
+        json!({
+            "name": "integration_tool_call",
+            "description": "Invoke one exact connected integration tool returned by integration_tool_search.",
+            "parameters": {"type": "object", "properties": {
+                "integration_id": {"type": "string"},
+                "tool": {"type": "string"},
+                "arguments": {"type": "object", "properties": {}}
+            }, "required": ["integration_id", "tool", "arguments"]}
+        }),
+    ]
+}
+
+pub(super) fn search_tools(query: &str, integration_id: Option<&str>) -> Value {
+    let terms: Vec<String> = query
+        .to_lowercase()
+        .split_whitespace()
+        .filter(|term| term.len() > 1)
+        .map(str::to_string)
+        .collect();
+    let m = manager().lock();
+    let mut matches: Vec<(usize, Value)> = Vec::new();
+    for (id, connected) in &m.connected {
+        if integration_id.is_some_and(|wanted| wanted != id) || !connected.client.is_alive() {
+            continue;
+        }
+        for tool in &connected.tools {
+            let haystack = format!("{} {}", tool.name, tool.description).to_lowercase();
+            let score = terms
+                .iter()
+                .filter(|term| haystack.contains(term.as_str()))
+                .count();
+            if score > 0 || terms.is_empty() {
+                matches.push((
+                    score,
+                    json!({
+                        "integration_id": id,
+                        "tool": tool.name,
+                        "description": tool.description,
+                        "parameters": sanitize_schema(&tool.input_schema),
+                    }),
+                ));
+            }
+        }
+    }
+    matches.sort_by(|a, b| b.0.cmp(&a.0));
+    let tools: Vec<Value> = matches.into_iter().take(8).map(|(_, tool)| tool).collect();
+    json!({"ok": true, "query": query, "tools": tools})
+}
+
+pub(super) fn call_tool(id: &str, tool: &str, args: &Value) -> Value {
+    let Some((client, tools)) = connected_snapshot(id) else {
+        return json!({"ok": false, "error": format!("integration '{id}' not connected")});
+    };
+    if !tools.iter().any(|candidate| candidate.name == tool) {
+        return json!({"ok": false, "error": "tool is not exposed by this integration"});
+    }
+    match client.call_tool(tool, args) {
+        Ok(value) => value,
+        Err(error) => json!({"ok": false, "error": format!("integration call failed: {error:#}")}),
+    }
 }
 
 /// Route an `mcp__…` tool call to its server. `None` = not an MCP call (let native

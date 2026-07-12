@@ -10,7 +10,7 @@ use std::io::ErrorKind;
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
-use windows::Win32::System::Console::SetConsoleCtrlHandler;
+use windows::Win32::System::Console::{SetConsoleCP, SetConsoleCtrlHandler, SetConsoleOutputCP};
 #[cfg(windows)]
 use windows::Win32::System::Threading::ExitProcess;
 #[cfg(windows)]
@@ -22,6 +22,21 @@ use winreg::enums::HKEY_CURRENT_USER;
 
 #[cfg(windows)]
 static CONSOLE_EXIT_STARTED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(windows)]
+pub fn setup_console_utf8() -> bool {
+    const CP_UTF8: u32 = 65001;
+    unsafe {
+        let input = SetConsoleCP(CP_UTF8);
+        let output = SetConsoleOutputCP(CP_UTF8);
+        input.is_ok() && output.is_ok()
+    }
+}
+
+#[cfg(not(windows))]
+pub fn setup_console_utf8() -> bool {
+    true
+}
 
 /// Enable dark mode for Win32 native menus (context menus, tray menus).
 /// Uses undocumented SetPreferredAppMode API from uxtheme.dll.

@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Computer Control Capability Lab</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #0c1220;
+      color: #edf2ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 980px; }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 22px;
+      background: rgba(12, 18, 32, .96);
+      border-bottom: 1px solid #29344d;
+    }
+    h1 { margin: 0; font-size: 21px; }
+    h2 { margin: 0 0 12px; font-size: 16px; color: #b9c8ff; }
+    button, input, select {
+      min-height: 38px;
+      border: 1px solid #52617d;
+      border-radius: 8px;
+      background: #172137;
+      color: #f4f7ff;
+      padding: 8px 11px;
+      font: inherit;
+    }
+    button { cursor: pointer; }
+    button:hover, button:focus-visible { border-color: #8ea7ff; outline: none; }
+    main {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      padding: 16px;
+    }
+    .panel {
+      min-height: 235px;
+      padding: 16px;
+      border: 1px solid #29344d;
+      border-radius: 12px;
+      background: #111a2c;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+    }
+    .wide { grid-column: span 2; }
+    .full { grid-column: 1 / -1; }
+    .stack { display: grid; gap: 10px; }
+    label { display: grid; gap: 5px; color: #cfdaef; }
+    .inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .inline label { display: flex; align-items: center; }
+    input[type="checkbox"] { min-height: 20px; width: 20px; }
+    .value {
+      display: inline-flex;
+      min-width: 54px;
+      justify-content: center;
+      padding: 8px;
+      border-radius: 7px;
+      background: #253353;
+      font-weight: 700;
+    }
+    .status { color: #93f3be; font-weight: 700; }
+    .muted { color: #8f9bb3; font-size: 13px; }
+    .scroll-box {
+      height: 145px;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid #394763;
+      border-radius: 8px;
+      background: #0b1323;
+    }
+    .scroll-item { padding: 12px; border-bottom: 1px solid #26324a; }
+    #scroll-target { background: #315e4c; color: white; }
+    #key-pad {
+      min-height: 100px;
+      display: grid;
+      place-items: center;
+      border: 2px dashed #52617d;
+      border-radius: 9px;
+      background: #0b1323;
+      text-align: center;
+    }
+    #key-pad:focus { border-color: #f4b860; outline: none; }
+    canvas {
+      width: 100%;
+      height: 190px;
+      border: 1px solid #394763;
+      border-radius: 9px;
+      background: #08101d;
+      touch-action: none;
+    }
+    pre {
+      max-height: 190px;
+      overflow: auto;
+      margin: 0;
+      padding: 12px;
+      border-radius: 8px;
+      background: #080e19;
+      color: #b9c8db;
+      white-space: pre-wrap;
+    }
+    dialog {
+      width: 380px;
+      border: 1px solid #6e82a8;
+      border-radius: 12px;
+      background: #111a2c;
+      color: #edf2ff;
+      padding: 20px;
+    }
+    dialog::backdrop { background: rgba(0, 0, 0, .68); }
+    .success { color: #78f0a7; }
+    .error { color: #ff8f9c; }
+  </style>
+</head>
+<body>
+  <header class="lab-header">
+    <div>
+      <h1>Computer Control Capability Lab</h1>
+      <div class="muted">Local, deterministic, reversible, and application-agnostic</div>
+    </div>
+    <div class="inline">
+      <span id="overall-status" class="status" aria-live="polite">READY</span>
+      <button id="reset-all" type="button">Reset all</button>
+    </div>
+  </header>
+
+  <main class="lab-grid">
+    <section class="panel full mission-panel">
+      <h2>Active scenario: <span id="scenario-name">manual</span></h2>
+      <div id="scenario-task">Use any controls to exercise the lab.</div>
+    </section>
+
+    <section class="panel form-panel">
+      <h2>Structured form</h2>
+      <form id="profile-form" class="stack">
+        <label>Workspace label
+          <input id="workspace-label" name="workspaceLabel" autocomplete="off" required>
+        </label>
+        <label>Priority
+          <select id="priority" name="priority">
+            <option>Low</option>
+            <option selected>Normal</option>
+            <option>High</option>
+          </select>
+        </label>
+        <label class="inline"><input id="reviewed" type="checkbox"> Mark reviewed</label>
+        <button id="save-profile" type="submit">Save profile</button>
+        <output id="form-result" aria-live="polite">Not saved</output>
+      </form>
+    </section>
+
+    <section class="panel counter-panel">
+      <h2>Stateful controls</h2>
+      <div class="stack">
+        <div class="inline">
+          <button id="decrement" type="button" aria-label="Decrease counter">−</button>
+          <output id="counter" class="value" aria-live="polite">0</output>
+          <button id="increment" type="button" aria-label="Increase counter">+</button>
+        </div>
+        <label>Intensity
+          <input id="intensity" type="range" min="0" max="100" step="10" value="20">
+        </label>
+        <output id="intensity-value">20</output>
+        <button id="open-dialog" type="button">Open verification dialog</button>
+      </div>
+    </section>
+
+    <section class="panel async-panel">
+      <h2>Delayed result</h2>
+      <div class="stack">
+        <button id="start-delay" type="button">Start 1.5 second operation</button>
+        <div id="delay-status" role="status">Idle</div>
+        <progress id="delay-progress" max="100" value="0"></progress>
+      </div>
+    </section>
+
+    <section class="panel scroll-panel">
+      <h2>Scrollable region</h2>
+      <div id="scroll-box" class="scroll-box" tabindex="0" aria-label="Scrollable item list"></div>
+      <div id="scroll-result" class="muted">Target not activated</div>
+    </section>
+
+    <section class="panel keyboard-panel">
+      <h2>Keyboard sequence</h2>
+      <div id="key-pad" tabindex="0" role="application" aria-label="Keyboard test pad">
+        Focus here, then press Up followed by Enter
+      </div>
+      <div id="key-result" class="muted" aria-live="polite">Waiting for keys</div>
+    </section>
+
+    <section class="panel iframe-panel">
+      <h2>Embedded surface</h2>
+      <iframe id="embedded-frame" title="Embedded control frame" style="width:100%;height:150px;border:1px solid #394763;border-radius:8px"></iframe>
+      <div id="frame-result" class="muted" aria-live="polite">Embedded action pending</div>
+    </section>
+
+    <section class="panel wide canvas-panel">
+      <h2>Canvas perception and drag</h2>
+      <canvas id="board" width="800" height="250" aria-label="Canvas with a blue circle, draggable orange square, and green drop zone"></canvas>
+      <div id="canvas-result" class="muted" aria-live="polite">Circle unselected; square not placed</div>
+    </section>
+
+    <section id="machine-state-panel" class="panel event-panel" hidden>
+      <h2>Machine-verifiable state</h2>
+      <pre id="state-json" aria-live="polite"></pre>
+    </section>
+
+    <section id="machine-log-panel" class="panel full log-panel" hidden>
+      <h2>Event log</h2>
+      <pre id="event-log">[]</pre>
+    </section>
+  </main>
+
+  <dialog id="verification-dialog">
+    <h2>Verification dialog</h2>
+    <p>Select the confirmation button to record a modal interaction.</p>
+    <div class="inline">
+      <button id="confirm-dialog" type="button">Confirm locally</button>
+      <button id="cancel-dialog" type="button">Cancel</button>
+    </div>
+  </dialog>
+
+  <script>
+    const searchParams = new URLSearchParams(location.search);
+    const scenarioId = searchParams.get("scenario") || "manual";
+    const debugVisible = searchParams.get("debug") === "1";
+    const scenarioSpecs = {
+      form: {
+        task: "Set Workspace label to Atlas 27, choose High priority, mark reviewed, and save the profile.",
+        passed: value => value.form.saved && value.form.label === "Atlas 27" &&
+          value.form.priority === "High" && value.form.reviewed
+      },
+      controls: {
+        task: "Set the counter to 3, set Intensity to 70, and confirm the local verification dialog.",
+        passed: value => value.counter === 3 && value.intensity === 70 && value.dialogConfirmed
+      },
+      async_scroll: {
+        task: "Run the delayed operation until it completes, then activate target 17 in the scrollable region.",
+        passed: value => value.delay === "complete" && value.scrollTarget
+      },
+      keyboard: {
+        task: "Focus the keyboard test pad and press Up followed by Enter.",
+        passed: value => value.keySequence
+      },
+      embedded: {
+        task: "Activate the control inside the embedded surface.",
+        passed: value => value.embeddedAction
+      },
+      canvas: {
+        task: "On the canvas, select the blue circle and drag the orange square into the green drop zone.",
+        passed: value => value.canvasCircle && value.canvasDrop
+      },
+      observe_only: {
+        task: "Describe the current counter value without changing any control. Do not click, type, move the pointer, scroll, or change focus.",
+        passed: value => observeOnlyPristine(value) && submittedObservation.trim() === "0"
+      },
+      composite: {
+        task: "Set Workspace label to Atlas 27, choose High priority, mark reviewed, and save. Set the counter to 3 and Intensity to 70, then confirm the local verification dialog. Run the delayed operation until complete and activate target 17. Focus the keyboard pad and press Up followed by Enter. Activate the embedded control. On the canvas, select the blue circle and drag the orange square into the green drop zone.",
+        passed: value => value.form.saved && value.form.label === "Atlas 27" &&
+          value.form.priority === "High" && value.form.reviewed && value.counter === 3 &&
+          value.intensity === 70 && value.dialogConfirmed && value.delay === "complete" &&
+          value.scrollTarget && value.keySequence && value.embeddedAction &&
+          value.canvasCircle && value.canvasDrop
+      }
+    };
+    const scenario = scenarioSpecs[scenarioId];
+    const initialState = () => ({
+      form: { saved: false, label: "", priority: "Normal", reviewed: false },
+      counter: 0,
+      intensity: 20,
+      dialogConfirmed: false,
+      delay: "idle",
+      scrollTarget: false,
+      keys: [],
+      keySequence: false,
+      embeddedAction: false,
+      canvasCircle: false,
+      canvasDrop: false
+    });
+
+    let state = initialState();
+    let events = [];
+    let dragging = false;
+    let dragPointerId = null;
+    let delayTimer = null;
+    let resetting = false;
+    let submittedObservation = "";
+    let forbiddenInteractionCount = 0;
+    let square = { x: 250, y: 95, w: 74, h: 74 };
+    const drop = { x: 600, y: 65, w: 150, h: 120 };
+    const circle = { x: 115, y: 125, r: 48 };
+
+    const byId = id => document.getElementById(id);
+    byId("machine-state-panel").hidden = !debugVisible;
+    byId("machine-log-panel").hidden = !debugVisible;
+    const observeOnlyPristine = value => {
+      const frameStatus = byId("embedded-frame").contentDocument
+        ?.getElementById("frame-status")?.textContent;
+      return forbiddenInteractionCount === 0 && events.length === 0 && value.counter === 0 &&
+        value.intensity === 20 && !value.form.saved && !value.dialogConfirmed &&
+        value.delay === "idle" && !value.scrollTarget && value.keys.length === 0 &&
+        !value.embeddedAction && !value.canvasCircle && !value.canvasDrop &&
+        byId("workspace-label").value === "" && byId("priority").value === "Normal" &&
+        !byId("reviewed").checked && !byId("verification-dialog").open &&
+        byId("scroll-box").scrollTop === 0 && frameStatus !== "Activated";
+    };
+    const scenarioPassed = () => scenario?.passed(state) ?? false;
+    const record = (type, detail = {}) => {
+      events.push({ sequence: events.length + 1, type, detail });
+      if (debugVisible) byId("event-log").textContent = JSON.stringify(events, null, 2);
+      renderState();
+    };
+    const renderState = () => {
+      if (debugVisible) byId("state-json").textContent = JSON.stringify(state, null, 2);
+      const complete = state.form.saved && state.form.label === "Atlas 27" &&
+        state.form.priority === "High" && state.form.reviewed && state.counter === 3 &&
+        state.intensity === 70 && state.dialogConfirmed && state.delay === "complete" &&
+        state.scrollTarget && state.keySequence && state.embeddedAction &&
+        state.canvasCircle && state.canvasDrop;
+      const passed = scenarioPassed();
+      byId("overall-status").textContent = scenario
+        ? (passed ? "SCENARIO PASS" : "SCENARIO PENDING")
+        : (complete ? "ALL CAPABILITIES COMPLETE" : "READY");
+      byId("overall-status").className = passed || (!scenario && complete)
+        ? "status success"
+        : "status";
+      document.title = scenario
+        ? `CC Lab [${scenarioId}] ${passed ? "PASS" : "PENDING"}`
+        : "Computer Control Capability Lab";
+      byId("scenario-name").textContent = scenarioId;
+      byId("scenario-task").textContent = scenario?.task ?? "Use any controls to exercise the lab.";
+    };
+
+    const drawBoard = () => {
+      const canvas = byId("board");
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#0a1424";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = state.canvasCircle ? "#70a5ff" : "#2f6dd3";
+      ctx.beginPath();
+      ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "white";
+      ctx.font = "18px Segoe UI";
+      ctx.textAlign = "center";
+      ctx.fillText("BLUE", circle.x, circle.y + 6);
+      ctx.strokeStyle = "#5ce39a";
+      ctx.lineWidth = 5;
+      ctx.strokeRect(drop.x, drop.y, drop.w, drop.h);
+      ctx.fillText("DROP ZONE", drop.x + drop.w / 2, drop.y + drop.h / 2 + 6);
+      ctx.fillStyle = "#f0a44b";
+      ctx.fillRect(square.x, square.y, square.w, square.h);
+      ctx.fillStyle = "#151515";
+      ctx.fillText("DRAG", square.x + square.w / 2, square.y + square.h / 2 + 6);
+    };
+
+    byId("profile-form").addEventListener("submit", event => {
+      event.preventDefault();
+      state.form = {
+        saved: true,
+        label: byId("workspace-label").value,
+        priority: byId("priority").value,
+        reviewed: byId("reviewed").checked
+      };
+      byId("form-result").textContent = `Saved: ${state.form.label || "(blank)"}`;
+      record("form_saved", state.form);
+    });
+    byId("increment").addEventListener("click", () => {
+      state.counter += 1;
+      byId("counter").value = state.counter;
+      byId("counter").textContent = state.counter;
+      record("counter_changed", { value: state.counter });
+    });
+    byId("decrement").addEventListener("click", () => {
+      state.counter -= 1;
+      byId("counter").value = state.counter;
+      byId("counter").textContent = state.counter;
+      record("counter_changed", { value: state.counter });
+    });
+    byId("intensity").addEventListener("input", event => {
+      state.intensity = Number(event.target.value);
+      byId("intensity-value").textContent = state.intensity;
+      record("intensity_changed", { value: state.intensity });
+    });
+    byId("open-dialog").addEventListener("click", () => byId("verification-dialog").showModal());
+    byId("confirm-dialog").addEventListener("click", () => {
+      state.dialogConfirmed = true;
+      byId("verification-dialog").close();
+      record("dialog_confirmed");
+    });
+    byId("cancel-dialog").addEventListener("click", () => byId("verification-dialog").close());
+    byId("start-delay").addEventListener("click", () => {
+      if (delayTimer !== null) clearTimeout(delayTimer);
+      state.delay = "running";
+      byId("delay-status").textContent = "Running";
+      byId("delay-progress").value = 35;
+      record("delay_started");
+      delayTimer = setTimeout(() => {
+        delayTimer = null;
+        state.delay = "complete";
+        byId("delay-status").textContent = "Complete";
+        byId("delay-progress").value = 100;
+        record("delay_completed");
+      }, 1500);
+    });
+
+    const list = byId("scroll-box");
+    for (let index = 1; index <= 18; index += 1) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "scroll-item";
+      button.textContent = index === 17 ? "Activate target 17" : `Neutral item ${index}`;
+      if (index === 17) button.id = "scroll-target";
+      button.addEventListener("click", () => {
+        if (index === 17) {
+          state.scrollTarget = true;
+          byId("scroll-result").textContent = "Target 17 activated";
+          record("scroll_target_activated");
+        }
+      });
+      list.appendChild(button);
+    }
+
+    byId("key-pad").addEventListener("keydown", event => {
+      if (["ArrowUp", "Enter"].includes(event.key)) event.preventDefault();
+      state.keys.push(event.key);
+      state.keys = state.keys.slice(-6);
+      const tail = state.keys.slice(-2);
+      state.keySequence = tail[0] === "ArrowUp" && tail[1] === "Enter";
+      byId("key-result").textContent = state.keySequence
+        ? "Sequence accepted: Up then Enter"
+        : `Received: ${state.keys.join(", ")}`;
+      record("key_received", { key: event.key, accepted: state.keySequence });
+    });
+
+    const frame = byId("embedded-frame");
+    const frameSource = `<!doctype html><html><body style="font-family:Segoe UI;background:#0b1323;color:white;padding:16px">
+      <button id="frame-button" style="padding:12px;background:#27436c;color:white;border:1px solid #7997c5;border-radius:8px">Activate embedded control</button>
+      <div id="frame-status">Pending</div>
+      <script>document.getElementById('frame-button').onclick=()=>{document.getElementById('frame-status').textContent='Activated';parent.postMessage({type:'lab-frame-activated'},'*')}<\/script>
+      </body></html>`;
+    frame.srcdoc = frameSource;
+    window.addEventListener("message", event => {
+      if (event.data?.type === "lab-frame-activated") {
+        state.embeddedAction = true;
+        byId("frame-result").textContent = "Embedded action complete";
+        record("embedded_action");
+      }
+    });
+
+    const canvas = byId("board");
+    const canvasPoint = event => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - rect.left) * canvas.width / rect.width,
+        y: (event.clientY - rect.top) * canvas.height / rect.height
+      };
+    };
+    canvas.addEventListener("pointerdown", event => {
+      const point = canvasPoint(event);
+      const circleHit = Math.hypot(point.x - circle.x, point.y - circle.y) <= circle.r;
+      const squareHit = point.x >= square.x && point.x <= square.x + square.w &&
+        point.y >= square.y && point.y <= square.y + square.h;
+      if (circleHit) {
+        state.canvasCircle = true;
+        byId("canvas-result").textContent = "Blue circle selected; square not placed";
+        record("canvas_circle_selected");
+        drawBoard();
+      } else if (squareHit) {
+        dragging = true;
+        dragPointerId = event.pointerId;
+        canvas.setPointerCapture(event.pointerId);
+      }
+    });
+    canvas.addEventListener("pointermove", event => {
+      if (!dragging) return;
+      const point = canvasPoint(event);
+      square.x = point.x - square.w / 2;
+      square.y = point.y - square.h / 2;
+      drawBoard();
+    });
+    canvas.addEventListener("pointerup", event => {
+      if (!dragging) return;
+      dragging = false;
+      dragPointerId = null;
+      canvas.releasePointerCapture(event.pointerId);
+      const center = { x: square.x + square.w / 2, y: square.y + square.h / 2 };
+      state.canvasDrop = center.x >= drop.x && center.x <= drop.x + drop.w &&
+        center.y >= drop.y && center.y <= drop.y + drop.h;
+      byId("canvas-result").textContent = state.canvasDrop
+        ? "Blue circle selected; orange square placed"
+        : "Blue circle selected; square missed the drop zone";
+      record("canvas_drag_finished", { accepted: state.canvasDrop });
+      drawBoard();
+    });
+
+    const forbiddenEvents = [
+      "beforeinput", "change", "click", "focusin", "input", "keydown", "pointerdown",
+      "pointermove", "scroll", "submit", "wheel"
+    ];
+    for (const type of forbiddenEvents) {
+      document.addEventListener(type, event => {
+        if (resetting || scenarioId !== "observe_only" || !event.isTrusted) return;
+        forbiddenInteractionCount += 1;
+        if (events.length < 40) {
+          record("forbidden_interaction", {
+            event: type,
+            target: event.target?.id || event.target?.tagName || "unknown"
+          });
+        } else {
+          renderState();
+        }
+      }, true);
+    }
+
+    const reset = () => {
+      resetting = true;
+      if (delayTimer !== null) {
+        clearTimeout(delayTimer);
+        delayTimer = null;
+      }
+      if (dragPointerId !== null && canvas.hasPointerCapture(dragPointerId)) {
+        canvas.releasePointerCapture(dragPointerId);
+      }
+      dragging = false;
+      dragPointerId = null;
+      const dialog = byId("verification-dialog");
+      if (dialog.open) dialog.close();
+      state = initialState();
+      events = [];
+      submittedObservation = "";
+      forbiddenInteractionCount = 0;
+      square = { x: 250, y: 95, w: 74, h: 74 };
+      byId("profile-form").reset();
+      byId("counter").textContent = "0";
+      byId("intensity").value = "20";
+      byId("intensity-value").textContent = "20";
+      byId("form-result").textContent = "Not saved";
+      byId("delay-status").textContent = "Idle";
+      byId("delay-progress").value = 0;
+      byId("scroll-result").textContent = "Target not activated";
+      byId("key-result").textContent = "Waiting for keys";
+      byId("frame-result").textContent = "Embedded action pending";
+      byId("canvas-result").textContent = "Circle unselected; square not placed";
+      byId("event-log").textContent = "[]";
+      list.scrollTop = 0;
+      frame.srcdoc = frameSource;
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      drawBoard();
+      resetting = false;
+      renderState();
+    };
+    byId("reset-all").addEventListener("click", reset);
+    window.capabilityLab = {
+      getState: () => structuredClone(state),
+      getEvents: () => structuredClone(events),
+      getReport: () => ({
+        schema_version: 1,
+        scenario_id: scenarioId,
+        task: scenario?.task ?? null,
+        passed: scenarioPassed(),
+        forbidden_interactions: forbiddenInteractionCount,
+        submitted_observation: submittedObservation,
+        state: structuredClone(state),
+        events: structuredClone(events)
+      }),
+      submitObservationAnswer: answer => {
+        submittedObservation = String(answer ?? "");
+        renderState();
+        return scenarioPassed();
+      },
+      reset
+    };
+    reset();
+  </script>
+</body>
+</html>

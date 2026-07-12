@@ -36,7 +36,7 @@ pub mod websocket;
 use windows::Win32::UI::WindowsAndMessaging::WM_APP;
 
 // Re-export public items
-pub use capture::{current_input_device_name, start_mic_capture};
+pub use capture::{concrete_default_output_device, current_input_device_name, start_mic_capture};
 pub use state::{RealtimeState, SharedRealtimeState, TranscriptionMethod};
 pub use transcription::start_realtime_transcription;
 pub use translation::translate_with_google_gtx;

@@ -4,6 +4,7 @@
 //! through this registry so the model gets stable JSON from known-good sources.
 
 mod audio;
+mod filesystem;
 mod process;
 
 use serde_json::{Value, json};
@@ -41,6 +42,10 @@ pub(crate) fn query(args: &Value) -> Value {
 
     log_result(domain, query, &result);
     result
+}
+
+pub(crate) fn list_files(args: &Value) -> Value {
+    filesystem::list_directory(args, observed_at_ms())
 }
 
 pub(super) fn ok(
