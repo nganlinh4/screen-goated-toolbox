@@ -49,7 +49,7 @@ pub(crate) fn raise_window(target: &str) -> bool {
 //     is exactly why `focus_window` couldn't reach a minimized game and matched a browser tab by
 //     title instead. Mirrors the proven enumeration in `realtime_webview::app_selection`. ---
 
-/// Executable basename (e.g. "GenshinImpact.exe") owning `pid`; "" on failure.
+/// Executable basename owning `pid`; empty on failure.
 fn process_exe_name(pid: u32) -> String {
     unsafe {
         let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {

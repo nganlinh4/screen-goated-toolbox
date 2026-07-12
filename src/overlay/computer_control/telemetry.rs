@@ -178,7 +178,7 @@ pub(super) fn next_step(tool: &str) -> ActionTrace {
 /// Bind execution to the turn/action created by [`next_step`]. The action
 /// worker is on another thread, so a thread-local or `current_turn()` lookup is
 /// not sufficient: barge-in may advance the global turn while input is still in
-/// flight. If policy reroutes the tool, the newest pending action is the owner.
+/// flight. The newest pending action is the owner.
 pub(super) fn claim_action(dispatch_tool: &str) -> ActionTrace {
     let id = STEP_ID.fetch_add(1, Ordering::SeqCst) + 1;
     let trace = ActionTrace {

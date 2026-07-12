@@ -24,7 +24,6 @@ impl Offers {
     pub(super) fn poll(&mut self, socket: &mut Sock, state: &mut Reader, last_event: Instant) {
         if !self.browser_sent
             && !state.awaiting
-            && !state.control_revoked
             && state.has_command
             && last_event.elapsed() > Duration::from_secs(6)
             && self.browser_checked.elapsed() >= Duration::from_secs(4)
@@ -49,7 +48,6 @@ more precise page reading/acting. If they decline, call decline_browser_control.
         }
 
         if !state.awaiting
-            && !state.control_revoked
             && state.has_command
             && last_event.elapsed() > Duration::from_secs(6)
             && self.mcp_checked.elapsed() >= Duration::from_secs(4)

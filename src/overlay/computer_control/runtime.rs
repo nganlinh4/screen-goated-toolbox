@@ -71,7 +71,6 @@ struct Job {
     name: String,
     args: Value,
     task: String,
-    intent: String,
     user_text: String,
     action: telemetry::ActionTrace,
     source_frame_id: Option<u64>,
@@ -494,7 +493,7 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                 // vision call). Recover gently first: a NUDGE (fresh frame + a terse
                 // "continue") usually un-sticks it WITHOUT losing session memory; only
                 // if it stays silent do we fall back to the context-dropping reconnect.
-                if state.awaiting && state.pending.id.is_none() && !state.control_revoked {
+                if state.awaiting && state.pending.id.is_none() {
                     let silent = last_event.elapsed();
                     if silent > RECONNECT_SILENCE {
                         overlay::push_log("(session still silent - reconnecting)".to_string());
@@ -567,14 +566,11 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                     "tool_call_id": id,
                     "tool": name,
                     "turn_mode": state.turn_mode.as_str(),
-                    "control_revoked": state.control_revoked,
                 }),
             );
             last_event = Instant::now();
         }
-        if state.control_revoked {
-            state.control_nudge = None;
-        } else if let Some(nudge) = state.control_nudge.take() {
+        if let Some(nudge) = state.control_nudge.take() {
             overlay::set_status("recovering...");
             let _ = send(&mut socket, realtime_text(&nudge));
             state.awaiting = true;
