@@ -71,6 +71,7 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
         .unwrap_or_else(|err| panic!("Failed to read {}: {}", manifest_path.display(), err));
     let manifest: serde_json::Value = serde_json::from_str(&manifest)
         .unwrap_or_else(|err| panic!("Failed to parse {}: {}", manifest_path.display(), err));
+    validate_model_catalog(&manifest);
 
     let constants = manifest_object(&manifest, "constants");
     let defaults = manifest_object(&manifest, "defaults");
@@ -130,6 +131,52 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
         "pub const DEFAULT_REALTIME_TRANSCRIPTION_MODEL: &str = {};",
         rust_string(manifest_string(defaults, "realtime_transcription_model"))
     ));
+    lines.push(String::new());
+
+    lines.push("pub fn generated_normalize_model_id(model_id: &str) -> &str {".to_string());
+    lines.push("    match model_id {".to_string());
+    for (old, replacement) in manifest_object(&manifest, "model_id_migrations") {
+        lines.push(format!(
+            "        {} => {},",
+            rust_string(old),
+            rust_string(replacement.as_str().unwrap())
+        ));
+    }
+    lines.push("        _ => model_id,".to_string());
+    lines.push("    }".to_string());
+    lines.push("}".to_string());
+    lines.push(String::new());
+
+    lines.push(
+        "pub fn generated_live_thinking_config(api_model: &str) -> Option<LiveThinkingConfig> {"
+            .to_string(),
+    );
+    lines.push("    match api_model {".to_string());
+    for (endpoint, metadata) in manifest_object(&manifest, "endpoint_lifecycle") {
+        let Some(thinking) = metadata
+            .get("live_thinking")
+            .and_then(serde_json::Value::as_object)
+        else {
+            continue;
+        };
+        let kind = manifest_string(thinking, "kind");
+        let value = thinking.get("value").unwrap();
+        let expression = match kind {
+            "budget" => format!("LiveThinkingConfig::Budget({})", value.as_u64().unwrap()),
+            "level" => format!(
+                "LiveThinkingConfig::Level({})",
+                rust_string(value.as_str().unwrap())
+            ),
+            _ => panic!("unsupported live thinking kind {kind:?}"),
+        };
+        lines.push(format!(
+            "        {} => Some({expression}),",
+            rust_string(endpoint)
+        ));
+    }
+    lines.push("        _ => None,".to_string());
+    lines.push("    }".to_string());
+    lines.push("}".to_string());
     lines.push(String::new());
 
     let preset_defaults = manifest_object(&manifest, "preset_defaults");
@@ -278,6 +325,79 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
 
     fs::write(output_path, lines.join("\n"))
         .unwrap_or_else(|err| panic!("Failed to write {}: {}", output_path.display(), err));
+}
+
+fn validate_model_catalog(manifest: &serde_json::Value) {
+    use std::collections::HashSet;
+    let models = manifest_array(manifest, "models");
+    let mut ids = HashSet::new();
+    for item in models {
+        let model = item.as_object().expect("model entries must be objects");
+        let id = manifest_string(model, "id");
+        assert!(ids.insert(id), "duplicate model id {id:?}");
+    }
+    for (old, replacement) in manifest_object(manifest, "model_id_migrations") {
+        assert!(
+            old != replacement.as_str().unwrap(),
+            "self-referential migration {old:?}"
+        );
+        assert!(
+            ids.contains(replacement.as_str().unwrap()),
+            "migration target is not a model id: {replacement}"
+        );
+    }
+    let endpoints = manifest_object(manifest, "endpoint_lifecycle");
+    for (endpoint, value) in endpoints {
+        let metadata = value
+            .as_object()
+            .expect("endpoint lifecycle must be an object");
+        let lifecycle = manifest_string(metadata, "lifecycle");
+        assert!(
+            ["stable", "preview", "experimental", "deprecated", "retired"].contains(&lifecycle),
+            "invalid lifecycle for {endpoint}"
+        );
+        assert!(
+            !manifest_string(metadata, "verified_at").is_empty(),
+            "missing verified_at for {endpoint}"
+        );
+        if let Some(replacement) = metadata
+            .get("replacement")
+            .and_then(serde_json::Value::as_str)
+        {
+            assert!(
+                endpoints.contains_key(replacement),
+                "unknown replacement {replacement:?}"
+            );
+        }
+    }
+    let forbidden = |endpoint: &str| {
+        endpoints
+            .get(endpoint)
+            .and_then(|v| v.get("lifecycle"))
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|stage| matches!(stage, "deprecated" | "retired"))
+    };
+    for model in models.iter().filter_map(serde_json::Value::as_object) {
+        if model.get("enabled").and_then(serde_json::Value::as_bool) == Some(true) {
+            let endpoint = manifest_string(model, "full_name");
+            assert!(
+                !forbidden(endpoint),
+                "enabled model uses deprecated/retired endpoint {endpoint:?}"
+            );
+        }
+    }
+    let defaults = manifest_object(manifest, "defaults");
+    assert!(
+        !forbidden(manifest_string(defaults, "tts_gemini_live_model")),
+        "default TTS endpoint is deprecated/retired"
+    );
+    for item in manifest_array(manifest, "tts_gemini_models") {
+        let endpoint = manifest_string(item.as_object().unwrap(), "api_model");
+        assert!(
+            !forbidden(endpoint),
+            "TTS option is deprecated/retired: {endpoint}"
+        );
+    }
 }
 
 fn manifest_object<'a>(

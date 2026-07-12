@@ -32,13 +32,12 @@ fn build_setup_payload(
     voice_name: &str,
     system_instruction: &str,
 ) -> serde_json::Value {
-    serde_json::json!({
+    let mut payload = serde_json::json!({
         "setup": {
             "model": format!("models/{}", model_name),
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
                 "mediaResolution": "MEDIA_RESOLUTION_LOW",
-                "thinkingConfig": { "thinkingBudget": 0 },
                 "speechConfig": {
                     "voiceConfig": {
                         "prebuiltVoiceConfig": {
@@ -66,7 +65,11 @@ fn build_setup_payload(
             "inputAudioTranscription": {},
             "outputAudioTranscription": {}
         }
-    })
+    });
+    if let Some(config) = crate::model_config::live_thinking_config_json(model_name) {
+        payload["setup"]["generationConfig"]["thinkingConfig"] = config;
+    }
+    payload
 }
 
 pub(in crate::overlay::translation_gummy) fn current_gemini_tts_settings() -> (String, String) {
@@ -152,7 +155,8 @@ mod setup_contract_tests {
         let doc: serde_json::Value = serde_json::from_str(FIXTURE).expect("fixture parses");
         let setup_fixture = &doc["setup"];
 
-        let payload = build_setup_payload("model-x", "VoiceX", "instruction");
+        let model = crate::model_config::GEMINI_LIVE_API_MODEL_3_1;
+        let payload = build_setup_payload(model, "VoiceX", "instruction");
         let setup = &payload["setup"];
         let generation = &setup["generationConfig"];
         let realtime = &setup["realtimeInputConfig"];
@@ -175,10 +179,8 @@ mod setup_contract_tests {
             setup_fixture["silenceDurationMs"].as_u64().unwrap(),
         );
         assert_eq!(
-            generation["thinkingConfig"]["thinkingBudget"]
-                .as_u64()
-                .unwrap(),
-            setup_fixture["thinkingBudget"].as_u64().unwrap(),
+            generation["thinkingConfig"],
+            setup_fixture["thinkingByModel"][model],
         );
         assert_eq!(
             generation["mediaResolution"].as_str().unwrap(),

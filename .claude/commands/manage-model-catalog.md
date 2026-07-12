@@ -33,6 +33,14 @@ py -3 scripts\generate_android_preset_model_catalog.py `
   --live-output $env:TEMP\GeneratedLiveModelCatalog.kt
 ```
 
+Validate without generating files:
+
+```powershell
+py -3 scripts\generate_android_preset_model_catalog.py --manifest-source catalog\model_catalog.json --validate-only
+```
+
+The validator and Cargo build reject duplicate IDs, broken migrations, incomplete lifecycle metadata, and deprecated/retired runtime defaults.
+
 8. For removal/migration, prove no dangling references remain with `rg`.
 9. Run focused tests, then repository validation from `AGENTS.md`. For Android catalog changes, run the relevant Gradle compile/unit tests from `mobile/README.md`.
 

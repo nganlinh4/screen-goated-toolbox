@@ -20,7 +20,7 @@ class HelpAssistantClientTest {
 
     @Test
     fun constantsMatchAndroidHelpIndexContract() {
-        assertEquals("gemini-3.1-flash-lite-preview", PRIMARY_MODEL)
+        assertEquals("gemini-3.1-flash-lite", PRIMARY_MODEL)
         assertEquals("gemma-4-26b-a4b-it", FALLBACK_MODEL)
         assertEquals(4096, MAX_OUTPUT_TOKENS)
         assertEquals(

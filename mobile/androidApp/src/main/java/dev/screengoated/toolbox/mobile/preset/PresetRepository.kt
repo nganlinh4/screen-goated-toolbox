@@ -350,7 +350,8 @@ class PresetRepository(
     private fun normalizePresetModelIds(preset: Preset): Preset {
         return preset.copy(
             blocks = preset.blocks.map { block ->
-                val descriptor = PresetModelCatalog.getById(block.model)
+                val normalizedModel = PresetModelCatalog.normalizeModelId(block.model)
+                val descriptor = PresetModelCatalog.getById(normalizedModel)
                 val expectedType = when (block.blockType) {
                     BlockType.IMAGE -> PresetModelType.VISION
                     BlockType.TEXT -> PresetModelType.TEXT
@@ -358,7 +359,7 @@ class PresetRepository(
                     BlockType.INPUT_ADAPTER -> null
                 }
                 if (expectedType == null || descriptor?.modelType == expectedType) {
-                    block
+                    block.copy(model = normalizedModel)
                 } else {
                     block.copy(model = defaultModelIdForBlock(block.blockType))
                 }

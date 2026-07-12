@@ -14,6 +14,12 @@ pub enum ModelSource {
     Discovered,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiveThinkingConfig {
+    Budget(u64),
+    Level(&'static str),
+}
+
 #[derive(Clone, Debug)]
 pub struct ModelConfig {
     pub id: String,
@@ -111,6 +117,7 @@ pub fn get_model_by_id_with_custom(
     id: &str,
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) -> Option<ModelConfig> {
+    let id = generated_normalize_model_id(id);
     if let Some(model) = get_all_models().iter().find(|m| m.id == id) {
         return Some(model.clone());
     }
@@ -125,6 +132,51 @@ pub fn get_model_by_id_with_custom(
 
     let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
     cached.iter().find(|model| model.id == id).cloned()
+}
+
+pub fn normalize_model_id(model_id: &str) -> &str {
+    generated_normalize_model_id(model_id)
+}
+
+pub fn live_thinking_config(api_model: &str) -> Option<LiveThinkingConfig> {
+    generated_live_thinking_config(api_model)
+}
+
+pub fn live_thinking_config_json(api_model: &str) -> Option<serde_json::Value> {
+    match live_thinking_config(api_model) {
+        Some(LiveThinkingConfig::Budget(value)) => {
+            Some(serde_json::json!({ "thinkingBudget": value }))
+        }
+        Some(LiveThinkingConfig::Level(value)) => {
+            Some(serde_json::json!({ "thinkingLevel": value }))
+        }
+        None => None,
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn retired_flash_lite_id_migrates_to_stable() {
+        assert_eq!(
+            normalize_model_id("gemini-3.1-flash-lite-preview"),
+            "gemini-3.1-flash-lite"
+        );
+    }
+
+    #[test]
+    fn live_thinking_schema_follows_exact_endpoint() {
+        assert_eq!(
+            live_thinking_config(GEMINI_LIVE_API_MODEL_2_5),
+            Some(LiveThinkingConfig::Budget(0))
+        );
+        assert_eq!(
+            live_thinking_config(GEMINI_LIVE_API_MODEL_3_1),
+            Some(LiveThinkingConfig::Level("minimal"))
+        );
+    }
 }
 
 pub fn normalize_realtime_transcription_model_id(model_id: &str) -> String {

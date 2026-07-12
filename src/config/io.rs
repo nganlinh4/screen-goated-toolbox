@@ -180,6 +180,7 @@ fn normalize_model_id_for_block(
     model_id: &str,
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) -> String {
+    let model_id = crate::model_config::normalize_model_id(model_id);
     let expected_type = match block_type {
         "image" => Some(ModelType::Vision),
         "text" => Some(ModelType::Text),
@@ -212,7 +213,7 @@ fn normalize_model_priority_chain(
     for model_id in chain.drain(..) {
         let candidate = match get_model_by_id_with_custom(&model_id, custom_models) {
             Some(model) if model.model_type == expected_type && !model_is_non_llm(&model_id) => {
-                model_id
+                crate::model_config::normalize_model_id(&model_id).to_string()
             }
             _ => fallback.clone(),
         };
@@ -383,17 +384,8 @@ mod tests {
 
         migrate_config(&mut config);
 
-        // "gemini-3.1-flash-lite-preview" is a valid Vision model, so migration
-        // preserves it for both builtin and custom presets (only invalid models
-        // fall back to the default — see migrate_config_falls_back_for_missing_block_models).
-        assert_eq!(
-            config.presets[0].blocks[0].model,
-            "gemini-3.1-flash-lite-preview"
-        );
-        assert_eq!(
-            config.presets[1].blocks[0].model,
-            "gemini-3.1-flash-lite-preview"
-        );
+        assert_eq!(config.presets[0].blocks[0].model, "gemini-3.1-flash-lite");
+        assert_eq!(config.presets[1].blocks[0].model, "gemini-3.1-flash-lite");
     }
 
     #[test]
@@ -417,10 +409,7 @@ mod tests {
 
         assert_eq!(
             config.model_priority_chains.image_to_text,
-            vec![
-                "gemini-3.1-flash-lite-preview".to_string(),
-                "scout".to_string()
-            ]
+            vec!["gemini-3.1-flash-lite".to_string(), "scout".to_string()]
         );
         assert_eq!(
             config.model_priority_chains.text_to_text,

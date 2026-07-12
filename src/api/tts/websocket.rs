@@ -78,9 +78,9 @@ pub fn send_tts_setup(
         }
     });
 
-    generation_config["thinkingConfig"] = serde_json::json!({
-        "thinkingBudget": 0
-    });
+    if let Some(config) = crate::model_config::live_thinking_config_json(model) {
+        generation_config["thinkingConfig"] = config;
+    }
 
     let setup = serde_json::json!({
         "setup": {

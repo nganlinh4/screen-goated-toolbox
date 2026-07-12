@@ -10,7 +10,7 @@
     "image_to_text": [
       "scout",
       "gemma-4-26b-a4b-vision",
-      "gemini-3.1-flash-lite-preview"
+      "gemini-3.1-flash-lite"
     ],
     "text_to_text": [
       "qwen_3_235b_a22b_instruct_2507",

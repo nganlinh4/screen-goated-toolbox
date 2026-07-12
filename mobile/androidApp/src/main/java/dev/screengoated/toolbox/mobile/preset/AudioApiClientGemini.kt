@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import dev.screengoated.toolbox.mobile.shared.live.geminiLiveThinkingJson
 import kotlinx.coroutines.ensureActive
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -120,6 +121,12 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
         Request.Builder().url("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=$apiKey").build(),
         object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                val generationConfig = JSONObject()
+                    .put("responseModalities", JSONArray().put("AUDIO"))
+                    .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
+                geminiLiveThinkingJson(model.fullName)?.let {
+                    generationConfig.put("thinkingConfig", it)
+                }
                 webSocket.send(
                     JSONObject()
                         .put(
@@ -129,10 +136,7 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                                 "models/${model.fullName}",
                             ).put(
                                 "generationConfig",
-                                JSONObject()
-                                    .put("responseModalities", JSONArray().put("AUDIO"))
-                                    .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
-                                    .put("thinkingConfig", JSONObject().put("thinkingBudget", 0)),
+                                generationConfig,
                             ).put(
                                 "inputAudioTranscription",
                                 JSONObject(),

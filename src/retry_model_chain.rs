@@ -243,12 +243,8 @@ mod tests {
             ..Default::default()
         };
 
-        let reason = preflight_skip_reason(
-            "gemini-3.1-flash-lite-preview",
-            "google",
-            &config,
-            &HashSet::new(),
-        );
+        let reason =
+            preflight_skip_reason("gemini-3.1-flash-lite", "google", &config, &HashSet::new());
 
         assert_eq!(reason.as_deref(), Some("PROVIDER_DISABLED:google"));
     }
@@ -272,7 +268,7 @@ mod tests {
         .expect("image chain should produce a next model");
 
         // Catalog image_to_text chain is [scout, gemma-4-26b-a4b-vision,
-        // gemini-3.1-flash-lite-preview]; failing "scout" advances to the next
+        // gemini-3.1-flash-lite]; failing "scout" advances to the next
         // available model in order.
         assert_eq!(next.id, "gemma-4-26b-a4b-vision");
     }

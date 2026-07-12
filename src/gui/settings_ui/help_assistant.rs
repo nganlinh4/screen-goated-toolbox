@@ -29,7 +29,7 @@ struct ChunkEntry {
     text: String,
 }
 
-const PRIMARY_MODEL: &str = "gemini-3.1-flash-lite-preview";
+const PRIMARY_MODEL: &str = "gemini-3.1-flash-lite";
 const FALLBACK_MODEL: &str = "gemma-4-26b-a4b-it";
 const MAX_OUTPUT_TOKENS: u32 = 4096;
 
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn model_constants_are_set() {
-        assert_eq!(PRIMARY_MODEL, "gemini-3.1-flash-lite-preview");
+        assert_eq!(PRIMARY_MODEL, "gemini-3.1-flash-lite");
         assert_eq!(FALLBACK_MODEL, "gemma-4-26b-a4b-it");
     }
 }

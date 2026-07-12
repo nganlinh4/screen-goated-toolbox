@@ -19,6 +19,38 @@
     "realtime_translation_model_llm": "text-llm",
     "realtime_translation_model_gtx": "google-gtx"
   },
+  "model_id_migrations": {
+    "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite"
+  },
+  "endpoint_lifecycle": {
+    "gemini-3.1-flash-lite": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-07-13"
+    },
+    "gemini-3.1-flash-lite-preview": {
+      "lifecycle": "deprecated",
+      "replacement": "gemini-3.1-flash-lite",
+      "verified_at": "2026-07-13"
+    },
+    "gemini-2.5-flash-native-audio-preview-12-2025": {
+      "lifecycle": "preview",
+      "replacement": null,
+      "verified_at": "2026-07-13",
+      "live_thinking": { "kind": "budget", "value": 0 }
+    },
+    "gemini-3.1-flash-live-preview": {
+      "lifecycle": "preview",
+      "replacement": null,
+      "verified_at": "2026-07-13",
+      "live_thinking": { "kind": "level", "value": "minimal" }
+    },
+    "gemini-3.5-live-translate-preview": {
+      "lifecycle": "preview",
+      "replacement": null,
+      "verified_at": "2026-07-13"
+    }
+  },
   "defaults": {
     "tts_gemini_live_model": "gemini-3.1-flash-live-preview",
     "realtime_transcription_model": "gemini-3.5-translate",
@@ -48,7 +80,7 @@
     "image_to_text": [
       "scout",
       "gemma-4-26b-a4b-vision",
-      "gemini-3.1-flash-lite-preview"
+      "gemini-3.1-flash-lite"
     ],
     "text_to_text": [
       "qwen_3_235b_a22b_instruct_2507",
@@ -63,7 +95,7 @@
   },
   "search_disabled_full_names": [
     "gemini-3-flash-preview",
-    "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-flash-lite",
     "gemini-3.1-flash-live-preview",
     "gemini-3.5-live-translate-preview",
     "gemini-2.5-flash-native-audio-preview-12-2025"
@@ -338,12 +370,12 @@
       "quota_en": "20 requests/day"
     },
     {
-      "id": "gemini-3.1-flash-lite-preview",
+      "id": "gemini-3.1-flash-lite",
       "provider": "google",
       "name_vi": "Chính xác, nhanh",
       "name_ko": "정확하고 빠름",
       "name_en": "Accurate, Fast",
-      "full_name": "gemini-3.1-flash-lite-preview",
+      "full_name": "gemini-3.1-flash-lite",
       "model_type": "Vision",
       "enabled": true,
       "quota_vi": "500 lượt/ngày",
@@ -603,7 +635,7 @@
       "name_vi": "Chính xác, nhanh",
       "name_ko": "정확하고 빠름",
       "name_en": "Accurate, Fast",
-      "full_name": "gemini-3.1-flash-lite-preview",
+      "full_name": "gemini-3.1-flash-lite",
       "model_type": "Text",
       "enabled": true,
       "quota_vi": "500 lượt/ngày",
@@ -811,7 +843,7 @@
       "name_vi": "(Tuỳ chỉnh) 3.1 Flash-Lite",
       "name_ko": "(사용자 지정) 3.1 Flash-Lite",
       "name_en": "(Custom) 3.1 Flash-Lite",
-      "full_name": "gemini-3.1-flash-lite-preview",
+      "full_name": "gemini-3.1-flash-lite",
       "model_type": "Audio",
       "enabled": true,
       "quota_vi": "500 lượt/ngày",

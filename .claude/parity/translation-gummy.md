@@ -39,4 +39,4 @@
 
 ## Current Implementation Debt
 
-Windows, Android, and `vad-contract.json` currently emit/assert `thinkingBudget = 0` for every selectable Live model. That is a legacy 2.5 contract and is invalid for the selectable 3.1 model. Fix both setup builders, fixture shape, and tests together; do not paper over the mismatch in prose.
+Windows, Android, and `vad-contract.json` derive thinking setup from exact endpoint metadata: Gemini 2.5 uses `thinkingBudget`; Gemini 3.1 uses `thinkingLevel`.

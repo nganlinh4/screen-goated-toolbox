@@ -6,7 +6,7 @@
     "Language is required for both profiles",
     "Accent and tone are optional",
     "Input and output audio transcription stay enabled",
-    "Thinking budget is zero",
+    "Thinking setup follows the selected model capability",
     "Only the translated utterance is returned",
     "Realtime input uses START_SENSITIVITY_HIGH / END_SENSITIVITY_HIGH with prefixPaddingMs=80 and silenceDurationMs=320",
     "Realtime input uses START_OF_ACTIVITY_INTERRUPTS and TURN_INCLUDES_ONLY_ACTIVITY",

@@ -2,7 +2,7 @@ package dev.screengoated.toolbox.mobile.helpassistant
 
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
-const val PRIMARY_MODEL = "gemini-3.1-flash-lite-preview"
+const val PRIMARY_MODEL = "gemini-3.1-flash-lite"
 const val FALLBACK_MODEL = "gemma-4-26b-a4b-it"
 const val MAX_OUTPUT_TOKENS = 4096
 

@@ -38,7 +38,36 @@ def kotlin_string(value: str) -> str:
 
 
 def load_manifest(manifest_path: Path) -> dict:
-    return json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    validate_manifest(manifest)
+    return manifest
+
+
+def validate_manifest(manifest: dict) -> None:
+    models = manifest["models"]
+    ids = [model["id"] for model in models]
+    if len(ids) != len(set(ids)):
+        raise ValueError("model ids must be unique")
+    for old, replacement in manifest["model_id_migrations"].items():
+        if old == replacement or replacement not in ids:
+            raise ValueError(f"invalid model id migration: {old} -> {replacement}")
+    endpoints = manifest["endpoint_lifecycle"]
+    allowed = {"stable", "preview", "experimental", "deprecated", "retired"}
+    for endpoint, metadata in endpoints.items():
+        if metadata.get("lifecycle") not in allowed or not metadata.get("verified_at"):
+            raise ValueError(f"invalid lifecycle metadata for {endpoint}")
+        replacement = metadata.get("replacement")
+        if replacement is not None and replacement not in endpoints:
+            raise ValueError(f"unknown endpoint replacement: {replacement}")
+    forbidden = {endpoint for endpoint, metadata in endpoints.items()
+                 if metadata["lifecycle"] in {"deprecated", "retired"}}
+    for model in models:
+        if model["enabled"] and model["full_name"] in forbidden:
+            raise ValueError(f"enabled model uses retired endpoint: {model['full_name']}")
+    runtime = [manifest["defaults"]["tts_gemini_live_model"]]
+    runtime += [item["api_model"] for item in manifest["tts_gemini_models"]]
+    if forbidden.intersection(runtime):
+        raise ValueError("deprecated/retired endpoint cannot be a runtime default")
 
 
 def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
@@ -108,6 +137,14 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
             *[f"            {kotlin_string(item)}," for item in priority_chains["text_to_text"]],
             "        ),",
             "    )",
+            "",
+            "    fun normalizeModelId(modelId: String): String = when (modelId) {",
+            *[
+                f"        {kotlin_string(old)} -> {kotlin_string(replacement)}"
+                for old, replacement in manifest["model_id_migrations"].items()
+            ],
+            "        else -> modelId",
+            "    }",
             "}",
             "",
         ]
@@ -174,6 +211,11 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         "    val label: String,",
         ")",
         "",
+        "sealed interface GeneratedLiveThinkingConfig {",
+        "    data class Budget(val value: Int) : GeneratedLiveThinkingConfig",
+        "    data class Level(val value: String) : GeneratedLiveThinkingConfig",
+        "}",
+        "",
         "object GeneratedLiveModelCatalog {",
         f"    const val TRANSCRIPTION_GEMINI_2_5 = {kotlin_string(constants['gemini_live_audio_model_id_2_5'])}",
         f"    const val TRANSCRIPTION_GEMINI_3_1 = {kotlin_string(constants['gemini_live_audio_model_id_3_1'])}",
@@ -204,10 +246,22 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
             ]
         )
 
+    lines.extend([
+        "    )",
+        "",
+        "    fun thinkingConfig(apiModel: String): GeneratedLiveThinkingConfig? = when (apiModel) {",
+    ])
+    for endpoint, metadata in manifest["endpoint_lifecycle"].items():
+        thinking = metadata.get("live_thinking")
+        if thinking is None:
+            continue
+        constructor = "Budget" if thinking["kind"] == "budget" else "Level"
+        value = str(thinking["value"]) if thinking["kind"] == "budget" else kotlin_string(thinking["value"])
+        lines.append(f"        {kotlin_string(endpoint)} -> GeneratedLiveThinkingConfig.{constructor}({value})")
+    lines.extend(["        else -> null", "    }", ""])
+
     lines.extend(
         [
-            "    )",
-            "",
             "    val realtimeTranscriptionOptions: List<GeneratedRealtimeTranscriptionOption> = listOf(",
         ]
     )
@@ -317,9 +371,10 @@ def main() -> None:
     parser.add_argument("--preset-output")
     parser.add_argument("--preset-defaults-output")
     parser.add_argument("--live-output")
+    parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
 
-    if not args.preset_output and not args.preset_defaults_output and not args.live_output:
+    if not args.validate_only and not args.preset_output and not args.preset_defaults_output and not args.live_output:
         raise SystemExit("At least one output must be provided.")
 
     manifest = load_manifest(Path(args.manifest_source))

@@ -114,7 +114,10 @@ object PresetModelCatalog {
     private val byId: Map<String, PresetModelDescriptor>
         get() = allModels.associateBy { it.id }
 
-    fun getById(id: String): PresetModelDescriptor? = byId[id]
+    fun getById(id: String): PresetModelDescriptor? =
+        byId[GeneratedPresetModelCatalogData.normalizeModelId(id)]
+
+    fun normalizeModelId(id: String): String = GeneratedPresetModelCatalogData.normalizeModelId(id)
 
     fun forType(type: PresetModelType): List<PresetModelDescriptor> =
         models.filter { it.modelType == type }
