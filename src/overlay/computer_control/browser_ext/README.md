@@ -1,39 +1,47 @@
-# SGT Browser Use (Chrome extension)
+# SGT Browser Use Extension
 
-A thin **CDP-over-WebSocket bridge**: it attaches `chrome.debugger` to the active
-tab and forwards DevTools Protocol commands to the Screen Goated Toolbox app over a
-local, paired WebSocket. All the agent logic lives in the Rust app — this is just
-the gateway that lets it act in your **real, logged-in** browser session.
+Manifest V3 bridge between Computer Control and the user's existing Chromium session. The extension exposes Chrome DevTools Protocol over a paired loopback WebSocket; planning, policy, and tool execution remain in Rust.
 
-See `../../../../temp-browser-extension-design.md` for the full design.
+## Components
 
-## Files
-- `manifest.json` — MV3; permissions kept minimal (`debugger`, `tabs`, `storage`).
-- `sw.js` — service worker: owns the WS (+ ≤20s keepalive) and `chrome.debugger`;
-  HMAC challenge-response pairing; flat sessions for child frames/OOPIFs.
-- `bootstrap.js` — generated per install: the one-time bootstrap key the app stamps
-  in so the extension can prove itself on first connect (loaded via `importScripts`).
-- `popup.html` / `popup.js` — status view + a manual-pair / Forget debug fallback.
+- `manifest.json` — extension metadata and `debugger`, `tabs`, `storage` permissions.
+- `sw.js` — WebSocket owner, HMAC authentication, CDP sessions, frame targets, and tab operations.
+- `bootstrap.js` — generated per extraction with a one-time bootstrap credential.
+- `popup.html` / `popup.js` — status, manual pairing fallback, and Forget action.
 
-## Install (dev / load-unpacked)
-The app's agent does this for you via `browser_setup` — **no code to paste**:
-1. The app extracts these files to `%LOCALAPPDATA%/screen-goated-toolbox/cc_browser_ext`.
-2. `chrome://extensions` → enable **Developer mode** → **Load unpacked** → that folder.
-3. Approve the permission prompt if one appears (it can read/change browser data).
-4. It **auto-pairs** over the socket within ~2 minutes — the extension proves the
-   stamped bootstrap key and the app hands back the durable secret. (The popup's
-   manual paste stays only as a debug fallback.)
+## Development install
 
-## Security
-- Connects only to `ws://127.0.0.1:<port>` (default 47800); web-page Origins rejected.
-- **First connect:** the extension proves the per-install **bootstrap key** (stamped
-  into its own files, so a random local socket client that can't read them can't
-  pair) → the app hands over the durable secret. The secret is never sent to an
-  unauthenticated socket and is not surfaced in `browser_status`.
-- **Every reconnect:** **HMAC challenge-response** over the durable secret — no
-  static token on the wire. **Forget** wipes it.
-- The persistent "being debugged" banner is the honest "automation active" signal.
+`browser_setup` extracts the packaged extension to:
+
+`%APPDATA%\screen-goated-toolbox\cc_browser_ext`
+
+Then:
+
+1. Open the browser extension manager.
+2. Enable developer mode.
+3. Load the extracted directory as an unpacked extension.
+4. If it was already loaded, press Reload once after an app update so staged protocol code takes effect.
+
+The app opens a ten-minute setup pairing window. A newly loaded/reloaded extension connects and pairs automatically while that window is open; the popup supports manual recovery.
+
+## Security model
+
+- Network scope is loopback only: `ws://127.0.0.1:<port>`; default port is `47800`.
+- Browser-page origins are rejected by the Rust bridge.
+- First pair proves the generated bootstrap credential before receiving a durable secret.
+- Reconnects use HMAC challenge-response; the durable secret is not sent as a static wire token.
+- Forget removes the stored secret.
+- Chrome's debugging banner remains visible while CDP is attached.
+- Protocol version is shared by `BRIDGE_PROTOCOL` in `sw.js` and the Rust setup/status checks.
 
 ## Packaging
-`pwsh scripts/pack-browser-ext.ps1` → a Web Store zip (one-click install + a
-store-assigned stable ID).
+
+The desktop binary embeds this directory and generates `bootstrap.js` only during extraction. The packaging helper can create a source zip:
+
+```powershell
+.\scripts\pack-browser-ext.ps1
+```
+
+Output: `target/dist/sgt-browser-bridge-<manifest-version>.zip`.
+
+That zip does not contain the generated bootstrap credential. A fresh store-installed copy therefore cannot complete first-pair authentication through the current flow. Treat the zip as a development artifact, not a publish-ready Web Store package, until store-install pairing is implemented.

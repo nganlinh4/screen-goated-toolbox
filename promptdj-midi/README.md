@@ -1,20 +1,22 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# PromptDJ Mini App
 
-# Run and deploy your AI Studio app
+Vite frontend for SGT's embedded PromptDJ/MIDI experience. Rust hosts the built assets from `src/overlay/prompt_dj/dist/` and injects application settings/API credentials at runtime.
 
-This contains everything you need to run your app locally.
+## Standalone development
 
-View your app in AI Studio: https://ai.studio/apps/bundled/promptdj-midi
+```powershell
+cd promptdj-midi
+npm install
+$env:GEMINI_API_KEY = '<development key>'
+npm run dev
+```
 
-## Run Locally
+The Vite config also reads `GEMINI_API_KEY` from a local Vite environment file when present. Never commit credentials.
 
-**Prerequisites:**  Node.js
+## Build
 
+```powershell
+npm run build
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Root `run-dev.ps1` builds and copies `dist/` into `src/overlay/prompt_dj/dist/`. Use that path to test the actual embedded WebView host rather than only the standalone Vite page.

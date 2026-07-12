@@ -55,4 +55,4 @@
   - Android producer-hook tests for preset and live-save paths
 
 ## Deviations
-- Android first pass records live-translate history as per-committed text segments because the current Android runtime does not persist reusable WAV blobs like the Windows audio history path.
+- Android records live-translate history as committed text segments because its runtime does not persist reusable WAV blobs like the Windows audio-history path.

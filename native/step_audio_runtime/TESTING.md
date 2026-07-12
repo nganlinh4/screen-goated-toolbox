@@ -1,75 +1,77 @@
-# Step Audio EditX Test Checklist
+# Step Audio EditX release checks
 
-Use this checklist before uploading `sgt-step-audio-runtime-*.zip.part*` to the
-`sgt-runtime-bundles` GitHub release.
+Run these checks before uploading runtime chunks. They exercise the installed
+AppData runtime and model, not only the build directory.
 
-## 1. Runtime Smoke
+## 1. Sidecar smoke test
 
 ```powershell
-cd C:\WORK\screen-goated-toolbox
 .\native\step_audio_runtime\scripts\smoke_runtime.ps1
 ```
 
-Expected:
-- JSON response contains `"ok": true`.
-- Output WAV is at least 0.45 seconds long.
-- The script prints the WAV path and byte size.
+Pass conditions:
 
-## 2. Desktop App
+- the JSON response has `"ok": true`;
+- the output WAV exists; and
+- the WAV contains at least 0.45 seconds of audio.
 
-Before manual UI checks, run the gated Rust e2e checks against the installed
-runtime/model:
+## 2. Rust integration tests
 
 ```powershell
-cd C:\WORK\screen-goated-toolbox
 $env:SGT_STEP_AUDIO_E2E = "1"
 cargo test --target x86_64-pc-windows-gnu api::tts::worker::worker_step_audio::tests::synthesize_step_audio_e2e_when_enabled -- --nocapture
+
 $env:SGT_STEP_AUDIO_MANAGER_E2E = "1"
 cargo test --target x86_64-pc-windows-gnu api::tts::manager::tests::synthesize_to_wav_with_step_audio_profile_e2e_when_enabled -- --nocapture
 ```
 
-Expected:
-- Worker e2e produces at least 0.5 seconds of 24 kHz audio.
-- Manager e2e produces a valid WAV artifact through the same collection path
-  used by TTS Playground and subtitle narration.
+The worker must return at least 0.5 seconds of 24 kHz audio. The manager test
+must produce a valid WAV through the same collection path used by TTS
+Playground and Screen Recorder narration.
+
+To verify audible playback reaches the Windows render device, run the gated
+loopback test on a machine with a usable default output device:
 
 ```powershell
-cd C:\WORK\screen-goated-toolbox
+$env:SGT_STEP_AUDIO_LOOPBACK_E2E = "1"
+cargo test --target x86_64-pc-windows-gnu api::tts::manager::tests::step_audio_playback_loopback_e2e_when_enabled -- --nocapture
+```
+
+Clear the three environment variables after testing so normal test runs do not
+unexpectedly invoke the large local model.
+
+```powershell
+Remove-Item Env:SGT_STEP_AUDIO_E2E -ErrorAction SilentlyContinue
+Remove-Item Env:SGT_STEP_AUDIO_MANAGER_E2E -ErrorAction SilentlyContinue
+Remove-Item Env:SGT_STEP_AUDIO_LOOPBACK_E2E -ErrorAction SilentlyContinue
+```
+
+## 3. Desktop checks
+
+```powershell
 .\scripts\run_desktop_dev.ps1
 ```
 
-Expected:
-- App starts without a Step Audio startup error.
-- `Settings -> Downloaded Tools` shows separate Step Audio rows for:
-  - AWQ model + tokenizer
-  - managed runtime
-- Selecting Step Audio EditX for Read Aloud produces audible speech.
-- Tiny/empty audio is not treated as success; the sidecar retries or reports an
-  error.
+Verify:
 
-## 3. Screen-Record Narration
+- Downloaded Tools shows separate Step Audio model/tokenizer and runtime rows.
+- Read Aloud produces audible speech and reports tiny, silent, or empty output
+  as failure.
+- Screen Recorder narration exposes Step Audio voices and creates audible
+  clips.
+- Clone and audio-edit requests preserve the intended reference and text.
 
-Expected:
-- Narration method list includes Step Audio EditX.
-- Step Audio shows prompt voice rows per language.
-- Prompt text override is not visible for bundled prompt voices.
-- Generating narration with Step Audio creates audible narration clips.
+## 4. Publish checks
 
-## 4. Release Upload
-
-Only after the app checks pass:
+Build with an explicit version, test the generated manifest against every
+chunk, then upload:
 
 ```powershell
-cd C:\WORK\screen-goated-toolbox
-.\native\step_audio_runtime\scripts\build_runtime.ps1 -Version 2026.05.15 -SkipInstall -Upload
-```
-
-Then verify:
-
-```powershell
+$Version = "YYYY.MM.DD"
+.\native\step_audio_runtime\scripts\build_runtime.ps1 -Version $Version -SkipInstall -Upload
 gh release view sgt-runtime-bundles --repo nganlinh4/screen-goated-toolbox --json assets
 ```
 
-Expected release assets:
-- `sgt-step-audio-runtime-2026.05.15.zip.part001`
-- `sgt-step-audio-runtime-2026.05.15.zip.part002`
+Confirm the release contains every chunk named by
+`dist/sgt_step_audio_runtime.manifest.json`, with matching sizes and SHA-256
+values. Commit and push that manifest only after the uploaded assets match it.

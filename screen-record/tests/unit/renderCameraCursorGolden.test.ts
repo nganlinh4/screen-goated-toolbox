@@ -25,7 +25,7 @@ import type {
 // the committed cross-language golden was produced by the current TS code; the
 // Rust export asserts the same fixture within the same tolerance. If the TS math
 // changes intentionally, regenerate with tests/unit/_generateRenderGolden.gen.ts.
-// See .claude/parity/render-camera-cursor.md.
+// See screen-record/docs/render-parity.md.
 const FIXTURE = JSON.parse(
   readFileSync(
     path.resolve(__dirname, "../../../parity-fixtures/render-camera-cursor/golden.json"),

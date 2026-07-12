@@ -40,7 +40,6 @@
     - `Ollama`
   - tools uses a page-scoped footer for preset actions; its preset rows scroll independently beneath that footer instead of owning the footer position
   - nested horizontal carousels in apps/tools own touch gestures for the full gesture whenever they have horizontal scroll available; the shell tab pager must not compete for drags that start inside a scrollable inner carousel
-  - honest placeholders for future Windows sections instead of fake-working mobile-only screens
 - Mobile may keep Android-native rendering, but the language/theme state model and localized preview text source must match Windows.
 
 ## Failure And Recovery

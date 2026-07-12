@@ -1,25 +1,43 @@
-# VieNeu Runtime Bundle
+# VieNeu managed runtime
 
-This runtime is distributed as a managed Screen Goated Toolbox bundle. The app downloads
-`dist/sgt_vieneu_runtime.manifest.json`, fetches the listed release chunks, verifies size
-and SHA-256, extracts the archive, then launches the bundled Python runtime.
+VieNeu TTS runs as a persistent Python sidecar. The current product catalog
+uses the `v2-turbo-gpu` variant, so a working NVIDIA CUDA environment is
+required.
 
-Do not install VieNeu with pip on the end user's machine from the app. Any Python package
-build work belongs in the release build step below.
+The bundle contains a Python 3.11 environment, CUDA PyTorch, the VieNeu SDK,
+and `vieneu_sidecar.py`. Model data is cached separately by the SDK under
+`%LOCALAPPDATA%\screen-goated-toolbox\models\vieneu_hf`.
 
-## Build
+The app fetches `sgt_vieneu_runtime.manifest.json` from the
+`sgt-runtime-bundles` GitHub release. It verifies chunk size and SHA-256,
+reassembles the archive, validates the entrypoint and bundled Python, then
+installs under `%LOCALAPPDATA%\screen-goated-toolbox\bin\vieneu_runtime`.
 
-From Windows PowerShell:
+The sidecar stays alive and exchanges one JSON object per line. Responses echo
+the request `id`; diagnostics use stderr. The host can request a built-in voice
+or reference audio, reads the resulting WAV, and rejects empty or silent
+output.
+
+## Build and publish
+
+Requirements: Windows, `uv`, `tar.exe`, and optionally `gh` for upload. A
+CUDA-capable NVIDIA system is required to validate the current product variant.
 
 ```powershell
-native\vieneu_runtime\scripts\build_runtime.ps1 -Version 2026.05.17
+.\native\vieneu_runtime\scripts\build_runtime.ps1
 ```
 
-Upload chunks to the shared runtime release:
+`-SkipInstall` reuses the existing `build/venv`; it is not a clean-build mode.
+The script refreshes the local manifest and chunk files in `dist/`.
+
+For publication:
 
 ```powershell
-native\vieneu_runtime\scripts\build_runtime.ps1 -Version 2026.05.17 -Upload
+$Version = "YYYY.MM.DD"
+.\native\vieneu_runtime\scripts\build_runtime.ps1 -Version $Version -SkipInstall -Upload
 ```
 
-The manifest is committed under `native/vieneu_runtime/dist/`; chunk files are release
-assets under the `sgt-runtime-bundles` GitHub release.
+Unlike the Magpie and Step Audio installers, VieNeu reads its manifest from the
+release asset. `-Upload` therefore uploads both the manifest and every chunk.
+Verify all uploaded names, sizes, and hashes before treating the runtime as
+published.
