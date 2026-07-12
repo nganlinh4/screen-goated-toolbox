@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use super::super::overlay;
 use super::super::telemetry::{self, Privacy};
 
+const VOICE_RMS_THRESHOLD: f64 = 120.0;
+
 pub(super) fn should_upload(sample_count: usize, muted: bool) -> bool {
     sample_count > 0 && !muted
 }
@@ -19,6 +21,10 @@ pub(super) fn rms(samples: &[i16]) -> f64 {
     } else {
         (samples.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / samples.len() as f64).sqrt()
     }
+}
+
+pub(super) fn is_voiced(samples: &[i16]) -> bool {
+    !samples.is_empty() && rms(samples) >= VOICE_RMS_THRESHOLD
 }
 
 pub(super) struct MicUplinkWindow {
@@ -184,7 +190,7 @@ fn is_transient_device_error(error: &anyhow::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_transient_device_error, rms, should_upload};
+    use super::{is_transient_device_error, is_voiced, rms, should_upload};
 
     #[test]
     fn uplink_keeps_all_nonempty_unmuted_audio() {
@@ -197,6 +203,13 @@ mod tests {
     fn rms_handles_silence_and_signal() {
         assert_eq!(rms(&[]), 0.0);
         assert_eq!(rms(&[100, -100]), 100.0);
+    }
+
+    #[test]
+    fn buffered_voice_detection_uses_the_uplink_threshold() {
+        assert!(!is_voiced(&[]));
+        assert!(!is_voiced(&[100, -100]));
+        assert!(is_voiced(&[200, -200]));
     }
 
     #[test]

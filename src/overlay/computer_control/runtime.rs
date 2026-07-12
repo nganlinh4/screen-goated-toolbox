@@ -31,6 +31,7 @@ mod mic;
 mod offers;
 mod reader;
 mod reader_policy;
+mod reconnect_gate;
 mod results;
 mod session_control;
 mod speech_events;
@@ -203,6 +204,7 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
     let mut user_audio_tracker = UserAudioTracker::default();
     let mut mic_uplink = MicUplinkWindow::new();
     let mut last_event = Instant::now();
+    let mut reconnect_deferred_for_voice = false;
     let mut state = Reader {
         source_frame_id: initial_frame_id,
         connection_generation: 1,
@@ -223,7 +225,8 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
     let mut exit_reason = "external_stop_flag";
     while !stop.load(Ordering::SeqCst) {
         let sink_failed = sink.as_ref().is_some_and(AudioSink::needs_rebuild);
-        let retry_missing_sink = sink.is_none() && last_sink_recovery.elapsed() >= Duration::from_secs(2);
+        let retry_missing_sink =
+            sink.is_none() && last_sink_recovery.elapsed() >= Duration::from_secs(2);
         if sink_failed || retry_missing_sink {
             let dropped_samples = sink.as_ref().map(AudioSink::queued_samples).unwrap_or(0);
             sink = AudioSink::new();
@@ -302,11 +305,13 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
 
         offers.poll(&mut socket, &mut state, last_event);
 
-        // 0d) the server warned the session is ending (goAway). Reconnect PROACTIVELY
-        //     at the next gap (no tool call in flight) so we migrate the conversation
-        //     cleanly with our recap - instead of being force-closed mid-stream (which
-        //     dropped us with a gap + a "client failed to close" error).
-        if state.go_away && state.pending.id.is_none() {
+        let user_is_speaking = reconnect_gate::user_audio_active(&mic_buf, last_voice);
+        reconnect_gate::record_catalog_deferral(
+            user_is_speaking,
+            &mut reconnect_deferred_for_voice,
+        );
+
+        if state.go_away && state.pending.id.is_none() && !user_is_speaking {
             state.go_away = false;
             overlay::push_log("(goAway) reconnecting before the session ends".to_string());
             if !reconnect_session(
@@ -325,13 +330,10 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
             continue;
         }
 
-        // 0e) an MCP integration connected/removed → the tool set changed. Gemini freezes
-        //     tools at setup, so reconnect at the next safe gap to re-declare them. Clear the
-        //     flag FIRST (no reconnect storm); skip while a tool call is in flight, the model
-        //     is mid-think, or it's speaking (don't cut off its "done, it's ready").
         if super::mcp::tools_changed()
             && state.pending.id.is_none()
             && !state.awaiting
+            && !user_is_speaking
             && last_event.elapsed() > Duration::from_secs(2)
             && !sink.as_ref().map(|s| s.is_playing()).unwrap_or(false)
         {
@@ -353,7 +355,6 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
             continue;
         }
 
-        // 1) mic -> server. Open during TTS so you can barge in, unless echo_gate.
         let chunk = {
             let mut b = mic_buf.lock().unwrap();
             std::mem::take(&mut *b)
@@ -363,10 +364,8 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
         let muted = scripted_mode || (echo_gate && playing);
         let rms = mic::rms(&chunk);
         let has_mic_audio = mic::should_upload(chunk.len(), muted);
-        let voiced = has_mic_audio && rms >= 120.0;
-        // Drive the orb's VOLUME reaction every tick (0 when quiet) so the resting orb pulses with
-        // your voice and settles the moment you stop. The visual gain is amplified in orb.html; the
-        // Idle orb's reaction to this IS the "I hear you" feedback (no separate listening state).
+        let voiced = has_mic_audio && mic::is_voiced(&chunk);
+        // Drive the orb's volume reaction every tick so it tracks speech.
         let level = if voiced {
             (rms / 4000.0).min(1.0) as f32
         } else {
