@@ -1,38 +1,29 @@
 # Help Assistant Parity
 
 ## Canonical Source
-- Windows helper index/runtime logic: [src/gui/settings_ui/help_assistant.rs](../../src/gui/settings_ui/help_assistant.rs)
-- Windows launcher placement: [src/gui/app/rendering/title_bar.rs](../../src/gui/app/rendering/title_bar.rs)
-- Windows localized labels and helper copy: [src/gui/locale/en.rs](../../src/gui/locale/en.rs), [src/gui/locale/vi.rs](../../src/gui/locale/vi.rs), [src/gui/locale/ko.rs](../../src/gui/locale/ko.rs)
 
-## Behavior Contract
-- The helper assistant fetches and caches the shared `help-index.json` file from GitHub raw:
-  - `https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/help-index.json`
-- Requests score every index chunk by non-overlapping keyword matches in `path + text`, apply an extra path-match boost, and send the top 20 matching chunks as source context.
-- If the question has no searchable terms, requests use the first 20 chunks from the index.
-- The model chain is fixed:
-  - primary: `gemini-3.1-flash-lite-preview`
-  - fallback: `gemma-4-26b-a4b-it`
-- Both models use `maxOutputTokens = 4096`, `temperature = 0.7`, and the canonical Gemini thinking config for the selected model.
-- Answers must be in the question language, forbid made-up information, forbid “based on the source code” phrasing, require locale-correct UI terms, and return Markdown.
-- Windows frames the prompt as the Windows app help assistant. Android frames the prompt as the Android app help assistant and assumes questions are about Android unless the user explicitly mentions Windows.
-- Help Assistant requests use long-lived network clients instead of the shorter shared defaults so large help-index fetches and long Gemini generations do not time out prematurely.
-- Bucket labels, placeholders, loading messages, and prompt guides are localized in `en`, `vi`, and `ko`.
-- Helper failures stay user-visible and recoverable:
-  - missing Gemini key returns a visible error answer
-  - help-index fetch failure returns a visible error answer
-  - Gemini API failure returns a visible error answer
+- Windows request/ranking: [help_assistant.rs](../../src/gui/settings_ui/help_assistant.rs)
+- Windows launcher: [title_bar.rs](../../src/gui/app/rendering/title_bar.rs)
+- Android client/UI: [helpassistant](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/helpassistant)
+- Shared contract: [help-assistant.json](../../parity-fixtures/mobile-shell/help-assistant.json)
 
-## Deliberate Deviation
-- Windows launches the helper from the title bar and uses the text-input overlay for the question.
-- Android launches the helper from a dedicated Settings card and uses a native Material 3 dialog/sheet for the question.
-- On constrained landscape layouts, Android may tighten the question input layout to preserve space for the ask button.
-- In compact landscape, Android may also hide the supporting subtitle and reduce the text-field height to keep the ask button visible without changing the question flow.
-- Android still renders the answer in the floating overlay result window, so only the input surface placement differs.
+## Contract
 
-## Fixtures
-- Shared fixture: [parity-fixtures/mobile-shell/help-assistant.json](../../parity-fixtures/mobile-shell/help-assistant.json)
+- Fetch and cache the tracked `help-index.json` from the repository raw URL.
+- Rank every chunk by non-overlapping question-term matches across `path + text`, apply the fixture's path boost, and send the top 20. With no searchable terms, use the first 20 chunks.
+- Use one primary and one fallback Gemini model with the same output limit, temperature, and model-appropriate thinking configuration on both platforms.
+- The model chain must name models that are currently available. Change both platform constants and the shared fixture in one commit; never copy model IDs into this prose.
+- Answer in the question language, use locale-correct UI terms, return Markdown, and prohibit invented facts or source-code framing.
+- Use dedicated long-lived network clients for the index and generation requests.
+- Missing keys, fetch failures, and model failures remain visible and recoverable.
 
-## Failure And Recovery
-- Android does not introduce a second answer surface for missing overlay permission.
-- If the answer overlay cannot be shown, Android should use the same overlay permission/runtime recovery path used by its other overlay features, then retry the helper flow instead of falling back to an in-app answer view.
+## Platform Surface
+
+- Windows asks from the title bar through the text-input overlay.
+- Android asks from Settings through native Material 3 UI, then shows the answer in the shared floating result overlay.
+- Android may tighten the input layout in compact landscape, but must not change request/ranking semantics or create a second answer surface.
+- Missing overlay permission preserves the pending question, opens system settings, and retries the result overlay afterward.
+
+## Current Implementation Debt
+
+At this audit, both platform constants and the fixture still point at a retired Flash-Lite preview model. The documentation no longer endorses that ID; migrate code, catalog/default chains, fixture, and tests together before treating the primary path as healthy.

@@ -1,56 +1,97 @@
 # SGT Mobile
 
-Android-first live translate app that lives beside the Windows desktop app in the same repo.
+Android/Kotlin Multiplatform companion for Screen Goated Toolbox. Windows remains canonical for features covered by `.claude/parity/`; Android ports those contracts into native Compose and Android services.
 
-## Structure
+## Layout
 
-- `androidApp/`: native Android app built with Kotlin and Jetpack Compose
-- `shared/`: Kotlin Multiplatform session contracts and state store
-
-## Current v1 focus
-
-- Material 3 Android UI
-- `mic` and `playback` live capture modes
-- foreground-service driven live translate runtime
-- optional floating overlay in the `full` flavor
-- BYOK Gemini credentials stored locally on device
+- `androidApp/` — Android application, Compose UI, services, overlays, and platform integrations.
+- `shared/` — shared session/state contracts.
+- `scripts/` — Windows/WSL Gradle and ADB helpers.
+- `build-release.ps1` — signed full APK and optional Play AAB wrapper.
 
 ## Flavors
 
-- `full`: direct APK distribution with overlay support enabled
-- `play`: Play-safe flavor with overlay support disabled at build time
+- `full` — direct/development distribution with floating-overlay features.
+- `play` — Google Play distribution with Play-safe feature switches and in-app updates.
 
-## Run
+Both derive `versionName` and default `versionCode` from root `Cargo.toml`.
 
-1. Install a Java 17+ JDK.
-2. From `mobile/`, run `./gradlew :androidApp:assembleFullDebug`.
-3. Open the generated APK on an Android device or emulator that supports playback capture.
+## Prerequisites
 
-## WSL Install
+- JDK 17.
+- Android SDK and platform tools.
+- Android platform/build tools required by `androidApp/build.gradle.kts`.
+- For this checkout, `settings.gradle.kts` includes the `../../youtubedl-android` composite build; that repository must exist at the expected path relative to `mobile/`.
 
-If you work from WSL, use the repo wrapper instead of WSL-native Gradle:
+Set `JAVA_HOME`, `ANDROID_HOME`, and `ANDROID_SDK_ROOT` for the local installation. Keep machine paths in untracked local configuration, not this README.
 
-```bash
-./mobile/scripts/sgtp-wsl.sh install
+## Build and test on Windows
+
+From `mobile/`:
+
+```powershell
+.\gradlew.bat :androidApp:assembleFullDebug --console=plain
+.\gradlew.bat :androidApp:testFullDebugUnitTest --console=plain
+.\gradlew.bat :androidApp:compileFullDebugKotlin --console=plain
 ```
 
-That wrapper runs the known-good Windows JDK/Android SDK/Gradle toolchain through `powershell.exe`, then installs the APK with the existing `sgtp` phone helper. It is the supported stress-free path from WSL for this repo.
+Generated debug APK:
 
-## Phone Helper
+`androidApp/build/outputs/apk/full/debug/androidApp-full-debug.apk`
 
-Use the single Windows command `sgtp`.
+## WSL wrapper
 
-- `sgtp`: connect, open filtered logs, install, launch
-- `sgtp pair`: one-time wireless debugging pair if trust was lost
+WSL-native Gradle is unreliable with the Windows Android SDK in this environment. Delegate to PowerShell:
 
-The helper reads `mobile/.sgtp.json`, which is ignored by git.
-If Android wireless debugging discovery works, `sgtp` can rediscover the current endpoint automatically.
-If discovery is blocked on your network, `sgtp` falls back to the phone's current `IP address & Port`.
-`enable-fixed-port` still exists, but it is not reliable across phone reboots.
+```bash
+./mobile/scripts/sgtp-wsl.sh build
+./mobile/scripts/sgtp-wsl.sh install
+./mobile/scripts/sgtp-wsl.sh run
+./mobile/scripts/sgtp-wsl.sh status
+./mobile/scripts/sgtp-wsl.sh gradle :androidApp:testFullDebugUnitTest --console=plain
+```
 
-WSL can use the same flow through:
+Set `SGT_REPO_ROOT` only when the wrapper cannot discover the checkout.
 
-- `./mobile/scripts/sgtp-wsl.sh build`
-- `./mobile/scripts/sgtp-wsl.sh install`
-- `./mobile/scripts/sgtp-wsl.sh run`
-- `./mobile/scripts/sgtp-wsl.sh status`
+## Device helper
+
+`scripts/sgtp.ps1` wraps wireless ADB connection, install, launch, and filtered logs. It reads `mobile/.sgtp.json`; update that machine/device-specific file when endpoint or APK location changes.
+
+```powershell
+.\scripts\sgtp.ps1 status
+.\scripts\sgtp.ps1 pair
+.\scripts\sgtp.ps1 install
+.\scripts\sgtp.ps1 run
+.\scripts\sgtp.ps1 logcat
+```
+
+Wireless-debugging ports may change after reconnect/reboot. The helper attempts endpoint discovery and falls back to saved host/port.
+
+## Release artifacts
+
+From repo root:
+
+```powershell
+# Full signed APK only
+.\mobile\build-release.ps1
+
+# Full APK + Play AAB
+.\mobile\build-release.ps1 -IncludeAab
+```
+
+Copied outputs:
+
+- `target/release/ScreenGoatedToolbox_v<VERSION>.apk`
+- `target/release/ScreenGoatedToolbox_v<VERSION>.aab` when `-IncludeAab` is used.
+
+For a same-version Play re-upload, Gradle supports `-PversionCodeOverride=<INT>`; invoke the relevant Gradle bundle task directly.
+
+## Parity workflow
+
+Before changing a parity-owned feature:
+
+1. Read `.claude/skills/enforce-mobile-parity/SKILL.md`.
+2. Update its `.claude/parity/<feature>.md` contract.
+3. Update shared fixtures under `parity-fixtures/`.
+4. Implement against Windows behavior.
+5. Run Windows and Android fixture/tests named by the parity contract.

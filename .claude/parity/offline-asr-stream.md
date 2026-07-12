@@ -59,13 +59,6 @@ golden fixtures exactly on both platforms.
   supplementary-plane (astral) text; no current model emits that, so it is documented here
   rather than special-cased.
 
-## Removed Divergences (pre-parity Android glue)
-The Android port previously carried logic with **no Windows equivalent**, since removed:
-- a `recognizer.isEndpoint()` branch that committed and called `recognizer.reset(stream)`,
-- `enableEndpoint = true`,
-- a `DRAFT_STALE_MS = 3_000` ms hard cap that force-committed / appended a period to the
-  draft after 3 s regardless of the model's own threshold.
-
 ## Fixtures
 - Golden fixtures: [parity-fixtures/offline-asr-stream/cases.json](../../parity-fixtures/offline-asr-stream/cases.json)
   - Each case starts from empty state and runs `steps` in order; after each step both

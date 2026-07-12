@@ -1,6 +1,7 @@
 //! Deep browser control for the Computer Control agent: a thin Chrome MV3
 //! extension (a CDP-over-WebSocket bridge) + this Rust side that hosts the socket
-//! and implements high-level tools on raw CDP. See `temp-browser-extension-design.md`.
+//! and implements high-level tools on raw CDP. Extension contract:
+//! `src/overlay/computer_control/browser_ext/README.md`.
 //!
 //! The extension runs in the user's REAL logged-in session via `chrome.debugger`
 //! (the only route left after Chrome 136 blocked `--remote-debugging-port` on the

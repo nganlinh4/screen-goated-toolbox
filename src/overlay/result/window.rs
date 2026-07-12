@@ -142,8 +142,8 @@ pub fn create_result_window(params: ResultWindowParams<'_>) -> HWND {
         )
         .unwrap_or_default();
 
-        // FOR MARKDOWN MODES: Create WebView IMMEDIATELY after window creation
-        // See docs/WEBVIEW2_INITIALIZATION.md for why this is necessary
+        // Markdown windows create their WebView before later window messages can race
+        // initialization; the shared WebView context/mutex owns serialization.
         if is_any_markdown_mode {
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
             let _ = super::markdown_view::create_markdown_webview(hwnd, &initial_text, false);

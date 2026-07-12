@@ -1,56 +1,34 @@
 ---
 name: enforce-mobile-parity
-description: Use when implementing or changing any mobile feature that is intended to match existing Windows behavior. Enforces Windows-as-canonical workflow, parity specs under `.claude/parity/`, shared fixtures under `parity-fixtures/`, and no undocumented mobile deviations.
+description: Implement or review an Android feature that must match Windows behavior. Use for parity specs, shared fixtures, Windows WebView ports, preset/runtime parity, and any mobile change derived from an existing Windows feature.
 ---
 
 # Enforce Mobile Parity
 
-## Overview
-
-Use this skill for Android or future iOS work that is supposed to behave the same as an existing Windows feature.
-The default rule is hard parity: mobile follows the Windows behavior contract unless the matching parity spec explicitly documents a deviation.
-
 ## Required Workflow
 
-1. Read the canonical Windows implementation first.
-2. If the Windows feature uses HTML/CSS/JS/WebView, inspect that web surface before writing any mobile UI code.
-3. Update or create the matching spec under `.claude/parity/`.
-4. Add or update shared fixtures under `parity-fixtures/` before changing mobile logic.
-5. Implement mobile against the spec and canonical source files, not against memory or UI appearance.
-6. Verify there is no undocumented behavior gap between Windows and mobile.
-7. For Android Compose UI, prefer the latest alpha / experimental Compose Material 3 APIs when they provide the closest match to the Windows behavior or the intended Material 3 Expressive pattern.
+1. Read `AGENTS.md`, the matching `.claude/parity/<feature>.md`, its fixtures, and the canonical Windows source.
+2. When creating a new spec, start from `.claude/parity/feature-template.md`.
+3. Update the spec and shared fixtures before or with behavior changes.
+4. Port the Windows state machine and contracts. Keep platform glue thin.
+5. Test canonical state transitions on Windows and Android. Document every remaining deviation.
 
-## Hard Gate
+For Live Translate, read [the source map](references/live-translate-source-map.md). Use that builder/shim pattern for another Windows WebView surface only when its architecture is analogous.
 
-- Do not implement a Windows-matching mobile feature from a fresh design.
-- Do not hand-rebuild a Windows WebView overlay in custom Android HTML/CSS/JS or Compose when the Windows web surface can be shared, extracted, or ported verbatim.
-- For Windows WebView overlays, use the Live Translate pattern:
-  - Windows HTML/CSS/JS remains the source of truth
-  - Android assembles that surface through a builder/template layer
-  - Android-specific code is limited to bridge glue, mobile-only interaction shims, and explicitly documented unsupported controls
-- Do not collapse committed/uncommitted or pending/final states if the Windows feature keeps them separate.
-- Do not replace a chunk-based pipeline with whole-buffer replacement.
-- Do not leave parity assumptions implicit. If behavior differs, document it in the feature spec first.
-- If the current Android implementation is already a simplified or hand-maintained core port that diverges from the Windows architecture, do not preserve it out of convenience.
-- Prefer rewriting the Android core around the Windows module/state-machine boundaries instead of stacking more fixes onto a bad parity port.
-- Do not reject alpha or experimental Compose Material 3 APIs merely to stay on older stable UI primitives when the expressive API is the better parity or UX fit.
+## Hard Rules
 
-## Repo Files To Read
+- Windows behavior is canonical unless the feature spec records a narrow deviation.
+- Do not fresh-design a parity feature or preserve a divergent mobile port for convenience.
+- Share/extract a Windows HTML/CSS/JS surface when possible. Otherwise port its DOM and message contract with only bridge/touch shims.
+- Do not collapse pending/final, committed/uncommitted, chunked/whole-buffer, or other distinct Windows states.
+- Unsupported behavior must fail clearly; never pretend it works.
+- Do not duplicate catalogs or retry policy. Generate/read the shared owner.
+- Use current repository Material 3 APIs and shared mobile primitives; do not chase dependency versions from prose.
 
-- `.claude/parity/feature-template.md`
-- `.claude/parity/live-translate.md`
-- `.claude/CLAUDE.md`
-- `parity-fixtures/`
+## Acceptance
 
-For live translate specifically, also read the Windows source map in [references/live-translate-source-map.md](references/live-translate-source-map.md).
-For any Windows HTML/WebView overlay, identify whether the mobile path should be:
-- extracted to shared assets/templates, or
-- verbatim-ported with a thin Android bridge if extraction does not exist yet.
-
-## Acceptance Bar
-
-- The parity spec names the canonical Windows files and the expected state transitions.
-- Shared fixtures cover the critical state machine behavior before or alongside code changes.
-- Mobile code uses the same behavior model as Windows, even if the UI shell is platform-native.
-- For Windows WebView overlays, mobile uses the same DOM/CSS/JS contract or a documented extraction of it, not an independently restyled clone.
-- Any remaining deviation is explicit, narrow, and written down.
+- Spec names canonical files and state transitions.
+- Fixtures cover the critical behavior.
+- Mobile follows the same model, not only the same appearance.
+- WebView ports preserve DOM/CSS/JS and message semantics.
+- Tests cover each documented deviation and supported path.

@@ -1,26 +1,27 @@
 {
+  "description": "Synthetic release payload for update comparison and asset-selection tests. It is not the current product release.",
   "latest_release": {
-    "tag_name": "v4.8.3",
-    "html_url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/tag/v4.8.3",
-    "body": "- New feature: control preferred models when retrying due to error\n- Fixed bug in \"Ask for usage\" feature",
+    "tag_name": "v9.9.9",
+    "html_url": "https://example.invalid/releases/tag/v9.9.9",
+    "body": "- Synthetic release note",
     "assets": [
       {
-        "name": "ScreenGoatedToolbox_v4.8.3.exe",
-        "browser_download_url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v4.8.3/ScreenGoatedToolbox_v4.8.3.exe"
+        "name": "ScreenGoatedToolbox_v9.9.9.exe",
+        "browser_download_url": "https://example.invalid/releases/download/v9.9.9/ScreenGoatedToolbox_v9.9.9.exe"
       }
     ]
   },
   "comparison_examples": [
     {
-      "current_version": "4.8.3",
+      "current_version": "9.9.9",
       "expected_status": "up_to_date"
     },
     {
-      "current_version": "4.8.3-full-debug",
+      "current_version": "9.9.9-full-debug",
       "expected_status": "up_to_date"
     },
     {
-      "current_version": "4.8.2-play-debug",
+      "current_version": "9.9.8-play-debug",
       "expected_status": "update_available"
     }
   ],

@@ -1,5 +1,6 @@
 //! "Điều khiển máy tính" (Computer Control) — a Gemini Live screen+voice agent
-//! that drives Windows via model tool calls. See `temp-computer-control-design.md`.
+//! that drives Windows via model tool calls. Development contract:
+//! `docs/COMPUTER_CONTROL_DEVELOPMENT.md`.
 //!
 //! - `protocol` — setup payloads, tool declarations, the server-frame decoder.
 //! - `session` — connect/capture/send primitives shared by runtime + probe.

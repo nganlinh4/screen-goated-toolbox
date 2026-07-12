@@ -31,10 +31,6 @@
   - First install from the Video Downloader UI extracts bundled tools and then immediately runs the same latest-channel yt-dlp update path as settings.
   - Download failure auto-recovery updates yt-dlp on the latest/nightly channel before retrying once.
 
-## Fixtures
-- Shared fixtures:
-  - `parity-fixtures/video-downloader/quality-preference.json`
-
 ## Deviations
 - Windows can download directly into arbitrary desktop paths.
 - Android defaults to public Downloads/SGT and still supports user-selected internal-storage folders through the existing Android folder picker path.

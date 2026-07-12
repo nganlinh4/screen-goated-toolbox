@@ -1,84 +1,31 @@
 ---
 name: material3-expressive
-description: Skill for implementing UI following Material 3 Expressive guidelines. Use when creating screens or components with Jetpack Compose. Provides MotionScheme, new Expressive components, and theming patterns.
+description: Implement or review Android Jetpack Compose UI in this repository using its Material 3 Expressive theme, shared morph components, and established interaction grammar. Use for Android screens, settings controls, floating overlays, and dismiss targets.
 ---
 
-# Material 3 Expressive UI Creation Guide
+# Material 3 Expressive
 
-When creating UI with Jetpack Compose, follow **Material 3 Expressive** guidelines.
+## Workflow
 
-For this repo, treat the Android dismiss-zone revamp as part of the Material 3 Expressive work, not as a separate overlay hack. When touching bubble dismissal, preset overlay dismissal, or help-assistant dismissal, preserve the shared morphing target behavior implemented in `mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/MorphDismissZone.kt`.
+1. Read `mobile/gradle/libs.versions.toml` and the existing component. Never copy dependency versions from prose.
+2. Reuse repository theme and primitives before adding a new visual system.
+3. Use `@OptIn(ExperimentalMaterial3ExpressiveApi::class)` only where the selected API requires it.
+4. Verify motion, touch targets, clipping, dynamic color, light/dark themes, and accessibility.
 
-## Requirements
+## Canonical Repository Patterns
 
-| Requirement | Value |
-|-------------|-------|
-| minSdk | 23 or higher |
-| Material3 | 1.5.0-alpha or higher (includes Expressive components) |
-| OptIn | `@OptIn(ExperimentalMaterial3ExpressiveApi::class)` |
+- Theme and settings primitives: `mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/`
+- Shared overlay dismiss target: `mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/MorphDismissZone.kt`
+- Keep dismiss morphs centralized. Do not fork screen-specific copies.
+- Rotate the morph path, not its label. Leave enough layout space for bloom/scale motion.
+- Preserve the current dismiss pairs unless product direction changes:
+  - single: `Circle -> Cookie9Sided`
+  - dismiss-all: `Diamond -> Clover4Leaf`
+- Reuse `ExpressiveMorphPair` and `ExpressiveSettingsMorphStyle` for settings actions. Treat their source definitions as canonical; do not duplicate the full catalog here.
+- Shape is the primary state cue; color is secondary. Use a small recurring shape family, not random per-row shapes.
 
-## Quick Reference
+## Guardrails
 
-### Theme Setup
-```kotlin
-MaterialTheme(
-    colorScheme = colorScheme,
-    typography = typography,
-    shapes = shapes,
-    motionScheme = MotionScheme.expressive()
-) { content() }
-```
-
-### Recommended Components
-
-| Use Case | Component | Notes |
-|----------|-----------|-------|
-| Loading indicator | `LoadingIndicator` | For wait times under 5 seconds |
-| Loading indicator (contained) | `ContainedLoadingIndicator` | - |
-| Bottom toolbar | `DockedToolbar` | Replacement for BottomAppBar |
-| Floating toolbar | `FloatingToolbar` | Supports horizontal & vertical |
-| Flexible bottom bar | `FlexibleBottomAppBar` | Scroll-responsive |
-
-### Deprecated -> Replacement
-
-| Deprecated | Replacement |
-|------------|-------------|
-| `BottomAppBar` | `DockedToolbar` |
-| `CircularProgressIndicator` (short waits) | `LoadingIndicator` |
-
-## Best Practices
-
-1. Use `MotionScheme.expressive()` for fluid animations
-2. Leverage shape morphing
-3. Follow color roles (automatic accessibility compliance)
-4. Support dynamic color on Android 12+
-5. Express elevation through tonal color overlays
-
-## Repo-Specific Contract
-
-- Do not replace the dismiss-zone shapes with plain circles, chips, or static icons when working on the Android M3E revamp.
-- Reuse `MorphDismissZone` for bubble, preset overlay, and help-assistant dismiss targets instead of forking custom implementations.
-- Preserve the current morph pairs unless product direction changes:
-  - single dismiss: `MaterialShapes.Circle -> MaterialShapes.Cookie9Sided`
-  - dismiss-all: `MaterialShapes.Diamond -> MaterialShapes.Clover4Leaf`
-- Preserve the expressive motion treatment that already shipped with the revamp:
-  - overshoot animate-in
-  - proximity-driven morph/scale/color feedback
-  - target-change spin
-  - swallow animation on successful dismiss
-- Keep the label upright while the shape rotates; in this repo the path rotates independently from the text.
-- Keep the larger layout cell around the shape so bloom/scale-up animation does not clip.
-- For mobile settings actions and small utility toggles, prefer a constrained morph grammar instead of picking arbitrary shapes from the whole catalog.
-- Current repo-approved settings/action morph pairs:
-  - preset runtime / "Uu tien model": `Square -> Cookie6Sided`
-  - usage stats / "Thong ke model": `Oval -> Gem`
-  - help assistant / "Hoi cach dung": `Bun -> Flower`
-  - reset / destructive utility: `Slanted -> Pentagon`
-  - password visibility toggle eye button: `Circle -> PuffyDiamond`
-- For stateful utility controls, shape morph is the primary signal and color shift is secondary.
-- Reuse a small family of recurring shapes across a section; do not turn one row into a random catalog of unrelated shapes.
-
-## Details
-
-- Component details & theming: `REFERENCE.md`
-- Implementation examples: `EXAMPLES.md`
+- Material 3 Expressive is not permission to redesign a Windows-parity surface. Follow `.claude/skills/enforce-mobile-parity/SKILL.md` when parity applies.
+- Do not replace working semantic components with a fashionable API solely because it is newer.
+- Keep shared motion/state in one owner; Compose callers should be thin.

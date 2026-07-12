@@ -1,100 +1,149 @@
-# Releasing Screen Goated Toolbox
+# Release Checklist
 
-End-to-end checklist for cutting a release. Windows ships as a GitHub release (`.exe`);
-Android ships to Google Play (`.aab`). Replace `<VERSION>` with the semver (e.g. `5.2.0`).
+Windows ships through GitHub Releases. Android Play flavor ships through Google Play. Keep machine secrets and private endpoints in gitignored `docs/RELEASING.local.md`.
 
-> Machine-specific details (embedding server SSH, etc.) live in the **gitignored**
-> `docs/RELEASING.local.md`. If you don't have it, ask the repo owner.
+## 1. Establish scope
 
----
-
-## 1. Bump the version
-- Set `version = "<VERSION>"` in `Cargo.toml` (this is the canonical app version — Windows + Android both derive from it).
-- Android `versionCode` is derived automatically from the semver. For a **re-upload at the same semver**, pass `-PversionCodeOverride=<int>` to the Android build (see step 5).
-
-## 2. Draft & review release notes  →  `tmp-release-notes-<VERSION>.txt`
-*(this file is gitignored — it's a local draft)*
-1. **Read every commit since the last release** (`git log <last-tag>..HEAD`). Base the notes on what actually changed.
-2. **Write** the notes into `tmp-release-notes-<VERSION>.txt`:
-   - English bullet list first, then a `---`, then the Vietnamese section (`_Phiên bản tiếng Việt:_`).
-   - End with the Zalo support-group line, then the **donation footer** below — one clean line, identical on every release (VietQR link only, never a bundled image):
-
+```powershell
+git status --short
+git log <PREVIOUS_TAG>..HEAD --oneline
 ```
+
+- Start from a clean, reviewed tree.
+- Read every commit since the previous tag.
+- Do not infer release notes from filenames alone.
+
+## 2. Bump version
+
+Set `[package].version` in `Cargo.toml`. Desktop and Android derive their public version from this value.
+
+Confirm generated/versioned surfaces before continuing:
+
+```powershell
+rg -n 'version\s*=|FILEVERSION|ProductVersion' Cargo.toml app.rc mobile
+```
+
+## 3. Draft release notes
+
+Create gitignored `tmp-release-notes-<VERSION>.txt`:
+
+1. English bullets.
+2. `---` separator.
+3. Vietnamese section headed `_Phiên bản tiếng Việt:_`.
+4. Support-group line if still current.
+5. Donation footer:
+
+```text
 ---
 
 💙 **Ủng hộ tác giả** — Người dùng Việt Nam có thể ủng hộ qua VietQR: [bấm vào đây](https://img.vietqr.io/image/970418-8850273958-compact2.png?accountName=NGUYEN%20BAO%20LINH&addInfo=Ung%20ho%20SGT).
 ```
-3. **Verify each line you wrote maps to a real commit** — no invented or hallucinated entries. Cross-check every bullet against the commit log.
-4. **Hand it to the user to check & edit.** Do not proceed past this point until the user has reviewed and approved the notes.
 
-## 3. Rebuild the help index (embedding server)
-The in-app help assistant uses a RAG index (`help-index.json`) built by embedding the codebase.
-- Bring up the embedding server and run the reindex per **`docs/RELEASING.local.md`** (SSH to the MG4 box → `nemotron-embed`, then `python scripts/help_index_build.py` in this repo).
-- Confirm `help-index.json` regenerated before building.
+Map every bullet to a real commit. Owner reviews notes before any publish step.
 
-## 4. Build Windows
+Google Play release notes have a 500-character limit per language; maintain a separate short file when publishing to Play.
+
+## 4. Refresh help index
+
+Start the private embedding service described in `docs/RELEASING.local.md`, then:
+
 ```powershell
-powershell -File build.ps1            # x64 only
-powershell -File build.ps1 -Arch all  # x64 + arm64
+python scripts/help_index_build.py
+git diff --stat -- help-index.json
 ```
-Produces `target/.../ScreenGoatedToolbox_v<VERSION>.exe` (and `-arm64.exe` for arm64).
 
-## 5. Build Android
+Confirm `help-index.json` changed for the intended source tree and contains no local secrets.
+
+## 5. Validate
+
 ```powershell
-# from C:\WORK\screen-goated-toolbox\mobile
-.\build-release.ps1
-# re-upload at same semver → bump the Play versionCode:
-.\build-release.ps1 -PversionCodeOverride=<int>
+cargo test
+cargo clippy --all-targets -- -D warnings
+.\scripts\validate-windows-targets.ps1 -Arch all
 ```
-Produces the Play `.aab` and (currently) a sideload `.apk`. See **Android distribution** note below.
 
-## 6. GitHub release (Windows `gh` CLI) — as a DRAFT
-Rename the built APK to match the EXE base name (same name, different extension), then:
+Run relevant frontend/mobile tests for changed subsystems. Do not waive failures to cut a release.
+
+## 6. Build Windows
+
+```powershell
+.\build.ps1 -Arch x64
+.\build.ps1 -Arch arm64
+# or both
+.\build.ps1 -Arch all
+```
+
+Expected build artifacts:
+
+- `target/x86_64-pc-windows-msvc/release/ScreenGoatedToolbox_v<VERSION>.exe`
+- `target/aarch64-pc-windows-msvc/release/ScreenGoatedToolbox_v<VERSION>-arm64.exe`
+
+Smoke-test each architecture on suitable hardware. GitHub currently publishes x64; attach ARM64 only when its release boundary has been explicitly approved.
+
+## 7. Build Android
+
+The release wrapper always builds the signed full-flavor APK. `-IncludeAab` also builds the Play AAB:
+
+```powershell
+.\mobile\build-release.ps1 -IncludeAab
+```
+
+Expected copied artifacts:
+
+- `target/release/ScreenGoatedToolbox_v<VERSION>.apk`
+- `target/release/ScreenGoatedToolbox_v<VERSION>.aab`
+
+The Play AAB is the store artifact. Treat the full APK as development/direct-distribution output only.
+
+## 8. Finalize the release commit and tag
+
+After owner review, commit the release changes, then create and push the tag from that exact commit:
+
+```powershell
+git status --short
+git tag -a v<VERSION> -m "Screen Goated Toolbox v<VERSION>"
+git push origin HEAD
+git push origin v<VERSION>
+```
+
+Verify the remote tag resolves to the reviewed release commit before creating a release.
+
+## 9. Draft GitHub release
+
+Create a draft first; use paths produced by step 6:
+
 ```powershell
 gh release create v<VERSION> `
+  --verify-tag `
   --draft `
   --title "Screen Goated Toolbox v<VERSION>" `
-  --notes-file tmp-release-notes-<VERSION>.txt `
-  "ScreenGoatedToolbox_v<VERSION>.exe" `
-  "ScreenGoatedToolbox_v<VERSION>.apk"
+  --notes-file "tmp-release-notes-<VERSION>.txt" `
+  "target/x86_64-pc-windows-msvc/release/ScreenGoatedToolbox_v<VERSION>.exe"
 ```
-- **Draft** so it can be reviewed on GitHub before going public.
-- Title is exactly `Screen Goated Toolbox v<VERSION>`.
-- Body is the **exact** contents of `tmp-release-notes-<VERSION>.txt` (bilingual EN + VI).
-- After reviewing the draft on GitHub, publish it.
 
-## 7. Google Play
-Two ways to push the `.aab` to a track:
+If ARM64 is approved for that release, append its built artifact explicitly.
 
-**a) Console UI** — upload the `.aab` to the track (production / closed / etc.), add release notes, roll out.
+Review title, body, binaries, sizes, and checksums in GitHub UI. Publish only after owner approval.
 
-**b) CLI (no browser)** — `scripts/play_publish.py` via the Play Developer API:
+## 10. Publish Google Play
+
+Upload the AAB in Play Console, or use the repository helper:
+
+```powershell
+python -m pip install google-api-python-client google-auth
+$env:PLAY_SERVICE_ACCOUNT_JSON = 'C:\secure\play-service-account.json'
+python scripts/play_publish.py `
+  --aab "target/release/ScreenGoatedToolbox_v<VERSION>.aab" `
+  --track internal `
+  --notes-file "play-notes-<VERSION>.txt" `
+  --fraction 1.0
 ```
-pip install google-api-python-client google-auth      # one-time
-set PLAY_SERVICE_ACCOUNT_JSON=C:\path\to\play-service-account.json
-python scripts/play_publish.py --aab <path-to.aab> --track production \
-    --notes-file play-notes-<VERSION>.txt --fraction 1.0
-```
-- One-time setup: Play Console → Setup → API access → create a service account, download its JSON key, grant it release permission. Keep the key **outside the repo** (it's gitignored as a safety net).
-- Play caps release notes at **500 chars/language**, so use a short `play-notes-<VERSION>.txt`, not the full GitHub `tmp-release-notes` file.
-- Use `--track internal` first to smoke-test the pipeline; `--fraction 0.2` for a staged rollout.
 
----
+Test `internal` first. Promote or change track only after validating the uploaded build. Keep service-account JSON outside the repository.
 
-## Android distribution (transition in progress)
-The app is now live on Google Play. We are moving Android **off** the GitHub `.apk` sideload path:
-- **Going forward:** Android updates come from **Google Play** (auto-update). New users install from the Play listing.
-- The in-app Android updater (`mobile/.../updater/`, governed by `.claude/parity/app-update.md`) is being switched from "download the GitHub `.apk`" to "open the Play Store."
-- Existing sideload (`full`-flavor) users **cannot** auto-migrate to Play (different signing key) — they must uninstall and reinstall from Play.
-- Once the switch lands, **drop the `.apk` from step 6** (Windows `.exe` only) and stop building the sideload APK in step 5.
+## 11. Finish
 
-## Quick reference
-| Step | Command / file |
-|---|---|
-| Version | `Cargo.toml` → `version = "<VERSION>"` |
-| Release notes | `tmp-release-notes-<VERSION>.txt` (read commits → write → verify → user approves) |
-| Help index | `docs/RELEASING.local.md` → `python scripts/help_index_build.py` |
-| Build Windows | `powershell -File build.ps1 [-Arch all]` |
-| Build Android | `mobile\build-release.ps1 [-PversionCodeOverride=<int>]` |
-| GitHub release | `gh release create v<VERSION> --draft --title "Screen Goated Toolbox v<VERSION>" --notes-file …` |
-| Play | upload `.aab` to track |
+- Publish GitHub draft.
+- Promote Play release.
+- Verify download/install/update paths from a clean client.
+- Record any release-only caveat in durable docs, not temporary chat notes.

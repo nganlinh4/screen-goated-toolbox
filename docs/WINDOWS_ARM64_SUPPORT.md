@@ -1,78 +1,30 @@
-# Windows ARM64 Support
+# Windows ARM64 Boundary
 
-This repo now supports compiling and packaging both Windows `x64` and Windows `arm64` builds.
+The repository compiles and packages Windows x64 and ARM64. Public GitHub releases currently ship x64; ARM64 remains a source and validation target until its release boundary is approved.
 
-## What is validated
+## What Validation Proves
 
-- `cargo check --target x86_64-pc-windows-msvc`
-- `cargo check --target aarch64-pc-windows-msvc`
-- Architecture-aware runtime/tool downloads for:
-  - ONNX Runtime + DirectML local runtime assets
-  - `ffmpeg`
-  - `deno`
-- Architecture-aware installer and updater asset selection
+`scripts/validate-windows-targets.ps1` checks both MSVC targets and architecture-sensitive asset selection. A successful ARM64 check proves that Rust code and native dependencies compile for that target. It does not prove every hardware-backed feature works on every Windows-on-Arm machine or VM.
 
-## What compile success does and does not mean
+See [Development](DEVELOPMENT.md#windows-targets) for commands and log paths.
 
-Passing `cargo check` for `aarch64-pc-windows-msvc` means the Rust codebase and its native dependencies can be compiled for Windows ARM64.
+## Runtime Boundaries
 
-It does **not** guarantee full feature parity on all Windows-on-Arm environments, especially Apple-silicon virtual machines.
+### WebView2
 
-## Known runtime caveats
+All WebView-backed surfaces require Microsoft Edge WebView2 Runtime. On startup, a missing runtime starts a background bootstrapper install; successful installation restarts the app. Feature launch remains guarded while installation is incomplete. Source: `src/main.rs` and `src/runtime_support.rs`.
 
-### WebView2-dependent features
+### Qwen3-ASR
 
-These features require Microsoft Edge WebView2 Runtime at runtime:
+The shipped Qwen3 local runtime is x64-only and requires NVIDIA CUDA. It is unavailable to native ARM64 processes and Apple-silicon Windows VMs; the app reports that boundary before installation.
 
-- realtime overlay
-- translation gummy
-- text input overlay
-- preset wheel
-- PromptDJ
-- screen record UI
-- tray popup web UI
+### GPU and VM Features
 
-The app now detects missing WebView2 and prompts the user instead of failing more opaquely during warmup.
+Availability still depends on the machine or VM exposing the required Windows/GPU stack. Test these on target hardware:
 
-### Qwen3 local runtime
+- DirectML local inference
+- Windows Graphics Capture
+- recorder preview/export and hardware encoding
+- architecture-specific helper downloads and updates
 
-Qwen3 local runtime remains unavailable on Windows ARM64 / Apple-silicon Windows VMs.
-
-Reasons:
-
-- current runtime is shipped only for x64 Windows
-- current runtime requires NVIDIA CUDA hardware
-
-The UI now reports this explicitly instead of attempting installation and failing later.
-
-### GPU / VM feature limitations
-
-Compilation support does not imply that all GPU-backed runtime paths work inside a VM.
-
-Higher-risk areas on Apple-silicon Windows VMs:
-
-- DirectML-backed local inference
-- Windows Graphics Capture / recorder behavior
-- GPU export and encode paths
-
-Basic app launch and WebView-driven surfaces are now much more supportable, but advanced GPU-dependent features still depend on what the VM exposes.
-
-## Windows validation workflow
-
-Use:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\validate-windows-targets.ps1 -Arch all
-```
-
-Per-arch:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\validate-windows-targets.ps1 -Arch x64
-powershell -ExecutionPolicy Bypass -File scripts\validate-windows-targets.ps1 -Arch arm64
-```
-
-Logs are written to:
-
-- `target\validation-x86_64_pc_windows_msvc.log`
-- `target\validation-aarch64_pc_windows_msvc.log`
+Compile success alone is not a runtime-parity claim.

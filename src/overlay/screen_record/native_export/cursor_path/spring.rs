@@ -161,7 +161,7 @@ mod tests {
     // Cross-language render-math golden. The TS preview (cursorDynamics.ts) is
     // canonical; this Rust export must reproduce the SAME fixture within 1e-6.
     // Regenerate via screen-record/tests/unit/_generateRenderGolden.gen.ts.
-    // See .claude/parity/render-camera-cursor.md.
+    // See screen-record/docs/render-parity.md.
     const GOLDEN: &str =
         include_str!("../../../../../parity-fixtures/render-camera-cursor/golden.json");
 

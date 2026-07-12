@@ -1,170 +1,57 @@
 # Preset System Parity
 
 ## Canonical Source
-- Windows preset editor and field visibility logic: [src/gui/settings_ui/preset.rs](../../src/gui/settings_ui/preset.rs)
-- Windows preset collection management: [src/gui/settings_ui/sidebar/mod.rs](../../src/gui/settings_ui/sidebar/mod.rs)
-- Windows preset data model: [src/config/preset/preset.rs](../../src/config/preset/preset.rs)
-- Windows chain execution entrypoint: [src/overlay/process/chain/mod.rs](../../src/overlay/process/chain/mod.rs)
-- Windows text-input overlay runtime: [src/overlay/text_input/mod.rs](../../src/overlay/text_input/mod.rs)
-- Windows favorite bubble launcher: [src/overlay/favorite_bubble/mod.rs](../../src/overlay/favorite_bubble/mod.rs)
-- Windows markdown result runtime: [src/overlay/result/markdown_view/mod.rs](../../src/overlay/result/markdown_view/mod.rs)
-- Windows markdown conversion: [src/overlay/result/markdown_view/conversion.rs](../../src/overlay/result/markdown_view/conversion.rs)
-- Windows markdown theme/css: [src/overlay/result/markdown_view/css.rs](../../src/overlay/result/markdown_view/css.rs)
-- Windows markdown HTML utilities: [src/overlay/result/markdown_view/html_utils.rs](../../src/overlay/result/markdown_view/html_utils.rs)
-- Windows result button canvas: [src/overlay/result/button_canvas/mod.rs](../../src/overlay/result/button_canvas/mod.rs)
-- Windows shared Grid.js helpers: [src/overlay/html_components/grid_js.rs](../../src/overlay/html_components/grid_js.rs)
-- Windows shared font manager: [src/overlay/html_components/font_manager.rs](../../src/overlay/html_components/font_manager.rs)
-- Shared model catalog manifest: [catalog/model_catalog.json](../../catalog/model_catalog.json)
-- Windows model catalog: [src/model_config.rs](../../src/model_config.rs)
-- Windows text provider pipeline: [src/api/text/translate/mod.rs](../../src/api/text/translate/mod.rs)
 
-## Behavior Contract
-- Android treats the Windows built-in preset catalog as canonical seed data.
-- Built-in presets are immutable defaults; Android user changes are stored as overrides keyed by preset ID.
-- Restore default removes the Android override and returns the resolved preset to the Windows default value.
-- Android must not expose editable controls for preset behaviors that do not have real Android runtime support yet.
-- Unsupported Windows-only behavior must render as read-only placeholders with an explicit reason.
-- Favorite state is repository-backed and persisted; it must not live only in Compose memory.
-- Android may keep a preset details/inspector screen before a full editor, but it must not pretend node-graph editing, hotkeys, or controller mode work if they do not.
-- Android bubble execution now covers text, image, selected-text, and audio presets whose block/provider families have real Android runtimes. Unsupported graph/provider paths must still surface explicit reasons instead of guessing.
-- Android preset execution must run from the floating bubble service, not from the main app inspector UI.
-- Android audio presets whose primary launch contract includes auto-paste must gate before capture when the Accessibility service is unavailable, explain the missing permission, and open Accessibility settings instead of running a degraded hidden workflow.
-- Android image presets must gate before suppressing overlays or starting screenshot capture when Accessibility screenshot support is unavailable, and image auto-copy must use the app clipboard context rather than depending on the Accessibility service singleton.
-- Android bubble runtime is `favorites only` in wave 1.
-- The bubble panel honors the Windows keep-open toggle:
-  - default launch path closes the panel when a preset is launched
-  - keep-open launches supported presets without dismissing the panel
-- The bubble size controls must persist and resize the actual floating bubble using the Windows min/max/step semantics.
-- Supported Android bubble launches open a floating text-input overlay first, then stream into a floating markdown result overlay with a separate floating button canvas.
-- The floating text-input overlay is a Windows-canonical web surface:
-  - Windows source of truth: [src/overlay/text_input/styles.rs](../../src/overlay/text_input/styles.rs), [src/overlay/text_input/messages.rs](../../src/overlay/text_input/messages.rs), and [src/overlay/text_input/window.rs](../../src/overlay/text_input/window.rs)
-  - Android must use the same DOM/CSS/JS contract through a builder/shim layer instead of a custom `input.html/css/js` redesign
-  - Android-specific changes are limited to bridge transport, touch drag shims, and explicitly documented unsupported controls
-  - Title, footer, placeholder, entry/exit animation, theme variables, and button layout must stay aligned with the Windows text-input surface
-  - The Android input overlay should accept the Windows message contract for `submit:*`, `cancel`, `close_window`, `history_up:*`, `history_down:*`, and `mic`
-- If the bubble is opened with zero favorite presets, Android must surface a localized empty-favorites message instead of crashing.
-- The favorite bubble panel is a Windows-canonical web surface:
-  - Windows source of truth: [src/overlay/favorite_bubble/html.rs](../../src/overlay/favorite_bubble/html.rs)
-  - Android must follow the Live Translate builder/shim pattern for this panel instead of hand-designing a separate mobile variant
-  - keep-open row, size controls, DOM structure, pill spacing, icon treatment, text-fit behavior, and panel motion/animations should come from the Windows web contract unless this spec explicitly documents a deviation
-  - Android-specific changes are limited to bridge transport, touch/mobile interaction shims, and explicitly unsupported controls
-  - for larger favorite counts, the panel should follow the Windows multi-column rule instead of degenerating into a single very tall column; on mobile, column count may be capped by available screen width
-  - panel geometry should follow the Windows overlap model: the panel window extends behind the bubble by roughly `bubble width + 4px`, while the visible preset content stays in the non-overlap gutter
-  - The floating bubble itself must remain tappable and draggable while the panel is open; panel z-order or hit handling must not block bubble interaction
-  - Android must explicitly restore the bubble above the panel window whenever the panel is shown so the overlap model does not hide or block the bubble
-  - Closing the panel from the bubble should use the Windows-style web close animation and only destroy the Android overlay window after the web surface emits its close completion signal
-  - If favorites change while the panel is open, Android must rebuild the panel contents and geometry so the visible pills stay in sync instead of disappearing or clipping
-  - Dragging the bubble must keep the panel open and reposition it with the bubble, matching the Windows expanded-panel behavior
-  - The Android bubble may expose a live-translate-style drag-to-dismiss target, but dropping onto it must be equivalent to turning the Quick Settings bubble service off
-- Android preset overlays support both Windows-style markdown view and raw HTML result documents for text-output presets.
-- Android preset text execution must resolve every block model ID through the Windows-mirrored model catalog before making a provider request.
-- Android preset model catalog must be generated from the same shared manifest that feeds Windows [src/model_config.rs](../../src/model_config.rs): [catalog/model_catalog.json](../../catalog/model_catalog.json). It must not be maintained as a separate handwritten copy.
-- Android preset text execution must use the resolved Windows provider + `full_name` API model, not Android prefix guessing or raw preset block IDs.
-- Android preset text execution must mirror the Windows text request contract for supported providers:
-  - the built-in translate-region preset (`preset_translate`) uses `gemma-4-26b-a4b-vision` and plain markdown rendering; the Windows build carries the backtick hotkey on this preset
-  - input-adapter-only text-input presets (for example `preset_quick_note`) are valid executable presets when the input-adapter block itself requests an overlay
-  - `renderMode = markdown` must follow the Windows non-streaming request path even if the block has `streamingEnabled = true`
-  - retry/fallback must follow the Windows chain model for preset blocks:
-    - provider availability must respect the Windows-style enabled/disabled toggles plus key/base-url presence
-    - the default Android retry settings must be generated from the Windows config defaults under `src/config/config.rs` and `src/config/types/model_priority.rs`
-    - configured retry chains must be read from Android preset runtime settings instead of a hardcoded Android list
-    - advance on retryable provider/model failures, block only auth/provider-availability failures, and resolve the next candidate from the Windows-compatible configured chain before falling back to other compatible catalog models
-    - when retry switches models/providers while a result window is already loading, Android should update that loading state with a localized retry message like Windows instead of failing silently
-  - Gemini uses the Gemini `models/{full_name}:streamGenerateContent` SSE endpoint, Windows thinking config rules, and Windows search-tool gating rules
-  - Gemma 4 family models (`gemma-4-26b-a4b-it` and `gemma-4-31b-it`) must send `thinkingConfig` equivalent to Gemini 3.1 Flash Lite minimal thinking (`thinkingLevel: MINIMAL`) on both Windows and Android across text, vision, and audio request paths
-  - Cerebras, Groq, and OpenRouter use the OpenAI-compatible chat completions contract with the resolved Windows `full_name`
-  - Groq compound models use the Windows non-streaming `compound_custom.tools` request shape instead of the standard streaming chat payload
-  - Google GTX uses the translation endpoint as a non-LLM provider, keeps prompt editing hidden, and takes its target language from `language_vars["language1"]` / `languageVars["language1"]` with `Vietnamese` as the editor default
-  - Gemini Live text models are real Android preset text runtimes: they resolve through the shared Windows model catalog and use the Gemini Live websocket text path with the same `full_name` API model instead of being surfaced as placeholders
-  - Android must emit the same wipe-on-first-content behavior after thinking placeholders that Windows uses for Gemini/Cerebras/Ollama-style streams
-- Android preset overlay sessions must follow the Windows chain/runtime ownership model:
-  - launching a new preset input window must not destroy result windows from earlier completed sessions
-  - result-window removal should be scoped to the current execution session, not all active overlays globally
-  - result-window geometry persistence must continue to resolve against the owning preset ID even after newer sessions become active
-- Android preset text-input overlays must follow the Windows refocus model closely enough that the IME can still appear while other preset overlays exist:
-  - the input window must be able to acquire focus for editing
-  - while the overlay remains visible, Android may temporarily relinquish that focus/IME ownership when the user taps another editable target outside the overlay, so other apps can open the system keyboard without forcing the preset window closed
-  - tapping back into the overlay editor must restore overlay focus and IME promptly
-  - the Android host may use repeated delayed refocus/IME nudges after show, mirroring the Windows aggressive refocus behavior after modal/overlay transitions
-- Android preset capability must not claim support for a text preset if one of its text blocks points at a model/provider runtime Android does not actually implement yet.
-- Android result overlays should reuse the Windows markdown CSS, fit script, and button-canvas web contract from the shared HTML/WebView layer instead of re-implementing the layout in Compose.
-- Android markdown result overlays must treat the Windows markdown-view web surface as the canonical contract:
-  - the Windows smart-fit algorithm from `streaming/fit_impl.rs` must be reused as-is
-  - the Windows streaming update path from `streaming.rs` should drive chunk-by-chunk markdown updates instead of rerunning only the final-fit path for every chunk
-  - the Windows markdown theme variables from `css.rs` must drive both dark and light mode on Android
-  - the Windows Google Sans Flex font contract must be preserved instead of substituting a different font stack
-  - the Windows Grid.js integration from `grid_js.rs` must be available for markdown tables on Android
-  - Android should keep the Windows body-level markdown DOM assumptions for fitting/styling, with only thin Android touch/IPC shims around them
-  - Windows uses outer WebView edge margins (4px left/right, 2px top/bottom) instead of body-side padding; Android should avoid inventing redundant inner side padding in the result page
-- Android result overlays are multi-window:
-  - visible result windows must be created before final text arrives, matching the Windows precreated loading/refining lifecycle
-  - text blocks should appear first in a loading state, then transition into streaming/final content
-  - each visible text block with `showOverlay = true` and `renderMode = markdown|markdown_stream` spawns its own result overlay
-  - hidden text blocks still execute but do not create result windows
-  - the first visible result window uses the preset saved geometry; subsequent visible windows snake away from the previous visible result window
-- Android result windows must not use a fake title/status shell. The result window should be a Windows-derived markdown surface with touch shims only.
-- Android markdown conversion/theme/font/table behavior should stay aligned with the Windows markdown view, and raw-HTML text outputs should load as full HTML documents with the Android bridge/touch layer injected.
-- Android image/audio input-adapter overlays must preserve the Windows media-document contract:
-  - canonical media HTML source remains [src/overlay/process/chain/templates.rs](../../src/overlay/process/chain/templates.rs)
-  - input-adapter media documents stay under the result-window runtime rather than becoming a separately styled Android-only surface
-  - Windows media markers such as `.audio-player` and the input-adapter media root must be preserved so media-specific behavior can be detected consistently
-  - the Android raw-html bridge may inject interaction plumbing, but it must not impose the generic markdown body chrome over image/audio media documents
-- Android result overlays must keep one-finger long-press drag for window movement, while allowing two-finger content scrolling inside the overlay body.
-- Android result overlays must keep two-finger content scrolling bidirectional, not vertical-only:
-  - horizontal overflow like wide tables must remain scrollable with the same two-finger gesture
-  - scroll-container detection must be based on real overflow dimensions in either axis, not only explicit `overflow-y: auto|scroll`
-- Single-touch text/content targets inside a result overlay must preserve normal content interaction, including text selection, instead of arming the window drag hold timer.
-- Android raw-HTML result pages and later navigated pages must not be left as unmanaged standalone documents:
-  - the Android result host must reapply the overlay interaction shell after each page load
-  - page-level drag, resize, selection, and button-canvas activation must continue to work in raw-HTML/web-navigation mode
-  - this may be done by reinjecting the hosted overlay CSS/JS contract on every navigation rather than leaving the loaded page outside the overlay runtime
-- Android result-window back/forward behavior must follow the Windows markdown-view browsing model:
-- Android result-window external navigation failures (HTTP 4xx/5xx or main-frame load errors) must not strand the user on a dead page:
-  - failed external loads should restore the original result surface
-  - the overlay must keep its drag/resize/canvas functionality instead of remaining on a broken browser page
-  - browsing depth may be observed from embedded history, but internal result-host entries (`file:///android_asset/preset_overlay/...`, `about:blank`) must never trap navigation
-  - when browsing returns to an internal result-host URL, Android must recreate the original result surface and clear stale WebView history like Windows instead of leaving the user on a blank/internal page
-  - returning from the first browsed page to the original preset result should restore the original result surface and reset browse depth like Windows
-- Android button canvas uses the shared Windows button-canvas web contract with an Android touch reveal model:
-  - tapping a result window reveals that window's controls
-  - controls linger for roughly 2 seconds after the last interaction, then fade
-  - Android may use a bounded active-window canvas instead of a fullscreen canvas if that is required to preserve reliable touch/click-through behavior on phone overlays
-  - any Android-bounded canvas must stay visually identical to the Windows button canvas and remain anchored to the currently active result window
-- On Android/touch, the markdown-mode button is omitted because mobile result overlays do not expose the Windows markdown/plain-text toggle in this wave.
-- On Android/touch, the broom button is omitted and result-window dismissal uses the shared drag-to-dismiss `X` target instead.
-- Android keeps the Windows button-canvas chrome visible, but unsupported actions must be explicit placeholders rather than fake implementations.
+- Windows editor/catalog: [preset settings](../../src/gui/settings_ui/preset.rs), [preset model](../../src/config/preset/preset.rs)
+- Windows execution: [chain](../../src/overlay/process/chain), [text input](../../src/overlay/text_input), [result](../../src/overlay/result), [favorite bubble](../../src/overlay/favorite_bubble)
+- Shared model catalog: [model_catalog.json](../../catalog/model_catalog.json)
+- Android preset model/runtime: [shared preset](../../mobile/shared/src/commonMain/kotlin/dev/screengoated/toolbox/mobile/shared/preset), [Android preset](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset), [overlay host](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset)
 
-## Failure And Recovery
-- Corrupt preset override storage falls back to canonical built-ins with no overrides applied.
-- Unknown override fields are ignored on load.
-- Restore default must be safe for any built-in preset, even if no override exists.
+## Data and Editor Contract
+
+- Windows built-ins are canonical seed data. Android persists user overrides by preset ID; restore removes the override.
+- Favorite state, ordering, edits, and custom presets are repository-backed, never Compose-only state.
+- Android supports preset creation, duplication, deletion, and the current node-graph editor actions. Capability UI must still reflect real runtime support for every block/provider.
+- Unknown/corrupt override fields fall back safely to canonical built-ins.
+- Hotkeys and controller/master invocation remain Windows-only until Android has a real equivalent.
+
+## Launch and Overlay Contract
+
+- Presets execute from the floating bubble service. Zero favorites shows a localized empty state.
+- The panel preserves Windows keep-open, size, multi-column, overlap, animation, drag/reposition, and refresh semantics through a thin Android bridge.
+- Input uses the Windows text-input DOM/CSS/message contract, including submit, cancel, history, close, and working microphone input.
+- Permission-gated image/audio paths fail before capture, explain the required Android permission, and preserve retry state.
+- Image presets support continuous relaunch. Non-image continuous mode remains a documented gap.
+- Result windows are session-owned, precreated in loading state, multi-window, and support markdown streaming or raw HTML according to block render mode.
+- Reuse Windows markdown fitting/theme/font/table and button-canvas contracts. Preserve text selection, one-finger window drag, two-finger bidirectional content scroll, navigation recovery, and result geometry ownership.
+- Edit/refine, undo/redo, share/download, and speaker actions are real Android actions. Do not list implemented actions as placeholders.
+- Android still omits the desktop markdown/plain toggle and broom mouse-button variants.
+
+## Provider Contract
+
+- Resolve every internal model ID through generated data from `catalog/model_catalog.json`; call the resolved provider and `full_name`.
+- Preserve Windows render-mode, streaming, thinking/search gating, provider-availability, retry, and fallback semantics.
+- Provider/auth failures and retryable model failures remain distinct. Retrying an open result updates its loading status.
+- Hidden blocks execute without windows; each visible result block owns its own result window.
+- Unsupported graph/provider paths return an explicit reason. Never guess from ID prefixes.
 
 ## Fixtures
-- Shared fixtures: [parity-fixtures/preset-system/catalog-overrides.json](../../parity-fixtures/preset-system/catalog-overrides.json)
-- Retry/runtime defaults fixture: [parity-fixtures/preset-system/retry-runtime.json](../../parity-fixtures/preset-system/retry-runtime.json)
-- Gemini Live socket fixture: [parity-fixtures/preset-system/gemini-live-socket-protocol.json](../../parity-fixtures/preset-system/gemini-live-socket-protocol.json)
-- Node graph editor fixture: [parity-fixtures/preset-system/node-graph-editor.json](../../parity-fixtures/preset-system/node-graph-editor.json)
-- Android unit tests should cover override merge, restore default, and placeholder capability resolution.
 
-## Deviations
-- Android wave 1 keeps custom preset create/clone/delete/reorder as placeholders.
-- Android still keeps hotkeys and controller/master invocation as placeholders until real runtime exists.
-- Android wave 1 does not expose the Windows markdown/plain-text result toggle in the floating button canvas; the mobile overlay stays markdown-only until a real alternate render mode exists.
-- Android wave 1 keeps these result/button-canvas actions as visible placeholders:
-  - edit/refine
-  - undo/redo
-  - download
-  - speaker
-  - broom group/all mouse-button variants
-- Android favorite bubble still has known parity gaps versus Windows:
-  - panel `trigger_continuous` does not yet enter the Windows continuous-mode runtime; Android still routes that path through the normal preset launch flow
-- Android preset audio runtime has a documented parity gap versus Windows:
-  - non-realtime streamed providers still begin partial transcription after stop on Android rather than during the active recording session
-- On Android/touch, the text-input footer row may be omitted and the action buttons may be compacted inward so the overlay remains truthful and usable within the smaller mobile window. This is an accepted mobile interaction adaptation, not a parity bug.
-- On Android/touch, the keep-open row may remain visible instead of hover-revealed; this is an accepted mobile interaction adaptation, not a parity bug.
-- Android bubble opacity should stay fully active while the panel is expanded or within roughly one second of the last bubble/panel interaction, then return to the Windows inactive-opacity baseline.
-- On Android/touch, full result-window dragging is implemented as long-press then drag anywhere on the result surface so normal taps and links remain usable.
-- On Android/touch, full result-window dragging is implemented as long-press then move anywhere on the result surface; stationary long-press on text should still be able to become text selection instead of immediately starting drag.
-- Preset overlays should follow the app theme live while open:
-  - bubble panel, text input, markdown result windows, and button canvas should update when the app theme changes
-  - if a result window is currently browsing an external page, Android may defer the theme refresh until the user returns to preset-generated content
+- [audio-runtime.json](../../parity-fixtures/preset-system/audio-runtime.json)
+- [catalog-overrides.json](../../parity-fixtures/preset-system/catalog-overrides.json)
+- [custom-models-dialog.json](../../parity-fixtures/preset-system/custom-models-dialog.json)
+- [gemini-live-socket-protocol.json](../../parity-fixtures/preset-system/gemini-live-socket-protocol.json)
+- [node-graph-editor.json](../../parity-fixtures/preset-system/node-graph-editor.json)
+- [result-overlay.json](../../parity-fixtures/preset-system/result-overlay.json)
+- [retry-runtime.json](../../parity-fixtures/preset-system/retry-runtime.json)
+- [text-input-overlay.json](../../parity-fixtures/preset-system/text-input-overlay.json)
+- [text-provider-routing.json](../../parity-fixtures/preset-system/text-provider-routing.json)
+
+## Known Contract Debt
+
+- `retry-runtime.json` and the catalog retry chain still name a retired Flash-Lite preview model.
+- `result-overlay.json` still marks implemented result actions unsupported.
+- `text-input-overlay.json` still labels microphone input deferred.
+- One `catalog-overrides.json` case name says HTML is a placeholder although its expected result is supported.
+
+Treat these as fixture/source synchronization work, not as permission to restore old behavior.

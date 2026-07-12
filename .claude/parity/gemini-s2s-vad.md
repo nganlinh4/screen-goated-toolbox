@@ -17,11 +17,9 @@ is canonical. The tuning constants and the accept rule must stay in lock-step.
 
 **Accept rule.** `is_segment_worth_sending` / `isSegmentWorthSending` gates whether
 a captured segment is worth sending. The strict-path confidence branch requires a
-`speech_like_ratio >= 0.08` floor *in addition to* the confidence threshold —
-because a high blended confidence can come purely from energy terms (loud
-flat/tonal/DC noise). Android had dropped this floor (fixed 2026-06; it accepted
-noise Windows rejects). The rule is now locked by the shared `accept-rule.json`
-fixture below (one case directly exercises the 0.08 floor).
+`speech_like_ratio >= 0.08` floor *in addition to* the confidence threshold,
+because high blended confidence can come only from energy terms in loud
+flat/tonal/DC noise. The shared `accept-rule.json` fixture includes this boundary.
 
 ## Fixtures
 - Constants fixture: [parity-fixtures/gemini-s2s-vad/constants.json](../../parity-fixtures/gemini-s2s-vad/constants.json).
