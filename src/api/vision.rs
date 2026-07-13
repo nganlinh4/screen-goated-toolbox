@@ -67,7 +67,8 @@ where
         .map(|app| app.config.cerebras_api_key.clone())
         .unwrap_or_default();
 
-    let prepared_image = prepare_image_payload(provider.as_str(), image, original_bytes)?;
+    let prepared_image =
+        prepare_image_payload(provider.as_str(), image, original_bytes, prompt.len())?;
     let b64_image = prepared_image.b64_image;
     let image_data = prepared_image.image_data;
     let mime_type = prepared_image.mime_type;
@@ -270,7 +271,7 @@ where
                 "role": "user",
                 "content": [
                     { "type": "text", "text": prompt },
-                    { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
+                    { "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", mime_type, b64_image) } }
                 ]
             }
         ]);
@@ -303,7 +304,7 @@ where
                         "role": "user",
                         "content": [
                             { "type": "text", "text": prompt },
-                            { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
+                            { "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", mime_type, b64_image) } }
                         ]
                     }
                 ],
@@ -319,7 +320,7 @@ where
                         "role": "user",
                         "content": [
                             { "type": "text", "text": prompt },
-                            { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
+                            { "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", mime_type, b64_image) } }
                         ]
                     }
                 ],

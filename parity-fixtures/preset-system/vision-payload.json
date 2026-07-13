@@ -1,0 +1,15 @@
+{
+  "groq": {
+    "safe_request_bytes": 3800000,
+    "json_reserve_bytes": 16384,
+    "maximum_encoded_image_bytes": 2500000,
+    "minimum_encoded_image_bytes": 262144,
+    "jpeg_qualities": [90, 82, 74, 66, 58],
+    "resize_dimensions": [2048, 1792, 1536, 1280, 1024, 768],
+    "rules": [
+      "keep_png_when_within_budget",
+      "otherwise_encode_jpeg_until_within_budget",
+      "send_the_actual_mime_type"
+    ]
+  }
+}
