@@ -23,7 +23,11 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
-            val prepared = prepareImage(imageBytes)
+            val prepared = prepareImage(
+                rawBytes = imageBytes,
+                provider = model.provider,
+                promptBytes = prompt.toByteArray(Charsets.UTF_8).size,
+            )
             when (model.provider) {
                 PresetModelProvider.GOOGLE -> streamGeminiVision(
                     model = model,
@@ -43,6 +47,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     model = model,
                     prompt = prompt,
                     imageBase64 = prepared.base64,
+                    mimeType = prepared.mimeType,
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
                     streamingEnabled = streamingEnabled,
@@ -55,6 +60,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     model = model,
                     prompt = prompt,
                     imageBase64 = prepared.base64,
+                    mimeType = prepared.mimeType,
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
                     streamingEnabled = streamingEnabled,
@@ -67,6 +73,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     model = model,
                     prompt = prompt,
                     imageBase64 = prepared.base64,
+                    mimeType = prepared.mimeType,
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
                     streamingEnabled = streamingEnabled,
@@ -114,9 +121,6 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
         else -> "AI is thinking..."
     }
 
-    companion object {
-        private const val MAX_DIMENSION = 2048
-    }
 }
 
 internal data class PreparedImage(
@@ -125,57 +129,83 @@ internal data class PreparedImage(
     val mimeType: String,
 )
 
-internal fun prepareImage(rawBytes: ByteArray): PreparedImage {
-    val mimeType = sniffMimeType(rawBytes)
+private const val MAX_DIMENSION = 2048
+private const val GROQ_SAFE_REQUEST_BYTES = 3_800_000
+private const val GROQ_JSON_RESERVE_BYTES = 16_384
+private const val GROQ_MAX_IMAGE_BYTES = 2_500_000
+private const val GROQ_MIN_IMAGE_BYTES = 262_144
+private val GROQ_JPEG_QUALITIES = intArrayOf(90, 82, 74, 66, 58)
+private val GROQ_RESIZE_DIMENSIONS = intArrayOf(2048, 1792, 1536, 1280, 1024, 768)
+
+internal fun prepareImage(
+    rawBytes: ByteArray,
+    provider: PresetModelProvider,
+    promptBytes: Int,
+): PreparedImage {
     val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
         ?: throw IOException("Failed to decode image bytes")
+    val resized = resizeToMax(bitmap, MAX_DIMENSION)
+    if (resized !== bitmap) bitmap.recycle()
 
-    val resized = if (bitmap.width > 2048 || bitmap.height > 2048) {
-        val (newW, newH) = if (bitmap.width > bitmap.height) {
-            val ratio = 2048f / bitmap.width
-            2048 to (bitmap.height * ratio).toInt()
-        } else {
-            val ratio = 2048f / bitmap.height
-            (bitmap.width * ratio).toInt() to 2048
+    val pngBytes = encodeBitmap(resized, Bitmap.CompressFormat.PNG, 100)
+    if (provider != PresetModelProvider.GROQ) {
+        resized.recycle()
+        return preparedImage(pngBytes, "image/png")
+    }
+
+    val budget = groqImageByteBudget(promptBytes)
+    if (pngBytes.size <= budget) {
+        resized.recycle()
+        return preparedImage(pngBytes, "image/png")
+    }
+
+    for (maxDimension in GROQ_RESIZE_DIMENSIONS) {
+        val candidate = resizeToMax(resized, maxDimension)
+        for (quality in GROQ_JPEG_QUALITIES) {
+            val jpegBytes = encodeBitmap(candidate, Bitmap.CompressFormat.JPEG, quality)
+            if (jpegBytes.size <= budget) {
+                if (candidate !== resized) candidate.recycle()
+                resized.recycle()
+                return preparedImage(jpegBytes, "image/jpeg")
+            }
         }
-        val scaled = bitmap.scale(newW, newH)
-        if (scaled !== bitmap) bitmap.recycle()
-        scaled
-    } else {
-        bitmap
+        if (candidate !== resized) candidate.recycle()
     }
 
-    val pngBytes = ByteArrayOutputStream().use { out ->
-        resized.compress(Bitmap.CompressFormat.PNG, 100, out)
-        if (resized !== bitmap) resized.recycle()
-        out.toByteArray()
-    }
-
-    val base64 = Base64.encodeToString(pngBytes, Base64.NO_WRAP)
-    return PreparedImage(
-        bytes = pngBytes,
-        base64 = base64,
-        mimeType = if (mimeType != "image/png") "image/png" else mimeType,
-    )
+    resized.recycle()
+    throw IOException("Groq vision image cannot fit the safe request-size budget")
 }
 
-internal fun sniffMimeType(bytes: ByteArray): String {
-    if (bytes.size < 12) return "image/png"
-    if (bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()) {
-        return "image/jpeg"
+internal fun groqImageByteBudget(promptBytes: Int): Int {
+    val availableBase64 = GROQ_SAFE_REQUEST_BYTES - GROQ_JSON_RESERVE_BYTES - promptBytes
+    val rawBudget = availableBase64 / 4 * 3
+    if (rawBudget < GROQ_MIN_IMAGE_BYTES) {
+        throw IOException("Prompt leaves too little room for a Groq vision image")
     }
-    if (bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() &&
-        bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()
-    ) {
-        return "image/png"
+    return minOf(rawBudget, GROQ_MAX_IMAGE_BYTES)
+}
+
+private fun resizeToMax(bitmap: Bitmap, maxDimension: Int): Bitmap {
+    if (bitmap.width <= maxDimension && bitmap.height <= maxDimension) return bitmap
+    val ratio = maxDimension.toFloat() / maxOf(bitmap.width, bitmap.height)
+    val width = (bitmap.width * ratio).toInt().coerceAtLeast(1)
+    val height = (bitmap.height * ratio).toInt().coerceAtLeast(1)
+    return bitmap.scale(width, height)
+}
+
+private fun encodeBitmap(bitmap: Bitmap, format: Bitmap.CompressFormat, quality: Int): ByteArray {
+    return ByteArrayOutputStream().use { output ->
+        if (!bitmap.compress(format, quality, output)) {
+            throw IOException("Failed to encode vision image")
+        }
+        output.toByteArray()
     }
-    if (bytes[0] == 0x52.toByte() && bytes[1] == 0x49.toByte() &&
-        bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() &&
-        bytes.size >= 12 &&
-        bytes[8] == 0x57.toByte() && bytes[9] == 0x45.toByte() &&
-        bytes[10] == 0x42.toByte() && bytes[11] == 0x50.toByte()
-    ) {
-        return "image/webp"
-    }
-    return "image/png"
+}
+
+private fun preparedImage(bytes: ByteArray, mimeType: String): PreparedImage {
+    return PreparedImage(
+        bytes = bytes,
+        base64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
+        mimeType = mimeType,
+    )
 }

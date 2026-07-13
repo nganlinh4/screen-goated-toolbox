@@ -18,13 +18,20 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
     model: PresetModelDescriptor,
     prompt: String,
     imageBase64: String,
+    mimeType: String,
     uiLanguage: String,
     onChunk: (String) -> Unit,
     streamingEnabled: Boolean,
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:${providerName.lowercase()}")
 
-    val payload = openAiVisionPayload(model.fullName, prompt, imageBase64, streamingEnabled)
+    val payload = openAiVisionPayload(
+        model.fullName,
+        prompt,
+        imageBase64,
+        mimeType,
+        streamingEnabled,
+    )
 
     if (!streamingEnabled) {
         return generateOpenAiVisionBlocking(endpoint, apiKey, providerName, model, payload, onChunk)
@@ -186,6 +193,7 @@ private fun openAiVisionPayload(
     fullName: String,
     prompt: String,
     imageBase64: String,
+    mimeType: String,
     stream: Boolean,
 ): JSONObject {
     val content = JSONArray()
@@ -195,7 +203,7 @@ private fun openAiVisionPayload(
                 .put("type", "image_url")
                 .put(
                     "image_url",
-                    JSONObject().put("url", "data:image/png;base64,$imageBase64"),
+                    JSONObject().put("url", "data:$mimeType;base64,$imageBase64"),
                 ),
         )
 
