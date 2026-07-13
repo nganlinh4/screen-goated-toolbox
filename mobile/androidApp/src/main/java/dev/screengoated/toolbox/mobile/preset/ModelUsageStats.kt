@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import java.util.concurrent.ConcurrentHashMap
+import okhttp3.Headers
 
 /**
  * Tracks per-model rate limit data from API response headers.
@@ -21,6 +22,24 @@ object ModelUsageStats {
             remaining = remaining ?: "?",
             total = total ?: "?",
         )
+    }
+
+    fun updateCerebras(modelFullName: String, headers: Headers) {
+        val requestRemaining = headers["x-ratelimit-remaining-requests-day"] ?: "?"
+        val requestLimit = headers["x-ratelimit-limit-requests-day"] ?: "?"
+        val tokenRemaining = headers["x-ratelimit-remaining-tokens-minute"]
+        val tokenLimit = headers["x-ratelimit-limit-tokens-minute"]
+        val reset = headers["x-ratelimit-reset-tokens-minute"]
+        val remaining = buildString {
+            append("day ").append(requestRemaining)
+            if (tokenRemaining != null) append(" · TPM ").append(tokenRemaining)
+            if (reset != null) append(" · reset ").append(reset)
+        }
+        val total = buildString {
+            append(requestLimit)
+            if (tokenLimit != null) append(" · ").append(tokenLimit)
+        }
+        update(modelFullName, remaining, total)
     }
 
     /** Get all recorded usage entries (model full name → entry). */

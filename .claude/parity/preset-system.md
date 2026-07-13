@@ -4,7 +4,7 @@
 
 - Windows editor/catalog: [preset settings](../../src/gui/settings_ui/preset.rs), [preset model](../../src/config/preset/preset.rs)
 - Windows execution: [chain](../../src/overlay/process/chain), [text input](../../src/overlay/text_input), [result](../../src/overlay/result), [favorite bubble](../../src/overlay/favorite_bubble)
-- Shared model catalog: [model_catalog.json](../../catalog/model_catalog.json)
+- Shared model catalog: [catalog/model_catalog.json](../../catalog/model_catalog.json)
 - Android preset model/runtime: [shared preset](../../mobile/shared/src/commonMain/kotlin/dev/screengoated/toolbox/mobile/shared/preset), [Android preset](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset), [overlay host](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset)
 
 ## Data and Editor Contract
@@ -31,7 +31,17 @@
 
 - Resolve every internal model ID through generated data from `catalog/model_catalog.json`; call the resolved provider and `full_name`.
 - Preserve Windows render-mode, streaming, thinking/search gating, provider-availability, retry, and fallback semantics.
+- Gemini Live setup uses the catalog-owned output ceiling for each endpoint: 8,192 for Live 2.5 and 65,536 for Live 3.1, on both Windows and Android.
+- Every native Live setup envelope is built through the platform's typed setup builder; endpoint policy is applied by construction and feature adapters supply only capability deltas.
+- Live server events are decoded structurally. Setup completion must be a top-level field, all audio parts in a frame are retained, and finite responses complete on either `turnComplete` or `generationComplete`.
+- Blank, legacy, or unknown Gemini TTS model values normalize to the catalog-owned TTS default on both platforms; listed models remain unchanged.
 - Provider/auth failures and retryable model failures remain distinct. Retrying an open result updates its loading status.
+- Cerebras vision is base64 PNG/JPEG through `gemma-4-31b` only. It uses the Cerebras key and endpoint on both platforms; it must never fall through to Groq.
+- The canonical image retry order is Cerebras Gemma 4 31B, Groq Qwen 3.6 27B, Groq Scout, Gemini 3.1 Flash Lite, Gemini 2.5 Flash Lite, Gemini Live 3.1, then Gemini 2.5 Flash.
+- Deprecated Cerebras Llama 3.1 8B and Qwen 3 235B selections normalize to GPT-OSS 120B before execution.
+- Cerebras requests set a bounded `max_completion_tokens`, keep provider reasoning defaults, gzip JSON bodies at 12 KiB, and expose daily-request plus token-minute rate data.
+- Refine operations may attach Cerebras predicted output only for GPT-OSS 120B and GLM 4.7. Ordinary generation and Gemma never receive prediction fields.
+- Cerebras structured-output requests use strict schemas. Tool requests are a separate contract, permit parallel calls, and must stop after eight rounds; tools, prediction, and `response_format` are never combined illegally.
 - Hidden blocks execute without windows; each visible result block owns its own result window.
 - Unsupported graph/provider paths return an explicit reason. Never guess from ID prefixes.
 
@@ -49,7 +59,6 @@
 
 ## Known Contract Debt
 
-- `retry-runtime.json` and the catalog retry chain still name a retired Flash-Lite preview model.
 - `result-overlay.json` still marks implemented result actions unsupported.
 - `text-input-overlay.json` still labels microphone input deferred.
 - One `catalog-overrides.json` case name says HTML is a placeholder although its expected result is supported.

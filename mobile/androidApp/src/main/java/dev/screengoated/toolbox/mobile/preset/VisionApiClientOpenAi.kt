@@ -30,12 +30,14 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
         return generateOpenAiVisionBlocking(endpoint, apiKey, providerName, model, payload, onChunk)
     }
 
-    val request = Request.Builder()
+    val encoded = if (providerName == "Cerebras") encodeCerebrasJson(payload) else null
+    val requestBuilder = Request.Builder()
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
-        .post(payload.toString().toRequestBody(jsonMediaType))
-        .build()
+        .post(encoded?.body ?: payload.toString().toRequestBody(jsonMediaType))
+    if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
+    val request = requestBuilder.build()
 
     val fullContent = StringBuilder()
     var thinkingShown = false
@@ -48,11 +50,13 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
             throw IOException("$providerName vision request failed with $code")
         }
 
-        val rlRemaining = response.header("x-ratelimit-remaining-requests")
-            ?: response.header("x-ratelimit-remaining-requests-day")
-        val rlLimit = response.header("x-ratelimit-limit-requests")
-            ?: response.header("x-ratelimit-limit-requests-day")
-        ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
+        if (providerName == "Cerebras") {
+            ModelUsageStats.updateCerebras(model.fullName, response.headers)
+        } else {
+            val rlRemaining = response.header("x-ratelimit-remaining-requests")
+            val rlLimit = response.header("x-ratelimit-limit-requests")
+            ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
+        }
 
         val body = response.body
         body.charStream().buffered().useLines { lines ->
@@ -94,12 +98,14 @@ private fun VisionApiClient.generateOpenAiVisionBlocking(
     payload: JSONObject,
     onChunk: (String) -> Unit,
 ): String {
-    val request = Request.Builder()
+    val encoded = if (providerName == "Cerebras") encodeCerebrasJson(payload) else null
+    val requestBuilder = Request.Builder()
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
-        .post(payload.toString().toRequestBody(jsonMediaType))
-        .build()
+        .post(encoded?.body ?: payload.toString().toRequestBody(jsonMediaType))
+    if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
+    val request = requestBuilder.build()
 
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
@@ -108,11 +114,13 @@ private fun VisionApiClient.generateOpenAiVisionBlocking(
             throw IOException("$providerName vision request failed with $code")
         }
 
-        val rlRemaining = response.header("x-ratelimit-remaining-requests")
-            ?: response.header("x-ratelimit-remaining-requests-day")
-        val rlLimit = response.header("x-ratelimit-limit-requests")
-            ?: response.header("x-ratelimit-limit-requests-day")
-        ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
+        if (providerName == "Cerebras") {
+            ModelUsageStats.updateCerebras(model.fullName, response.headers)
+        } else {
+            val rlRemaining = response.header("x-ratelimit-remaining-requests")
+            val rlLimit = response.header("x-ratelimit-limit-requests")
+            ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
+        }
 
         val content = try {
             JSONObject(response.body.string().orEmpty())
@@ -191,7 +199,7 @@ private fun openAiVisionPayload(
                 ),
         )
 
-    return JSONObject()
+    val payload = JSONObject()
         .put("model", fullName)
         .put(
             "messages",
@@ -202,4 +210,8 @@ private fun openAiVisionPayload(
             ),
         )
         .put("stream", stream)
+    if (fullName == "gemma-4-31b") {
+        payload.put("max_completion_tokens", 8192)
+    }
+    return payload
 }

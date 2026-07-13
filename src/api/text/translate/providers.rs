@@ -1,4 +1,4 @@
-use crate::api::client::record_usage_cerebras;
+use crate::api::cerebras;
 use crate::api::gemini_generate::stream_gemini_generate;
 use crate::api::openai_compat::stream_openai_compat_chat;
 use anyhow::Result;
@@ -38,37 +38,50 @@ where
 }
 
 // --- CEREBRAS API ---
+pub(super) struct TranslateCerebrasRequest<'a> {
+    pub cerebras_api_key: &'a str,
+    pub model: &'a str,
+    pub instruction: &'a str,
+    pub text: &'a str,
+    pub streaming_enabled: bool,
+    pub ui_language: &'a str,
+    pub cancel_token: &'a Option<Arc<AtomicBool>>,
+}
+
 pub(super) fn translate_cerebras<F>(
-    cerebras_api_key: &str,
-    model: &str,
-    prompt: &str,
-    streaming_enabled: bool,
-    ui_language: &str,
-    cancel_token: &Option<Arc<AtomicBool>>,
+    request: TranslateCerebrasRequest<'_>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
-    if cerebras_api_key.trim().is_empty() {
-        return Err(anyhow::anyhow!("NO_API_KEY:cerebras"));
-    }
-
-    let is_reasoning_model = model.contains("gpt-oss") || model.contains("zai-glm");
-    let messages = serde_json::json!([{ "role": "user", "content": prompt }]);
-
-    stream_openai_compat_chat(
-        "https://api.cerebras.ai/v1/chat/completions",
+    let TranslateCerebrasRequest {
         cerebras_api_key,
         model,
-        messages,
+        instruction,
+        text,
         streaming_enabled,
-        is_reasoning_model,
         ui_language,
         cancel_token,
-        "Cerebras API Error",
-        true,
-        |headers| record_usage_cerebras(headers, model),
+    } = request;
+    // Static instructions precede dynamic input so Cerebras automatic prefix
+    // caching can reuse the stable portion across repeated preset runs.
+    let messages = serde_json::json!([
+        { "role": "system", "content": instruction },
+        { "role": "user", "content": text }
+    ]);
+    cerebras::stream_chat(
+        cerebras::StreamChatRequest {
+            api_key: cerebras_api_key,
+            model,
+            messages,
+            streaming: streaming_enabled,
+            ui_language,
+            cancel_token,
+            error_label: "Cerebras API Error",
+            response_format: None,
+            prediction: None,
+        },
         on_chunk,
     )
 }

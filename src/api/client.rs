@@ -111,8 +111,48 @@ pub fn record_usage_cerebras(headers: &HeaderMap, stats_key: &str) {
         limit = val.to_string();
     }
 
-    if remaining != "?" || limit != "?" {
-        store_usage(stats_key, format!("{} / {}", remaining, limit));
+    let token_remaining = header_str(headers, "x-ratelimit-remaining-tokens-minute");
+    let token_limit = header_str(headers, "x-ratelimit-limit-tokens-minute");
+    let token_reset = header_str(headers, "x-ratelimit-reset-tokens-minute");
+
+    if remaining != "?" || limit != "?" || token_remaining.is_some() {
+        let mut usage = format!("day {} / {}", remaining, limit);
+        if let Some(value) = token_remaining {
+            usage.push_str(&format!(
+                " · TPM {} / {}",
+                value,
+                token_limit.unwrap_or("?")
+            ));
+        }
+        if let Some(value) = token_reset {
+            usage.push_str(&format!(" · reset {}", value));
+        }
+        store_usage(stats_key, usage);
+    }
+}
+
+/// Log Cerebras automatic prompt-cache and predicted-output contribution.
+pub fn record_cerebras_json_usage(stats_key: &str, root: &serde_json::Value) {
+    let cached = root
+        .pointer("/usage/prompt_tokens_details/cached_tokens")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let accepted = root
+        .pointer("/usage/completion_tokens_details/accepted_prediction_tokens")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let rejected = root
+        .pointer("/usage/completion_tokens_details/rejected_prediction_tokens")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if cached > 0 || accepted > 0 || rejected > 0 {
+        crate::log_info!(
+            "[Cerebras][usage] model={} cached_tokens={} prediction_accepted={} prediction_rejected={}",
+            stats_key,
+            cached,
+            accepted,
+            rejected
+        );
     }
 }
 

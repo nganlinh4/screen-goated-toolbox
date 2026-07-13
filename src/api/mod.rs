@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod cerebras;
 pub mod client;
 pub mod gemini_embed;
 pub mod gemini_generate;

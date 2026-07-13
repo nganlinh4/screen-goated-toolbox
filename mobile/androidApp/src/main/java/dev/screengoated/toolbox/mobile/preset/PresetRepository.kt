@@ -293,6 +293,7 @@ class PresetRepository(
                 searchLabel = null,
                 onChunk = { chunk -> mainHandler.post { onChunk(chunk) } },
                 streamingEnabled = true,
+                predictionContent = previousText,
             )
             kotlinx.coroutines.withContext(Dispatchers.Main) {
                 onComplete(result)

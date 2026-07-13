@@ -9,6 +9,8 @@ use crate::api::client::{UREQ_AGENT, is_auth_error};
 use crate::api::types::{ChatCompletionResponse, StreamChunk};
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
+use flate2::{Compression, write::GzEncoder};
+use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::sync::{
     Arc,
@@ -60,6 +62,47 @@ where
         "stream": streaming
     });
 
+    stream_openai_compat_payload(
+        endpoint,
+        api_key,
+        payload,
+        streaming,
+        reasoning_fallback,
+        ui_language,
+        cancel_token,
+        error_label,
+        map_auth_errors,
+        false,
+        on_headers,
+        |_| {},
+        on_chunk,
+    )
+}
+
+/// Payload-aware variant used when an OpenAI-compatible provider has native
+/// fields such as `max_completion_tokens`, structured output, or prediction.
+/// Large payload compression is opt-in because provider support is not uniform.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_openai_compat_payload<F, H, J>(
+    endpoint: &str,
+    api_key: &str,
+    payload: serde_json::Value,
+    streaming: bool,
+    reasoning_fallback: bool,
+    ui_language: &str,
+    cancel_token: &Option<Arc<AtomicBool>>,
+    error_label: &str,
+    map_auth_errors: bool,
+    gzip_large_payload: bool,
+    on_headers: H,
+    on_json_usage: J,
+    on_chunk: &mut F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+    H: FnOnce(&HeaderMap),
+    J: FnOnce(&serde_json::Value),
+{
     // Streaming responses can legitimately run past the 120s unary cap, so they
     // use the longer-lived streaming agent; unary calls keep the tight bound.
     let agent = if streaming {
@@ -67,18 +110,27 @@ where
     } else {
         &*UREQ_AGENT
     };
-    let resp = agent
+    let request = agent
         .post(endpoint)
         .header("Authorization", &format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .send_json(payload)
-        .map_err(|e| {
-            if map_auth_errors && is_auth_error(&e) {
-                anyhow::anyhow!("INVALID_API_KEY")
-            } else {
-                anyhow::anyhow!("{}: {}", error_label, e)
-            }
-        })?;
+        .header("Content-Type", "application/json");
+    let json_bytes = serde_json::to_vec(&payload)?;
+    let response = if gzip_large_payload && json_bytes.len() >= 12 * 1024 {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(&json_bytes)?;
+        request
+            .header("Content-Encoding", "gzip")
+            .send(encoder.finish()?)
+    } else {
+        request.send(json_bytes)
+    };
+    let resp = response.map_err(|e| {
+        if map_auth_errors && is_auth_error(&e) {
+            anyhow::anyhow!("INVALID_API_KEY")
+        } else {
+            anyhow::anyhow!("{}: {}", error_label, e)
+        }
+    })?;
 
     on_headers(resp.headers());
 
@@ -144,10 +196,13 @@ where
             }
         }
     } else {
-        let chat_resp: ChatCompletionResponse = resp
+        let root: serde_json::Value = resp
             .into_body()
             .read_json()
             .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+        on_json_usage(&root);
+        let chat_resp: ChatCompletionResponse = serde_json::from_value(root)
+            .map_err(|e| anyhow::anyhow!("Failed to decode non-streaming response: {}", e))?;
 
         if let Some(choice) = chat_resp.choices.first() {
             full_content = choice.message.content.clone();

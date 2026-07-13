@@ -46,7 +46,7 @@ class TextApiClientTest {
     }
 
     @Test
-    fun qwenRequestBodyUsesResolvedWindowsApiModel() {
+    fun deprecatedQwenRequestBodyUsesMigratedWindowsApiModel() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
                 modelId = "qwen_3_235b_a22b_instruct_2507",
@@ -56,7 +56,7 @@ class TextApiClientTest {
         ).jsonObject
 
         assertEquals(
-            PresetModelCatalog.getById("qwen_3_235b_a22b_instruct_2507")!!.fullName,
+            "gpt-oss-120b",
             payload.getValue("model").jsonPrimitive.content,
         )
         assertTrue(payload.getValue("stream").jsonPrimitive.boolean)

@@ -25,6 +25,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
         onChunk: (String) -> Unit,
         streamingEnabled: Boolean = true,
         targetLanguage: String? = null,
+        predictionContent: String? = null,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
@@ -47,6 +48,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
                     streamingEnabled = streamingEnabled,
+                    predictionContent = predictionContent,
                 )
 
                 PresetModelProvider.GROQ -> {
@@ -164,6 +166,13 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     )
                 }
             }
+
+            PresetModelProvider.CEREBRAS -> cerebrasPayload(
+                fullName = model.fullName,
+                prompt = prompt,
+                inputText = inputText,
+                stream = streamingEnabled,
+            ).toString()
 
             else -> buildOpenAiCompatibleDebugPayload(
                 fullName = model.fullName,

@@ -428,7 +428,10 @@ mod tests {
 
         migrate_config(&mut config);
 
-        assert_eq!(config.presets[0].blocks[0].model, "qwen-3.6-27b-vision");
+        assert_eq!(
+            config.presets[0].blocks[0].model,
+            "gemma-4-31b-cerebras-vision"
+        );
         assert_eq!(config.presets[1].blocks[0].model, "scout");
     }
 
@@ -455,7 +458,7 @@ mod tests {
             config.model_priority_chains.image_to_text,
             vec![
                 "gemini-3.1-flash-lite".to_string(),
-                "qwen-3.6-27b-vision".to_string(),
+                "gemma-4-31b-cerebras-vision".to_string(),
                 "scout".to_string()
             ]
         );

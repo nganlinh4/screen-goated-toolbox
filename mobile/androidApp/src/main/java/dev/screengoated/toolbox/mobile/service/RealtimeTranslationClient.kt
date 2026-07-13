@@ -217,16 +217,12 @@ class RealtimeTranslationClient(
         request: TranslationRequest,
         targetLanguage: String,
     ): TranslationResponse {
-        // Cerebras reasoning models reject strict json_schema; rely on prompt-driven JSON.
-        val isReasoning = model.contains("gpt-oss") || model.contains("zai-glm")
         val payload = JSONObject()
             .put("model", model)
             .put("messages", cerebrasMessages(request, targetLanguage))
             .put("stream", false)
-            .put("max_tokens", 512)
-        if (!isReasoning) {
-            payload.put("response_format", cerebrasResponseFormat())
-        }
+            .put("max_completion_tokens", 512)
+            .put("response_format", cerebrasResponseFormat())
         val requestBody = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
 
         val httpRequest = Request.Builder()
