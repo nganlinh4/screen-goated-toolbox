@@ -5,7 +5,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = process.argv[2] || process.cwd();
+const args = process.argv.slice(2);
+const CHECK_ONLY = args.includes('--check');
+const SELF_TEST = args.includes('--self-test');
+const ROOT = args.find((arg) => arg !== '--check' && arg !== '--self-test') || process.cwd();
 
 // ---- generic line-based key:"value" / key='value' / key = "value" parser ----
 // Returns Map<key, {value, line}> preserving first occurrence.
@@ -26,6 +29,77 @@ function parseFlat(content, { sep, quote }) {
     }
   }
   return map;
+}
+
+// Parse Kotlin named arguments using their owning constructor path. A flat key map drops
+// later properties when separate locale sections intentionally reuse a name, such as
+// `appearance.overlay.controls.ttsSettingsTitle` and `ttsSettings.ttsSettingsTitle`.
+function parseSectionedKotlin(content) {
+  const map = new Map();
+  const lines = content.split(/\r?\n/);
+  const scopes = [];
+  let parenthesisDepth = 0;
+  const namedCallRe = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[A-Za-z_][A-Za-z0-9_.]*(?:<[^>]+>)?\s*\(/;
+  const valueRe = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"\s*,?\s*(?:\/\/.*)?$/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const namedCall = line.match(namedCallRe);
+    if (namedCall) {
+      scopes.push({ key: namedCall[1], depth: parenthesisDepth + 1 });
+    }
+
+    const value = line.match(valueRe);
+    if (value) {
+      const key = [...scopes.map((scope) => scope.key), value[1]].join('.');
+      if (map.has(key)) {
+        throw new Error(`Duplicate Kotlin locale key ${key} at line ${i + 1}`);
+      }
+      map.set(key, { value: value[2], line: i + 1 });
+    }
+
+    parenthesisDepth += parenthesisDelta(line);
+    while (scopes.length > 0 && parenthesisDepth < scopes.at(-1).depth) {
+      scopes.pop();
+    }
+  }
+  return map;
+}
+
+function parenthesisDelta(line) {
+  let delta = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (!inString && char === '/' && line[i + 1] === '/') break;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === '(') delta++;
+    else if (char === ')') delta--;
+  }
+  return delta;
+}
+
+function readFileTree(entryFile, subdirectory) {
+  const files = [entryFile];
+  if (fs.existsSync(subdirectory)) {
+    const pending = [subdirectory];
+    while (pending.length > 0) {
+      const directory = pending.pop();
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const child = path.join(directory, entry.name);
+        if (entry.isDirectory()) pending.push(child);
+        else if (entry.isFile() && entry.name.endsWith('.rs')) files.push(child);
+      }
+    }
+  }
+  return files.sort().map((file) => fs.readFileSync(file, 'utf8')).join('\n');
 }
 
 // Extract the body of a named sub-object: `en: { ... }` (brace-balanced) from a combined file.
@@ -91,6 +165,53 @@ function compare(systemName, enMap, locales) {
   return out;
 }
 
+function runSectionedKotlinSelfTest() {
+  const english = `
+return MobileLocaleText(
+    appearance = MobileAppearanceLocale(
+        overlay = OverlayLocaleText(
+            controls = OverlayControlLocale(
+                ttsSettingsTitle = "Overlay settings",
+            ),
+        ),
+    ),
+    ttsSettings = MobileTtsSettingsLocale(
+        ttsSettingsTitle = "TTS settings for {}",
+    ),
+)`;
+  const vietnamese = `
+return MobileLocaleText(
+    appearance = MobileAppearanceLocale(
+        overlay = OverlayLocaleText(
+            controls = OverlayControlLocale(
+                ttsSettingsTitle = "Thiết lập đọc",
+            ),
+        ),
+    ),
+    ttsSettings = MobileTtsSettingsLocale(
+        ttsSettingsTitle = "Thiết lập giọng đọc",
+    ),
+)`;
+  const en = parseSectionedKotlin(english);
+  const vi = parseSectionedKotlin(vietnamese);
+  const result = compare('synthetic sectioned Kotlin', en, { vi });
+  const mismatch = result.locales.vi.placeholderMismatch;
+  const laterKey = 'ttsSettings.ttsSettingsTitle';
+
+  if (en.size !== 2 || !en.has('appearance.overlay.controls.ttsSettingsTitle')) {
+    throw new Error('Sectioned Kotlin parser did not preserve both duplicate property names');
+  }
+  if (mismatch.length !== 1 || mismatch[0].key !== laterKey) {
+    throw new Error(`Expected a placeholder mismatch for ${laterKey}`);
+  }
+  console.log(`Sectioned Kotlin self-test passed: detected mismatch at ${laterKey}.`);
+}
+
+if (SELF_TEST) {
+  runSectionedKotlinSelfTest();
+  process.exit(0);
+}
+
 const report = { generatedFrom: ROOT, systems: [] };
 
 // 1) screen-record TS i18n (separate files, single-quote)
@@ -118,19 +239,22 @@ const report = { generatedFrom: ROOT, systems: [] };
 {
   const dir = path.join(ROOT, 'src/gui/locale');
   const opt = { sep: ':', quote: '"' };
-  const en = parseFlat(fs.readFileSync(path.join(dir, 'en.rs'), 'utf8'), opt);
-  const ko = parseFlat(fs.readFileSync(path.join(dir, 'ko.rs'), 'utf8'), opt);
-  const vi = parseFlat(fs.readFileSync(path.join(dir, 'vi.rs'), 'utf8'), opt);
+  const readLocale = (language) => readFileTree(
+    path.join(dir, `${language}.rs`),
+    path.join(dir, language),
+  );
+  const en = parseFlat(readLocale('en'), opt);
+  const ko = parseFlat(readLocale('ko'), opt);
+  const vi = parseFlat(readLocale('vi'), opt);
   report.systems.push(compare('src/gui/locale (Rust)', en, { ko, vi }));
 }
 
 // 4) Mobile Kotlin (separate files, double-quote, key = "value")
 {
   const dir = path.join(ROOT, 'mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/i18n');
-  const opt = { sep: '=', quote: '"' };
-  const en = parseFlat(fs.readFileSync(path.join(dir, 'MobileLocaleEn.kt'), 'utf8'), opt);
-  const ko = parseFlat(fs.readFileSync(path.join(dir, 'MobileLocaleKo.kt'), 'utf8'), opt);
-  const vi = parseFlat(fs.readFileSync(path.join(dir, 'MobileLocaleVi.kt'), 'utf8'), opt);
+  const en = parseSectionedKotlin(fs.readFileSync(path.join(dir, 'MobileLocaleEn.kt'), 'utf8'));
+  const ko = parseSectionedKotlin(fs.readFileSync(path.join(dir, 'MobileLocaleKo.kt'), 'utf8'));
+  const vi = parseSectionedKotlin(fs.readFileSync(path.join(dir, 'MobileLocaleVi.kt'), 'utf8'));
   report.systems.push(compare('mobile ui/i18n (Kotlin)', en, { ko, vi }));
 }
 
@@ -147,5 +271,20 @@ for (const s of report.systems) {
 }
 
 const outFile = path.join(ROOT, 'scripts/i18n_scan_report.json');
-fs.writeFileSync(outFile, JSON.stringify(report, null, 2));
-console.log(`\nFull report -> ${outFile}`);
+if (CHECK_ONLY) {
+  const hasCatalogGaps = report.systems.some((system) =>
+    Object.values(system.locales).some((locale) =>
+      locale.missingCount > 0 ||
+      locale.extraCount > 0 ||
+      locale.placeholderMismatchCount > 0,
+    ),
+  );
+  console.log('\nCheck-only mode: report was not written.');
+  if (hasCatalogGaps) {
+    console.error('Locale catalog gaps found.');
+    process.exitCode = 1;
+  }
+} else {
+  fs.writeFileSync(outFile, JSON.stringify(report, null, 2));
+  console.log(`\nFull report -> ${outFile}`);
+}

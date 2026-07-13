@@ -1,51 +1,20 @@
 use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose};
 use native_tls::TlsStream;
 use std::net::TcpStream;
-use std::time::Duration;
 use tungstenite::WebSocket;
 
 /// Create TLS WebSocket connection to Gemini Live API for TTS
 pub fn connect_tts_websocket(api_key: &str) -> Result<WebSocket<TlsStream<TcpStream>>> {
-    let ws_url = format!(
-        "{}?key={}",
-        crate::api::realtime_audio::websocket::GEMINI_LIVE_WS_BASE_URL,
-        api_key
-    );
-
-    let url = url::Url::parse(&ws_url)?;
-    let host = url
-        .host_str()
-        .ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
-    let port = 443;
-
-    use std::net::ToSocketAddrs;
-    let addr = format!("{}:{}", host, port)
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Failed to resolve hostname: {}", host))?;
-
-    let tcp_stream = TcpStream::connect_timeout(&addr, Duration::from_secs(10))?;
-    tcp_stream.set_read_timeout(Some(Duration::from_secs(30)))?;
-    tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
-    tcp_stream.set_nodelay(true)?;
-
-    let connector = native_tls::TlsConnector::new()?;
-    let tls_stream = connector.connect(host, tcp_stream)?;
-
-    let (socket, _response) = tungstenite::client::client(&ws_url, tls_stream)?;
-
-    Ok(socket)
+    crate::api::gemini_live::transport::connect_websocket(api_key)
 }
 
-/// Send TTS setup message - configures for audio output only, no input transcription
-pub fn send_tts_setup(
-    socket: &mut WebSocket<TlsStream<TcpStream>>,
+/// Build the TTS setup envelope for use by setup-gated Live sessions.
+pub fn build_tts_setup(
     model: &str,
     voice_name: &str,
     speed: &str,
     custom_instructions: Option<&str>,
-) -> Result<()> {
+) -> serde_json::Value {
     // System instruction based on speed
     let mut system_text = "You are a text-to-speech reader. Your ONLY job is to read the user's text out loud, exactly as written, word for word. Do NOT respond conversationally. Do NOT add commentary. Do NOT ask questions. ".to_string();
 
@@ -66,96 +35,21 @@ pub fn send_tts_setup(
 
     system_text.push_str("Start reading immediately.");
 
-    let mut generation_config = serde_json::json!({
-        "responseModalities": ["AUDIO"],
-        "mediaResolution": "MEDIA_RESOLUTION_LOW",
-        "speechConfig": {
-            "voiceConfig": {
-                "prebuiltVoiceConfig": {
-                    "voiceName": voice_name
-                }
-            }
-        }
-    });
-
-    if let Some(config) = crate::model_config::live_thinking_config_json(model) {
-        generation_config["thinkingConfig"] = config;
-    }
-
-    let setup = serde_json::json!({
-        "setup": {
-            "model": format!("models/{}", model),
-            "generationConfig": generation_config,
-            "systemInstruction": {
-                "parts": [{
-                    "text": system_text
-                }]
-            }
-        }
-    });
-
-    let msg_str = setup.to_string();
-    socket.write(tungstenite::Message::Text(msg_str.into()))?;
-    socket.flush()?;
-
-    Ok(())
+    crate::api::gemini_live::setup::LiveSetupBuilder::new(model)
+        .media_resolution(crate::api::gemini_live::setup::MediaResolution::Low)
+        .voice(voice_name)
+        .system_instruction(&system_text)
+        .build()
 }
 
-/// Send text to be spoken
-pub fn send_tts_text(socket: &mut WebSocket<TlsStream<TcpStream>>, text: &str) -> Result<()> {
+/// Build one TTS request payload for a ready Live session.
+pub fn build_tts_text(text: &str) -> serde_json::Value {
     // Format with explicit instruction to read verbatim
     let prompt = format!("[READ ALOUD VERBATIM - START NOW]\n\n{}", text);
 
-    let msg = serde_json::json!({
+    serde_json::json!({
         "realtimeInput": {
             "text": prompt
         }
-    });
-
-    socket.write(tungstenite::Message::Text(msg.to_string().into()))?;
-    socket.flush()?;
-
-    Ok(())
-}
-
-/// Parse audio data from WebSocket message
-pub fn parse_audio_data(msg: &str) -> Option<Vec<u8>> {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg) {
-        // Check for serverContent -> modelTurn -> parts -> inlineData
-        if let Some(server_content) = json.get("serverContent")
-            && let Some(model_turn) = server_content.get("modelTurn")
-            && let Some(parts) = model_turn.get("parts").and_then(|p| p.as_array())
-        {
-            for part in parts {
-                if let Some(inline_data) = part.get("inlineData")
-                    && let Some(data_b64) = inline_data.get("data").and_then(|d| d.as_str())
-                    && let Ok(audio_bytes) = general_purpose::STANDARD.decode(data_b64)
-                {
-                    return Some(audio_bytes);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Check if the response indicates turn is complete
-pub fn is_turn_complete(msg: &str) -> bool {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
-        && let Some(server_content) = json.get("serverContent")
-    {
-        // Check for turnComplete
-        if let Some(turn_complete) = server_content.get("turnComplete")
-            && turn_complete.as_bool().unwrap_or(false)
-        {
-            return true;
-        }
-        // Also check for generationComplete (seen in TTS responses)
-        if let Some(gen_complete) = server_content.get("generationComplete")
-            && gen_complete.as_bool().unwrap_or(false)
-        {
-            return true;
-        }
-    }
-    false
+    })
 }

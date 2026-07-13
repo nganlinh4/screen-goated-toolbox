@@ -1,0 +1,38 @@
+use crate::gui::locale::ShellLocaleText;
+
+pub(super) fn get() -> ShellLocaleText {
+    ShellLocaleText {
+        tray_settings: "Cài đặt",
+        tray_quit: "Thoát",
+        tray_favorite_bubble: "Hiện bong bóng yêu thích",
+        tray_favorite_bubble_disabled: "Hiện bong bóng yêu thích (Chưa có mục yêu thích)",
+        favorites_empty: "Vui lòng đưa vài cấu hình vào ưa thích bằng nút ngôi sao",
+        favorites_keep_open: "Giữ mở",
+        recording_subtext: "Nhấn ESC/Hotkey để dừng",
+        recording_paused: "Đã tạm dừng",
+        auto_copied_badge: "Đã tự động copy",
+        auto_copied_image_badge: "Ảnh đã được sao chép",
+        text_input_loading: "Đang khởi động nhập văn bản...",
+        recording_loading: "Đang khởi động ghi âm...",
+        preset_wheel_loading: "Đang khởi động bảng chọn...",
+        update_available_notification: "Có bản cập nhật mới!",
+        cannot_type_no_caret: "Dùng tự động dán/ghi nhưng chưa chọn chỗ để ghi!",
+        drop_overlay_text: "Thả vào đây để xử lý",
+        video_drop_work_record: "Làm việc với SGT Record",
+        video_drop_generate_subtitles: "Tạo phụ đề ngay",
+        audio_drop_add_to_record: "Thêm vào SGT Record",
+        device_mode_warning: "Đã chọn âm thanh thiết bị nhưng chưa chọn ứng dụng",
+        select_app_btn: "Chọn ứng dụng",
+        toggle_translation_tooltip: "Tắt/Mở dịch",
+        toggle_transcription_tooltip: "Tắt/Mở phụ đề",
+        font_minus_tooltip: "Giảm cỡ chữ",
+        font_plus_tooltip: "Tăng cỡ chữ",
+        google_gtx_label: "Google Dịch",
+        llm_label: "LLM",
+        downloaded_successfully: "Đã tải về!",
+        download_recording_tooltip: "Tải bản ghi âm",
+        help_assistant_btn: "Hỏi cách dùng",
+        help_assistant_title: "Hỏi về SGT",
+        prompt_dj_btn: "Làm DJ",
+    }
+}

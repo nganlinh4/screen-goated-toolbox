@@ -111,8 +111,8 @@ pub fn download_voxtral_model(stop: Arc<AtomicBool>, use_badge: bool) -> Result<
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = loc.voxtral_downloading_title.to_string();
-        state.download_message = loc.voxtral_downloading_message.to_string();
+        state.download_title = loc.tool_runtime.voxtral_downloading_title.to_string();
+        state.download_message = loc.tool_runtime.voxtral_downloading_message.to_string();
         state.download_progress = 0.0;
     }
     clear_notice();
@@ -124,7 +124,7 @@ pub fn download_voxtral_model(stop: Arc<AtomicBool>, use_badge: bool) -> Result<
                 return Err(anyhow!("Download cancelled"));
             }
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = loc.voxtral_downloading_file.replace("{}", f);
+                state.download_message = loc.tool_runtime.voxtral_downloading_file.replace("{}", f);
             }
             post_state();
             dl_with_fallback(

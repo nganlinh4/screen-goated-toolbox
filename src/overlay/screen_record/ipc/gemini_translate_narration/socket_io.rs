@@ -4,10 +4,11 @@ use std::time::{Duration, Instant};
 
 use tungstenite::Message;
 
-use crate::api::realtime_audio::s2s::transport::parse_s2s_update;
-use crate::api::realtime_audio::websocket::{
-    is_recoverable_socket_error, is_transient_socket_read_error, pcm_bytes_to_i16,
+use crate::api::gemini_live::transport::{
+    is_recoverable_socket_error, is_transient_socket_read_error,
 };
+use crate::api::realtime_audio::s2s::transport::parse_s2s_update;
+use crate::api::realtime_audio::websocket::pcm_bytes_to_i16;
 
 use super::output_vad::{OutputRegion, OutputVad, samples_have_speech};
 use super::text_delta::merge_text;

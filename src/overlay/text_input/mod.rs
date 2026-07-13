@@ -242,7 +242,7 @@ pub fn show_with_options(
 
         // Show localized message that feature is not ready yet
         let locale = LocaleText::get(&lang_for_locale);
-        crate::overlay::auto_copy_badge::show_notification(locale.text_input_loading);
+        crate::overlay::auto_copy_badge::show_notification(locale.shell.text_input_loading);
 
         // Blocking wait with message pump
         // We wait up to 20 seconds. If it fails, we simply return (preventing premature broken window)

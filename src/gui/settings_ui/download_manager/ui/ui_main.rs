@@ -14,19 +14,22 @@ impl DownloadManager {
     /// Render the dependency check section when ffmpeg/yt-dlp are missing.
     pub(super) fn render_deps_check(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
         let theme = AppTheme::from_ui(ui);
-        ui.label(text.download_deps_missing);
+        ui.label(text.auxiliary.download.download_deps_missing);
 
         // yt-dlp section
         ui.group(|ui| {
             ui.horizontal(|ui| {
-                ui.label(text.download_deps_ytdlp);
+                ui.label(text.auxiliary.download.download_deps_ytdlp);
                 let status = self.ytdlp_status.lock().unwrap().clone();
                 match status {
                     InstallStatus::Checking => {
                         ui.spinner();
                     }
                     InstallStatus::Missing | InstallStatus::Error(_) => {
-                        if ui.button(text.download_deps_download_btn).clicked() {
+                        if ui
+                            .button(text.auxiliary.download.download_deps_download_btn)
+                            .clicked()
+                        {
                             self.start_download_ytdlp();
                         }
                         if let InstallStatus::Error(e) = status {
@@ -36,20 +39,26 @@ impl DownloadManager {
                     InstallStatus::Downloading(p) => {
                         ui.label(format!("{:.0}%", p * 100.0));
                         ui.add(egui::ProgressBar::new(p).desired_width(120.0));
-                        if ui.button(text.download_cancel_btn).clicked() {
+                        if ui
+                            .button(text.auxiliary.download.download_cancel_btn)
+                            .clicked()
+                        {
                             self.install_cancel_flag.store(true, Ordering::Relaxed);
                         }
                     }
                     InstallStatus::Extracting => {
-                        ui.label(text.download_status_extracting);
+                        ui.label(text.auxiliary.download.download_status_extracting);
                         ui.spinner();
-                        if ui.button(text.download_cancel_btn).clicked() {
+                        if ui
+                            .button(text.auxiliary.download.download_cancel_btn)
+                            .clicked()
+                        {
                             self.install_cancel_flag.store(true, Ordering::Relaxed);
                         }
                     }
                     InstallStatus::Installed => {
                         draw_icon_static(ui, Icon::CheckCircle, Some(crate::gui::icons::ICON_MD));
-                        ui.label(text.download_status_ready);
+                        ui.label(text.auxiliary.download.download_status_ready);
                     }
                 }
             });
@@ -58,14 +67,17 @@ impl DownloadManager {
         // ffmpeg section
         ui.group(|ui| {
             ui.horizontal(|ui| {
-                ui.label(text.download_deps_ffmpeg);
+                ui.label(text.auxiliary.download.download_deps_ffmpeg);
                 let status = self.ffmpeg_status.lock().unwrap().clone();
                 match status {
                     InstallStatus::Checking => {
                         ui.spinner();
                     }
                     InstallStatus::Missing | InstallStatus::Error(_) => {
-                        if ui.button(text.download_deps_download_btn).clicked() {
+                        if ui
+                            .button(text.auxiliary.download.download_deps_download_btn)
+                            .clicked()
+                        {
                             self.start_download_ffmpeg();
                         }
                         if let InstallStatus::Error(e) = status {
@@ -75,20 +87,26 @@ impl DownloadManager {
                     InstallStatus::Downloading(p) => {
                         ui.label(format!("{:.0}%", p * 100.0));
                         ui.add(egui::ProgressBar::new(p).desired_width(120.0));
-                        if ui.button(text.download_cancel_btn).clicked() {
+                        if ui
+                            .button(text.auxiliary.download.download_cancel_btn)
+                            .clicked()
+                        {
                             self.install_cancel_flag.store(true, Ordering::Relaxed);
                         }
                     }
                     InstallStatus::Extracting => {
-                        ui.label(text.download_status_extracting);
+                        ui.label(text.auxiliary.download.download_status_extracting);
                         ui.spinner();
-                        if ui.button(text.download_cancel_btn).clicked() {
+                        if ui
+                            .button(text.auxiliary.download.download_cancel_btn)
+                            .clicked()
+                        {
                             self.install_cancel_flag.store(true, Ordering::Relaxed);
                         }
                     }
                     InstallStatus::Installed => {
                         draw_icon_static(ui, Icon::CheckCircle, Some(crate::gui::icons::ICON_MD));
-                        ui.label(text.download_status_ready);
+                        ui.label(text.auxiliary.download.download_status_ready);
                     }
                 }
             });
@@ -193,7 +211,7 @@ impl DownloadManager {
                 crate::gui::icons::Icon::Plus,
                 crate::gui::icons::ICON_LG,
             )
-            .on_hover_text(text.download_new_tab_tooltip)
+            .on_hover_text(text.auxiliary.download.download_new_tab_tooltip)
             .clicked()
             {
                 self.add_tab();
@@ -241,7 +259,10 @@ impl DownloadManager {
 
         let gear_resp = ui
             .menu_button("    ", |ui| {
-                if ui.button(text.download_change_folder_btn).clicked() {
+                if ui
+                    .button(text.auxiliary.download.download_change_folder_btn)
+                    .clicked()
+                {
                     self.change_download_folder();
                     ui.close();
                 }
@@ -250,6 +271,8 @@ impl DownloadManager {
 
                 let (ytdlp_size, ffmpeg_size, deno_size) = self.get_dependency_sizes();
                 let del_btn_text = text
+                    .auxiliary
+                    .download
                     .download_delete_deps_btn
                     .replacen("{}", &ytdlp_size, 1)
                     .replacen("{}", &ffmpeg_size, 1)
@@ -281,7 +304,7 @@ impl DownloadManager {
         text: &LocaleText,
         idx: usize,
     ) {
-        ui.label(egui::RichText::new(text.download_url_label).strong());
+        ui.label(egui::RichText::new(text.auxiliary.download.download_url_label).strong());
         let response = ui.add(
             egui::TextEdit::singleline(&mut self.sessions[idx].input_url)
                 .hint_text("https://youtube.com/watch?v=...")
@@ -316,7 +339,7 @@ impl DownloadManager {
 
     fn render_format_quality(&mut self, ui: &mut egui::Ui, text: &LocaleText, idx: usize) {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(text.download_format_label).strong());
+            ui.label(egui::RichText::new(text.auxiliary.download.download_format_label).strong());
             if ui
                 .radio_value(
                     &mut self.sessions[idx].download_type,
@@ -355,13 +378,13 @@ impl DownloadManager {
         if is_analyzing {
             ui.spinner();
             ui.label(
-                egui::RichText::new(text.download_scanning_label)
+                egui::RichText::new(text.auxiliary.download.download_scanning_label)
                     .italics()
                     .size(11.0),
             );
         } else if !formats.is_empty() {
-            ui.label(text.download_quality_label_text);
-            let best_text = text.download_quality_best.to_string();
+            ui.label(text.auxiliary.download.download_quality_label_text);
+            let best_text = text.auxiliary.download.download_quality_best.to_string();
             let current_val = self.sessions[idx]
                 .selected_format
                 .clone()
@@ -411,8 +434,8 @@ impl DownloadManager {
 
         if !manual_subs.is_empty() {
             ui.add_space(8.0);
-            ui.label(text.download_subtitle_label);
-            let auto_text = text.download_subtitle_auto.to_string();
+            ui.label(text.auxiliary.download.download_subtitle_label);
+            let auto_text = text.auxiliary.download.download_subtitle_auto.to_string();
             let current_sub = self.sessions[idx]
                 .selected_subtitle
                 .clone()
@@ -423,7 +446,7 @@ impl DownloadManager {
                 .width(70.0)
                 .show_ui(ui, |ui| {
                     ui.label(
-                        egui::RichText::new(text.download_subs_found_header)
+                        egui::RichText::new(text.auxiliary.download.download_subs_found_header)
                             .small()
                             .weak(),
                     );
@@ -457,7 +480,7 @@ impl DownloadManager {
             ui.add_space(8.0);
             ui.colored_label(
                 egui::Color32::GRAY,
-                egui::RichText::new(text.download_subs_none_found)
+                egui::RichText::new(text.auxiliary.download.download_subs_none_found)
                     .small()
                     .italics(),
             );
@@ -465,59 +488,72 @@ impl DownloadManager {
     }
 
     fn render_advanced_options(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
-        egui::CollapsingHeader::new(egui::RichText::new(text.download_advanced_header).strong())
-            .icon(crate::gui::widgets::collapsing_chevron)
-            .show(ui, |ui| {
-                egui::Grid::new("adv_options_grid")
-                    .num_columns(2)
-                    .spacing([10.0, 4.0])
-                    .show(ui, |ui| {
-                        if ui
-                            .checkbox(&mut self.use_metadata, text.download_opt_metadata)
-                            .changed()
-                        {
-                            self.save_settings();
-                        }
-                        if ui
-                            .checkbox(&mut self.use_sponsorblock, text.download_opt_sponsorblock)
-                            .changed()
-                        {
-                            self.save_settings();
-                        }
-                        ui.end_row();
+        egui::CollapsingHeader::new(
+            egui::RichText::new(text.auxiliary.download.download_advanced_header).strong(),
+        )
+        .icon(crate::gui::widgets::collapsing_chevron)
+        .show(ui, |ui| {
+            egui::Grid::new("adv_options_grid")
+                .num_columns(2)
+                .spacing([10.0, 4.0])
+                .show(ui, |ui| {
+                    if ui
+                        .checkbox(
+                            &mut self.use_metadata,
+                            text.auxiliary.download.download_opt_metadata,
+                        )
+                        .changed()
+                    {
+                        self.save_settings();
+                    }
+                    if ui
+                        .checkbox(
+                            &mut self.use_sponsorblock,
+                            text.auxiliary.download.download_opt_sponsorblock,
+                        )
+                        .changed()
+                    {
+                        self.save_settings();
+                    }
+                    ui.end_row();
 
-                        {
-                            let mut use_sub = self.use_subtitles.lock().unwrap();
-                            if ui
-                                .checkbox(&mut use_sub, text.download_opt_subtitles)
-                                .changed()
-                            {
-                                drop(use_sub);
-                                self.save_settings();
-                            }
-                        }
+                    {
+                        let mut use_sub = self.use_subtitles.lock().unwrap();
                         if ui
-                            .checkbox(&mut self.use_playlist, text.download_opt_playlist)
+                            .checkbox(&mut use_sub, text.auxiliary.download.download_opt_subtitles)
                             .changed()
                         {
+                            drop(use_sub);
                             self.save_settings();
                         }
-                        ui.end_row();
-                    });
+                    }
+                    if ui
+                        .checkbox(
+                            &mut self.use_playlist,
+                            text.auxiliary.download.download_opt_playlist,
+                        )
+                        .changed()
+                    {
+                        self.save_settings();
+                    }
+                    ui.end_row();
+                });
 
-                ui.add_space(4.0);
-                self.render_cookie_browser_combo(ui, text);
-            });
+            ui.add_space(4.0);
+            self.render_cookie_browser_combo(ui, text);
+        });
     }
 
     fn render_cookie_browser_combo(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
         ui.horizontal(|ui| {
-            ui.label(text.download_opt_cookies);
+            ui.label(text.auxiliary.download.download_opt_cookies);
             crate::gui::widgets::combo("cookie_browser_combo")
                 .selected_text(match &self.cookie_browser {
-                    super::super::types::CookieBrowser::None => {
-                        text.download_no_cookie_option.to_string()
-                    }
+                    super::super::types::CookieBrowser::None => text
+                        .auxiliary
+                        .download
+                        .download_no_cookie_option
+                        .to_string(),
                     other => other.to_string(),
                 })
                 .width(140.0)
@@ -525,9 +561,11 @@ impl DownloadManager {
                     let mut selected_browser = None;
                     for browser in &self.available_browsers {
                         let label = match browser {
-                            super::super::types::CookieBrowser::None => {
-                                text.download_no_cookie_option.to_string()
-                            }
+                            super::super::types::CookieBrowser::None => text
+                                .auxiliary
+                                .download
+                                .download_no_cookie_option
+                                .to_string(),
                             other => other.to_string(),
                         };
                         if ui

@@ -109,7 +109,7 @@ pub fn render_sidebar(
                 } else if i == image_indices.len() {
                     render_add_preset_button_parts(
                         ui,
-                        text.add_image_preset_btn,
+                        text.preset_editor.add_image_preset_btn,
                         img_bg,
                         "image",
                         &mut preset_to_add_type,
@@ -137,7 +137,7 @@ pub fn render_sidebar(
                 } else if i == text_indices.len() {
                     render_add_preset_button_parts(
                         ui,
-                        text.add_text_preset_btn,
+                        text.preset_editor.add_text_preset_btn,
                         txt_bg,
                         "text",
                         &mut preset_to_add_type,
@@ -165,7 +165,7 @@ pub fn render_sidebar(
                 } else if i == audio_video_indices.len() {
                     render_add_preset_button_parts(
                         ui,
-                        text.add_audio_preset_btn,
+                        text.preset_editor.add_audio_preset_btn,
                         aud_bg,
                         "audio",
                         &mut preset_to_add_type,

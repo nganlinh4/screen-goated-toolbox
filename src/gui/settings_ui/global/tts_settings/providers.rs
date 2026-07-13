@@ -38,7 +38,11 @@ pub(super) fn render_step_audio_settings(
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
-    render_open_weights_header(ui, "Step Audio EditX", text.tts_step_audio_desc);
+    render_open_weights_header(
+        ui,
+        "Step Audio EditX",
+        text.tts_advanced.tts_step_audio_desc,
+    );
     changed |= render_step_audio_reference_controls(ui, config, text);
     changed
 }
@@ -50,13 +54,13 @@ fn render_step_audio_reference_controls(
 ) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(text.tts_reference_voice_label);
+        ui.label(text.tts_advanced.tts_reference_voice_label);
         let selected = config
             .step_audio_reference_voices
             .iter()
             .find(|item| item.id == config.step_audio_settings.reference_voice_id)
             .map(|item| reference_label_or_default(item, text))
-            .unwrap_or_else(|| text.tts_reference_default.to_string());
+            .unwrap_or_else(|| text.tts_advanced.tts_reference_default.to_string());
         crate::gui::widgets::combo("step_audio_global_reference_voice")
             .selected_text(selected)
             .width(240.0)
@@ -65,7 +69,7 @@ fn render_step_audio_reference_controls(
                     .selectable_value(
                         &mut config.step_audio_settings.reference_voice_id,
                         String::new(),
-                        text.tts_reference_default,
+                        text.tts_advanced.tts_reference_default,
                     )
                     .changed();
                 for reference in &config.step_audio_reference_voices {
@@ -88,7 +92,11 @@ pub(super) fn render_magpie_settings(
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
-    render_open_weights_header(ui, "NVIDIA Magpie-Multilingual 357M", text.tool_desc_magpie);
+    render_open_weights_header(
+        ui,
+        "NVIDIA Magpie-Multilingual 357M",
+        text.auxiliary.managed_tools.tool_desc_magpie,
+    );
     changed |= render_magpie_voice_config_rows(ui, config, text);
     changed
 }
@@ -103,7 +111,7 @@ fn render_magpie_voice_config_rows(
     ui.add_space(15.0);
     ui.separator();
     ui.add_space(10.0);
-    ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
+    ui.label(egui::RichText::new(text.tts_settings.tts_voice_per_language_label).strong());
     ui.add_space(5.0);
 
     egui::ScrollArea::vertical()
@@ -137,7 +145,7 @@ fn render_magpie_voice_config_rows(
                             }
                         });
                     if icon_button(ui, Icon::Close)
-                        .on_hover_text(text.remove_label)
+                        .on_hover_text(text.tts_advanced.remove_label)
                         .clicked()
                     {
                         to_remove = Some(idx);
@@ -165,7 +173,7 @@ fn render_magpie_voice_config_rows(
 
         if !available.is_empty() {
             crate::gui::widgets::combo("magpie_add_language")
-                .selected_text(text.tts_add_language_label)
+                .selected_text(text.tts_settings.tts_add_language_label)
                 .width(150.0)
                 .show_ui(ui, |ui| {
                     for (code, name) in &available {
@@ -184,7 +192,10 @@ fn render_magpie_voice_config_rows(
                 });
         }
 
-        if ui.button(text.tts_reset_to_defaults_label).clicked() {
+        if ui
+            .button(text.tts_settings.tts_reset_to_defaults_label)
+            .clicked()
+        {
             config.magpie_settings.voice_configs =
                 crate::config::MagpieSettings::default().voice_configs;
             changed = true;
@@ -199,15 +210,25 @@ pub(super) fn render_kokoro_settings(
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
-    render_open_weights_header(ui, text.tts_kokoro_title, text.tts_kokoro_desc);
+    render_open_weights_header(
+        ui,
+        text.tts_advanced.tts_kokoro_title,
+        text.tts_advanced.tts_kokoro_desc,
+    );
     let s = &mut config.kokoro_settings;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tts_cpu_threads_label).strong());
+        ui.label(egui::RichText::new(text.tts_advanced.tts_cpu_threads_label).strong());
         changed |= ui
             .add(egui::Slider::new(&mut s.num_threads, 1..=8))
             .changed();
     });
-    changed |= render_speed_row(ui, text.tts_speed_label, &mut s.speed, 0.5, 2.0);
+    changed |= render_speed_row(
+        ui,
+        text.tts_settings.tts_speed_label,
+        &mut s.speed,
+        0.5,
+        2.0,
+    );
     changed |= render_kokoro_voice_config_rows(ui, config, text);
     changed
 }
@@ -222,7 +243,7 @@ fn render_kokoro_voice_config_rows(
     ui.add_space(15.0);
     ui.separator();
     ui.add_space(10.0);
-    ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
+    ui.label(egui::RichText::new(text.tts_settings.tts_voice_per_language_label).strong());
     ui.add_space(5.0);
 
     egui::ScrollArea::vertical()
@@ -265,13 +286,13 @@ fn render_kokoro_voice_config_rows(
                         });
 
                     if icon_button(ui, Icon::Speaker)
-                        .on_hover_text(text.tts_preview_label)
+                        .on_hover_text(text.tts_settings.tts_preview_label)
                         .clicked()
                     {
                         speak_settings_preview(text, &voice_config.voice_id);
                     }
                     if icon_button(ui, Icon::Close)
-                        .on_hover_text(text.remove_label)
+                        .on_hover_text(text.tts_advanced.remove_label)
                         .clicked()
                     {
                         to_remove = Some(idx);
@@ -300,7 +321,7 @@ fn render_kokoro_voice_config_rows(
 
         if !available.is_empty() {
             crate::gui::widgets::combo("kokoro_add_language")
-                .selected_text(text.tts_add_language_label)
+                .selected_text(text.tts_settings.tts_add_language_label)
                 .width(150.0)
                 .show_ui(ui, |ui| {
                     for (code, name) in &available {
@@ -321,7 +342,10 @@ fn render_kokoro_voice_config_rows(
                 });
         }
 
-        if ui.button(text.tts_reset_to_defaults_label).clicked() {
+        if ui
+            .button(text.tts_settings.tts_reset_to_defaults_label)
+            .clicked()
+        {
             config.kokoro_settings.voice_configs =
                 crate::config::KokoroSettings::default().voice_configs;
             changed = true;
@@ -340,14 +364,20 @@ pub(super) fn render_supertonic_settings(
     render_open_weights_header(ui, "Supertonic 3", SUPERTONIC_LANGUAGE_SUMMARY);
     let s = &mut config.supertonic_settings;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tts_cpu_threads_label).strong());
+        ui.label(egui::RichText::new(text.tts_advanced.tts_cpu_threads_label).strong());
         changed |= ui
             .add(egui::Slider::new(&mut s.num_threads, 1..=8))
             .changed();
     });
-    changed |= render_speed_row(ui, text.tts_speed_label, &mut s.speed, 0.5, 2.0);
+    changed |= render_speed_row(
+        ui,
+        text.tts_settings.tts_speed_label,
+        &mut s.speed,
+        0.5,
+        2.0,
+    );
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tts_quality_steps_label).strong());
+        ui.label(egui::RichText::new(text.tts_advanced.tts_quality_steps_label).strong());
         changed |= ui
             .add(egui::Slider::new(&mut s.num_steps, 1..=20))
             .changed();
@@ -366,7 +396,7 @@ fn render_supertonic_voice_config_rows(
     ui.add_space(15.0);
     ui.separator();
     ui.add_space(10.0);
-    ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
+    ui.label(egui::RichText::new(text.tts_settings.tts_voice_per_language_label).strong());
 
     egui::ScrollArea::vertical()
         .max_height(180.0)
@@ -404,7 +434,7 @@ fn render_supertonic_voice_config_rows(
                             }
                         });
                     if icon_button(ui, Icon::Close)
-                        .on_hover_text(text.remove_label)
+                        .on_hover_text(text.tts_advanced.remove_label)
                         .clicked()
                     {
                         to_remove = Some(idx);
@@ -432,7 +462,7 @@ fn render_supertonic_voice_config_rows(
 
         if !available.is_empty() {
             crate::gui::widgets::combo("supertonic_add_language")
-                .selected_text(text.tts_add_language_label)
+                .selected_text(text.tts_settings.tts_add_language_label)
                 .width(150.0)
                 .show_ui(ui, |ui| {
                     for lang in &available {
@@ -450,7 +480,10 @@ fn render_supertonic_voice_config_rows(
                 });
         }
 
-        if ui.button(text.tts_reset_to_defaults_label).clicked() {
+        if ui
+            .button(text.tts_settings.tts_reset_to_defaults_label)
+            .clicked()
+        {
             config.supertonic_settings.voice_configs =
                 crate::config::SupertonicSettings::default().voice_configs;
             changed = true;
@@ -467,9 +500,9 @@ pub(super) fn render_vieneu_settings(
 ) -> bool {
     let theme = AppTheme::from_ui(ui);
     let mut changed = false;
-    render_open_weights_header(ui, "VieNeu-TTS v2", text.tts_vieneu_desc);
+    render_open_weights_header(ui, "VieNeu-TTS v2", text.tts_advanced.tts_vieneu_desc);
     ui.label(
-        egui::RichText::new(text.tts_vieneu_control_desc)
+        egui::RichText::new(text.tts_advanced.tts_vieneu_control_desc)
             .small()
             .color(theme.on_surface_variant()),
     );
@@ -484,13 +517,13 @@ fn render_vieneu_reference_controls(
 ) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(text.tts_reference_voice_label);
+        ui.label(text.tts_advanced.tts_reference_voice_label);
         let selected = config
             .step_audio_reference_voices
             .iter()
             .find(|item| item.id == config.vieneu_settings.reference_voice_id)
             .map(|item| reference_label_or_default(item, text))
-            .unwrap_or_else(|| text.tts_reference_default.to_string());
+            .unwrap_or_else(|| text.tts_advanced.tts_reference_default.to_string());
         crate::gui::widgets::combo("vieneu_global_reference_voice")
             .selected_text(selected)
             .width(240.0)
@@ -499,7 +532,7 @@ fn render_vieneu_reference_controls(
                     .selectable_value(
                         &mut config.vieneu_settings.reference_voice_id,
                         String::new(),
-                        text.tts_reference_default,
+                        text.tts_advanced.tts_reference_default,
                     )
                     .changed();
                 for reference in &config.step_audio_reference_voices {
@@ -521,7 +554,7 @@ fn reference_label_or_default(
     text: &LocaleText,
 ) -> String {
     if reference.label.trim().is_empty() {
-        text.tts_reference_untitled.to_string()
+        text.tts_advanced.tts_reference_untitled.to_string()
     } else {
         reference.label.clone()
     }

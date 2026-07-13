@@ -4,50 +4,29 @@ use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
 use image::DynamicImage;
 use image::codecs::jpeg::JpegEncoder;
-use native_tls::TlsStream;
-use std::net::TcpStream;
 use std::time::Duration;
-use tungstenite::WebSocket;
 
+use super::ready_session::ReadyLiveSession;
+use super::server_frame::parse_server_frame;
+use super::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
 use super::types::LiveInputContent;
 
 const STILL_FRAME_STREAM_COUNT: usize = 4;
 const STILL_FRAME_INTERVAL_MS: u64 = 500;
 const STILL_FRAME_JPEG_QUALITY: u8 = 90;
 
-/// Send setup message for text-output mode.
-/// We request native AUDIO responses and consume `outputAudioTranscription`
-/// so both Gemini 2.5 native-audio and Gemini 3.1 Flash Live can be used
-/// through the same text-first interface.
-pub fn send_live_setup(
-    socket: &mut WebSocket<TlsStream<TcpStream>>,
+/// Build the text-first setup envelope without coupling setup construction to
+/// a raw socket. Setup-gated transports use this before promoting a connected
+/// socket into a ready session.
+pub fn build_live_setup(
     model: &str,
     system_instruction: Option<&str>,
     _enable_thinking: bool,
-) -> Result<()> {
-    let mut generation_config = serde_json::json!({
-        "responseModalities": ["AUDIO"],
-        "mediaResolution": "MEDIA_RESOLUTION_LOW",
-        "speechConfig": {
-            "voiceConfig": {
-                "prebuiltVoiceConfig": {
-                    "voiceName": "Aoede"
-                }
-            }
-        }
-    });
-
-    if let Some(config) = crate::model_config::live_thinking_config_json(model) {
-        generation_config["thinkingConfig"] = config;
-    }
-
-    let mut setup = serde_json::json!({
-        "setup": {
-            "model": format!("models/{}", model),
-            "generationConfig": generation_config,
-            "outputAudioTranscription": {}
-        }
-    });
+) -> serde_json::Value {
+    let mut builder = LiveSetupBuilder::new(model)
+        .media_resolution(MediaResolution::Low)
+        .voice("Aoede")
+        .transcription(TranscriptionMode::Output);
 
     if let Some(instruction) = system_instruction {
         let speed_instruction =
@@ -59,33 +38,23 @@ pub fn send_live_setup(
             format!("{} {}", instruction, speed_instruction)
         };
 
-        setup["setup"]["systemInstruction"] = serde_json::json!({
-            "parts": [{
-                "text": final_instruction
-            }]
-        });
+        builder = builder.system_instruction(&final_instruction);
     }
 
-    send_live_json(socket, setup)
+    builder.build()
 }
 
 /// Send content to the model.
 /// Gemini 3.1 expects `realtimeInput` for live text turns. We keep audio streaming
 /// on the same path and use `video` for image inputs.
-pub fn send_live_content(
-    socket: &mut WebSocket<TlsStream<TcpStream>>,
-    content: &LiveInputContent,
-) -> Result<()> {
+pub fn send_live_content(session: &mut ReadyLiveSession, content: &LiveInputContent) -> Result<()> {
     match content {
         LiveInputContent::Text(text) => {
-            send_live_json(
-                socket,
-                serde_json::json!({
-                    "realtimeInput": {
-                        "text": text
-                    }
-                }),
-            )?;
+            session.send_json(&serde_json::json!({
+                "realtimeInput": {
+                    "text": text
+                }
+            }))?;
         }
         LiveInputContent::TextWithImage {
             text,
@@ -95,81 +64,36 @@ pub fn send_live_content(
             let (frame_bytes, frame_mime_type) = build_live_still_frame(image_data, mime_type);
             let b64_frame = general_purpose::STANDARD.encode(frame_bytes);
             for frame_idx in 0..STILL_FRAME_STREAM_COUNT {
-                send_live_json(
-                    socket,
-                    serde_json::json!({
-                        "realtimeInput": {
-                            "video": {
-                                "mimeType": frame_mime_type.clone(),
-                                "data": b64_frame.clone()
-                            }
+                session.send_json(&serde_json::json!({
+                    "realtimeInput": {
+                        "video": {
+                            "mimeType": frame_mime_type.clone(),
+                            "data": b64_frame.clone()
                         }
-                    }),
-                )?;
+                    }
+                }))?;
                 if frame_idx + 1 < STILL_FRAME_STREAM_COUNT {
                     std::thread::sleep(Duration::from_millis(STILL_FRAME_INTERVAL_MS));
                 }
             }
-            send_live_json(
-                socket,
-                serde_json::json!({
-                    "realtimeInput": {
-                        "text": text
-                    }
-                }),
-            )?;
+            session.send_json(&serde_json::json!({
+                "realtimeInput": {
+                    "text": text
+                }
+            }))?;
         }
         LiveInputContent::TextWithAudio { text, audio_data } => {
-            let b64_audio = general_purpose::STANDARD.encode(audio_data);
-            send_live_json(
-                socket,
-                serde_json::json!({
-                    "realtimeInput": {
-                        "text": text
-                    }
-                }),
-            )?;
-            send_live_json(
-                socket,
-                serde_json::json!({
-                    "realtimeInput": {
-                        "audio": {
-                            "mimeType": "audio/pcm;rate=16000",
-                            "data": b64_audio
-                        }
-                    }
-                }),
-            )?;
-            send_live_json(
-                socket,
-                serde_json::json!({
-                    "realtimeInput": {
-                        "audioStreamEnd": true
-                    }
-                }),
-            )?;
+            session.send_json(&serde_json::json!({
+                "realtimeInput": {
+                    "text": text
+                }
+            }))?;
+            session.send_audio_bytes(audio_data, 16_000)?;
+            session.end_audio_stream()?;
         }
         LiveInputContent::AudioOnly(audio_data) => {
-            let b64_audio = general_purpose::STANDARD.encode(audio_data);
-            send_live_json(
-                socket,
-                serde_json::json!({
-                    "realtimeInput": {
-                        "audio": {
-                            "mimeType": "audio/pcm;rate=16000",
-                            "data": b64_audio
-                        }
-                    }
-                }),
-            )?;
-            send_live_json(
-                socket,
-                serde_json::json!({
-                    "realtimeInput": {
-                        "audioStreamEnd": true
-                    }
-                }),
-            )?;
+            session.send_audio_bytes(audio_data, 16_000)?;
+            session.end_audio_stream()?;
         }
     }
 
@@ -201,99 +125,14 @@ fn downscale_live_frame(image: DynamicImage) -> DynamicImage {
     ))
 }
 
-pub fn set_live_read_timeout(
-    socket: &mut WebSocket<TlsStream<TcpStream>>,
-    timeout: Duration,
-) -> Result<()> {
-    let stream = socket.get_mut();
-    let tcp_stream = stream.get_mut();
-    tcp_stream.set_read_timeout(Some(timeout))?;
-    Ok(())
-}
-
-/// Parse text content from WebSocket message.
-/// Returns `(text_chunk, is_thought, is_turn_complete)`.
-pub fn parse_live_response(msg: &str) -> (Option<String>, bool, bool) {
-    let mut text_chunks: Vec<String> = Vec::new();
-    let mut thought_chunks: Vec<String> = Vec::new();
-    let mut is_turn_complete = false;
-
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
-        && let Some(server_content) = json.get("serverContent")
-    {
-        if let Some(tc) = server_content.get("turnComplete")
-            && tc.as_bool().unwrap_or(false)
-        {
-            is_turn_complete = true;
-        }
-
-        if let Some(gc) = server_content.get("generationComplete")
-            && gc.as_bool().unwrap_or(false)
-        {
-            is_turn_complete = true;
-        }
-
-        if let Some(transcription) = server_content.get("outputTranscription")
-            && let Some(text) = transcription.get("text").and_then(|t| t.as_str())
-            && !text.chars().all(char::is_whitespace)
-        {
-            text_chunks.push(text.to_string());
-        }
-
-        if let Some(model_turn) = server_content.get("modelTurn")
-            && let Some(parts) = model_turn.get("parts").and_then(|p| p.as_array())
-        {
-            for part in parts {
-                if let Some(text) = part.get("text").and_then(|t| t.as_str())
-                    && !text.is_empty()
-                {
-                    if part
-                        .get("thought")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                    {
-                        thought_chunks.push(text.to_string());
-                    } else {
-                        text_chunks.push(text.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    if !text_chunks.is_empty() {
-        return (Some(text_chunks.concat()), false, is_turn_complete);
-    }
-    if !thought_chunks.is_empty() {
-        return (Some(thought_chunks.concat()), true, is_turn_complete);
-    }
-
-    (None, false, is_turn_complete)
-}
-
 /// Check if the message indicates setup is complete
 pub fn is_setup_complete(msg: &str) -> bool {
-    msg.contains("setupComplete")
+    parse_server_frame(msg)
+        .map(|frame| frame.setup_complete)
+        .unwrap_or(false)
 }
 
 /// Check if the message contains an error
 pub fn parse_error(msg: &str) -> Option<String> {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
-        && let Some(error) = json.get("error")
-    {
-        if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
-            return Some(message.to_string());
-        }
-        return Some(error.to_string());
-    }
-    None
-}
-
-fn send_live_json(
-    socket: &mut WebSocket<TlsStream<TcpStream>>,
-    payload: serde_json::Value,
-) -> Result<()> {
-    socket.write(tungstenite::Message::Text(payload.to_string().into()))?;
-    socket.flush()?;
-    Ok(())
+    parse_server_frame(msg).ok()?.error
 }

@@ -17,6 +17,12 @@
   - `System`
   - `Dark`
   - `Light`
+- Locale data is composed from cohesive sections instead of one flat string catalog:
+  - locale identity comes from `localeCode`; it must never be inferred from translated copy
+    such as a preview-action label
+  - compatibility helpers project data from their owning section. Copying an `appearance`,
+    `help`, or `ttsVoice` section into another locale root must copy the corresponding helper
+    behavior without changing that root's explicit locale identity
 - Theme-cycle behavior matches Windows exactly:
   - `System -> Dark -> Light -> System`
 - The launcher and main TTS settings UI must read visible labels from the active UI language bundle rather than from hard-coded English strings.
@@ -42,15 +48,33 @@
   - nested horizontal carousels in apps/tools own touch gestures for the full gesture whenever they have horizontal scroll available; the shell tab pager must not compete for drags that start inside a scrollable inner carousel
 - Mobile may keep Android-native rendering, but the language/theme state model and localized preview text source must match Windows.
 
+## Android Implementation Guard
+- The Android root owns `localeCode` plus `shell`, `history`, `help`,
+  `translationGummy`, `providers`, `presetRuntime`, `updates`, `customModels`,
+  `appearance`, `ttsSettings`, `ttsVoice`, `download`, `downloadOptions`, and
+  `downloader`.
+- The root constructor has at most 16 parameters and every recursively owned locale
+  section has at most 32 constructor parameters. This prevents generated Kotlin
+  data-class methods from exceeding JVM signature limits.
+- These Android-only shape constraints live in
+  [`MobileLocaleArchitectureTest.kt`](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/ui/i18n/MobileLocaleArchitectureTest.kt),
+  not in the shared behavior fixture.
+
 ## Failure And Recovery
 - Unsupported or unknown UI language codes fall back to `en`.
+- The fallback bundle reports its explicit locale code as `en`; it does not retain the
+  unsupported input code.
 - Theme `System` resolves from the current Android system dark-mode state.
 - Existing persisted settings from older mobile builds must still load with safe defaults.
 
 ## Fixtures
 - Shared fixtures: [parity-fixtures/mobile-shell/ui-language-theme.json](../../parity-fixtures/mobile-shell/ui-language-theme.json)
 - Shared fixtures: [parity-fixtures/mobile-shell/credentials-provider-order.json](../../parity-fixtures/mobile-shell/credentials-provider-order.json)
-- Android unit tests must at minimum cover theme-cycle order and locale-preview lookup.
+- Android unit tests must at minimum cover theme-cycle order, explicit locale resolution,
+  locale-preview lookup/non-repetition, section-copy helper behavior, and the constructor
+  limits that keep generated Kotlin data-class methods valid on the JVM.
+- Windows locale tests must cover the same supported/unknown locale resolution and localized
+  preview-template contract from the shared fixture.
 
 ## Deviations
 - Mobile uses Android-native Compose controls instead of egui widgets.

@@ -43,32 +43,41 @@ pub(super) fn render_api_keys_card(
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_MD));
                 ui.label(
-                    egui::RichText::new(text.api_keys_header)
+                    egui::RichText::new(text.global_settings.api_keys_header)
                         .strong()
                         .size(14.0),
                 );
                 ui.add_space(16.0);
 
                 if ui
-                    .checkbox(&mut config.use_groq, text.use_groq_checkbox)
+                    .checkbox(&mut config.use_groq, text.preset_basics.use_groq_checkbox)
                     .changed()
                 {
                     changed = true;
                 }
                 if ui
-                    .checkbox(&mut config.use_cerebras, text.use_cerebras_checkbox)
+                    .checkbox(
+                        &mut config.use_cerebras,
+                        text.preset_basics.use_cerebras_checkbox,
+                    )
                     .changed()
                 {
                     changed = true;
                 }
                 if ui
-                    .checkbox(&mut config.use_gemini, text.use_gemini_checkbox)
+                    .checkbox(
+                        &mut config.use_gemini,
+                        text.preset_basics.use_gemini_checkbox,
+                    )
                     .changed()
                 {
                     changed = true;
                 }
                 if ui
-                    .checkbox(&mut config.use_openrouter, text.use_openrouter_checkbox)
+                    .checkbox(
+                        &mut config.use_openrouter,
+                        text.preset_basics.use_openrouter_checkbox,
+                    )
                     .changed()
                 {
                     changed = true;
@@ -81,8 +90,8 @@ pub(super) fn render_api_keys_card(
 
             if config.use_groq {
                 ui.horizontal(|ui| {
-                    ui.label(text.groq_label);
-                    if ui.link(text.get_key_link).clicked() {
+                    ui.label(text.global_settings.groq_label);
+                    if ui.link(text.preset_basics.get_key_link).clicked() {
                         let _ = open::that("https://console.groq.com/keys");
                     }
                 });
@@ -111,8 +120,8 @@ pub(super) fn render_api_keys_card(
 
             if config.use_cerebras {
                 ui.horizontal(|ui| {
-                    ui.label(text.cerebras_api_key_label);
-                    if ui.link(text.cerebras_get_key_link).clicked() {
+                    ui.label(text.preset_basics.cerebras_api_key_label);
+                    if ui.link(text.preset_basics.cerebras_get_key_link).clicked() {
                         let _ = open::that("https://cloud.cerebras.ai/");
                     }
                 });
@@ -141,8 +150,8 @@ pub(super) fn render_api_keys_card(
 
             if config.use_gemini {
                 ui.horizontal(|ui| {
-                    ui.label(text.gemini_api_key_label);
-                    if ui.link(text.gemini_get_key_link).clicked() {
+                    ui.label(text.preset_basics.gemini_api_key_label);
+                    if ui.link(text.preset_basics.gemini_get_key_link).clicked() {
                         let _ = open::that("https://aistudio.google.com/app/apikey");
                     }
                 });
@@ -171,8 +180,11 @@ pub(super) fn render_api_keys_card(
 
             if config.use_openrouter {
                 ui.horizontal(|ui| {
-                    ui.label(text.openrouter_api_key_label);
-                    if ui.link(text.openrouter_get_key_link).clicked() {
+                    ui.label(text.preset_basics.openrouter_api_key_label);
+                    if ui
+                        .link(text.preset_basics.openrouter_get_key_link)
+                        .clicked()
+                    {
                         let _ = open::that("https://openrouter.ai/settings/keys");
                     }
                 });
@@ -202,7 +214,7 @@ pub(super) fn render_api_keys_card(
             if config.use_ollama {
                 ui.horizontal(|ui| {
                     ui.label("Ollama URL:");
-                    if ui.link(text.ollama_url_guide).clicked() {
+                    if ui.link(text.global_settings.ollama_url_guide).clicked() {
                         let _ = open::that("https://docs.ollama.com/api/introduction#base-url");
                     }
                 });

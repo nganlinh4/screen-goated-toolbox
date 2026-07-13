@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use tungstenite::Message;
 
-use crate::api::realtime_audio::websocket::{
+use crate::api::gemini_live::transport::{
     is_transient_socket_read_error, set_socket_nonblocking, set_socket_short_timeout,
 };
 

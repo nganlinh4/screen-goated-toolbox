@@ -88,7 +88,7 @@ pub fn render_downloaded_tools_modal(
         ))
         .rect_filled(screen_rect, 0.0, theme.scrim_color());
 
-        egui::Window::new(text.downloaded_tools_title)
+        egui::Window::new(text.auxiliary.managed_tools.downloaded_tools_title)
             .collapsible(false)
             .resizable(true)
             .title_bar(false)
@@ -103,13 +103,15 @@ pub fn render_downloaded_tools_modal(
                 if crate::gui::widgets::dialog_header(
                     ui,
                     &theme,
-                    text.downloaded_tools_title,
+                    text.auxiliary.managed_tools.downloaded_tools_title,
                     None,
                     |ui| {
                         if ui
                             .button(
-                                egui::RichText::new(text.downloaded_tools_clean_all)
-                                    .color(theme.danger_text()),
+                                egui::RichText::new(
+                                    text.auxiliary.managed_tools.downloaded_tools_clean_all,
+                                )
+                                .color(theme.danger_text()),
                             )
                             .clicked()
                         {

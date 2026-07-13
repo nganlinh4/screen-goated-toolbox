@@ -2,8 +2,10 @@ package dev.screengoated.toolbox.mobile.service
 
 import android.os.SystemClock
 import android.util.Log
-import dev.screengoated.toolbox.mobile.service.tts.BlockingWebSocketSession
-import dev.screengoated.toolbox.mobile.service.tts.WebSocketEvent
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReceiveResult
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionException
+import dev.screengoated.toolbox.mobile.shared.live.openGeminiLiveReadySession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
@@ -12,9 +14,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.Request
-import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -210,39 +209,40 @@ private suspend fun GeminiS2sClient.runAttempt(
     logTag: String,
 ) {
     val startedAtMs = SystemClock.elapsedRealtime()
-    val request = Request.Builder()
-        .url("$LIVE_WS_ENDPOINT?key=$apiKey")
-        .build()
-    BlockingWebSocketSession(httpClient, request).use { session ->
-        if (!withContext(Dispatchers.IO) { session.awaitOpen(10_000) }) {
-            Log.w(logTag, "open-failed segment=${segment.id} gen=${segment.generation} attempt=$attempt")
-            output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
-            return
-        }
-        Log.i(logTag, "open-ok segment=${segment.id} gen=${segment.generation} attempt=$attempt")
-        val setupPayload = buildGeminiS2sSetupPayload(
-            model = model,
-            settings = settings,
-            contextText = contextText,
+    val setupPayload = buildGeminiS2sSetupPayload(
+        model = model,
+        settings = settings,
+        contextText = contextText,
+    )
+    val readySession = try {
+        openGeminiLiveReadySession(httpClient, apiKey, setupPayload)
+    } catch (error: GeminiLiveSessionException) {
+        Log.w(
+            logTag,
+            "ready-failed segment=${segment.id} gen=${segment.generation} attempt=$attempt error=${error.message}",
+            error,
         )
-        if (!session.sendText(setupPayload) || !waitForGeminiS2sSetup(session, logTag)) {
-            Log.w(logTag, "setup-failed segment=${segment.id} gen=${segment.generation} attempt=$attempt")
-            output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
-            return
-        }
+        output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
+        return
+    }
+    readySession.use { session ->
+        Log.i(logTag, "ready segment=${segment.id} gen=${segment.generation} attempt=$attempt")
         Log.i(
             logTag,
             "start segment=${segment.id} gen=${segment.generation} attempt=$attempt audio_ms=${segment.audioMs} context_chars=${contextText.length}",
         )
         for (offset in segment.samples.indices step FRAME_SAMPLES) {
             val end = minOf(offset + FRAME_SAMPLES, segment.samples.size)
-            if (!session.sendText(buildGeminiS2sAudioPayload(segment.samples.copyOfRange(offset, end)))) {
+            if (!session.trySend(buildGeminiS2sAudioPayload(segment.samples.copyOfRange(offset, end)))) {
                 output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
                 return
             }
         }
         if (shouldSendAudioStreamEnd(model)) {
-            session.sendText(buildGeminiS2sAudioStreamEndPayload())
+            if (!session.trySend(buildGeminiS2sAudioStreamEndPayload())) {
+                output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
+                return
+            }
         } else {
             Log.i(logTag, "stream-end-skipped segment=${segment.id} gen=${segment.generation} attempt=$attempt")
         }
@@ -287,9 +287,8 @@ private suspend fun GeminiS2sClient.runAttempt(
                 return
             }
 
-            fun handlePayload(payload: String): Boolean {
-                val parsed = parseGeminiS2sUpdate(payload)
-                parsed.error?.let { throw IOException(it) }
+            fun handleFrame(frame: GeminiLiveServerFrame): Boolean {
+                val parsed = parseGeminiS2sUpdate(frame)
                 if (parsed.inputText.isNotBlank()) {
                     textUpdates++
                     output.trySend(S2sRaceEvent.SourceText(segment.id, segment.generation, attempt, parsed.inputText))
@@ -321,8 +320,8 @@ private suspend fun GeminiS2sClient.runAttempt(
                 return false
             }
 
-            when (val event = withContext(Dispatchers.IO) { session.poll(50) }) {
-                null -> {
+            when (val result = session.receive(50)) {
+                GeminiLiveReceiveResult.TimedOut -> {
                     emptyReads++
                     if (emptyReads % 60 == 0) {
                         Log.d(
@@ -331,18 +330,14 @@ private suspend fun GeminiS2sClient.runAttempt(
                         )
                     }
                 }
-                is WebSocketEvent.Text -> {
-                    if (handlePayload(event.payload)) {
+                is GeminiLiveReceiveResult.Frame -> {
+                    if (handleFrame(result.frame)) {
                         return
                     }
                 }
-                is WebSocketEvent.Binary -> {
-                    if (handlePayload(event.payload.utf8())) {
-                        return
-                    }
-                }
-                is WebSocketEvent.Failure -> throw event.throwable
-                WebSocketEvent.Closed -> {
+                is GeminiLiveReceiveResult.Unparsed -> Unit
+                is GeminiLiveReceiveResult.Failed -> throw GeminiLiveSessionException(result.failure)
+                is GeminiLiveReceiveResult.Closed -> {
                     output.send(
                         if (audioChunks > 0) {
                             S2sRaceEvent.Done(segment.id, segment.generation, attempt)

@@ -4,9 +4,11 @@ use std::time::{Duration, Instant};
 
 use crate::APP;
 use crate::api::audio::encode_wav;
+use crate::api::gemini_live::transport::{
+    connect_websocket, set_socket_nonblocking, set_socket_short_timeout,
+};
 use crate::api::realtime_audio::websocket::{
-    connect_websocket, send_audio_chunk, send_audio_stream_end, send_live_translate_setup_message,
-    set_socket_nonblocking, set_socket_short_timeout,
+    send_audio_chunk, send_audio_stream_end, send_live_translate_setup_message,
 };
 
 use super::super::wav_decode::decode_wav_mono_i16;

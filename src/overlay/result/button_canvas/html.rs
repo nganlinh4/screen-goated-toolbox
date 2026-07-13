@@ -14,19 +14,19 @@ pub fn generate_canvas_html() -> String {
     let lang = crate::APP.lock().unwrap().config.ui_language.clone();
     let locale = crate::gui::locale::LocaleText::get(&lang);
     let l10n_json = serde_json::json!({
-        "copy": locale.overlay_copy_tooltip,
-        "undo": locale.overlay_undo_tooltip,
-        "redo": locale.overlay_redo_tooltip,
-        "edit": locale.overlay_edit_tooltip,
-        "markdown": locale.overlay_markdown_tooltip,
-        "download": locale.overlay_download_tooltip,
-        "speaker": locale.overlay_speaker_tooltip,
-        "broom": locale.overlay_broom_tooltip,
-        "back": locale.overlay_back_tooltip,
-        "forward": locale.overlay_forward_tooltip,
-        "opacity": locale.overlay_opacity_tooltip,
-        "cancel": locale.overlay_cancel_tooltip,
-        "overlay_refine_placeholder": locale.overlay_refine_placeholder,
+        "copy": locale.overlay.overlay_copy_tooltip,
+        "undo": locale.overlay.overlay_undo_tooltip,
+        "redo": locale.overlay.overlay_redo_tooltip,
+        "edit": locale.overlay.overlay_edit_tooltip,
+        "markdown": locale.overlay.overlay_markdown_tooltip,
+        "download": locale.overlay.overlay_download_tooltip,
+        "speaker": locale.overlay.overlay_speaker_tooltip,
+        "broom": locale.overlay.overlay_broom_tooltip,
+        "back": locale.overlay.overlay_back_tooltip,
+        "forward": locale.overlay.overlay_forward_tooltip,
+        "opacity": locale.overlay.overlay_opacity_tooltip,
+        "cancel": locale.overlay.overlay_cancel_tooltip,
+        "overlay_refine_placeholder": locale.overlay.overlay_refine_placeholder,
     })
     .to_string();
 

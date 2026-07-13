@@ -10,15 +10,20 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
     let theme = AppTheme::from_ui(ui);
 
     tool_card(ui, |ui| {
-        ui.heading(text.tool_downloadable_backgrounds);
+        ui.heading(text.auxiliary.managed_tools.tool_downloadable_backgrounds);
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label(text.tool_desc_downloadable_backgrounds);
+            ui.label(
+                text.auxiliary
+                    .managed_tools
+                    .tool_desc_downloadable_backgrounds,
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if summary.total_count == 0 {
                     ui.label(
-                        egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                            .color(egui::Color32::GRAY),
                     );
                     return;
                 }
@@ -26,24 +31,36 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                 if summary.downloading_count > 0 {
                     ui.spinner();
                     ui.label(
-                        text.tool_bg_downloading_fmt
+                        text.auxiliary
+                            .managed_tools
+                            .tool_bg_downloading_fmt
                             .replace("{}", &summary.downloading_count.to_string()),
                     );
                     return;
                 }
 
                 if summary.downloaded_count == 0 {
-                    if ui.button(text.tool_bg_action_download_all).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_bg_action_download_all)
+                        .clicked()
+                    {
                         let _ = bg_download::start_download_all_missing();
                     }
                 } else if summary.downloaded_count < summary.total_count {
-                    if ui.button(text.tool_bg_action_download_rest).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_bg_action_download_rest)
+                        .clicked()
+                    {
                         let _ = bg_download::start_download_all_missing();
                     }
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_bg_action_delete_downloaded)
-                                .color(theme.danger_text()),
+                            egui::RichText::new(
+                                text.auxiliary
+                                    .managed_tools
+                                    .tool_bg_action_delete_downloaded,
+                            )
+                            .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -51,7 +68,7 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                     }
                 } else if ui
                     .button(
-                        egui::RichText::new(text.tool_bg_action_delete_all)
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_bg_action_delete_all)
                             .color(theme.danger_text()),
                     )
                     .clicked()
@@ -64,6 +81,8 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let count_text = text
+                    .auxiliary
+                    .managed_tools
                     .tool_bg_downloaded_count_fmt
                     .replacen("{}", &summary.downloaded_count.to_string(), 1)
                     .replacen("{}", &summary.total_count.to_string(), 1);

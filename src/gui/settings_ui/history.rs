@@ -33,7 +33,11 @@ pub fn render_history_panel(
             // Row 1: Title + Max items slider
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::History, Some(crate::gui::icons::ICON_SM));
-                ui.label(egui::RichText::new(text.history_title).strong().size(14.0));
+                ui.label(
+                    egui::RichText::new(text.workspace.history_title)
+                        .strong()
+                        .size(14.0),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add(egui::Slider::new(&mut config.max_history_items, 10..=200))
@@ -42,7 +46,7 @@ pub fn render_history_panel(
                         history_manager.request_prune(config.max_history_items);
                         changed = true;
                     }
-                    ui.label(text.max_items_label);
+                    ui.label(text.workspace.max_items_label);
                 });
             });
 
@@ -52,7 +56,7 @@ pub fn render_history_panel(
             // (numerous) media history items above can't push CC conversations out.
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::SmartToy, Some(crate::gui::icons::ICON_SM));
-                ui.label(egui::RichText::new(text.cc_memory_max_label).size(13.0));
+                ui.label(egui::RichText::new(text.workspace.cc_memory_max_label).size(13.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add(egui::Slider::new(&mut config.cc_max_memory_items, 5..=100))
@@ -80,21 +84,21 @@ pub fn render_history_panel(
                     }
                     ui.add(
                         egui::TextEdit::singleline(search_query)
-                            .hint_text(text.search_placeholder)
+                            .hint_text(text.preset_basics.search_placeholder)
                             .desired_width(220.0),
                     );
                 });
 
                 if !search_query.is_empty()
                     && icon_button(ui, Icon::Close)
-                        .on_hover_text(text.history_clear_search_tooltip)
+                        .on_hover_text(text.overlay.history_clear_search_tooltip)
                         .clicked()
                 {
                     *search_query = "".to_string();
                 }
 
                 if icon_button(ui, Icon::Folder)
-                    .on_hover_text(text.history_open_media_folder_tooltip)
+                    .on_hover_text(text.overlay.history_open_media_folder_tooltip)
                     .clicked()
                 {
                     let config_dir = crate::paths::app_config_dir().join("history_media");
@@ -107,7 +111,7 @@ pub fn render_history_panel(
                     // filled-button helper (keeps hover/press state layers).
                     if crate::gui::widgets::filled_button(
                         ui,
-                        text.clear_all_history_btn,
+                        text.workspace.clear_all_history_btn,
                         theme.danger_fill(),
                         theme.on_accent(),
                         8,
@@ -131,7 +135,7 @@ pub fn render_history_panel(
 
     if filtered.is_empty() {
         ui.centered_and_justified(|ui| {
-            ui.label(text.history_empty);
+            ui.label(text.workspace.history_empty);
         });
     } else {
         // History items in scroll area — fill the remaining height down to the
@@ -192,14 +196,14 @@ pub fn render_history_panel(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
                                         if icon_button(ui, Icon::DeleteLarge)
-                                            .on_hover_text(text.history_delete_tooltip)
+                                            .on_hover_text(text.overlay.history_delete_tooltip)
                                             .clicked()
                                         {
                                             id_to_delete = Some(item.id);
                                         }
 
                                         if icon_button(ui, Icon::Copy)
-                                            .on_hover_text(text.history_copy_text_tooltip)
+                                            .on_hover_text(text.overlay.history_copy_text_tooltip)
                                             .clicked()
                                         {
                                             crate::gui::utils::copy_to_clipboard_text(&item.text);
@@ -207,9 +211,11 @@ pub fn render_history_panel(
 
                                         if !item.media_path.is_empty() {
                                             let btn_text = match item.item_type {
-                                                HistoryType::Image => text.view_image_btn,
-                                                HistoryType::Audio => text.listen_audio_btn,
-                                                HistoryType::Text => text.view_text_btn,
+                                                HistoryType::Image => text.workspace.view_image_btn,
+                                                HistoryType::Audio => {
+                                                    text.workspace.listen_audio_btn
+                                                }
+                                                HistoryType::Text => text.workspace.view_text_btn,
                                             };
                                             if ui.button(btn_text).clicked() {
                                                 let config_dir = crate::paths::app_config_dir()

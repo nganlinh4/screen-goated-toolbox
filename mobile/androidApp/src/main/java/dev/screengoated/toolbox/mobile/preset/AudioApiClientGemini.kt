@@ -1,7 +1,16 @@
 package dev.screengoated.toolbox.mobile.preset
 
-import dev.screengoated.toolbox.mobile.shared.live.geminiLiveThinkingJson
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveMediaResolution
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSetupSpec
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveTranscriptionMode
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
+import dev.screengoated.toolbox.mobile.shared.live.buildGeminiLiveSetup
+import dev.screengoated.toolbox.mobile.shared.live.geminiLiveWebSocketRequest
+import dev.screengoated.toolbox.mobile.shared.live.parseGeminiLiveServerFrame
 import kotlinx.coroutines.ensureActive
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -118,48 +127,40 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
     val finalTranscript = StringBuilder()
     val closed = AtomicBoolean(false)
     val socket = httpClient.newWebSocket(
-        Request.Builder().url("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=$apiKey").build(),
+        geminiLiveWebSocketRequest(apiKey),
         object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                val generationConfig = JSONObject()
-                    .put("responseModalities", JSONArray().put("AUDIO"))
-                    .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
-                geminiLiveThinkingJson(model.fullName)?.let {
-                    generationConfig.put("thinkingConfig", it)
+                val endpoint = GeneratedLiveModelCatalog.endpointProfile(model.fullName)
+                val extensions = if (endpoint?.automaticActivityDetectionDefault == true) {
+                    buildJsonObject {
+                        put(
+                            "realtimeInputConfig",
+                            buildJsonObject {
+                                put(
+                                    "automaticActivityDetection",
+                                    buildJsonObject {
+                                        put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
+                                        put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
+                                        put("prefixPaddingMs", 80)
+                                        put("silenceDurationMs", 320)
+                                    },
+                                )
+                                put("turnCoverage", "TURN_INCLUDES_ONLY_ACTIVITY")
+                            },
+                        )
+                    }
+                } else {
+                    JsonObject(emptyMap())
                 }
                 webSocket.send(
-                    JSONObject()
-                        .put(
-                            "setup",
-                            JSONObject().put(
-                                "model",
-                                "models/${model.fullName}",
-                            ).put(
-                                "generationConfig",
-                                generationConfig,
-                            ).put(
-                                "inputAudioTranscription",
-                                JSONObject(),
-                            ),
-                        )
-                        .apply {
-                            if (model.fullName == "gemini-3.1-flash-live-preview") {
-                                getJSONObject("setup").put(
-                                    "realtimeInputConfig",
-                                    JSONObject()
-                                        .put(
-                                            "automaticActivityDetection",
-                                            JSONObject()
-                                                .put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
-                                                .put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
-                                                .put("prefixPaddingMs", 80)
-                                                .put("silenceDurationMs", 320),
-                                        )
-                                        .put("turnCoverage", "TURN_INCLUDES_ONLY_ACTIVITY"),
-                                )
-                            }
-                        }
-                        .toString(),
+                    buildGeminiLiveSetup(
+                        GeminiLiveSetupSpec(
+                            apiModel = model.fullName,
+                            mediaResolution = GeminiLiveMediaResolution.LOW,
+                            transcriptionMode = GeminiLiveTranscriptionMode.INPUT,
+                            setupExtensions = extensions,
+                        ),
+                    ).toString(),
                 )
             }
 
@@ -309,12 +310,12 @@ private fun extractGeminiAudioDelta(payload: String): String {
     return result.toString()
 }
 
-private sealed interface GeminiLiveInputEvent {
+internal sealed interface GeminiLiveInputEvent {
     data class Error(val message: String) : GeminiLiveInputEvent
     data object Closed : GeminiLiveInputEvent
 }
 
-private fun handleGeminiLiveMessage(
+internal fun handleGeminiLiveMessage(
     message: String,
     setupReady: kotlinx.coroutines.CompletableDeferred<Unit>,
     events: LinkedBlockingDeque<GeminiLiveInputEvent>,
@@ -322,30 +323,20 @@ private fun handleGeminiLiveMessage(
     finalTranscript: StringBuilder,
     onChunk: (String) -> Unit,
 ) {
-    runCatching {
-        val root = JSONObject(message)
-        if (root.has("setupComplete")) {
+    parseGeminiLiveServerFrame(message)?.let { frame ->
+        if (frame.setupComplete) {
             if (!setupReady.isCompleted) {
                 setupReady.complete(Unit)
             }
-            return@runCatching
+            return
         }
 
-        root.optJSONObject("error")
-            ?.optString("message")
-            ?.takeIf(String::isNotBlank)
-            ?.let { error ->
-                events.offer(GeminiLiveInputEvent.Error(error))
-                return@runCatching
-            }
-        root.optString("error")
-            .takeIf(String::isNotBlank)
-            ?.let { error ->
-                events.offer(GeminiLiveInputEvent.Error(error))
-                return@runCatching
-            }
+        frame.error?.let { error ->
+            events.offer(GeminiLiveInputEvent.Error(error))
+            return
+        }
 
-        val text = extractGeminiLiveInputTranscript(root)
+        val text = frame.inputTranscript.orEmpty()
         if (text.isNotBlank()) {
             val delta = transcriptDelta(transcript.toString(), text)
             if (delta.isNotEmpty()) {
@@ -356,11 +347,6 @@ private fun handleGeminiLiveMessage(
             }
         }
     }
-}
-
-private fun extractGeminiLiveInputTranscript(root: JSONObject): String {
-    val serverContent = root.optJSONObject("serverContent") ?: return ""
-    return serverContent.optJSONObject("inputTranscription")?.optString("text").orEmpty()
 }
 
 private fun shortArrayToLittleEndianBytes(samples: ShortArray): ByteArray {

@@ -190,7 +190,7 @@ pub(super) fn render_status_label(ui: &mut egui::Ui, status: &CollectionStatus, 
     match status {
         CollectionStatus::Queued => {
             ui.label(
-                egui::RichText::new(text.pointer_status_queued)
+                egui::RichText::new(text.auxiliary.managed_tools.pointer_status_queued)
                     .color(theme.on_surface_variant())
                     .strong(),
             );
@@ -198,7 +198,9 @@ pub(super) fn render_status_label(ui: &mut egui::Ui, status: &CollectionStatus, 
         CollectionStatus::Downloading { downloaded, total } => {
             ui.label(
                 egui::RichText::new(
-                    text.pointer_status_downloading_fmt
+                    text.auxiliary
+                        .managed_tools
+                        .pointer_status_downloading_fmt
                         .replacen("{}", &downloaded.to_string(), 1)
                         .replacen("{}", &total.to_string(), 1),
                 )
@@ -209,7 +211,9 @@ pub(super) fn render_status_label(ui: &mut egui::Ui, status: &CollectionStatus, 
         CollectionStatus::Paused { downloaded, total } => {
             ui.label(
                 egui::RichText::new(
-                    text.pointer_status_paused_fmt
+                    text.auxiliary
+                        .managed_tools
+                        .pointer_status_paused_fmt
                         .replacen("{}", &downloaded.to_string(), 1)
                         .replacen("{}", &total.to_string(), 1),
                 )
@@ -219,28 +223,28 @@ pub(super) fn render_status_label(ui: &mut egui::Ui, status: &CollectionStatus, 
         }
         CollectionStatus::Ready => {
             ui.label(
-                egui::RichText::new(text.pointer_status_ready)
+                egui::RichText::new(text.auxiliary.managed_tools.pointer_status_ready)
                     .color(theme.success())
                     .strong(),
             );
         }
         CollectionStatus::Applying => {
             ui.label(
-                egui::RichText::new(text.pointer_status_applying)
+                egui::RichText::new(text.auxiliary.managed_tools.pointer_status_applying)
                     .color(theme.warning())
                     .strong(),
             );
         }
         CollectionStatus::Applied => {
             ui.label(
-                egui::RichText::new(text.pointer_status_applied)
+                egui::RichText::new(text.auxiliary.managed_tools.pointer_status_applied)
                     .color(theme.success())
                     .strong(),
             );
         }
         CollectionStatus::Error(message) => {
             ui.label(
-                egui::RichText::new(text.pointer_status_error)
+                egui::RichText::new(text.auxiliary.managed_tools.pointer_status_error)
                     .color(theme.danger_text())
                     .strong(),
             )

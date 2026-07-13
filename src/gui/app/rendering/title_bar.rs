@@ -112,9 +112,12 @@ impl SettingsApp {
                             let is_admin = cfg!(target_os = "windows")
                                 && crate::gui::utils::is_running_as_admin();
                             let (admin_txt, admin_col) = if is_admin {
-                                (text.footer_admin_running, utheme.success())
+                                (text.desktop_settings.footer_admin_running, utheme.success())
                             } else {
-                                (text.footer_admin_text, utheme.on_surface_variant())
+                                (
+                                    text.desktop_settings.footer_admin_text,
+                                    utheme.on_surface_variant(),
+                                )
                             };
                             let admin_galley =
                                 ui.painter()
@@ -246,7 +249,10 @@ impl SettingsApp {
             let is_history = self.detail_panes.contains(&DetailPane::History)
                 || matches!(self.view_mode, ViewMode::History);
             if ui
-                .selectable_label(is_history, egui::RichText::new(text.history_btn).size(13.0))
+                .selectable_label(
+                    is_history,
+                    egui::RichText::new(text.workspace.history_btn).size(13.0),
+                )
                 .clicked()
             {
                 self.view_mode = ViewMode::History;
@@ -262,7 +268,7 @@ impl SettingsApp {
             if ui
                 .selectable_label(
                     is_global,
-                    egui::RichText::new(text.global_settings).size(13.0),
+                    egui::RichText::new(text.preset_basics.global_settings).size(13.0),
                 )
                 .clicked()
             {

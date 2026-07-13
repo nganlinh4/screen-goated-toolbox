@@ -4,8 +4,6 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
-import dev.screengoated.toolbox.mobile.service.tts.BlockingWebSocketSession
-import dev.screengoated.toolbox.mobile.service.tts.WebSocketEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,8 +16,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.sqrt
@@ -27,8 +23,6 @@ import kotlin.math.sqrt
 
 // VAD + segment-analysis constants and helpers extracted from GeminiS2sClient.
 internal const val TAG = "RealtimeS2SAndroid"
-internal const val LIVE_WS_ENDPOINT =
-    "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 internal const val SAMPLE_RATE = 16_000
 internal const val FRAME_SAMPLES = 1_600
 internal const val FRAME_MS = 100L
@@ -228,4 +222,3 @@ internal fun groupedHardTimeoutMs(
     }
     return (base + sourceAudioMs * 4).coerceAtMost(180_000L)
 }
-

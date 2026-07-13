@@ -48,6 +48,12 @@ pub struct TtsManager {
     pub shutdown: AtomicBool,
 }
 
+impl Default for TtsManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TtsManager {
     pub fn new() -> Self {
         Self {

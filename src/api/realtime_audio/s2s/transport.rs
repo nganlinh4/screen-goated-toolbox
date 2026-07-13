@@ -6,25 +6,38 @@ pub(super) fn open_fresh_socket_session(
     settings: &S2sSettings,
     context: &S2sContextSnapshot,
     stop_signal: &Arc<AtomicBool>,
-) -> Result<tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>> {
-    let mut socket = connect_websocket(&settings.api_key)?;
-    send_s2s_setup(&mut socket, settings, context)?;
-    set_socket_short_timeout(&mut socket)?;
-    wait_for_setup(&mut socket, stop_signal.clone())?;
-    set_socket_nonblocking(&mut socket)?;
-    Ok(socket)
+    cancel_signal: Option<&Arc<AtomicBool>>,
+) -> Result<ReadyLiveSession> {
+    let connected = connect_s2s_socket(settings)?;
+    activate_s2s_socket(
+        connected,
+        settings,
+        context,
+        Duration::from_millis(50),
+        || s2s_should_stop(stop_signal, cancel_signal),
+    )
 }
 
-fn send_s2s_setup(
-    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+pub(super) fn connect_s2s_socket(settings: &S2sSettings) -> Result<ConnectedLiveSocket> {
+    ConnectedLiveSocket::connect(&settings.api_key)
+}
+
+pub(super) fn activate_s2s_socket(
+    connected: ConnectedLiveSocket,
     settings: &S2sSettings,
     context: &S2sContextSnapshot,
-) -> Result<()> {
+    active_read_timeout: Duration,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReadyLiveSession> {
     let payload = build_s2s_setup_payload(settings, context);
-
-    socket.write(Message::Text(payload.to_string().into()))?;
-    socket.flush()?;
-    Ok(())
+    connected.activate_with(
+        payload,
+        OpenOptions {
+            active_read_timeout,
+            ..OpenOptions::default()
+        },
+        cancelled,
+    )
 }
 
 fn build_s2s_setup_payload(
@@ -54,64 +67,13 @@ fn build_s2s_setup_payload(
         },
         context.text
     );
-    serde_json::json!({
-        "setup": {
-            "model": format!("models/{}", settings.model),
-            "generationConfig": {
-                "responseModalities": ["AUDIO"],
-                "mediaResolution": "MEDIA_RESOLUTION_LOW",
-                "thinkingConfig": { "thinkingBudget": 0 },
-                "speechConfig": {
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {
-                            "voiceName": settings.voice
-                        }
-                    }
-                }
-            },
-            "systemInstruction": {
-                "parts": [{ "text": instruction }]
-            },
-            "contextWindowCompression": {
-                "slidingWindow": {}
-            },
-            "inputAudioTranscription": {},
-            "outputAudioTranscription": {}
-        }
-    })
-}
-
-fn wait_for_setup(
-    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
-    stop_signal: Arc<AtomicBool>,
-) -> Result<()> {
-    let started = Instant::now();
-    while !stop_signal.load(Ordering::SeqCst) {
-        match socket.read() {
-            Ok(Message::Close(frame)) => {
-                return Err(anyhow::anyhow!("S2S setup socket closed: {:?}", frame));
-            }
-            Ok(message) => {
-                if let Some(text) = s2s_message_to_text(message) {
-                    let update = parse_s2s_update(&text);
-                    if let Some(error) = update.error {
-                        return Err(anyhow::anyhow!(error));
-                    }
-                    if update.setup_complete {
-                        return Ok(());
-                    }
-                }
-            }
-            Err(error) if is_transient_socket_read_error(&error) => {
-                if started.elapsed() > Duration::from_secs(15) {
-                    return Err(anyhow::anyhow!("S2S setup timeout"));
-                }
-                std::thread::sleep(Duration::from_millis(40));
-            }
-            Err(err) => return Err(err.into()),
-        }
-    }
-    Err(anyhow::anyhow!("stopped"))
+    crate::api::gemini_live::setup::LiveSetupBuilder::new(&settings.model)
+        .media_resolution(crate::api::gemini_live::setup::MediaResolution::Low)
+        .voice(&settings.voice)
+        .system_instruction(&instruction)
+        .transcription(crate::api::gemini_live::setup::TranscriptionMode::Both)
+        .context_window_compression()
+        .build()
 }
 
 fn s2s_should_stop(stop_signal: &Arc<AtomicBool>, cancel_signal: Option<&Arc<AtomicBool>>) -> bool {
@@ -122,7 +84,7 @@ fn s2s_should_stop(stop_signal: &Arc<AtomicBool>, cancel_signal: Option<&Arc<Ato
 }
 
 pub(super) fn process_segment(
-    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+    session: &mut ReadyLiveSession,
     segment: &Segment,
     params: ProcessSegmentParams<'_>,
 ) -> Result<SegmentOutcome> {
@@ -140,10 +102,10 @@ pub(super) fn process_segment(
         if s2s_should_stop(stop_signal, cancel_signal) {
             return Ok(SegmentOutcome::RetryFresh);
         }
-        send_audio_chunk(socket, chunk)?;
+        session.send_audio_pcm(chunk, 16_000)?;
     }
     if mode != S2sMode::LiveTranslate {
-        send_audio_stream_end(socket)?;
+        session.end_audio_stream()?;
     }
 
     let started = Instant::now();
@@ -154,8 +116,8 @@ pub(super) fn process_segment(
     let mut audio_chunks = 0usize;
     let mut text_updates = 0usize;
     while !s2s_should_stop(stop_signal, cancel_signal) {
-        match socket.read() {
-            Ok(Message::Close(frame)) => {
+        match session.poll() {
+            Ok(LivePoll::PeerClosed(frame)) => {
                 let detail = frame
                     .map(|f| format!("connection closed ({}: {})", f.code, f.reason))
                     .unwrap_or_else(|| "connection closed".to_string());
@@ -176,40 +138,51 @@ pub(super) fn process_segment(
                 }
                 return Ok(SegmentOutcome::RetryFresh);
             }
-            Ok(message) => {
-                if let Some(text) = s2s_message_to_text(message) {
-                    let message_update = handle_s2s_message(segment_id, &text, event_tx)?;
-                    let new_chunks = message_update.audio_chunks;
-                    text_updates += message_update.text_updates;
-                    if new_chunks > 0 && first_audio_ms.is_none() {
-                        last_audio_at = Some(Instant::now());
-                        first_audio_ms = Some(started.elapsed().as_millis());
-                    }
-                    if new_chunks > 0 {
-                        last_audio_at = Some(Instant::now());
-                    }
-                    audio_chunks += new_chunks;
-                    last_update = Instant::now();
-                    if parse_s2s_update(&text).turn_complete {
-                        if audio_chunks == 0 && !final_attempt {
-                            return Ok(if text_updates == 0 {
-                                SegmentOutcome::EmptyNoInput
-                            } else {
-                                SegmentOutcome::RetryFresh
-                            });
-                        }
-                        let _ = event_tx.send(S2sEvent::Done { id: segment_id });
-                        return Ok(if audio_chunks > 0 {
-                            SegmentOutcome::Healthy
-                        } else if text_updates == 0 {
+            Ok(LivePoll::Frame(frame)) => {
+                let response_complete = frame.response_complete();
+                let message_update = handle_s2s_frame(segment_id, *frame, event_tx)?;
+                let new_chunks = message_update.audio_chunks;
+                text_updates += message_update.text_updates;
+                if new_chunks > 0 && first_audio_ms.is_none() {
+                    last_audio_at = Some(Instant::now());
+                    first_audio_ms = Some(started.elapsed().as_millis());
+                }
+                if new_chunks > 0 {
+                    last_audio_at = Some(Instant::now());
+                }
+                audio_chunks += new_chunks;
+                last_update = Instant::now();
+                if response_complete {
+                    if audio_chunks == 0 && !final_attempt {
+                        return Ok(if text_updates == 0 {
                             SegmentOutcome::EmptyNoInput
                         } else {
                             SegmentOutcome::RetryFresh
                         });
                     }
+                    let _ = event_tx.send(S2sEvent::Done { id: segment_id });
+                    return Ok(if audio_chunks > 0 {
+                        SegmentOutcome::Healthy
+                    } else if text_updates == 0 {
+                        SegmentOutcome::EmptyNoInput
+                    } else {
+                        SegmentOutcome::RetryFresh
+                    });
                 }
             }
-            Err(error) if is_transient_socket_read_error(&error) => {
+            Ok(LivePoll::ServerError(error)) => {
+                let _ = event_tx.send(S2sEvent::Error {
+                    id: segment_id,
+                    message: error.message,
+                });
+                if audio_chunks > 0 {
+                    let _ = event_tx.send(S2sEvent::Done { id: segment_id });
+                    return Ok(SegmentOutcome::Healthy);
+                }
+                return Ok(SegmentOutcome::RetryFresh);
+            }
+            Ok(LivePoll::Unparsed { .. }) => {}
+            Ok(LivePoll::Idle) => {
                 if audio_chunks > 0
                     && last_audio_at
                         .map(|last| last.elapsed().as_millis() >= AUDIO_IDLE_FINISH_MS)
@@ -258,7 +231,7 @@ pub(super) fn process_segment(
                 }
                 std::thread::sleep(Duration::from_millis(15));
             }
-            Err(err) => return Err(err.into()),
+            Err(err) => return Err(err),
         }
     }
     Ok(SegmentOutcome::RetryFresh)
@@ -269,12 +242,12 @@ pub(super) struct HandledS2sMessage {
     text_updates: usize,
 }
 
-pub(super) fn handle_s2s_message(
+pub(super) fn handle_s2s_frame(
     id: u64,
-    message: &str,
+    frame: LiveServerFrame,
     event_tx: &mpsc::Sender<S2sEvent>,
 ) -> Result<HandledS2sMessage> {
-    let update = parse_s2s_update(message);
+    let update = parsed_update_from_frame(frame);
     if let Some(error) = update.error {
         let _ = event_tx.send(S2sEvent::Error { id, message: error });
         return Ok(HandledS2sMessage {
@@ -304,6 +277,7 @@ pub(super) fn handle_s2s_message(
     })
 }
 
+#[derive(Default)]
 pub(crate) struct S2sParsedUpdate {
     pub(crate) setup_complete: bool,
     pub(crate) input_transcript: Option<String>,
@@ -315,73 +289,28 @@ pub(crate) struct S2sParsedUpdate {
 }
 
 pub(crate) fn parse_s2s_update(message: &str) -> S2sParsedUpdate {
-    let mut update = S2sParsedUpdate {
-        setup_complete: message.contains("setupComplete"),
-        input_transcript: None,
-        output_transcript: None,
-        audio_chunks: Vec::new(),
-        turn_complete: false,
-        interrupted: false,
-        error: None,
+    let Ok(frame) = crate::api::gemini_live::server_frame::parse_server_frame(message) else {
+        return S2sParsedUpdate::default();
     };
+    parsed_update_from_frame(frame)
+}
 
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(message) else {
-        return update;
-    };
-
-    if let Some(error) = json.get("error") {
-        update.error = error
-            .get("message")
-            .and_then(|value| value.as_str())
-            .map(ToOwned::to_owned)
-            .or_else(|| Some(error.to_string()));
-        return update;
+fn parsed_update_from_frame(frame: LiveServerFrame) -> S2sParsedUpdate {
+    let turn_complete = frame.response_complete();
+    S2sParsedUpdate {
+        setup_complete: frame.setup_complete,
+        input_transcript: trimmed_non_empty(frame.input_transcript),
+        output_transcript: trimmed_non_empty(frame.output_transcript),
+        audio_chunks: frame.audio_chunks,
+        turn_complete,
+        interrupted: frame.interrupted,
+        error: frame.error,
     }
+}
 
-    let Some(server_content) = json.get("serverContent") else {
-        return update;
-    };
-
-    update.turn_complete = server_content
-        .get("turnComplete")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
-        || server_content
-            .get("generationComplete")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
-    update.interrupted = server_content
-        .get("interrupted")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    update.input_transcript = server_content
-        .get("inputTranscription")
-        .and_then(|value| value.get("text"))
-        .and_then(|value| value.as_str())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    update.output_transcript = server_content
-        .get("outputTranscription")
-        .and_then(|value| value.get("text"))
-        .and_then(|value| value.as_str())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    if let Some(parts) = server_content
-        .get("modelTurn")
-        .and_then(|value| value.get("parts"))
-        .and_then(|value| value.as_array())
-    {
-        for part in parts {
-            if let Some(inline) = part.get("inlineData")
-                && let Some(data) = inline.get("data").and_then(|value| value.as_str())
-                && let Ok(bytes) = general_purpose::STANDARD.decode(data)
-            {
-                update.audio_chunks.push(bytes);
-            }
-        }
-    }
-
-    update
+fn trimmed_non_empty(text: Option<String>) -> Option<String> {
+    text.map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
 }
 
 #[cfg(test)]

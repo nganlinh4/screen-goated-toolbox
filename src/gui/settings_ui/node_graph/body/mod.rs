@@ -161,8 +161,9 @@ pub fn show_body(
                                         *auto_copy = true;
                                         viewer.changed = true;
                                     }
-                                    let _ = icon_button(ui, Icon::Copy)
-                                        .on_hover_text(viewer.text.input_auto_copy_tooltip);
+                                    let _ = icon_button(ui, Icon::Copy).on_hover_text(
+                                        viewer.text.preset_editor.input_auto_copy_tooltip,
+                                    );
                                 } else {
                                     let copy_icon = if *auto_copy {
                                         Icon::Copy
@@ -170,7 +171,9 @@ pub fn show_body(
                                         Icon::CopyDisabled
                                     };
                                     if icon_button(ui, copy_icon)
-                                        .on_hover_text(viewer.text.input_auto_copy_tooltip)
+                                        .on_hover_text(
+                                            viewer.text.preset_editor.input_auto_copy_tooltip,
+                                        )
                                         .clicked()
                                     {
                                         *auto_copy = !*auto_copy;
@@ -189,7 +192,9 @@ pub fn show_body(
                                     Icon::SpeakerDisabled
                                 };
                                 if icon_button(ui, speak_icon)
-                                    .on_hover_text(viewer.text.input_auto_speak_tooltip)
+                                    .on_hover_text(
+                                        viewer.text.preset_editor.input_auto_speak_tooltip,
+                                    )
                                     .clicked()
                                 {
                                     *auto_speak = !*auto_speak;

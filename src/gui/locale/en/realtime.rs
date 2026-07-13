@@ -1,0 +1,38 @@
+use crate::gui::locale::RealtimeLocaleText;
+
+pub(super) fn get() -> RealtimeLocaleText {
+    RealtimeLocaleText {
+        listening: "Listening...",
+        device: "Device",
+        waiting: "Waiting for speech...",
+        microphone: "Mic",
+        realtime_tts_title: "Read translation",
+        realtime_tts_speed: "Speed",
+        realtime_tts_auto: "AUTO",
+        realtime_tts_volume: "Volume",
+        app_select_title: "Select App to Capture",
+        app_select_hint: "Choose the app to capture (required so TTS audio is not captured back into system audio)",
+        app_select_count: "{} apps",
+        realtime_tooltip_microphone_input: "Microphone Input",
+        realtime_tooltip_device_audio: "Device Audio",
+        realtime_tooltip_transcription_model: "Transcription model",
+        realtime_tooltip_transcription_language: "Transcription language",
+        realtime_tooltip_translation_model: "Translation Model",
+        realtime_tooltip_s2s_translation_model: "Gemini S2S uses the TTS Gemini Live model",
+        realtime_tooltip_direct_speech: "Direct speech output settings",
+        realtime_tooltip_tts_settings: "Text-to-Speech Settings",
+        realtime_tooltip_target_language: "Target Language",
+        realtime_tooltip_s2s_target_language: "Change target language and restart the current S2S session",
+        realtime_tooltip_copy_text: "Copy text",
+        realtime_tooltip_decrease_font: "Decrease font size",
+        realtime_tooltip_increase_font: "Increase font size",
+        realtime_tooltip_toggle_header: "Toggle header",
+        realtime_download_default_title: "Downloading Model",
+        realtime_download_wait: "Please wait...",
+        realtime_download_cancel_tooltip: "Cancel download and return to Gemini Live",
+        realtime_tts_auto_tooltip: "Auto-adjust speed to catch up",
+        realtime_tts_s2s_locked_tooltip: "Direct speech output is always on for Gemini S2S",
+        realtime_tts_enable_tooltip: "Enable text-to-speech",
+        realtime_app_loading: "Loading...",
+    }
+}

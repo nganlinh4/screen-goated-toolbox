@@ -54,7 +54,7 @@ pub fn render_profiles(
                             let lw = ui
                                 .painter()
                                 .layout_no_wrap(
-                                    text.profiles_label.to_string(),
+                                    text.preset_editor.profiles_label.to_string(),
                                     egui::TextStyle::Body.resolve(ui.style()),
                                     ui.visuals().text_color(),
                                 )
@@ -64,7 +64,7 @@ pub fn render_profiles(
                                 egui::vec2(lw, 22.0),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
-                                    ui.label(text.profiles_label);
+                                    ui.label(text.preset_editor.profiles_label);
                                 },
                             );
                         }
@@ -158,7 +158,9 @@ pub fn render_profiles(
                                                     Icon::Edit,
                                                     crate::gui::icons::ICON_MD,
                                                 )
-                                                .on_hover_text(text.profile_edit_tooltip)
+                                                .on_hover_text(
+                                                    text.preset_editor.profile_edit_tooltip,
+                                                )
                                                 .clicked()
                                             {
                                                 ui.memory_mut(|mem| {
@@ -174,7 +176,9 @@ pub fn render_profiles(
                                                     Icon::Close,
                                                     crate::gui::icons::ICON_MD,
                                                 )
-                                                .on_hover_text(text.profile_delete_tooltip)
+                                                .on_hover_text(
+                                                    text.preset_editor.profile_delete_tooltip,
+                                                )
                                                 .clicked()
                                             {
                                                 // Confirm before deleting — this also removes
@@ -197,7 +201,7 @@ pub fn render_profiles(
 
                         ui.add_space(2.0);
                         if icon_button_sized(ui, Icon::Plus, crate::gui::icons::ICON_LG)
-                            .on_hover_text(text.profile_add_tooltip)
+                            .on_hover_text(text.preset_editor.profile_add_tooltip)
                             .clicked()
                         {
                             action = Some(ProfileAction::Add);
@@ -220,13 +224,13 @@ pub fn render_profiles(
                 let theme = AppTheme::from_ui(ui);
                 let result = ConfirmModal::new(
                     egui::Id::new("sidebar_profile_delete_modal"),
-                    text.profile_delete_confirm_title,
-                    text.profile_delete_confirm_body,
+                    text.preset_editor.profile_delete_confirm_title,
+                    text.preset_editor.profile_delete_confirm_body,
                 )
                 .emphasis(&del_name)
                 .labels(
-                    text.profile_delete_confirm_yes,
-                    text.profile_delete_confirm_cancel,
+                    text.preset_editor.profile_delete_confirm_yes,
+                    text.preset_editor.profile_delete_confirm_cancel,
                 )
                 .destructive(true)
                 .show(ui, &theme);

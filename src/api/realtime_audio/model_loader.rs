@@ -165,14 +165,14 @@ fn sync_download_badge(progress: f32) {
 
     let (title, message) = if let Ok(state) = REALTIME_STATE.lock() {
         let title = if state.download_title.trim().is_empty() {
-            locale.realtime_download_default_title.to_string()
+            locale.realtime.realtime_download_default_title.to_string()
         } else {
             state.download_title.clone()
         };
         (title, state.download_message.clone())
     } else {
         (
-            locale.realtime_download_default_title.to_string(),
+            locale.realtime.realtime_download_default_title.to_string(),
             String::new(),
         )
     };
@@ -229,8 +229,8 @@ pub fn download_parakeet_model(
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = locale.parakeet_downloading_title.to_string();
-        state.download_message = locale.parakeet_downloading_message.to_string();
+        state.download_title = locale.tool_runtime.parakeet_downloading_title.to_string();
+        state.download_message = locale.tool_runtime.parakeet_downloading_message.to_string();
         state.download_progress = 0.0;
     }
     clear_parakeet_action_error();
@@ -278,7 +278,10 @@ pub fn download_parakeet_model(
 
         for (filename, url) in files_to_download {
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = locale.parakeet_downloading_file.replace("{}", filename);
+                state.download_message = locale
+                    .tool_runtime
+                    .parakeet_downloading_file
+                    .replace("{}", filename);
             }
             unsafe {
                 if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {

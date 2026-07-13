@@ -9,7 +9,6 @@ use std::sync::mpsc;
 
 use crate::api::tts::TTS_MANAGER;
 use crate::api::tts::types::AudioEvent;
-use base64::{Engine as _, engine::general_purpose};
 
 static PLAYBACK_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -29,7 +28,7 @@ pub(super) fn handle_update(
     if let Some(text) = update.output_transcript {
         super::super::upsert_transcript("output", text, update.turn_complete);
     }
-    if let Some(audio) = update.audio_chunk {
+    for audio in update.audio_chunks {
         playback.push(audio);
     }
     if update.interrupted {
@@ -77,11 +76,12 @@ impl PlaybackBridge {
     }
 }
 
+#[derive(Default)]
 pub(super) struct ParsedUpdate {
     pub(super) setup_complete: bool,
     pub(super) input_transcript: Option<String>,
     pub(super) output_transcript: Option<String>,
-    pub(super) audio_chunk: Option<Vec<u8>>,
+    pub(super) audio_chunks: Vec<Vec<u8>>,
     pub(super) turn_complete: bool,
     pub(super) interrupted: bool,
     pub(super) error: Option<String>,
@@ -89,89 +89,49 @@ pub(super) struct ParsedUpdate {
 }
 
 pub(super) fn parse_update(message: &str) -> ParsedUpdate {
-    let mut update = ParsedUpdate {
-        setup_complete: false,
-        input_transcript: None,
-        output_transcript: None,
-        audio_chunk: None,
-        turn_complete: false,
-        interrupted: false,
-        error: None,
-        go_away: false,
+    let Ok(frame) = crate::api::gemini_live::server_frame::parse_server_frame(message) else {
+        return ParsedUpdate::default();
     };
+    let turn_complete = frame.response_complete();
+    ParsedUpdate {
+        setup_complete: frame.setup_complete,
+        input_transcript: trimmed_non_empty(frame.input_transcript),
+        output_transcript: trimmed_non_empty(frame.output_transcript),
+        audio_chunks: frame.audio_chunks,
+        turn_complete,
+        interrupted: frame.interrupted,
+        error: frame.error,
+        go_away: frame.go_away.is_some(),
+    }
+}
 
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(message) else {
-        return update;
-    };
+fn trimmed_non_empty(text: Option<String>) -> Option<String> {
+    text.map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
 
-    if message.contains("setupComplete") {
-        update.setup_complete = true;
+#[cfg(test)]
+mod tests {
+    use super::parse_update;
+
+    #[test]
+    fn preserves_every_audio_part_and_generation_completion() {
+        let update = parse_update(
+            r#"{"serverContent":{"modelTurn":{"parts":[
+                {"inlineData":{"data":"AQI="}},
+                {"inlineData":{"data":"AwQ="}}
+            ]},"generationComplete":true}}"#,
+        );
+
+        assert_eq!(update.audio_chunks, vec![vec![1, 2], vec![3, 4]]);
+        assert!(update.turn_complete);
     }
 
-    // GoAway: server signals imminent termination — reconnect gracefully
-    if json.get("goAway").is_some() {
-        update.go_away = true;
-        return update;
+    #[test]
+    fn does_not_accept_setup_completion_inside_error_text() {
+        let update = parse_update(r#"{"error":{"message":"setupComplete failed"}}"#);
+
+        assert!(!update.setup_complete);
+        assert_eq!(update.error.as_deref(), Some("setupComplete failed"));
     }
-
-    if let Some(error) = json.get("error") {
-        update.error = error
-            .get("message")
-            .and_then(|value| value.as_str())
-            .map(|value| value.to_string())
-            .or_else(|| Some(error.to_string()));
-        return update;
-    }
-
-    let Some(server_content) = json.get("serverContent") else {
-        return update;
-    };
-
-    if server_content
-        .get("turnComplete")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
-        || server_content
-            .get("generationComplete")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false)
-    {
-        update.turn_complete = true;
-    }
-    update.interrupted = server_content
-        .get("interrupted")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-
-    update.input_transcript = server_content
-        .get("inputTranscription")
-        .and_then(|value| value.get("text"))
-        .and_then(|value| value.as_str())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-
-    update.output_transcript = server_content
-        .get("outputTranscription")
-        .and_then(|value| value.get("text"))
-        .and_then(|value| value.as_str())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-
-    if let Some(parts) = server_content
-        .get("modelTurn")
-        .and_then(|value| value.get("parts"))
-        .and_then(|value| value.as_array())
-    {
-        for part in parts {
-            if update.audio_chunk.is_none()
-                && let Some(inline) = part.get("inlineData")
-                && let Some(data) = inline.get("data").and_then(|value| value.as_str())
-                && let Ok(bytes) = general_purpose::STANDARD.decode(data)
-            {
-                update.audio_chunk = Some(bytes);
-            }
-        }
-    }
-
-    update
 }

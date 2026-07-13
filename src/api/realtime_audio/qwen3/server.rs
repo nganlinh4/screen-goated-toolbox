@@ -92,8 +92,14 @@ pub fn download_qwen3_server(stop_signal: Arc<AtomicBool>, use_badge: bool) -> R
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = locale.qwen3_server_downloading_title.to_string();
-        state.download_message = locale.qwen3_server_downloading_message.to_string();
+        state.download_title = locale
+            .tool_runtime
+            .qwen3_server_downloading_title
+            .to_string();
+        state.download_message = locale
+            .tool_runtime
+            .qwen3_server_downloading_message
+            .to_string();
         state.download_progress = 0.0;
     }
     clear_qwen3_server_notice();
@@ -104,6 +110,7 @@ pub fn download_qwen3_server(stop_signal: Arc<AtomicBool>, use_badge: bool) -> R
         let download_url = qwen3_server_download_url();
         if let Ok(mut state) = REALTIME_STATE.lock() {
             state.download_message = locale
+                .tool_runtime
                 .qwen3_server_downloading_file
                 .replace("{}", QWEN3_SERVER_BINARY_NAME);
         }

@@ -13,11 +13,14 @@ import dev.screengoated.toolbox.mobile.ui.shouldLockPagerForCarouselTouch
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -39,21 +42,95 @@ class MobileShellParityTest {
     @Test
     fun languageChoicesMatchWindowsVisibleOptions() {
         val case = mobileShellFixtureCase("ui_language_choices_match_windows_title_bar")
-        val options = MobileLocaleText.forLanguage("en").languageOptions.map { it.code }
+        val options = MobileLocaleText.forLanguage("en").appearance.languageOptions.map { it.code }
         val expected = case.getValue("expected_language_codes").jsonArray.map { it.jsonPrimitive.content }
         assertEquals(expected, options)
     }
 
     @Test
+    fun localeResolutionUsesExplicitCodeAndFallsBackToEnglish() {
+        val case = mobileShellFixtureCase("locale_resolution_uses_explicit_code_and_falls_back_to_english")
+        case.getValue("cases").jsonArray.forEach { resolutionCase ->
+            val resolution = resolutionCase.jsonObject
+            val locale = MobileLocaleText.forLanguage(resolution.getValue("input").jsonPrimitive.content)
+            val expected = resolution.getValue("expected_locale_code").jsonPrimitive.content
+
+            assertEquals(expected, locale.localeCode)
+            assertEquals(expected, locale.languageCode())
+        }
+    }
+
+    @Test
     fun previewTextComesFromUiLocaleBundle() {
         val case = mobileShellFixtureCase("localized_preview_text_comes_from_ui_language_bundle")
+        val voiceName = case.getValue("voice_name").jsonPrimitive.content
+        val expectedTemplateCount = case.getValue("expected_template_count").jsonPrimitive.int
+        val avoidImmediateRepeat = case.getValue("avoid_immediate_repeat_when_multiple").jsonPrimitive.boolean
         case.getValue("locales").jsonArray.forEach { localeCase ->
             val localeObject = localeCase.jsonObject
-            val text = MobileLocaleText
-                .forLanguage(localeObject.getValue("ui_language").jsonPrimitive.content)
-                .ttsPreviewTexts
-                .first()
-            assertTrue(text.startsWith(localeObject.getValue("expected_prefix").jsonPrimitive.content))
+            val locale = MobileLocaleText.forLanguage(
+                localeObject.getValue("ui_language").jsonPrimitive.content,
+            )
+            val templates = locale.ttsVoice.previewTexts
+            val firstTemplate = templates.first()
+
+            assertEquals(expectedTemplateCount, templates.size)
+            assertTrue(firstTemplate.startsWith(localeObject.getValue("expected_prefix").jsonPrimitive.content))
+            assertEquals(
+                localeObject.getValue("expected_first_rendered").jsonPrimitive.content,
+                firstTemplate.replace("{}", voiceName),
+            )
+
+            if (avoidImmediateRepeat && templates.size > 1) {
+                val seed = 0
+                val firstCandidate = Random(seed).nextInt(templates.size)
+                val selection = locale.nextPreviewText(
+                    voiceName = voiceName,
+                    previousIndex = firstCandidate,
+                    random = Random(seed),
+                )
+                assertNotEquals(firstCandidate, selection.index)
+            }
+        }
+    }
+
+    @Test
+    fun localeHelpersFollowCopiedSectionsWithoutChangingLocaleIdentity() {
+        val case = mobileShellFixtureCase("locale_helpers_follow_copied_sections")
+        val base = MobileLocaleText.forLanguage(case.getValue("base_locale").jsonPrimitive.content)
+        val copied = MobileLocaleText.forLanguage(case.getValue("copied_section_locale").jsonPrimitive.content)
+        val copiedSections = case.getValue("copied_sections").jsonArray
+            .map { it.jsonPrimitive.content }
+        val hybrid = copiedSections.fold(base) { locale, section ->
+            when (section) {
+                "appearance" -> locale.copy(appearance = copied.appearance)
+                "help" -> locale.copy(help = copied.help)
+                "ttsVoice" -> locale.copy(ttsVoice = copied.ttsVoice)
+                else -> error("Unknown copied locale section: $section")
+            }
+        }
+
+        val expectedLocaleCode = case.getValue("expected_locale_code_after_copy").jsonPrimitive.content
+        assertEquals(expectedLocaleCode, hybrid.localeCode)
+        assertEquals(expectedLocaleCode, hybrid.languageCode())
+
+        case.getValue("helpers").jsonArray.map { it.jsonPrimitive.content }.forEach { helper ->
+            when (helper) {
+                "compact_overlay_opacity" -> assertEquals(
+                    copied.compactOverlayOpacityLabel(),
+                    hybrid.compactOverlayOpacityLabel(),
+                )
+                "reset_defaults_done" -> assertEquals(
+                    copied.resetDefaultsDoneMessage(),
+                    hybrid.resetDefaultsDoneMessage(),
+                )
+                "tools_help" -> assertEquals(copied.toolsHelpCopy(), hybrid.toolsHelpCopy())
+                "preview_selection" -> assertEquals(
+                    copied.nextPreviewText("Aoede", previousIndex = 0, random = Random(7)),
+                    hybrid.nextPreviewText("Aoede", previousIndex = 0, random = Random(7)),
+                )
+                else -> error("Unknown locale helper contract: $helper")
+            }
         }
     }
 
@@ -129,9 +206,9 @@ class MobileShellParityTest {
 
     @Test
     fun overlayChromeTextComesFromUiLocaleBundle() {
-        val en = MobileLocaleText.forLanguage("en").overlay.placeholderText
-        val vi = MobileLocaleText.forLanguage("vi").overlay.placeholderText
-        val ko = MobileLocaleText.forLanguage("ko").overlay.placeholderText
+        val en = MobileLocaleText.forLanguage("en").appearance.overlay.placeholderText
+        val vi = MobileLocaleText.forLanguage("vi").appearance.overlay.placeholderText
+        val ko = MobileLocaleText.forLanguage("ko").appearance.overlay.placeholderText
 
         assertTrue(en.startsWith("Waiting"))
         assertTrue(vi.startsWith("Đang chờ"))

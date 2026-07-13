@@ -62,6 +62,7 @@ fn gif_ffmpeg_download_message() -> String {
         .map(|app| app.config.ui_language.clone())
         .unwrap_or_else(|_| "en".to_string());
     crate::gui::locale::LocaleText::get(&ui_language)
+        .tts_playground
         .screen_record_gif_ffmpeg_downloading
         .to_string()
 }

@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.translationgummy
 
+import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.service.tts.DeviceLanguageDetector
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
@@ -69,7 +70,9 @@ class TranslationGummyRepository(
 
     fun currentGeminiVoice(): String = settingsStore.loadGlobalTtsSettings().voice.trim()
 
-    fun currentGeminiModel(): String = settingsStore.loadGlobalTtsSettings().geminiModel.trim()
+    fun currentGeminiModel(): String = RealtimeModelIds.normalizeTtsGeminiModel(
+        settingsStore.loadGlobalTtsSettings().geminiModel.trim(),
+    )
 
     fun localeText(): MobileLocaleText =
         MobileLocaleText.forLanguage(settingsStore.loadUiPreferences().uiLanguage)

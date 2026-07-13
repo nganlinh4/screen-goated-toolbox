@@ -1,0 +1,36 @@
+use crate::gui::locale::TranslationGummyLocaleText;
+
+pub(super) fn get() -> TranslationGummyLocaleText {
+    TranslationGummyLocaleText {
+        translation_gummy_btn: "Translation Gummy",
+        translation_gummy_title: "Translation Gummy",
+        translation_gummy_first_profile: "Language 1",
+        translation_gummy_second_profile: "Language 2",
+        translation_gummy_language_label: "Language",
+        translation_gummy_accent_label: "Accent",
+        translation_gummy_tone_label: "Tone",
+        translation_gummy_hotkey_label: "Hotkey",
+        translation_gummy_hotkey_set: "Add hotkey",
+        translation_gummy_hotkey_clear: "Clear hotkey",
+        translation_gummy_apply: "Apply",
+        translation_gummy_start: "Start",
+        translation_gummy_stop: "Stop",
+        translation_gummy_transcript_title: "Transcript",
+        translation_gummy_input_chip: "Input",
+        translation_gummy_output_chip: "Output",
+        translation_gummy_no_transcript_yet: "No transcript yet.",
+        translation_gummy_status_not_configured: "Not configured",
+        translation_gummy_status_connecting: "Connecting",
+        translation_gummy_status_ready: "Ready",
+        translation_gummy_status_reconnecting: "Reconnecting",
+        translation_gummy_status_error: "Error",
+        translation_gummy_status_stopped: "Stopped",
+        translation_gummy_api_key_required: "Add your Gemini API key before starting Translation Gummy.",
+        translation_gummy_tts_settings_hint: "Change Gemini Live model and voice to your liking!",
+        translation_gummy_guide: "How to use: Speak a sentence in either of the two configured languages, and the corresponding translation will be spoken in the other language.",
+        translation_gummy_guide_ok: "Got it!",
+        translation_gummy_chat_history: "Chat history",
+        translation_gummy_current_model: "Current model",
+        translation_gummy_current_voice: "Current voice",
+    }
+}

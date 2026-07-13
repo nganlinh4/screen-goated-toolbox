@@ -182,7 +182,7 @@ fn ensure_wheel_ready() -> bool {
 
     let ui_lang = APP.lock().unwrap().config.ui_language.clone();
     let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-    crate::overlay::auto_copy_badge::show_notification(locale.preset_wheel_loading);
+    crate::overlay::auto_copy_badge::show_notification(locale.shell.preset_wheel_loading);
 
     for _ in 0..500 {
         unsafe {
@@ -203,5 +203,7 @@ fn ensure_wheel_ready() -> bool {
 }
 
 fn dismiss_label(ui_lang: &str) -> &'static str {
-    crate::gui::locale::LocaleText::get(ui_lang).preset_wheel_cancel
+    crate::gui::locale::LocaleText::get(ui_lang)
+        .overlay
+        .preset_wheel_cancel
 }

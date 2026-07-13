@@ -78,7 +78,10 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             let lang = super::current_ui_language();
             let locale = crate::gui::locale::LocaleText::get(&lang);
             crate::overlay::auto_copy_badge::enqueue_notification_with_duration(
-                locale.translation_gummy_tts_settings_hint.to_string(),
+                locale
+                    .translation_gummy
+                    .translation_gummy_tts_settings_hint
+                    .to_string(),
                 String::new(),
                 crate::overlay::auto_copy_badge::NotificationType::Info,
                 Some(4000),

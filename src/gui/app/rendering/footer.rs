@@ -17,6 +17,7 @@ impl SettingsApp {
 
         // Determine current tip text for footer
         let current_tip = text
+            .workspace
             .tips_list
             .get(self.current_tip_idx)
             .unwrap_or(&"")
@@ -92,8 +93,8 @@ impl SettingsApp {
             // Register this as an open popup so any_popup_open() returns true
             egui::Popup::open_id(ctx, tips_popup_id);
 
-            let tips_list_copy = text.tips_list.clone();
-            let tips_title = text.tips_title;
+            let tips_list_copy = text.workspace.tips_list.clone();
+            let tips_title = text.workspace.tips_title;
 
             // Popup area centered on screen
             egui::Area::new(tips_popup_id)

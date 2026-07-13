@@ -107,7 +107,7 @@ impl DownloadManager {
                 if crate::gui::widgets::dialog_header(
                     ui,
                     &theme,
-                    text.download_feature_title,
+                    text.auxiliary.download.download_feature_title,
                     None,
                     |ui| {
                         if ffmpeg_ok && ytdlp_ok {
@@ -147,15 +147,15 @@ impl DownloadManager {
         let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
         let deno_status = self.deno_status.lock().unwrap().clone();
 
-        egui::Window::new(text.download_deno_required_title)
+        egui::Window::new(text.auxiliary.download.download_deno_required_title)
             .collapsible(false)
             .resizable(false)
             .fixed_size(egui::vec2(420.0, 180.0))
             .pivot(egui::Align2::CENTER_CENTER)
             .default_pos(ctx.input(|i| i.viewport_rect()).center())
             .show(ctx, |ui| {
-                ui.label(text.download_deno_required_body);
-                ui.label(text.download_deno_required_question);
+                ui.label(text.auxiliary.download.download_deno_required_body);
+                ui.label(text.auxiliary.download.download_deno_required_question);
                 ui.add_space(8.0);
 
                 match deno_status {
@@ -163,7 +163,9 @@ impl DownloadManager {
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label(
-                                text.download_deno_downloading_fmt
+                                text.auxiliary
+                                    .download
+                                    .download_deno_downloading_fmt
                                     .replace("{}", &format!("{:.0}", p * 100.0)),
                             );
                         });
@@ -172,13 +174,16 @@ impl DownloadManager {
                     InstallStatus::Extracting => {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label(text.download_deno_extracting);
+                            ui.label(text.auxiliary.download.download_deno_extracting);
                         });
                     }
                     InstallStatus::Error(ref err) => {
                         ui.colored_label(
                             theme.danger_text(),
-                            text.download_deno_failed_fmt.replace("{}", err),
+                            text.auxiliary
+                                .download
+                                .download_deno_failed_fmt
+                                .replace("{}", err),
                         );
                     }
                     _ => {}
@@ -191,12 +196,18 @@ impl DownloadManager {
                         InstallStatus::Downloading(_) | InstallStatus::Extracting
                     );
                     if ui
-                        .add_enabled(can_click_yes, egui::Button::new(text.download_deno_yes_btn))
+                        .add_enabled(
+                            can_click_yes,
+                            egui::Button::new(text.auxiliary.download.download_deno_yes_btn),
+                        )
                         .clicked()
                     {
                         self.start_download_deno();
                     }
-                    if ui.button(text.download_deno_no_btn).clicked() {
+                    if ui
+                        .button(text.auxiliary.download.download_deno_no_btn)
+                        .clicked()
+                    {
                         self.reject_cookie_browser_choice();
                     }
                 });

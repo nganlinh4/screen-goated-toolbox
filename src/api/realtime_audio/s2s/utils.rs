@@ -244,19 +244,6 @@ pub(super) fn samples_to_ms(samples: usize) -> usize {
 
 pub(super) use crate::api::realtime_audio::websocket::pcm_bytes_to_i16;
 
-/// Normalize a tungstenite frame into its UTF-8 text payload, if any. `Text`
-/// frames map directly; `Binary` frames are decoded as UTF-8 and skipped when
-/// non-UTF-8 (matching the previous per-arm behavior); all other frames yield
-/// `None`. `Close` frames are intentionally returned as `None`, so callers that
-/// need bespoke close handling must match `Message::Close` before delegating.
-pub(super) fn s2s_message_to_text(message: Message) -> Option<String> {
-    match message {
-        Message::Text(text) => Some(text.to_string()),
-        Message::Binary(bytes) => String::from_utf8(bytes.to_vec()).ok(),
-        _ => None,
-    }
-}
-
 pub(super) fn speed_instruction(speed: &str) -> &'static str {
     match speed {
         "Slow" => "Speak slowly, clearly, and with deliberate pacing.",

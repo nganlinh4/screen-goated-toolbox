@@ -276,7 +276,7 @@ impl SettingsApp {
         let text_offset_y = icon_size * 0.8;
         let text_pos = center + egui::vec2(0.0, text_offset_y);
         let galley = painter.layout_no_wrap(
-            text.drop_overlay_text.to_string(),
+            text.shell.drop_overlay_text.to_string(),
             egui::FontId::proportional(22.0),
             element_color,
         );

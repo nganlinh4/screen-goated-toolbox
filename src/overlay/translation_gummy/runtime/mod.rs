@@ -16,10 +16,11 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use crate::APP;
-use crate::api::realtime_audio::start_mic_capture;
-use crate::api::realtime_audio::websocket::{
-    connect_websocket, send_audio_stream_end, set_socket_nonblocking, set_socket_short_timeout,
+use crate::api::gemini_live::transport::{
+    connect_websocket, set_socket_nonblocking, set_socket_short_timeout,
 };
+use crate::api::realtime_audio::start_mic_capture;
+use crate::api::realtime_audio::websocket::send_audio_stream_end;
 use crate::api::tts::TTS_MANAGER;
 use crate::config::TranslationGummySettings;
 use serde::Serialize;

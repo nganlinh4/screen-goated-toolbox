@@ -69,7 +69,7 @@ pub fn render_preset_editor(
         .show(ui, |ui| {
             // Row 1: Preset Name + Controller + Restore
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(text.preset_name_label).strong());
+                ui.label(egui::RichText::new(text.preset_basics.preset_name_label).strong());
 
                 if is_default_preset {
                     ui.label(egui::RichText::new(&display_name).strong().size(15.0));
@@ -90,7 +90,7 @@ pub fn render_preset_editor(
                     && ui
                         .checkbox(
                             &mut preset.show_controller_ui,
-                            text.controller_checkbox_label,
+                            text.global_settings.controller_checkbox_label,
                         )
                         .clicked()
                 {
@@ -114,12 +114,12 @@ pub fn render_preset_editor(
                         // state layers.
                         if crate::gui::widgets::filled_button(
                             ui,
-                            text.restore_preset_btn,
+                            text.workspace.restore_preset_btn,
                             theme.restore_fill(),
                             theme.on_accent(),
                             8,
                         )
-                        .on_hover_text(text.restore_preset_tooltip)
+                        .on_hover_text(text.workspace.restore_preset_tooltip)
                         .clicked()
                         {
                             let default_config = Config::default();
@@ -144,12 +144,12 @@ pub fn render_preset_editor(
 
             // Row 2: Type + Mode selectors
             ui.horizontal(|ui| {
-                ui.label(text.preset_type_label);
+                ui.label(text.preset_basics.preset_type_label);
                 let selected_text = match preset.preset_type.as_str() {
-                    "audio" => text.preset_type_audio,
-                    "video" => text.preset_type_video,
-                    "text" => text.preset_type_text,
-                    _ => text.preset_type_image,
+                    "audio" => text.preset_basics.preset_type_audio,
+                    "video" => text.preset_basics.preset_type_video,
+                    "text" => text.preset_basics.preset_type_text,
+                    _ => text.preset_basics.preset_type_image,
                 };
 
                 crate::gui::widgets::combo("preset_type_combo")
@@ -159,7 +159,7 @@ pub fn render_preset_editor(
                             .selectable_value(
                                 &mut preset.preset_type,
                                 "image".to_string(),
-                                text.preset_type_image,
+                                text.preset_basics.preset_type_image,
                             )
                             .clicked()
                         {
@@ -170,7 +170,7 @@ pub fn render_preset_editor(
                             .selectable_value(
                                 &mut preset.preset_type,
                                 "text".to_string(),
-                                text.preset_type_text,
+                                text.preset_basics.preset_type_text,
                             )
                             .clicked()
                         {
@@ -181,7 +181,7 @@ pub fn render_preset_editor(
                             .selectable_value(
                                 &mut preset.preset_type,
                                 "audio".to_string(),
-                                text.preset_type_audio,
+                                text.preset_basics.preset_type_audio,
                             )
                             .clicked()
                         {
@@ -192,7 +192,7 @@ pub fn render_preset_editor(
                             let _ = ui.selectable_value(
                                 &mut preset.preset_type,
                                 "video".to_string(),
-                                text.preset_type_video,
+                                text.preset_basics.preset_type_video,
                             );
                         });
                     });
@@ -202,19 +202,19 @@ pub fn render_preset_editor(
                 // Mode selectors based on type
                 if preset.preset_type == "image" {
                     if !preset.show_controller_ui {
-                        ui.label(text.command_mode_label);
+                        ui.label(text.preset_editor.command_mode_label);
                         crate::gui::widgets::combo("prompt_mode_combo")
                             .selected_text(if preset.prompt_mode == "dynamic" {
-                                text.prompt_mode_dynamic
+                                text.preset_basics.prompt_mode_dynamic
                             } else {
-                                text.prompt_mode_fixed
+                                text.preset_basics.prompt_mode_fixed
                             })
                             .show_ui(ui, |ui| {
                                 if ui
                                     .selectable_value(
                                         &mut preset.prompt_mode,
                                         "fixed".to_string(),
-                                        text.prompt_mode_fixed,
+                                        text.preset_basics.prompt_mode_fixed,
                                     )
                                     .clicked()
                                 {
@@ -224,7 +224,7 @@ pub fn render_preset_editor(
                                     .selectable_value(
                                         &mut preset.prompt_mode,
                                         "dynamic".to_string(),
-                                        text.prompt_mode_dynamic,
+                                        text.preset_basics.prompt_mode_dynamic,
                                     )
                                     .clicked()
                                 {
@@ -233,19 +233,19 @@ pub fn render_preset_editor(
                             });
                     }
                 } else if preset.preset_type == "text" {
-                    ui.label(text.text_input_mode_label);
+                    ui.label(text.preset_editor.text_input_mode_label);
                     crate::gui::widgets::combo("text_input_mode_combo")
                         .selected_text(if preset.text_input_mode == "type" {
-                            text.text_mode_type
+                            text.preset_editor.text_mode_type
                         } else {
-                            text.text_mode_select
+                            text.preset_editor.text_mode_select
                         })
                         .show_ui(ui, |ui| {
                             if ui
                                 .selectable_value(
                                     &mut preset.text_input_mode,
                                     "select".to_string(),
-                                    text.text_mode_select,
+                                    text.preset_editor.text_mode_select,
                                 )
                                 .clicked()
                             {
@@ -255,7 +255,7 @@ pub fn render_preset_editor(
                                 .selectable_value(
                                     &mut preset.text_input_mode,
                                     "type".to_string(),
-                                    text.text_mode_type,
+                                    text.preset_editor.text_mode_type,
                                 )
                                 .clicked()
                             {
@@ -266,16 +266,19 @@ pub fn render_preset_editor(
                     if preset.text_input_mode == "type"
                         && !preset.show_controller_ui
                         && ui
-                            .checkbox(&mut preset.continuous_input, text.continuous_input_label)
+                            .checkbox(
+                                &mut preset.continuous_input,
+                                text.preset_editor.continuous_input_label,
+                            )
                             .clicked()
                     {
                         changed = true;
                     }
                 } else if preset.preset_type == "audio" && !preset.show_controller_ui {
-                    ui.label(text.audio_mode_label);
+                    ui.label(text.preset_editor.audio_mode_label);
 
-                    let mode_record = text.audio_mode_record_then_process;
-                    let mode_realtime = text.audio_mode_realtime;
+                    let mode_record = text.preset_editor.audio_mode_record_then_process;
+                    let mode_realtime = text.preset_editor.audio_mode_realtime;
 
                     let selected_mode_text = if preset.audio_processing_mode == "realtime" {
                         mode_realtime
@@ -317,10 +320,10 @@ pub fn render_preset_editor(
             {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label(text.realtime_interface_label);
+                    ui.label(text.preset_editor.realtime_interface_label);
 
-                    let mode_standard = text.realtime_interface_standard;
-                    let mode_minimal = text.realtime_interface_minimal;
+                    let mode_standard = text.preset_editor.realtime_interface_standard;
+                    let mode_minimal = text.preset_editor.realtime_interface_minimal;
 
                     let selected_window_mode = if preset.realtime_window_mode == "minimal" {
                         mode_minimal
@@ -359,11 +362,11 @@ pub fn render_preset_editor(
             if preset.preset_type == "audio" && preset.audio_processing_mode != "realtime" {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.label(text.audio_source_label);
+                    ui.label(text.preset_basics.audio_source_label);
                     let selected_text = if preset.audio_source == "mic" {
-                        text.audio_src_mic
+                        text.preset_basics.audio_src_mic
                     } else {
-                        text.audio_src_device
+                        text.preset_basics.audio_src_device
                     };
                     crate::gui::widgets::combo("audio_source_combo")
                         .selected_text(selected_text)
@@ -372,7 +375,7 @@ pub fn render_preset_editor(
                                 .selectable_value(
                                     &mut preset.audio_source,
                                     "mic".to_string(),
-                                    text.audio_src_mic,
+                                    text.preset_basics.audio_src_mic,
                                 )
                                 .clicked()
                             {
@@ -382,7 +385,7 @@ pub fn render_preset_editor(
                                 .selectable_value(
                                     &mut preset.audio_source,
                                     "device".to_string(),
-                                    text.audio_src_device,
+                                    text.preset_basics.audio_src_device,
                                 )
                                 .clicked()
                             {
@@ -392,7 +395,10 @@ pub fn render_preset_editor(
                     if !preset.show_controller_ui {
                         ui.add_space(10.0);
                         if ui
-                            .checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label)
+                            .checkbox(
+                                &mut preset.hide_recording_ui,
+                                text.preset_basics.hide_recording_ui_label,
+                            )
                             .clicked()
                         {
                             changed = true;
@@ -401,7 +407,7 @@ pub fn render_preset_editor(
                         if ui
                             .checkbox(
                                 &mut preset.auto_stop_recording,
-                                text.auto_stop_recording_label,
+                                text.preset_basics.auto_stop_recording_label,
                             )
                             .clicked()
                         {
@@ -418,19 +424,19 @@ pub fn render_preset_editor(
             {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.label(text.command_mode_label);
+                    ui.label(text.preset_editor.command_mode_label);
                     crate::gui::widgets::combo("text_prompt_mode_combo")
                         .selected_text(if preset.prompt_mode == "dynamic" {
-                            text.prompt_mode_dynamic
+                            text.preset_basics.prompt_mode_dynamic
                         } else {
-                            text.prompt_mode_fixed
+                            text.preset_basics.prompt_mode_fixed
                         })
                         .show_ui(ui, |ui| {
                             if ui
                                 .selectable_value(
                                     &mut preset.prompt_mode,
                                     "fixed".to_string(),
-                                    text.prompt_mode_fixed,
+                                    text.preset_basics.prompt_mode_fixed,
                                 )
                                 .clicked()
                             {
@@ -440,7 +446,7 @@ pub fn render_preset_editor(
                                 .selectable_value(
                                     &mut preset.prompt_mode,
                                     "dynamic".to_string(),
-                                    text.prompt_mode_dynamic,
+                                    text.preset_basics.prompt_mode_dynamic,
                                 )
                                 .clicked()
                             {
@@ -463,7 +469,7 @@ pub fn render_preset_editor(
     if has_any_auto_copy && !preset.show_controller_ui {
         ui.horizontal(|ui| {
             if ui
-                .checkbox(&mut preset.auto_paste, text.auto_paste_label)
+                .checkbox(&mut preset.auto_paste, text.preset_basics.auto_paste_label)
                 .clicked()
             {
                 changed = true;
@@ -474,7 +480,7 @@ pub fn render_preset_editor(
             if ui
                 .checkbox(
                     &mut preset.auto_paste_newline,
-                    text.auto_paste_newline_label,
+                    text.preset_basics.auto_paste_newline_label,
                 )
                 .clicked()
             {

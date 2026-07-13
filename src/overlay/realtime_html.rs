@@ -37,9 +37,9 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     // Volume canvas lives inside #controls so it scrolls with the header (matches Android)
     let title_content = String::new();
 
-    let _mic_text = text.realtime_mic;
-    let _device_text = text.realtime_device;
-    let placeholder_text = text.realtime_waiting;
+    let _mic_text = text.realtime.microphone;
+    let _device_text = text.realtime.device;
+    let placeholder_text = text.realtime.waiting;
 
     // Build language options HTML - show full name in dropdown, but store code for display
     let lang_options: String = languages
@@ -177,10 +177,10 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 device_active = if is_device { "active" } else { "" },
                 mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
                 device_svg = crate::overlay::html_components::icons::get_icon_svg("speaker_group"),
-                mic_title = text.realtime_tooltip_microphone_input,
-                device_title = text.realtime_tooltip_device_audio,
-                model_title = text.realtime_tooltip_transcription_model,
-                language_title = text.realtime_tooltip_transcription_language,
+                mic_title = text.realtime.realtime_tooltip_microphone_input,
+                device_title = text.realtime.realtime_tooltip_device_audio,
+                model_title = text.realtime.realtime_tooltip_transcription_model,
+                language_title = text.realtime.realtime_tooltip_transcription_language,
                 options_html = options_html,
                 trans_lang_html = trans_lang_html,
                 trans_lang_disabled = trans_lang_disabled,
@@ -193,7 +193,10 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             let llm_id = crate::model_config::REALTIME_TRANSLATION_MODEL_LLM;
             let gtx_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GTX;
 
-            let trans_model_options = [(llm_id, text.llm_label), (gtx_id, text.google_gtx_label)];
+            let trans_model_options = [
+                (llm_id, text.shell.llm_label),
+                (gtx_id, text.shell.google_gtx_label),
+            ];
             let model_options_html: String = trans_model_options
                 .iter()
                 .map(|(val, label)| {
@@ -220,22 +223,22 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 lang_options = lang_options,
                 model_options_html = model_options_html,
                 translation_model_title = if is_s2s {
-                    text.realtime_tooltip_s2s_translation_model
+                    text.realtime.realtime_tooltip_s2s_translation_model
                 } else {
-                    text.realtime_tooltip_translation_model
+                    text.realtime.realtime_tooltip_translation_model
                 },
                 translation_model_disabled = if is_s2s { "disabled" } else { "" },
                 translation_model_hidden = if is_s2s { "hidden" } else { "" },
                 speak_active = if is_s2s { "active locked" } else { "" },
                 speak_title = if is_s2s {
-                    text.realtime_tooltip_direct_speech
+                    text.realtime.realtime_tooltip_direct_speech
                 } else {
-                    text.realtime_tooltip_tts_settings
+                    text.realtime.realtime_tooltip_tts_settings
                 },
                 language_title = if is_s2s {
-                    text.realtime_tooltip_s2s_target_language
+                    text.realtime.realtime_tooltip_s2s_target_language
                 } else {
-                    text.realtime_tooltip_target_language
+                    text.realtime.realtime_tooltip_target_language
                 },
                 language_disabled = "",
                 volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
@@ -261,14 +264,14 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         crate::overlay::html_components::js_logic::get(placeholder_text, is_translation)
     );
     let l10n_json = serde_json::json!({
-        "translationModel": text.realtime_tooltip_translation_model,
-        "s2sTranslationModel": text.realtime_tooltip_s2s_translation_model,
-        "targetLanguage": text.realtime_tooltip_target_language,
-        "s2sTargetLanguage": text.realtime_tooltip_s2s_target_language,
-        "directSpeech": text.realtime_tooltip_direct_speech,
-        "ttsSettings": text.realtime_tooltip_tts_settings,
-        "ttsS2sLocked": text.realtime_tts_s2s_locked_tooltip,
-        "ttsEnable": text.realtime_tts_enable_tooltip,
+        "translationModel": text.realtime.realtime_tooltip_translation_model,
+        "s2sTranslationModel": text.realtime.realtime_tooltip_s2s_translation_model,
+        "targetLanguage": text.realtime.realtime_tooltip_target_language,
+        "s2sTargetLanguage": text.realtime.realtime_tooltip_s2s_target_language,
+        "directSpeech": text.realtime.realtime_tooltip_direct_speech,
+        "ttsSettings": text.realtime.realtime_tooltip_tts_settings,
+        "ttsS2sLocked": text.realtime.realtime_tts_s2s_locked_tooltip,
+        "ttsEnable": text.realtime.realtime_tts_enable_tooltip,
     })
     .to_string();
 
@@ -376,31 +379,31 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         is_live_translate_attr = if is_live_translate { "1" } else { "0" },
         tts_toggle_class = if is_s2s { "on locked" } else { "" },
         tts_toggle_title = if is_s2s {
-            text.realtime_tts_s2s_locked_tooltip
+            text.realtime.realtime_tts_s2s_locked_tooltip
         } else {
-            text.realtime_tts_enable_tooltip
+            text.realtime.realtime_tts_enable_tooltip
         },
         loading_icon = loading_icon,
         title_content = title_content,
         audio_selector = audio_selector,
         placeholder_text = placeholder_text,
-        copy_title = text.realtime_tooltip_copy_text,
-        font_decrease_title = text.realtime_tooltip_decrease_font,
-        font_increase_title = text.realtime_tooltip_increase_font,
-        toggle_mic_title = text.toggle_transcription_tooltip,
-        toggle_trans_title = text.toggle_translation_tooltip,
-        toggle_header_title = text.realtime_tooltip_toggle_header,
-        download_default_title = text.realtime_download_default_title,
-        download_wait = text.realtime_download_wait,
-        download_cancel_title = text.realtime_download_cancel_tooltip,
-        tts_auto_title = text.realtime_tts_auto_tooltip,
-        app_loading = text.realtime_app_loading,
-        tts_title = text.realtime_tts_title,
-        tts_speed = text.realtime_tts_speed,
-        tts_auto = text.realtime_tts_auto,
-        tts_volume = text.realtime_tts_volume,
-        app_select_title = text.app_select_title,
-        app_select_hint = text.app_select_hint,
+        copy_title = text.realtime.realtime_tooltip_copy_text,
+        font_decrease_title = text.realtime.realtime_tooltip_decrease_font,
+        font_increase_title = text.realtime.realtime_tooltip_increase_font,
+        toggle_mic_title = text.shell.toggle_transcription_tooltip,
+        toggle_trans_title = text.shell.toggle_translation_tooltip,
+        toggle_header_title = text.realtime.realtime_tooltip_toggle_header,
+        download_default_title = text.realtime.realtime_download_default_title,
+        download_wait = text.realtime.realtime_download_wait,
+        download_cancel_title = text.realtime.realtime_download_cancel_tooltip,
+        tts_auto_title = text.realtime.realtime_tts_auto_tooltip,
+        app_loading = text.realtime.realtime_app_loading,
+        tts_title = text.realtime.realtime_tts_title,
+        tts_speed = text.realtime.realtime_tts_speed,
+        tts_auto = text.realtime.realtime_tts_auto,
+        tts_volume = text.realtime.realtime_tts_volume,
+        app_select_title = text.realtime.app_select_title,
+        app_select_hint = text.realtime.app_select_hint,
         content_copy_svg = crate::overlay::html_components::icons::get_icon_svg("content_copy"),
         remove_svg = crate::overlay::html_components::icons::get_icon_svg("remove"),
         add_svg = crate::overlay::html_components::icons::get_icon_svg("add"),
@@ -412,6 +415,6 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         apps_svg = crate::overlay::html_components::icons::get_icon_svg("apps"),
         download_svg = crate::overlay::html_components::icons::get_icon_svg("download"),
         close_svg = crate::overlay::html_components::icons::get_icon_svg("close"),
-        cancel_text = text.cancel_label,
+        cancel_text = text.preset_basics.cancel_label,
     )
 }

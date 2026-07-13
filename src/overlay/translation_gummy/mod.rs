@@ -126,7 +126,10 @@ pub(super) fn start_if_possible(settings: TranslationGummySettings) {
     if api_key_missing {
         publish_error(
             TranslationGummyConnectionState::Error,
-            locale.translation_gummy_api_key_required.to_string(),
+            locale
+                .translation_gummy
+                .translation_gummy_api_key_required
+                .to_string(),
             false,
         );
         return;
@@ -219,13 +222,24 @@ pub(super) fn status_label(
 ) -> &'static str {
     match connection_state {
         TranslationGummyConnectionState::NotConfigured => {
-            text.translation_gummy_status_not_configured
+            text.translation_gummy
+                .translation_gummy_status_not_configured
         }
-        TranslationGummyConnectionState::Connecting => text.translation_gummy_status_connecting,
-        TranslationGummyConnectionState::Ready => text.translation_gummy_status_ready,
-        TranslationGummyConnectionState::Reconnecting => text.translation_gummy_status_reconnecting,
-        TranslationGummyConnectionState::Error => text.translation_gummy_status_error,
-        TranslationGummyConnectionState::Stopped => text.translation_gummy_status_stopped,
+        TranslationGummyConnectionState::Connecting => {
+            text.translation_gummy.translation_gummy_status_connecting
+        }
+        TranslationGummyConnectionState::Ready => {
+            text.translation_gummy.translation_gummy_status_ready
+        }
+        TranslationGummyConnectionState::Reconnecting => {
+            text.translation_gummy.translation_gummy_status_reconnecting
+        }
+        TranslationGummyConnectionState::Error => {
+            text.translation_gummy.translation_gummy_status_error
+        }
+        TranslationGummyConnectionState::Stopped => {
+            text.translation_gummy.translation_gummy_status_stopped
+        }
     }
 }
 

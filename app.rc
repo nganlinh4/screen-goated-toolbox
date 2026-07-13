@@ -1,8 +1,8 @@
 id ICON "assets/app.ico"
 
 1 VERSIONINFO
-FILEVERSION 3,5,1,0
-PRODUCTVERSION 3,5,1,0
+FILEVERSION 5,3,1,0
+PRODUCTVERSION 5,3,1,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
@@ -10,12 +10,12 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "nganlinh4 - Open Source Developer"
       VALUE "FileDescription", "Screen Goated Toolbox - AI-powered screen capture and productivity tool. Open source on GitHub."
-      VALUE "FileVersion", "3.5.1.0"
+      VALUE "FileVersion", "5.3.1.0"
       VALUE "InternalName", "screen-goated-toolbox"
       VALUE "LegalCopyright", "Copyright (c) 2024-2025 nganlinh4. MIT License. https://github.com/nganlinh4/screen-goated-toolbox"
       VALUE "OriginalFilename", "ScreenGoatedToolbox.exe"
       VALUE "ProductName", "Screen Goated Toolbox (SGT)"
-      VALUE "ProductVersion", "3.5.1.0"
+      VALUE "ProductVersion", "5.3.1.0"
     END
   END
   BLOCK "VarFileInfo"

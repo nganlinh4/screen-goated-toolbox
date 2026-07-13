@@ -6,10 +6,8 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use crate::api::realtime_audio::websocket::{
-    connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
-    set_socket_nonblocking,
-};
+use crate::api::gemini_live::ready_session::{LivePoll, ReadyLiveSession};
+use crate::api::gemini_live::transport::is_recoverable_anyhow_socket_error;
 use crate::config::Preset;
 use crate::overlay::result::update_window_text;
 
@@ -21,7 +19,7 @@ enum AudioMode {
 }
 
 struct ReconnectContext<'a> {
-    socket: &'a mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+    session: &'a mut ReadyLiveSession,
     api_key: &'a str,
     model: &'a str,
     audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
@@ -31,11 +29,12 @@ struct ReconnectContext<'a> {
     last_transcription_time: &'a mut Instant,
     consecutive_empty_reads: &'a mut u32,
     stop_signal: &'a Arc<AtomicBool>,
+    abort_signal: &'a Arc<AtomicBool>,
 }
 
 fn try_reconnect(context: ReconnectContext<'_>) -> bool {
     let ReconnectContext {
-        socket,
+        session,
         api_key,
         model,
         audio_buffer,
@@ -45,13 +44,14 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
         last_transcription_time,
         consecutive_empty_reads,
         stop_signal,
+        abort_signal,
     } = context;
     let mut reconnect_buffer: Vec<i16> = Vec::new();
-    let _ = socket.close(None);
+    let _ = session.close();
 
     loop {
-        if stop_signal.load(Ordering::Relaxed) {
-            println!("[GeminiLiveStream] Stop signal received during reconnection.");
+        if stop_signal.load(Ordering::Relaxed) || abort_signal.load(Ordering::Relaxed) {
+            println!("[GeminiLiveStream] Cancellation received during reconnection.");
             return false;
         }
 
@@ -60,18 +60,10 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
             reconnect_buffer.extend(std::mem::take(&mut *buf));
         }
 
-        match connect_websocket(api_key) {
-            Ok(mut new_socket) => {
-                if send_setup_message(&mut new_socket, model).is_err() {
-                    std::thread::sleep(Duration::from_millis(500));
-                    continue;
-                }
-                if set_socket_nonblocking(&mut new_socket).is_err() {
-                    let _ = new_socket.close(None);
-                    std::thread::sleep(Duration::from_millis(500));
-                    continue;
-                }
-
+        match super::open_ready_session(api_key, model, || {
+            stop_signal.load(Ordering::Relaxed) || abort_signal.load(Ordering::Relaxed)
+        }) {
+            Ok(new_session) => {
                 {
                     let mut buf = audio_buffer.lock().unwrap();
                     reconnect_buffer.extend(std::mem::take(&mut *buf));
@@ -81,13 +73,16 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
                 silence_buffer.extend(reconnect_buffer);
                 *audio_mode = AudioMode::CatchUp;
                 *mode_start = Instant::now();
-                *socket = new_socket;
+                *session = new_session;
                 *last_transcription_time = Instant::now();
                 *consecutive_empty_reads = 0;
 
                 return true;
             }
             Err(e) => {
+                if stop_signal.load(Ordering::Relaxed) || abort_signal.load(Ordering::Relaxed) {
+                    return false;
+                }
                 println!(
                     "[GeminiLiveStream] Reconnection failed: {}. Retrying in 1s...",
                     e
@@ -101,7 +96,7 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
 /// Main streaming loop - sends audio and receives transcriptions.
 pub(super) struct StreamingLoopContext<'a, F> {
     pub(super) preset: &'a Preset,
-    pub(super) socket: &'a mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+    pub(super) session: &'a mut ReadyLiveSession,
     pub(super) api_key: &'a str,
     pub(super) model: &'a str,
     pub(super) audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
@@ -119,7 +114,7 @@ where
 {
     let StreamingLoopContext {
         preset,
-        socket,
+        session,
         api_key,
         model,
         audio_buffer,
@@ -187,7 +182,7 @@ where
                 AudioMode::Normal => {
                     if !real_audio.is_empty() && !pause_signal.load(Ordering::Relaxed) {
                         for chunk in real_audio.chunks(CHUNK_SIZE) {
-                            if send_audio_chunk(socket, chunk).is_err() {
+                            if send_audio(session, chunk).is_err() {
                                 break;
                             }
                         }
@@ -196,7 +191,7 @@ where
                 AudioMode::Silence => {
                     silence_buffer.extend(real_audio);
                     let silence: Vec<i16> = vec![0i16; SAMPLES_PER_100MS];
-                    if send_audio_chunk(socket, &silence).is_err() {
+                    if send_audio(session, &silence).is_err() {
                         break;
                     }
                 }
@@ -210,7 +205,7 @@ where
                     } else {
                         Vec::new()
                     };
-                    if !to_send.is_empty() && send_audio_chunk(socket, &to_send).is_err() {
+                    if !to_send.is_empty() && send_audio(session, &to_send).is_err() {
                         break;
                     }
                 }
@@ -219,9 +214,9 @@ where
         }
 
         loop {
-            match socket.read() {
-                Ok(tungstenite::Message::Text(msg)) => {
-                    if let Some(t) = parse_input_transcription(msg.as_str())
+            match session.poll() {
+                Ok(LivePoll::Frame(frame)) => {
+                    if let Some(t) = frame.input_transcript
                         && !t.is_empty()
                     {
                         last_transcription_time = Instant::now();
@@ -235,25 +230,9 @@ where
                         }
                     }
                 }
-                Ok(tungstenite::Message::Binary(data)) => {
-                    if let Ok(s) = String::from_utf8(data.to_vec())
-                        && let Some(t) = parse_input_transcription(&s)
-                        && !t.is_empty()
-                    {
-                        last_transcription_time = Instant::now();
-                        consecutive_empty_reads = 0;
-                        if let Ok(mut txt) = accumulated_text.lock() {
-                            txt.push_str(&t);
-                            update_stream_text(&txt);
-                        }
-                        if preset.auto_paste {
-                            crate::overlay::utils::type_text_to_window(None, &t);
-                        }
-                    }
-                }
-                Ok(tungstenite::Message::Close(_)) => {
+                Ok(LivePoll::PeerClosed(_)) => {
                     if !try_reconnect(ReconnectContext {
-                        socket,
+                        session,
                         api_key,
                         model,
                         audio_buffer,
@@ -263,21 +242,18 @@ where
                         last_transcription_time: &mut last_transcription_time,
                         consecutive_empty_reads: &mut consecutive_empty_reads,
                         stop_signal,
+                        abort_signal,
                     }) {
                         return;
                     }
                 }
-                Ok(_) => {}
-                Err(tungstenite::Error::Io(ref e))
-                    if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut =>
-                {
+                Ok(LivePoll::Idle) => {
                     consecutive_empty_reads += 1;
                     if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
                         && last_transcription_time.elapsed()
                             > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
                         && !try_reconnect(ReconnectContext {
-                            socket,
+                            session,
                             api_key,
                             model,
                             audio_buffer,
@@ -287,20 +263,22 @@ where
                             last_transcription_time: &mut last_transcription_time,
                             consecutive_empty_reads: &mut consecutive_empty_reads,
                             stop_signal,
+                            abort_signal,
                         })
                     {
                         return;
                     }
                     break;
                 }
+                Ok(LivePoll::ServerError(error)) => {
+                    eprintln!("[GeminiLiveStream] Server error: {error}");
+                    return;
+                }
+                Ok(LivePoll::Unparsed { .. }) => {}
                 Err(e) => {
-                    let error_str = e.to_string();
-                    if error_str.contains("reset")
-                        || error_str.contains("closed")
-                        || error_str.contains("broken")
-                    {
+                    if is_recoverable_anyhow_socket_error(&e) {
                         if !try_reconnect(ReconnectContext {
-                            socket,
+                            session,
                             api_key,
                             model,
                             audio_buffer,
@@ -310,6 +288,7 @@ where
                             last_transcription_time: &mut last_transcription_time,
                             consecutive_empty_reads: &mut consecutive_empty_reads,
                             stop_signal,
+                            abort_signal,
                         }) {
                             return;
                         }
@@ -342,7 +321,7 @@ where
 
 /// Wait for final transcriptions after recording stops.
 pub(super) fn wait_for_final_transcriptions(
-    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+    session: &mut ReadyLiveSession,
     accumulated_text: &Arc<Mutex<String>>,
     preset: &Preset,
     streaming_hwnd: Option<HWND>,
@@ -354,9 +333,9 @@ pub(super) fn wait_for_final_transcriptions(
     println!("[GeminiLiveStream] Waiting for tail...");
 
     while Instant::now() < conclude_end && Instant::now() < max_stop_time {
-        match socket.read() {
-            Ok(tungstenite::Message::Text(msg)) => {
-                if let Some(t) = parse_input_transcription(msg.as_str())
+        match session.poll() {
+            Ok(LivePoll::Frame(frame)) => {
+                if let Some(t) = frame.input_transcript
                     && !t.is_empty()
                 {
                     if let Ok(mut txt) = accumulated_text.lock() {
@@ -365,31 +344,21 @@ pub(super) fn wait_for_final_transcriptions(
                             update_window_text(h, &txt);
                         }
                     }
-                    conclude_end = Instant::now() + extension;
-                }
-            }
-            Ok(tungstenite::Message::Binary(data)) => {
-                if let Ok(s) = String::from_utf8(data.to_vec())
-                    && let Some(t) = parse_input_transcription(&s)
-                    && !t.is_empty()
-                {
-                    if let Ok(mut txt) = accumulated_text.lock() {
-                        txt.push_str(&t);
-                    }
                     if preset.auto_paste {
                         crate::overlay::utils::type_text_to_window(None, &t);
                     }
                     conclude_end = Instant::now() + extension;
                 }
             }
-            Ok(_) => {}
-            Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
+            Ok(LivePoll::Idle) => {
                 std::thread::sleep(Duration::from_millis(20));
             }
-            Err(_) => break,
+            Ok(LivePoll::Unparsed { .. }) => {}
+            Ok(LivePoll::PeerClosed(_) | LivePoll::ServerError(_)) | Err(_) => break,
         }
     }
+}
+
+fn send_audio(session: &mut ReadyLiveSession, samples: &[i16]) -> anyhow::Result<()> {
+    session.send_audio_pcm(samples, 16_000)
 }

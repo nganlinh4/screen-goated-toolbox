@@ -6,11 +6,13 @@ import android.util.Log
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.model.TtsDefaults
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
-import dev.screengoated.toolbox.mobile.service.tts.BlockingWebSocketSession
-import dev.screengoated.toolbox.mobile.service.tts.WebSocketEvent
-import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReadySession
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReceiveResult
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionException
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
+import dev.screengoated.toolbox.mobile.shared.live.openGeminiLiveReadySession
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -24,7 +26,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.IOException
 import java.util.ArrayDeque
 import java.util.concurrent.LinkedBlockingDeque
@@ -99,7 +100,7 @@ class TranslationGummyRuntime(
         var attempt = 0
         while (currentCoroutineContext().isActive) {
             val apiKey = repository.currentApiKey()
-            val modelName = repository.currentGeminiModel().ifBlank { MODEL_NAME }
+            val modelName = repository.currentGeminiModel()
             val voiceName = repository.currentGeminiVoice().ifBlank { DEFAULT_VOICE_NAME }
             if (apiKey.isBlank()) {
                 Log.w(TAG, "runLoop aborting sessionId=$debugSessionId because apiKey is blank")
@@ -142,21 +143,12 @@ class TranslationGummyRuntime(
         modelName: String,
         voiceName: String,
     ) = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("$TRANSLATION_GUMMY_LIVE_WS_ENDPOINT?key=$apiKey")
-            .build()
-
-        BlockingWebSocketSession(httpClient, request).use { session ->
-            if (!session.awaitOpen(10_000)) {
-                throw IOException("Translation Gummy websocket failed to open.")
-            }
-            Log.d(TAG, "websocket opened sessionId=$debugSessionId")
-            if (!session.sendText(buildTranslationGummySetupPayload(modelName, config.buildSystemInstruction(), voiceName))) {
-                throw IOException("Translation Gummy setup payload was rejected.")
-            }
-            Log.d(TAG, "setup payload sent sessionId=$debugSessionId")
-
-            waitForSetup(debugSessionId, session)
+        val setupPayload = buildTranslationGummySetupPayload(
+            model = modelName,
+            instruction = config.buildSystemInstruction(),
+            voiceName = voiceName,
+        )
+        openGeminiLiveReadySession(httpClient, apiKey, setupPayload).use { session ->
             repository.markReady()
             Log.d(TAG, "setup complete sessionId=$debugSessionId")
 
@@ -177,27 +169,28 @@ class TranslationGummyRuntime(
                     while (currentCoroutineContext().isActive) {
                         refreshSpeakerTurnState(debugSessionId)
                         flushOutboundAudio(debugSessionId, session, outboundAudio)
-                        when (val event = session.poll(50)) {
-                            null -> Unit
-                            is WebSocketEvent.Text -> handleSocketPayload(debugSessionId, event.payload)
-                            is WebSocketEvent.Binary -> handleSocketPayload(debugSessionId, event.payload.utf8())
-                            is WebSocketEvent.Failure -> throw IOException(
-                                event.throwable.message ?: "Translation Gummy websocket failed.",
-                            )
-                            WebSocketEvent.Closed -> throw IOException("Translation Gummy websocket closed.")
+                        when (val result = session.receive(50)) {
+                            GeminiLiveReceiveResult.TimedOut -> Unit
+                            is GeminiLiveReceiveResult.Frame -> handleSocketFrame(debugSessionId, result.frame)
+                            is GeminiLiveReceiveResult.Unparsed -> Unit
+                            is GeminiLiveReceiveResult.Failed -> throw GeminiLiveSessionException(result.failure)
+                            is GeminiLiveReceiveResult.Closed -> {
+                                throw IOException("Translation Gummy websocket closed.")
+                            }
                         }
                     }
                 } finally {
                     captureJob.cancel()
-                    runCatching {
-                        session.sendText(buildTranslationGummyAudioStreamEndPayload())
+                    val streamEndSent = session.trySend(buildTranslationGummyAudioStreamEndPayload())
+                    if (!streamEndSent) {
+                        Log.w(TAG, "audio stream end rejected during cleanup sessionId=$debugSessionId")
                     }
                     localBargeInPending = false
                     resetBargeInCandidateState()
                     resetLocalInputTurnState()
                     clearSpeakerTurnState()
                     audioPlayer.stopImmediate()
-                    Log.d(TAG, "audio stream end sent sessionId=$debugSessionId")
+                    Log.d(TAG, "audio stream end finalized sessionId=$debugSessionId sent=$streamEndSent")
                     repository.finalizeActiveTranscripts(SystemClock.elapsedRealtime())
                     audioPlayer.endCommunicationSession()
                 }
@@ -205,48 +198,9 @@ class TranslationGummyRuntime(
         }
     }
 
-    private fun waitForSetup(
-        debugSessionId: String,
-        session: BlockingWebSocketSession,
-    ) {
-        val deadline = SystemClock.elapsedRealtime() + 15_000L
-        while (SystemClock.elapsedRealtime() < deadline) {
-            when (val event = session.poll(100)) {
-                null -> Unit
-                is WebSocketEvent.Text -> {
-                    val update = parseTranslationGummySocketUpdate(event.payload)
-                    if (update.error != null) {
-                        Log.w(TAG, "setup error sessionId=$debugSessionId message=${update.error}")
-                        throw IOException(update.error)
-                    }
-                    if (update.setupComplete) {
-                        Log.d(TAG, "setup ack received sessionId=$debugSessionId via text frame")
-                        return
-                    }
-                }
-                is WebSocketEvent.Binary -> {
-                    val update = parseTranslationGummySocketUpdate(event.payload.utf8())
-                    if (update.error != null) {
-                        Log.w(TAG, "setup error sessionId=$debugSessionId message=${update.error}")
-                        throw IOException(update.error)
-                    }
-                    if (update.setupComplete) {
-                        Log.d(TAG, "setup ack received sessionId=$debugSessionId via binary frame")
-                        return
-                    }
-                }
-                is WebSocketEvent.Failure -> throw IOException(
-                    event.throwable.message ?: "Translation Gummy websocket failed during setup.",
-                )
-                WebSocketEvent.Closed -> throw IOException("Translation Gummy websocket closed during setup.")
-            }
-        }
-        throw IOException("Translation Gummy setup timed out.")
-    }
-
     private fun flushOutboundAudio(
         debugSessionId: String,
-        session: BlockingWebSocketSession,
+        session: GeminiLiveReadySession,
         outboundAudio: LinkedBlockingDeque<ShortArray>,
     ) {
         val combined = ArrayList<ShortArray>()
@@ -278,12 +232,11 @@ class TranslationGummyRuntime(
         }
     }
 
-    private fun handleSocketPayload(
+    private fun handleSocketFrame(
         debugSessionId: String,
-        message: String,
+        frame: GeminiLiveServerFrame,
     ) {
-        val update = parseTranslationGummySocketUpdate(message)
-        update.error?.let { throw IOException(it) }
+        val update = parseTranslationGummySocketUpdate(frame)
         val nowMs = SystemClock.elapsedRealtime()
         update.inputTranscript?.let {
             debugInputTranscript(debugSessionId, it, update.turnComplete, nowMs)
@@ -296,27 +249,28 @@ class TranslationGummyRuntime(
             )
             repository.upsertTranscript(TranslationGummyTranscriptRole.OUTPUT, it, update.turnComplete, nowMs)
         }
-        update.audioChunk?.let { pcm24k ->
-            if (localBargeInPending) {
-                Log.w(TAG, "droppingModelAudioDuringBargeIn sessionId=$debugSessionId bytes=${pcm24k.size}")
-                return
+        if (update.audioChunks.isNotEmpty() && localBargeInPending) {
+            val bytes = update.audioChunks.sumOf(ByteArray::size)
+            Log.w(TAG, "droppingModelAudioDuringBargeIn sessionId=$debugSessionId bytes=$bytes")
+        } else {
+            update.audioChunks.forEach { pcm24k ->
+                if (!speakerTurnActive) {
+                    resetLocalInputTurnState()
+                }
+                bargeInDetector.onPlaybackChunk(pcm24k, nowMs)
+                speakerTurnActive = true
+                speakerTurnLastAudioAtMs = nowMs
+                speakerTurnCompletedAtMs = 0L
+                Log.d(
+                    TAG,
+                    "audioChunk sessionId=$debugSessionId bytes=${pcm24k.size} transcriptPresent=${update.outputTranscript != null}",
+                )
+                audioPlayer.playPcm24k(
+                    pcm24k = pcm24k,
+                    speedPercent = 100,
+                    volumePercent = repository.currentOutputVolumePercent(),
+                )
             }
-            if (!speakerTurnActive) {
-                resetLocalInputTurnState()
-            }
-            bargeInDetector.onPlaybackChunk(pcm24k, nowMs)
-            speakerTurnActive = true
-            speakerTurnLastAudioAtMs = nowMs
-            speakerTurnCompletedAtMs = 0L
-            Log.d(
-                TAG,
-                "audioChunk sessionId=$debugSessionId bytes=${pcm24k.size} transcriptPresent=${update.outputTranscript != null}",
-            )
-            audioPlayer.playPcm24k(
-                pcm24k = pcm24k,
-                speedPercent = 100,
-                volumePercent = repository.currentOutputVolumePercent(),
-            )
         }
         if (update.interrupted) {
             Log.w(TAG, "server interrupted turn sessionId=$debugSessionId")
@@ -339,7 +293,7 @@ class TranslationGummyRuntime(
 
     private fun processOutboundAudioChunk(
         debugSessionId: String,
-        session: BlockingWebSocketSession,
+        session: GeminiLiveReadySession,
         chunk: ShortArray,
         nowMs: Long = SystemClock.elapsedRealtime(),
     ) {
@@ -374,7 +328,7 @@ class TranslationGummyRuntime(
         }
 
         if (silenceMs >= LOCAL_INPUT_END_SILENCE_MS) {
-            if (!session.sendText(buildTranslationGummyAudioStreamEndPayload())) {
+            if (!session.trySend(buildTranslationGummyAudioStreamEndPayload())) {
                 throw IOException("Translation Gummy audio stream end payload was rejected.")
             }
             Log.d(
@@ -387,7 +341,7 @@ class TranslationGummyRuntime(
 
     private fun tryBargeInDuringSpeakerTurn(
         debugSessionId: String,
-        session: BlockingWebSocketSession,
+        session: GeminiLiveReadySession,
         chunk: ShortArray,
         nowMs: Long = SystemClock.elapsedRealtime(),
     ): Boolean {
@@ -432,11 +386,11 @@ class TranslationGummyRuntime(
 
     private fun sendOutboundAudioChunk(
         debugSessionId: String,
-        session: BlockingWebSocketSession,
+        session: GeminiLiveReadySession,
         chunk: ShortArray,
     ) {
         debugOutboundAudio(debugSessionId, chunk, 1)
-        if (!session.sendText(buildTranslationGummyAudioPayload(chunk))) {
+        if (!session.trySend(buildTranslationGummyAudioPayload(chunk))) {
             throw IOException("Translation Gummy audio payload was rejected.")
         }
     }
@@ -532,7 +486,6 @@ class TranslationGummyRuntime(
 
     internal companion object {
         internal const val TAG = "SGTTranslationGummy"
-        private const val MODEL_NAME = GeneratedLiveModelCatalog.DEFAULT_TTS_GEMINI_MODEL
         private const val DEFAULT_VOICE_NAME = TtsDefaults.DEFAULT_TTS_GEMINI_VOICE
         private const val OUTBOUND_MIC_SUPPRESSION_WINDOW_MS = 600L
         private const val INTERRUPT_MIC_COOLDOWN_MS = 250L

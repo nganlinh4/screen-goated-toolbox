@@ -3,6 +3,8 @@
 ## Canonical Source
 
 - Windows manager/workers/player: [tts](../../src/api/tts)
+- Android manager/providers/player: [tts](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/tts)
+- Shared Android Gemini Live transport: [GeminiLiveReadySession.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/shared/live/GeminiLiveReadySession.kt), [GeminiLiveTransport.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/shared/live/GeminiLiveTransport.kt)
 - Windows realtime consumer: [realtime_webview](../../src/overlay/realtime_webview)
 - Windows config/catalog: [tts.rs](../../src/config/types/tts.rs), [model_catalog.json](../../catalog/model_catalog.json)
 - Shared queue contract: [queue-semantics.json](../../parity-fixtures/tts-runtime/queue-semantics.json)
@@ -22,6 +24,13 @@
 ## Provider Boundary
 
 - Gemini Live, Edge, and Google Translate exist on both platforms with platform-native playback.
+- Gemini Live requests use the shared setup-gated transport on both platforms. Application
+  content cannot be sent until a structural top-level `setupComplete` acknowledgement arrives.
+- A warm Gemini Live entry owns only an opened connection. Setup remains request-specific, and
+  a retryable stale warm connection may be replaced by one fresh connection only before any
+  request content has been accepted.
+- Edge and Google Translate keep their provider-specific WebSocket/HTTP transports; Gemini Live
+  lifecycle policy must not leak into those providers.
 - Edge prosody is encoded in SSML and must not be applied again by the shared player.
 - Android exposes only providers with a real Android runtime and normalizes stale Windows-only values to a supported method.
 - Windows open-weight providers and installation details belong to `catalog/model_catalog.json` plus the matching `native/<runtime>/README.md`, not this parity spec.

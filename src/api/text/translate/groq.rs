@@ -45,11 +45,11 @@ where
     let search_msg = match &search_label {
         Some(label) => format!(
             "{}\n\n🔍 {} {}...",
-            context_quote, locale.search_doing, label
+            context_quote, locale.workspace.search_doing, label
         ),
         None => format!(
             "{}\n\n🔍 {} {}...",
-            context_quote, locale.search_doing, locale.search_searching
+            context_quote, locale.workspace.search_doing, locale.workspace.search_searching
         ),
     };
     on_chunk(&search_msg);
@@ -99,18 +99,18 @@ where
                     Some(label) => format!(
                         "{}\n\n🔍 {} {}...\n\n",
                         context_quote,
-                        locale.search_doing.to_uppercase(),
+                        locale.workspace.search_doing.to_uppercase(),
                         label.to_uppercase()
                     ),
                     None => format!(
                         "{}\n\n🔍 {} {}...\n\n",
                         context_quote,
-                        locale.search_doing.to_uppercase(),
-                        locale.search_searching.to_uppercase()
+                        locale.workspace.search_doing.to_uppercase(),
+                        locale.workspace.search_searching.to_uppercase()
                     ),
                 };
                 let mut phase1 = phase1_header;
-                phase1.push_str(&format!("{}\n", locale.search_query_label));
+                phase1.push_str(&format!("{}\n", locale.workspace.search_query_label));
                 for (i, query) in search_queries.iter().enumerate() {
                     phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, query));
                 }
@@ -129,7 +129,7 @@ where
                         let title = result
                             .get("title")
                             .and_then(|t| t.as_str())
-                            .unwrap_or(locale.search_no_title);
+                            .unwrap_or(locale.workspace.search_no_title);
                         let url = result.get("url").and_then(|u| u.as_str()).unwrap_or("");
                         let score = result.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
                         let content = result.get("content").and_then(|c| c.as_str()).unwrap_or("");
@@ -153,10 +153,11 @@ where
                     "{}\n\n{}\n\n",
                     context_quote,
                     locale
+                        .workspace
                         .search_found_sources
                         .replace("{}", &all_sources.len().to_string())
                 );
-                phase2.push_str(&format!("{}\n\n", locale.search_sources_label));
+                phase2.push_str(&format!("{}\n\n", locale.workspace.search_sources_label));
 
                 for (i, (title, url, score, content)) in all_sources.iter().take(6).enumerate() {
                     let title_display = if title.chars().count() > 60 {
@@ -196,11 +197,12 @@ where
                 let phase3 = format!(
                     "{}\n\n{}\n\n{}\n{}\n",
                     context_quote,
-                    locale.search_synthesizing,
+                    locale.workspace.search_synthesizing,
                     locale
+                        .workspace
                         .search_analyzed_sources
                         .replace("{}", &all_sources.len().min(6).to_string()),
-                    locale.search_processing
+                    locale.workspace.search_processing
                 );
                 on_chunk(&phase3);
                 std::thread::sleep(std::time::Duration::from_millis(600));

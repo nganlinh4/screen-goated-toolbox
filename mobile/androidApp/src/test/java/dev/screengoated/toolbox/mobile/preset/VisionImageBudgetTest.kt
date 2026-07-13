@@ -24,7 +24,7 @@ class VisionImageBudgetTest {
 
         assertEquals("hidden", payload.getString("reasoning_format"))
         assertFalse(payload.has("reasoning_effort"))
-        assertEquals(4096, payload.getInt("max_completion_tokens"))
+        assertEquals(1024, payload.getInt("max_completion_tokens"))
     }
 
     @Test
@@ -53,6 +53,14 @@ class VisionImageBudgetTest {
         assertThrows(IOException::class.java) {
             groqImageByteBudget(3_800_000)
         }
+    }
+
+    @Test
+    fun groqRetriesOneShortRateLimitWaitOnly() {
+        assertEquals(15_000L, groqVisionRetryDelayMillis("Groq", 429, false, 15))
+        assertEquals(null, groqVisionRetryDelayMillis("Groq", 429, true, 15))
+        assertEquals(null, groqVisionRetryDelayMillis("Groq", 429, false, 31))
+        assertEquals(null, groqVisionRetryDelayMillis("Cerebras", 429, false, 15))
     }
 
     private fun fixturePath(): Path {

@@ -175,7 +175,8 @@ pub(super) fn sanitize(label: &str) -> String {
 }
 
 pub(super) fn random_preview_text(text: &LocaleText, speaker_name: &str) -> String {
-    text.tts_preview_texts
+    text.tts_settings
+        .tts_preview_texts
         .first()
         .map(|template| template.replace("{}", speaker_name))
         .unwrap_or_else(|| format!("Hello, I am {speaker_name}. This is a voice preview."))

@@ -3,9 +3,8 @@ package dev.screengoated.toolbox.mobile.ui.i18n
 /**
  * Localized text for the downloader and downloaded-tools surfaces.
  *
- * Extracted from [MobileLocaleText] as a single cohesive group so the top-level catalog
- * constructor stays well under the JVM 254-parameter limit. Held on [MobileLocaleText] as
- * a single `downloader` field; consume via `locale.downloader.<field>`.
+ * Owned by [MobileLocaleText] as one cohesive section. Its constructor stays below the locale
+ * section budget, and callers consume these fields through `locale.downloader.<field>`.
  */
 data class MobileDownloaderLocale(
     // Downloaded tools UI

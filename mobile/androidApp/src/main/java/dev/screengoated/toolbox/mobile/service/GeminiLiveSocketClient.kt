@@ -1,7 +1,11 @@
 package dev.screengoated.toolbox.mobile.service
 
-import android.util.Log
-import dev.screengoated.toolbox.mobile.shared.live.geminiLiveThinkingJson
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveMediaResolution
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSetupSpec
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveTranscriptionMode
+import dev.screengoated.toolbox.mobile.shared.live.buildGeminiLiveSetup
+import dev.screengoated.toolbox.mobile.shared.live.geminiLiveWebSocketRequest
+import dev.screengoated.toolbox.mobile.shared.live.parseGeminiLiveServerFrame
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -14,17 +18,13 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.LinkedBlockingDeque
-import java.util.concurrent.TimeUnit
 
 class GeminiLiveSocketClient(
     private val httpClient: OkHttpClient,
@@ -215,9 +215,7 @@ class GeminiLiveSocketClient(
         val events = LinkedBlockingDeque<LiveSocketEvent>()
         val setupReady = CompletableDeferred<Unit>()
 
-        val request = Request.Builder()
-            .url("$LIVE_WS_ENDPOINT?key=$apiKey")
-            .build()
+        val request = geminiLiveWebSocketRequest(apiKey)
 
         val socket = httpClient.newWebSocket(
             request,
@@ -265,21 +263,23 @@ class GeminiLiveSocketClient(
         events: LinkedBlockingDeque<LiveSocketEvent>,
         setupReady: CompletableDeferred<Unit>,
     ) {
-        if (message.contains("setupComplete")) {
+        val frame = parseGeminiLiveServerFrame(message) ?: return
+        frame.error?.let { error ->
+            if (!setupReady.isCompleted) {
+                setupReady.completeExceptionally(IOException(error))
+            }
+            events.offer(LiveSocketEvent.Error(error))
+            return
+        }
+
+        if (frame.setupComplete) {
             if (!setupReady.isCompleted) {
                 setupReady.complete(Unit)
             }
             return
         }
 
-        val update = parseGeminiS2sUpdate(message)
-
-        update.error?.let { error ->
-            events.offer(LiveSocketEvent.Error(error))
-            return
-        }
-
-        update.inputText.takeIf(String::isNotBlank)?.let { transcript ->
+        frame.inputTranscript?.let { transcript ->
             events.offer(LiveSocketEvent.Transcript(transcript))
             return
         }
@@ -333,21 +333,13 @@ class GeminiLiveSocketClient(
     }
 
     private fun buildSetupPayload(model: String): String {
-        val generationConfig = JSONObject()
-            .put("responseModalities", JSONArray().put("AUDIO"))
-            .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
-        geminiLiveThinkingJson(model)?.let { generationConfig.put("thinkingConfig", it) }
-
-        val setup = JSONObject()
-            .put(
-                "setup",
-                JSONObject()
-                    .put("model", "models/$model")
-                    .put("generationConfig", generationConfig)
-                    .put("inputAudioTranscription", JSONObject()),
-            )
-
-        return setup.toString()
+        return buildGeminiLiveSetup(
+            GeminiLiveSetupSpec(
+                apiModel = model,
+                mediaResolution = GeminiLiveMediaResolution.LOW,
+                transcriptionMode = GeminiLiveTranscriptionMode.INPUT,
+            ),
+        ).toString()
     }
 
     private companion object {

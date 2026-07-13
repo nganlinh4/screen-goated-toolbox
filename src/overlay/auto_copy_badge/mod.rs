@@ -97,7 +97,7 @@ pub fn show_auto_copy_badge_text(text: &str) {
     let app = APP.lock().unwrap();
     let ui_lang = app.config.ui_language.clone();
     let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-    let title = locale.auto_copied_badge.to_string();
+    let title = locale.shell.auto_copied_badge.to_string();
     drop(app);
 
     let clean_text = text.replace('\n', " ").replace('\r', "");
@@ -110,8 +110,8 @@ pub fn show_auto_copy_badge_image() {
     let app = APP.lock().unwrap();
     let ui_lang = app.config.ui_language.clone();
     let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-    let title = locale.auto_copied_badge.to_string();
-    let snippet = locale.auto_copied_image_badge.to_string();
+    let title = locale.shell.auto_copied_badge.to_string();
+    let snippet = locale.shell.auto_copied_image_badge.to_string();
     drop(app);
 
     enqueue_notification(title, snippet, NotificationType::Success);
@@ -121,7 +121,7 @@ pub fn show_auto_copy_badge_media_file(file_path: &str) {
     let app = APP.lock().unwrap();
     let ui_lang = app.config.ui_language.clone();
     let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-    let title = locale.auto_copied_badge.to_string();
+    let title = locale.shell.auto_copied_badge.to_string();
     drop(app);
 
     let display_name = std::path::Path::new(file_path)

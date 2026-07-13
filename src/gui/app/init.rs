@@ -11,9 +11,6 @@ use tray_icon::{
     MouseButton, TrayIconBuilder, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
 };
-use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
-use windows::Win32::System::Threading::*;
-use windows::core::*;
 
 impl SettingsApp {
     pub fn new(init: SettingsAppInit) -> Self {
@@ -151,29 +148,6 @@ impl SettingsApp {
                         // Other events go through the normal channel
                         let _ = tx_tray.send(UserEvent::Tray(event));
                         ctx_tray.request_repaint();
-                    }
-                }
-            }
-        });
-
-        // Restore signal listener
-        let ctx_restore = ctx.clone();
-        std::thread::spawn(move || {
-            loop {
-                unsafe {
-                    let event_name = crate::hotkey::restore_event_name_wide();
-                    match OpenEventW(EVENT_ALL_ACCESS, false, PCWSTR(event_name.as_ptr())) {
-                        Ok(event_handle) => {
-                            let result = WaitForSingleObject(event_handle, INFINITE);
-                            if result == WAIT_OBJECT_0 {
-                                super::utils::show_main_window_native();
-                                RESTORE_SIGNAL.store(true, Ordering::SeqCst);
-                                ctx_restore.request_repaint();
-                                let _ = ResetEvent(event_handle);
-                            }
-                            let _ = CloseHandle(event_handle);
-                        }
-                        Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
                     }
                 }
             }

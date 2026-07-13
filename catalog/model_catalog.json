@@ -24,7 +24,7 @@
     "llama_3_1_8b_cerebras": "gpt_oss_120b_cerebras",
     "qwen_3_235b_a22b_instruct_2507": "gpt_oss_120b_cerebras"
   },
-  "endpoint_lifecycle": {
+  "endpoints": {
     "gemini-3.1-flash-lite": {
       "lifecycle": "stable",
       "replacement": null,
@@ -39,22 +39,54 @@
       "lifecycle": "preview",
       "replacement": null,
       "verified_at": "2026-07-13",
-      "live_thinking": { "kind": "budget", "value": 0 }
+      "live_thinking": { "kind": "budget", "value": 0 },
+      "live_max_output_tokens": 8192,
+      "live_automatic_activity_detection_default": false,
+      "live_protocol": "native-audio"
     },
     "gemini-3.1-flash-live-preview": {
       "lifecycle": "preview",
       "replacement": null,
       "verified_at": "2026-07-13",
-      "live_thinking": { "kind": "level", "value": "minimal" }
+      "live_thinking": { "kind": "level", "value": "minimal" },
+      "live_max_output_tokens": 65536,
+      "live_automatic_activity_detection_default": true,
+      "live_protocol": "native-audio"
     },
     "gemini-3.5-live-translate-preview": {
       "lifecycle": "preview",
       "replacement": null,
-      "verified_at": "2026-07-13"
+      "verified_at": "2026-07-13",
+      "live_protocol": "live-translate"
     },
     "qwen/qwen3.6-27b": {
       "lifecycle": "preview",
       "replacement": null,
+      "verified_at": "2026-07-13"
+    },
+    "gemma-4-31b": {
+      "lifecycle": "preview",
+      "replacement": null,
+      "verified_at": "2026-07-13"
+    },
+    "gpt-oss-120b": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-07-13"
+    },
+    "zai-glm-4.7": {
+      "lifecycle": "preview",
+      "replacement": null,
+      "verified_at": "2026-07-13"
+    },
+    "llama3.1-8b": {
+      "lifecycle": "deprecated",
+      "replacement": "gpt-oss-120b",
+      "verified_at": "2026-07-13"
+    },
+    "qwen-3-235b-a22b-instruct-2507": {
+      "lifecycle": "deprecated",
+      "replacement": "gpt-oss-120b",
       "verified_at": "2026-07-13"
     }
   },

@@ -7,6 +7,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::config::Preset;
+use crate::gui::locale::LocaleText;
 use crate::overlay::result::{
     RefineContext, ResultWindowParams, WindowType, create_result_window, get_chain_color,
 };
@@ -138,6 +139,11 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
 
     let (tx, rx) = mpsc::channel();
     let preset_for_thread = preset.clone();
+    let ui_language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    let listening_text = realtime_listening_text(&ui_language);
 
     std::thread::spawn(move || {
         let (rect, _) = calculate_result_rects(&preset_for_thread);
@@ -175,7 +181,7 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
             preset_prompt: String::new(),
             custom_bg_color: get_chain_color(0),
             render_mode: &render_mode,
-            initial_text: "Listening...".to_string(),
+            initial_text: listening_text.to_string(),
             preset_id: Some(preset_for_thread.id.clone()),
             is_chain_root: true,
         });
@@ -200,6 +206,10 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
     });
 
     rx.recv().ok().map(|SendHwnd(h)| h)
+}
+
+fn realtime_listening_text(ui_language: &str) -> &'static str {
+    LocaleText::get(ui_language).realtime.listening
 }
 
 /// RAII guard that closes a window when dropped
@@ -258,7 +268,15 @@ pub fn calculate_result_rects(preset: &Preset) -> (RECT, Option<RECT>) {
 
 #[cfg(test)]
 mod tests {
-    use super::resample_linear_i16;
+    use super::{realtime_listening_text, resample_linear_i16};
+
+    #[test]
+    fn streaming_overlay_listening_text_uses_ui_locale() {
+        assert_eq!(realtime_listening_text("en"), "Listening...");
+        assert_eq!(realtime_listening_text("vi"), "Đang nghe...");
+        assert_eq!(realtime_listening_text("ko"), "듣고 있는 중...");
+        assert_eq!(realtime_listening_text("fr"), "Listening...");
+    }
 
     #[test]
     fn upsamples_below_16k() {

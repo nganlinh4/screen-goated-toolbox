@@ -129,7 +129,9 @@ unsafe fn internal_create_loop() {
     let y = (screen_h - height) / 2;
 
     let title = HSTRING::from(
-        crate::gui::locale::LocaleText::get(&super::current_ui_language()).tts_playground_title,
+        crate::gui::locale::LocaleText::get(&super::current_ui_language())
+            .tts_playground
+            .tts_playground_title,
     );
 
     let hwnd = unsafe {
@@ -307,7 +309,9 @@ fn refresh_window_chrome(hwnd: HWND) {
     let is_dark = crate::overlay::is_dark_mode();
     crate::gui::utils::set_window_icon(hwnd, is_dark);
     let title = HSTRING::from(
-        crate::gui::locale::LocaleText::get(&super::current_ui_language()).tts_playground_title,
+        crate::gui::locale::LocaleText::get(&super::current_ui_language())
+            .tts_playground
+            .tts_playground_title,
     );
     unsafe {
         let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));

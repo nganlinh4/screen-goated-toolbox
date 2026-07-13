@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -9,7 +10,11 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
+import kotlin.math.ceil
 import kotlin.coroutines.coroutineContext
+
+private const val QWEN_VISION_MAX_COMPLETION_TOKENS = 1_024
+private const val GROQ_MAX_RATE_LIMIT_WAIT_SECONDS = 30L
 
 internal suspend fun VisionApiClient.streamOpenAiVision(
     endpoint: String,
@@ -50,12 +55,7 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
     var thinkingShown = false
     var contentStarted = false
 
-    httpClient.newCall(request).execute().use { response ->
-        if (!response.isSuccessful) {
-            val code = response.code
-            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
-            throw IOException("$providerName vision request failed with $code")
-        }
+    executeOpenAiVisionRequest(request, providerName).use { response ->
 
         if (providerName == "Cerebras") {
             ModelUsageStats.updateCerebras(model.fullName, response.headers)
@@ -97,7 +97,7 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
     return fullContent.toString()
 }
 
-private fun VisionApiClient.generateOpenAiVisionBlocking(
+private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
     endpoint: String,
     apiKey: String,
     providerName: String,
@@ -114,12 +114,7 @@ private fun VisionApiClient.generateOpenAiVisionBlocking(
     if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
     val request = requestBuilder.build()
 
-    httpClient.newCall(request).execute().use { response ->
-        if (!response.isSuccessful) {
-            val code = response.code
-            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
-            throw IOException("$providerName vision request failed with $code")
-        }
+    executeOpenAiVisionRequest(request, providerName).use { response ->
 
         if (providerName == "Cerebras") {
             ModelUsageStats.updateCerebras(model.fullName, response.headers)
@@ -145,6 +140,65 @@ private fun VisionApiClient.generateOpenAiVisionBlocking(
         onChunk(content)
         return content
     }
+}
+
+private suspend fun VisionApiClient.executeOpenAiVisionRequest(
+    request: Request,
+    providerName: String,
+): okhttp3.Response {
+    var retried = false
+    while (true) {
+        coroutineContext.ensureActive()
+        val response = httpClient.newCall(request).execute()
+        if (response.isSuccessful) return response
+
+        val code = response.code
+        val retryAfterSeconds = response.header("retry-after")
+            ?.toDoubleOrNull()
+            ?.let(::ceil)
+            ?.toLong()
+        val body = response.body.string()
+        response.close()
+        val retryDelayMillis = groqVisionRetryDelayMillis(
+            providerName = providerName,
+            statusCode = code,
+            alreadyRetried = retried,
+            retryAfterSeconds = retryAfterSeconds,
+        )
+        if (retryDelayMillis != null) {
+            retried = true
+            delay(retryDelayMillis)
+            continue
+        }
+        if (code == 401 || code == 403) {
+            throw IOException(invalidApiKeyMessage(providerName))
+        }
+        throw IOException(
+            "$providerName vision request failed with $code: ${providerErrorMessage(code, body)}",
+        )
+    }
+}
+
+internal fun groqVisionRetryDelayMillis(
+    providerName: String,
+    statusCode: Int,
+    alreadyRetried: Boolean,
+    retryAfterSeconds: Long?,
+): Long? = retryAfterSeconds
+    ?.takeIf {
+        providerName == "Groq" &&
+            statusCode == 429 &&
+            !alreadyRetried &&
+            it <= GROQ_MAX_RATE_LIMIT_WAIT_SECONDS
+    }
+    ?.times(1_000L)
+
+private fun providerErrorMessage(code: Int, body: String): String = try {
+    JSONObject(body).optJSONObject("error")?.optString("message")
+        ?.takeIf(String::isNotBlank)
+        ?: "HTTP $code"
+} catch (_: JSONException) {
+    "HTTP $code"
 }
 
 internal fun VisionApiClient.callQrServer(
@@ -220,7 +274,7 @@ internal fun openAiVisionPayload(
         .put("stream", stream)
     if (fullName.startsWith("qwen/")) {
         payload.put("reasoning_format", "hidden")
-        payload.put("max_completion_tokens", 4096)
+        payload.put("max_completion_tokens", QWEN_VISION_MAX_COMPLETION_TOKENS)
     }
     if (fullName == "gemma-4-31b") {
         payload.put("max_completion_tokens", 8192)

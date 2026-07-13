@@ -9,14 +9,20 @@ fn sync_runtime_badge(progress: f32) {
 
     let (title, message) = if let Ok(state) = REALTIME_STATE.lock() {
         let title = if state.download_title.trim().is_empty() {
-            runtime_locale().realtime_download_default_title.to_string()
+            runtime_locale()
+                .realtime
+                .realtime_download_default_title
+                .to_string()
         } else {
             state.download_title.clone()
         };
         (title, state.download_message.clone())
     } else {
         (
-            runtime_locale().realtime_download_default_title.to_string(),
+            runtime_locale()
+                .realtime
+                .realtime_download_default_title
+                .to_string(),
             String::new(),
         )
     };
@@ -88,8 +94,14 @@ pub fn download_qwen3_runtime(
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = locale.qwen3_runtime_downloading_title.to_string();
-        state.download_message = locale.qwen3_runtime_downloading_message.to_string();
+        state.download_title = locale
+            .tool_runtime
+            .qwen3_runtime_downloading_title
+            .to_string();
+        state.download_message = locale
+            .tool_runtime
+            .qwen3_runtime_downloading_message
+            .to_string();
         state.download_progress = 0.0;
     }
     clear_runtime_notice();
@@ -126,6 +138,7 @@ pub fn download_qwen3_runtime(
             let _ = std::fs::remove_file(&local_manifest_path);
             if let Ok(mut state) = REALTIME_STATE.lock() {
                 state.download_message = locale
+                    .tool_runtime
                     .qwen3_downloading_file
                     .replace("{}", QWEN3_RUNTIME_DLL);
                 state.download_progress = 0.0;
@@ -172,7 +185,10 @@ pub fn download_qwen3_runtime(
         // Step 2: Download libtorch from pytorch.org if needed
         if !qwen3_libtorch_required_files_present(&bin_dir) {
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = locale.qwen3_runtime_downloading_libtorch.to_string();
+                state.download_message = locale
+                    .tool_runtime
+                    .qwen3_runtime_downloading_libtorch
+                    .to_string();
             }
             post_download_state();
 
@@ -220,6 +236,7 @@ pub fn download_qwen3_runtime(
                         let pct = (current_size as f64 / expected_size as f64 * 100.0).min(99.0);
                         let mb = current_size as f64 / 1_048_576.0;
                         let msg = locale
+                            .tool_runtime
                             .qwen3_runtime_libtorch_progress_fmt
                             .replace("{}", &format!("{:.0}", mb));
                         let progress = pct as f32;
@@ -238,7 +255,10 @@ pub fn download_qwen3_runtime(
             }
 
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = locale.qwen3_runtime_extracting_libtorch.to_string();
+                state.download_message = locale
+                    .tool_runtime
+                    .qwen3_runtime_extracting_libtorch
+                    .to_string();
             }
             if use_badge {
                 sync_runtime_badge(80.0);
@@ -274,6 +294,7 @@ pub fn download_qwen3_runtime(
                 {
                     extracted += 1;
                     let msg = locale
+                        .tool_runtime
                         .qwen3_runtime_extracting_dll_fmt
                         .replacen("{}", &extracted.to_string(), 1)
                         .replacen("{}", &file_name.to_string_lossy(), 1);

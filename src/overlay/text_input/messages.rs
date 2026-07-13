@@ -177,7 +177,7 @@ pub unsafe extern "system" fn input_wnd_proc(
                     let title = if t.is_empty() {
                         let lang = CFG_LANG.lock().unwrap().clone();
                         let locale = crate::gui::locale::LocaleText::get(&lang);
-                        locale.text_input_placeholder.to_string()
+                        locale.preset_editor.text_input_placeholder.to_string()
                     } else {
                         t
                     };
@@ -189,11 +189,11 @@ pub unsafe extern "system" fn input_wnd_proc(
                     };
                     (
                         title,
-                        locale.text_input_footer_submit.to_string(),
-                        locale.text_input_footer_newline.to_string(),
-                        locale.text_input_footer_cancel.to_string(),
+                        locale.preset_editor.text_input_footer_submit.to_string(),
+                        locale.preset_editor.text_input_footer_newline.to_string(),
+                        locale.preset_editor.text_input_footer_cancel.to_string(),
                         ch,
-                        locale.text_input_placeholder.to_string(),
+                        locale.preset_editor.text_input_placeholder.to_string(),
                     )
                 };
 

@@ -30,8 +30,10 @@ pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
                     } else if integ.installed {
                         if ui
                             .button(
-                                egui::RichText::new(text.tool_action_delete)
-                                    .color(theme.danger_text()),
+                                egui::RichText::new(
+                                    text.auxiliary.managed_tools.tool_action_delete,
+                                )
+                                .color(theme.danger_text()),
                             )
                             .clicked()
                         {
@@ -44,11 +46,14 @@ pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
                         };
                         ui.label(egui::RichText::new(label).color(theme.success()));
                     } else {
-                        if ui.button(text.tool_action_download).clicked() {
+                        if ui
+                            .button(text.auxiliary.managed_tools.tool_action_download)
+                            .clicked()
+                        {
                             crate::overlay::computer_control::ui_install(integ.id);
                         }
                         ui.label(
-                            egui::RichText::new(text.tool_status_missing)
+                            egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
                                 .color(egui::Color32::GRAY),
                         );
                     }

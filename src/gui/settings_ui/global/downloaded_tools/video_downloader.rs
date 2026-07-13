@@ -13,7 +13,7 @@ pub(super) fn render_video_downloader_card(
     text: &LocaleText,
 ) {
     tool_card(ui, |ui| {
-        ui.heading(text.tool_video_downloader_card);
+        ui.heading(text.auxiliary.managed_tools.tool_video_downloader_card);
         ui.add_space(4.0);
 
         render_ytdlp_content(ui, download_manager, text);
@@ -32,7 +32,7 @@ fn render_ytdlp_content(
     let theme = AppTheme::from_ui(ui);
     let status = download_manager.ytdlp_status.lock().unwrap().clone();
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tool_ytdlp).strong());
+        ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_ytdlp).strong());
         ui.with_layout(
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| match status {
@@ -40,7 +40,8 @@ fn render_ytdlp_content(
                     let path = download_manager.bin_dir.join("yt-dlp.exe");
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(theme.danger_text()),
+                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -52,7 +53,10 @@ fn render_ytdlp_content(
                         .unwrap_or(0);
                     ui.label(
                         egui::RichText::new(
-                            text.tool_status_installed.replace("{}", &format_size(size)),
+                            text.auxiliary
+                                .managed_tools
+                                .tool_status_installed
+                                .replace("{}", &format_size(size)),
                         )
                         .color(theme.success()),
                     );
@@ -63,17 +67,21 @@ fn render_ytdlp_content(
                 }
                 InstallStatus::Extracting => {
                     ui.spinner();
-                    ui.label(text.download_status_extracting);
+                    ui.label(text.auxiliary.download.download_status_extracting);
                 }
                 InstallStatus::Checking => {
                     ui.spinner();
                 }
                 _ => {
-                    if ui.button(text.tool_action_download).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_action_download)
+                        .clicked()
+                    {
                         download_manager.start_download_ytdlp();
                     }
                     ui.label(
-                        egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                            .color(egui::Color32::GRAY),
                     );
                 }
             },
@@ -81,7 +89,7 @@ fn render_ytdlp_content(
     });
 
     ui.horizontal(|ui| {
-        ui.label(text.tool_desc_ytdlp);
+        ui.label(text.auxiliary.managed_tools.tool_desc_ytdlp);
         if matches!(status, InstallStatus::Installed) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let u_status = {
@@ -142,14 +150,15 @@ fn render_ffmpeg_content(
     let theme = AppTheme::from_ui(ui);
     let status = download_manager.ffmpeg_status.lock().unwrap().clone();
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tool_ffmpeg).strong());
+        ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_ffmpeg).strong());
         ui.with_layout(
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| match status {
                 InstallStatus::Installed => {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(theme.danger_text()),
+                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -170,7 +179,10 @@ fn render_ffmpeg_content(
                     .sum::<u64>();
                     ui.label(
                         egui::RichText::new(
-                            text.tool_status_installed.replace("{}", &format_size(size)),
+                            text.auxiliary
+                                .managed_tools
+                                .tool_status_installed
+                                .replace("{}", &format_size(size)),
                         )
                         .color(theme.success()),
                     );
@@ -181,17 +193,21 @@ fn render_ffmpeg_content(
                 }
                 InstallStatus::Extracting => {
                     ui.spinner();
-                    ui.label(text.download_status_extracting);
+                    ui.label(text.auxiliary.download.download_status_extracting);
                 }
                 InstallStatus::Checking => {
                     ui.spinner();
                 }
                 _ => {
-                    if ui.button(text.tool_action_download).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_action_download)
+                        .clicked()
+                    {
                         download_manager.start_download_ffmpeg();
                     }
                     ui.label(
-                        egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                            .color(egui::Color32::GRAY),
                     );
                 }
             },
@@ -199,7 +215,7 @@ fn render_ffmpeg_content(
     });
 
     ui.horizontal(|ui| {
-        ui.label(text.tool_desc_ffmpeg);
+        ui.label(text.auxiliary.managed_tools.tool_desc_ffmpeg);
         if matches!(status, InstallStatus::Installed) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let u_status = {
@@ -257,7 +273,7 @@ fn render_deno_content(
     let theme = AppTheme::from_ui(ui);
     let status = download_manager.deno_status.lock().unwrap().clone();
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tool_deno).strong());
+        ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_deno).strong());
         ui.with_layout(
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| match status {
@@ -265,7 +281,8 @@ fn render_deno_content(
                     let path = download_manager.bin_dir.join("deno.exe");
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(theme.danger_text()),
+                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -277,7 +294,10 @@ fn render_deno_content(
                         .unwrap_or(0);
                     ui.label(
                         egui::RichText::new(
-                            text.tool_status_installed.replace("{}", &format_size(size)),
+                            text.auxiliary
+                                .managed_tools
+                                .tool_status_installed
+                                .replace("{}", &format_size(size)),
                         )
                         .color(theme.success()),
                     );
@@ -288,17 +308,21 @@ fn render_deno_content(
                 }
                 InstallStatus::Extracting => {
                     ui.spinner();
-                    ui.label(text.download_status_extracting);
+                    ui.label(text.auxiliary.download.download_status_extracting);
                 }
                 InstallStatus::Checking => {
                     ui.spinner();
                 }
                 _ => {
-                    if ui.button(text.tool_action_download).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_action_download)
+                        .clicked()
+                    {
                         download_manager.start_download_deno();
                     }
                     ui.label(
-                        egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                            .color(egui::Color32::GRAY),
                     );
                 }
             },
@@ -306,7 +330,7 @@ fn render_deno_content(
     });
 
     ui.horizontal(|ui| {
-        ui.label(text.tool_desc_deno);
+        ui.label(text.auxiliary.managed_tools.tool_desc_deno);
         if matches!(status, InstallStatus::Installed) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let u_status = {
@@ -349,8 +373,13 @@ fn render_update_status(
         UpdateStatus::UpdateAvailable(ver) => {
             if ui
                 .button(
-                    egui::RichText::new(text.tool_update_available.replace("{}", &ver))
-                        .color(theme.warning()),
+                    egui::RichText::new(
+                        text.auxiliary
+                            .managed_tools
+                            .tool_update_available
+                            .replace("{}", &ver),
+                    )
+                    .color(theme.warning()),
                 )
                 .clicked()
             {
@@ -359,23 +388,38 @@ fn render_update_status(
         }
         UpdateStatus::Checking => {
             ui.spinner();
-            ui.label(text.tool_update_checking);
+            ui.label(text.auxiliary.managed_tools.tool_update_checking);
         }
         UpdateStatus::UpToDate => {
-            if ui.small_button(text.tool_update_check_again).clicked() {
+            if ui
+                .small_button(text.auxiliary.managed_tools.tool_update_check_again)
+                .clicked()
+            {
                 on_check();
             }
-            ui.label(egui::RichText::new(text.tool_update_latest).color(theme.success()));
+            ui.label(
+                egui::RichText::new(text.auxiliary.managed_tools.tool_update_latest)
+                    .color(theme.success()),
+            );
         }
         UpdateStatus::Error(e) => {
-            if ui.small_button(text.tool_update_retry).clicked() {
+            if ui
+                .small_button(text.auxiliary.managed_tools.tool_update_retry)
+                .clicked()
+            {
                 on_check();
             }
-            ui.label(egui::RichText::new(text.tool_update_error).color(theme.danger_text()))
-                .on_hover_text(e);
+            ui.label(
+                egui::RichText::new(text.auxiliary.managed_tools.tool_update_error)
+                    .color(theme.danger_text()),
+            )
+            .on_hover_text(e);
         }
         UpdateStatus::Idle => {
-            if ui.small_button(text.tool_update_check_btn).clicked() {
+            if ui
+                .small_button(text.auxiliary.managed_tools.tool_update_check_btn)
+                .clicked()
+            {
                 on_check();
             }
         }

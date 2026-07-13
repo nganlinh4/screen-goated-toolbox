@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
 
 use crate::APP;
+use crate::api::gemini_live::ready_session::{ConnectedLiveSocket, OpenOptions, ReadyLiveSession};
+use crate::api::gemini_live::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
 use crate::config::Preset;
 use crate::model_config::{
     normalize_realtime_transcription_model_id, realtime_transcription_api_model,
@@ -23,10 +25,31 @@ use super::capture::{
 };
 use super::state::SharedRealtimeState;
 use super::translation::run_translation_loop;
-use super::websocket::{
-    connect_websocket, is_transient_socket_read_error, send_setup_message, set_socket_nonblocking,
-    set_socket_short_timeout,
-};
+
+fn open_ready_session(
+    api_key: &str,
+    model: &str,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReadyLiveSession> {
+    let setup = LiveSetupBuilder::new(model)
+        .media_resolution(MediaResolution::Low)
+        .transcription(TranscriptionMode::Input)
+        .build();
+    ConnectedLiveSocket::connect(api_key)?.activate_with(
+        setup,
+        OpenOptions {
+            setup_timeout: Duration::from_secs(30),
+            ..OpenOptions::default()
+        },
+        cancelled,
+    )
+}
+
+fn setup_cancelled(stop_signal: &Arc<AtomicBool>) -> bool {
+    stop_signal.load(Ordering::Relaxed)
+        || crate::overlay::realtime_webview::TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
+        || crate::overlay::realtime_webview::AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
+}
 
 fn wait_for_selected_audio_app(stop_signal: &Arc<AtomicBool>) -> Option<u32> {
     let started = Instant::now();
@@ -250,7 +273,7 @@ fn transcription_thread_entry(
             let is_user_initiated = AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
                 || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
                 || reconnect_requested
-                || super::websocket::is_recoverable_anyhow_socket_error(&e)
+                || crate::api::gemini_live::transport::is_recoverable_anyhow_socket_error(&e)
                 || stop_signal.load(Ordering::Relaxed);
 
             if !is_user_initiated {
@@ -357,77 +380,18 @@ fn run_realtime_transcription(
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
     }
 
-    // println!("Gemini: Connecting to WebSocket...");
-    let mut socket = connect_websocket(&gemini_api_key)?;
-    // println!("Gemini: Connected! Sending setup...");
-    send_setup_message(&mut socket, &gemini_live_model)?;
-    // println!("Gemini: Setup sent, waiting for acknowledgment...");
-
     // Set transcription method to GeminiLive (uses delimiter-based segmentation)
     if let Ok(mut s) = state.lock() {
         s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
     }
 
-    // Set short timeout so we can check for model changes during setup
-    set_socket_short_timeout(&mut socket)?;
-
-    // Wait for setup acknowledgment
-    let setup_start = Instant::now();
-    loop {
-        match socket.read() {
-            Ok(tungstenite::Message::Text(msg)) => {
-                let msg = msg.as_str();
-                if msg.contains("setupComplete") {
-                    break;
-                }
-                if let Some(err) = crate::api::gemini_live::websocket::parse_error(msg) {
-                    return Err(anyhow::anyhow!("Server returned error: {}", err));
-                }
-            }
-            Ok(tungstenite::Message::Close(frame)) => {
-                let close_info = frame
-                    .map(|f| format!("code={}, reason={}", f.code, f.reason))
-                    .unwrap_or("no frame".to_string());
-                return Err(anyhow::anyhow!(
-                    "Connection closed by server: {}",
-                    close_info
-                ));
-            }
-            Ok(tungstenite::Message::Binary(data)) => {
-                if let Ok(text) = String::from_utf8(data.to_vec()) {
-                    if text.contains("setupComplete") {
-                        break;
-                    }
-                } else if data.len() < 100 {
-                    break;
-                }
-            }
-            Ok(_) => {}
-            Err(e) if is_transient_socket_read_error(&e) => {
-                if setup_start.elapsed() > Duration::from_secs(30) {
-                    return Err(anyhow::anyhow!("Setup timeout - no response from server"));
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => {
-                return Err(e.into());
-            }
-        }
-        // Check for stop signal
-        if stop_signal.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        // Check for model change or audio source change signals
-        use crate::overlay::realtime_webview::{AUDIO_SOURCE_CHANGE, TRANSCRIPTION_MODEL_CHANGE};
-        if TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
-            || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
-        {
-            // println!("Gemini: Model/source change detected during setup, aborting...");
-            return Ok(()); // Return cleanly to allow the outer loop to handle the change
-        }
-    }
-
-    set_socket_nonblocking(&mut socket)?;
+    let session = match open_ready_session(&gemini_api_key, &gemini_live_model, || {
+        setup_cancelled(&stop_signal)
+    }) {
+        Ok(session) => session,
+        Err(_) if setup_cancelled(&stop_signal) => return Ok(()),
+        Err(error) => return Err(error),
+    };
 
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -498,7 +462,7 @@ fn run_realtime_transcription(
         "mic"
     };
     let loop_result = main_loop::run_main_loop(main_loop::RealtimeMainLoop {
-        socket,
+        session,
         audio_buffer,
         stop_signal,
         overlay_hwnd,

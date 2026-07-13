@@ -295,9 +295,10 @@ pub fn download_model(
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
         state.download_title = locale
+            .tool_runtime
             .zipformer_downloading_title_fmt
             .replace("{}", lang.display_name());
-        state.download_message = locale.zipformer_downloading_start.to_string();
+        state.download_message = locale.tool_runtime.zipformer_downloading_start.to_string();
         state.download_progress = 0.0;
     }
     post_download_state();
@@ -310,6 +311,7 @@ pub fn download_model(
         update_overlay_text(
             overlay_hwnd,
             &locale
+                .tool_runtime
                 .zipformer_downloading_overlay_fmt
                 .replace("{}", lang.display_name()),
         );
@@ -404,6 +406,7 @@ pub fn run_sherpa_transcription(
         Ok(lib) => lib,
         Err(e) => {
             let msg = locale
+                .tool_runtime
                 .zipformer_requires_dlls_fmt
                 .replace("{}", &e.to_string());
             crate::log_info!("[Sherpa] {}", msg);
@@ -431,6 +434,7 @@ pub fn run_sherpa_transcription(
         update_overlay_text(
             overlay_hwnd,
             &locale
+                .tool_runtime
                 .zipformer_downloading_overlay_fmt
                 .replace("{}", lang.display_name()),
         );
@@ -443,6 +447,7 @@ pub fn run_sherpa_transcription(
     update_overlay_text(
         overlay_hwnd,
         &locale
+            .tool_runtime
             .zipformer_loading_overlay_fmt
             .replace("{}", lang.display_name()),
     );

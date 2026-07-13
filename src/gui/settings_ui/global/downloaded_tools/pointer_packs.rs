@@ -11,15 +11,24 @@ pub(super) fn render_pointer_pack_downloads_section(ui: &mut egui::Ui, text: &Lo
     let theme = AppTheme::from_ui(ui);
 
     tool_card(ui, |ui| {
-        ui.heading(text.tool_downloadable_pointer_collections);
+        ui.heading(
+            text.auxiliary
+                .managed_tools
+                .tool_downloadable_pointer_collections,
+        );
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label(text.tool_desc_downloadable_pointer_collections);
+            ui.label(
+                text.auxiliary
+                    .managed_tools
+                    .tool_desc_downloadable_pointer_collections,
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if summary.total_count == 0 {
                     ui.label(
-                        egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                            .color(egui::Color32::GRAY),
                     );
                     return;
                 }
@@ -27,14 +36,20 @@ pub(super) fn render_pointer_pack_downloads_section(ui: &mut egui::Ui, text: &Lo
                 if summary.downloading_count > 0 {
                     ui.spinner();
                     ui.label(
-                        text.tool_bg_downloading_fmt
+                        text.auxiliary
+                            .managed_tools
+                            .tool_bg_downloading_fmt
                             .replace("{}", &summary.downloading_count.to_string()),
                     );
                     return;
                 }
 
                 let has_backup = pointer_gallery::has_original_cursor_backup_file();
-                if has_backup && ui.button(text.pointer_restore_original_btn).clicked() {
+                if has_backup
+                    && ui
+                        .button(text.auxiliary.managed_tools.pointer_restore_original_btn)
+                        .clicked()
+                {
                     let result = pointer_gallery::restore_original_cursor_from_backup();
                     ui.ctx().memory_mut(|mem| {
                         mem.data.insert_temp(status_id, result);
@@ -42,17 +57,27 @@ pub(super) fn render_pointer_pack_downloads_section(ui: &mut egui::Ui, text: &Lo
                 }
 
                 if summary.downloaded_count == 0 {
-                    if ui.button(text.tool_bg_action_download_all).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_bg_action_download_all)
+                        .clicked()
+                    {
                         let _ = pointer_gallery::start_download_all_collections();
                     }
                 } else if summary.downloaded_count < summary.total_count {
-                    if ui.button(text.tool_bg_action_download_rest).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_bg_action_download_rest)
+                        .clicked()
+                    {
                         let _ = pointer_gallery::start_download_all_collections();
                     }
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_bg_action_delete_downloaded)
-                                .color(theme.danger_text()),
+                            egui::RichText::new(
+                                text.auxiliary
+                                    .managed_tools
+                                    .tool_bg_action_delete_downloaded,
+                            )
+                            .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -60,7 +85,7 @@ pub(super) fn render_pointer_pack_downloads_section(ui: &mut egui::Ui, text: &Lo
                     }
                 } else if ui
                     .button(
-                        egui::RichText::new(text.tool_bg_action_delete_all)
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_bg_action_delete_all)
                             .color(theme.danger_text()),
                     )
                     .clicked()
@@ -73,6 +98,8 @@ pub(super) fn render_pointer_pack_downloads_section(ui: &mut egui::Ui, text: &Lo
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let count_text = text
+                    .auxiliary
+                    .managed_tools
                     .tool_pointer_downloaded_count_fmt
                     .replacen("{}", &summary.downloaded_count.to_string(), 1)
                     .replacen("{}", &summary.total_count.to_string(), 1);
@@ -97,7 +124,8 @@ pub(super) fn render_pointer_pack_downloads_section(ui: &mut egui::Ui, text: &Lo
             match result {
                 Ok(()) => {
                     ui.label(
-                        egui::RichText::new(text.pointer_restore_success).color(theme.success()),
+                        egui::RichText::new(text.auxiliary.managed_tools.pointer_restore_success)
+                            .color(theme.success()),
                     );
                 }
                 Err(message) => {

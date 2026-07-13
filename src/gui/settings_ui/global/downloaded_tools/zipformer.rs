@@ -30,7 +30,7 @@ pub(super) fn render_zipformer_section(
 ) {
     let theme = AppTheme::from_ui(ui);
     tool_card(ui, |ui| {
-        ui.heading(text.tool_zipformer_card);
+        ui.heading(text.auxiliary.managed_tools.tool_zipformer_card);
         ui.add_space(4.0);
 
         // Sync disk state → status (when not actively downloading)
@@ -59,15 +59,20 @@ pub(super) fn render_zipformer_section(
             .clone();
 
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(text.tool_zipformer_runtime_dlls).strong());
+            ui.label(
+                egui::RichText::new(text.auxiliary.managed_tools.tool_zipformer_runtime_dlls)
+                    .strong(),
+            );
             ui.with_layout(
                 egui::Layout::right_to_left(egui::Align::Center),
                 |ui| match dlls_status {
                     InstallStatus::Installed => {
                         if ui
                             .button(
-                                egui::RichText::new(text.tool_action_delete)
-                                    .color(theme.danger_text()),
+                                egui::RichText::new(
+                                    text.auxiliary.managed_tools.tool_action_delete,
+                                )
+                                .color(theme.danger_text()),
                             )
                             .clicked()
                         {
@@ -81,7 +86,10 @@ pub(super) fn render_zipformer_section(
                         let size = get_dir_size(&sherpa_onnx::dlls::sherpa_bin_dir());
                         ui.label(
                             egui::RichText::new(
-                                text.tool_status_installed.replace("{}", &format_size(size)),
+                                text.auxiliary
+                                    .managed_tools
+                                    .tool_status_installed
+                                    .replace("{}", &format_size(size)),
                             )
                             .color(theme.success()),
                         );
@@ -92,17 +100,20 @@ pub(super) fn render_zipformer_section(
                     }
                     InstallStatus::Extracting => {
                         ui.spinner();
-                        ui.label(text.download_status_extracting);
+                        ui.label(text.auxiliary.download.download_status_extracting);
                     }
                     InstallStatus::Checking => {
                         ui.spinner();
                     }
                     _ => {
-                        if ui.button(text.tool_action_download).clicked() {
+                        if ui
+                            .button(text.auxiliary.managed_tools.tool_action_download)
+                            .clicked()
+                        {
                             download_manager.start_download_sherpa_dlls();
                         }
                         ui.label(
-                            egui::RichText::new(text.tool_status_missing)
+                            egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
                                 .color(egui::Color32::GRAY),
                         );
                     }
@@ -110,9 +121,13 @@ pub(super) fn render_zipformer_section(
             );
         });
         ui.label(
-            egui::RichText::new(text.tool_zipformer_desc_runtime_dlls)
-                .color(egui::Color32::GRAY)
-                .small(),
+            egui::RichText::new(
+                text.auxiliary
+                    .managed_tools
+                    .tool_zipformer_desc_runtime_dlls,
+            )
+            .color(egui::Color32::GRAY)
+            .small(),
         );
         ui.add_space(4.0);
 
@@ -151,8 +166,10 @@ pub(super) fn render_zipformer_section(
                         InstallStatus::Installed => {
                             if ui
                                 .button(
-                                    egui::RichText::new(text.tool_action_delete)
-                                        .color(theme.danger_text()),
+                                    egui::RichText::new(
+                                        text.auxiliary.managed_tools.tool_action_delete,
+                                    )
+                                    .color(theme.danger_text()),
                                 )
                                 .clicked()
                             {
@@ -165,7 +182,10 @@ pub(super) fn render_zipformer_section(
                             let size = get_dir_size(&model_dir(lang));
                             ui.label(
                                 egui::RichText::new(
-                                    text.tool_status_installed.replace("{}", &format_size(size)),
+                                    text.auxiliary
+                                        .managed_tools
+                                        .tool_status_installed
+                                        .replace("{}", &format_size(size)),
                                 )
                                 .color(theme.success()),
                             );
@@ -178,12 +198,17 @@ pub(super) fn render_zipformer_section(
                             ui.spinner();
                         }
                         _ => {
-                            if ui.button(text.tool_action_download).clicked() {
+                            if ui
+                                .button(text.auxiliary.managed_tools.tool_action_download)
+                                .clicked()
+                            {
                                 download_manager.start_download_zipformer_lang(lang);
                             }
                             ui.label(
-                                egui::RichText::new(text.tool_status_missing)
-                                    .color(egui::Color32::GRAY),
+                                egui::RichText::new(
+                                    text.auxiliary.managed_tools.tool_status_missing,
+                                )
+                                .color(egui::Color32::GRAY),
                             );
                         }
                     },

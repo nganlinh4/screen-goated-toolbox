@@ -3,7 +3,6 @@
 //! `CC_WS_BASE`), JSON send, and screenshot capture.
 
 use std::io::Cursor;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose};
@@ -43,31 +42,13 @@ pub(super) fn load_key() -> Result<String> {
     Ok(key)
 }
 
-/// Connect like `realtime_audio::websocket::connect_websocket`, but with the WS
+/// Connect through the shared Gemini Live transport, but with the WS
 /// base URL overridable via `CC_WS_BASE` (for testing v1alpha vs v1beta).
 pub(super) fn connect_ws(api_key: &str) -> Result<Sock> {
-    use std::net::ToSocketAddrs;
     let base = std::env::var("CC_WS_BASE").unwrap_or_else(|_| {
-        crate::api::realtime_audio::websocket::GEMINI_LIVE_WS_BASE_URL.to_string()
+        crate::api::gemini_live::transport::GEMINI_LIVE_WS_BASE_URL.to_string()
     });
-    let ws_url = format!("{base}?key={api_key}");
-    let url = url::Url::parse(&ws_url)?;
-    let host = url
-        .host_str()
-        .ok_or_else(|| anyhow::anyhow!("no host in WS url"))?
-        .to_string();
-    let addr = format!("{host}:443")
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("failed to resolve {host}"))?;
-    let tcp = std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(10))?;
-    tcp.set_read_timeout(Some(Duration::from_secs(30)))?;
-    tcp.set_write_timeout(Some(Duration::from_secs(30)))?;
-    tcp.set_nodelay(true)?;
-    let connector = native_tls::TlsConnector::new()?;
-    let tls = connector.connect(&host, tcp)?;
-    let (socket, _resp) = tungstenite::client::client(&ws_url, tls)?;
-    Ok(socket)
+    crate::api::gemini_live::transport::connect_websocket_to(&base, api_key)
 }
 
 pub(super) fn send(socket: &mut Sock, value: serde_json::Value) -> Result<()> {

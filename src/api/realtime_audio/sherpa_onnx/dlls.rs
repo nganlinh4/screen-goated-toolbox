@@ -199,8 +199,9 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = locale.sherpa_dll_downloading_title.to_string();
+        state.download_title = locale.tool_runtime.sherpa_dll_downloading_title.to_string();
         state.download_message = locale
+            .tool_runtime
             .sherpa_dll_downloading_runtime_fmt
             .replace("{}", SHERPA_ONNX_VERSION);
         state.download_progress = 0.0;
@@ -214,6 +215,7 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
 
         if let Ok(mut state) = REALTIME_STATE.lock() {
             state.download_message = locale
+                .tool_runtime
                 .sherpa_dll_downloading_release_fmt
                 .replace("{}", SHERPA_ONNX_VERSION);
             state.download_progress = 5.0;
@@ -221,7 +223,7 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
         post_download_state();
         super::super::utils::update_overlay_text(
             overlay_hwnd,
-            locale.sherpa_dll_downloading_overlay,
+            locale.tool_runtime.sherpa_dll_downloading_overlay,
         );
 
         crate::api::realtime_audio::model_loader::download_file(
@@ -237,13 +239,13 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
         }
 
         if let Ok(mut state) = REALTIME_STATE.lock() {
-            state.download_message = locale.sherpa_dll_extracting.to_string();
+            state.download_message = locale.tool_runtime.sherpa_dll_extracting.to_string();
             state.download_progress = 75.0;
         }
         post_download_state();
         super::super::utils::update_overlay_text(
             overlay_hwnd,
-            locale.sherpa_dll_extracting_overlay,
+            locale.tool_runtime.sherpa_dll_extracting_overlay,
         );
 
         // Use Windows built-in tar.exe to extract into a temp dir

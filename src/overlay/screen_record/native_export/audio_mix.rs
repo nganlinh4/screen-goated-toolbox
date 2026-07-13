@@ -157,6 +157,7 @@ fn audio_ffmpeg_download_message() -> String {
         .map(|app| app.config.ui_language.clone())
         .unwrap_or_else(|_| "en".to_string());
     crate::gui::locale::LocaleText::get(&ui_language)
+        .tts_playground
         .screen_record_audio_ffmpeg_downloading
         .to_string()
 }

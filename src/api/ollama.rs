@@ -212,7 +212,7 @@ where
                         && !thinking_shown
                         && !content_started
                     {
-                        on_chunk(locale.model_thinking);
+                        on_chunk(locale.global_settings.model_thinking);
                         thinking_shown = true;
                     }
 
@@ -306,7 +306,7 @@ where
                         && !thinking_shown
                         && !content_started
                     {
-                        on_chunk(locale.model_thinking);
+                        on_chunk(locale.global_settings.model_thinking);
                         thinking_shown = true;
                     }
 

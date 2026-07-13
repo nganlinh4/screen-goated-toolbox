@@ -327,10 +327,11 @@ fn spawn_hedged_attempt(request: HedgedAttemptRequest, resources: HedgedAttemptR
             &settings,
             &context,
             &stop_signal,
+            Some(&cancel_signal),
         ) {
-            Ok(mut socket) => {
+            Ok(mut session) => {
                 let result = process_segment(
-                    &mut socket,
+                    &mut session,
                     &segment,
                     ProcessSegmentParams {
                         mode: settings.mode,
@@ -342,7 +343,7 @@ fn spawn_hedged_attempt(request: HedgedAttemptRequest, resources: HedgedAttemptR
                         final_attempt,
                     },
                 );
-                let _ = socket.close(None);
+                let _ = session.close();
                 result
             }
             Err(err) => Err(err),

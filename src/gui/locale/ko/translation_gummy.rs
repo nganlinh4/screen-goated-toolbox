@@ -1,0 +1,36 @@
+use crate::gui::locale::TranslationGummyLocaleText;
+
+pub(super) fn get() -> TranslationGummyLocaleText {
+    TranslationGummyLocaleText {
+        translation_gummy_btn: "통역 곤약",
+        translation_gummy_title: "통역 곤약",
+        translation_gummy_first_profile: "언어 1",
+        translation_gummy_second_profile: "언어 2",
+        translation_gummy_language_label: "언어",
+        translation_gummy_accent_label: "억양",
+        translation_gummy_tone_label: "말투",
+        translation_gummy_hotkey_label: "단축키",
+        translation_gummy_hotkey_set: "단축키 추가",
+        translation_gummy_hotkey_clear: "단축키 지우기",
+        translation_gummy_apply: "적용",
+        translation_gummy_start: "시작",
+        translation_gummy_stop: "중지",
+        translation_gummy_transcript_title: "전사",
+        translation_gummy_input_chip: "입력",
+        translation_gummy_output_chip: "출력",
+        translation_gummy_no_transcript_yet: "아직 전사가 없습니다.",
+        translation_gummy_status_not_configured: "설정 안 됨",
+        translation_gummy_status_connecting: "연결 중",
+        translation_gummy_status_ready: "준비됨",
+        translation_gummy_status_reconnecting: "다시 연결 중",
+        translation_gummy_status_error: "오류",
+        translation_gummy_status_stopped: "중지됨",
+        translation_gummy_api_key_required: "통역 곤약을 시작하기 전에 Gemini API 키를 추가하세요.",
+        translation_gummy_tts_settings_hint: "Gemini Live 모델과 음성을 원하는 대로 변경하세요!",
+        translation_gummy_guide: "사용법: 설정된 두 언어 중 하나로 문장을 말하면, 다른 언어로 번역되어 읽어줍니다.",
+        translation_gummy_guide_ok: "알겠습니다!",
+        translation_gummy_chat_history: "대화 기록",
+        translation_gummy_current_model: "현재 모델",
+        translation_gummy_current_voice: "현재 음성",
+    }
+}

@@ -12,6 +12,9 @@
 - Windows realtime overlay IPC + controls: [src/overlay/realtime_webview/webview.rs](../../src/overlay/realtime_webview/webview.rs)
 - Windows app selection popup: [src/overlay/realtime_webview/app_selection/mod.rs](../../src/overlay/realtime_webview/app_selection/mod.rs)
 - Windows text chunk UI behavior: [src/overlay/html_components/js_logic.rs](../../src/overlay/html_components/js_logic.rs)
+- Windows Gemini Translate stream adapter: [src/api/realtime_audio/s2s/live/continuous.rs](../../src/api/realtime_audio/s2s/live/continuous.rs), [src/api/realtime_audio/s2s/live/lifecycle_adapter.rs](../../src/api/realtime_audio/s2s/live/lifecycle_adapter.rs)
+- Android Gemini Translate stream adapter: [GeminiS2sLiveTranslate.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sLiveTranslate.kt), [GeminiS2sLiveLifecycleAdapter.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sLiveLifecycleAdapter.kt)
+- Cross-platform Gemini Live lifecycle contract: [gemini-live-session.md](gemini-live-session.md)
 
 ## Behavior Contract
 - Transcript is append-only. Incoming Gemini Live transcription chunks are appended to `full_transcript`; they are not treated as full replacements.
@@ -84,7 +87,8 @@
 - Gemini S2S ordered playback skips stale pending segments that block later ready audio, using a longer grace period when input/output text has already arrived for that segment.
 - Gemini S2S first-audio retry and hard hedge timeouts scale with source audio length on both platforms, using the Windows grouped timeout formulas.
 - Gemini S2S display preserves the full accumulated source and target transcript on both platforms; it must not trim the committed display to only a recent window.
-- Gemini Translate continuous sockets use the Windows reconnect policy on both platforms: recoverable socket failures reconnect instead of surfacing as transcript errors, reconnect attempts use bounded backoff with jitter, health logs include socket age / server idle / input idle / reconnect attempt counters, and long-lived sockets proactively rotate only during a quiet window.
+- Gemini Translate continuous sockets execute the shared Gemini Live lifecycle reducer on both platforms: setup acknowledgement gates media and replay, recoverable socket failures schedule one generation-safe reconnect, bounded jitter/backoff resets only after meaningful server activity, server-idle recovery requires both elapsed silence and outbound chunk count, and long-lived sockets rotate only during a quiet safe gap. Health logs retain socket age / server idle / input idle / reconnect attempt counters.
+- Continuous Live Translate delivers content before applying an interruption from the same server frame. Playback admission is interruption-generation-safe: once stop completes, a previously dequeued stale audio chunk cannot restart output. Gemini Live tool effects are unsupported and must fail the session clearly rather than log and continue.
 - TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model
 - Android mobile uses a native overlay language picker window instead of relying on the embedded WebView `<select>` popup, because the control must remain usable inside detached overlay windows.
 
@@ -113,6 +117,7 @@
 ## Fixtures
 - Shared fixtures: [parity-fixtures/live-translate/state-machine.json](../../parity-fixtures/live-translate/state-machine.json)
 - Shared overlay fixture: [parity-fixtures/live-translate/overlay-bootstrap.json](../../parity-fixtures/live-translate/overlay-bootstrap.json)
+- Shared Gemini Live connection/recovery fixture: [parity-fixtures/gemini-live-session/lifecycle.json](../../parity-fixtures/gemini-live-session/lifecycle.json)
 - Kotlin parity tests must consume the shared fixture file.
 - Rust parity tests must consume the same shared fixture file or validate the same state transitions against `RealtimeState`.
 

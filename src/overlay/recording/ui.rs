@@ -38,8 +38,8 @@ pub fn generate_html() -> String {
                 "ko" => "연결 중...",
                 _ => "Connecting...",
             },
-            locale.recording_subtext,
-            locale.recording_paused,
+            locale.shell.recording_subtext,
+            locale.shell.recording_paused,
             is_dark,
         )
     };

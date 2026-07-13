@@ -2,6 +2,7 @@ use super::*;
 
 mod continuous;
 mod drain;
+mod lifecycle_adapter;
 mod text_state;
 
 use continuous::run_live_translate_continuous;

@@ -7,13 +7,13 @@
 //! this handles ALL message types — `toolCall`/`toolCallCancellation`/`goAway`/
 //! `sessionResumptionUpdate`/`usageMetadata` — and iterates every audio part.
 
-use base64::{Engine as _, engine::general_purpose};
 use serde_json::{Value, json};
 
+use crate::api::gemini_live::server_frame::parse_server_frame;
 use crate::api::realtime_audio::websocket::pcm_bytes_to_i16;
 
 /// The Live model that backs Computer Control (catalog id `gemini-live-vision-3.1`).
-pub const MODEL: &str = "gemini-3.1-flash-live-preview";
+pub const MODEL: &str = crate::model_config::GEMINI_LIVE_API_MODEL_3_1;
 
 /// Reasoning budget for 3.1: `minimal|low|medium|high`. Overridable via `CC_THINK`
 /// for debugging (default `low`).
@@ -92,27 +92,21 @@ pub fn tool_declarations() -> Value {
 
 /// Build the BidiGenerateContent `setup` payload for the probe (AUDIO output).
 pub fn build_setup(system_instruction: &str) -> Value {
-    json!({ "setup": {
-        "model": format!("models/{MODEL}"),
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": "Aoede"}}},
-            // HIGH is the OCR knob — required to read small on-screen text.
-            "mediaResolution": "MEDIA_RESOLUTION_HIGH",
-            // 3.1 uses thinkingLevel (NOT the legacy thinkingBudget); "low"
-            // balances tool-call reasoning against latency.
-            // includeThoughts surfaces the model's SILENT reasoning as text parts (thought:true),
-            // which we capture as per-turn intent — never spoken, never shown. (If the preview model
-            // rejects this field with INVALID_ARGUMENT, drop includeThoughts.)
-            "thinkingConfig": {"thinkingLevel": thinking_level(), "includeThoughts": true}
-        },
-        "systemInstruction": {"parts": [{"text": system_instruction}]},
-        "tools": tool_declarations(),
-        "inputAudioTranscription": {},
-        "outputAudioTranscription": {},
-        "sessionResumption": {},
-        "contextWindowCompression": {"slidingWindow": {}}
-    }})
+    crate::api::gemini_live::setup::LiveSetupBuilder::new(MODEL)
+        // HIGH is the OCR knob — required to read small on-screen text.
+        .media_resolution(crate::api::gemini_live::setup::MediaResolution::High)
+        .voice("Aoede")
+        // Computer Control deliberately overrides the endpoint's minimal default.
+        .thinking_override(json!({
+            "thinkingLevel": thinking_level(),
+            "includeThoughts": true
+        }))
+        .system_instruction(system_instruction)
+        .transcription(crate::api::gemini_live::setup::TranscriptionMode::Both)
+        .context_window_compression()
+        .setup_field("tools", tool_declarations())
+        .setup_field("sessionResumption", json!({}))
+        .build()
 }
 
 /// Behavioural overlay appended to the LIVE system prompt — the JUDGMENT layer SYS underweights (it pushes
@@ -190,120 +184,67 @@ pub enum ServerEvent {
 /// Decode one raw server text frame into the events it carries. A single frame
 /// may yield several events (e.g. an audio part + a transcript + turnComplete).
 pub fn parse_server_message(raw: &str) -> Vec<ServerEvent> {
-    let Ok(v) = serde_json::from_str::<Value>(raw) else {
+    let Ok(frame) = parse_server_frame(raw) else {
         return vec![ServerEvent::Other(truncate(raw))];
     };
     let mut out = Vec::new();
 
-    if v.get("setupComplete").is_some() {
+    if frame.setup_complete {
         out.push(ServerEvent::SetupComplete);
     }
-    if let Some(sc) = v.get("serverContent") {
-        if let Some(parts) = sc.pointer("/modelTurn/parts").and_then(|p| p.as_array()) {
-            for part in parts {
-                if let Some(data) = part.pointer("/inlineData/data").and_then(Value::as_str)
-                    && let Ok(bytes) = general_purpose::STANDARD.decode(data)
-                {
-                    out.push(ServerEvent::Audio(pcm_bytes_to_i16(&bytes)));
-                }
-                if let Some(t) = part.get("text").and_then(Value::as_str)
-                    && !t.is_empty()
-                {
-                    // A thought part (includeThoughts) is the model's SILENT reasoning - route it
-                    // to intent, not to the spoken/ignored ModelText path.
-                    if part.get("thought").and_then(Value::as_bool) == Some(true) {
-                        out.push(ServerEvent::Thought(t.to_string()));
-                    } else {
-                        out.push(ServerEvent::ModelText(t.to_string()));
-                    }
-                }
-            }
-        }
-        if let Some(t) = sc
-            .pointer("/inputTranscription/text")
-            .and_then(|t| t.as_str())
-        {
-            out.push(ServerEvent::InputTranscript(t.to_string()));
-        }
-        if let Some(t) = sc
-            .pointer("/outputTranscription/text")
-            .and_then(|t| t.as_str())
-        {
-            out.push(ServerEvent::OutputTranscript(t.to_string()));
-        }
-        if sc.get("interrupted").and_then(Value::as_bool) == Some(true) {
-            out.push(ServerEvent::Interrupted);
-        }
-        if sc.get("turnComplete").and_then(Value::as_bool) == Some(true) {
-            out.push(ServerEvent::TurnComplete);
+    for bytes in frame.audio_chunks {
+        out.push(ServerEvent::Audio(pcm_bytes_to_i16(&bytes)));
+    }
+    for part in frame.text_parts {
+        if part.thought {
+            out.push(ServerEvent::Thought(part.text));
+        } else {
+            out.push(ServerEvent::ModelText(part.text));
         }
     }
-    if let Some(calls) = v
-        .pointer("/toolCall/functionCalls")
-        .and_then(|c| c.as_array())
-    {
-        for c in calls {
-            out.push(ServerEvent::ToolCall {
-                id: c
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                name: c
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                args: c.get("args").cloned().unwrap_or(Value::Null),
-            });
-        }
+    if let Some(text) = frame.input_transcript {
+        out.push(ServerEvent::InputTranscript(text));
     }
-    if let Some(ids) = v
-        .pointer("/toolCallCancellation/ids")
-        .and_then(|i| i.as_array())
-    {
-        out.push(ServerEvent::ToolCancellation(
-            ids.iter()
-                .filter_map(|x| x.as_str().map(str::to_string))
-                .collect(),
-        ));
+    if let Some(text) = frame.output_transcript {
+        out.push(ServerEvent::OutputTranscript(text));
     }
-    if let Some(g) = v.get("goAway") {
+    if frame.interrupted {
+        out.push(ServerEvent::Interrupted);
+    }
+    if frame.turn_complete {
+        out.push(ServerEvent::TurnComplete);
+    }
+    for call in frame.tool_calls {
+        out.push(ServerEvent::ToolCall {
+            id: call.id,
+            name: call.name,
+            args: call.args,
+        });
+    }
+    if let Some(ids) = frame.tool_cancellation_ids {
+        out.push(ServerEvent::ToolCancellation(ids));
+    }
+    if let Some(go_away) = frame.go_away {
         out.push(ServerEvent::GoAway {
-            time_left: g
-                .get("timeLeft")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+            time_left: go_away.time_left,
         });
     }
-    if let Some(s) = v.get("sessionResumptionUpdate") {
+    if let Some(resumption) = frame.session_resumption {
         out.push(ServerEvent::SessionResumption {
-            handle: s
-                .get("newHandle")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            resumable: s.get("resumable").and_then(Value::as_bool).unwrap_or(false),
+            handle: resumption.handle,
+            resumable: resumption.resumable,
         });
     }
-    if let Some(u) = v.get("usageMetadata") {
-        out.push(ServerEvent::Usage(u.clone()));
+    if let Some(usage) = frame.usage_metadata {
+        out.push(ServerEvent::Usage(usage));
+    }
+    if let Some(error) = frame.error {
+        out.push(ServerEvent::Other(error));
     }
     // Only surface as "Other" if NO known top-level key was present — a known
     // frame that simply carried nothing we model (e.g. `generationComplete`-only
     // serverContent) is not noise.
-    let recognized = [
-        "setupComplete",
-        "serverContent",
-        "toolCall",
-        "toolCallCancellation",
-        "goAway",
-        "sessionResumptionUpdate",
-        "usageMetadata",
-    ]
-    .iter()
-    .any(|k| v.get(k).is_some());
-    if out.is_empty() && !recognized {
+    if out.is_empty() && !frame.recognized {
         out.push(ServerEvent::Other(truncate(raw)));
     }
     out
@@ -328,6 +269,7 @@ mod tests {
         assert_eq!(s["setup"]["model"], "models/gemini-3.1-flash-live-preview");
         let gc = &s["setup"]["generationConfig"];
         assert_eq!(gc["mediaResolution"], "MEDIA_RESOLUTION_HIGH");
+        assert_eq!(gc["maxOutputTokens"], 65536);
         assert_eq!(gc["thinkingConfig"]["thinkingLevel"], "low");
         // The 3.1 trap: must NOT carry the legacy budget knob alongside the level.
         assert!(gc["thinkingConfig"].get("thinkingBudget").is_none());

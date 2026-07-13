@@ -1,5 +1,13 @@
 package dev.screengoated.toolbox.mobile.service
 
+import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
+import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecyclePolicy
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -8,17 +16,33 @@ import java.io.File
 
 class GeminiS2sProtocolTest {
     @Test
-    fun `s2s source keeps canonical live api setup fields`() {
-        val source = loadSourceFile(PROTOCOL_SOURCE_PATH).readText()
+    fun `s2s payloads keep canonical live api fields`() {
+        val setup = Json.parseToJsonElement(
+            buildGeminiS2sSetupPayload(
+                GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_3_1,
+                settings(),
+            ),
+        ).jsonObject.getValue("setup").jsonObject
+        val generation = setup.getValue("generationConfig").jsonObject
 
-        assertTrue(source.contains(".put(\"responseModalities\", JSONArray().put(\"AUDIO\"))"))
-        assertTrue(source.contains(".put(\"mediaResolution\", \"MEDIA_RESOLUTION_LOW\")"))
-        assertTrue(source.contains(".put(\"thinkingConfig\", JSONObject().put(\"thinkingBudget\", 0))"))
-        assertTrue(source.contains(".put(\"inputAudioTranscription\", JSONObject())"))
-        assertTrue(source.contains(".put(\"outputAudioTranscription\", JSONObject())"))
-        assertTrue(source.contains(".put(\"contextWindowCompression\", JSONObject().put(\"slidingWindow\", JSONObject()))"))
-        assertTrue(source.contains(".put(\"audioStreamEnd\", true)"))
-        assertTrue(source.contains(".put(\"mimeType\", \"audio/pcm;rate=16000\")"))
+        assertEquals(
+            "AUDIO",
+            generation.getValue("responseModalities").jsonArray.single().jsonPrimitive.content,
+        )
+        assertEquals("MEDIA_RESOLUTION_LOW", generation.getValue("mediaResolution").jsonPrimitive.content)
+        assertEquals(65536, generation.getValue("maxOutputTokens").jsonPrimitive.content.toInt())
+        assertTrue(generation.getValue("thinkingConfig").jsonObject.containsKey("thinkingLevel"))
+        assertTrue(setup.containsKey("inputAudioTranscription"))
+        assertTrue(setup.containsKey("outputAudioTranscription"))
+        assertTrue(setup.containsKey("contextWindowCompression"))
+        val audio = Json.parseToJsonElement(
+            buildGeminiS2sAudioPayload(shortArrayOf(1, 2)),
+        ).jsonObject.getValue("realtimeInput").jsonObject.getValue("audio").jsonObject
+        assertEquals("audio/pcm;rate=16000", audio.getValue("mimeType").jsonPrimitive.content)
+        val streamEnd = Json.parseToJsonElement(
+            buildGeminiS2sAudioStreamEndPayload(),
+        ).jsonObject.getValue("realtimeInput").jsonObject
+        assertTrue(streamEnd.getValue("audioStreamEnd").jsonPrimitive.content.toBoolean())
     }
 
     @Test
@@ -31,6 +55,35 @@ class GeminiS2sProtocolTest {
         assertTrue(vadSource.contains("internal const val FIRST_AUDIO_ACTIVE_RETRY_MS = 5_200L"))
         assertTrue(source.contains("hedge-winner"))
         assertTrue(source.contains("reason=no_first_audio_retry"))
+    }
+
+    @Test
+    fun `s2s sockets preserve setup typestate and check every active send`() {
+        val segmentsSource = loadSourceFile(SEGMENTS_SOURCE_PATH).readText()
+        val liveTranslateSource = loadSourceFile(LIVE_TRANSLATE_SOURCE_PATH).readText()
+        val lifecycleAdapterSource = loadSourceFile(LIVE_LIFECYCLE_ADAPTER_SOURCE_PATH).readText()
+        val playbackSource = loadSourceFile(PLAYBACK_SOURCE_PATH).readText()
+        val socketSources = "$segmentsSource\n$liveTranslateSource\n$lifecycleAdapterSource"
+
+        assertTrue(segmentsSource.contains("openGeminiLiveReadySession(httpClient, apiKey, setupPayload)"))
+        assertTrue(liveTranslateSource.contains("openGeminiLiveConnectedSession(httpClient, apiKey)"))
+        assertFalse(liveTranslateSource.contains("openGeminiLiveReadySession("))
+        assertTrue(
+            lifecycleAdapterSource.contains(
+                "is GeminiLiveLifecycleEffect.SendSetup -> activate(effect.generation)",
+            ),
+        )
+        assertTrue(
+            lifecycleAdapterSource.contains(
+                "pending.session.activate(setupPayload(), policy.setupTimeoutMs)",
+            ),
+        )
+        assertTrue(segmentsSource.contains("if (!session.trySend(buildGeminiS2sAudioPayload("))
+        assertTrue(segmentsSource.contains("if (!session.trySend(buildGeminiS2sAudioStreamEndPayload()))"))
+        assertTrue(liveTranslateSource.contains("val sent = active.session.trySend(buildGeminiS2sAudioPayload(frame))"))
+        assertFalse(socketSources.contains("BlockingWebSocketSession"))
+        assertFalse(socketSources.contains("waitForGeminiS2sSetup"))
+        assertFalse(playbackSource.contains("waitForGeminiS2sSetup"))
     }
 
     @Test
@@ -56,52 +109,61 @@ class GeminiS2sProtocolTest {
     }
 
     @Test
-    fun `translate model setup source uses translation config`() {
-        val source = loadSourceFile(PROTOCOL_SOURCE_PATH).readText()
-        val clientSource = clientImplementationSource()
+    fun `translate model setup uses translation config`() {
+        val setup = Json.parseToJsonElement(
+            buildGeminiS2sSetupPayload(
+                GeneratedLiveModelCatalog.GEMINI_LIVE_TRANSLATE_API_MODEL,
+                settings(),
+            ),
+        ).jsonObject.getValue("setup").jsonObject
+        val translation = setup.getValue("generationConfig").jsonObject
+            .getValue("translationConfig").jsonObject
 
-        assertTrue(source.contains("isGeminiTranslateApiModel(model)"))
-        assertTrue(source.contains("RealtimeModelIds.GEMINI_LIVE_TRANSLATE_API_MODEL"))
-        assertTrue(source.contains("\"translationConfig\""))
-        assertTrue(source.contains(".put(\"targetLanguageCode\", targetLanguageCode(settings.targetLanguage))"))
-        assertTrue(source.contains(".put(\"echoTargetLanguage\", true)"))
-        assertTrue(source.contains("\"translationConfig\",\n                                JSONObject()"))
-        assertTrue(source.contains(".put(\"inputAudioTranscription\", JSONObject())"))
-        assertTrue(source.contains(".put(\"outputAudioTranscription\", JSONObject()),"))
-        assertTrue(clientSource.contains("shouldSendAudioStreamEnd(model)"))
-        assertTrue(clientSource.contains("stream-end-skipped"))
-        assertTrue(clientSource.contains("RealtimeLiveTranslateAndroid"))
-        assertTrue(clientSource.contains("runLiveTranslateContinuousSession("))
-        assertTrue(clientSource.contains("collectSegments(audioChunks, adaptiveVad, backlogMs, logTag)"))
-        assertTrue(clientSource.contains("player.playNativePcm24k("))
-        assertTrue(clientSource.contains("AudioTrackOutputMode.MEDIA"))
-        assertTrue(clientSource.contains("AudioTrackOutputMode.VOICE_COMMUNICATION"))
-        assertTrue(clientSource.contains("sourceMode == SourceMode.MIC"))
-        assertFalse(clientSource.contains("shouldDropLiveTranslateEchoFrame"))
+        assertEquals("vi", translation.getValue("targetLanguageCode").jsonPrimitive.content)
+        assertTrue(translation.getValue("echoTargetLanguage").jsonPrimitive.content.toBoolean())
+        assertTrue(setup.containsKey("inputAudioTranscription"))
+        assertTrue(setup.containsKey("outputAudioTranscription"))
+        assertTrue(isGeminiLiveTranslateApiModel(GeneratedLiveModelCatalog.GEMINI_LIVE_TRANSLATE_API_MODEL))
+        assertFalse(isGeminiLiveTranslateApiModel(GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_3_1))
+        assertFalse(isGeminiLiveTranslateApiModel("future-unknown-model"))
+        assertTrue(shouldSendAudioStreamEnd("future-unknown-model"))
+        assertFalse(shouldSendAudioStreamEnd(GeneratedLiveModelCatalog.GEMINI_LIVE_TRANSLATE_API_MODEL))
+        assertEquals(
+            "RealtimeLiveTranslateAndroid",
+            geminiLiveAudioLogTag(GeneratedLiveModelCatalog.GEMINI_LIVE_TRANSLATE_API_MODEL),
+        )
         assertEquals("zh-Hans", targetLanguageCode("Chinese"))
         assertEquals("zh-Hant", targetLanguageCode("Chinese (Traditional)"))
         assertEquals("pt-BR", targetLanguageCode("pt-BR"))
         assertEquals("fil", targetLanguageCode("Filipino"))
     }
 
+    private fun settings() = GeminiS2sRuntimeSettings(
+        targetLanguage = "Vietnamese",
+        customInstruction = "",
+        globalTts = MobileGlobalTtsSettings(),
+        realtime = RealtimeTtsSettings(),
+    )
+
     @Test
     fun `live translate continuous socket policy matches Windows probes`() {
-        val source = clientImplementationSource()
+        val policy = GeminiLiveLifecyclePolicy.continuous()
+        val source = loadSourceFile(LIVE_TRANSLATE_SOURCE_PATH).readText()
 
-        assertTrue(source.contains("private const val LIVE_TRANSLATE_SERVER_SILENT_SENT_CHUNKS = 100"))
-        assertTrue(source.contains("private const val LIVE_TRANSLATE_SERVER_SILENT_MS = 15_000L"))
-        assertTrue(source.contains("private const val LIVE_TRANSLATE_PROACTIVE_ROTATE_MS = 12 * 60 * 1_000L"))
-        assertTrue(source.contains("private const val LIVE_TRANSLATE_ROTATE_QUIET_MS = 3_000L"))
-        assertTrue(source.contains("private fun liveTranslateReconnectDelayMs("))
-        assertTrue(source.contains("val baseMs = 250L * (1L shl cappedAttempt)"))
-        assertTrue(source.contains("coerceAtMost(6_000L)"))
+        assertEquals(100L, policy.serverIdleMinInputChunks)
+        assertEquals(15_000L, policy.serverIdleTimeoutMs)
+        assertEquals(12 * 60 * 1_000L, policy.rotateAfterMs)
+        assertEquals(3_000L, policy.rotationQuietMs)
+        assertTrue(source.contains("GeminiS2sLiveLifecycleAdapter("))
+        assertTrue(source.contains("clockMs = SystemClock::elapsedRealtime"))
         assertTrue(source.contains("continuous reconnect scheduled reason="))
-        assertTrue(source.contains("continuous reconnect reason=server-silent"))
-        assertTrue(source.contains("continuous reconnect reason=proactive-rotation"))
         assertTrue(source.contains("socket_age_ms="))
         assertTrue(source.contains("since_server_ms="))
         assertTrue(source.contains("since_input_ms="))
         assertTrue(source.contains("reconnect_attempts="))
+        assertFalse(source.contains("liveTranslateReconnectDelayMs"))
+        assertFalse(source.contains("LIVE_TRANSLATE_SERVER_SILENT_MS"))
+        assertFalse(source.contains("LIVE_TRANSLATE_PROACTIVE_ROTATE_MS"))
     }
 
     /**
@@ -129,6 +191,8 @@ class GeminiS2sProtocolTest {
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sClient.kt"
         private const val LIVE_TRANSLATE_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sLiveTranslate.kt"
+        private const val LIVE_LIFECYCLE_ADAPTER_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sLiveLifecycleAdapter.kt"
         private const val SEGMENTS_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sSegments.kt"
         private const val PLAYBACK_SOURCE_PATH =

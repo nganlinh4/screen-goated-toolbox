@@ -1,0 +1,38 @@
+use crate::gui::locale::RealtimeLocaleText;
+
+pub(super) fn get() -> RealtimeLocaleText {
+    RealtimeLocaleText {
+        listening: "듣고 있는 중...",
+        device: "장치 오디오",
+        waiting: "말하기 대기 중...",
+        microphone: "마이크",
+        realtime_tts_title: "번역 읽기",
+        realtime_tts_speed: "속도",
+        realtime_tts_auto: "자동",
+        realtime_tts_volume: "볼륨",
+        app_select_title: "앱 선택",
+        app_select_hint: "녹음할 앱을 선택하세요 (이 단계가 있어야 TTS 소리가 컴퓨터 오디오로 다시 캡처되지 않습니다)",
+        app_select_count: "앱 {}개",
+        realtime_tooltip_microphone_input: "마이크 입력",
+        realtime_tooltip_device_audio: "컴퓨터 오디오",
+        realtime_tooltip_transcription_model: "전사 모델",
+        realtime_tooltip_transcription_language: "전사 언어",
+        realtime_tooltip_translation_model: "번역 모델",
+        realtime_tooltip_s2s_translation_model: "Gemini S2S는 TTS Gemini Live 모델을 사용합니다",
+        realtime_tooltip_direct_speech: "직접 음성 출력 설정",
+        realtime_tooltip_tts_settings: "텍스트 음성 변환 설정",
+        realtime_tooltip_target_language: "대상 언어",
+        realtime_tooltip_s2s_target_language: "대상 언어를 변경하고 현재 S2S 세션을 다시 시작",
+        realtime_tooltip_copy_text: "텍스트 복사",
+        realtime_tooltip_decrease_font: "글자 크기 줄이기",
+        realtime_tooltip_increase_font: "글자 크기 늘리기",
+        realtime_tooltip_toggle_header: "헤더 토글",
+        realtime_download_default_title: "모델 다운로드 중",
+        realtime_download_wait: "잠시만 기다려주세요...",
+        realtime_download_cancel_tooltip: "다운로드를 취소하고 Gemini Live로 돌아가기",
+        realtime_tts_auto_tooltip: "따라잡도록 속도 자동 조정",
+        realtime_tts_s2s_locked_tooltip: "Gemini S2S에서는 직접 음성 출력이 항상 켜져 있습니다",
+        realtime_tts_enable_tooltip: "텍스트 음성 변환 켜기",
+        realtime_app_loading: "로딩 중...",
+    }
+}

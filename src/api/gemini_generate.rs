@@ -159,7 +159,7 @@ where
                         if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
                             if is_thought {
                                 if !thinking_shown && !content_started {
-                                    on_chunk(locale.model_thinking);
+                                    on_chunk(locale.global_settings.model_thinking);
                                     thinking_shown = true;
                                 }
                             } else if !content_started && thinking_shown {

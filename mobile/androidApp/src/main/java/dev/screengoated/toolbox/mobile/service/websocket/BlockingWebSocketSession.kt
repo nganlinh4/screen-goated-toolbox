@@ -1,4 +1,4 @@
-package dev.screengoated.toolbox.mobile.service.tts
+package dev.screengoated.toolbox.mobile.service.websocket
 
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -31,6 +31,7 @@ internal sealed interface WebSocketEvent {
 internal class BlockingWebSocketSession(
     client: OkHttpClient,
     request: Request,
+    private val closeReason: String = "SGT websocket session finished",
 ) : Closeable {
     private val openSignal = CountDownLatch(1)
     private val openedSuccessfully = AtomicBoolean(false)
@@ -103,7 +104,7 @@ internal class BlockingWebSocketSession(
     fun poll(timeoutMs: Long): WebSocketEvent? = events.poll(timeoutMs, TimeUnit.MILLISECONDS)
 
     override fun close() {
-        socket.close(1000, "SGT TTS done")
+        socket.close(1000, closeReason)
         socket.cancel()
     }
 }

@@ -3,10 +3,10 @@ package dev.screengoated.toolbox.mobile.service
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
-import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackOutputMode
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
@@ -131,5 +131,5 @@ internal fun shouldSendAudioStreamEnd(model: String): Boolean {
 }
 
 internal fun isGeminiLiveTranslateApiModel(model: String): Boolean {
-    return model == RealtimeModelIds.GEMINI_LIVE_TRANSLATE_API_MODEL || model.contains("live-translate")
+    return GeneratedLiveModelCatalog.endpointProfile(model)?.protocol == "live-translate"
 }

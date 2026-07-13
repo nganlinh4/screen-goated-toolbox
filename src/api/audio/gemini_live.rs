@@ -6,7 +6,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use windows::Win32::Foundation::*;
@@ -16,14 +16,31 @@ use super::utils::{
     WindowGuard, calculate_result_rects, create_streaming_overlay, encode_wav, resample_to_16khz,
 };
 use crate::APP;
-use crate::api::realtime_audio::websocket::{
-    connect_websocket, send_audio_chunk, send_audio_stream_end, send_setup_message,
-    set_socket_nonblocking, set_socket_short_timeout,
-};
+use crate::api::gemini_live::ready_session::{ConnectedLiveSocket, OpenOptions, ReadyLiveSession};
+use crate::api::gemini_live::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
 use crate::config::Preset;
 use crate::model_config::{GEMINI_LIVE_API_MODEL_2_5, get_model_by_id};
 use crate::overlay::recording::AUDIO_INITIALIZING;
 use crate::overlay::result::update_window_text;
+
+fn open_ready_session(
+    api_key: &str,
+    model: &str,
+    cancelled: impl FnMut() -> bool,
+) -> anyhow::Result<ReadyLiveSession> {
+    let setup = LiveSetupBuilder::new(model)
+        .media_resolution(MediaResolution::Low)
+        .transcription(TranscriptionMode::Input)
+        .build();
+    ConnectedLiveSocket::connect(api_key)?.activate_with(
+        setup,
+        OpenOptions {
+            setup_timeout: Duration::from_secs(30),
+            ..OpenOptions::default()
+        },
+        cancelled,
+    )
+}
 
 /// Real-time record and stream to Gemini Live WebSocket.
 /// Connects WebSocket FIRST, then streams audio in real-time during recording.
@@ -71,13 +88,12 @@ pub fn record_and_stream_gemini_live(
     AUDIO_INITIALIZING.store(true, Ordering::SeqCst);
     println!("[GeminiLiveStream] Connecting WebSocket...");
 
-    let mut socket = match connect_websocket(&gemini_api_key) {
-        Ok(s) => {
-            println!("[GeminiLiveStream] Connected");
-            s
-        }
+    let mut session = match open_ready_session(&gemini_api_key, &gemini_live_model, || {
+        stop_signal.load(Ordering::SeqCst) || abort_signal.load(Ordering::SeqCst)
+    }) {
+        Ok(session) => session,
         Err(e) => {
-            println!("[GeminiLiveStream] Connection failed: {}", e);
+            println!("[GeminiLiveStream] Connection/setup failed: {}", e);
             AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
             unsafe {
                 let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -86,59 +102,6 @@ pub fn record_and_stream_gemini_live(
         }
     };
 
-    if let Err(e) = send_setup_message(&mut socket, &gemini_live_model) {
-        println!("[GeminiLiveStream] Setup failed: {}", e);
-        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-        unsafe {
-            let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
-        return;
-    }
-
-    let _ = set_socket_short_timeout(&mut socket);
-
-    // Wait for setupComplete
-    let setup_start = Instant::now();
-    loop {
-        match socket.read() {
-            Ok(tungstenite::Message::Text(msg)) => {
-                if msg.as_str().contains("setupComplete") {
-                    break;
-                }
-            }
-            Ok(tungstenite::Message::Binary(data)) => {
-                if String::from_utf8(data.to_vec())
-                    .map(|t| t.contains("setupComplete"))
-                    .unwrap_or(false)
-                {
-                    break;
-                }
-            }
-            Ok(_) => {}
-            Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
-                if setup_start.elapsed() > Duration::from_secs(30) {
-                    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-                    unsafe {
-                        let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                    }
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(_) => {
-                AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-                unsafe {
-                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
-                return;
-            }
-        }
-    }
-
-    let _ = set_socket_nonblocking(&mut socket);
     AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
     crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
     println!("[GeminiLiveStream] Setup complete, starting audio...");
@@ -147,7 +110,7 @@ pub fn record_and_stream_gemini_live(
     let (device, config) = match setup_audio_device(&preset) {
         Some(d) => d,
         None => {
-            let _ = socket.close(None);
+            let _ = session.close();
             unsafe {
                 let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
@@ -177,7 +140,7 @@ pub fn record_and_stream_gemini_live(
     let stream = match stream {
         Some(s) => s,
         None => {
-            let _ = socket.close(None);
+            let _ = session.close();
             unsafe {
                 let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
@@ -186,7 +149,7 @@ pub fn record_and_stream_gemini_live(
     };
 
     if stream.play().is_err() {
-        let _ = socket.close(None);
+        let _ = session.close();
         unsafe {
             let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
         }
@@ -198,7 +161,7 @@ pub fn record_and_stream_gemini_live(
     // Run the main streaming loop
     stream_loop::run_streaming_loop(stream_loop::StreamingLoopContext {
         preset: &preset,
-        socket: &mut socket,
+        session: &mut session,
         api_key: &gemini_api_key,
         model: &gemini_live_model,
         audio_buffer: &audio_buffer,
@@ -218,19 +181,19 @@ pub fn record_and_stream_gemini_live(
         // Send remaining audio and wait for final transcriptions
         let remaining: Vec<i16> = std::mem::take(&mut *audio_buffer.lock().unwrap());
         if !remaining.is_empty() {
-            let _ = send_audio_chunk(&mut socket, &remaining);
+            let _ = session.send_audio_pcm(&remaining, 16_000);
         }
-        let _ = send_audio_stream_end(&mut socket);
+        let _ = session.end_audio_stream();
 
         stream_loop::wait_for_final_transcriptions(
-            &mut socket,
+            &mut session,
             &accumulated_text,
             &preset,
             streaming_hwnd,
         );
     }
 
-    let _ = socket.close(None);
+    let _ = session.close();
     let final_text = accumulated_text.lock().unwrap().clone();
     println!("[GeminiLiveStream] Result: '{}'", final_text);
 

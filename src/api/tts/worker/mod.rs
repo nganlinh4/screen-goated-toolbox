@@ -45,7 +45,7 @@ fn acquire_warm_socket(api_key: &str) -> Option<WebSocket<TlsStream<TcpStream>>>
         let _ = warm.socket.close(None);
         return None;
     }
-    eprintln!("[TTS Worker] Using WARM socket (0ms connect+setup)");
+    eprintln!("[TTS Worker] Using warm transport (0ms connect; setup still gated)");
     Some(warm.socket)
 }
 

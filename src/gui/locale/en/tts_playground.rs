@@ -1,0 +1,35 @@
+use crate::gui::locale::TtsPlaygroundLocaleText;
+
+pub(super) fn get() -> TtsPlaygroundLocaleText {
+    TtsPlaygroundLocaleText {
+        tts_settings_button: "Voice Settings",
+        tts_settings_title: "Voice Settings (for Presets, Live Translate, and Translation Gummy)",
+        tts_playground_btn: "TTS Playground",
+        tts_playground_title: "TTS Playground",
+        tts_playground_tab_tts_clone: "TTS / Clone",
+        tts_playground_tab_audio_edit: "Audio Edit",
+        tts_playground_text_label: "Text to read",
+        tts_playground_text_hint: "Type or paste text to test this sandbox voice...",
+        tts_playground_play: "Play",
+        tts_playground_generate: "Generate",
+        tts_playground_pause: "Pause",
+        tts_playground_resume: "Resume",
+        tts_playground_replay: "Replay",
+        tts_playground_download_wav: "Download WAV",
+        tts_playground_download_mp3: "Download MP3",
+        tts_playground_recent: "Recent clips",
+        tts_playground_generating: "Generating audio...",
+        tts_playground_exporting_mp3: "Exporting MP3...",
+        tts_playground_ffmpeg_installing: "Installing FFmpeg",
+        tts_playground_ffmpeg_downloading: "Downloading FFmpeg for MP3 export",
+        screen_record_gif_ffmpeg_downloading: "Downloading FFmpeg for GIF export",
+        screen_record_audio_ffmpeg_downloading: "Downloading FFmpeg for pitch-preserving audio export",
+        tts_playground_ffmpeg_extracting: "Extracting FFmpeg",
+        tts_playground_ffmpeg_installed: "FFmpeg installed",
+        tts_playground_ffmpeg_failed: "FFmpeg install failed",
+        tts_playground_no_audio: "Generate audio first.",
+        tts_playground_stop: "Stop",
+        tts_playground_clear: "Clear",
+        tts_playground_instruction_hint: "Optional style instruction for Gemini Live",
+    }
+}

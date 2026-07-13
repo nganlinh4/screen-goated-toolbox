@@ -16,11 +16,13 @@ pub fn render_update_section_content(
             ui.horizontal(|ui| {
                 let ver_string = format!(
                     "{} v{}",
-                    text.current_version_label,
+                    text.desktop_settings.current_version_label,
                     env!("CARGO_PKG_VERSION")
                 );
                 ui.label(ver_string);
-                if ui.button(text.check_for_updates_btn).clicked()
+                if ui
+                    .button(text.desktop_settings.check_for_updates_btn)
+                    .clicked()
                     && let Some(u) = updater
                 {
                     u.check_for_updates();
@@ -30,16 +32,16 @@ pub fn render_update_section_content(
         UpdateStatus::Checking => {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(text.checking_github);
+                ui.label(text.desktop_settings.checking_github);
             });
         }
         UpdateStatus::UpToDate(ver) => {
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new(format!("{} (v{})", text.up_to_date, ver))
+                    egui::RichText::new(format!("{} (v{})", text.desktop_settings.up_to_date, ver))
                         .color(theme.success()),
                 );
-                if ui.button(text.check_again_btn).clicked()
+                if ui.button(text.desktop_settings.check_again_btn).clicked()
                     && let Some(u) = updater
                 {
                     u.check_for_updates();
@@ -49,16 +51,19 @@ pub fn render_update_section_content(
         UpdateStatus::UpdateAvailable { version, body } => {
             ui.colored_label(
                 theme.warning(),
-                format!("{} {}", text.new_version_available, version),
+                format!(
+                    "{} {}",
+                    text.desktop_settings.new_version_available, version
+                ),
             );
-            egui::CollapsingHeader::new(text.release_notes_label)
+            egui::CollapsingHeader::new(text.desktop_settings.release_notes_label)
                 .icon(crate::gui::widgets::collapsing_chevron)
                 .show(ui, |ui| {
                     ui.label(body);
                 });
             ui.add_space(5.0);
             if ui
-                .button(egui::RichText::new(text.download_update_btn).strong())
+                .button(egui::RichText::new(text.desktop_settings.download_update_btn).strong())
                 .clicked()
                 && let Some(u) = updater
             {
@@ -68,13 +73,18 @@ pub fn render_update_section_content(
         UpdateStatus::Downloading => {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(text.downloading_update);
+                ui.label(text.desktop_settings.downloading_update);
             });
         }
         UpdateStatus::Error(e) => {
-            ui.colored_label(theme.danger_text(), format!("{} {}", text.update_failed, e));
-            ui.label(egui::RichText::new(text.app_folder_writable_hint).size(11.0));
-            if ui.button(text.retry_btn).clicked()
+            ui.colored_label(
+                theme.danger_text(),
+                format!("{} {}", text.desktop_settings.update_failed, e),
+            );
+            ui.label(
+                egui::RichText::new(text.desktop_settings.app_folder_writable_hint).size(11.0),
+            );
+            if ui.button(text.desktop_settings.retry_btn).clicked()
                 && let Some(u) = updater
             {
                 u.check_for_updates();
@@ -82,12 +92,12 @@ pub fn render_update_section_content(
         }
         UpdateStatus::UpdatedAndRestartRequired => {
             ui.label(
-                egui::RichText::new(text.update_success)
+                egui::RichText::new(text.desktop_settings.update_success)
                     .color(theme.success())
                     .heading(),
             );
-            ui.label(text.restart_to_use_new_version);
-            if ui.button(text.restart_app_btn).clicked()
+            ui.label(text.desktop_settings.restart_to_use_new_version);
+            if ui.button(text.desktop_settings.restart_app_btn).clicked()
                 && let Ok(exe_path) = std::env::current_exe()
                 && let Some(exe_dir) = exe_path.parent()
                 && let Ok(entries) = std::fs::read_dir(exe_dir)

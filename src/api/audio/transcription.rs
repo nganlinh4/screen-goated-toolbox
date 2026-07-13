@@ -148,10 +148,12 @@ fn transcribe_with_gemini_live(
     target_language: Option<&str>,
     wav_data: Vec<u8>,
 ) -> anyhow::Result<String> {
+    use crate::api::gemini_live::transport::{
+        connect_websocket, set_socket_nonblocking, set_socket_short_timeout,
+    };
     use crate::api::realtime_audio::websocket::{
-        connect_websocket, parse_input_transcription, parse_output_transcription, send_audio_chunk,
+        parse_input_transcription, parse_output_transcription, send_audio_chunk,
         send_audio_stream_end, send_live_translate_setup_message, send_setup_message,
-        set_socket_nonblocking, set_socket_short_timeout,
     };
     use crate::overlay::recording::AUDIO_INITIALIZING;
 
@@ -212,7 +214,7 @@ fn transcribe_with_gemini_live(
                     "[GeminiLiveInput] Received text message: {}",
                     truncate_str(msg, 200)
                 );
-                if msg.contains("setupComplete") {
+                if crate::api::gemini_live::websocket::is_setup_complete(msg) {
                     println!("[GeminiLiveInput] Setup complete received!");
                     break;
                 }
@@ -227,11 +229,15 @@ fn transcribe_with_gemini_live(
                     "[GeminiLiveInput] Received binary message: {} bytes",
                     data.len()
                 );
-                if let Ok(text) = String::from_utf8(data.to_vec())
-                    && text.contains("setupComplete")
-                {
-                    println!("[GeminiLiveInput] Setup complete (from binary)!");
-                    break;
+                if let Ok(text) = String::from_utf8(data.to_vec()) {
+                    if crate::api::gemini_live::websocket::is_setup_complete(&text) {
+                        println!("[GeminiLiveInput] Setup complete (from binary)!");
+                        break;
+                    }
+                    if let Some(err) = crate::api::gemini_live::websocket::parse_error(&text) {
+                        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+                        return Err(anyhow::anyhow!("Server returned error: {}", err));
+                    }
                 }
             }
             Ok(other) => {
