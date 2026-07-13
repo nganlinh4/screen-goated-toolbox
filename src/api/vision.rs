@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 mod image_payload;
 use image_payload::{GROQ_SAFE_REQUEST_BYTES, prepare_image_payload};
 
-const QWEN_VISION_MAX_COMPLETION_TOKENS: u64 = 1_024;
+const QWEN_VISION_MAX_COMPLETION_TOKENS: u64 = 2_048;
 const GROQ_MAX_RATE_LIMIT_WAIT_SECS: u64 = 30;
 
 pub struct TranslateImageRequest<'a> {
@@ -41,6 +41,7 @@ fn groq_vision_payload(
     mime_type: &str,
     b64_image: &str,
     streaming: bool,
+    response_schema: Option<&serde_json::Value>,
 ) -> serde_json::Value {
     let mut payload = serde_json::json!({
         "model": model,
@@ -59,6 +60,10 @@ fn groq_vision_payload(
     if model.starts_with("qwen/") {
         payload["reasoning_format"] = "hidden".into();
         payload["max_completion_tokens"] = QWEN_VISION_MAX_COMPLETION_TOKENS.into();
+    }
+    if let Some(schema) = response_schema {
+        payload["response_format"] =
+            crate::api::groq::structured_response_format(model, "image_result", schema.clone());
     }
     payload
 }
@@ -308,6 +313,7 @@ where
             ]
         }]);
         let response_format = response_schema
+            .filter(|_| crate::api::cerebras::supports_structured_outputs(&model))
             .map(|schema| crate::api::cerebras::strict_json_schema("image_result", schema))
             .or_else(|| use_json_format.then(|| serde_json::json!({ "type": "json_object" })));
         full_content = crate::api::cerebras::stream_chat(
@@ -367,10 +373,16 @@ where
             return Err(anyhow::anyhow!("NO_API_KEY:groq"));
         }
 
-        let payload =
-            groq_vision_payload(&model, &prompt, &mime_type, &b64_image, streaming_enabled);
+        let mut payload = groq_vision_payload(
+            &model,
+            &prompt,
+            &mime_type,
+            &b64_image,
+            streaming_enabled,
+            response_schema.as_ref(),
+        );
 
-        let payload_bytes = serde_json::to_vec(&payload)
+        let mut payload_bytes = serde_json::to_vec(&payload)
             .map_err(|e| anyhow::anyhow!("Failed to encode Groq vision request: {e}"))?;
         println!(
             "[vision] Groq request model={model} mime={mime_type} image_bytes={} request_bytes={} limit={GROQ_SAFE_REQUEST_BYTES}",
@@ -385,55 +397,98 @@ where
             ));
         }
 
-        let mut attempt = 0;
-        let resp = loop {
-            let response = UREQ_RESPONSE_AGENT
-                .post("https://api.groq.com/openai/v1/chat/completions")
-                .header("Authorization", &format!("Bearer {}", groq_api_key))
-                .header("Content-Type", "application/json")
-                .send(payload_bytes.as_slice())
-                .map_err(|error| anyhow::anyhow!("Groq vision transport error: {error}"))?;
-            let status = response.status().as_u16();
-            if response.status().is_success() {
-                break response;
-            }
-
-            let retry_after = retry_after_seconds(response.headers());
-            let body = response.into_body().read_to_string().unwrap_or_default();
-            let message = groq_error_message(status, &body);
-            if status == 429
-                && attempt == 0
-                && retry_after.is_some_and(|seconds| seconds <= GROQ_MAX_RATE_LIMIT_WAIT_SECS)
-            {
-                let seconds = retry_after.unwrap_or_default();
-                crate::log_info!("[vision] Groq token limit reached; retrying once in {seconds}s");
-                if !wait_for_groq_retry(seconds, &cancel_token) {
-                    return Err(anyhow::anyhow!("Groq vision request cancelled"));
+        let mut rate_attempt = 0;
+        let mut empty_recovery_attempt = 0;
+        let root = loop {
+            let resp = loop {
+                let response = UREQ_RESPONSE_AGENT
+                    .post("https://api.groq.com/openai/v1/chat/completions")
+                    .header("Authorization", &format!("Bearer {}", groq_api_key))
+                    .header("Content-Type", "application/json")
+                    .send(payload_bytes.as_slice())
+                    .map_err(|error| anyhow::anyhow!("Groq vision transport error: {error}"))?;
+                let status = response.status().as_u16();
+                if response.status().is_success() {
+                    break response;
                 }
-                attempt += 1;
-                continue;
-            }
-            if status == 401 || status == 403 {
-                return Err(anyhow::anyhow!("INVALID_API_KEY"));
-            }
-            return Err(anyhow::anyhow!("Groq vision API HTTP {status}: {message}"));
-        };
 
-        record_usage_simple(resp.headers(), &model);
+                let retry_after = retry_after_seconds(response.headers());
+                let body = response.into_body().read_to_string().unwrap_or_default();
+                let message = groq_error_message(status, &body);
+                if status == 429
+                    && rate_attempt == 0
+                    && retry_after.is_some_and(|seconds| seconds <= GROQ_MAX_RATE_LIMIT_WAIT_SECS)
+                {
+                    let seconds = retry_after.unwrap_or_default();
+                    crate::log_info!(
+                        "[vision] Groq token limit reached; retrying once in {seconds}s"
+                    );
+                    if !wait_for_groq_retry(seconds, &cancel_token) {
+                        return Err(anyhow::anyhow!("Groq vision request cancelled"));
+                    }
+                    rate_attempt += 1;
+                    continue;
+                }
+                if status == 401 || status == 403 {
+                    return Err(anyhow::anyhow!("INVALID_API_KEY"));
+                }
+                return Err(anyhow::anyhow!("Groq vision API HTTP {status}: {message}"));
+            };
 
-        if streaming_enabled {
-            let reader = BufReader::new(resp.into_body().into_reader());
-            full_content = crate::api::openai_compat::consume_content_stream(
-                reader,
-                &cancel_token,
-                &mut on_chunk,
-            )?;
-        } else {
+            record_usage_simple(resp.headers(), &model);
+
+            if streaming_enabled {
+                let reader = BufReader::new(resp.into_body().into_reader());
+                full_content = crate::api::openai_compat::consume_content_stream(
+                    reader,
+                    &cancel_token,
+                    &mut on_chunk,
+                )?;
+                if model.starts_with("qwen/")
+                    && full_content.trim().is_empty()
+                    && empty_recovery_attempt == 0
+                {
+                    crate::log_info!(
+                        "[vision] Qwen stream used its completion without final content; retrying without reasoning"
+                    );
+                    payload["reasoning_effort"] = "none".into();
+                    payload_bytes = serde_json::to_vec(&payload).map_err(|e| {
+                        anyhow::anyhow!("Failed to encode Groq vision recovery request: {e}")
+                    })?;
+                    empty_recovery_attempt += 1;
+                    rate_attempt = 0;
+                    continue;
+                }
+                break serde_json::Value::Null;
+            }
             let root: serde_json::Value = resp
                 .into_body()
                 .read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
             record_groq_json_usage(&model, &root);
+            let content = root
+                .pointer("/choices/0/message/content")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            if model.starts_with("qwen/")
+                && content.trim().is_empty()
+                && empty_recovery_attempt == 0
+            {
+                crate::log_info!(
+                    "[vision] Qwen used its completion without final content; retrying without reasoning"
+                );
+                payload["reasoning_effort"] = "none".into();
+                payload_bytes = serde_json::to_vec(&payload).map_err(|e| {
+                    anyhow::anyhow!("Failed to encode Groq vision recovery request: {e}")
+                })?;
+                empty_recovery_attempt += 1;
+                rate_attempt = 0;
+                continue;
+            }
+            break root;
+        };
+
+        if !streaming_enabled {
             let chat_resp: ChatCompletionResponse = serde_json::from_value(root)
                 .map_err(|e| anyhow::anyhow!("Failed to decode non-streaming response: {}", e))?;
 
@@ -465,78 +520,4 @@ where
 }
 
 #[cfg(test)]
-mod live_tests {
-    use super::*;
-
-    #[test]
-    fn qwen_payload_stays_below_tpm_and_hides_reasoning() {
-        let payload = groq_vision_payload("qwen/qwen3.6-27b", "prompt", "image/png", "AA==", false);
-        assert_eq!(payload["max_completion_tokens"], 1024);
-        assert_eq!(payload["reasoning_format"], "hidden");
-        assert!(payload.get("reasoning_effort").is_none());
-
-        let scout = groq_vision_payload("scout", "prompt", "image/png", "AA==", false);
-        assert!(scout.get("max_completion_tokens").is_none());
-        assert!(scout.get("reasoning_format").is_none());
-    }
-
-    #[test]
-    fn groq_retry_headers_and_error_bodies_are_structural() {
-        let mut headers = ureq::http::HeaderMap::new();
-        headers.insert("retry-after", "14.2".parse().unwrap());
-        assert_eq!(retry_after_seconds(&headers), Some(15));
-        assert_eq!(
-            groq_error_message(429, r#"{"error":{"message":"TPM exhausted"}}"#),
-            "TPM exhausted"
-        );
-        assert_eq!(groq_error_message(500, "not json"), "HTTP 500");
-    }
-
-    #[test]
-    #[ignore = "requires GROQ_API_KEY and calls the live Groq vision endpoint"]
-    fn groq_rust_pipeline_live() {
-        let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY is required");
-        let image = if let Ok(path) = std::env::var("GROQ_TEST_IMAGE") {
-            image::open(path).unwrap().to_rgba8()
-        } else {
-            let dimension = std::env::var("GROQ_TEST_DIMENSION")
-                .ok()
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(1200);
-            let width = std::env::var("GROQ_TEST_WIDTH")
-                .ok()
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(dimension);
-            let height = std::env::var("GROQ_TEST_HEIGHT")
-                .ok()
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(dimension);
-            let mut state = 0x89ab_cdef_u32;
-            ImageBuffer::from_fn(width, height, |_, _| {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                Rgba([state as u8, (state >> 8) as u8, (state >> 16) as u8, 255])
-            })
-        };
-        let answer = translate_image_streaming(
-            TranslateImageRequest {
-                groq_api_key: &api_key,
-                gemini_api_key: "",
-                prompt: "Reply with only OK.".to_string(),
-                model: "qwen/qwen3.6-27b".to_string(),
-                provider: "groq".to_string(),
-                image,
-                original_bytes: None,
-                streaming_enabled: false,
-                use_json_format: false,
-                response_schema: None,
-                cancel_token: None,
-            },
-            |_| {},
-        )
-        .unwrap();
-        assert!(!answer.trim().is_empty());
-        assert!(!answer.contains("<think>"));
-    }
-}
+mod live_tests;

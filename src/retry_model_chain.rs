@@ -3,7 +3,42 @@ use crate::model_config::{
     ModelConfig, ModelType, get_all_models_with_custom, get_model_by_id_with_custom,
     model_is_non_llm, model_supports_search_by_id_with_custom, model_supports_search_by_name,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
+
+const MODEL_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(300);
+static MODEL_COOLDOWNS: LazyLock<Mutex<HashMap<String, Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn rate_limit_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("http 429")
+        || lower.contains("status code 429")
+        || lower.contains("rate limit")
+        || lower.contains("too many requests")
+        || lower.contains("quota exceeded")
+}
+
+pub fn record_model_failure(model_id: &str, error: &str) {
+    if rate_limit_error(error)
+        && let Ok(mut cooldowns) = MODEL_COOLDOWNS.lock()
+    {
+        cooldowns.insert(
+            model_id.to_string(),
+            Instant::now() + MODEL_RATE_LIMIT_COOLDOWN,
+        );
+    }
+}
+
+fn model_cooldown_remaining(model_id: &str) -> Option<Duration> {
+    let now = Instant::now();
+    let mut cooldowns = MODEL_COOLDOWNS.lock().ok()?;
+    cooldowns.retain(|_, until| *until > now);
+    cooldowns
+        .get(model_id)
+        .map(|until| until.saturating_duration_since(now))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RetryChainKind {
@@ -97,6 +132,12 @@ pub fn preflight_skip_reason(
     config: &Config,
     blocked_providers: &HashSet<String>,
 ) -> Option<String> {
+    if let Some(remaining) = model_cooldown_remaining(model_id) {
+        return Some(format!(
+            "MODEL_RATE_LIMIT_COOLDOWN:{model_id}:{}s",
+            remaining.as_secs().max(1)
+        ));
+    }
     if blocked_providers.contains(provider) {
         return Some(format!("Provider {} is unavailable for retry.", provider));
     }
@@ -232,7 +273,9 @@ fn is_retry_candidate_compatible(
 
 #[cfg(test)]
 mod tests {
-    use super::{RetryChainKind, preflight_skip_reason, resolve_next_retry_model};
+    use super::{
+        RetryChainKind, preflight_skip_reason, rate_limit_error, resolve_next_retry_model,
+    };
     use crate::config::Config;
     use std::collections::HashSet;
 
@@ -247,6 +290,12 @@ mod tests {
             preflight_skip_reason("gemini-3.1-flash-lite", "google", &config, &HashSet::new());
 
         assert_eq!(reason.as_deref(), Some("PROVIDER_DISABLED:google"));
+    }
+
+    #[test]
+    fn distinguishes_rate_limits_from_transient_server_errors() {
+        assert!(rate_limit_error("vision API HTTP 429: quota exceeded"));
+        assert!(!rate_limit_error("vision API HTTP 503"));
     }
 
     #[test]

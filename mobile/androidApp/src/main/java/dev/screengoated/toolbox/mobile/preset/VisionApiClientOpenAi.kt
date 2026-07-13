@@ -13,7 +13,7 @@ import java.io.IOException
 import kotlin.math.ceil
 import kotlin.coroutines.coroutineContext
 
-private const val QWEN_VISION_MAX_COMPLETION_TOKENS = 1_024
+private const val QWEN_VISION_MAX_COMPLETION_TOKENS = 2_048
 private const val GROQ_MAX_RATE_LIMIT_WAIT_SECONDS = 30L
 
 internal suspend fun VisionApiClient.streamOpenAiVision(
@@ -42,20 +42,23 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
         return generateOpenAiVisionBlocking(endpoint, apiKey, providerName, model, payload, onChunk)
     }
 
-    val encoded = if (providerName == "Cerebras") encodeCerebrasJson(payload) else null
-    val requestBuilder = Request.Builder()
-        .url(endpoint)
-        .header("Authorization", "Bearer $apiKey")
-        .header("Content-Type", "application/json")
-        .post(encoded?.body ?: payload.toString().toRequestBody(jsonMediaType))
-    if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
-    val request = requestBuilder.build()
+    var requestPayload = payload
+    var emptyRecoveryAttempted = false
+    while (true) {
+        val encoded = if (providerName == "Cerebras") encodeCerebrasJson(requestPayload) else null
+        val requestBuilder = Request.Builder()
+            .url(endpoint)
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .post(encoded?.body ?: requestPayload.toString().toRequestBody(jsonMediaType))
+        if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
+        val request = requestBuilder.build()
 
-    val fullContent = StringBuilder()
-    var thinkingShown = false
-    var contentStarted = false
+        val fullContent = StringBuilder()
+        var thinkingShown = false
+        var contentStarted = false
 
-    executeOpenAiVisionRequest(request, providerName).use { response ->
+        executeOpenAiVisionRequest(request, providerName).use { response ->
 
         if (providerName == "Cerebras") {
             ModelUsageStats.updateCerebras(model.fullName, response.headers)
@@ -92,9 +95,18 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
                 }
             }
         }
+        }
+        if (
+            model.fullName.startsWith("qwen/") &&
+            fullContent.isBlank() &&
+            !emptyRecoveryAttempted
+        ) {
+            requestPayload = JSONObject(payload.toString()).put("reasoning_effort", "none")
+            emptyRecoveryAttempted = true
+            continue
+        }
+        return fullContent.toString()
     }
-
-    return fullContent.toString()
 }
 
 private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
@@ -105,16 +117,19 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
     payload: JSONObject,
     onChunk: (String) -> Unit,
 ): String {
-    val encoded = if (providerName == "Cerebras") encodeCerebrasJson(payload) else null
-    val requestBuilder = Request.Builder()
-        .url(endpoint)
-        .header("Authorization", "Bearer $apiKey")
-        .header("Content-Type", "application/json")
-        .post(encoded?.body ?: payload.toString().toRequestBody(jsonMediaType))
-    if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
-    val request = requestBuilder.build()
+    var requestPayload = payload
+    var emptyRecoveryAttempted = false
+    while (true) {
+        val encoded = if (providerName == "Cerebras") encodeCerebrasJson(requestPayload) else null
+        val requestBuilder = Request.Builder()
+            .url(endpoint)
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .post(encoded?.body ?: requestPayload.toString().toRequestBody(jsonMediaType))
+        if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
+        val request = requestBuilder.build()
 
-    executeOpenAiVisionRequest(request, providerName).use { response ->
+        executeOpenAiVisionRequest(request, providerName).use { response ->
 
         if (providerName == "Cerebras") {
             ModelUsageStats.updateCerebras(model.fullName, response.headers)
@@ -134,11 +149,17 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
         } catch (_: JSONException) {
             ""
         }
-        if (content.isBlank()) {
-            throw IOException("$providerName vision returned blank content.")
+            if (content.isBlank()) {
+                if (model.fullName.startsWith("qwen/") && !emptyRecoveryAttempted) {
+                    requestPayload = JSONObject(payload.toString()).put("reasoning_effort", "none")
+                    emptyRecoveryAttempted = true
+                    return@use
+                }
+                throw IOException("$providerName vision returned blank content.")
+            }
+            onChunk(content)
+            return content
         }
-        onChunk(content)
-        return content
     }
 }
 

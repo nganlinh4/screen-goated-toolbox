@@ -165,6 +165,60 @@ fn migrate_config_sanitizes_model_priority_chains() {
 }
 
 #[test]
+fn migrate_config_updates_only_the_historical_image_default() {
+    let mut config = Config::default();
+    config.model_priority_chains.image_to_text = vec![
+        "gemma-4-31b-cerebras-vision",
+        "scout",
+        "qwen-3.6-27b-vision",
+        "gemini-3.1-flash-lite",
+        "gemini-flash",
+        "gemini-flash-lite",
+        "gemini-live-vision-3.1",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect();
+
+    migrate_config(&mut config);
+
+    assert_eq!(
+        config.model_priority_chains.image_to_text,
+        crate::model_config::default_image_to_text_priority_chain_ids()
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn migrate_config_updates_the_released_image_default_order() {
+    let mut config = Config::default();
+    config.model_priority_chains.image_to_text = [
+        "gemma-4-31b-cerebras-vision",
+        "qwen-3.6-27b-vision",
+        "scout",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite",
+        "gemini-live-vision-3.1",
+        "gemini-flash",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect();
+
+    migrate_config(&mut config);
+
+    assert_eq!(
+        config.model_priority_chains.image_to_text,
+        crate::model_config::default_image_to_text_priority_chain_ids()
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn migrate_config_falls_back_to_default_text_model_id() {
     let builtin = Preset {
         id: "preset_translate".to_string(),

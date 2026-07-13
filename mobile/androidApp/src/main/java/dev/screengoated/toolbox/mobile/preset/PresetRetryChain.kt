@@ -1,6 +1,36 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
+import java.util.concurrent.ConcurrentHashMap
+
+private const val MODEL_RATE_LIMIT_COOLDOWN_MILLIS = 300_000L
+private val modelRateLimitCooldowns = ConcurrentHashMap<String, Long>()
+private fun monotonicMillis(): Long = System.nanoTime() / 1_000_000L
+
+private fun isRateLimitError(error: String): Boolean {
+    val lower = error.lowercase()
+    return lower.contains("http 429") ||
+        lower.contains("request failed with 429") ||
+        lower.contains("rate limit") ||
+        lower.contains("too many requests") ||
+        lower.contains("quota exceeded")
+}
+
+internal fun recordPresetModelFailure(modelId: String, error: String) {
+    if (isRateLimitError(error)) {
+        modelRateLimitCooldowns[modelId] = monotonicMillis() + MODEL_RATE_LIMIT_COOLDOWN_MILLIS
+    }
+}
+
+private fun modelCooldownRemainingMillis(modelId: String): Long? {
+    val now = monotonicMillis()
+    val until = modelRateLimitCooldowns[modelId] ?: return null
+    if (until <= now) {
+        modelRateLimitCooldowns.remove(modelId, until)
+        return null
+    }
+    return until - now
+}
 
 internal enum class PresetRetryChainKind {
     IMAGE_TO_TEXT,
@@ -56,6 +86,9 @@ internal fun preflightSkipReason(
     blockedProviders: Set<PresetModelProvider>,
     settings: PresetRuntimeSettings,
 ): String? {
+    modelCooldownRemainingMillis(modelId)?.let { remaining ->
+        return "MODEL_RATE_LIMIT_COOLDOWN:$modelId:${(remaining + 999) / 1_000}s"
+    }
     if (provider in blockedProviders) {
         return "Provider ${providerKey(provider)} is unavailable for retry."
     }

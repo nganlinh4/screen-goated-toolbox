@@ -457,7 +457,7 @@ impl Brain {
         if self.anchors.is_empty() {
             self.anchors = super::super::detector::detect_view(self.view)
                 .into_iter()
-                .map(|b| (b.cx, b.cy, Some("clickable".to_string())))
+                .map(|b| (b.cx, b.cy, Some("clickable".to_string()), None))
                 .collect();
         }
         if self.anchors.is_empty() {
@@ -467,7 +467,7 @@ impl Brain {
             "DETECTED CLICKABLE MARKS (this surface exposes NO UIA elements; these clickable \
 regions were found visually - click_mark by its number; @cellN is where it sits):\n",
         );
-        for (i, (sx, sy, note)) in self.anchors.iter().enumerate() {
+        for (i, (sx, sy, note, _)) in self.anchors.iter().enumerate() {
             let mx = (*sx - self.view.x) as f64 / self.view.w.max(1) as f64 * 1000.0;
             let my = (*sy - self.view.y) as f64 / self.view.h.max(1) as f64 * 1000.0;
             let cell = if (0.0..=1000.0).contains(&mx) && (0.0..=1000.0).contains(&my) {

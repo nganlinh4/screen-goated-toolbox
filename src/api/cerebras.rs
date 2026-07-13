@@ -90,6 +90,20 @@ pub fn supports_predicted_outputs(model: &str) -> bool {
     model == "gpt-oss-120b" || model == "zai-glm-4.7"
 }
 
+/// Models for which Cerebras documents constrained JSON-schema decoding.
+/// Vision-capable Gemma is deliberately absent: it rejects `response_format`.
+pub fn supports_structured_outputs(model: &str) -> bool {
+    matches!(
+        model,
+        "gpt-oss-120b"
+            | "llama-3.1-8b"
+            | "qwen-3-235b-a22b-instruct-2507"
+            | "qwen-3-32b"
+            | "zai-glm-4.6"
+            | "zai-glm-4.7"
+    )
+}
+
 /// Strict schema shape required by Cerebras constrained decoding.
 pub fn strict_json_schema(name: &str, schema: Value) -> Value {
     json!({
@@ -201,6 +215,13 @@ mod tests {
         let unsupported = chat_payload("gemma-4-31b", json!([]), false, None, Some("old"));
         assert_eq!(supported["prediction"]["content"], "old");
         assert!(unsupported.get("prediction").is_none());
+    }
+
+    #[test]
+    fn gemma_vision_does_not_receive_unsupported_structured_output() {
+        assert!(!supports_structured_outputs("gemma-4-31b"));
+        assert!(supports_structured_outputs("gpt-oss-120b"));
+        assert!(supports_structured_outputs("zai-glm-4.7"));
     }
 
     #[test]

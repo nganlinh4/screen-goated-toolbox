@@ -24,7 +24,7 @@ class VisionImageBudgetTest {
 
         assertEquals("hidden", payload.getString("reasoning_format"))
         assertFalse(payload.has("reasoning_effort"))
-        assertEquals(1024, payload.getInt("max_completion_tokens"))
+        assertEquals(2048, payload.getInt("max_completion_tokens"))
     }
 
     @Test
