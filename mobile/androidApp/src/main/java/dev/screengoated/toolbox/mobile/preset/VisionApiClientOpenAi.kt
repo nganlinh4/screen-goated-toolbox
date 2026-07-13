@@ -189,7 +189,7 @@ internal fun VisionApiClient.callQrServer(
     }
 }
 
-private fun openAiVisionPayload(
+internal fun openAiVisionPayload(
     fullName: String,
     prompt: String,
     imageBase64: String,
@@ -218,6 +218,10 @@ private fun openAiVisionPayload(
             ),
         )
         .put("stream", stream)
+    if (fullName.startsWith("qwen/")) {
+        payload.put("reasoning_format", "hidden")
+        payload.put("max_completion_tokens", 4096)
+    }
     if (fullName == "gemma-4-31b") {
         payload.put("max_completion_tokens", 8192)
     }

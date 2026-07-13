@@ -8,9 +8,25 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class VisionImageBudgetTest {
+    @Test
+    fun qwenKeepsDefaultReasoningButHidesReasoningOutput() {
+        val payload = openAiVisionPayload(
+            fullName = "qwen/qwen3.6-27b",
+            prompt = "Read this image",
+            imageBase64 = "AA==",
+            mimeType = "image/png",
+            stream = false,
+        )
+
+        assertEquals("hidden", payload.getString("reasoning_format"))
+        assertFalse(payload.has("reasoning_effort"))
+        assertEquals(4096, payload.getInt("max_completion_tokens"))
+    }
+
     @Test
     fun limitsMatchWindowsParityFixture() {
         val fixture = Files.readAllBytes(fixturePath()).decodeToString()
