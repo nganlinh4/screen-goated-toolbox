@@ -35,7 +35,7 @@ fn groq_vision_payload(
     b64_image: &str,
     streaming: bool,
 ) -> serde_json::Value {
-    serde_json::json!({
+    let mut payload = serde_json::json!({
         "model": model,
         "messages": [
             {
@@ -48,7 +48,12 @@ fn groq_vision_payload(
         ],
         "temperature": 0.1,
         "stream": streaming
-    })
+    });
+    if model.starts_with("qwen/") {
+        payload["reasoning_format"] = "hidden".into();
+        payload["max_completion_tokens"] = 4096.into();
+    }
+    payload
 }
 
 pub fn translate_image_streaming<F>(
@@ -407,9 +412,15 @@ mod live_tests {
     use super::*;
 
     #[test]
-    fn groq_payload_does_not_reserve_the_entire_tpm_limit() {
-        let payload = groq_vision_payload("model", "prompt", "image/png", "AA==", false);
-        assert!(payload.get("max_completion_tokens").is_none());
+    fn qwen_payload_stays_below_tpm_and_hides_reasoning() {
+        let payload = groq_vision_payload("qwen/qwen3.6-27b", "prompt", "image/png", "AA==", false);
+        assert_eq!(payload["max_completion_tokens"], 4096);
+        assert_eq!(payload["reasoning_format"], "hidden");
+        assert!(payload.get("reasoning_effort").is_none());
+
+        let scout = groq_vision_payload("scout", "prompt", "image/png", "AA==", false);
+        assert!(scout.get("max_completion_tokens").is_none());
+        assert!(scout.get("reasoning_format").is_none());
     }
 
     #[test]
@@ -449,5 +460,6 @@ mod live_tests {
         )
         .unwrap();
         assert!(!answer.trim().is_empty());
+        assert!(!answer.contains("<think>"));
     }
 }
