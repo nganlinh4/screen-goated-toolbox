@@ -1,5 +1,7 @@
 package dev.screengoated.toolbox.mobile.service.tts
 
+import dev.screengoated.toolbox.mobile.service.websocket.BlockingWebSocketSession
+import dev.screengoated.toolbox.mobile.service.websocket.WebSocketEvent
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject

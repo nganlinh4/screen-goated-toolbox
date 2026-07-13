@@ -4,7 +4,7 @@ use std::time::Duration;
 use ureq::http::HeaderMap;
 
 /// Build a ureq agent carrying our user-agent string and an end-to-end timeout.
-fn build_agent(timeout_global: Duration) -> ureq::Agent {
+fn build_agent(timeout_global: Duration, http_status_as_error: bool) -> ureq::Agent {
     ureq::Agent::config_builder()
         .user_agent(concat!(
             env!("CARGO_PKG_NAME"),
@@ -12,20 +12,26 @@ fn build_agent(timeout_global: Duration) -> ureq::Agent {
             env!("CARGO_PKG_VERSION")
         ))
         .timeout_global(Some(timeout_global))
+        .http_status_as_error(http_status_as_error)
         .build()
         .into()
 }
 
 /// Agent for unary (non-streaming) requests — bounded end-to-end at 120s.
 pub static UREQ_AGENT: LazyLock<ureq::Agent> =
-    LazyLock::new(|| build_agent(Duration::from_secs(120)));
+    LazyLock::new(|| build_agent(Duration::from_secs(120), true));
+
+/// Unary agent that returns HTTP error responses so callers can inspect provider
+/// retry headers and structured error bodies before deciding how to recover.
+pub static UREQ_RESPONSE_AGENT: LazyLock<ureq::Agent> =
+    LazyLock::new(|| build_agent(Duration::from_secs(120), false));
 
 /// Agent for streaming (SSE) requests. In ureq 3.x `timeout_global` includes body
 /// reads, so a reasoning / search-grounded LLM stream that legitimately runs past
 /// 120s was being force-aborted mid-response on the shared agent. Streaming calls
 /// use this longer cap (matching the help-assistant agent) instead.
 pub static UREQ_STREAM_AGENT: LazyLock<ureq::Agent> =
-    LazyLock::new(|| build_agent(Duration::from_secs(900)));
+    LazyLock::new(|| build_agent(Duration::from_secs(900), true));
 
 /// True when a ureq error is an HTTP 401/403 (authentication failure).
 ///

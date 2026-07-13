@@ -213,8 +213,8 @@ fn download_vieneu_runtime_inner(
 ) -> Result<()> {
     let loc = locale();
     set_progress(
-        loc.vieneu_runtime_downloading_title,
-        loc.vieneu_runtime_fetching_manifest,
+        loc.tool_runtime.vieneu_runtime_downloading_title,
+        loc.tool_runtime.vieneu_runtime_fetching_manifest,
         0.0,
         use_badge,
     );
@@ -239,10 +239,11 @@ fn download_vieneu_runtime_inner(
             }
             let chunk_path = stage.join(&chunk.filename);
             let message = loc
+                .tool_runtime
                 .vieneu_runtime_downloading_file_fmt
                 .replace("{}", &chunk.filename);
             set_progress(
-                loc.vieneu_runtime_downloading_title,
+                loc.tool_runtime.vieneu_runtime_downloading_title,
                 &message,
                 if total > 0 {
                     downloaded_total as f32 / total as f32 * 75.0
@@ -258,7 +259,7 @@ fn download_vieneu_runtime_inner(
                     0.0
                 };
                 set_progress(
-                    loc.vieneu_runtime_downloading_title,
+                    loc.tool_runtime.vieneu_runtime_downloading_title,
                     &message,
                     progress,
                     use_badge,
@@ -269,8 +270,8 @@ fn download_vieneu_runtime_inner(
         }
 
         set_progress(
-            loc.vieneu_runtime_downloading_title,
-            loc.vieneu_runtime_preparing_runtime,
+            loc.tool_runtime.vieneu_runtime_downloading_title,
+            loc.tool_runtime.vieneu_runtime_preparing_runtime,
             80.0,
             use_badge,
         );
@@ -278,8 +279,8 @@ fn download_vieneu_runtime_inner(
             format!("Failed to assemble VieNeu archive '{}'", archive.display())
         })?;
         set_progress(
-            loc.vieneu_runtime_downloading_title,
-            loc.vieneu_runtime_extracting,
+            loc.tool_runtime.vieneu_runtime_downloading_title,
+            loc.tool_runtime.vieneu_runtime_extracting,
             88.0,
             use_badge,
         );
@@ -331,13 +332,18 @@ fn download_vieneu_runtime_inner(
 
     if result.is_ok() {
         clear_progress(
-            loc.vieneu_runtime_downloading_title,
-            loc.vieneu_runtime_ready,
+            loc.tool_runtime.vieneu_runtime_downloading_title,
+            loc.tool_runtime.vieneu_runtime_ready,
             100.0,
             use_badge,
         );
     } else {
-        clear_progress(loc.vieneu_runtime_downloading_title, "", 0.0, use_badge);
+        clear_progress(
+            loc.tool_runtime.vieneu_runtime_downloading_title,
+            "",
+            0.0,
+            use_badge,
+        );
     }
     result
 }

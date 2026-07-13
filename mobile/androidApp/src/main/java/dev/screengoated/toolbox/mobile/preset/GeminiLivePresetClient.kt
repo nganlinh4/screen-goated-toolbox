@@ -5,14 +5,18 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.core.graphics.scale
 import dev.screengoated.toolbox.mobile.model.TtsDefaults
-import dev.screengoated.toolbox.mobile.shared.live.geminiLiveThinkingJson
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveMediaResolution
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSetupSpec
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveTranscriptionMode
+import dev.screengoated.toolbox.mobile.shared.live.buildGeminiLiveSetup
+import dev.screengoated.toolbox.mobile.shared.live.geminiLiveWebSocketRequest
+import dev.screengoated.toolbox.mobile.shared.live.parseGeminiLiveServerFrame
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -23,13 +27,11 @@ import java.io.IOException
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
 
-private const val GEMINI_LIVE_WS_ENDPOINT =
-    "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 private const val STILL_FRAME_STREAM_COUNT = 4
 private const val STILL_FRAME_INTERVAL_MS = 500L
 private const val LIVE_IDLE_COMPLETION_MS = 1_200L
 
-private sealed interface GeminiLivePresetEvent {
+internal sealed interface GeminiLivePresetEvent {
     data class Chunk(val text: String) : GeminiLivePresetEvent
     data class Error(val message: String) : GeminiLivePresetEvent
     data object Complete : GeminiLivePresetEvent
@@ -84,12 +86,10 @@ private suspend fun OkHttpClient.streamGeminiLive(
     val events = LinkedBlockingDeque<GeminiLivePresetEvent>()
     val setupReady = CompletableDeferred<Unit>()
     val socket = newWebSocket(
-        Request.Builder()
-            .url("$GEMINI_LIVE_WS_ENDPOINT?key=$apiKey")
-            .build(),
+        geminiLiveWebSocketRequest(apiKey),
         object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                webSocket.send(buildGeminiLiveSetup(model.fullName, systemInstruction))
+                webSocket.send(buildGeminiLivePresetSetup(model.fullName, systemInstruction))
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -169,51 +169,23 @@ private suspend fun OkHttpClient.streamGeminiLive(
     result
 }
 
-private fun buildGeminiLiveSetup(
+private fun buildGeminiLivePresetSetup(
     model: String,
     systemInstruction: String,
 ): String {
-    val generationConfig = JSONObject()
-        .put("responseModalities", JSONArray().put("AUDIO"))
-        .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
-        .put(
-            "speechConfig",
-            JSONObject().put(
-                "voiceConfig",
-                JSONObject().put(
-                    "prebuiltVoiceConfig",
-                    JSONObject().put("voiceName", TtsDefaults.DEFAULT_TTS_GEMINI_VOICE),
-                ),
-            ),
-        )
-
-    geminiLiveThinkingJson(model)?.let { generationConfig.put("thinkingConfig", it) }
-
-    val setup = JSONObject()
-        .put(
-            "setup",
-            JSONObject()
-                .put("model", "models/$model")
-                .put("generationConfig", generationConfig)
-                .put("outputAudioTranscription", JSONObject()),
-        )
     val trimmedInstruction = systemInstruction.trim()
-    if (trimmedInstruction.isNotEmpty()) {
-        setup.getJSONObject("setup").put(
-            "systemInstruction",
-            JSONObject().put(
-                "parts",
-                JSONArray().put(
-                    JSONObject().put(
-                        "text",
-                        "$trimmedInstruction IMPORTANT: You must respond as fast as possible. Be concise and direct.",
-                    ),
-                ),
-            ),
-        )
+    val instruction = trimmedInstruction.takeIf(String::isNotEmpty)?.let {
+        "$it IMPORTANT: You must respond as fast as possible. Be concise and direct."
     }
-
-    return setup.toString()
+    return buildGeminiLiveSetup(
+        GeminiLiveSetupSpec(
+            apiModel = model,
+            mediaResolution = GeminiLiveMediaResolution.LOW,
+            voiceName = TtsDefaults.DEFAULT_TTS_GEMINI_VOICE,
+            systemInstruction = instruction,
+            transcriptionMode = GeminiLiveTranscriptionMode.OUTPUT,
+        ),
+    ).toString()
 }
 
 private fun buildGeminiLiveTextPayload(text: String): String {
@@ -260,56 +232,37 @@ private fun buildGeminiLiveStillFrame(
     return jpegBytes to "image/jpeg"
 }
 
-private fun handleGeminiLivePresetMessage(
+internal fun handleGeminiLivePresetMessage(
     message: String,
     setupReady: CompletableDeferred<Unit>,
     events: LinkedBlockingDeque<GeminiLivePresetEvent>,
 ) {
-    runCatching {
-        val root = JSONObject(message)
-        if (root.has("setupComplete")) {
+    parseGeminiLiveServerFrame(message)?.let { frame ->
+        if (frame.setupComplete) {
             if (!setupReady.isCompleted) {
                 setupReady.complete(Unit)
             }
-            return@runCatching
+            return
         }
 
-        root.optJSONObject("error")
-            ?.optString("message")
-            ?.takeIf(String::isNotBlank)
-            ?.let { error ->
-                events.offer(GeminiLivePresetEvent.Error(error))
-                return
-            }
+        frame.error?.let { error ->
+            events.offer(GeminiLivePresetEvent.Error(error))
+            return
+        }
 
-        val serverContent = root.optJSONObject("serverContent") ?: return
-        val isComplete =
-            serverContent.optBoolean("turnComplete") || serverContent.optBoolean("generationComplete")
-
-        val outputText = serverContent.optJSONObject("outputTranscription")
-            ?.optString("text")
-            ?.takeIf(String::isNotBlank)
+        val outputText = frame.outputTranscript
         if (outputText != null) {
             events.offer(GeminiLivePresetEvent.Chunk(outputText))
-            if (isComplete) {
+            if (frame.responseComplete) {
                 events.offer(GeminiLivePresetEvent.Complete)
             }
             return
         }
 
-        val parts = serverContent
-            .optJSONObject("modelTurn")
-            ?.optJSONArray("parts")
-        if (parts != null) {
-            for (index in 0 until parts.length()) {
-                val part = parts.optJSONObject(index) ?: continue
-                val text = part.optString("text").takeIf(String::isNotBlank) ?: continue
-                if (!part.optBoolean("thought")) {
-                    events.offer(GeminiLivePresetEvent.Chunk(text))
-                }
-            }
+        frame.visibleTextParts.forEach { text ->
+            events.offer(GeminiLivePresetEvent.Chunk(text))
         }
-        if (isComplete) {
+        if (frame.responseComplete) {
             events.offer(GeminiLivePresetEvent.Complete)
         }
     }

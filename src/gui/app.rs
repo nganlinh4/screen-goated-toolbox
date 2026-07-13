@@ -8,6 +8,7 @@ mod utils;
 
 pub use init::SettingsAppInit;
 pub use types::SettingsApp;
+pub(crate) use utils::accept_restore_activation;
 pub(crate) use utils::main_window_hwnd;
 pub use utils::{exit_app, request_open_downloaded_tools, restart_app, signal_restore_window};
 

@@ -51,7 +51,7 @@ def validate_manifest(manifest: dict) -> None:
     for old, replacement in manifest["model_id_migrations"].items():
         if old == replacement or replacement not in ids:
             raise ValueError(f"invalid model id migration: {old} -> {replacement}")
-    endpoints = manifest["endpoint_lifecycle"]
+    endpoints = manifest["endpoints"]
     allowed = {"stable", "preview", "experimental", "deprecated", "retired"}
     for endpoint, metadata in endpoints.items():
         if metadata.get("lifecycle") not in allowed or not metadata.get("verified_at"):
@@ -59,8 +59,67 @@ def validate_manifest(manifest: dict) -> None:
         replacement = metadata.get("replacement")
         if replacement is not None and replacement not in endpoints:
             raise ValueError(f"unknown endpoint replacement: {replacement}")
+        if "live_thinking" in metadata:
+            thinking = metadata["live_thinking"]
+            if not isinstance(thinking, dict):
+                raise ValueError(f"live_thinking for {endpoint} must be an object")
+            kind = thinking.get("kind")
+            value = thinking.get("value")
+            if kind == "budget":
+                valid = (
+                    isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and 0 <= value <= 2_147_483_647
+                )
+                if not valid:
+                    raise ValueError(
+                        f"live_thinking budget for {endpoint} must be a non-negative 32-bit integer"
+                    )
+            elif kind == "level":
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(
+                        f"live_thinking level for {endpoint} must be a non-empty string"
+                    )
+            else:
+                raise ValueError(f"unsupported live_thinking kind for {endpoint}: {kind!r}")
+        if "live_max_output_tokens" in metadata:
+            limit = metadata["live_max_output_tokens"]
+            valid = (
+                isinstance(limit, int)
+                and not isinstance(limit, bool)
+                and 1 <= limit <= 0xFFFF_FFFF
+            )
+            if not valid:
+                raise ValueError(
+                    f"live_max_output_tokens for {endpoint} must be a positive u32"
+                )
+        if "live_automatic_activity_detection_default" in metadata and not isinstance(
+            metadata["live_automatic_activity_detection_default"], bool
+        ):
+            raise ValueError(
+                f"live_automatic_activity_detection_default for {endpoint} must be boolean"
+            )
+        if "live_protocol" in metadata and (
+            not isinstance(metadata["live_protocol"], str)
+            or not metadata["live_protocol"].strip()
+        ):
+            raise ValueError(f"live_protocol for {endpoint} must be a non-empty string")
+        if metadata.get("live_protocol") == "native-audio" and (
+            "live_thinking" not in metadata
+            or "live_max_output_tokens" not in metadata
+        ):
+            raise ValueError(
+                f"native-audio endpoint {endpoint} must define Live thinking and output policy"
+            )
     forbidden = {endpoint for endpoint, metadata in endpoints.items()
                  if metadata["lifecycle"] in {"deprecated", "retired"}}
+    for key in ("gemini_live_api_model_2_5", "gemini_live_api_model_3_1"):
+        endpoint = manifest["constants"][key]
+        profile = endpoints.get(endpoint)
+        if profile is None:
+            raise ValueError(f"{key} must reference a catalog endpoint")
+        if profile.get("live_protocol") != "native-audio":
+            raise ValueError(f"{key} endpoint must use the native-audio protocol")
     for model in models:
         if model["enabled"] and model["full_name"] in forbidden:
             raise ValueError(f"enabled model uses retired endpoint: {model['full_name']}")
@@ -216,6 +275,14 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         "    data class Level(val value: String) : GeneratedLiveThinkingConfig",
         "}",
         "",
+        "data class GeneratedLiveEndpointProfile(",
+        "    val lifecycle: String,",
+        "    val thinking: GeneratedLiveThinkingConfig?,",
+        "    val maxOutputTokens: Long?,",
+        "    val automaticActivityDetectionDefault: Boolean,",
+        "    val protocol: String?,",
+        ")",
+        "",
         "object GeneratedLiveModelCatalog {",
         f"    const val TRANSCRIPTION_GEMINI_2_5 = {kotlin_string(constants['gemini_live_audio_model_id_2_5'])}",
         f"    const val TRANSCRIPTION_GEMINI_3_1 = {kotlin_string(constants['gemini_live_audio_model_id_3_1'])}",
@@ -249,16 +316,39 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
     lines.extend([
         "    )",
         "",
-        "    fun thinkingConfig(apiModel: String): GeneratedLiveThinkingConfig? = when (apiModel) {",
+        "    fun endpointProfile(apiModel: String): GeneratedLiveEndpointProfile? = when (apiModel) {",
     ])
-    for endpoint, metadata in manifest["endpoint_lifecycle"].items():
+    for endpoint, metadata in manifest["endpoints"].items():
         thinking = metadata.get("live_thinking")
         if thinking is None:
-            continue
-        constructor = "Budget" if thinking["kind"] == "budget" else "Level"
-        value = str(thinking["value"]) if thinking["kind"] == "budget" else kotlin_string(thinking["value"])
-        lines.append(f"        {kotlin_string(endpoint)} -> GeneratedLiveThinkingConfig.{constructor}({value})")
+            thinking_value = "null"
+        else:
+            constructor = "Budget" if thinking["kind"] == "budget" else "Level"
+            value = str(thinking["value"]) if thinking["kind"] == "budget" else kotlin_string(thinking["value"])
+            thinking_value = f"GeneratedLiveThinkingConfig.{constructor}({value})"
+        limit = metadata.get("live_max_output_tokens")
+        limit_value = "null" if limit is None else f"{limit}L"
+        activity_detection = str(
+            metadata.get("live_automatic_activity_detection_default", False)
+        ).lower()
+        protocol = metadata.get("live_protocol")
+        protocol_value = "null" if protocol is None else kotlin_string(protocol)
+        lines.append(
+            f"        {kotlin_string(endpoint)} -> GeneratedLiveEndpointProfile("
+            f"lifecycle = {kotlin_string(metadata['lifecycle'])}, thinking = {thinking_value}, "
+            f"maxOutputTokens = {limit_value}, automaticActivityDetectionDefault = {activity_detection}, "
+            f"protocol = {protocol_value})"
+        )
     lines.extend(["        else -> null", "    }", ""])
+
+    lines.extend([
+        "    fun thinkingConfig(apiModel: String): GeneratedLiveThinkingConfig? =",
+        "        endpointProfile(apiModel)?.thinking",
+        "",
+        "    fun maxOutputTokens(apiModel: String): Long? =",
+        "        endpointProfile(apiModel)?.maxOutputTokens",
+        "",
+    ])
 
     lines.extend(
         [
@@ -334,13 +424,10 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
             "    }",
             "",
             "    fun normalizeTtsGeminiModel(apiModel: String): String {",
-            "        return when (apiModel) {",
-            '            "",',
-            '            "gemini",',
-            "            GEMINI_LIVE_API_MODEL_2_5 -> GEMINI_LIVE_API_MODEL_2_5",
-            "            GEMINI_LIVE_API_MODEL_3_1 -> GEMINI_LIVE_API_MODEL_3_1",
-            "            else -> DEFAULT_TTS_GEMINI_MODEL",
-            "        }",
+            "        return ttsGeminiModels",
+            "            .firstOrNull { it.apiModel == apiModel }",
+            "            ?.apiModel",
+            "            ?: DEFAULT_TTS_GEMINI_MODEL",
             "    }",
             "",
             "    fun translationProviderDescriptor(id: String = DEFAULT_TRANSLATION_PROVIDER_ID): ProviderDescriptor {",

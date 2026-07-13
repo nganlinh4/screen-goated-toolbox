@@ -1,0 +1,35 @@
+use crate::gui::locale::TtsPlaygroundLocaleText;
+
+pub(super) fn get() -> TtsPlaygroundLocaleText {
+    TtsPlaygroundLocaleText {
+        tts_settings_button: "TTS 설정",
+        tts_settings_title: "TTS 설정 (프리셋, 실시간 음성 번역, 통역 곤약에서 사용)",
+        tts_playground_btn: "TTS 플레이그라운드",
+        tts_playground_title: "TTS 플레이그라운드",
+        tts_playground_tab_tts_clone: "TTS / 클론",
+        tts_playground_tab_audio_edit: "오디오 편집",
+        tts_playground_text_label: "읽을 텍스트",
+        tts_playground_text_hint: "이 샌드박스 음성을 테스트할 텍스트를 입력하거나 붙여넣으세요...",
+        tts_playground_play: "재생",
+        tts_playground_generate: "오디오 생성",
+        tts_playground_pause: "일시정지",
+        tts_playground_resume: "계속",
+        tts_playground_replay: "다시 재생",
+        tts_playground_download_wav: "WAV 다운로드",
+        tts_playground_download_mp3: "MP3 다운로드",
+        tts_playground_recent: "최근 클립",
+        tts_playground_generating: "오디오 생성 중...",
+        tts_playground_exporting_mp3: "MP3 내보내는 중...",
+        tts_playground_ffmpeg_installing: "FFmpeg 설치 중",
+        tts_playground_ffmpeg_downloading: "MP3 내보내기를 위해 FFmpeg 다운로드 중",
+        screen_record_gif_ffmpeg_downloading: "GIF 내보내기를 위해 FFmpeg 다운로드 중",
+        screen_record_audio_ffmpeg_downloading: "피치 보존 오디오 내보내기를 위해 FFmpeg 다운로드 중",
+        tts_playground_ffmpeg_extracting: "FFmpeg 압축 해제 중",
+        tts_playground_ffmpeg_installed: "FFmpeg 설치 완료",
+        tts_playground_ffmpeg_failed: "FFmpeg 설치 실패",
+        tts_playground_no_audio: "먼저 오디오를 생성하세요.",
+        tts_playground_stop: "중지",
+        tts_playground_clear: "지우기",
+        tts_playground_instruction_hint: "Gemini Live용 선택적 스타일 지시",
+    }
+}

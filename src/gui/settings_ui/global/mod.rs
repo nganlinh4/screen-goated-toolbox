@@ -90,13 +90,13 @@ pub fn render_global_settings(
         if crate::gui::widgets::filled_icon_button(
             ui,
             Icon::BarChart,
-            text.usage_statistics_title,
+            text.desktop_settings.usage_statistics_title,
             theme.btn_stats(),
             on_btn,
             10,
         )
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(text.usage_statistics_tooltip)
+        .on_hover_text(text.desktop_settings.usage_statistics_tooltip)
         .clicked()
         {
             *show_usage_modal = true;
@@ -107,7 +107,7 @@ pub fn render_global_settings(
         if crate::gui::widgets::filled_icon_button(
             ui,
             Icon::SettingsVoice,
-            text.tts_settings_button,
+            text.tts_playground.tts_settings_button,
             theme.btn_tts_settings(),
             on_btn,
             10,
@@ -123,7 +123,7 @@ pub fn render_global_settings(
         if crate::gui::widgets::filled_icon_button(
             ui,
             Icon::Download,
-            text.downloaded_tools_button,
+            text.auxiliary.managed_tools.downloaded_tools_button,
             theme.btn_tools(),
             on_btn,
             10,
@@ -141,7 +141,7 @@ pub fn render_global_settings(
         if crate::gui::widgets::filled_icon_button(
             ui,
             Icon::Priority,
-            text.model_priority_button,
+            text.model_catalog.model_priority_button,
             theme.btn_priority(),
             on_btn,
             10,
@@ -156,7 +156,7 @@ pub fn render_global_settings(
         if crate::gui::widgets::filled_icon_button(
             ui,
             Icon::Settings,
-            text.custom_models_button,
+            text.model_catalog.custom_models_button,
             theme.btn_tools(),
             on_btn,
             10,
@@ -173,13 +173,13 @@ pub fn render_global_settings(
         if crate::gui::widgets::filled_icon_button(
             ui,
             Icon::AutoStories,
-            text.help_assistant_btn,
+            text.shell.help_assistant_btn,
             theme.accent_help(),
             on_btn,
             10,
         )
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(text.help_assistant_title)
+        .on_hover_text(text.shell.help_assistant_title)
         .clicked()
         {
             std::thread::spawn(|| {
@@ -232,7 +232,7 @@ pub fn render_global_settings(
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::Upgrade, Some(crate::gui::icons::ICON_MD));
                 ui.label(
-                    egui::RichText::new(text.software_update_header)
+                    egui::RichText::new(text.global_settings.software_update_header)
                         .strong()
                         .size(14.0),
                 );
@@ -267,7 +267,7 @@ pub fn render_global_settings(
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::Settings, Some(crate::gui::icons::ICON_MD));
                 ui.label(
-                    egui::RichText::new(text.startup_display_header)
+                    egui::RichText::new(text.global_settings.startup_display_header)
                         .strong()
                         .size(14.0),
                 );
@@ -279,7 +279,7 @@ pub fn render_global_settings(
                 if let Some(launcher) = auto_launcher {
                     let mut startup_toggle = *run_at_startup;
                     if ui
-                        .checkbox(&mut startup_toggle, text.startup_label)
+                        .checkbox(&mut startup_toggle, text.preset_basics.startup_label)
                         .clicked()
                     {
                         if startup_toggle && !(*run_at_startup) {
@@ -326,7 +326,7 @@ pub fn render_global_settings(
             if *run_at_startup {
                 ui.indent("admin_indent", |ui| {
                     let mut is_admin_mode = config.run_as_admin_on_startup;
-                    let checkbox_label = text.admin_startup_on;
+                    let checkbox_label = text.desktop_settings.admin_startup_on;
 
                     if current_admin_state {
                         if ui.checkbox(&mut is_admin_mode, checkbox_label).clicked() {
@@ -371,7 +371,7 @@ pub fn render_global_settings(
                             ui.checkbox(&mut _is_admin_mode_disabled, checkbox_label);
                         });
                         ui.label(
-                            egui::RichText::new(text.admin_startup_fail)
+                            egui::RichText::new(text.desktop_settings.admin_startup_fail)
                                 .size(11.0)
                                 .color(theme.warning()),
                         );
@@ -379,7 +379,7 @@ pub fn render_global_settings(
 
                     if config.run_as_admin_on_startup && current_admin_state {
                         ui.label(
-                            egui::RichText::new(text.admin_startup_success)
+                            egui::RichText::new(text.desktop_settings.admin_startup_success)
                                 .size(11.0)
                                 .color(theme.success()),
                         );
@@ -387,7 +387,10 @@ pub fn render_global_settings(
                 });
 
                 if ui
-                    .checkbox(&mut config.start_in_tray, text.start_in_tray_label)
+                    .checkbox(
+                        &mut config.start_in_tray,
+                        text.desktop_settings.start_in_tray_label,
+                    )
                     .clicked()
                 {
                     changed = true;
@@ -398,7 +401,7 @@ pub fn render_global_settings(
 
             config.favorite_overlay_opacity = config.favorite_overlay_opacity.clamp(10, 100);
             ui.horizontal(|ui| {
-                ui.label(text.favorite_overlay_opacity_label);
+                ui.label(text.global_settings.favorite_overlay_opacity_label);
                 if ui
                     .add(
                         egui::Slider::new(&mut config.favorite_overlay_opacity, 10..=100)
@@ -444,7 +447,7 @@ pub fn render_global_settings(
                         if ui
                             .selectable_label(
                                 config.graphics_mode == "standard",
-                                text.graphics_mode_standard,
+                                text.desktop_settings.graphics_mode_standard,
                             )
                             .clicked()
                         {
@@ -454,7 +457,7 @@ pub fn render_global_settings(
                         if ui
                             .selectable_label(
                                 config.graphics_mode == "minimal",
-                                text.graphics_mode_minimal,
+                                text.desktop_settings.graphics_mode_minimal,
                             )
                             .clicked()
                         {
@@ -469,7 +472,7 @@ pub fn render_global_settings(
                 // Force Quit button — amber (less drastic than the red factory reset).
                 if crate::gui::widgets::filled_button(
                     ui,
-                    text.force_quit,
+                    text.preset_basics.force_quit,
                     theme.warning_fill(),
                     theme.on_accent(),
                     8,
@@ -485,7 +488,7 @@ pub fn render_global_settings(
                 // it's the most alarming action (distinct from the amber Force Quit).
                 if crate::gui::widgets::filled_button(
                     ui,
-                    text.reset_defaults_btn,
+                    text.preset_basics.reset_defaults_btn,
                     theme.danger_fill(),
                     theme.on_accent(),
                     8,

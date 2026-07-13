@@ -1,4 +1,4 @@
-use super::client::{UREQ_AGENT, is_auth_error, record_groq_json_usage, record_usage_simple};
+use super::client::{UREQ_AGENT, UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple};
 use super::gemini_generate::stream_gemini_generate;
 use super::openai_compat::stream_openai_compat_chat;
 use super::types::ChatCompletionResponse;
@@ -6,10 +6,17 @@ use crate::api::providers::Provider;
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
 use std::io::BufReader;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::{Duration, Instant};
 
 mod image_payload;
 use image_payload::{GROQ_SAFE_REQUEST_BYTES, prepare_image_payload};
+
+const QWEN_VISION_MAX_COMPLETION_TOKENS: u64 = 1_024;
+const GROQ_MAX_RATE_LIMIT_WAIT_SECS: u64 = 30;
 
 pub struct TranslateImageRequest<'a> {
     pub groq_api_key: &'a str,
@@ -51,9 +58,45 @@ fn groq_vision_payload(
     });
     if model.starts_with("qwen/") {
         payload["reasoning_format"] = "hidden".into();
-        payload["max_completion_tokens"] = 4096.into();
+        payload["max_completion_tokens"] = QWEN_VISION_MAX_COMPLETION_TOKENS.into();
     }
     payload
+}
+
+fn retry_after_seconds(headers: &ureq::http::HeaderMap) -> Option<u64> {
+    headers
+        .get("retry-after")?
+        .to_str()
+        .ok()?
+        .parse::<f64>()
+        .ok()
+        .map(f64::ceil)
+        .map(|seconds| seconds as u64)
+}
+
+fn wait_for_groq_retry(seconds: u64, cancel_token: &Option<Arc<AtomicBool>>) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    while Instant::now() < deadline {
+        if cancel_token
+            .as_ref()
+            .is_some_and(|token| token.load(Ordering::Relaxed))
+        {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    true
+}
+
+fn groq_error_message(status: u16, body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|root| {
+            root.pointer("/error/message")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| format!("HTTP {status}"))
 }
 
 pub fn translate_image_streaming<F>(
@@ -342,25 +385,39 @@ where
             ));
         }
 
-        let resp = UREQ_AGENT
-            .post("https://api.groq.com/openai/v1/chat/completions")
-            .header("Authorization", &format!("Bearer {}", groq_api_key))
-            .header("Content-Type", "application/json")
-            .send(payload_bytes.as_slice())
-            .map_err(|e| {
-                if is_auth_error(&e) {
-                    anyhow::anyhow!("INVALID_API_KEY")
-                } else if matches!(&e, ureq::Error::StatusCode(400)) {
-                    anyhow::anyhow!(
-                        "Groq API 400: Bad request. Check model availability or API request format."
-                    )
-                } else {
-                    anyhow::anyhow!(
-                        "Error: https://api.groq.com/openai/v1/chat/completions: {}",
-                        e
-                    )
+        let mut attempt = 0;
+        let resp = loop {
+            let response = UREQ_RESPONSE_AGENT
+                .post("https://api.groq.com/openai/v1/chat/completions")
+                .header("Authorization", &format!("Bearer {}", groq_api_key))
+                .header("Content-Type", "application/json")
+                .send(payload_bytes.as_slice())
+                .map_err(|error| anyhow::anyhow!("Groq vision transport error: {error}"))?;
+            let status = response.status().as_u16();
+            if response.status().is_success() {
+                break response;
+            }
+
+            let retry_after = retry_after_seconds(response.headers());
+            let body = response.into_body().read_to_string().unwrap_or_default();
+            let message = groq_error_message(status, &body);
+            if status == 429
+                && attempt == 0
+                && retry_after.is_some_and(|seconds| seconds <= GROQ_MAX_RATE_LIMIT_WAIT_SECS)
+            {
+                let seconds = retry_after.unwrap_or_default();
+                crate::log_info!("[vision] Groq token limit reached; retrying once in {seconds}s");
+                if !wait_for_groq_retry(seconds, &cancel_token) {
+                    return Err(anyhow::anyhow!("Groq vision request cancelled"));
                 }
-            })?;
+                attempt += 1;
+                continue;
+            }
+            if status == 401 || status == 403 {
+                return Err(anyhow::anyhow!("INVALID_API_KEY"));
+            }
+            return Err(anyhow::anyhow!("Groq vision API HTTP {status}: {message}"));
+        };
 
         record_usage_simple(resp.headers(), &model);
 
@@ -414,13 +471,25 @@ mod live_tests {
     #[test]
     fn qwen_payload_stays_below_tpm_and_hides_reasoning() {
         let payload = groq_vision_payload("qwen/qwen3.6-27b", "prompt", "image/png", "AA==", false);
-        assert_eq!(payload["max_completion_tokens"], 4096);
+        assert_eq!(payload["max_completion_tokens"], 1024);
         assert_eq!(payload["reasoning_format"], "hidden");
         assert!(payload.get("reasoning_effort").is_none());
 
         let scout = groq_vision_payload("scout", "prompt", "image/png", "AA==", false);
         assert!(scout.get("max_completion_tokens").is_none());
         assert!(scout.get("reasoning_format").is_none());
+    }
+
+    #[test]
+    fn groq_retry_headers_and_error_bodies_are_structural() {
+        let mut headers = ureq::http::HeaderMap::new();
+        headers.insert("retry-after", "14.2".parse().unwrap());
+        assert_eq!(retry_after_seconds(&headers), Some(15));
+        assert_eq!(
+            groq_error_message(429, r#"{"error":{"message":"TPM exhausted"}}"#),
+            "TPM exhausted"
+        );
+        assert_eq!(groq_error_message(500, "not json"), "HTTP 500");
     }
 
     #[test]
@@ -434,8 +503,16 @@ mod live_tests {
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(1200);
+            let width = std::env::var("GROQ_TEST_WIDTH")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(dimension);
+            let height = std::env::var("GROQ_TEST_HEIGHT")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(dimension);
             let mut state = 0x89ab_cdef_u32;
-            ImageBuffer::from_fn(dimension, dimension, |_, _| {
+            ImageBuffer::from_fn(width, height, |_, _| {
                 state ^= state << 13;
                 state ^= state >> 17;
                 state ^= state << 5;

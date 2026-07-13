@@ -1,0 +1,35 @@
+use crate::gui::locale::DesktopSettingsLocaleText;
+
+pub(super) fn get() -> DesktopSettingsLocaleText {
+    DesktopSettingsLocaleText {
+        hotkeys_section: "Hotkeys",
+        start_in_tray_label: "Start in tray",
+        footer_admin_running: "running as admin",
+        admin_startup_on: "Run as Administrator on startup",
+        admin_startup_success: "Enabled: Will run as Admin on startup (Task Scheduler).",
+        admin_startup_fail: "Error: Must run App as Admin to set this.",
+        graphics_mode_standard: "Standard (Gradient glow effect)",
+        graphics_mode_minimal: "Minimal for weak PC (Laser scan effect)",
+        usage_statistics_title: "Usage Statistics",
+        usage_statistics_tooltip: "Use a model at least once for accurate data",
+        usage_model_column: "Model",
+        usage_remaining_column: "Remaining / Total",
+        usage_check_link: "Check Usage",
+        footer_admin_text: "Run with admin to translate games",
+        check_for_updates_btn: "Check for Updates",
+        current_version_label: "Current Version:",
+        checking_github: "Checking GitHub...",
+        up_to_date: "You are up to date",
+        check_again_btn: "Check Again",
+        new_version_available: "New version available:",
+        release_notes_label: "Release Notes",
+        download_update_btn: "Download & Update Now",
+        downloading_update: "Downloading... The app will update in-place.",
+        update_failed: "Update Failed:",
+        app_folder_writable_hint: "Make sure the app folder is writable.",
+        retry_btn: "Retry",
+        update_success: "Update Success!",
+        restart_to_use_new_version: "Restart to use the new version.",
+        restart_app_btn: "Restart App",
+    }
+}

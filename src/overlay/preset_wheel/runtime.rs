@@ -142,7 +142,7 @@ pub(crate) fn internal_create_window_loop() {
                     .map(|app| app.config.ui_language.clone())
                     .unwrap_or_else(|_| "en".to_string());
                 let locale = crate::gui::locale::LocaleText::get(&ui_language);
-                let template_html = get_wheel_template(true, locale.preset_wheel_cancel);
+                let template_html = get_wheel_template(true, locale.overlay.preset_wheel_cancel);
                 let page_url = crate::overlay::html_components::font_manager::store_html_page(
                     template_html.clone(),
                 )

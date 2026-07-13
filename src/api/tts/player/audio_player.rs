@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
 };
 use std::time::{Duration, Instant};
 use windows::Win32::Media::Audio::*;
@@ -19,6 +19,7 @@ struct AutoSpeedState {
 pub(crate) struct AudioPlayer {
     _sample_rate: u32,
     shared_buffer: Arc<Mutex<VecDeque<i16>>>,
+    device_padding_frames: Arc<AtomicU32>,
     shutdown: Arc<AtomicBool>,
     _thread: Option<std::thread::JoinHandle<()>>,
     wsola: Mutex<WsolaStretcher>,
@@ -38,6 +39,8 @@ impl AudioPlayer {
     pub(crate) fn new(sample_rate: u32, manager: Arc<TtsManager>) -> Self {
         let shared_buffer: Arc<Mutex<VecDeque<i16>>> = Arc::new(Mutex::new(VecDeque::new()));
         let buffer_clone = shared_buffer.clone();
+        let device_padding_frames = Arc::new(AtomicU32::new(0));
+        let device_padding_clone = device_padding_frames.clone();
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_clone = shutdown.clone();
 
@@ -53,15 +56,18 @@ impl AudioPlayer {
             while !shutdown_clone.load(Ordering::Relaxed) {
                 let target_device_id = Self::current_target_device_id();
 
-                match unsafe {
+                let stream_result = unsafe {
                     Self::run_wasapi_excluded(
                         sample_rate,
                         buffer_clone.clone(),
+                        device_padding_clone.clone(),
                         shutdown_clone.clone(),
                         target_device_id,
                         manager.clone(),
                     )
-                } {
+                };
+                device_padding_clone.store(0, Ordering::Release);
+                match stream_result {
                     Ok(()) => break,
                     Err(e) => {
                         if shutdown_clone.load(Ordering::Relaxed) {
@@ -80,6 +86,7 @@ impl AudioPlayer {
         Self {
             _sample_rate: sample_rate,
             shared_buffer,
+            device_padding_frames,
             shutdown,
             _thread: Some(thread),
             wsola: Mutex::new(WsolaStretcher::new(SOURCE_SAMPLE_RATE)),
@@ -98,6 +105,7 @@ impl AudioPlayer {
     unsafe fn run_wasapi_excluded(
         _sample_rate: u32,
         shared_buffer: Arc<Mutex<VecDeque<i16>>>,
+        device_padding_frames: Arc<AtomicU32>,
         shutdown: Arc<AtomicBool>,
         target_device_id: Option<String>,
         manager: Arc<TtsManager>,
@@ -188,6 +196,7 @@ impl AudioPlayer {
                     last_default_device_check = Instant::now();
                 }
                 let padding = client.GetCurrentPadding()?;
+                device_padding_frames.store(padding, Ordering::Release);
                 let available = buffer_size.saturating_sub(padding);
 
                 if available > 0 {
@@ -207,6 +216,11 @@ impl AudioPlayer {
                         client.Start()?;
                         client_started = true;
                     }
+                    // Mark the device reservation before removing samples from
+                    // the shared queue. This closes the handoff window where a
+                    // safe-gap observer could otherwise see both stores empty.
+                    device_padding_frames
+                        .store(padding.saturating_add(available), Ordering::Release);
                     let buffer_ptr = render_client.GetBuffer(available)?;
                     let mut deck = shared_buffer.lock().unwrap();
 
@@ -383,7 +397,16 @@ impl AudioPlayer {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    pub(super) fn stop(&self) {
+    pub(crate) fn has_pending_playback(&self) -> bool {
+        let queued = self
+            .shared_buffer
+            .lock()
+            .map(|buf| !buf.is_empty())
+            .unwrap_or(false);
+        playback_work_present(queued, self.device_padding_frames.load(Ordering::Acquire))
+    }
+
+    pub(crate) fn stop(&self) {
         if let Ok(mut buf) = self.shared_buffer.lock() {
             buf.clear();
         }
@@ -462,4 +485,20 @@ fn compute_realtime_auto_speed() -> AutoSpeedState {
     .clamp(50, 200);
 
     AutoSpeedState { speed }
+}
+
+fn playback_work_present(queued: bool, device_padding_frames: u32) -> bool {
+    queued || device_padding_frames > 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::playback_work_present;
+
+    #[test]
+    fn device_padding_remains_pending_work_after_shared_queue_handoff() {
+        assert!(playback_work_present(true, 0));
+        assert!(playback_work_present(false, 480));
+        assert!(!playback_work_present(false, 0));
+    }
 }

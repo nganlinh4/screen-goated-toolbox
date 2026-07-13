@@ -6,12 +6,10 @@ mod processor;
 pub use processor::hotkey_proc;
 
 use crate::APP;
-use crate::win_types::{SendHandle, SendHhook, SendHwnd};
-use sha2::{Digest, Sha256};
+use crate::win_types::{SendHhook, SendHwnd};
 use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader::*;
-use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
@@ -31,55 +29,10 @@ pub const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
 pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
 pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 
-/// Global event for inter-process restore signaling (manual-reset event).
-pub static RESTORE_EVENT: LazyLock<Option<SendHandle>> = LazyLock::new(|| unsafe {
-    let name = restore_event_name_wide();
-    CreateEventW(None, true, false, PCWSTR(name.as_ptr()))
-        .ok()
-        .map(SendHandle)
-});
 /// Global handle for the listener window (for the mouse hook to post messages to).
 static LISTENER_HWND: LazyLock<Mutex<SendHwnd>> = LazyLock::new(|| Mutex::new(SendHwnd::default()));
 /// Global handle for the mouse hook.
 static MOUSE_HOOK: LazyLock<Mutex<SendHhook>> = LazyLock::new(|| Mutex::new(SendHhook::default()));
-
-fn current_exe_namespace_suffix() -> String {
-    let path = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.canonicalize().ok().or(Some(path)))
-        .map(|path| {
-            path.to_string_lossy()
-                .replace('/', "\\")
-                .to_ascii_lowercase()
-        })
-        .unwrap_or_else(|| "unknown".to_string());
-    let digest = Sha256::digest(path.as_bytes());
-    let mut suffix = String::with_capacity(32);
-    for byte in digest.iter().take(16) {
-        suffix.push_str(&format!("{byte:02x}"));
-    }
-    suffix
-}
-
-pub fn restore_event_name_wide() -> Vec<u16> {
-    format!(
-        "Global\\ScreenGoatedToolboxRestoreEvent-{}",
-        current_exe_namespace_suffix()
-    )
-    .encode_utf16()
-    .chain(std::iter::once(0))
-    .collect()
-}
-
-pub fn single_instance_mutex_name_wide() -> Vec<u16> {
-    format!(
-        "Global\\ScreenGoatedToolboxSingleInstanceMutex-{}",
-        current_exe_namespace_suffix()
-    )
-    .encode_utf16()
-    .chain(std::iter::once(0))
-    .collect()
-}
 
 /// Register all hotkeys from config.
 pub fn register_all_hotkeys(hwnd: HWND) {
@@ -319,24 +272,6 @@ pub fn run_hotkey_listener() {
         if let Ok(mut guard) = LISTENER_HWND.lock() {
             *guard = SendHwnd(hwnd);
         }
-
-        // Spawn thread to wait for RESTORE_EVENT
-        let listener_hwnd_val = hwnd.0 as isize;
-        std::thread::spawn(move || {
-            if let Some(event) = RESTORE_EVENT.as_ref() {
-                loop {
-                    if WaitForSingleObject(event.0, INFINITE) == WAIT_OBJECT_0 {
-                        let _ = PostMessageW(
-                            Some(HWND(listener_hwnd_val as *mut _)),
-                            processor::WM_APP_PROCESS_PENDING_FILE,
-                            WPARAM(0),
-                            LPARAM(0),
-                        );
-                        let _ = ResetEvent(event.0);
-                    }
-                }
-            }
-        });
 
         // Install Mouse Hook
         if let Ok(hhook) =

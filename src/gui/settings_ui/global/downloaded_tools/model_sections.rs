@@ -55,7 +55,7 @@ const VALUE_QWEN3_RUNTIME_ACTIVE_SIZE: &str = "downloaded-tools:qwen3-runtime-ac
 
 pub(super) fn render_parakeet_card(ui: &mut egui::Ui, text: &LocaleText) {
     tool_card(ui, |ui| {
-        ui.heading(text.tool_parakeet_card);
+        ui.heading(text.auxiliary.managed_tools.tool_parakeet_card);
         ui.add_space(4.0);
         render_ai_runtime_content(ui, text);
         ui.add_space(4.0);
@@ -64,14 +64,14 @@ pub(super) fn render_parakeet_card(ui: &mut egui::Ui, text: &LocaleText) {
             text,
             &ModelRowSpec {
                 model_probe: PROBE_PARAKEET_EOU,
-                model_title: text.tool_parakeet,
-                model_download_title: text.parakeet_downloading_title,
+                model_title: text.auxiliary.managed_tools.tool_parakeet,
+                model_download_title: text.tool_runtime.parakeet_downloading_title,
                 model_notice: current_parakeet_model_notice,
                 is_model_downloaded,
                 model_dir: get_parakeet_model_dir,
                 download_model: download_parakeet_model,
                 remove_model: remove_parakeet_model,
-                description: Some(text.tool_desc_parakeet),
+                description: Some(text.auxiliary.managed_tools.tool_desc_parakeet),
                 space_before_notice: true,
             },
         );
@@ -81,14 +81,14 @@ pub(super) fn render_parakeet_card(ui: &mut egui::Ui, text: &LocaleText) {
             text,
             &ModelRowSpec {
                 model_probe: PROBE_PARAKEET_TDT,
-                model_title: text.tool_parakeet_tdt,
-                model_download_title: text.parakeet_tdt_downloading_title,
+                model_title: text.auxiliary.managed_tools.tool_parakeet_tdt,
+                model_download_title: text.tool_runtime.parakeet_tdt_downloading_title,
                 model_notice: current_parakeet_tdt_model_notice,
                 is_model_downloaded: is_parakeet_tdt_model_downloaded,
                 model_dir: get_parakeet_tdt_model_dir,
                 download_model: download_parakeet_tdt_model,
                 remove_model: remove_parakeet_tdt_model,
-                description: Some(text.tool_desc_parakeet_tdt),
+                description: Some(text.auxiliary.managed_tools.tool_desc_parakeet_tdt),
                 space_before_notice: true,
             },
         );
@@ -97,21 +97,21 @@ pub(super) fn render_parakeet_card(ui: &mut egui::Ui, text: &LocaleText) {
 
 pub(super) fn render_kokoro_card(ui: &mut egui::Ui, text: &LocaleText) {
     tool_card(ui, |ui| {
-        ui.heading(text.tool_kokoro_card);
+        ui.heading(text.auxiliary.managed_tools.tool_kokoro_card);
         ui.add_space(4.0);
         render_model_row(
             ui,
             text,
             &ModelRowSpec {
                 model_probe: PROBE_KOKORO_V1,
-                model_title: text.tool_kokoro,
-                model_download_title: text.kokoro_downloading_title,
+                model_title: text.auxiliary.managed_tools.tool_kokoro,
+                model_download_title: text.tool_runtime.kokoro_downloading_title,
                 model_notice: current_kokoro_model_notice,
                 is_model_downloaded: is_kokoro_model_downloaded,
                 model_dir: get_kokoro_model_dir,
                 download_model: download_kokoro_model,
                 remove_model: remove_kokoro_model,
-                description: Some(text.tool_desc_kokoro),
+                description: Some(text.auxiliary.managed_tools.tool_desc_kokoro),
                 space_before_notice: true,
             },
         );
@@ -186,7 +186,7 @@ fn render_supertonic_content(ui: &mut egui::Ui) {
 
 pub(super) fn render_qwen3_card(ui: &mut egui::Ui, text: &LocaleText) {
     tool_card(ui, |ui| {
-        ui.heading(text.tool_qwen3_card);
+        ui.heading(text.auxiliary.managed_tools.tool_qwen3_card);
         ui.add_space(4.0);
         render_qwen3_runtime_content(ui, text);
         ui.add_space(4.0);
@@ -198,13 +198,13 @@ pub(super) fn render_qwen3_card(ui: &mut egui::Ui, text: &LocaleText) {
             &ModelRowSpec {
                 model_probe: PROBE_QWEN3_SMALL,
                 model_title: "Qwen3-ASR 0.6B",
-                model_download_title: text.qwen3_downloading_title,
+                model_download_title: text.tool_runtime.qwen3_downloading_title,
                 model_notice: current_qwen3_model_notice,
                 is_model_downloaded: is_qwen3_model_downloaded,
                 model_dir: get_qwen3_model_dir,
                 download_model: download_qwen3_model,
                 remove_model: remove_qwen3_model,
-                description: Some(text.tool_desc_qwen3),
+                description: Some(text.auxiliary.managed_tools.tool_desc_qwen3),
                 space_before_notice: true,
             },
         );
@@ -215,13 +215,13 @@ pub(super) fn render_qwen3_card(ui: &mut egui::Ui, text: &LocaleText) {
             &ModelRowSpec {
                 model_probe: PROBE_QWEN3_LARGE,
                 model_title: "Qwen3-ASR 1.7B",
-                model_download_title: text.qwen3_1_7b_downloading_title,
+                model_download_title: text.tool_runtime.qwen3_1_7b_downloading_title,
                 model_notice: no_model_notice,
                 is_model_downloaded: is_qwen3_1_7b_model_downloaded,
                 model_dir: get_qwen3_1_7b_model_dir,
                 download_model: download_qwen3_1_7b_model,
                 remove_model: remove_qwen3_1_7b_model,
-                description: Some(text.tool_desc_qwen3_1_7b),
+                description: Some(text.auxiliary.managed_tools.tool_desc_qwen3_1_7b),
                 space_before_notice: true,
             },
         );
@@ -237,12 +237,12 @@ fn render_qwen3_server_content(ui: &mut egui::Ui, text: &LocaleText) {
     let theme = AppTheme::from_ui(ui);
     let server_notice = current_qwen3_server_notice();
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tool_qwen3_server).strong());
+        ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_qwen3_server).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading_server = {
                 if let Ok(state) = REALTIME_STATE.lock() {
                     state.is_downloading
-                        && state.download_title == text.qwen3_server_downloading_title
+                        && state.download_title == text.tool_runtime.qwen3_server_downloading_title
                 } else {
                     false
                 }
@@ -260,7 +260,10 @@ fn render_qwen3_server_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_QWEN3_SERVER_MANAGED, is_qwen3_server_managed) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
+                    .button(
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                            .color(theme.danger_text()),
+                    )
                     .clicked()
                 {
                     invalidate_size_cache(&get_qwen3_server_path());
@@ -271,14 +274,20 @@ fn render_qwen3_server_content(ui: &mut egui::Ui, text: &LocaleText) {
                 let size = get_path_size(&get_qwen3_server_path());
                 ui.label(
                     egui::RichText::new(
-                        text.tool_status_installed.replace("{}", &format_size(size)),
+                        text.auxiliary
+                            .managed_tools
+                            .tool_status_installed
+                            .replace("{}", &format_size(size)),
                     )
                     .color(theme.success()),
                 );
             } else if cached_probe(PROBE_QWEN3_SERVER_ACTIVE, || {
                 get_active_qwen3_server_path().is_some()
             }) {
-                if ui.button(text.tool_action_download).clicked() {
+                if ui
+                    .button(text.auxiliary.managed_tools.tool_action_download)
+                    .clicked()
+                {
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     thread::spawn(move || {
                         let _ = download_qwen3_server(stop_signal, false);
@@ -291,23 +300,31 @@ fn render_qwen3_server_content(ui: &mut egui::Ui, text: &LocaleText) {
                 });
                 ui.label(
                     egui::RichText::new(
-                        text.tool_status_available_locally
+                        text.auxiliary
+                            .managed_tools
+                            .tool_status_available_locally
                             .replace("{}", &format_size(size)),
                     )
                     .color(egui::Color32::from_rgb(96, 125, 139)),
                 );
             } else {
-                if ui.button(text.tool_action_download).clicked() {
+                if ui
+                    .button(text.auxiliary.managed_tools.tool_action_download)
+                    .clicked()
+                {
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     thread::spawn(move || {
                         let _ = download_qwen3_server(stop_signal, false);
                     });
                 }
-                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
+                ui.label(
+                    egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                        .color(egui::Color32::GRAY),
+                );
             }
         });
     });
-    ui.label(text.tool_desc_qwen3_server);
+    ui.label(text.auxiliary.managed_tools.tool_desc_qwen3_server);
     if let Some(message) = server_notice {
         ui.add_space(4.0);
         ui.label(egui::RichText::new(message).color(theme.danger_text()));
@@ -324,12 +341,12 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
     let theme = AppTheme::from_ui(ui);
     let runtime_notice = current_qwen3_runtime_notice();
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tool_qwen3_runtime).strong());
+        ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_qwen3_runtime).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading_runtime = is_qwen3_runtime_downloading() || {
                 if let Ok(state) = REALTIME_STATE.lock() {
                     state.is_downloading
-                        && state.download_title == text.qwen3_runtime_downloading_title
+                        && state.download_title == text.tool_runtime.qwen3_runtime_downloading_title
                 } else {
                     false
                 }
@@ -347,7 +364,10 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_QWEN3_RUNTIME, is_qwen3_runtime_managed_installed) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
+                    .button(
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                            .color(theme.danger_text()),
+                    )
                     .clicked()
                 {
                     invalidate_probe_cache(PROBE_QWEN3_RUNTIME);
@@ -358,14 +378,20 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                 let size = cached_u64(VALUE_QWEN3_RUNTIME_SIZE, qwen3_runtime_installed_size);
                 ui.label(
                     egui::RichText::new(
-                        text.tool_status_installed.replace("{}", &format_size(size)),
+                        text.auxiliary
+                            .managed_tools
+                            .tool_status_installed
+                            .replace("{}", &format_size(size)),
                     )
                     .color(theme.success()),
                 );
             } else if cached_probe(PROBE_QWEN3_RUNTIME_ACTIVE, || {
                 active_qwen3_runtime_dir().is_some()
             }) {
-                if ui.button(text.tool_action_download).clicked() {
+                if ui
+                    .button(text.auxiliary.managed_tools.tool_action_download)
+                    .clicked()
+                {
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     thread::spawn(move || {
                         let _ = download_qwen3_runtime(stop_signal, false);
@@ -378,23 +404,31 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                 });
                 ui.label(
                     egui::RichText::new(
-                        text.tool_status_available_locally
+                        text.auxiliary
+                            .managed_tools
+                            .tool_status_available_locally
                             .replace("{}", &format_size(size)),
                     )
                     .color(egui::Color32::from_rgb(96, 125, 139)),
                 );
             } else {
-                if ui.button(text.tool_action_download).clicked() {
+                if ui
+                    .button(text.auxiliary.managed_tools.tool_action_download)
+                    .clicked()
+                {
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     thread::spawn(move || {
                         let _ = download_qwen3_runtime(stop_signal, false);
                     });
                 }
-                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
+                ui.label(
+                    egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                        .color(egui::Color32::GRAY),
+                );
             }
         });
     });
-    ui.label(text.tool_desc_qwen3_runtime);
+    ui.label(text.auxiliary.managed_tools.tool_desc_qwen3_runtime);
     if let Some(message) = runtime_notice {
         ui.add_space(4.0);
         ui.label(egui::RichText::new(message).color(theme.danger_text()));

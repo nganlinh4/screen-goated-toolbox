@@ -237,8 +237,8 @@ fn process_video_path(path: &Path) {
         let app = APP.lock().unwrap();
         let locale = crate::gui::locale::LocaleText::get(&app.config.ui_language);
         (
-            locale.video_drop_work_record.to_string(),
-            locale.video_drop_generate_subtitles.to_string(),
+            locale.shell.video_drop_work_record.to_string(),
+            locale.shell.video_drop_generate_subtitles.to_string(),
         )
     };
 
@@ -305,7 +305,7 @@ fn process_audio_paths(paths: &[std::path::PathBuf]) {
     let record_label = {
         let app = APP.lock().unwrap();
         let locale = crate::gui::locale::LocaleText::get(&app.config.ui_language);
-        locale.audio_drop_add_to_record.to_string()
+        locale.shell.audio_drop_add_to_record.to_string()
     };
     let selected = show_preset_wheel_with_extra(
         "audio",
@@ -325,7 +325,7 @@ fn process_audio_path(path: &Path) {
     let record_label = {
         let app = APP.lock().unwrap();
         let locale = crate::gui::locale::LocaleText::get(&app.config.ui_language);
-        locale.audio_drop_add_to_record.to_string()
+        locale.shell.audio_drop_add_to_record.to_string()
     };
 
     let selected = show_preset_wheel_with_extra(

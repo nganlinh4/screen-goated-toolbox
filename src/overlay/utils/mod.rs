@@ -175,7 +175,7 @@ pub(super) fn warn_no_caret() {
         let app = crate::APP.lock().unwrap();
         let ui_lang = app.config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-        let msg = locale.cannot_type_no_caret;
+        let msg = locale.shell.cannot_type_no_caret;
         drop(app);
         crate::overlay::auto_copy_badge::show_error_notification(msg);
     }

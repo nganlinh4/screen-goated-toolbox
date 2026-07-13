@@ -31,8 +31,8 @@ pub fn render_model_priority_modal(
             if crate::gui::widgets::dialog_header(
                 ui,
                 &theme,
-                text.model_priority_title,
-                Some(text.model_priority_skip_hint),
+                text.model_catalog.model_priority_title,
+                Some(text.model_catalog.model_priority_skip_hint),
                 |_| {},
             ) {
                 *show_modal = false;
@@ -84,8 +84,8 @@ fn render_chain_section(
 
     let mut changed = false;
     let section_title = match chain_kind {
-        RetryChainKind::ImageToText => text.model_priority_image_chain_title,
-        RetryChainKind::TextToText => text.model_priority_text_chain_title,
+        RetryChainKind::ImageToText => text.model_catalog.model_priority_image_chain_title,
+        RetryChainKind::TextToText => text.model_catalog.model_priority_text_chain_title,
     };
     let section_id = match chain_kind {
         RetryChainKind::ImageToText => "model_priority_image_chain",
@@ -105,7 +105,10 @@ fn render_chain_section(
                 rt.strong().size(13.0).color(section_title_color)
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button(text.reset_defaults_btn).clicked() {
+                if ui
+                    .small_button(text.preset_basics.reset_defaults_btn)
+                    .clicked()
+                {
                     let defaults = ModelPriorityChains::default();
                     *chain = match chain_kind {
                         RetryChainKind::ImageToText => defaults.image_to_text,
@@ -119,14 +122,14 @@ fn render_chain_section(
 
         ui.horizontal(|ui| {
             ui.label("1.");
-            ui.label(egui::RichText::new(text.model_priority_chosen_model).strong());
+            ui.label(egui::RichText::new(text.model_catalog.model_priority_chosen_model).strong());
             crate::gui::icons::draw_icon_static(
                 ui,
                 crate::gui::icons::Icon::ArrowRightAlt,
                 Some(crate::gui::icons::ICON_SM),
             );
             ui.label(
-                egui::RichText::new(text.model_priority_fixed_hint)
+                egui::RichText::new(text.model_catalog.model_priority_fixed_hint)
                     .small()
                     .weak(),
             );
@@ -230,7 +233,10 @@ fn render_chain_section(
         }
 
         ui.add_space(4.0);
-        if ui.button(text.model_priority_add_model).clicked() {
+        if ui
+            .button(text.model_catalog.model_priority_add_model)
+            .clicked()
+        {
             chain.push(default_insert_model_id(&available_models));
             changed = true;
         }
@@ -238,14 +244,14 @@ fn render_chain_section(
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.label(format!("{}.", chain.len() + 2));
-            ui.label(egui::RichText::new(text.model_priority_auto).strong());
+            ui.label(egui::RichText::new(text.model_catalog.model_priority_auto).strong());
             crate::gui::icons::draw_icon_static(
                 ui,
                 crate::gui::icons::Icon::ArrowRightAlt,
                 Some(crate::gui::icons::ICON_SM),
             );
             ui.label(
-                egui::RichText::new(text.model_priority_auto_hint)
+                egui::RichText::new(text.model_catalog.model_priority_auto_hint)
                     .small()
                     .weak(),
             );

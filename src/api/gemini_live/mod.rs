@@ -6,10 +6,19 @@
 //! Unlike the standard REST API, this uses a connection pool for faster response times.
 //! Supports text, image, and audio inputs with text-only output.
 
+pub mod client_message;
+pub mod lifecycle;
 pub mod manager;
+pub mod ready_session;
+pub mod server_frame;
+pub mod setup;
+pub mod transport;
 pub mod types;
 pub mod websocket;
 pub mod worker;
+
+#[cfg(test)]
+mod lifecycle_tests;
 
 use std::sync::{Arc, LazyLock};
 
@@ -128,7 +137,7 @@ where
                 println!("[GeminiLive] Event {}: Thinking", event_count);
                 if !thinking_shown && !content_started {
                     if streaming_enabled {
-                        on_chunk(locale.model_thinking);
+                        on_chunk(locale.global_settings.model_thinking);
                     }
                     thinking_shown = true;
                 }

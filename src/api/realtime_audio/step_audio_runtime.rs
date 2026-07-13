@@ -298,7 +298,7 @@ fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) 
         state.is_downloading = false;
         state.download_progress = if result.is_ok() { 100.0 } else { 0.0 };
         if result.is_err() {
-            state.download_message = loc.step_audio_downloading_message.to_string();
+            state.download_message = loc.tool_runtime.step_audio_downloading_message.to_string();
         }
     }
     if use_badge {

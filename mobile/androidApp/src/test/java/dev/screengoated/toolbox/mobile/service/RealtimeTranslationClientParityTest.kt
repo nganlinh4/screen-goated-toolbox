@@ -184,7 +184,7 @@ class RealtimeTranslationClientParityTest {
     fun `native overlay pickers use localized search hints`() {
         val pickerSource = loadSourceFile(OVERLAY_LANGUAGE_PICKER_SOURCE_PATH).readText()
         val controllerSource = loadSourceFile(OVERLAY_CONTROLLER_PICKERS_SOURCE_PATH).readText()
-        val localeSource = loadSourceFile(MOBILE_LOCALE_TYPES_SOURCE_PATH).readText()
+        val localeSource = loadSourceFile(MOBILE_OVERLAY_LOCALE_SOURCE_PATH).readText()
 
         assertTrue(pickerSource.contains("searchHint: String"))
         assertTrue(pickerSource.contains("hint = searchHint"))
@@ -237,8 +237,8 @@ class RealtimeTranslationClientParityTest {
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sVad.kt"
         private const val MOBILE_LOCALE_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/i18n/MobileLocaleText.kt"
-        private const val MOBILE_LOCALE_TYPES_SOURCE_PATH =
-            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/i18n/MobileLocaleTypes.kt"
+        private const val MOBILE_OVERLAY_LOCALE_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/i18n/MobileOverlayLocale.kt"
         private const val OVERLAY_JS_SOURCE_PATH =
             "mobile/androidApp/src/main/assets/realtime_overlay/main.js"
         private const val OVERLAY_JS_PART2_SOURCE_PATH =

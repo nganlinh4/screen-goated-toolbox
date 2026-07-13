@@ -295,16 +295,16 @@ fn download_step_audio_model_inner(stop: Arc<AtomicBool>, use_badge: bool) -> Re
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = loc.step_audio_downloading_title.to_string();
-        state.download_message = loc.step_audio_downloading_message.to_string();
+        state.download_title = loc.tool_runtime.step_audio_downloading_title.to_string();
+        state.download_message = loc.tool_runtime.step_audio_downloading_message.to_string();
         state.download_progress = 0.0;
     }
     clear_notice();
     post_state();
     if use_badge {
         crate::overlay::auto_copy_badge::show_progress_notification(
-            loc.step_audio_downloading_title,
-            loc.step_audio_downloading_message,
+            loc.tool_runtime.step_audio_downloading_title,
+            loc.tool_runtime.step_audio_downloading_message,
             0.0,
         );
     }
@@ -318,6 +318,7 @@ fn download_step_audio_model_inner(stop: Arc<AtomicBool>, use_badge: bool) -> Re
             }
             if let Ok(mut state) = REALTIME_STATE.lock() {
                 state.download_message = loc
+                    .tool_runtime
                     .step_audio_downloading_file
                     .replace("{}", asset.relative_path);
             }
@@ -336,8 +337,9 @@ fn download_step_audio_model_inner(stop: Arc<AtomicBool>, use_badge: bool) -> Re
                     0.0
                 };
                 crate::overlay::auto_copy_badge::show_progress_notification(
-                    loc.step_audio_downloading_title,
-                    &loc.step_audio_downloading_file
+                    loc.tool_runtime.step_audio_downloading_title,
+                    &loc.tool_runtime
+                        .step_audio_downloading_file
                         .replace("{}", asset.relative_path),
                     progress,
                 );
@@ -363,8 +365,9 @@ fn download_step_audio_model_inner(stop: Arc<AtomicBool>, use_badge: bool) -> Re
                     100.0
                 };
                 crate::overlay::auto_copy_badge::show_progress_notification(
-                    loc.step_audio_downloading_title,
-                    &loc.step_audio_downloading_file
+                    loc.tool_runtime.step_audio_downloading_title,
+                    &loc.tool_runtime
+                        .step_audio_downloading_file
                         .replace("{}", asset.relative_path),
                     progress,
                 );

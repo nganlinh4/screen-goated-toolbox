@@ -1,0 +1,38 @@
+use crate::gui::locale::RealtimeLocaleText;
+
+pub(super) fn get() -> RealtimeLocaleText {
+    RealtimeLocaleText {
+        listening: "Đang nghe...",
+        device: "Thiết bị",
+        waiting: "Đang chờ nói...",
+        microphone: "Micro",
+        realtime_tts_title: "Đọc phần Dịch",
+        realtime_tts_speed: "Tốc độ",
+        realtime_tts_auto: "Tự động",
+        realtime_tts_volume: "Âm lượng",
+        app_select_title: "Chọn Ứng Dụng",
+        app_select_hint: "Chọn ứng dụng cần ghi âm (bước này giúp âm thanh TTS không bị thu ngược vào âm thanh máy tính)",
+        app_select_count: "{} ứng dụng",
+        realtime_tooltip_microphone_input: "Microphone",
+        realtime_tooltip_device_audio: "Âm thanh máy tính",
+        realtime_tooltip_transcription_model: "Mô hình chép lời",
+        realtime_tooltip_transcription_language: "Ngôn ngữ chép lời",
+        realtime_tooltip_translation_model: "Mô hình dịch",
+        realtime_tooltip_s2s_translation_model: "Gemini S2S dùng mô hình TTS Gemini Live",
+        realtime_tooltip_direct_speech: "Cài đặt đọc trực tiếp",
+        realtime_tooltip_tts_settings: "Cài đặt đọc văn bản",
+        realtime_tooltip_target_language: "Ngôn ngữ đích",
+        realtime_tooltip_s2s_target_language: "Đổi ngôn ngữ đích và khởi động lại phiên S2S hiện tại",
+        realtime_tooltip_copy_text: "Sao chép văn bản",
+        realtime_tooltip_decrease_font: "Giảm cỡ chữ",
+        realtime_tooltip_increase_font: "Tăng cỡ chữ",
+        realtime_tooltip_toggle_header: "Ẩn/hiện thanh trên",
+        realtime_download_default_title: "Đang tải mô hình",
+        realtime_download_wait: "Vui lòng đợi...",
+        realtime_download_cancel_tooltip: "Hủy tải và quay lại Gemini Live",
+        realtime_tts_auto_tooltip: "Tự chỉnh tốc độ để bắt kịp",
+        realtime_tts_s2s_locked_tooltip: "Đọc trực tiếp luôn bật khi dùng Gemini S2S",
+        realtime_tts_enable_tooltip: "Bật đọc văn bản",
+        realtime_app_loading: "Đang tải...",
+    }
+}

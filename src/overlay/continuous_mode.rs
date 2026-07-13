@@ -105,7 +105,7 @@ pub fn show_activation_notification(preset_id: &str, hotkey_name: &str) {
 
     // 2. Prepare message from locale
     let locale = crate::gui::locale::LocaleText::get(&lang);
-    let mut message = locale.continuous_mode_activated.to_string();
+    let mut message = locale.auxiliary.continuous_mode_activated.to_string();
 
     // Remove Preset Name part (because it's in title now)
     message = message
@@ -179,7 +179,7 @@ pub fn show_image_continuous_notification(preset_id: &str, hotkey_name: &str) {
 
     // 2. Prepare message from locale
     let locale = crate::gui::locale::LocaleText::get(&lang);
-    let mut message = locale.continuous_mode_activated.to_string();
+    let mut message = locale.auxiliary.continuous_mode_activated.to_string();
 
     // Remove Preset Name part
     message = message

@@ -1,0 +1,35 @@
+use crate::gui::locale::TtsPlaygroundLocaleText;
+
+pub(super) fn get() -> TtsPlaygroundLocaleText {
+    TtsPlaygroundLocaleText {
+        tts_settings_button: "Cài đặt giọng đọc",
+        tts_settings_title: "Thiết lập Giọng Đọc (dành cho Chức năng đọc trong các Preset, Dịch cabin và Bánh mỳ chuyển ngữ)",
+        tts_playground_btn: "Sân chơi TTS",
+        tts_playground_title: "Sân chơi TTS",
+        tts_playground_tab_tts_clone: "TTS / Clone",
+        tts_playground_tab_audio_edit: "Chỉnh audio",
+        tts_playground_text_label: "Văn bản cần đọc",
+        tts_playground_text_hint: "Nhập hoặc dán văn bản để thử giọng sandbox này...",
+        tts_playground_play: "Đọc",
+        tts_playground_generate: "Tạo audio",
+        tts_playground_pause: "Tạm dừng",
+        tts_playground_resume: "Tiếp tục",
+        tts_playground_replay: "Nghe lại",
+        tts_playground_download_wav: "Tải WAV",
+        tts_playground_download_mp3: "Tải MP3",
+        tts_playground_recent: "Clip gần đây",
+        tts_playground_generating: "Đang tạo audio...",
+        tts_playground_exporting_mp3: "Đang xuất MP3...",
+        tts_playground_ffmpeg_installing: "Đang cài FFmpeg",
+        tts_playground_ffmpeg_downloading: "Đang tải FFmpeg để xuất MP3",
+        screen_record_gif_ffmpeg_downloading: "Đang tải FFmpeg để xuất GIF",
+        screen_record_audio_ffmpeg_downloading: "Đang tải FFmpeg để xuất âm thanh giữ nguyên cao độ",
+        tts_playground_ffmpeg_extracting: "Đang giải nén FFmpeg",
+        tts_playground_ffmpeg_installed: "Đã cài FFmpeg",
+        tts_playground_ffmpeg_failed: "Cài FFmpeg thất bại",
+        tts_playground_no_audio: "Hãy tạo audio trước.",
+        tts_playground_stop: "Dừng",
+        tts_playground_clear: "Xóa",
+        tts_playground_instruction_hint: "Chỉ dẫn phong cách tùy chọn cho Gemini Live",
+    }
+}

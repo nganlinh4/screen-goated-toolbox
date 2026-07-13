@@ -20,6 +20,15 @@ pub enum LiveThinkingConfig {
     Level(&'static str),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LiveEndpointProfile {
+    pub lifecycle: &'static str,
+    pub thinking: Option<LiveThinkingConfig>,
+    pub max_output_tokens: Option<u32>,
+    pub automatic_activity_detection_default: bool,
+    pub protocol: Option<&'static str>,
+}
+
 #[derive(Clone, Debug)]
 pub struct ModelConfig {
     pub id: String,
@@ -138,12 +147,12 @@ pub fn normalize_model_id(model_id: &str) -> &str {
     generated_normalize_model_id(model_id)
 }
 
-pub fn live_thinking_config(api_model: &str) -> Option<LiveThinkingConfig> {
-    generated_live_thinking_config(api_model)
+pub fn live_endpoint_profile(api_model: &str) -> Option<LiveEndpointProfile> {
+    generated_live_endpoint_profile(api_model)
 }
 
-pub fn live_thinking_config_json(api_model: &str) -> Option<serde_json::Value> {
-    match live_thinking_config(api_model) {
+fn live_thinking_json(config: Option<LiveThinkingConfig>) -> Option<serde_json::Value> {
+    match config {
         Some(LiveThinkingConfig::Budget(value)) => {
             Some(serde_json::json!({ "thinkingBudget": value }))
         }
@@ -154,28 +163,15 @@ pub fn live_thinking_config_json(api_model: &str) -> Option<serde_json::Value> {
     }
 }
 
-#[cfg(test)]
-mod lifecycle_tests {
-    use super::*;
-
-    #[test]
-    fn retired_flash_lite_id_migrates_to_stable() {
-        assert_eq!(
-            normalize_model_id("gemini-3.1-flash-lite-preview"),
-            "gemini-3.1-flash-lite"
-        );
+pub fn apply_live_generation_config(generation_config: &mut serde_json::Value, api_model: &str) {
+    let Some(profile) = live_endpoint_profile(api_model) else {
+        return;
+    };
+    if let Some(limit) = profile.max_output_tokens {
+        generation_config["maxOutputTokens"] = limit.into();
     }
-
-    #[test]
-    fn live_thinking_schema_follows_exact_endpoint() {
-        assert_eq!(
-            live_thinking_config(GEMINI_LIVE_API_MODEL_2_5),
-            Some(LiveThinkingConfig::Budget(0))
-        );
-        assert_eq!(
-            live_thinking_config(GEMINI_LIVE_API_MODEL_3_1),
-            Some(LiveThinkingConfig::Level("minimal"))
-        );
+    if let Some(config) = live_thinking_json(profile.thinking) {
+        generation_config["thinkingConfig"] = config;
     }
 }
 
@@ -195,13 +191,17 @@ pub fn realtime_transcription_api_model(model_id: &str) -> String {
         .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string())
 }
 
+pub fn realtime_transcription_live_protocol(model_id: &str) -> Option<&'static str> {
+    let api_model = realtime_transcription_api_model(model_id);
+    live_endpoint_profile(&api_model).and_then(|profile| profile.protocol)
+}
+
 pub fn is_gemini_live_translate_model_id(model_id: &str) -> bool {
-    normalize_realtime_transcription_model_id(model_id) == GEMINI_LIVE_TRANSLATE_MODEL_ID
+    realtime_transcription_live_protocol(model_id) == Some("live-translate")
 }
 
 pub fn is_gemini_live_s2s_model_id(model_id: &str) -> bool {
-    let normalized = normalize_realtime_transcription_model_id(model_id);
-    normalized == "gemini-live-s2s" || normalized == GEMINI_LIVE_TRANSLATE_MODEL_ID
+    is_gemini_live_translate_model_id(model_id)
 }
 
 pub fn tts_gemini_model_options() -> &'static [(&'static str, &'static str)] {
@@ -478,4 +478,104 @@ pub fn trigger_ollama_model_scan() {
 
         OLLAMA_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
     });
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn retired_flash_lite_id_migrates_to_stable() {
+        assert_eq!(
+            normalize_model_id("gemini-3.1-flash-lite-preview"),
+            "gemini-3.1-flash-lite"
+        );
+    }
+
+    #[test]
+    fn retired_cerebras_ids_migrate_to_gpt_oss() {
+        for retired in ["llama_3_1_8b_cerebras", "qwen_3_235b_a22b_instruct_2507"] {
+            assert_eq!(normalize_model_id(retired), "gpt_oss_120b_cerebras");
+        }
+    }
+
+    #[test]
+    fn cerebras_gemma_is_default_and_first_vision_fallback() {
+        assert_eq!(DEFAULT_IMAGE_MODEL_ID, "gemma-4-31b-cerebras-vision");
+        assert_eq!(
+            default_image_to_text_priority_chain_ids().first().copied(),
+            Some(DEFAULT_IMAGE_MODEL_ID)
+        );
+        let model = get_model_by_id(DEFAULT_IMAGE_MODEL_ID).expect("default vision model exists");
+        assert_eq!(model.provider, "cerebras");
+        assert_eq!(model.full_name, "gemma-4-31b");
+    }
+
+    #[test]
+    fn live_thinking_schema_follows_exact_endpoint() {
+        assert_eq!(
+            live_endpoint_profile(GEMINI_LIVE_API_MODEL_2_5).and_then(|profile| profile.thinking),
+            Some(LiveThinkingConfig::Budget(0))
+        );
+        assert_eq!(
+            live_endpoint_profile(GEMINI_LIVE_API_MODEL_3_1).and_then(|profile| profile.thinking),
+            Some(LiveThinkingConfig::Level("minimal"))
+        );
+    }
+
+    #[test]
+    fn live_output_limits_match_shared_parity_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/preset-system/gemini-live-socket-protocol.json"
+        )))
+        .expect("Gemini Live socket fixture parses");
+        let limits = fixture["modelOutputLimits"]
+            .as_object()
+            .expect("modelOutputLimits must be an object");
+        assert!(!limits.is_empty(), "modelOutputLimits must not be empty");
+
+        for (api_model, expected) in limits {
+            let expected = u32::try_from(
+                expected
+                    .as_u64()
+                    .expect("model output limit must be an unsigned integer"),
+            )
+            .expect("model output limit must fit u32");
+            assert_eq!(
+                live_endpoint_profile(api_model).and_then(|profile| profile.max_output_tokens),
+                Some(expected),
+                "catalog output limit drifted for {api_model}"
+            );
+        }
+    }
+
+    #[test]
+    fn tts_model_normalization_uses_catalog_default() {
+        for persisted in ["", "gemini", "unknown-live-model"] {
+            assert_eq!(
+                normalize_tts_gemini_model(persisted),
+                DEFAULT_GEMINI_LIVE_TTS_MODEL,
+                "legacy or invalid TTS model must use the catalog default"
+            );
+        }
+
+        for (api_model, _) in tts_gemini_model_options() {
+            assert_eq!(normalize_tts_gemini_model(api_model), *api_model);
+        }
+    }
+
+    #[test]
+    fn live_translate_routing_comes_from_the_endpoint_profile() {
+        assert_eq!(
+            realtime_transcription_live_protocol(GEMINI_LIVE_TRANSLATE_MODEL_ID),
+            Some("live-translate")
+        );
+        assert!(is_gemini_live_translate_model_id(
+            GEMINI_LIVE_TRANSLATE_MODEL_ID
+        ));
+        assert!(!is_gemini_live_translate_model_id(
+            GEMINI_LIVE_AUDIO_MODEL_ID_3_1
+        ));
+    }
 }

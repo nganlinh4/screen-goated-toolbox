@@ -2,8 +2,7 @@ use super::types::{REQUEST_OPEN_DOWNLOADED_TOOLS, RESTORE_SIGNAL, SettingsApp};
 use crate::config::save_config;
 use eframe::egui;
 use std::sync::atomic::Ordering;
-use windows::Win32::Foundation::{CloseHandle, RECT};
-use windows::Win32::System::Threading::*;
+use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GetWindowRect, SW_RESTORE, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
@@ -18,13 +17,16 @@ pub fn simple_rand(seed: u32) -> u32 {
 
 /// Public function to signal the main window to restore (called from tray popup)
 pub fn signal_restore_window() {
+    accept_restore_activation();
+}
+
+pub(crate) fn accept_restore_activation() {
+    show_main_window_native();
     RESTORE_SIGNAL.store(true, Ordering::SeqCst);
-    unsafe {
-        let event_name = crate::hotkey::restore_event_name_wide();
-        if let Ok(event) = OpenEventW(EVENT_ALL_ACCESS, false, PCWSTR(event_name.as_ptr())) {
-            let _ = SetEvent(event);
-            let _ = CloseHandle(event);
-        }
+    if let Ok(ctx) = crate::gui::GUI_CONTEXT.lock()
+        && let Some(ctx) = ctx.as_ref()
+    {
+        ctx.request_repaint();
     }
 }
 

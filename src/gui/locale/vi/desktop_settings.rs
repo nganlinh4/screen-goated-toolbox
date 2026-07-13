@@ -1,0 +1,35 @@
+use crate::gui::locale::DesktopSettingsLocaleText;
+
+pub(super) fn get() -> DesktopSettingsLocaleText {
+    DesktopSettingsLocaleText {
+        hotkeys_section: "Phím tắt",
+        start_in_tray_label: "Khởi động trong tray",
+        footer_admin_running: "đang chạy bằng admin",
+        admin_startup_on: "Chạy làm Admin khi khởi động",
+        admin_startup_success: "Đã bật: Sẽ chạy Admin khi khởi động (Task Scheduler).",
+        admin_startup_fail: "Lỗi: Cần chạy App bằng Admin để cài đặt tính năng này.",
+        graphics_mode_standard: "Tiêu chuẩn (Hiệu ứng gradient glow)",
+        graphics_mode_minimal: "Tối giản cho máy yếu (Hiệu ứng quét laser)",
+        usage_statistics_title: "Thống kê sử dụng",
+        usage_statistics_tooltip: "Dùng mô hình ít nhất một lần để hiện chính xác",
+        usage_model_column: "Mô hình",
+        usage_remaining_column: "Còn lại / Tổng",
+        usage_check_link: "Xem lượng dùng",
+        footer_admin_text: "chạy bằng admin để dịch game",
+        check_for_updates_btn: "Kiểm Tra Cập Nhật",
+        current_version_label: "Phiên Bản Hiện Tại:",
+        checking_github: "Đang kiểm tra GitHub...",
+        up_to_date: "Bạn đang dùng phiên bản mới nhất",
+        check_again_btn: "Kiểm Tra Lại",
+        new_version_available: "Phiên bản mới có sẵn:",
+        release_notes_label: "Ghi Chú Phát Hành",
+        download_update_btn: "Tải Về & Cập Nhật Ngay",
+        downloading_update: "Đang tải về... Ứng dụng sẽ cập nhật tại chỗ.",
+        update_failed: "Cập Nhật Thất Bại:",
+        app_folder_writable_hint: "Đảm bảo rằng thư mục ứng dụng có thể ghi được.",
+        retry_btn: "Thử Lại",
+        update_success: "Cập Nhật Thành Công!",
+        restart_to_use_new_version: "Khởi động lại để sử dụng phiên bản mới.",
+        restart_app_btn: "Khởi Động Lại Ứng Dụng",
+    }
+}

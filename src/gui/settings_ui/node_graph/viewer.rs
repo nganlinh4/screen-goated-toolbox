@@ -66,23 +66,31 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                     block_type.as_str()
                 };
                 let type_name = match actual_type {
-                    "audio" => self.text.node_input_audio,
-                    "image" => self.text.node_input_image,
-                    "text" => self.text.node_input_text,
+                    "audio" => self.text.preset_editor.node_input_audio,
+                    "image" => self.text.preset_editor.node_input_image,
+                    "text" => self.text.preset_editor.node_input_text,
                     _ => "Input",
                 };
-                let prefix = self.text.node_input_prefix;
+                let prefix = self.text.preset_editor.node_input_prefix;
                 format!("{} {}", prefix, type_name)
             }
             ChainNode::Special { .. } => {
                 // Dynamic title based on preset type
                 match self.preset_type.as_str() {
-                    "image" => self.text.node_special_image_to_text.to_string(),
-                    "audio" => self.text.node_special_audio_to_text.to_string(),
-                    _ => self.text.node_special_default.to_string(),
+                    "image" => self
+                        .text
+                        .preset_editor
+                        .node_special_image_to_text
+                        .to_string(),
+                    "audio" => self
+                        .text
+                        .preset_editor
+                        .node_special_audio_to_text
+                        .to_string(),
+                    _ => self.text.preset_editor.node_special_default.to_string(),
                 }
             }
-            ChainNode::Process { .. } => self.text.node_process_title.to_string(),
+            ChainNode::Process { .. } => self.text.preset_editor.node_process_title.to_string(),
         }
     }
 
@@ -116,17 +124,17 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                     draw_icon_static(ui, icon, Some(crate::gui::icons::ICON_MD));
 
                     let type_name = match actual_type {
-                        "audio" => self.text.node_input_audio,
-                        "image" => self.text.node_input_image,
-                        "text" => self.text.node_input_text,
+                        "audio" => self.text.preset_editor.node_input_audio,
+                        "image" => self.text.preset_editor.node_input_image,
+                        "text" => self.text.preset_editor.node_input_text,
                         _ => "Input",
                     };
-                    let prefix = self.text.node_input_prefix;
+                    let prefix = self.text.preset_editor.node_input_prefix;
                     ui.label(format!("{} {}", prefix, type_name));
                 }
                 ChainNode::Process { .. } => {
                     draw_icon_static(ui, Icon::Settings, Some(crate::gui::icons::ICON_MD));
-                    let title = self.text.node_process_title;
+                    let title = self.text.preset_editor.node_process_title;
                     crate::gui::icons::arrow_label(ui, title, None, |rt| rt);
                 }
 
@@ -134,9 +142,9 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                     draw_icon_static(ui, Icon::Settings, Some(crate::gui::icons::ICON_MD));
                     // Dynamic header based on preset type
                     let title = match self.preset_type.as_str() {
-                        "image" => self.text.node_special_image_to_text,
-                        "audio" => self.text.node_special_audio_to_text,
-                        _ => self.text.node_special_default,
+                        "image" => self.text.preset_editor.node_special_image_to_text,
+                        "audio" => self.text.preset_editor.node_special_audio_to_text,
+                        _ => self.text.preset_editor.node_special_default,
                     };
                     let header_color = AppTheme::from_ui(ui).node_special_title();
                     crate::gui::icons::arrow_label(ui, title, Some(header_color), move |rt| {
@@ -205,11 +213,11 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
         ui: &mut egui::Ui,
         snarl: &mut Snarl<ChainNode>,
     ) {
-        let add_process_label = self.text.node_menu_add_normal;
+        let add_process_label = self.text.preset_editor.node_menu_add_normal;
         let add_special_label = match self.preset_type.as_str() {
-            "image" => self.text.node_menu_add_special_image,
-            "audio" => self.text.node_menu_add_special_audio,
-            _ => self.text.node_menu_add_special_generic,
+            "image" => self.text.preset_editor.node_menu_add_special_image,
+            "audio" => self.text.preset_editor.node_menu_add_special_audio,
+            _ => self.text.preset_editor.node_menu_add_special_generic,
         };
 
         let add_process_clicked = {

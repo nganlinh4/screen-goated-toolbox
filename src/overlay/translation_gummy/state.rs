@@ -308,7 +308,10 @@ pub(super) fn payload_json() -> Option<String> {
         hotkeys: state.draft.hotkeys.clone(),
         hotkey_error: state.hotkey_error.clone(),
         last_error: state.last_error.clone().map(|err| match err.as_str() {
-            "missing_api_key" => text.translation_gummy_api_key_required.to_string(),
+            "missing_api_key" => text
+                .translation_gummy
+                .translation_gummy_api_key_required
+                .to_string(),
             _ => err,
         }),
         transcripts: state.transcripts.clone(),
@@ -325,27 +328,75 @@ pub(super) fn payload_json() -> Option<String> {
             v
         },
         strings: WebStrings {
-            title: text.translation_gummy_title.to_string(),
-            first_profile: text.translation_gummy_first_profile.to_string(),
-            second_profile: text.translation_gummy_second_profile.to_string(),
-            language_label: text.translation_gummy_language_label.to_string(),
-            accent_label: text.translation_gummy_accent_label.to_string(),
-            tone_label: text.translation_gummy_tone_label.to_string(),
-            hotkey_label: text.translation_gummy_hotkey_label.to_string(),
-            set_hotkey: text.translation_gummy_hotkey_set.to_string(),
-            clear_hotkey: text.translation_gummy_hotkey_clear.to_string(),
-            apply: text.translation_gummy_apply.to_string(),
-            start: text.translation_gummy_start.to_string(),
-            stop: text.translation_gummy_stop.to_string(),
-            transcript_title: text.translation_gummy_transcript_title.to_string(),
-            input_chip: text.translation_gummy_input_chip.to_string(),
-            output_chip: text.translation_gummy_output_chip.to_string(),
-            no_transcript: text.translation_gummy_no_transcript_yet.to_string(),
-            guide: text.translation_gummy_guide.to_string(),
-            guide_ok: text.translation_gummy_guide_ok.to_string(),
-            chat_history: text.translation_gummy_chat_history.to_string(),
-            current_model: text.translation_gummy_current_model.to_string(),
-            current_voice: text.translation_gummy_current_voice.to_string(),
+            title: text.translation_gummy.translation_gummy_title.to_string(),
+            first_profile: text
+                .translation_gummy
+                .translation_gummy_first_profile
+                .to_string(),
+            second_profile: text
+                .translation_gummy
+                .translation_gummy_second_profile
+                .to_string(),
+            language_label: text
+                .translation_gummy
+                .translation_gummy_language_label
+                .to_string(),
+            accent_label: text
+                .translation_gummy
+                .translation_gummy_accent_label
+                .to_string(),
+            tone_label: text
+                .translation_gummy
+                .translation_gummy_tone_label
+                .to_string(),
+            hotkey_label: text
+                .translation_gummy
+                .translation_gummy_hotkey_label
+                .to_string(),
+            set_hotkey: text
+                .translation_gummy
+                .translation_gummy_hotkey_set
+                .to_string(),
+            clear_hotkey: text
+                .translation_gummy
+                .translation_gummy_hotkey_clear
+                .to_string(),
+            apply: text.translation_gummy.translation_gummy_apply.to_string(),
+            start: text.translation_gummy.translation_gummy_start.to_string(),
+            stop: text.translation_gummy.translation_gummy_stop.to_string(),
+            transcript_title: text
+                .translation_gummy
+                .translation_gummy_transcript_title
+                .to_string(),
+            input_chip: text
+                .translation_gummy
+                .translation_gummy_input_chip
+                .to_string(),
+            output_chip: text
+                .translation_gummy
+                .translation_gummy_output_chip
+                .to_string(),
+            no_transcript: text
+                .translation_gummy
+                .translation_gummy_no_transcript_yet
+                .to_string(),
+            guide: text.translation_gummy.translation_gummy_guide.to_string(),
+            guide_ok: text
+                .translation_gummy
+                .translation_gummy_guide_ok
+                .to_string(),
+            chat_history: text
+                .translation_gummy
+                .translation_gummy_chat_history
+                .to_string(),
+            current_model: text
+                .translation_gummy
+                .translation_gummy_current_model
+                .to_string(),
+            current_voice: text
+                .translation_gummy
+                .translation_gummy_current_voice
+                .to_string(),
         },
     };
     serde_json::to_string(&payload).ok()

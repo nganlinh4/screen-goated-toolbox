@@ -43,7 +43,7 @@ pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
         let spec = ModelRowSpec {
             model_probe: PROBE_STEP_AUDIO,
             model_title: "Step Audio AWQ model + tokenizer",
-            model_download_title: text.step_audio_downloading_title,
+            model_download_title: text.tool_runtime.step_audio_downloading_title,
             model_notice: current_step_audio_notice,
             is_model_downloaded: is_step_audio_model_downloaded,
             model_dir: get_step_audio_model_dir,
@@ -54,7 +54,7 @@ pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
         };
         ui.heading("Step Audio EditX");
         ui.add_space(4.0);
-        ui.label(text.tool_desc_step_audio);
+        ui.label(text.auxiliary.managed_tools.tool_desc_step_audio);
         ui.add_space(6.0);
         render_model_row(ui, text, &spec);
         ui.add_space(4.0);
@@ -67,7 +67,7 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
         let spec = ModelRowSpec {
             model_probe: PROBE_MAGPIE,
             model_title: "Magpie model + NanoCodec",
-            model_download_title: text.magpie_downloading_title,
+            model_download_title: text.tool_runtime.magpie_downloading_title,
             model_notice: current_magpie_notice,
             is_model_downloaded: is_magpie_model_downloaded,
             model_dir: get_magpie_model_dir,
@@ -78,7 +78,7 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
         };
         ui.heading("NVIDIA Magpie-Multilingual 357M");
         ui.add_space(4.0);
-        ui.label(text.tool_desc_magpie);
+        ui.label(text.auxiliary.managed_tools.tool_desc_magpie);
         ui.add_space(6.0);
         render_model_row(ui, text, &spec);
         ui.add_space(4.0);
@@ -89,7 +89,9 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
 fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
     let theme = AppTheme::from_ui(ui);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tool_step_audio_runtime).strong());
+        ui.label(
+            egui::RichText::new(text.auxiliary.managed_tools.tool_step_audio_runtime).strong(),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading = is_step_audio_runtime_downloading()
                 || REALTIME_STATE
@@ -107,7 +109,10 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_STEP_RUNTIME, is_step_audio_runtime_installed) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
+                    .button(
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                            .color(theme.danger_text()),
+                    )
                     .clicked()
                 {
                     invalidate_probe_cache(PROBE_STEP_RUNTIME);
@@ -120,22 +125,31 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                 );
                 ui.label(
                     egui::RichText::new(
-                        text.tool_status_installed.replace("{}", &format_size(size)),
+                        text.auxiliary
+                            .managed_tools
+                            .tool_status_installed
+                            .replace("{}", &format_size(size)),
                     )
                     .color(theme.success()),
                 );
             } else {
-                if ui.button(text.tool_action_download).clicked() {
+                if ui
+                    .button(text.auxiliary.managed_tools.tool_action_download)
+                    .clicked()
+                {
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     thread::spawn(move || {
                         let _ = download_step_audio_runtime(stop_signal, false);
                     });
                 }
-                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
+                ui.label(
+                    egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                        .color(egui::Color32::GRAY),
+                );
             }
         });
     });
-    ui.label(text.tool_desc_step_audio_runtime);
+    ui.label(text.auxiliary.managed_tools.tool_desc_step_audio_runtime);
     if let Some(message) = current_step_audio_runtime_notice() {
         ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
@@ -146,17 +160,20 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
         let theme = AppTheme::from_ui(ui);
         ui.heading("VieNeu-TTS v2");
         ui.add_space(4.0);
-        ui.label(text.tool_desc_vieneu);
+        ui.label(text.auxiliary.managed_tools.tool_desc_vieneu);
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(text.tool_vieneu_runtime).strong());
+            ui.label(
+                egui::RichText::new(text.auxiliary.managed_tools.tool_vieneu_runtime).strong(),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let is_downloading = is_vieneu_runtime_downloading()
                     || REALTIME_STATE
                         .lock()
                         .map(|s| {
                             s.is_downloading
-                                && s.download_title == text.vieneu_runtime_downloading_title
+                                && s.download_title
+                                    == text.tool_runtime.vieneu_runtime_downloading_title
                         })
                         .unwrap_or(false);
                 let probe_variant = crate::config::tts_catalog::default_vieneu_variant_id();
@@ -172,7 +189,8 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                 }) {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(theme.danger_text()),
+                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -186,12 +204,18 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                     );
                     ui.label(
                         egui::RichText::new(
-                            text.tool_status_installed.replace("{}", &format_size(size)),
+                            text.auxiliary
+                                .managed_tools
+                                .tool_status_installed
+                                .replace("{}", &format_size(size)),
                         )
                         .color(theme.success()),
                     );
                 } else {
-                    if ui.button(text.tool_action_download).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_action_download)
+                        .clicked()
+                    {
                         let stop_signal = Arc::new(AtomicBool::new(false));
                         let install_variant =
                             crate::config::tts_catalog::default_vieneu_variant_id().to_string();
@@ -200,7 +224,8 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                         });
                     }
                     ui.label(
-                        egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                            .color(egui::Color32::GRAY),
                     );
                 }
             });
@@ -208,14 +233,14 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
         if let Some(notice) = current_vieneu_runtime_notice() {
             ui.label(egui::RichText::new(notice).color(theme.warning()));
         }
-        ui.label(text.tool_desc_vieneu_runtime);
+        ui.label(text.auxiliary.managed_tools.tool_desc_vieneu_runtime);
     });
 }
 
 fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
     let theme = AppTheme::from_ui(ui);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tool_magpie_runtime).strong());
+        ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_magpie_runtime).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading = is_magpie_runtime_downloading()
                 || REALTIME_STATE
@@ -231,7 +256,10 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if cached_probe(PROBE_MAGPIE_RUNTIME, is_magpie_runtime_installed) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
+                    .button(
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                            .color(theme.danger_text()),
+                    )
                     .clicked()
                 {
                     invalidate_probe_cache(PROBE_MAGPIE_RUNTIME);
@@ -244,22 +272,31 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                 );
                 ui.label(
                     egui::RichText::new(
-                        text.tool_status_installed.replace("{}", &format_size(size)),
+                        text.auxiliary
+                            .managed_tools
+                            .tool_status_installed
+                            .replace("{}", &format_size(size)),
                     )
                     .color(theme.success()),
                 );
             } else {
-                if ui.button(text.tool_action_download).clicked() {
+                if ui
+                    .button(text.auxiliary.managed_tools.tool_action_download)
+                    .clicked()
+                {
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     thread::spawn(move || {
                         let _ = download_magpie_runtime(stop_signal, false);
                     });
                 }
-                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
+                ui.label(
+                    egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                        .color(egui::Color32::GRAY),
+                );
             }
         });
     });
-    ui.label(text.tool_desc_magpie_runtime);
+    ui.label(text.auxiliary.managed_tools.tool_desc_magpie_runtime);
     if let Some(message) = current_magpie_runtime_notice() {
         ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }

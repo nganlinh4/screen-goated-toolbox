@@ -23,9 +23,15 @@ impl DownloadManager {
         // Primary download action routes through the accent fill; while the
         // analyzer is scanning, the same button becomes a "skip scan" warning.
         let (btn_text, btn_fill) = if is_analyzing {
-            (text.download_scan_ignore_btn, theme.warning())
+            (
+                text.auxiliary.download.download_scan_ignore_btn,
+                theme.warning(),
+            )
         } else {
-            (text.download_start_btn, theme.accent_fill())
+            (
+                text.auxiliary.download.download_start_btn,
+                theme.accent_fill(),
+            )
         };
         let on_btn = theme.on_accent();
 
@@ -55,7 +61,12 @@ impl DownloadManager {
                 if draw_download_btn(ui) && !self.sessions[idx].input_url.is_empty() {
                     self.sessions[idx].logs.lock().unwrap().clear();
                     self.sessions[idx].show_error_log = false;
-                    self.start_media_download(text.download_progress_info_fmt.to_string());
+                    self.start_media_download(
+                        text.auxiliary
+                            .download
+                            .download_progress_info_fmt
+                            .to_string(),
+                    );
                 }
                 if let DownloadState::Error(err) = &state {
                     self.render_error_state(ui, ctx, text, idx, err);
@@ -64,14 +75,19 @@ impl DownloadManager {
             DownloadState::Finished(path, _msg) => {
                 self.render_finished_state(ui, text, path);
                 if draw_download_btn(ui) && !self.sessions[idx].input_url.is_empty() {
-                    self.start_media_download(text.download_progress_info_fmt.to_string());
+                    self.start_media_download(
+                        text.auxiliary
+                            .download
+                            .download_progress_info_fmt
+                            .to_string(),
+                    );
                 }
             }
             DownloadState::Downloading(progress, msg) => {
                 ui.vertical_centered(|ui| {
                     ui.add_space(10.0);
                     if msg == "Starting..." {
-                        ui.label(text.download_status_starting);
+                        ui.label(text.auxiliary.download.download_status_starting);
                     } else {
                         let clean_msg = msg.replace("[download]", "").trim().to_string();
                         ui.label(egui::RichText::new(clean_msg).small());
@@ -81,7 +97,7 @@ impl DownloadManager {
                     ui.add_space(5.0);
                     if widgets::filled_button_sized(
                         ui,
-                        text.download_cancel_btn,
+                        text.auxiliary.download.download_cancel_btn,
                         theme.neutral_fill(),
                         theme.on_surface(),
                         10,
@@ -107,15 +123,18 @@ impl DownloadManager {
         let theme = AppTheme::from_ui(ui);
         ui.add_space(5.0);
         ui.label(
-            egui::RichText::new(format!("{} {}", text.download_status_error, err))
-                .color(theme.danger_text())
-                .small(),
+            egui::RichText::new(format!(
+                "{} {}",
+                text.auxiliary.download.download_status_error, err
+            ))
+            .color(theme.danger_text())
+            .small(),
         );
 
         let btn_text = if self.sessions[idx].show_error_log {
-            text.download_hide_log_btn
+            text.auxiliary.download.download_hide_log_btn
         } else {
-            text.download_show_log_btn
+            text.auxiliary.download.download_show_log_btn
         };
 
         if ui
@@ -155,7 +174,7 @@ impl DownloadManager {
         let theme = AppTheme::from_ui(ui);
         ui.vertical_centered(|ui| {
             ui.label(
-                egui::RichText::new(text.download_status_finished)
+                egui::RichText::new(text.auxiliary.download.download_status_finished)
                     .color(theme.success())
                     .heading(),
             );
@@ -179,13 +198,19 @@ impl DownloadManager {
             ui.horizontal(|ui| {
                 let enabled = path.components().next().is_some();
                 if ui
-                    .add_enabled(enabled, egui::Button::new(text.download_open_file_btn))
+                    .add_enabled(
+                        enabled,
+                        egui::Button::new(text.auxiliary.download.download_open_file_btn),
+                    )
                     .clicked()
                 {
                     let _ = open::that(path);
                 }
                 if ui
-                    .add_enabled(enabled, egui::Button::new(text.download_open_folder_btn))
+                    .add_enabled(
+                        enabled,
+                        egui::Button::new(text.auxiliary.download.download_open_folder_btn),
+                    )
                     .clicked()
                 {
                     if let Some(parent) = path.parent() {

@@ -37,7 +37,7 @@ where
     let context_quote = get_context_quote(final_prompt);
     on_chunk(&format!(
         "{}\n\n🔍 {} {}...",
-        context_quote, locale.search_doing, locale.search_searching
+        context_quote, locale.workspace.search_doing, locale.workspace.search_searching
     ));
 
     let resp = UREQ_AGENT
@@ -83,9 +83,9 @@ fn report_search_progress<F>(
         let mut phase1 = format!(
             "{}\n\n🔍 {} {}...\n\n{}\n",
             context_quote,
-            locale.search_doing.to_uppercase(),
-            locale.search_searching.to_uppercase(),
-            locale.search_query_label
+            locale.workspace.search_doing.to_uppercase(),
+            locale.workspace.search_searching.to_uppercase(),
+            locale.workspace.search_query_label
         );
         for (i, q) in search_queries.iter().enumerate() {
             phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, q));
@@ -102,6 +102,7 @@ fn report_search_progress<F>(
             "{}\n\n{}\n\n",
             context_quote,
             locale
+                .workspace
                 .search_found_sources
                 .replace("{}", &all_sources.len().to_string())
         );
@@ -120,7 +121,7 @@ fn report_search_progress<F>(
                 domain
             ));
         }
-        phase2.push_str(&format!("\n{}", locale.search_synthesizing));
+        phase2.push_str(&format!("\n{}", locale.workspace.search_synthesizing));
         on_chunk(&phase2);
         std::thread::sleep(std::time::Duration::from_millis(800));
     }
@@ -155,7 +156,7 @@ fn collect_search_sources(
                 let title = r
                     .get("title")
                     .and_then(|t| t.as_str())
-                    .unwrap_or(locale.search_no_title);
+                    .unwrap_or(locale.workspace.search_no_title);
                 let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
                 let score = r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
                 all_sources.push((title.to_string(), url.to_string(), score));

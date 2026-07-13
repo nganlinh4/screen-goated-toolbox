@@ -5,6 +5,7 @@
 - Windows surface/runtime: [translation_gummy](../../src/overlay/translation_gummy)
 - Windows settings: [translation_gummy.rs](../../src/config/types/translation_gummy.rs)
 - Android feature: [translationgummy](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy)
+- Shared Android Live transport/parser: [GeminiLiveReadySession.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/shared/live/GeminiLiveReadySession.kt), [GeminiLiveProtocol.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/shared/live/GeminiLiveProtocol.kt)
 - Shared fixtures: [translation-gummy](../../parity-fixtures/translation-gummy)
 
 ## Contract
@@ -15,6 +16,7 @@
 - Build setup per selected model. Gemini 2.5 uses `thinkingBudget`; Gemini 3.1 uses `thinkingLevel`. Do not force one family's field onto the other.
 - Enable input/output transcription, interruption on new activity, context compression, and the VAD/setup values locked by `vad-contract.json`.
 - Process every content part in a server event; Gemini 3.1 may combine audio and transcript parts.
+- Capture and media sending begin only after structural `setupComplete`; setup errors win over acknowledgement, and every active audio/stream-end send rejection terminates that transport attempt.
 - Local mic gating keeps preroll/trailing audio and sends `audioStreamEnd` after local end-of-speech.
 - Valid saved config auto-starts. Apply persists a valid draft, preserves transcript history, inserts the session separator, and restarts.
 - Start/Stop controls the last applied config. Socket loss reconnects without erasing transcript state.

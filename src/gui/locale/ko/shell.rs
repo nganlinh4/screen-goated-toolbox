@@ -1,0 +1,38 @@
+use crate::gui::locale::ShellLocaleText;
+
+pub(super) fn get() -> ShellLocaleText {
+    ShellLocaleText {
+        tray_settings: "설정",
+        tray_quit: "종료",
+        tray_favorite_bubble: "즐겨찾기 버블 표시",
+        tray_favorite_bubble_disabled: "즐겨찾기 버블 표시 (즐겨찾기 없음)",
+        favorites_empty: "별 버튼으로 프리셋을 즐겨찾기에 추가해 주세요",
+        favorites_keep_open: "열린 상태 유지",
+        recording_subtext: "ESC/단축키를 눌러 중지",
+        recording_paused: "일시 중지됨",
+        auto_copied_badge: "자동으로 복사됨",
+        auto_copied_image_badge: "이미지가 복사됨",
+        text_input_loading: "텍스트 입력 로딩 중...",
+        recording_loading: "녹음 로딩 중...",
+        preset_wheel_loading: "선택 휠 로딩 중...",
+        update_available_notification: "새 업데이트 이용 가능!",
+        cannot_type_no_caret: "자동 붙여넣기/쓰기가 활성화되었지만 텍스트 입력이 선택되지 않았습니다!",
+        drop_overlay_text: "여기에 드롭하여 처리",
+        video_drop_work_record: "SGT Record에서 작업",
+        video_drop_generate_subtitles: "지금 자막 생성",
+        audio_drop_add_to_record: "SGT Record에 추가",
+        device_mode_warning: "장치 오디오가 선택되었지만 앱이 선택되지 않았습니다",
+        select_app_btn: "앱 선택",
+        toggle_translation_tooltip: "번역 켜기/끄기",
+        toggle_transcription_tooltip: "자막 켜기/끄기",
+        font_minus_tooltip: "글꼴 축소",
+        font_plus_tooltip: "글꼴 확대",
+        google_gtx_label: "Google 번역",
+        llm_label: "LLM",
+        downloaded_successfully: "다운로드 완료!",
+        download_recording_tooltip: "녹음 다운로드",
+        help_assistant_btn: "사용법 문의",
+        help_assistant_title: "SGT에 대해 물어보기",
+        prompt_dj_btn: "DJ 되기",
+    }
+}

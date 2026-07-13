@@ -9,7 +9,9 @@ pub fn generate_panel_html(
 ) -> String {
     let css = generate_panel_css(is_dark);
     let favorites_html = get_favorite_presets_html(presets, lang, is_dark);
-    let keep_open_label = crate::gui::locale::LocaleText::get(lang).favorites_keep_open;
+    let keep_open_label = crate::gui::locale::LocaleText::get(lang)
+        .shell
+        .favorites_keep_open;
     let keep_open_js = if keep_open { "true" } else { "false" };
     let keep_open_class = if keep_open { " active" } else { "" };
     let js = get_js();
@@ -337,7 +339,7 @@ pub fn get_favorite_presets_html(presets: &[Preset], lang: &str, is_dark: bool) 
         let locale = crate::gui::locale::LocaleText::get(lang);
         html_items = format!(
             r#"<div class="empty">{}</div>"#,
-            html_escape(locale.favorites_empty)
+            html_escape(locale.shell.favorites_empty)
         );
     }
 

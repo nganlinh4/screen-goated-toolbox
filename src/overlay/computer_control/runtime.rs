@@ -10,10 +10,10 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use tungstenite::Message;
 
-use crate::api::realtime_audio::websocket::{
-    is_transient_socket_read_error, send_audio_chunk, set_socket_nonblocking,
-    set_socket_short_timeout,
+use crate::api::gemini_live::transport::{
+    is_transient_socket_read_error, set_socket_nonblocking, set_socket_short_timeout,
 };
+use crate::api::realtime_audio::websocket::send_audio_chunk;
 
 use super::overlay;
 use super::playback::AudioSink;

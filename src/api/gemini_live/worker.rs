@@ -9,18 +9,13 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
-use tungstenite::Message;
 
 use super::manager::GeminiLiveManager;
+use super::ready_session::{ConnectedLiveSocket, LivePoll, OpenOptions, ReadyLiveSession};
+use super::server_frame::LiveServerFrame;
 use super::types::LiveEvent;
-use super::websocket::{
-    is_setup_complete, parse_error, parse_live_response, send_live_content, send_live_setup,
-    set_live_read_timeout,
-};
+use super::websocket::{build_live_setup, send_live_content};
 use crate::APP;
-use crate::api::realtime_audio::websocket::connect_websocket;
-
-type LiveSocket = tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>;
 
 /// Connect + run the setup handshake for `model`, returning a socket ready to
 /// receive content. Used both on demand and to PRE-WARM the next socket.
@@ -29,43 +24,15 @@ fn connect_and_setup(
     model: &str,
     instruction: Option<&str>,
     show_thinking: bool,
-) -> anyhow::Result<LiveSocket> {
-    let mut socket = connect_websocket(api_key)?;
-    send_live_setup(&mut socket, model, instruction, show_thinking)?;
-    let start = Instant::now();
-    loop {
-        match socket.read() {
-            Ok(Message::Text(msg)) => {
-                if is_setup_complete(msg.as_str()) {
-                    break;
-                }
-                if let Some(e) = parse_error(msg.as_str()) {
-                    anyhow::bail!("{e}");
-                }
-            }
-            Ok(Message::Binary(d)) => {
-                if let Ok(t) = String::from_utf8(d.to_vec()) {
-                    if is_setup_complete(&t) {
-                        break;
-                    }
-                    if let Some(e) = parse_error(&t) {
-                        anyhow::bail!("{e}");
-                    }
-                }
-            }
-            Ok(Message::Close(f)) => anyhow::bail!("closed during setup: {f:?}"),
-            Ok(_) => {}
-            Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if start.elapsed() > Duration::from_secs(15) {
-                    anyhow::bail!("setup timeout");
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => anyhow::bail!("setup error: {e}"),
-        }
-    }
-    set_live_read_timeout(&mut socket, Duration::from_millis(250))?;
-    Ok(socket)
+) -> anyhow::Result<ReadyLiveSession> {
+    ConnectedLiveSocket::connect(api_key)?.activate_with(
+        build_live_setup(model, instruction, show_thinking),
+        OpenOptions {
+            active_read_timeout: Duration::from_millis(250),
+            ..OpenOptions::default()
+        },
+        || false,
+    )
 }
 
 /// Stream one request over a ready socket: send the content, relay text chunks /
@@ -73,13 +40,13 @@ fn connect_and_setup(
 /// caller after). Returns Err only if the SOCKET itself failed before any content
 /// (so a stale warm socket can be retried cold).
 fn serve(
-    socket: &mut LiveSocket,
+    session: &mut ReadyLiveSession,
     request: &super::types::QueuedLiveRequest,
     manager: &GeminiLiveManager,
 ) -> Result<(), ()> {
-    if let Err(e) = send_live_content(socket, &request.req.content) {
+    let send_result = send_live_content(session, &request.req.content);
+    if send_result.is_err() {
         // No content was produced — signal the caller it can retry on a fresh socket.
-        let _ = e;
         return Err(());
     }
 
@@ -97,14 +64,9 @@ fn serve(
             break;
         }
 
-        match socket.read() {
-            Ok(Message::Text(msg)) => {
-                let msg_str = msg.as_str();
-                if let Some(error) = parse_error(msg_str) {
-                    let _ = request.response_tx.send(LiveEvent::Error(error));
-                    break;
-                }
-                let (text_chunk, is_thought, is_turn_complete) = parse_live_response(msg_str);
+        match session.poll() {
+            Ok(LivePoll::Frame(frame)) => {
+                let (text_chunk, is_thought) = response_text(&frame);
                 if let Some(text) = text_chunk {
                     if is_thought {
                         if !thinking_sent && !content_started {
@@ -117,43 +79,20 @@ fn serve(
                         let _ = request.response_tx.send(LiveEvent::TextChunk(text));
                     }
                 }
-                if is_turn_complete {
+                if frame.response_complete() {
                     let _ = request.response_tx.send(LiveEvent::TurnComplete);
                     break;
                 }
             }
-            Ok(Message::Binary(data)) => {
-                // Try to parse as JSON text; ignore raw audio (not UTF-8).
-                if let Ok(text) = String::from_utf8(data.to_vec()) {
-                    if let Some(error) = parse_error(&text) {
-                        let _ = request.response_tx.send(LiveEvent::Error(error));
-                        break;
-                    }
-                    let (text_chunk, is_thought, is_turn_complete) = parse_live_response(&text);
-                    if let Some(chunk) = text_chunk {
-                        if is_thought {
-                            if !thinking_sent && !content_started {
-                                let _ = request.response_tx.send(LiveEvent::Thinking);
-                                thinking_sent = true;
-                            }
-                        } else {
-                            content_started = true;
-                            last_content_at = Some(Instant::now());
-                            let _ = request.response_tx.send(LiveEvent::TextChunk(chunk));
-                        }
-                    }
-                    if is_turn_complete {
-                        let _ = request.response_tx.send(LiveEvent::TurnComplete);
-                        break;
-                    }
-                }
+            Ok(LivePoll::ServerError(error)) => {
+                let _ = request.response_tx.send(LiveEvent::Error(error.message));
+                break;
             }
-            Ok(Message::Close(frame)) => {
+            Ok(LivePoll::PeerClosed(frame)) => {
                 if content_started {
                     let _ = request.response_tx.send(LiveEvent::TurnComplete);
                 } else {
                     let detail = frame
-                        .as_ref()
                         .map(|frame| {
                             if frame.reason.is_empty() {
                                 format!("code {}", frame.code)
@@ -172,11 +111,8 @@ fn serve(
                 }
                 break;
             }
-            Ok(_) => {}
-            Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
+            Ok(LivePoll::Unparsed { .. }) => {}
+            Ok(LivePoll::Idle) => {
                 if let Some(last) = last_content_at
                     && last.elapsed() >= idle_finalize_after
                 {
@@ -205,11 +141,39 @@ fn serve(
     Ok(())
 }
 
+fn response_text(frame: &LiveServerFrame) -> (Option<String>, bool) {
+    let mut visible = Vec::new();
+    let mut thoughts = Vec::new();
+
+    if let Some(transcript) = frame
+        .output_transcript
+        .as_ref()
+        .filter(|text| !text.chars().all(char::is_whitespace))
+    {
+        visible.push(transcript.as_str());
+    }
+    for part in &frame.text_parts {
+        if part.thought {
+            thoughts.push(part.text.as_str());
+        } else {
+            visible.push(part.text.as_str());
+        }
+    }
+
+    if !visible.is_empty() {
+        return (Some(visible.concat()), false);
+    }
+    if !thoughts.is_empty() {
+        return (Some(thoughts.concat()), true);
+    }
+    (None, false)
+}
+
 /// Run a worker thread for the Gemini Live connection pool.
 pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
     std::thread::sleep(Duration::from_millis(50)); // stagger startup
     // A single pre-warmed socket for the last (model, instruction) we served.
-    let mut warm: Option<(LiveSocket, String, String)> = None;
+    let mut warm: Option<(ReadyLiveSession, String, String)> = None;
 
     loop {
         if manager.shutdown.load(Ordering::SeqCst) {
@@ -266,7 +230,7 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         // Reuse the pre-warmed socket if it matches this (model, instruction);
         // otherwise connect cold. On a stale warm socket, fall back to cold once.
         let warm_match = matches!(&warm, Some((_, m, i)) if *m == model && *i == instruction);
-        let mut socket = if warm_match {
+        let mut session = if warm_match {
             warm.take().map(|(s, _, _)| s).unwrap()
         } else {
             warm = None; // wrong model/instruction — drop the warm one
@@ -281,13 +245,13 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
             }
         };
 
-        if serve(&mut socket, &request, &manager).is_err() {
+        if serve(&mut session, &request, &manager).is_err() {
             // Warm socket was stale: reconnect cold and serve once more.
-            let _ = socket.close(None);
+            let _ = session.close();
             match connect_and_setup(&api_key, &model, instr_opt, request.req.show_thinking) {
                 Ok(mut fresh) => {
                     let _ = serve(&mut fresh, &request, &manager);
-                    let _ = fresh.close(None);
+                    let _ = fresh.close();
                 }
                 Err(e) => {
                     let _ = request
@@ -296,7 +260,7 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                 }
             }
         } else {
-            let _ = socket.close(None);
+            let _ = session.close();
         }
 
         // Pre-warm the next socket during the gap before the next call — but ONLY
@@ -310,5 +274,47 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         } else {
             warm = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::gemini_live::server_frame::LiveTextPart;
+
+    #[test]
+    fn visible_response_text_wins_over_thoughts() {
+        let frame = LiveServerFrame {
+            output_transcript: Some("spoken ".to_string()),
+            text_parts: vec![
+                LiveTextPart {
+                    text: "hidden".to_string(),
+                    thought: true,
+                },
+                LiveTextPart {
+                    text: "answer".to_string(),
+                    thought: false,
+                },
+            ],
+            ..LiveServerFrame::default()
+        };
+
+        assert_eq!(
+            response_text(&frame),
+            (Some("spoken answer".to_string()), false)
+        );
+    }
+
+    #[test]
+    fn thought_only_response_retains_thinking_signal() {
+        let frame = LiveServerFrame {
+            text_parts: vec![LiveTextPart {
+                text: "reasoning".to_string(),
+                thought: true,
+            }],
+            ..LiveServerFrame::default()
+        };
+
+        assert_eq!(response_text(&frame), (Some("reasoning".to_string()), true));
     }
 }

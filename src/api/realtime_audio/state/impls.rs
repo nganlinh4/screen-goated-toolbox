@@ -6,6 +6,12 @@ use super::{
 };
 use std::time::{Duration, Instant};
 
+impl Default for RealtimeState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RealtimeState {
     pub fn new() -> Self {
         Self {

@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use tungstenite::Message;
 
-use crate::api::realtime_audio::websocket::{
+use crate::api::gemini_live::transport::{
     is_transient_socket_read_error, set_socket_nonblocking, set_socket_short_timeout,
 };
 
@@ -45,13 +45,11 @@ pub fn run(tasks: &[String]) -> Result<()> {
 
     let mut socket = connect_ws(&key).context("connect websocket")?;
     let setup_payload = if std::env::var("CC_MINIMAL").is_ok() {
-        // Bare repo-shape payload + CC_MODEL override, for endpoint/model bisecting.
+        // Minimal feature payload + CC_MODEL override, for endpoint/model bisecting.
+        // The shared builder still applies endpoint-owned generation policy.
         let model = std::env::var("CC_MODEL").unwrap_or_else(|_| protocol::MODEL.to_string());
         eprintln!("[cc-probe] (minimal) model={model}");
-        serde_json::json!({"setup": {
-            "model": format!("models/{model}"),
-            "generationConfig": {"responseModalities": ["AUDIO"]}
-        }})
+        crate::api::gemini_live::setup::LiveSetupBuilder::new(&model).build()
     } else if std::env::var("CC_PROBE_FULL").is_ok() {
         eprintln!("[cc-probe] using full production Computer Control toolkit");
         super::uia_task::build_setup(None, false, false)

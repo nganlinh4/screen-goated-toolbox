@@ -1,13 +1,20 @@
 package dev.screengoated.toolbox.mobile.service
 
-import android.util.Base64
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
-import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.model.TtsDefaults
-import org.json.JSONArray
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveMediaResolution
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSetupSpec
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveTranscriptionMode
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
+import dev.screengoated.toolbox.mobile.shared.live.buildGeminiLiveSetup
+import dev.screengoated.toolbox.mobile.shared.live.parseGeminiLiveServerFrame
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.json.JSONObject
+import java.util.Base64
 import java.util.Locale
 
 data class GeminiS2sRuntimeSettings(
@@ -183,42 +190,22 @@ internal fun buildGeminiS2sSetupPayload(
     contextText: String = "",
 ): String {
     if (isGeminiTranslateApiModel(model)) {
-        return JSONObject()
-            .put(
-                "setup",
-                JSONObject()
-                    .put("model", "models/$model")
-                    .put(
-                        "generationConfig",
-                        JSONObject()
-                            .put("responseModalities", JSONArray().put("AUDIO"))
-                            .put(
-                                "translationConfig",
-                                JSONObject()
-                                    .put("targetLanguageCode", targetLanguageCode(settings.targetLanguage))
-                                    .put("echoTargetLanguage", true),
-                            ),
+        return buildGeminiLiveSetup(
+            GeminiLiveSetupSpec(
+                apiModel = model,
+                transcriptionMode = GeminiLiveTranscriptionMode.BOTH,
+                generationOverrides = buildJsonObject {
+                    put(
+                        "translationConfig",
+                        buildJsonObject {
+                            put("targetLanguageCode", targetLanguageCode(settings.targetLanguage))
+                            put("echoTargetLanguage", true)
+                        },
                     )
-                    .put("inputAudioTranscription", JSONObject())
-                    .put("outputAudioTranscription", JSONObject()),
-            )
-            .toString()
-    }
-
-    val generationConfig = JSONObject()
-        .put("responseModalities", JSONArray().put("AUDIO"))
-        .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
-        .put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
-        .put(
-            "speechConfig",
-            JSONObject().put(
-                "voiceConfig",
-                JSONObject().put(
-                    "prebuiltVoiceConfig",
-                    JSONObject().put("voiceName", settings.globalTts.voice.ifBlank { TtsDefaults.DEFAULT_TTS_GEMINI_VOICE }),
-                ),
+                },
             ),
-        )
+        ).toString()
+    }
 
     val instruction = buildString {
         append("Translate the user's speech directly into ")
@@ -240,28 +227,20 @@ internal fun buildGeminiS2sSetupPayload(
         }
     }
 
-    return JSONObject()
-        .put(
-            "setup",
-            JSONObject()
-                .put("model", "models/$model")
-                .put("generationConfig", generationConfig)
-                .put(
-                    "systemInstruction",
-                    JSONObject().put(
-                        "parts",
-                        JSONArray().put(JSONObject().put("text", instruction)),
-                    ),
-                )
-                .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
-                .put("inputAudioTranscription", JSONObject())
-                .put("outputAudioTranscription", JSONObject()),
-        )
-        .toString()
+    return buildGeminiLiveSetup(
+        GeminiLiveSetupSpec(
+            apiModel = model,
+            mediaResolution = GeminiLiveMediaResolution.LOW,
+            voiceName = settings.globalTts.voice.ifBlank { TtsDefaults.DEFAULT_TTS_GEMINI_VOICE },
+            systemInstruction = instruction,
+            transcriptionMode = GeminiLiveTranscriptionMode.BOTH,
+            contextWindowCompression = true,
+        ),
+    ).toString()
 }
 
 private fun isGeminiTranslateApiModel(model: String): Boolean {
-    return model.contains("live-translate") || model == RealtimeModelIds.GEMINI_LIVE_TRANSLATE_API_MODEL
+    return GeneratedLiveModelCatalog.endpointProfile(model)?.protocol == "live-translate"
 }
 
 internal fun targetLanguageCode(language: String): String {
@@ -333,7 +312,7 @@ internal fun buildGeminiS2sAudioPayload(samples: ShortArray): String {
         bytes[byteIndex] = (sample.toInt() and 0xFF).toByte()
         bytes[byteIndex + 1] = ((sample.toInt() shr 8) and 0xFF).toByte()
     }
-    val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    val encoded = Base64.getEncoder().encodeToString(bytes)
     return JSONObject()
         .put(
             "realtimeInput",
@@ -354,41 +333,22 @@ internal fun buildGeminiS2sAudioStreamEndPayload(): String {
 }
 
 internal fun parseGeminiS2sUpdate(message: String): GeminiS2sParsedUpdate {
-    return runCatching {
-        val root = JSONObject(message)
-        val error = root.optJSONObject("error")
-            ?.optString("message")
-            ?.takeIf(String::isNotBlank)
-        val serverContent = root.optJSONObject("serverContent")
-        val modelTurn = serverContent?.optJSONObject("modelTurn")
-        val audio = mutableListOf<ByteArray>()
-        val parts = modelTurn?.optJSONArray("parts")
-        if (parts != null) {
-            for (index in 0 until parts.length()) {
-                val inlineData = parts.optJSONObject(index)?.optJSONObject("inlineData")
-                val data = inlineData?.optString("data")?.takeIf(String::isNotBlank)
-                if (data != null) {
-                    audio.add(Base64.decode(data, Base64.DEFAULT))
-                }
-            }
-        }
-        GeminiS2sParsedUpdate(
-            inputText = serverContent
-                ?.optJSONObject("inputTranscription")
-                ?.optString("text")
-                ?.takeIf(String::isNotBlank)
-                .orEmpty(),
-            outputText = serverContent
-                ?.optJSONObject("outputTranscription")
-                ?.optString("text")
-                ?.takeIf(String::isNotBlank)
-                .orEmpty(),
-            audioChunks = audio,
-            turnComplete = serverContent?.optBoolean("turnComplete", false) == true,
-            generationComplete = serverContent?.optBoolean("generationComplete", false) == true,
-            error = error,
-        )
-    }.getOrElse { GeminiS2sParsedUpdate() }
+    val frame = parseGeminiLiveServerFrame(message) ?: return GeminiS2sParsedUpdate()
+    return parseGeminiS2sUpdate(frame)
+}
+
+internal fun parseGeminiS2sUpdate(frame: GeminiLiveServerFrame): GeminiS2sParsedUpdate {
+    val audioChunks = frame.audioParts.mapNotNull { inlineData ->
+        runCatching { Base64.getDecoder().decode(inlineData.data) }.getOrNull()
+    }
+    return GeminiS2sParsedUpdate(
+        inputText = frame.inputTranscript.orEmpty(),
+        outputText = frame.outputTranscript.orEmpty(),
+        audioChunks = audioChunks,
+        turnComplete = frame.turnComplete,
+        generationComplete = frame.generationComplete,
+        error = frame.error,
+    )
 }
 
 internal fun mergeGeminiS2sSegmentText(

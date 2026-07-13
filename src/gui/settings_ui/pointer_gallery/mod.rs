@@ -182,7 +182,7 @@ impl PointerGallery {
         ))
         .rect_filled(screen_rect, 0.0, theme.scrim_color());
 
-        egui::Window::new(text.pointer_gallery_btn)
+        egui::Window::new(text.tool_runtime.pointer_gallery_btn)
             .collapsible(false)
             .resizable(true)
             .title_bar(false)
@@ -197,7 +197,7 @@ impl PointerGallery {
                 let header_closed = crate::gui::widgets::dialog_header(
                     ui,
                     &theme,
-                    text.pointer_gallery_btn,
+                    text.tool_runtime.pointer_gallery_btn,
                     description.as_deref(),
                     |ui| {
                         let summary = pointer_collection_summary();
@@ -205,7 +205,9 @@ impl PointerGallery {
                         if ui
                             .add_enabled(
                                 can_restore,
-                                egui::Button::new(text.pointer_restore_original_btn),
+                                egui::Button::new(
+                                    text.auxiliary.managed_tools.pointer_restore_original_btn,
+                                ),
                             )
                             .clicked()
                         {
@@ -213,8 +215,13 @@ impl PointerGallery {
                                 Ok(()) => {
                                     self.pointer_size_loaded = false;
                                     self.ensure_pointer_size_loaded();
-                                    self.status_message =
-                                        Some((true, text.pointer_restore_success.to_string()));
+                                    self.status_message = Some((
+                                        true,
+                                        text.auxiliary
+                                            .managed_tools
+                                            .pointer_restore_success
+                                            .to_string(),
+                                    ));
                                 }
                                 Err(err) => {
                                     self.status_message = Some((false, err));
@@ -223,14 +230,26 @@ impl PointerGallery {
                         }
 
                         let worker_running = self.event_rx.is_some() && !self.downloads_paused;
-                        if worker_running && ui.button(text.pointer_action_stop).clicked() {
+                        if worker_running
+                            && ui
+                                .button(text.auxiliary.managed_tools.pointer_action_stop)
+                                .clicked()
+                        {
                             self.stop_signal.store(true, Ordering::Relaxed);
                             self.downloads_paused = true;
-                            self.status_message =
-                                Some((true, text.pointer_download_paused.to_string()));
+                            self.status_message = Some((
+                                true,
+                                text.auxiliary
+                                    .managed_tools
+                                    .pointer_download_paused
+                                    .to_string(),
+                            ));
                         }
 
-                        if self.downloads_paused && ui.button(text.pointer_action_resume).clicked()
+                        if self.downloads_paused
+                            && ui
+                                .button(text.auxiliary.managed_tools.pointer_action_resume)
+                                .clicked()
                         {
                             self.downloads_paused = false;
                             self.restart_preload();
@@ -240,7 +259,9 @@ impl PointerGallery {
                         if has_missing
                             && !worker_running
                             && !self.downloads_paused
-                            && ui.button(text.pointer_action_start_download).clicked()
+                            && ui
+                                .button(text.auxiliary.managed_tools.pointer_action_start_download)
+                                .clicked()
                         {
                             self.restart_preload();
                         }
@@ -249,7 +270,7 @@ impl PointerGallery {
                         // Group the size control away from the action buttons with
                         // spacing rather than a divider line (clean UI).
                         ui.add_space(10.0);
-                        ui.label(text.pointer_size_label);
+                        ui.label(text.auxiliary.managed_tools.pointer_size_label);
                         let mut size_value = self.pointer_size.clamp(min_size, max_size);
                         let slider_response = ui.add_sized(
                             [POINTER_SIZE_SLIDER_WIDTH, PREVIEW_ICON_SIZE - 2.0],
@@ -289,9 +310,9 @@ impl PointerGallery {
                             );
                             let apply_label =
                                 if matches!(collection.status, CollectionStatus::Applied) {
-                                    text.pointer_status_applied
+                                    text.auxiliary.managed_tools.pointer_status_applied
                                 } else {
-                                    text.pointer_action_apply
+                                    text.auxiliary.managed_tools.pointer_action_apply
                                 };
 
                             ui.group(|ui| {
@@ -327,7 +348,11 @@ impl PointerGallery {
                                         if ui
                                             .add_sized(
                                                 [ACTION_COLUMN_WIDTH, PREVIEW_ICON_SIZE - 2.0],
-                                                egui::Button::new(text.pointer_action_retry),
+                                                egui::Button::new(
+                                                    text.auxiliary
+                                                        .managed_tools
+                                                        .pointer_action_retry,
+                                                ),
                                             )
                                             .clicked()
                                         {

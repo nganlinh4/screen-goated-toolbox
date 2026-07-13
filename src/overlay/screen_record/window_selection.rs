@@ -99,12 +99,13 @@ pub fn show_window_selector(windows_data: Vec<serde_json::Value>, is_dark: bool,
         entries,
         is_dark,
         SelectorText {
-            title: locale.win_select_title.to_string(),
-            subtitle: locale.win_select_subtitle.to_string(),
+            title: locale.auxiliary.win_select_title.to_string(),
+            subtitle: locale.auxiliary.win_select_subtitle.to_string(),
             count_label: locale
+                .auxiliary
                 .win_select_count
                 .replace("{}", &entry_count.to_string()),
-            cancel_label: locale.cancel_label.to_string(),
+            cancel_label: locale.preset_basics.cancel_label.to_string(),
         },
         callbacks,
     );

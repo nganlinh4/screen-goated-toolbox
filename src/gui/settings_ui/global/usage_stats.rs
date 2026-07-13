@@ -36,7 +36,7 @@ pub fn render_usage_modal(
             if crate::gui::widgets::dialog_header(
                 ui,
                 &theme,
-                text.usage_statistics_title,
+                text.desktop_settings.usage_statistics_title,
                 None,
                 |_| {},
             ) {
@@ -65,8 +65,8 @@ pub fn render_usage_modal(
                     });
                     state.show_body_indented(&header.response, ui, |ui| {
                         egui::Grid::new("groq_grid").striped(true).show(ui, |ui| {
-                            ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
-                            ui.label(egui::RichText::new(text.usage_remaining_column).strong().size(11.0));
+                            ui.label(egui::RichText::new(text.desktop_settings.usage_model_column).strong().size(11.0));
+                            ui.label(egui::RichText::new(text.desktop_settings.usage_remaining_column).strong().size(11.0));
                             ui.end_row();
 
                             for model in &all_models {
@@ -114,8 +114,8 @@ pub fn render_usage_modal(
                     });
                     state.show_body_indented(&header.response, ui, |ui| {
                         egui::Grid::new("cerebras_grid").striped(true).show(ui, |ui| {
-                            ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
-                            ui.label(egui::RichText::new(text.usage_remaining_column).strong().size(11.0));
+                            ui.label(egui::RichText::new(text.desktop_settings.usage_model_column).strong().size(11.0));
+                            ui.label(egui::RichText::new(text.desktop_settings.usage_remaining_column).strong().size(11.0));
                             ui.end_row();
 
                             for model in &all_models {
@@ -162,7 +162,7 @@ pub fn render_usage_modal(
                             }
                         });
                         ui.add_space(4.0);
-                        ui.hyperlink_to(text.usage_check_link, "https://cloud.cerebras.ai/");
+                        ui.hyperlink_to(text.desktop_settings.usage_check_link, "https://cloud.cerebras.ai/");
                     });
                 }
 
@@ -179,9 +179,9 @@ pub fn render_usage_modal(
                     });
                     state.show_body_indented(&header.response, ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
+                            ui.label(egui::RichText::new(text.desktop_settings.usage_model_column).strong().size(11.0));
                             ui.add_space(120.0);
-                            ui.hyperlink_to(text.usage_check_link, "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit");
+                            ui.hyperlink_to(text.desktop_settings.usage_check_link, "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit");
                         });
                         ui.add_space(4.0);
 
@@ -208,9 +208,9 @@ pub fn render_usage_modal(
                     });
                     state.show_body_indented(&header.response, ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
+                            ui.label(egui::RichText::new(text.desktop_settings.usage_model_column).strong().size(11.0));
                             ui.add_space(120.0);
-                            ui.hyperlink_to(text.usage_check_link, "https://openrouter.ai/activity");
+                            ui.hyperlink_to(text.desktop_settings.usage_check_link, "https://openrouter.ai/activity");
                         });
                         ui.add_space(4.0);
 
@@ -237,9 +237,9 @@ pub fn render_usage_modal(
                     });
                     state.show_body_indented(&header.response, ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
+                            ui.label(egui::RichText::new(text.desktop_settings.usage_model_column).strong().size(11.0));
                             ui.add_space(120.0);
-                            ui.label(text.unlimited_label);
+                            ui.label(text.overlay.unlimited_label);
                         });
                         ui.add_space(4.0);
 

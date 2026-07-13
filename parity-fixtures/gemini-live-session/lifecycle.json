@@ -1,0 +1,439 @@
+{
+  "version": 1,
+  "timeUnit": "monotonicMilliseconds",
+  "assertionContract": {
+    "expectState": "partial",
+    "expectEffects": "exactOrdered"
+  },
+  "backoffFormula": {
+    "baseMs": 250,
+    "exponentCap": 5,
+    "jitterMinMs": 20,
+    "jitterSeed": 7,
+    "jitterStep": 53,
+    "jitterSpan": 180,
+    "maxMs": 6000
+  },
+  "profiles": {
+    "finiteResponse": {
+      "kind": "finiteRequest",
+      "setupTimeoutMs": 15000,
+      "firstResponseTimeoutMs": 20000,
+      "contentIdleMs": 1200,
+      "hardResponseTimeoutMs": 90000,
+      "finiteCompletionSignals": ["turnComplete", "generationComplete"],
+      "reconnectEnabled": false
+    },
+    "continuousStream": {
+      "kind": "continuousStream",
+      "setupTimeoutMs": 15000,
+      "serverIdleTimeoutMs": 15000,
+      "serverIdleMinInputChunks": 100,
+      "rotateAfterMs": 720000,
+      "rotationQuietMs": 3000,
+      "reconnectEnabled": true,
+      "maxReconnectAttempts": null,
+      "backoffResetOn": "meaningfulActiveFrame"
+    },
+    "agentSession": {
+      "kind": "agentSession",
+      "setupTimeoutMs": 15000,
+      "reconnectEnabled": true,
+      "maxReconnectAttempts": 6,
+      "backoffResetOn": "meaningfulActiveFrame"
+    }
+  },
+  "arrangements": {
+    "finiteActive": [
+      { "atMs": 0, "event": { "type": "start" } },
+      { "atMs": 0, "event": { "type": "socketOpened", "generation": 1 } },
+      { "atMs": 0, "event": { "type": "frame", "generation": 1, "setupComplete": true } }
+    ],
+    "continuousActive": [
+      { "atMs": 0, "event": { "type": "start" } },
+      { "atMs": 0, "event": { "type": "socketOpened", "generation": 1 } },
+      { "atMs": 0, "event": { "type": "frame", "generation": 1, "setupComplete": true } }
+    ],
+    "agentActive": [
+      { "atMs": 0, "event": { "type": "start" } },
+      { "atMs": 0, "event": { "type": "socketOpened", "generation": 1 } },
+      { "atMs": 0, "event": { "type": "frame", "generation": 1, "setupComplete": true } }
+    ]
+  },
+  "cases": [
+    {
+      "name": "setup gates active state and response deadlines",
+      "profile": "finiteResponse",
+      "steps": [
+        {
+          "atMs": 0,
+          "event": { "type": "start" },
+          "expectState": { "phase": "connecting", "generation": 1 },
+          "expectEffects": [{ "type": "openSocket", "generation": 1 }]
+        },
+        {
+          "atMs": 10,
+          "event": { "type": "socketOpened", "generation": 1 },
+          "expectState": { "phase": "awaitingSetup", "setupDeadlineMs": 15010 },
+          "expectEffects": [{ "type": "sendSetup", "generation": 1 }]
+        },
+        {
+          "atMs": 20,
+          "event": { "type": "frame", "generation": 1, "setupComplete": true },
+          "expectState": {
+            "phase": "active",
+            "setupDeadlineMs": null,
+            "firstResponseDeadlineMs": 20020,
+            "hardResponseDeadlineMs": 90020
+          },
+          "expectEffects": []
+        }
+      ]
+    },
+    {
+      "name": "setup acknowledgement frame preserves simultaneous content",
+      "profile": "finiteResponse",
+      "steps": [
+        {
+          "atMs": 0,
+          "event": { "type": "start" },
+          "expectState": { "phase": "connecting", "generation": 1 },
+          "expectEffects": [{ "type": "openSocket", "generation": 1 }]
+        },
+        {
+          "atMs": 10,
+          "event": { "type": "socketOpened", "generation": 1 },
+          "expectState": { "phase": "awaitingSetup" },
+          "expectEffects": [{ "type": "sendSetup", "generation": 1 }]
+        },
+        {
+          "atMs": 20,
+          "event": {
+            "type": "frame",
+            "generation": 1,
+            "setupComplete": true,
+            "contentCount": 1
+          },
+          "expectState": {
+            "phase": "active",
+            "hasOutput": true,
+            "firstResponseDeadlineMs": null,
+            "contentIdleDeadlineMs": 1220,
+            "hardResponseDeadlineMs": 90020
+          },
+          "expectEffects": [{ "type": "deliverContent", "count": 1 }]
+        }
+      ]
+    },
+    {
+      "name": "finite frame delivers all content before generation completion",
+      "profile": "finiteResponse",
+      "arrange": "finiteActive",
+      "steps": [
+        {
+          "atMs": 100,
+          "event": {
+            "type": "frame",
+            "generation": 1,
+            "contentCount": 2,
+            "generationComplete": true
+          },
+          "expectState": { "phase": "completed", "hasOutput": true },
+          "expectEffects": [
+            { "type": "deliverContent", "count": 2 },
+            { "type": "finalizeResponse", "reason": "generationComplete" },
+            { "type": "closeSocket", "generation": 1 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "finite turn completion is independently terminal",
+      "profile": "finiteResponse",
+      "arrange": "finiteActive",
+      "steps": [
+        {
+          "atMs": 100,
+          "event": { "type": "frame", "generation": 1, "turnComplete": true },
+          "expectState": { "phase": "completed" },
+          "expectEffects": [
+            { "type": "finalizeResponse", "reason": "turnComplete" },
+            { "type": "closeSocket", "generation": 1 }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "continuous completion signals remain distinct and nonterminal",
+      "profile": "continuousStream",
+      "arrange": "continuousActive",
+      "steps": [
+        {
+          "atMs": 100,
+          "event": { "type": "frame", "generation": 1, "generationComplete": true },
+          "expectState": { "phase": "active" },
+          "expectEffects": [{ "type": "finalizeGeneration" }]
+        },
+        {
+          "atMs": 200,
+          "event": { "type": "frame", "generation": 1, "turnComplete": true },
+          "expectState": { "phase": "active" },
+          "expectEffects": [{ "type": "finalizeTurn" }]
+        }
+      ]
+    },
+    {
+      "name": "continuous combined completion frame emits both ordered boundaries",
+      "profile": "continuousStream",
+      "arrange": "continuousActive",
+      "steps": [
+        {
+          "atMs": 100,
+          "event": {
+            "type": "frame",
+            "generation": 1,
+            "contentCount": 1,
+            "turnComplete": true,
+            "generationComplete": true
+          },
+          "expectState": { "phase": "active", "hasOutput": true },
+          "expectEffects": [
+            { "type": "deliverContent", "count": 1 },
+            { "type": "finalizeTurn" },
+            { "type": "finalizeGeneration" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "interruption clears model output but does not cancel tools or session",
+      "profile": "agentSession",
+      "arrange": "agentActive",
+      "steps": [
+        {
+          "atMs": 100,
+          "event": { "type": "frame", "generation": 1, "toolCallIds": ["a", "b"] },
+          "expectState": { "pendingToolIds": ["a", "b"] },
+          "expectEffects": [{ "type": "dispatchTools", "ids": ["a", "b"] }]
+        },
+        {
+          "atMs": 200,
+          "event": { "type": "frame", "generation": 1, "interrupted": true },
+          "expectState": { "phase": "active", "pendingToolIds": ["a", "b"] },
+          "expectEffects": [
+            { "type": "stopPlayback" },
+            { "type": "discardQueuedOutput" },
+            { "type": "finalizeInterruptedGeneration" }
+          ]
+        },
+        {
+          "atMs": 300,
+          "event": { "type": "frame", "generation": 1, "toolCancellationIds": ["b", "missing"] },
+          "expectState": { "phase": "active", "pendingToolIds": ["a"] },
+          "expectEffects": [{ "type": "cancelTools", "ids": ["b"] }]
+        }
+      ]
+    },
+    {
+      "name": "continuous setup timeout retries with deterministic backoff and rejects stale ack",
+      "profile": "continuousStream",
+      "steps": [
+        { "atMs": 0, "event": { "type": "start" }, "expectState": { "generation": 1 }, "expectEffects": [{ "type": "openSocket", "generation": 1 }] },
+        { "atMs": 0, "event": { "type": "socketOpened", "generation": 1 }, "expectState": { "phase": "awaitingSetup", "setupDeadlineMs": 15000 }, "expectEffects": [{ "type": "sendSetup", "generation": 1 }] },
+        {
+          "atMs": 15000,
+          "event": { "type": "tick" },
+          "expectState": { "phase": "backingOff", "generation": 2, "reconnectAttempt": 1, "reconnectDeadlineMs": 15277 },
+          "expectEffects": [
+            { "type": "closeSocket", "generation": 1 },
+            { "type": "scheduleReconnect", "generation": 2, "attempt": 1, "delayMs": 277, "reason": "setupTimeout" }
+          ]
+        },
+        { "atMs": 15001, "event": { "type": "frame", "generation": 1, "setupComplete": true }, "expectState": { "phase": "backingOff", "generation": 2 }, "expectEffects": [] },
+        { "atMs": 15277, "event": { "type": "tick" }, "expectState": { "phase": "connecting", "generation": 2 }, "expectEffects": [{ "type": "openSocket", "generation": 2 }] }
+      ]
+    },
+    {
+      "name": "backoff resets only after meaningful active frame",
+      "profile": "continuousStream",
+      "steps": [
+        { "atMs": 0, "event": { "type": "start" }, "expectState": { "generation": 1 }, "expectEffects": [{ "type": "openSocket", "generation": 1 }] },
+        { "atMs": 0, "event": { "type": "socketOpened", "generation": 1 }, "expectState": { "phase": "awaitingSetup" }, "expectEffects": [{ "type": "sendSetup", "generation": 1 }] },
+        { "atMs": 1, "event": { "type": "frame", "generation": 1, "setupComplete": true }, "expectState": { "phase": "active", "reconnectAttempt": 0 }, "expectEffects": [] },
+        { "atMs": 2, "event": { "type": "transportFailure", "generation": 1, "retryable": true }, "expectState": { "generation": 2, "reconnectAttempt": 1, "reconnectDeadlineMs": 279 }, "expectEffects": [{ "type": "closeSocket", "generation": 1 }, { "type": "scheduleReconnect", "generation": 2, "attempt": 1, "delayMs": 277, "reason": "transportFailure" }] },
+        { "atMs": 279, "event": { "type": "tick" }, "expectState": { "phase": "connecting" }, "expectEffects": [{ "type": "openSocket", "generation": 2 }] },
+        { "atMs": 280, "event": { "type": "socketOpened", "generation": 2 }, "expectState": { "phase": "awaitingSetup" }, "expectEffects": [{ "type": "sendSetup", "generation": 2 }] },
+        { "atMs": 281, "event": { "type": "frame", "generation": 2, "setupComplete": true }, "expectState": { "phase": "active", "reconnectAttempt": 1 }, "expectEffects": [] },
+        { "atMs": 282, "event": { "type": "frame", "generation": 2, "contentCount": 1 }, "expectState": { "reconnectAttempt": 0 }, "expectEffects": [{ "type": "deliverContent", "count": 1 }] },
+        { "atMs": 283, "event": { "type": "transportFailure", "generation": 2, "retryable": true }, "expectState": { "generation": 3, "reconnectAttempt": 1, "reconnectDeadlineMs": 560 }, "expectEffects": [{ "type": "closeSocket", "generation": 2 }, { "type": "scheduleReconnect", "generation": 3, "attempt": 1, "delayMs": 277, "reason": "transportFailure" }] }
+      ]
+    },
+    {
+      "name": "shared signed long boundary saturates deadlines counters and reconnect",
+      "profile": "continuousStream",
+      "steps": [
+        {
+          "atMs": 9223372036854775797,
+          "event": { "type": "start" },
+          "expectState": { "phase": "connecting", "generation": 1 },
+          "expectEffects": [{ "type": "openSocket", "generation": 1 }]
+        },
+        {
+          "atMs": 9223372036854775797,
+          "event": { "type": "socketOpened", "generation": 1 },
+          "expectState": { "phase": "awaitingSetup", "setupDeadlineMs": 9223372036854775807 },
+          "expectEffects": [{ "type": "sendSetup", "generation": 1 }]
+        },
+        {
+          "atMs": 9223372036854775797,
+          "event": { "type": "frame", "generation": 1, "setupComplete": true },
+          "expectState": { "phase": "active", "setupDeadlineMs": null },
+          "expectEffects": []
+        },
+        {
+          "atMs": 9223372036854775797,
+          "event": { "type": "inputSent", "chunks": 9223372036854775797 },
+          "expectState": { "inputChunksSinceServerActivity": 9223372036854775797 },
+          "expectEffects": []
+        },
+        {
+          "atMs": 9223372036854775797,
+          "event": { "type": "inputSent", "chunks": 20 },
+          "expectState": { "inputChunksSinceServerActivity": 9223372036854775807 },
+          "expectEffects": []
+        },
+        {
+          "atMs": 9223372036854775797,
+          "event": { "type": "transportFailure", "generation": 1, "retryable": true },
+          "expectState": {
+            "phase": "backingOff",
+            "generation": 2,
+            "reconnectAttempt": 1,
+            "reconnectDeadlineMs": 9223372036854775807
+          },
+          "expectEffects": [
+            { "type": "closeSocket", "generation": 1 },
+            { "type": "scheduleReconnect", "generation": 2, "attempt": 1, "delayMs": 277, "reason": "transportFailure" }
+          ]
+        },
+        {
+          "atMs": 9223372036854775807,
+          "event": { "type": "tick" },
+          "expectState": { "phase": "connecting", "generation": 2, "reconnectDeadlineMs": null },
+          "expectEffects": [{ "type": "openSocket", "generation": 2 }]
+        }
+      ]
+    },
+    {
+      "name": "finite first response deadline is terminal",
+      "profile": "finiteResponse",
+      "arrange": "finiteActive",
+      "steps": [
+        { "atMs": 19999, "event": { "type": "tick" }, "expectState": { "phase": "active" }, "expectEffects": [] },
+        { "atMs": 20000, "event": { "type": "tick" }, "expectState": { "phase": "failed" }, "expectEffects": [{ "type": "closeSocket", "generation": 1 }, { "type": "reportFailure", "reason": "firstResponseTimeout" }] }
+      ]
+    },
+    {
+      "name": "finite content idle grace finalizes partial output",
+      "profile": "finiteResponse",
+      "arrange": "finiteActive",
+      "steps": [
+        { "atMs": 100, "event": { "type": "frame", "generation": 1, "contentCount": 1 }, "expectState": { "hasOutput": true, "firstResponseDeadlineMs": null, "contentIdleDeadlineMs": 1300 }, "expectEffects": [{ "type": "deliverContent", "count": 1 }] },
+        { "atMs": 1299, "event": { "type": "tick" }, "expectState": { "phase": "active" }, "expectEffects": [] },
+        { "atMs": 1300, "event": { "type": "tick" }, "expectState": { "phase": "completed" }, "expectEffects": [{ "type": "finalizeResponse", "reason": "contentIdle" }, { "type": "closeSocket", "generation": 1 }] }
+      ]
+    },
+    {
+      "name": "server idle reconnect requires active outbound input",
+      "profile": "continuousStream",
+      "arrange": "continuousActive",
+      "steps": [
+        { "atMs": 15000, "event": { "type": "tick" }, "expectState": { "phase": "active" }, "expectEffects": [] },
+        { "atMs": 15001, "event": { "type": "inputSent", "chunks": 100 }, "expectState": { "inputChunksSinceServerActivity": 100 }, "expectEffects": [] },
+        { "atMs": 15001, "event": { "type": "tick" }, "expectState": { "phase": "backingOff", "generation": 2 }, "expectEffects": [{ "type": "closeSocket", "generation": 1 }, { "type": "scheduleReconnect", "generation": 2, "attempt": 1, "delayMs": 277, "reason": "serverIdle" }] }
+      ]
+    },
+    {
+      "name": "proactive rotation waits for pending work and dual quiet window",
+      "profile": "continuousStream",
+      "arrange": "continuousActive",
+      "steps": [
+        { "atMs": 719000, "event": { "type": "inputActivity" }, "expectState": { "lastInputActivityMs": 719000 }, "expectEffects": [] },
+        { "atMs": 719500, "event": { "type": "workState", "pendingWorkCount": 1, "bufferedInputCount": 0, "userSpeaking": false }, "expectState": { "pendingWorkCount": 1 }, "expectEffects": [] },
+        { "atMs": 722000, "event": { "type": "tick" }, "expectState": { "phase": "active" }, "expectEffects": [] },
+        { "atMs": 722001, "event": { "type": "workState", "pendingWorkCount": 0, "bufferedInputCount": 0, "userSpeaking": false }, "expectState": { "pendingWorkCount": 0 }, "expectEffects": [] },
+        { "atMs": 722001, "event": { "type": "tick" }, "expectState": { "phase": "backingOff", "generation": 2 }, "expectEffects": [{ "type": "closeSocket", "generation": 1 }, { "type": "scheduleReconnect", "generation": 2, "attempt": 1, "delayMs": 277, "reason": "proactiveRotation" }] }
+      ]
+    },
+    {
+      "name": "go away waits for safe gap",
+      "profile": "agentSession",
+      "arrange": "agentActive",
+      "steps": [
+        { "atMs": 100, "event": { "type": "workState", "pendingWorkCount": 1, "bufferedInputCount": 0, "userSpeaking": true }, "expectState": { "pendingWorkCount": 1, "userSpeaking": true }, "expectEffects": [] },
+        { "atMs": 200, "event": { "type": "frame", "generation": 1, "goAwayTimeLeftMs": 5000 }, "expectState": { "phase": "active", "goAwayDeadlineMs": 5200 }, "expectEffects": [] },
+        { "atMs": 300, "event": { "type": "workState", "pendingWorkCount": 0, "bufferedInputCount": 0, "userSpeaking": false }, "expectState": { "phase": "active" }, "expectEffects": [] },
+        { "atMs": 300, "event": { "type": "tick" }, "expectState": { "phase": "backingOff", "generation": 2 }, "expectEffects": [{ "type": "closeSocket", "generation": 1 }, { "type": "scheduleReconnect", "generation": 2, "attempt": 1, "delayMs": 277, "reason": "goAwaySafeGap" }] }
+      ]
+    },
+    {
+      "name": "go away deadline forces reconnect while busy",
+      "profile": "agentSession",
+      "arrange": "agentActive",
+      "steps": [
+        { "atMs": 100, "event": { "type": "workState", "pendingWorkCount": 1, "bufferedInputCount": 1, "userSpeaking": true }, "expectState": { "pendingWorkCount": 1 }, "expectEffects": [] },
+        { "atMs": 200, "event": { "type": "frame", "generation": 1, "goAwayTimeLeftMs": 1000 }, "expectState": { "goAwayDeadlineMs": 1200 }, "expectEffects": [] },
+        { "atMs": 1200, "event": { "type": "tick" }, "expectState": { "phase": "backingOff", "generation": 2 }, "expectEffects": [{ "type": "closeSocket", "generation": 1 }, { "type": "scheduleReconnect", "generation": 2, "attempt": 1, "delayMs": 277, "reason": "goAwayDeadline" }] }
+      ]
+    },
+    {
+      "name": "retryable classified server error reconnects",
+      "profile": "continuousStream",
+      "arrange": "continuousActive",
+      "steps": [
+        {
+          "atMs": 100,
+          "event": {
+            "type": "frame",
+            "generation": 1,
+            "error": { "kind": "server:UNAVAILABLE", "retryable": true }
+          },
+          "expectState": {
+            "phase": "backingOff",
+            "generation": 2,
+            "reconnectAttempt": 1,
+            "reconnectDeadlineMs": 377
+          },
+          "expectEffects": [
+            { "type": "closeSocket", "generation": 1 },
+            { "type": "scheduleReconnect", "generation": 2, "attempt": 1, "delayMs": 277, "reason": "serverError" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fatal classified error never reconnects",
+      "profile": "continuousStream",
+      "arrange": "continuousActive",
+      "steps": [
+        {
+          "atMs": 100,
+          "event": { "type": "frame", "generation": 1, "error": { "kind": "auth", "retryable": false } },
+          "expectState": { "phase": "failed" },
+          "expectEffects": [{ "type": "closeSocket", "generation": 1 }, { "type": "reportFailure", "reason": "auth" }]
+        }
+      ]
+    },
+    {
+      "name": "cancel during backoff is terminal and absorbs callbacks",
+      "profile": "continuousStream",
+      "arrange": "continuousActive",
+      "steps": [
+        { "atMs": 100, "event": { "type": "transportFailure", "generation": 1, "retryable": true }, "expectState": { "phase": "backingOff", "generation": 2, "reconnectDeadlineMs": 377 }, "expectEffects": [{ "type": "closeSocket", "generation": 1 }, { "type": "scheduleReconnect", "generation": 2, "attempt": 1, "delayMs": 277, "reason": "transportFailure" }] },
+        { "atMs": 101, "event": { "type": "cancel" }, "expectState": { "phase": "cancelled", "reconnectDeadlineMs": null }, "expectEffects": [{ "type": "cancelSession" }] },
+        { "atMs": 377, "event": { "type": "tick" }, "expectState": { "phase": "cancelled" }, "expectEffects": [] },
+        { "atMs": 378, "event": { "type": "frame", "generation": 2, "setupComplete": true }, "expectState": { "phase": "cancelled" }, "expectEffects": [] }
+      ]
+    }
+  ]
+}

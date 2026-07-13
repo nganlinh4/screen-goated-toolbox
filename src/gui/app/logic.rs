@@ -22,8 +22,10 @@ impl SettingsApp {
                 // Show blue-themed update notification with longer duration
                 let ui_lang = self.config.ui_language.clone();
                 let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-                let notification_text =
-                    format!("{} v{}", locale.update_available_notification, version);
+                let notification_text = format!(
+                    "{} v{}",
+                    locale.shell.update_available_notification, version
+                );
                 crate::overlay::auto_copy_badge::show_update_notification(&notification_text);
             }
             self.update_status = status;
@@ -114,8 +116,9 @@ impl SettingsApp {
         if self.config.ui_language != self.last_ui_language {
             self.last_ui_language = self.config.ui_language.clone();
             let new_locale = LocaleText::get(&self.config.ui_language);
-            self.tray_settings_item.set_text(new_locale.tray_settings);
-            self.tray_quit_item.set_text(new_locale.tray_quit);
+            self.tray_settings_item
+                .set_text(new_locale.shell.tray_settings);
+            self.tray_quit_item.set_text(new_locale.shell.tray_quit);
         }
 
         // --- LAZY TRAY ICON RECONCILE ---
@@ -269,9 +272,9 @@ impl SettingsApp {
 
         let locale = LocaleText::get(&self.config.ui_language);
         let bubble_text = if current_has_favorites {
-            locale.tray_favorite_bubble
+            locale.shell.tray_favorite_bubble
         } else {
-            locale.tray_favorite_bubble_disabled
+            locale.shell.tray_favorite_bubble_disabled
         };
 
         self.tray_favorite_bubble_item.set_text(bubble_text);
@@ -326,6 +329,7 @@ impl SettingsApp {
         }
 
         let current_tip = text
+            .workspace
             .tips_list
             .get(self.current_tip_idx)
             .unwrap_or(&"")
@@ -363,10 +367,10 @@ impl SettingsApp {
         if e >= total {
             // Advance to the next (non-repeating) random tip and restart the cycle.
             self.rng_seed = simple_rand(self.rng_seed);
-            if !text.tips_list.is_empty() {
-                let next = (self.rng_seed as usize) % text.tips_list.len();
-                if next == self.current_tip_idx && text.tips_list.len() > 1 {
-                    self.current_tip_idx = (next + 1) % text.tips_list.len();
+            if !text.workspace.tips_list.is_empty() {
+                let next = (self.rng_seed as usize) % text.workspace.tips_list.len();
+                if next == self.current_tip_idx && text.workspace.tips_list.len() > 1 {
+                    self.current_tip_idx = (next + 1) % text.workspace.tips_list.len();
                 } else {
                     self.current_tip_idx = next;
                 }

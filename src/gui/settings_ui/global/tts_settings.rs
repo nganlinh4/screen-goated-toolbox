@@ -47,7 +47,7 @@ pub fn render_tts_settings_modal(
     ))
     .rect_filled(screen_rect, 0.0, theme.scrim_color());
 
-    egui::Window::new(text.tts_settings_title)
+    egui::Window::new(text.tts_playground.tts_settings_title)
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
@@ -68,12 +68,12 @@ pub fn render_tts_settings_modal(
             // Split the bundled "Title (feature scope)" locale string so the
             // parenthetical feature-scope hint renders as the muted dialog
             // description beneath the title instead of inline in the title.
-            let (title_text, scope_hint) = match text.tts_settings_title.split_once('(') {
+            let (title_text, scope_hint) = match text.tts_playground.tts_settings_title.split_once('(') {
                 Some((title, hint)) => (
                     title.trim_end(),
                     Some(hint.trim_end_matches(')').trim()),
                 ),
-                None => (text.tts_settings_title, None),
+                None => (text.tts_playground.tts_settings_title, None),
             };
             let mut close_dialog = false;
             ui.horizontal(|ui| {
@@ -97,18 +97,18 @@ pub fn render_tts_settings_modal(
 
             // === TTS METHOD SELECTION === (dropdown — too many options for a row)
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(text.tts_method_label).strong());
+                ui.label(egui::RichText::new(text.tts_settings.tts_method_label).strong());
                 let current_label = match config.tts_method {
-                    TtsMethod::GeminiLive => text.tts_method_standard,
-                    TtsMethod::EdgeTTS => text.tts_method_edge,
-                    TtsMethod::GoogleTranslate => text.tts_method_fast,
+                    TtsMethod::GeminiLive => text.tts_settings.tts_method_standard,
+                    TtsMethod::EdgeTTS => text.tts_settings.tts_method_edge,
+                    TtsMethod::GoogleTranslate => text.tts_settings.tts_method_fast,
                     TtsMethod::StepAudioEditX => "Step Audio EditX",
                     TtsMethod::MagpieMultilingual => "NVIDIA Magpie-Multilingual 357M",
                     TtsMethod::Kokoro => "Kokoro 82M v1.0",
                     TtsMethod::Supertonic => "Supertonic 3",
                     TtsMethod::VieneuTts | TtsMethod::VoxtralTts => "VieNeu-TTS v2",
                     // Deprecated/hidden (migrated away on load) — never a real option.
-                    TtsMethod::FishAudioS2Pro => text.tts_method_standard,
+                    TtsMethod::FishAudioS2Pro => text.tts_settings.tts_method_standard,
                 };
                 crate::gui::widgets::combo("tts_method_combo")
                     .selected_text(current_label)
@@ -118,7 +118,7 @@ pub fn render_tts_settings_modal(
                             .selectable_value(
                                 &mut config.tts_method,
                                 TtsMethod::GeminiLive,
-                                text.tts_method_standard,
+                                text.tts_settings.tts_method_standard,
                             )
                             .clicked()
                         {
@@ -128,7 +128,7 @@ pub fn render_tts_settings_modal(
                             .selectable_value(
                                 &mut config.tts_method,
                                 TtsMethod::EdgeTTS,
-                                text.tts_method_edge,
+                                text.tts_settings.tts_method_edge,
                             )
                             .clicked()
                         {
@@ -138,7 +138,7 @@ pub fn render_tts_settings_modal(
                             .selectable_value(
                                 &mut config.tts_method,
                                 TtsMethod::GoogleTranslate,
-                                text.tts_method_fast,
+                                text.tts_settings.tts_method_fast,
                             )
                             .clicked()
                         {
@@ -164,7 +164,7 @@ pub fn render_tts_settings_modal(
                                 TtsMethod::MagpieMultilingual,
                                 "NVIDIA Magpie-Multilingual 357M",
                             )
-                            .on_hover_text(text.tool_desc_magpie)
+                            .on_hover_text(text.auxiliary.managed_tools.tool_desc_magpie)
                             .clicked()
                         {
                             changed = true;
@@ -210,7 +210,7 @@ pub fn render_tts_settings_modal(
 
             // Speed and Tone & Style side by side
             if config.tts_method == TtsMethod::GeminiLive {
-                ui.label(egui::RichText::new(text.tts_gemini_model_label).strong());
+                ui.label(egui::RichText::new(text.tts_settings.tts_gemini_model_label).strong());
                 ui.horizontal(|ui| {
                     for (api_model, label) in crate::model_config::tts_gemini_model_options() {
                         if ui
@@ -229,15 +229,15 @@ pub fn render_tts_settings_modal(
 
                 ui.columns(2, |columns| {
                     // Left column: Speed
-                    columns[0].label(egui::RichText::new(text.tts_speed_label).strong());
+                    columns[0].label(egui::RichText::new(text.tts_settings.tts_speed_label).strong());
                     columns[0].horizontal(|ui| {
-                        if ui.radio_value(&mut config.tts_speed, "Slow".to_string(), text.tts_speed_slow).clicked() { changed = true; }
-                        if ui.radio_value(&mut config.tts_speed, "Normal".to_string(), text.tts_speed_normal).clicked() { changed = true; }
-                        if ui.radio_value(&mut config.tts_speed, "Fast".to_string(), text.tts_speed_fast).clicked() { changed = true; }
+                        if ui.radio_value(&mut config.tts_speed, "Slow".to_string(), text.tts_settings.tts_speed_slow).clicked() { changed = true; }
+                        if ui.radio_value(&mut config.tts_speed, "Normal".to_string(), text.tts_settings.tts_speed_normal).clicked() { changed = true; }
+                        if ui.radio_value(&mut config.tts_speed, "Fast".to_string(), text.tts_settings.tts_speed_fast).clicked() { changed = true; }
                     });
 
                     // Right column: Language-Specific Instructions
-                    columns[1].label(egui::RichText::new(text.tts_instructions_label).strong());
+                    columns[1].label(egui::RichText::new(text.tts_settings.tts_instructions_label).strong());
 
                     // Supported languages (ISO 639-3 → display name) live in the
                     // shared TTS catalog.
@@ -264,13 +264,13 @@ pub fn render_tts_settings_modal(
                             if ui.add(
                                 egui::TextEdit::singleline(&mut condition.instruction)
                                     .desired_width(180.0)
-                                    .hint_text(text.tts_instructions_hint)
+                                    .hint_text(text.tts_settings.tts_instructions_hint)
                             ).changed() {
                                 changed = true;
                             }
 
                             // Remove button - use Icon::Close for proper rendering
-                            if icon_button(ui, Icon::Close).on_hover_text(text.remove_label).clicked() {
+                            if icon_button(ui, Icon::Close).on_hover_text(text.tts_advanced.remove_label).clicked() {
                                 to_remove = Some(idx);
                             }
                         });
@@ -295,7 +295,7 @@ pub fn render_tts_settings_modal(
                         if !available.is_empty() {
                             // Dropdown that immediately adds selected language
                             crate::gui::widgets::combo("tts_add_condition")
-                                .selected_text(text.tts_add_condition)
+                                .selected_text(text.tts_settings.tts_add_condition)
                                 .width(140.0)
                                 .show_ui(ui, |ui| {
                                     for (code, name) in &available {
@@ -328,7 +328,7 @@ pub fn render_tts_settings_modal(
                                 *changed = true;
                             }
                             if icon_button(ui, Icon::Speaker)
-                                .on_hover_text(text.tts_preview_label)
+                                .on_hover_text(text.tts_settings.tts_preview_label)
                                 .clicked()
                             {
                                 config.tts_voice = name.to_string();
@@ -351,7 +351,7 @@ pub fn render_tts_settings_modal(
 
                     // Column 0: Male (first half)
                     columns[0].vertical(|ui| {
-                        ui.label(egui::RichText::new(text.tts_male).strong().underline());
+                        ui.label(egui::RichText::new(text.tts_settings.tts_male).strong().underline());
                         ui.add_space(4.0);
                         for (name, _) in male_col1 {
                             render_voice(ui, name, config, text, &mut changed);
@@ -369,7 +369,7 @@ pub fn render_tts_settings_modal(
 
                     // Column 2: Female (first half)
                     columns[2].vertical(|ui| {
-                        ui.label(egui::RichText::new(text.tts_female).strong().underline());
+                        ui.label(egui::RichText::new(text.tts_settings.tts_female).strong().underline());
                         ui.add_space(4.0);
                         for (name, _) in female_col1 {
                             render_voice(ui, name, config, text, &mut changed);
@@ -389,20 +389,20 @@ pub fn render_tts_settings_modal(
                 // Simplified UI for Google Translate
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
-                    ui.label(egui::RichText::new(text.tts_google_translate_title).size(18.0).strong());
+                    ui.label(egui::RichText::new(text.tts_settings.tts_google_translate_title).size(18.0).strong());
                     ui.add_space(10.0);
-                    ui.label(text.tts_google_translate_desc);
+                    ui.label(text.tts_settings.tts_google_translate_desc);
                     ui.add_space(20.0);
 
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(text.tts_speed_label).strong());
-                        if ui.radio_value(&mut config.tts_speed, "Slow".to_string(), text.tts_speed_slow).clicked() { changed = true; }
-                        if ui.radio_value(&mut config.tts_speed, "Normal".to_string(), text.tts_speed_normal).clicked() { changed = true; }
+                        ui.label(egui::RichText::new(text.tts_settings.tts_speed_label).strong());
+                        if ui.radio_value(&mut config.tts_speed, "Slow".to_string(), text.tts_settings.tts_speed_slow).clicked() { changed = true; }
+                        if ui.radio_value(&mut config.tts_speed, "Normal".to_string(), text.tts_settings.tts_speed_normal).clicked() { changed = true; }
                     });
 
                     ui.add_space(12.0);
                     if icon_button(ui, Icon::Speaker)
-                        .on_hover_text(text.tts_preview_label)
+                        .on_hover_text(text.tts_settings.tts_preview_label)
                         .clicked()
                     {
                         speak_settings_preview(text, "Google Translate");
@@ -417,15 +417,15 @@ pub fn render_tts_settings_modal(
                 // Edge TTS Settings
                 ui.vertical_centered(|ui| {
                     ui.add_space(10.0);
-                    ui.label(egui::RichText::new(text.tts_edge_title).size(18.0).strong());
+                    ui.label(egui::RichText::new(text.tts_settings.tts_edge_title).size(18.0).strong());
                     ui.add_space(5.0);
-                    ui.label(text.tts_edge_desc);
+                    ui.label(text.tts_settings.tts_edge_desc);
                     ui.add_space(15.0);
                 });
 
                 // Pitch and Rate sliders
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(text.tts_pitch_label).strong());
+                    ui.label(egui::RichText::new(text.tts_settings.tts_pitch_label).strong());
                     if ui.add(egui::Slider::new(&mut config.edge_tts_settings.pitch, -50..=50).suffix(" Hz")).changed() {
                         changed = true;
                     }
@@ -433,7 +433,7 @@ pub fn render_tts_settings_modal(
 
                 ui.add_space(5.0);
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(text.tts_rate_label).strong());
+                    ui.label(egui::RichText::new(text.tts_settings.tts_rate_label).strong());
                     if ui.add(egui::Slider::new(&mut config.edge_tts_settings.rate, -50..=100).suffix("%")).changed() {
                         changed = true;
                     }
@@ -444,7 +444,7 @@ pub fn render_tts_settings_modal(
                 ui.add_space(10.0);
 
                 // Per-language voice configuration
-                ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
+                ui.label(egui::RichText::new(text.tts_settings.tts_voice_per_language_label).strong());
                 ui.add_space(5.0);
 
                 // Check voice cache status
@@ -457,12 +457,12 @@ pub fn render_tts_settings_modal(
                     // Loading
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(text.tts_loading_voices);
+                        ui.label(text.tts_settings.tts_loading_voices);
                     });
                 } else if let Some(ref error) = cache_status.2 {
                     // Error
-                    ui.colored_label(theme.danger_text(), format!("{} {}", text.tts_failed_load_voices, error).replace("{}", ""));
-                    if ui.button(text.tts_retry_label).clicked() {
+                    ui.colored_label(theme.danger_text(), format!("{} {}", text.tts_settings.tts_failed_load_voices, error).replace("{}", ""));
+                    if ui.button(text.tts_settings.tts_retry_label).clicked() {
                         // Reset cache and retry
                         let mut cache = crate::api::tts::edge_voices::EDGE_VOICE_CACHE.lock().unwrap();
                         cache.loaded = false;
@@ -501,14 +501,14 @@ pub fn render_tts_settings_modal(
                                     });
 
                                 if icon_button(ui, Icon::Speaker)
-                                    .on_hover_text(text.tts_preview_label)
+                                    .on_hover_text(text.tts_settings.tts_preview_label)
                                     .clicked()
                                 {
                                     speak_settings_preview(text, &voice_config.voice_name);
                                 }
 
                                 // Remove button
-                                if icon_button(ui, Icon::Close).on_hover_text(text.remove_label).clicked() {
+                                if icon_button(ui, Icon::Close).on_hover_text(text.tts_advanced.remove_label).clicked() {
                                     to_remove = Some(idx);
                                 }
                             });
@@ -535,7 +535,7 @@ pub fn render_tts_settings_modal(
 
                         if !available.is_empty() {
                             crate::gui::widgets::combo("edge_add_language")
-                                .selected_text(text.tts_add_language_label)
+                                .selected_text(text.tts_settings.tts_add_language_label)
                                 .width(150.0)
                                 .show_ui(ui, |ui| {
                                     for (code, name) in &available {
@@ -559,7 +559,7 @@ pub fn render_tts_settings_modal(
                                 });
                         }
 
-                        if ui.button(text.tts_reset_to_defaults_label).clicked() {
+                        if ui.button(text.tts_settings.tts_reset_to_defaults_label).clicked() {
                             config.edge_tts_settings = crate::config::EdgeTtsSettings::default();
                             config.tts_playground = crate::config::TtsPlaygroundSettings::default();
                             changed = true;
@@ -569,7 +569,7 @@ pub fn render_tts_settings_modal(
                     // Not loaded yet, show loading message
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(text.tts_initializing_voices);
+                        ui.label(text.tts_settings.tts_initializing_voices);
                     });
                 }
             } else if config.tts_method == TtsMethod::StepAudioEditX {

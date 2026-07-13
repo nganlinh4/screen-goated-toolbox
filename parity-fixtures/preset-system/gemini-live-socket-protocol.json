@@ -1,5 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
+  "modelOutputLimits": {
+    "gemini-2.5-flash-native-audio-preview-12-2025": 8192,
+    "gemini-3.1-flash-live-preview": 65536
+  },
   "setupComplete": {
     "payload": {
       "setupComplete": {}
@@ -32,6 +36,32 @@
       "setupComplete": false,
       "error": null,
       "transcript": "The speaker said quote error quote during the demo."
+    }
+  },
+  "combinedServerFrame": {
+    "payload": {
+      "serverContent": {
+        "inputTranscription": { "text": "source" },
+        "outputTranscription": { "text": "target" },
+        "modelTurn": {
+          "parts": [
+            { "inlineData": { "mimeType": "audio/pcm;rate=24000", "data": "AQI=" } },
+            { "text": "visible" },
+            { "text": "internal", "thought": true },
+            { "inlineData": { "data": "AwQ=" } }
+          ]
+        },
+        "generationComplete": true,
+        "interrupted": true
+      }
+    },
+    "expected": {
+      "inputTranscript": "source",
+      "outputTranscript": "target",
+      "audioPartsBase64": ["AQI=", "AwQ="],
+      "visibleTextParts": ["visible"],
+      "responseComplete": true,
+      "interrupted": true
     }
   }
 }

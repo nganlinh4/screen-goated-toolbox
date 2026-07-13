@@ -425,7 +425,9 @@ pub(super) unsafe fn refresh_panel_layout_and_content(
         }
 
         let favorites_html = get_favorite_presets_html(presets, lang, is_dark);
-        let keep_open_label = crate::gui::locale::LocaleText::get(lang).favorites_keep_open;
+        let keep_open_label = crate::gui::locale::LocaleText::get(lang)
+            .shell
+            .favorites_keep_open;
         panel_actions::update_panel_content(&favorites_html, num_cols, keep_open_label);
 
         let bx = if side == "left" {

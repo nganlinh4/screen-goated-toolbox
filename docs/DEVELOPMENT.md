@@ -86,6 +86,19 @@ WSL delegates to the Windows toolchain:
 
 See [`../mobile/README.md`](../mobile/README.md) for flavors, device setup, and release artifacts.
 
+## Locale catalogs
+
+Desktop and Android locale catalogs are split into typed subsystem bundles. Run the
+section-aware, non-writing parity check after changing locale schema or copy:
+
+```powershell
+node scripts/i18n_scan.mjs --self-test
+node scripts/i18n_scan.mjs --check
+```
+
+Run `node scripts/i18n_scan.mjs` without `--check` only when intentionally refreshing
+the tracked `scripts/i18n_scan_report.json` audit artifact.
+
 ## Help index
 
 The in-app help assistant consumes the tracked `help-index.json`. Rebuild requires a KaLM-compatible endpoint accepting `POST /api/embed` with `{"input":"..."}` and returning `{"embeddings":[[...]]}`.

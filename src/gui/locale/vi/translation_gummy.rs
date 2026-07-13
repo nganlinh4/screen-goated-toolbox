@@ -1,0 +1,36 @@
+use crate::gui::locale::TranslationGummyLocaleText;
+
+pub(super) fn get() -> TranslationGummyLocaleText {
+    TranslationGummyLocaleText {
+        translation_gummy_btn: "Bánh mỳ chuyển ngữ",
+        translation_gummy_title: "Bánh mỳ chuyển ngữ",
+        translation_gummy_first_profile: "Ngôn ngữ 1",
+        translation_gummy_second_profile: "Ngôn ngữ 2",
+        translation_gummy_language_label: "Ngôn ngữ",
+        translation_gummy_accent_label: "Giọng vùng",
+        translation_gummy_tone_label: "Tông giọng",
+        translation_gummy_hotkey_label: "Phím tắt",
+        translation_gummy_hotkey_set: "Thêm phím tắt",
+        translation_gummy_hotkey_clear: "Xóa phím tắt",
+        translation_gummy_apply: "Áp dụng",
+        translation_gummy_start: "Bắt đầu",
+        translation_gummy_stop: "Dừng",
+        translation_gummy_transcript_title: "Bản chép",
+        translation_gummy_input_chip: "Đầu vào",
+        translation_gummy_output_chip: "Đầu ra",
+        translation_gummy_no_transcript_yet: "Chưa có bản chép nào.",
+        translation_gummy_status_not_configured: "Chưa cấu hình",
+        translation_gummy_status_connecting: "Đang kết nối",
+        translation_gummy_status_ready: "Sẵn sàng",
+        translation_gummy_status_reconnecting: "Đang nối lại",
+        translation_gummy_status_error: "Lỗi",
+        translation_gummy_status_stopped: "Đã dừng",
+        translation_gummy_api_key_required: "Hãy thêm Gemini API key trước khi dùng Bánh mỳ chuyển ngữ.",
+        translation_gummy_tts_settings_hint: "Đổi model Gemini Live và giọng nói theo ý bạn!",
+        translation_gummy_guide: "Cách dùng: Nói câu bằng ngôn ngữ bất kỳ trong 2 ngôn ngữ đã đặt, câu tương ứng sẽ được đọc bằng ngôn ngữ còn lại.",
+        translation_gummy_guide_ok: "Đã hiểu!",
+        translation_gummy_chat_history: "Lịch sử trò chuyện",
+        translation_gummy_current_model: "Model hiện tại",
+        translation_gummy_current_voice: "Giọng hiện tại",
+    }
+}

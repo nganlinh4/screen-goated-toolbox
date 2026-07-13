@@ -220,7 +220,7 @@ pub fn show_model_and_settings(
                 Icon::CopyDisabled
             };
             if icon_button(ui, copy_icon)
-                .on_hover_text(viewer.text.input_auto_copy_tooltip)
+                .on_hover_text(viewer.text.preset_editor.input_auto_copy_tooltip)
                 .clicked()
             {
                 *auto_copy = !*auto_copy;
@@ -239,7 +239,7 @@ pub fn show_model_and_settings(
                 Icon::SpeakerDisabled
             };
             if icon_button(ui, speak_icon)
-                .on_hover_text(viewer.text.input_auto_speak_tooltip)
+                .on_hover_text(viewer.text.preset_editor.input_auto_speak_tooltip)
                 .clicked()
             {
                 *auto_speak = !*auto_speak;

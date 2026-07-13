@@ -3,9 +3,14 @@ package dev.screengoated.toolbox.mobile.service
 import android.os.SystemClock
 import android.util.Log
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
-import dev.screengoated.toolbox.mobile.service.tts.BlockingWebSocketSession
-import dev.screengoated.toolbox.mobile.service.tts.WebSocketEvent
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleEffect
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleFrame
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReceiveResult
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionException
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionFailure
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
+import dev.screengoated.toolbox.mobile.shared.live.openGeminiLiveConnectedSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
@@ -13,9 +18,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.Request
-import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
     apiKey: String,
@@ -29,122 +32,64 @@ internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
 ) = coroutineScope {
     val textState = LiveTranslateTextAccumulator()
     val stats = LiveTranslateStreamStats()
-    val playbackQueue = Channel<ByteArray>(LIVE_TRANSLATE_PLAYBACK_QUEUE_CAPACITY)
-    var streamId = 0L
-    var session: BlockingWebSocketSession? = null
-    var socketConnectedAtMs: Long? = null
+    val playbackEpoch = LiveTranslatePlaybackEpoch()
+    val playbackQueue = Channel<LiveTranslatePlaybackChunk>(LIVE_TRANSLATE_PLAYBACK_QUEUE_CAPACITY)
+    val pendingAudio = LiveTranslatePendingAudio(
+        maxSamples = LIVE_TRANSLATE_PENDING_AUDIO_SAMPLES,
+        frameSamples = FRAME_SAMPLES,
+    )
     var lastHealthAtMs = SystemClock.elapsedRealtime()
-    var lastServerActivityAtMs = SystemClock.elapsedRealtime()
-    var lastActiveInputAtMs = SystemClock.elapsedRealtime()
-    var sentChunksAtLastActivity = 0
-    var reconnectAttempts = 0
-    var nextConnectAtMs = SystemClock.elapsedRealtime()
+    var userSpeaking = false
+    lateinit var lifecycleAdapter: GeminiS2sLiveLifecycleAdapter
+    lifecycleAdapter = GeminiS2sLiveLifecycleAdapter(
+        clockMs = SystemClock::elapsedRealtime,
+        openConnectedSession = {
+            openGeminiLiveConnectedSession(httpClient, apiKey)
+        },
+        setupPayload = {
+            val setupPayload = buildGeminiS2sSetupPayload(
+                model = model,
+                settings = settingsProvider(),
+                contextText = "",
+            )
+            setupPayload
+        },
+        onEffect = { effect ->
+            when (effect) {
+                is GeminiLiveLifecycleEffect.OpenSocket -> Log.i(
+                    logTag,
+                    "continuous connect requested stream=${effect.generation}",
+                )
+                is GeminiLiveLifecycleEffect.SendSetup -> Log.i(
+                    logTag,
+                    "continuous socket opened; setup requested stream=${effect.generation} " +
+                        "reconnect_attempts=${lifecycleAdapter.state.reconnectAttempt}",
+                )
+                is GeminiLiveLifecycleEffect.ScheduleReconnect -> Log.i(
+                    logTag,
+                    "continuous reconnect scheduled reason=${effect.reason.fixtureName} " +
+                        "stream=${effect.generation} attempt=${effect.attempt} " +
+                        "retry_ms=${effect.delayMs}",
+                )
+                is GeminiLiveLifecycleEffect.ReportFailure -> Log.w(
+                    logTag,
+                    "continuous lifecycle failed reason=${effect.reason}",
+                )
+                else -> Unit
+            }
+        },
+    )
     if (sourceMode == SourceMode.MIC) {
         player.beginCommunicationSession()
     }
     val playbackJob = launch(Dispatchers.IO) {
-        for (bytes in playbackQueue) {
-            stats.playbackQueuedChunks = (stats.playbackQueuedChunks - 1).coerceAtLeast(0)
-            player.playNativePcm24k(bytes, settingsProvider().realtime.volumePercent)
+        for (chunk in playbackQueue) {
+            val volumePercent = settingsProvider().realtime.volumePercent
+            playbackEpoch.playIfCurrent(chunk) { bytes ->
+                player.playNativePcm24k(bytes, volumePercent)
+            }
+            stats.playbackQueuedChunks.updateAndGet { (it - 1).coerceAtLeast(0) }
         }
-    }
-
-    suspend fun connect(): BlockingWebSocketSession? {
-        val request = Request.Builder()
-            .url("$LIVE_WS_ENDPOINT?key=$apiKey")
-            .build()
-        val opened = BlockingWebSocketSession(httpClient, request)
-        if (!withContext(Dispatchers.IO) { opened.awaitOpen(10_000) }) {
-            opened.close()
-            Log.w(
-                logTag,
-                "continuous open-failed stream=$streamId attempt=${reconnectAttempts + 1}",
-            )
-            return null
-        }
-        val setupPayload = buildGeminiS2sSetupPayload(
-            model = model,
-            settings = settingsProvider(),
-            contextText = "",
-        )
-        if (!opened.sendText(setupPayload) || !waitForGeminiS2sSetup(opened, logTag)) {
-            opened.close()
-            Log.w(
-                logTag,
-                "continuous setup-failed stream=$streamId attempt=${reconnectAttempts + 1}",
-            )
-            return null
-        }
-        Log.i(
-            logTag,
-            "continuous socket connected stream=$streamId reconnect_attempts=$reconnectAttempts",
-        )
-        socketConnectedAtMs = SystemClock.elapsedRealtime()
-        lastServerActivityAtMs = SystemClock.elapsedRealtime()
-        sentChunksAtLastActivity = stats.sentChunks
-        reconnectAttempts = 0
-        return opened
-    }
-
-    suspend fun ensureSession(): BlockingWebSocketSession? {
-        val current = session
-        if (current != null) {
-            return current
-        }
-        val nowMs = SystemClock.elapsedRealtime()
-        if (nowMs < nextConnectAtMs) {
-            return null
-        }
-        val connected = connect()
-        if (connected == null) {
-            val delayMs = liveTranslateReconnectDelayMs(reconnectAttempts, streamId)
-            Log.w(
-                logTag,
-                "continuous reconnect delayed stream=$streamId attempt=${reconnectAttempts + 1} retry_ms=$delayMs",
-            )
-            reconnectAttempts++
-            nextConnectAtMs = SystemClock.elapsedRealtime() + delayMs
-        }
-        session = connected
-        return connected
-    }
-
-    fun socketAgeMs(nowMs: Long = SystemClock.elapsedRealtime()): Long {
-        return socketConnectedAtMs?.let { nowMs - it } ?: 0L
-    }
-
-    fun scheduleReconnect(reason: String) {
-        val nowMs = SystemClock.elapsedRealtime()
-        val delayMs = liveTranslateReconnectDelayMs(reconnectAttempts, streamId)
-        Log.i(
-            logTag,
-            "continuous reconnect scheduled reason=$reason stream=$streamId attempt=${reconnectAttempts + 1} retry_ms=$delayMs socket_age_ms=${socketAgeMs(nowMs)}",
-        )
-        session?.close()
-        session = null
-        socketConnectedAtMs = null
-        streamId++
-        reconnectAttempts++
-        nextConnectAtMs = nowMs + delayMs
-    }
-
-    fun maybeRotateQuietSocket() {
-        val connectedAtMs = socketConnectedAtMs ?: return
-        if (session == null) {
-            return
-        }
-        val nowMs = SystemClock.elapsedRealtime()
-        if (nowMs - connectedAtMs < LIVE_TRANSLATE_PROACTIVE_ROTATE_MS ||
-            nowMs - lastActiveInputAtMs < LIVE_TRANSLATE_ROTATE_QUIET_MS ||
-            nowMs - lastServerActivityAtMs < LIVE_TRANSLATE_ROTATE_QUIET_MS
-        ) {
-            return
-        }
-        Log.i(
-            logTag,
-            "continuous reconnect reason=proactive-rotation stream=$streamId socket_age_ms=${nowMs - connectedAtMs} quiet_input_ms=${nowMs - lastActiveInputAtMs} quiet_server_ms=${nowMs - lastServerActivityAtMs}",
-        )
-        scheduleReconnect("proactive-rotation")
     }
 
     try {
@@ -152,41 +97,70 @@ internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
             if (!currentCoroutineContext().isActive) {
                 return@collect
             }
-            val active = ensureSession() ?: return@collect
-            for (offset in chunk.indices step FRAME_SAMPLES) {
-                val end = minOf(offset + FRAME_SAMPLES, chunk.size)
-                val frame = chunk.copyOfRange(offset, end)
-                if (rms(frame) >= MIN_SPEECH_THRESHOLD * SPEECH_THRESHOLD_MULTIPLIER) {
-                    lastActiveInputAtMs = SystemClock.elapsedRealtime()
+            pendingAudio.append(chunk)
+            updateLiveTranslateWorkState(
+                lifecycleAdapter = lifecycleAdapter,
+                player = player,
+                stats = stats,
+                bufferedInputCount = pendingAudio.sampleCount.toLong(),
+                userSpeaking = userSpeaking,
+            )
+            lifecycleAdapter.ensureReady() ?: return@collect
+            while (pendingAudio.sampleCount > 0) {
+                val active = lifecycleAdapter.activeConnection ?: return@collect
+                val frame = pendingAudio.takeFirst() ?: break
+                userSpeaking = rms(frame) >=
+                    MIN_SPEECH_THRESHOLD * SPEECH_THRESHOLD_MULTIPLIER
+                if (userSpeaking) {
+                    lifecycleAdapter.inputActivity()
                 }
+                updateLiveTranslateWorkState(
+                    lifecycleAdapter = lifecycleAdapter,
+                    player = player,
+                    stats = stats,
+                    bufferedInputCount = pendingAudio.sampleCount.toLong(),
+                    userSpeaking = userSpeaking,
+                )
                 val sendStartedAtMs = SystemClock.elapsedRealtime()
-                val sent = active.sendText(buildGeminiS2sAudioPayload(frame))
+                val sent = active.session.trySend(buildGeminiS2sAudioPayload(frame))
                 val sendElapsedMs = SystemClock.elapsedRealtime() - sendStartedAtMs
                 stats.maxSendMs = maxOf(stats.maxSendMs, sendElapsedMs)
                 if (sendElapsedMs >= LIVE_TRANSLATE_SLOW_SEND_LOG_MS) {
                     stats.slowSendCount++
                     Log.w(
                         logTag,
-                        "continuous slow-send stream=$streamId elapsed_ms=$sendElapsedMs slow_count=${stats.slowSendCount} sent_chunks=${stats.sentChunks}",
+                        "continuous slow-send stream=${active.generation} elapsed_ms=$sendElapsedMs " +
+                            "slow_count=${stats.slowSendCount} sent_chunks=${stats.sentChunks}",
                     )
                 }
                 if (!sent) {
+                    pendingAudio.restoreFirst(frame)
+                    val nowMs = SystemClock.elapsedRealtime()
+                    val state = lifecycleAdapter.state
                     Log.w(
                         logTag,
-                        "continuous send-failed stream=$streamId sent_chunks=${stats.sentChunks} socket_age_ms=${socketAgeMs()} since_server_ms=${SystemClock.elapsedRealtime() - lastServerActivityAtMs}",
+                        "continuous send-failed stream=${active.generation} " +
+                            "sent_chunks=${stats.sentChunks} " +
+                            "socket_age_ms=${elapsedMs(nowMs, state.connectedAtMs)} " +
+                            "since_server_ms=${elapsedMs(nowMs, state.lastServerActivityMs)}",
                     )
-                    scheduleReconnect("send-failed")
+                    lifecycleAdapter.transportFailed(active.generation)
                     return@collect
                 }
                 stats.sentChunks++
+                lifecycleAdapter.inputSent()
                 val drainStartedAtMs = SystemClock.elapsedRealtime()
                 val drained = drainLiveTranslateSocket(
-                    session = active,
-                    streamId = streamId,
+                    connection = active,
+                    lifecycleAdapter = lifecycleAdapter,
+                    player = player,
                     onDisplay = onDisplay,
                     textState = textState,
                     stats = stats,
                     playbackQueue = playbackQueue,
+                    playbackEpoch = playbackEpoch,
+                    bufferedInputCount = pendingAudio.sampleCount.toLong(),
+                    userSpeaking = userSpeaking,
                     logTag = logTag,
                 )
                 val drainElapsedMs = SystemClock.elapsedRealtime() - drainStartedAtMs
@@ -195,49 +169,54 @@ internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
                     stats.slowDrainCount++
                     Log.w(
                         logTag,
-                        "continuous slow-drain stream=$streamId elapsed_ms=$drainElapsedMs slow_count=${stats.slowDrainCount} sent_chunks=${stats.sentChunks} received_audio_chunks=${stats.receivedAudioChunks}",
+                        "continuous slow-drain stream=${active.generation} elapsed_ms=$drainElapsedMs " +
+                            "slow_count=${stats.slowDrainCount} sent_chunks=${stats.sentChunks} " +
+                            "received_audio_chunks=${stats.receivedAudioChunks}",
                     )
                 }
                 if (!drained) {
-                    scheduleReconnect("socket-drain")
                     return@collect
                 }
             }
 
             val nowMs = SystemClock.elapsedRealtime()
-            if (stats.serverActivity) {
-                lastServerActivityAtMs = nowMs
-                sentChunksAtLastActivity = stats.sentChunks
-                stats.serverActivity = false
-            }
+            updateLiveTranslateWorkState(
+                lifecycleAdapter = lifecycleAdapter,
+                player = player,
+                stats = stats,
+                bufferedInputCount = pendingAudio.sampleCount.toLong(),
+                userSpeaking = userSpeaking,
+            )
+            lifecycleAdapter.tick()
             if (nowMs - lastHealthAtMs >= 5_000L) {
                 val snapshot = player.debugSnapshot()
-                val silentSentChunks = stats.sentChunks - sentChunksAtLastActivity
+                val state = lifecycleAdapter.state
                 Log.i(
                     logTag,
-                    "continuous health stream=$streamId sent_chunks=${stats.sentChunks} silent_sent_chunks=$silentSentChunks since_server_ms=${nowMs - lastServerActivityAtMs} received_audio_chunks=${stats.receivedAudioChunks} playback_queued_chunks=${stats.playbackQueuedChunks} playback_dropped_chunks=${stats.playbackDroppedChunks} playback_active=${snapshot.active} playback_pending_frames=${snapshot.pendingFrames} playback_output_mode=${snapshot.outputMode} routed_device=${snapshot.routedDevice} communication_device=${snapshot.communicationDevice} socket_age_ms=${socketAgeMs(nowMs)} since_input_ms=${nowMs - lastActiveInputAtMs} reconnect_attempts=$reconnectAttempts max_send_ms=${stats.maxSendMs} slow_send_count=${stats.slowSendCount} max_drain_ms=${stats.maxDrainMs} slow_drain_count=${stats.slowDrainCount}",
+                    "continuous health stream=${state.generation} sent_chunks=${stats.sentChunks} " +
+                        "silent_sent_chunks=${state.inputChunksSinceServerActivity} " +
+                        "since_server_ms=${elapsedMs(nowMs, state.lastServerActivityMs)} " +
+                        "received_audio_chunks=${stats.receivedAudioChunks} " +
+                        "playback_queued_chunks=${stats.playbackQueuedChunks.get()} " +
+                        "playback_dropped_chunks=${stats.playbackDroppedChunks} " +
+                        "playback_active=${snapshot.active} " +
+                        "playback_pending_frames=${snapshot.pendingFrames} " +
+                        "playback_output_mode=${snapshot.outputMode} " +
+                        "routed_device=${snapshot.routedDevice} " +
+                        "communication_device=${snapshot.communicationDevice} " +
+                        "socket_age_ms=${elapsedMs(nowMs, state.connectedAtMs)} " +
+                        "since_input_ms=${elapsedMs(nowMs, state.lastInputActivityMs)} " +
+                        "reconnect_attempts=${state.reconnectAttempt} " +
+                        "max_send_ms=${stats.maxSendMs} slow_send_count=${stats.slowSendCount} " +
+                        "max_drain_ms=${stats.maxDrainMs} slow_drain_count=${stats.slowDrainCount}",
                 )
                 stats.maxSendMs = 0L
                 stats.maxDrainMs = 0L
                 lastHealthAtMs = nowMs
             }
-            val silentSentChunks = stats.sentChunks - sentChunksAtLastActivity
-            if (session != null &&
-                silentSentChunks >= LIVE_TRANSLATE_SERVER_SILENT_SENT_CHUNKS &&
-                nowMs - lastServerActivityAtMs >= LIVE_TRANSLATE_SERVER_SILENT_MS
-            ) {
-                Log.i(
-                    logTag,
-                    "continuous reconnect reason=server-silent stream=$streamId silent_ms=${nowMs - lastServerActivityAtMs} silent_sent_chunks=$silentSentChunks received_audio_chunks=${stats.receivedAudioChunks} socket_age_ms=${socketAgeMs(nowMs)}",
-                )
-                scheduleReconnect("server-silent")
-                lastServerActivityAtMs = nowMs
-                sentChunksAtLastActivity = stats.sentChunks
-            }
-            maybeRotateQuietSocket()
         }
     } finally {
-        session?.close()
+        lifecycleAdapter.cancel()
         playbackQueue.close()
         playbackJob.cancelAndJoin()
         player.drain(1_000)
@@ -247,46 +226,84 @@ internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
     }
 }
 
-private fun drainLiveTranslateSocket(
-    session: BlockingWebSocketSession,
-    streamId: Long,
+private suspend fun drainLiveTranslateSocket(
+    connection: GeminiS2sLiveConnection,
+    lifecycleAdapter: GeminiS2sLiveLifecycleAdapter,
+    player: AudioTrackPlayer,
     onDisplay: (S2sDisplaySnapshot) -> Unit,
     textState: LiveTranslateTextAccumulator,
     stats: LiveTranslateStreamStats,
-    playbackQueue: Channel<ByteArray>,
+    playbackQueue: Channel<LiveTranslatePlaybackChunk>,
+    playbackEpoch: LiveTranslatePlaybackEpoch,
+    bufferedInputCount: Long,
+    userSpeaking: Boolean,
     logTag: String,
 ): Boolean {
     while (true) {
-        when (val event = session.poll(2)) {
-            null -> return true
-            is WebSocketEvent.Text -> {
-                handleLiveTranslatePayload(event.payload, onDisplay, textState, stats, playbackQueue, logTag)
+        when (val result = connection.session.receive(2)) {
+            GeminiLiveReceiveResult.TimedOut -> return true
+            is GeminiLiveReceiveResult.Frame -> {
+                val featureEffects = lifecycleAdapter.observeFrame(
+                    result.frame.toLifecycleFrame(connection.generation),
+                )
+                applyLiveTranslateFeatureEffects(
+                    effects = featureEffects,
+                    frame = result.frame,
+                    player = player,
+                    playbackQueue = playbackQueue,
+                    playbackEpoch = playbackEpoch,
+                    stats = stats,
+                    onDisplay = onDisplay,
+                    textState = textState,
+                    logTag = logTag,
+                )
+                updateLiveTranslateWorkState(
+                    lifecycleAdapter = lifecycleAdapter,
+                    player = player,
+                    stats = stats,
+                    bufferedInputCount = bufferedInputCount,
+                    userSpeaking = userSpeaking,
+                )
             }
-            is WebSocketEvent.Binary -> {
-                handleLiveTranslatePayload(event.payload.utf8(), onDisplay, textState, stats, playbackQueue, logTag)
-            }
-            is WebSocketEvent.Failure -> {
-                Log.w(logTag, "continuous socket failure stream=$streamId error=${event.throwable.message}", event.throwable)
+            is GeminiLiveReceiveResult.Unparsed -> Unit
+            is GeminiLiveReceiveResult.Failed -> {
+                val error = GeminiLiveSessionException(result.failure)
+                val server = result.failure as? GeminiLiveSessionFailure.Server
+                if (server != null) {
+                    lifecycleAdapter.serverError(
+                        generation = connection.generation,
+                        retryable = server.retryable,
+                    )
+                    if (!server.retryable) throw error
+                    return false
+                }
+                Log.w(
+                    logTag,
+                    "continuous socket failure stream=${connection.generation} error=${error.message}",
+                    error,
+                )
+                lifecycleAdapter.transportFailed(connection.generation)
                 return false
             }
-            WebSocketEvent.Closed -> {
-                Log.i(logTag, "continuous socket closed stream=$streamId")
+            is GeminiLiveReceiveResult.Closed -> {
+                Log.i(logTag, "continuous socket closed stream=${connection.generation}")
+                lifecycleAdapter.transportFailed(connection.generation)
                 return false
             }
         }
     }
 }
 
-private fun handleLiveTranslatePayload(
-    payload: String,
+private fun handleLiveTranslateFrame(
+    frame: GeminiLiveServerFrame,
     onDisplay: (S2sDisplaySnapshot) -> Unit,
     textState: LiveTranslateTextAccumulator,
     stats: LiveTranslateStreamStats,
-    playbackQueue: Channel<ByteArray>,
+    playbackQueue: Channel<LiveTranslatePlaybackChunk>,
+    playbackEpoch: LiveTranslatePlaybackEpoch,
     logTag: String,
 ) {
-    val parsed = parseGeminiS2sUpdate(payload)
-    parsed.error?.let { throw IOException(it) }
+    val parsed = parseGeminiS2sUpdate(frame)
     var textChanged = false
     if (parsed.inputText.isNotBlank()) {
         textChanged = textState.updateSource(parsed.inputText) || textChanged
@@ -299,36 +316,103 @@ private fun handleLiveTranslatePayload(
     }
     if (parsed.audioChunks.isNotEmpty()) {
         parsed.audioChunks.forEach { bytes ->
-            val queued = playbackQueue.trySend(bytes).isSuccess
+            val queued = playbackQueue.trySend(playbackEpoch.tag(bytes)).isSuccess
             if (queued) {
-                stats.playbackQueuedChunks++
+                stats.playbackQueuedChunks.incrementAndGet()
             } else {
                 stats.playbackDroppedChunks++
                 if (stats.playbackDroppedChunks <= 3 || stats.playbackDroppedChunks % 20 == 0) {
                     Log.w(
                         logTag,
-                        "continuous playback-drop received_audio_chunks=${stats.receivedAudioChunks} playback_queued_chunks=${stats.playbackQueuedChunks} playback_dropped_chunks=${stats.playbackDroppedChunks}",
+                        "continuous playback-drop received_audio_chunks=${stats.receivedAudioChunks} playback_queued_chunks=${stats.playbackQueuedChunks.get()} playback_dropped_chunks=${stats.playbackDroppedChunks}",
                     )
                 }
             }
         }
         stats.receivedAudioChunks += parsed.audioChunks.size
     }
-    if (textChanged || parsed.audioChunks.isNotEmpty() || parsed.turnComplete || parsed.generationComplete) {
-        stats.serverActivity = true
-    }
+}
+
+private fun GeminiLiveServerFrame.toLifecycleFrame(generation: Long): GeminiLiveLifecycleFrame {
+    return GeminiLiveLifecycleFrame(
+        generation = generation,
+        contentCount = contentCount,
+        setupComplete = setupComplete,
+        turnComplete = turnComplete,
+        generationComplete = generationComplete,
+        interrupted = interrupted,
+        goAwayTimeLeftMs = goAwayTimeLeftMs,
+        toolCallIds = toolCallIds,
+        toolCancellationIds = toolCancellationIds.orEmpty(),
+        error = null,
+    )
+}
+
+private fun applyLiveTranslateFeatureEffects(
+    effects: List<GeminiLiveLifecycleEffect>,
+    frame: GeminiLiveServerFrame,
+    player: AudioTrackPlayer,
+    playbackQueue: Channel<LiveTranslatePlaybackChunk>,
+    playbackEpoch: LiveTranslatePlaybackEpoch,
+    stats: LiveTranslateStreamStats,
+    onDisplay: (S2sDisplaySnapshot) -> Unit,
+    textState: LiveTranslateTextAccumulator,
+    logTag: String,
+) {
+    executeLiveTranslateFeatureEffects(
+        effects = effects,
+        deliverContent = { _ ->
+            handleLiveTranslateFrame(
+                frame,
+                onDisplay,
+                textState,
+                stats,
+                playbackQueue,
+                playbackEpoch,
+                logTag,
+            )
+        },
+        stopPlayback = {
+            playbackEpoch.interrupt(player::stopImmediate)
+        },
+        discardQueuedOutput = {
+            var removed = 0
+            while (playbackQueue.tryReceive().isSuccess) removed++
+            stats.playbackQueuedChunks.updateAndGet {
+                (it - removed).coerceAtLeast(0)
+            }
+        },
+    )
+}
+
+private fun elapsedMs(nowMs: Long, sinceMs: Long?): Long {
+    return sinceMs?.let { (nowMs - it).coerceAtLeast(0) } ?: 0L
+}
+
+private fun updateLiveTranslateWorkState(
+    lifecycleAdapter: GeminiS2sLiveLifecycleAdapter,
+    player: AudioTrackPlayer,
+    stats: LiveTranslateStreamStats,
+    bufferedInputCount: Long,
+    userSpeaking: Boolean,
+) {
+    val playbackPendingFrames = player.debugSnapshot().pendingFrames
+    lifecycleAdapter.updateWorkState(
+        pendingWorkCount = stats.playbackQueuedChunks.get().toLong() + playbackPendingFrames,
+        bufferedInputCount = bufferedInputCount,
+        userSpeaking = userSpeaking,
+    )
 }
 
 private data class LiveTranslateStreamStats(
     var sentChunks: Int = 0,
     var receivedAudioChunks: Int = 0,
-    var playbackQueuedChunks: Int = 0,
+    val playbackQueuedChunks: AtomicInteger = AtomicInteger(),
     var playbackDroppedChunks: Int = 0,
     var maxSendMs: Long = 0L,
     var slowSendCount: Int = 0,
     var maxDrainMs: Long = 0L,
     var slowDrainCount: Int = 0,
-    var serverActivity: Boolean = false,
 )
 
 private class LiveTranslateTextAccumulator {
@@ -441,21 +525,8 @@ private fun largestSuffixPrefixOverlap(
     return 0
 }
 
-private fun liveTranslateReconnectDelayMs(
-    attempt: Int,
-    streamId: Long,
-): Long {
-    val cappedAttempt = attempt.coerceAtMost(5)
-    val baseMs = 250L * (1L shl cappedAttempt)
-    val jitterMs = ((streamId * 97L + attempt * 53L) % 180L) + 20L
-    return (baseMs + jitterMs).coerceAtMost(6_000L)
-}
-
 internal const val LIVE_TRANSLATE_PLAYBACK_QUEUE_CAPACITY = 48
 internal const val LIVE_TRANSLATE_COMMUNICATION_VOLUME_BOOST = 1.8f
+private const val LIVE_TRANSLATE_PENDING_AUDIO_SAMPLES = FRAME_SAMPLES * 10
 private const val LIVE_TRANSLATE_SLOW_SEND_LOG_MS = 120L
 private const val LIVE_TRANSLATE_SLOW_DRAIN_LOG_MS = 120L
-private const val LIVE_TRANSLATE_SERVER_SILENT_SENT_CHUNKS = 100
-private const val LIVE_TRANSLATE_SERVER_SILENT_MS = 15_000L
-private const val LIVE_TRANSLATE_PROACTIVE_ROTATE_MS = 12 * 60 * 1_000L
-private const val LIVE_TRANSLATE_ROTATE_QUIET_MS = 3_000L

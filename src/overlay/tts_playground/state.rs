@@ -340,81 +340,106 @@ struct StringsView {
 impl StringsView {
     fn from_locale(text: &LocaleText) -> Self {
         Self {
-            title: text.tts_playground_title.to_string(),
-            mode_tts_clone: text.tts_playground_tab_tts_clone.to_string(),
-            mode_audio_edit: text.tts_playground_tab_audio_edit.to_string(),
-            mode_reference_library: text.tts_reference_voice_library_title.to_string(),
+            title: text.tts_playground.tts_playground_title.to_string(),
+            mode_tts_clone: text.tts_playground.tts_playground_tab_tts_clone.to_string(),
+            mode_audio_edit: text
+                .tts_playground
+                .tts_playground_tab_audio_edit
+                .to_string(),
+            mode_reference_library: text
+                .tts_advanced
+                .tts_reference_voice_library_title
+                .to_string(),
             mode_s2_s: "S2S".to_string(),
-            method_label: text.tts_method_label.to_string(),
-            method_gemini: text.tts_method_standard.to_string(),
-            method_edge: text.tts_method_edge.to_string(),
-            method_google: text.tts_method_fast.to_string(),
+            method_label: text.tts_settings.tts_method_label.to_string(),
+            method_gemini: text.tts_settings.tts_method_standard.to_string(),
+            method_edge: text.tts_settings.tts_method_edge.to_string(),
+            method_google: text.tts_settings.tts_method_fast.to_string(),
             method_step_audio: "Step Audio EditX".to_string(),
             method_magpie: "NVIDIA Magpie-Multilingual 357M".to_string(),
             method_kokoro: "Kokoro 82M v1.0".to_string(),
             method_supertonic: "Supertonic 3".to_string(),
             method_vieneu: "VieNeu-TTS v2".to_string(),
-            text_label: text.tts_playground_text_label.to_string(),
-            text_hint: text.tts_playground_text_hint.to_string(),
-            generate: text.tts_playground_generate.to_string(),
-            clear: text.tts_playground_clear.to_string(),
-            cancel: text.cancel_label.to_string(),
-            generating: text.tts_playground_generating.to_string(),
-            exporting: text.tts_playground_exporting_mp3.to_string(),
-            no_audio: text.tts_playground_no_audio.to_string(),
-            play: text.tts_playground_play.to_string(),
-            pause: text.tts_playground_pause.to_string(),
-            resume: text.tts_playground_resume.to_string(),
-            stop: text.tts_playground_stop.to_string(),
-            replay: text.tts_playground_replay.to_string(),
-            download_wav: text.tts_playground_download_wav.to_string(),
-            download_mp3: text.tts_playground_download_mp3.to_string(),
-            recent: text.tts_playground_recent.to_string(),
-            voice_per_language: text.tts_voice_per_language_label.to_string(),
-            add_language: text.tts_add_language_label.to_string(),
-            reset: text.tts_reset_to_defaults_label.to_string(),
-            speed_label: text.tts_speed_label.to_string(),
-            speed_slow: text.tts_speed_slow.to_string(),
-            speed_normal: text.tts_speed_normal.to_string(),
-            speed_fast: text.tts_speed_fast.to_string(),
-            pitch_label: text.tts_pitch_label.to_string(),
-            rate_label: text.tts_rate_label.to_string(),
-            threads_label: text.tts_cpu_threads_label.to_string(),
-            quality_steps_label: text.tts_quality_steps_label.to_string(),
-            pick_source: text.tts_step_audio_pick_source.to_string(),
-            use_current: text.tts_step_audio_use_current_clip.to_string(),
-            record_mic: text.tts_reference_record_mic.to_string(),
-            stop_mic: text.tts_reference_stop_mic.to_string(),
-            no_source: text.tts_step_audio_no_source.to_string(),
-            source_transcript: text.tts_step_audio_source_transcript.to_string(),
-            task: text.tts_step_audio_task.to_string(),
-            subtask: text.tts_step_audio_subtask.to_string(),
-            inline_sound_tag: text.tts_step_audio_inline_sound_tag.to_string(),
-            insert_tag: text.tts_step_audio_insert_tag.to_string(),
-            target_text: text.tts_step_audio_target_text.to_string(),
+            text_label: text.tts_playground.tts_playground_text_label.to_string(),
+            text_hint: text.tts_playground.tts_playground_text_hint.to_string(),
+            generate: text.tts_playground.tts_playground_generate.to_string(),
+            clear: text.tts_playground.tts_playground_clear.to_string(),
+            cancel: text.preset_basics.cancel_label.to_string(),
+            generating: text.tts_playground.tts_playground_generating.to_string(),
+            exporting: text.tts_playground.tts_playground_exporting_mp3.to_string(),
+            no_audio: text.tts_playground.tts_playground_no_audio.to_string(),
+            play: text.tts_playground.tts_playground_play.to_string(),
+            pause: text.tts_playground.tts_playground_pause.to_string(),
+            resume: text.tts_playground.tts_playground_resume.to_string(),
+            stop: text.tts_playground.tts_playground_stop.to_string(),
+            replay: text.tts_playground.tts_playground_replay.to_string(),
+            download_wav: text.tts_playground.tts_playground_download_wav.to_string(),
+            download_mp3: text.tts_playground.tts_playground_download_mp3.to_string(),
+            recent: text.tts_playground.tts_playground_recent.to_string(),
+            voice_per_language: text.tts_settings.tts_voice_per_language_label.to_string(),
+            add_language: text.tts_settings.tts_add_language_label.to_string(),
+            reset: text.tts_settings.tts_reset_to_defaults_label.to_string(),
+            speed_label: text.tts_settings.tts_speed_label.to_string(),
+            speed_slow: text.tts_settings.tts_speed_slow.to_string(),
+            speed_normal: text.tts_settings.tts_speed_normal.to_string(),
+            speed_fast: text.tts_settings.tts_speed_fast.to_string(),
+            pitch_label: text.tts_settings.tts_pitch_label.to_string(),
+            rate_label: text.tts_settings.tts_rate_label.to_string(),
+            threads_label: text.tts_advanced.tts_cpu_threads_label.to_string(),
+            quality_steps_label: text.tts_advanced.tts_quality_steps_label.to_string(),
+            pick_source: text.tts_advanced.tts_step_audio_pick_source.to_string(),
+            use_current: text
+                .tts_advanced
+                .tts_step_audio_use_current_clip
+                .to_string(),
+            record_mic: text.tts_advanced.tts_reference_record_mic.to_string(),
+            stop_mic: text.tts_advanced.tts_reference_stop_mic.to_string(),
+            no_source: text.tts_advanced.tts_step_audio_no_source.to_string(),
+            source_transcript: text
+                .tts_advanced
+                .tts_step_audio_source_transcript
+                .to_string(),
+            task: text.tts_advanced.tts_step_audio_task.to_string(),
+            subtask: text.tts_advanced.tts_step_audio_subtask.to_string(),
+            inline_sound_tag: text
+                .tts_advanced
+                .tts_step_audio_inline_sound_tag
+                .to_string(),
+            insert_tag: text.tts_advanced.tts_step_audio_insert_tag.to_string(),
+            target_text: text.tts_advanced.tts_step_audio_target_text.to_string(),
             reference_voice: text
+                .tts_advanced
                 .tts_reference_voice_label
                 .trim_end_matches(':')
                 .to_string(),
-            reference_library_desc: text.tts_reference_voice_library_desc.to_string(),
-            reference_add: text.tts_reference_add.to_string(),
-            reference_label: text.tts_reference_label.to_string(),
-            reference_pick_audio: text.tts_reference_pick_audio.to_string(),
-            reference_auto_recognize: text.tts_reference_auto_recognize.to_string(),
-            reference_use_playground: text.tts_reference_use_playground.to_string(),
-            reference_use_global: text.tts_reference_use_global.to_string(),
-            reference_no_audio: text.tts_reference_no_audio.to_string(),
-            reference_exact_transcript: text.tts_reference_exact_transcript.to_string(),
-            gemini_model_label: text.tts_gemini_model_label.to_string(),
-            instructions_label: text.tts_instructions_label.to_string(),
-            instructions_hint: text.tts_playground_instruction_hint.to_string(),
-            preview: text.tts_preview_label.to_string(),
-            delete: text.tool_action_delete.to_string(),
-            step_audio_desc: text.tts_step_audio_desc.to_string(),
-            vieneu_desc: text.tts_vieneu_desc.to_string(),
-            s2s_target: text.tts_s2s_target_label.to_string(),
-            reference_empty: text.tts_reference_empty.to_string(),
-            char_count_template: text.tts_playground_char_count.to_string(),
+            reference_library_desc: text
+                .tts_advanced
+                .tts_reference_voice_library_desc
+                .to_string(),
+            reference_add: text.tts_advanced.tts_reference_add.to_string(),
+            reference_label: text.tts_advanced.tts_reference_label.to_string(),
+            reference_pick_audio: text.tts_advanced.tts_reference_pick_audio.to_string(),
+            reference_auto_recognize: text.tts_advanced.tts_reference_auto_recognize.to_string(),
+            reference_use_playground: text.tts_advanced.tts_reference_use_playground.to_string(),
+            reference_use_global: text.tts_advanced.tts_reference_use_global.to_string(),
+            reference_no_audio: text.tts_advanced.tts_reference_no_audio.to_string(),
+            reference_exact_transcript: text
+                .tts_advanced
+                .tts_reference_exact_transcript
+                .to_string(),
+            gemini_model_label: text.tts_settings.tts_gemini_model_label.to_string(),
+            instructions_label: text.tts_settings.tts_instructions_label.to_string(),
+            instructions_hint: text
+                .tts_playground
+                .tts_playground_instruction_hint
+                .to_string(),
+            preview: text.tts_settings.tts_preview_label.to_string(),
+            delete: text.auxiliary.managed_tools.tool_action_delete.to_string(),
+            step_audio_desc: text.tts_advanced.tts_step_audio_desc.to_string(),
+            vieneu_desc: text.tts_advanced.tts_vieneu_desc.to_string(),
+            s2s_target: text.tts_advanced.tts_s2s_target_label.to_string(),
+            reference_empty: text.tts_advanced.tts_reference_empty.to_string(),
+            char_count_template: text.tts_advanced.tts_playground_char_count.to_string(),
         }
     }
 }

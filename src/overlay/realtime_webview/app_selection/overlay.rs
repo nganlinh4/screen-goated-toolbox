@@ -227,12 +227,13 @@ pub fn show_audio_app_selector_overlay() {
         entries,
         is_dark,
         SelectorText {
-            title: locale.app_select_title.to_string(),
-            subtitle: locale.app_select_hint.to_string(),
+            title: locale.realtime.app_select_title.to_string(),
+            subtitle: locale.realtime.app_select_hint.to_string(),
             count_label: locale
+                .realtime
                 .app_select_count
                 .replace("{}", &candidates.len().to_string()),
-            cancel_label: locale.cancel_label.to_string(),
+            cancel_label: locale.preset_basics.cancel_label.to_string(),
         },
         callbacks,
     );

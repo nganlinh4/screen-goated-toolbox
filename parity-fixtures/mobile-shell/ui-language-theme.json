@@ -20,21 +20,72 @@
       ]
     },
     {
+      "name": "locale_resolution_uses_explicit_code_and_falls_back_to_english",
+      "cases": [
+        {
+          "input": "en",
+          "expected_locale_code": "en"
+        },
+        {
+          "input": "vi",
+          "expected_locale_code": "vi"
+        },
+        {
+          "input": "ko",
+          "expected_locale_code": "ko"
+        },
+        {
+          "input": "",
+          "expected_locale_code": "en"
+        },
+        {
+          "input": "fr",
+          "expected_locale_code": "en"
+        },
+        {
+          "input": "en-US",
+          "expected_locale_code": "en"
+        }
+      ]
+    },
+    {
       "name": "localized_preview_text_comes_from_ui_language_bundle",
       "voice_name": "Aoede",
+      "expected_template_count": 10,
+      "avoid_immediate_repeat_when_multiple": true,
       "locales": [
         {
           "ui_language": "en",
-          "expected_prefix": "Hello"
+          "expected_prefix": "Hello",
+          "expected_first_rendered": "Hello, I am Aoede, ready to read this text for you."
         },
         {
           "ui_language": "vi",
-          "expected_prefix": "Xin chào"
+          "expected_prefix": "Xin chào",
+          "expected_first_rendered": "Xin chào, tôi là Aoede, tôi có thể đọc giúp bạn đoạn văn này."
         },
         {
           "ui_language": "ko",
-          "expected_prefix": "안녕하세요"
+          "expected_prefix": "안녕하세요",
+          "expected_first_rendered": "안녕하세요, 제 이름은 Aoede입니다. 만나서 반갑습니다."
         }
+      ]
+    },
+    {
+      "name": "locale_helpers_follow_copied_sections",
+      "base_locale": "en",
+      "copied_section_locale": "ko",
+      "expected_locale_code_after_copy": "en",
+      "copied_sections": [
+        "appearance",
+        "help",
+        "ttsVoice"
+      ],
+      "helpers": [
+        "compact_overlay_opacity",
+        "reset_defaults_done",
+        "tools_help",
+        "preview_selection"
       ]
     },
     {

@@ -98,11 +98,23 @@ fn localized_badge_text() -> FfmpegBadgeText {
         .unwrap_or_else(|_| "en".to_string());
     let text = crate::gui::locale::LocaleText::get(&ui_language);
     FfmpegBadgeText {
-        installing: text.tts_playground_ffmpeg_installing.to_string(),
-        downloading: text.tts_playground_ffmpeg_downloading.to_string(),
-        extracting: text.tts_playground_ffmpeg_extracting.to_string(),
-        installed: text.tts_playground_ffmpeg_installed.to_string(),
-        failed: text.tts_playground_ffmpeg_failed.to_string(),
+        installing: text
+            .tts_playground
+            .tts_playground_ffmpeg_installing
+            .to_string(),
+        downloading: text
+            .tts_playground
+            .tts_playground_ffmpeg_downloading
+            .to_string(),
+        extracting: text
+            .tts_playground
+            .tts_playground_ffmpeg_extracting
+            .to_string(),
+        installed: text
+            .tts_playground
+            .tts_playground_ffmpeg_installed
+            .to_string(),
+        failed: text.tts_playground.tts_playground_ffmpeg_failed.to_string(),
     }
 }
 

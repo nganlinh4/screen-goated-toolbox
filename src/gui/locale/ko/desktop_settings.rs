@@ -1,0 +1,35 @@
+use crate::gui::locale::DesktopSettingsLocaleText;
+
+pub(super) fn get() -> DesktopSettingsLocaleText {
+    DesktopSettingsLocaleText {
+        hotkeys_section: "단축키",
+        start_in_tray_label: "트레이로 시작",
+        footer_admin_running: "관리자 권한으로 실행 중",
+        admin_startup_on: "시작 시 관리자로 실행",
+        admin_startup_success: "활성화됨: 시작 시 관리자 권한으로 실행됩니다 (작업 스케줄러).",
+        admin_startup_fail: "오류: 이 설정은 관리자 권한으로 실행해야 변경 가능합니다.",
+        graphics_mode_standard: "표준 (그래디언트 글로우 효과)",
+        graphics_mode_minimal: "최소 (약한 컴퓨터용, 레이저 스캔 효과)",
+        usage_statistics_title: "사용 통계",
+        usage_statistics_tooltip: "정확한 데이터를 보려면 모델을 최소 한 번 사용하세요",
+        usage_model_column: "모델",
+        usage_remaining_column: "남은 / 전체",
+        usage_check_link: "사용량 확인",
+        footer_admin_text: "게임을 번역하려면 관리자로 실행하세요",
+        check_for_updates_btn: "업데이트 확인",
+        current_version_label: "현재 버전:",
+        checking_github: "GitHub를 확인 중...",
+        up_to_date: "최신 버전을 사용 중입니다",
+        check_again_btn: "다시 확인",
+        new_version_available: "새 버전을 사용할 수 있습니다:",
+        release_notes_label: "릴리스 노트",
+        download_update_btn: "지금 다운로드 & 업데이트",
+        downloading_update: "다운로드 중... 앱이 제자리에서 업데이트됩니다.",
+        update_failed: "업데이트 실패:",
+        app_folder_writable_hint: "앱 폴더에 쓰기 권한이 있는지 확인하세요.",
+        retry_btn: "다시 시도",
+        update_success: "업데이트 성공!",
+        restart_to_use_new_version: "새 버전을 사용하려면 다시 시작하세요.",
+        restart_app_btn: "앱 다시 시작",
+    }
+}

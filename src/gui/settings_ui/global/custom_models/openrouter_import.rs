@@ -45,7 +45,7 @@ pub(super) fn render_openrouter_import_results(
     if state.loading {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label(text.custom_models_import_openrouter);
+            ui.label(text.model_catalog.custom_models_import_openrouter);
         });
         return;
     }
@@ -99,7 +99,7 @@ pub(super) fn render_openrouter_import_results(
                     ui.data_mut(|d| d.get_temp(search_id).unwrap_or_default());
                 let search = ui.add(
                     egui::TextEdit::singleline(&mut search_text)
-                        .hint_text(text.search_placeholder)
+                        .hint_text(text.preset_basics.search_placeholder)
                         .desired_width(440.0),
                 );
                 if search.changed() {

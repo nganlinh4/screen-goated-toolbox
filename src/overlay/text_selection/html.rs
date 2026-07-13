@@ -24,7 +24,7 @@ pub fn get_localized_image_badge_text(lang: &str) -> String {
     let locale = crate::gui::locale::LocaleText::get(lang);
     format!(
         "{} ({})",
-        locale.select_region_badge, locale.continuous_input_label
+        locale.overlay.select_region_badge, locale.preset_editor.continuous_input_label
     )
 }
 

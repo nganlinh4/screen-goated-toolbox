@@ -10,8 +10,6 @@ use windows::Win32::Foundation::*;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-pub const WM_APP_PROCESS_PENDING_FILE: u32 = WM_USER + 102;
-
 fn capture_diag_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
@@ -35,34 +33,12 @@ pub unsafe extern "system" fn hotkey_proc(
 ) -> LRESULT {
     unsafe {
         match msg {
-            WM_APP_PROCESS_PENDING_FILE => {
-                handle_pending_file();
-                LRESULT(0)
-            }
             WM_HOTKEY => {
                 handle_hotkey(wparam.0 as i32);
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-    }
-}
-
-/// Handle pending file from inter-process communication.
-fn handle_pending_file() {
-    let temp_file = std::env::temp_dir().join("sgt_pending_file.txt");
-    if temp_file.exists() {
-        if let Ok(content) = std::fs::read_to_string(&temp_file) {
-            let path = std::path::PathBuf::from(content.trim());
-            if path.exists() {
-                crate::log_info!("HOTKEY LISTENER: Processing pending file: {:?}", path);
-                let path_clone = path.clone();
-                std::thread::spawn(move || {
-                    crate::gui::app::input_handler::process_file_path(&path_clone);
-                });
-            }
-        }
-        let _ = std::fs::remove_file(temp_file);
     }
 }
 

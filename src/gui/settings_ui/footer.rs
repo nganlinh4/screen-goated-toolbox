@@ -36,7 +36,7 @@ pub fn render_footer(
         if filled_icon_button(
             ui,
             Icon::Pointer,
-            text.pointer_gallery_btn,
+            text.tool_runtime.pointer_gallery_btn,
             theme.launch_pointer(),
             btn_text,
             6,
@@ -49,7 +49,7 @@ pub fn render_footer(
         if filled_icon_button(
             ui,
             Icon::BreakfastDining,
-            text.translation_gummy_btn,
+            text.translation_gummy.translation_gummy_btn,
             theme.launch_translation(),
             btn_text,
             6,
@@ -62,7 +62,7 @@ pub fn render_footer(
         if filled_icon_button(
             ui,
             Icon::Speaker,
-            text.tts_playground_btn,
+            text.tts_playground.tts_playground_btn,
             theme.launch_tts(),
             btn_text,
             6,
@@ -75,7 +75,7 @@ pub fn render_footer(
         if filled_icon_button(
             ui,
             Icon::Album,
-            text.prompt_dj_btn,
+            text.shell.prompt_dj_btn,
             theme.accent_prompt_dj(),
             btn_text,
             6,
@@ -88,7 +88,7 @@ pub fn render_footer(
         if filled_icon_button(
             ui,
             Icon::Movie,
-            text.download_feature_btn,
+            text.auxiliary.download.download_feature_btn,
             theme.accent_download(),
             btn_text,
             6,
@@ -101,7 +101,7 @@ pub fn render_footer(
         if filled_icon_button(
             ui,
             Icon::Videocam,
-            text.screen_record_btn,
+            text.tool_runtime.screen_record_btn,
             theme.accent_screen_record(),
             btn_text,
             6,
@@ -163,7 +163,10 @@ pub fn render_footer(
             .with_clip_rect(win_rect)
             .galley(text_pos, text_galley, egui::Color32::WHITE);
 
-        if response.on_hover_text(text.tips_click_hint).clicked() {
+        if response
+            .on_hover_text(text.workspace.tips_click_hint)
+            .clicked()
+        {
             *show_modal = true;
         }
     });

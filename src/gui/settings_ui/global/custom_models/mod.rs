@@ -43,14 +43,14 @@ pub fn render_custom_models_modal(
             let dark = ui.visuals().dark_mode;
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new(text.custom_models_title)
+                    egui::RichText::new(text.model_catalog.custom_models_title)
                         .size(18.0)
                         .strong()
                         .color(theme.on_surface()),
                 );
                 ui.add_space(8.0);
                 ui.label(
-                    egui::RichText::new(text.custom_models_desc)
+                    egui::RichText::new(text.model_catalog.custom_models_desc)
                         .size(11.5)
                         .color(theme.on_surface_variant()),
                 );
@@ -65,7 +65,7 @@ pub fn render_custom_models_modal(
                     if filled_icon_button(
                         ui,
                         Icon::Terminal,
-                        text.custom_models_scan_ollama,
+                        text.model_catalog.custom_models_scan_ollama,
                         ollama_accent,
                         on_color(ollama_accent),
                         10,
@@ -84,7 +84,7 @@ pub fn render_custom_models_modal(
                     if filled_icon_button(
                         ui,
                         Icon::Public,
-                        text.custom_models_import_openrouter,
+                        text.model_catalog.custom_models_import_openrouter,
                         openrouter_accent,
                         on_color(openrouter_accent),
                         10,
@@ -200,7 +200,7 @@ fn render_provider_section(
                 .collect();
 
             if !builtins.is_empty() {
-                section_caption(ui, &theme, text.custom_models_builtin_locked);
+                section_caption(ui, &theme, text.model_catalog.custom_models_builtin_locked);
                 for model in &builtins {
                     render_locked_model_row(ui, &theme, model, text, &config.ui_language);
                 }
@@ -223,7 +223,11 @@ fn render_provider_section(
             }
 
             if !discovered.is_empty() {
-                section_caption(ui, &theme, text.custom_models_discovered_models);
+                section_caption(
+                    ui,
+                    &theme,
+                    text.model_catalog.custom_models_discovered_models,
+                );
                 for model in discovered {
                     render_locked_model_row(ui, &theme, model, text, &config.ui_language);
                 }
@@ -235,7 +239,7 @@ fn render_provider_section(
             {
                 ui.add_space(2.0);
                 ui.label(
-                    egui::RichText::new(text.custom_models_no_models)
+                    egui::RichText::new(text.model_catalog.custom_models_no_models)
                         .italics()
                         .color(theme.on_surface_variant()),
                 );
@@ -360,11 +364,14 @@ fn render_user_model_row(
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 changed |= ui
-                    .checkbox(&mut model.enabled, text.custom_models_enabled)
+                    .checkbox(&mut model.enabled, text.model_catalog.custom_models_enabled)
                     .changed();
                 let mut supports_search = model.supports_search.unwrap_or(false);
                 if ui
-                    .checkbox(&mut supports_search, text.custom_models_search)
+                    .checkbox(
+                        &mut supports_search,
+                        text.model_catalog.custom_models_search,
+                    )
                     .changed()
                 {
                     model.supports_search = Some(supports_search);
@@ -372,7 +379,8 @@ fn render_user_model_row(
                 }
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new(text.custom_models_type).color(theme.on_surface_variant()),
+                    egui::RichText::new(text.model_catalog.custom_models_type)
+                        .color(theme.on_surface_variant()),
                 );
                 crate::gui::widgets::combo(("custom_model_type", &model.id))
                     .selected_text(custom_model_type_label(model.model_type, text))
@@ -381,14 +389,14 @@ fn render_user_model_row(
                             .selectable_value(
                                 &mut model.model_type,
                                 CustomModelType::Text,
-                                text.custom_models_text_type,
+                                text.model_catalog.custom_models_text_type,
                             )
                             .changed();
                         changed |= ui
                             .selectable_value(
                                 &mut model.model_type,
                                 CustomModelType::Vision,
-                                text.custom_models_vision_type,
+                                text.model_catalog.custom_models_vision_type,
                             )
                             .changed();
                     });
@@ -404,7 +412,7 @@ fn render_user_model_row(
             labelled_field(
                 ui,
                 theme,
-                text.custom_models_display_name,
+                text.model_catalog.custom_models_display_name,
                 &mut model.display_name,
                 &mut changed,
             );
@@ -412,7 +420,7 @@ fn render_user_model_row(
             labelled_field(
                 ui,
                 theme,
-                text.custom_models_api_model,
+                text.model_catalog.custom_models_api_model,
                 &mut model.full_name,
                 &mut changed,
             );
@@ -520,7 +528,8 @@ fn add_label(provider: &str, text: &LocaleText) -> String {
     // The button already shows a leading Plus icon, so strip any "+ " the
     // localized label carries to avoid a doubled plus.
     if provider == "openrouter" {
-        text.custom_models_add_openrouter
+        text.model_catalog
+            .custom_models_add_openrouter
             .trim_start_matches('+')
             .trim_start()
             .to_string()
@@ -556,9 +565,9 @@ fn provider_label(provider: &str) -> &str {
 
 fn model_type_label(model_type: ModelType, text: &LocaleText) -> &'static str {
     match model_type {
-        ModelType::Vision => text.custom_models_vision_type,
-        ModelType::Text => text.custom_models_text_type,
-        ModelType::Audio => text.node_input_audio,
+        ModelType::Vision => text.model_catalog.custom_models_vision_type,
+        ModelType::Text => text.model_catalog.custom_models_text_type,
+        ModelType::Audio => text.preset_editor.node_input_audio,
     }
 }
 
@@ -567,7 +576,7 @@ pub(super) fn custom_model_type_label(
     text: &LocaleText,
 ) -> &'static str {
     match model_type {
-        CustomModelType::Text => text.custom_models_text_type,
-        CustomModelType::Vision => text.custom_models_vision_type,
+        CustomModelType::Text => text.model_catalog.custom_models_text_type,
+        CustomModelType::Vision => text.model_catalog.custom_models_vision_type,
     }
 }

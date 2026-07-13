@@ -12,14 +12,15 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
     let notice = unpack_dlls::current_ai_runtime_notice();
 
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.tool_ai_runtime).strong());
+        ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_ai_runtime).strong());
         ui.with_layout(
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| match &status {
                 AiRuntimeStatus::Installed { bytes } => {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete).color(theme.danger_text()),
+                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                                .color(theme.danger_text()),
                         )
                         .clicked()
                     {
@@ -28,7 +29,9 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
 
                     ui.label(
                         egui::RichText::new(
-                            text.tool_status_installed
+                            text.auxiliary
+                                .managed_tools
+                                .tool_status_installed
                                 .replace("{}", &format_size(*bytes)),
                         )
                         .color(theme.success()),
@@ -40,21 +43,30 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                     ui.label(label);
                 }
                 AiRuntimeStatus::Error(message) => {
-                    if ui.button(text.tool_action_download).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_action_download)
+                        .clicked()
+                    {
                         let _ = unpack_dlls::start_ai_runtime_install();
                     }
                     ui.label(
-                        egui::RichText::new(text.tool_status_install_failed)
-                            .color(theme.danger_text()),
+                        egui::RichText::new(
+                            text.auxiliary.managed_tools.tool_status_install_failed,
+                        )
+                        .color(theme.danger_text()),
                     )
                     .on_hover_text(message);
                 }
                 AiRuntimeStatus::Missing => {
-                    if ui.button(text.tool_action_download).clicked() {
+                    if ui
+                        .button(text.auxiliary.managed_tools.tool_action_download)
+                        .clicked()
+                    {
                         let _ = unpack_dlls::start_ai_runtime_install();
                     }
                     ui.label(
-                        egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                            .color(egui::Color32::GRAY),
                     );
                 }
             },
@@ -62,7 +74,7 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
     });
 
     ui.horizontal(|ui| {
-        ui.label(text.tool_desc_ai_runtime);
+        ui.label(text.auxiliary.managed_tools.tool_desc_ai_runtime);
         if matches!(status, AiRuntimeStatus::Installed { .. }) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(egui::RichText::new(version_label).color(egui::Color32::GRAY));

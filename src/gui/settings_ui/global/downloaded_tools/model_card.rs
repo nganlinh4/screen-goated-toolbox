@@ -51,7 +51,10 @@ pub(super) fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &Mode
                 ui.spinner();
             } else if cached_probe(spec.model_probe, spec.is_model_downloaded) {
                 if ui
-                    .button(egui::RichText::new(text.tool_action_delete).color(theme.danger_text()))
+                    .button(
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+                            .color(theme.danger_text()),
+                    )
                     .clicked()
                 {
                     invalidate_size_cache(&(spec.model_dir)());
@@ -61,19 +64,28 @@ pub(super) fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &Mode
                 let size = get_dir_size(&(spec.model_dir)());
                 ui.label(
                     egui::RichText::new(
-                        text.tool_status_installed.replace("{}", &format_size(size)),
+                        text.auxiliary
+                            .managed_tools
+                            .tool_status_installed
+                            .replace("{}", &format_size(size)),
                     )
                     .color(theme.success()),
                 );
             } else {
-                if ui.button(text.tool_action_download).clicked() {
+                if ui
+                    .button(text.auxiliary.managed_tools.tool_action_download)
+                    .clicked()
+                {
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     let download_model = spec.download_model;
                     thread::spawn(move || {
                         let _ = download_model(stop_signal, false);
                     });
                 }
-                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
+                ui.label(
+                    egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                        .color(egui::Color32::GRAY),
+                );
             }
         });
     });

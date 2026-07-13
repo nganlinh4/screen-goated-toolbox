@@ -251,7 +251,10 @@ impl PointerGallery {
                 }
                 self.status_message = Some((
                     true,
-                    text.pointer_apply_success_fmt.replace("{}", spec.title),
+                    text.auxiliary
+                        .managed_tools
+                        .pointer_apply_success_fmt
+                        .replace("{}", spec.title),
                 ));
             }
             Err(err) => {

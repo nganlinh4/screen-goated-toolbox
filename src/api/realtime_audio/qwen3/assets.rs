@@ -285,8 +285,8 @@ pub fn download_qwen3_1_7b_model(stop_signal: Arc<AtomicBool>, use_badge: bool) 
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = locale.qwen3_1_7b_downloading_title.to_string();
-        state.download_message = locale.qwen3_downloading_message.to_string();
+        state.download_title = locale.tool_runtime.qwen3_1_7b_downloading_title.to_string();
+        state.download_message = locale.tool_runtime.qwen3_downloading_message.to_string();
         state.download_progress = 0.0;
     }
     clear_qwen3_model_action_error();
@@ -301,7 +301,10 @@ pub fn download_qwen3_1_7b_model(stop_signal: Arc<AtomicBool>, use_badge: bool) 
             }
 
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = locale.qwen3_downloading_file.replace("{}", &file.path);
+                state.download_message = locale
+                    .tool_runtime
+                    .qwen3_downloading_file
+                    .replace("{}", &file.path);
             }
             post_download_state();
 
@@ -365,8 +368,8 @@ pub fn download_qwen3_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Re
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = locale.qwen3_downloading_title.to_string();
-        state.download_message = locale.qwen3_downloading_message.to_string();
+        state.download_title = locale.tool_runtime.qwen3_downloading_title.to_string();
+        state.download_message = locale.tool_runtime.qwen3_downloading_message.to_string();
         state.download_progress = 0.0;
     }
     clear_qwen3_model_action_error();
@@ -381,7 +384,10 @@ pub fn download_qwen3_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Re
             }
 
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = locale.qwen3_downloading_file.replace("{}", &file.path);
+                state.download_message = locale
+                    .tool_runtime
+                    .qwen3_downloading_file
+                    .replace("{}", &file.path);
             }
             post_download_state();
 

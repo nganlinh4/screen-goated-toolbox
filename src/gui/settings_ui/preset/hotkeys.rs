@@ -26,7 +26,7 @@ pub(super) fn render_hotkeys(
             .max(ui.spacing().interact_size.y);
         let lbl_color = ui.visuals().strong_text_color();
         let galley = ui.painter().layout_no_wrap(
-            text.hotkeys_section.to_string(),
+            text.desktop_settings.hotkeys_section.to_string(),
             egui::TextStyle::Body.resolve(ui.style()),
             lbl_color,
         );
@@ -41,11 +41,11 @@ pub(super) fn render_hotkeys(
         let theme = AppTheme::from_ui(ui);
 
         if *recording_hotkey_for_preset == Some(preset_idx) {
-            ui.colored_label(theme.warning(), text.press_keys);
+            ui.colored_label(theme.warning(), text.preset_basics.press_keys);
 
             if filled_button(
                 ui,
-                text.cancel_label,
+                text.preset_basics.cancel_label,
                 theme.hotkey_cancel_fill(),
                 egui::Color32::WHITE,
                 10,
@@ -56,7 +56,7 @@ pub(super) fn render_hotkeys(
             }
         } else if filled_button(
             ui,
-            text.add_hotkey_button,
+            text.preset_basics.add_hotkey_button,
             theme.hotkey_add_fill(),
             egui::Color32::WHITE,
             10,

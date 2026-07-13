@@ -163,12 +163,12 @@ where
                             .filter(|s| !s.is_empty())
                         {
                             if !thinking_shown && !content_started {
-                                on_chunk(locale.model_thinking);
+                                on_chunk(locale.global_settings.model_thinking);
                                 thinking_shown = true;
                             }
                             let _ = reasoning;
                         } else if reasoning_fallback && !content_started && !thinking_shown {
-                            on_chunk(locale.model_thinking);
+                            on_chunk(locale.global_settings.model_thinking);
                             thinking_shown = true;
                         }
 

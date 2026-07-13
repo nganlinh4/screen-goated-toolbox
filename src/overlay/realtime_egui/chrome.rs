@@ -22,14 +22,14 @@ pub(super) fn render_transcription_header(
             render_source_group(ui, theme, locale, is_device_mode);
             render_transcription_controls(ui, theme, locale);
             if compact_button(ui, "Copy", false, theme)
-                .on_hover_text(locale.overlay_copy_tooltip)
+                .on_hover_text(locale.overlay.overlay_copy_tooltip)
                 .clicked()
             {
                 copy_visible_text(state.show_transcription, false);
             }
             render_font_group(ui, state, theme, locale);
             if compact_button(ui, "Hide", !state.show_transcription, theme)
-                .on_hover_text(locale.toggle_transcription_tooltip)
+                .on_hover_text(locale.shell.toggle_transcription_tooltip)
                 .clicked()
             {
                 state.show_transcription = !state.show_transcription;
@@ -53,7 +53,7 @@ pub(super) fn render_translation_header(
             ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
             let tts_label = if tts_enabled { "TTS On" } else { "TTS" };
             if compact_button(ui, tts_label, tts_enabled, theme)
-                .on_hover_text(locale.tts_settings_title)
+                .on_hover_text(locale.tts_playground.tts_settings_title)
                 .clicked()
             {
                 state.show_tts_panel = !state.show_tts_panel;
@@ -61,14 +61,14 @@ pub(super) fn render_translation_header(
             render_translation_model_menu(ui, theme, locale);
             render_language_selector(ui, theme);
             if compact_button(ui, "Copy", false, theme)
-                .on_hover_text(locale.overlay_copy_tooltip)
+                .on_hover_text(locale.overlay.overlay_copy_tooltip)
                 .clicked()
             {
                 copy_visible_text(false, state.show_translation);
             }
             render_font_group(ui, state, theme, locale);
             if compact_button(ui, "Hide", !state.show_translation, theme)
-                .on_hover_text(locale.toggle_translation_tooltip)
+                .on_hover_text(locale.shell.toggle_translation_tooltip)
                 .clicked()
             {
                 state.show_translation = !state.show_translation;
@@ -108,8 +108,8 @@ pub(super) fn render_device_warning(
                     crate::gui::icons::Icon::Warning,
                     theme.warning,
                 );
-                ui.label(egui::RichText::new(locale.device_mode_warning).color(theme.warning));
-                if compact_button(ui, locale.select_app_btn, false, theme).clicked() {
+                ui.label(egui::RichText::new(locale.shell.device_mode_warning).color(theme.warning));
+                if compact_button(ui, locale.shell.select_app_btn, false, theme).clicked() {
                     crate::overlay::realtime_webview::app_selection::show_audio_app_selector_overlay();
                 }
             });
@@ -142,7 +142,7 @@ pub(super) fn render_download_panel(
                 if !message.is_empty() {
                     ui.label(egui::RichText::new(message).color(theme.muted));
                 }
-                if compact_button(ui, locale.cancel_label, false, theme).clicked() {
+                if compact_button(ui, locale.preset_basics.cancel_label, false, theme).clicked() {
                     controller::cancel_download();
                 }
             });
@@ -163,7 +163,7 @@ pub(super) fn render_tts_panel(
         let mut tts_on = tts_enabled;
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(locale.tts_settings_title)
+                egui::RichText::new(locale.tts_playground.tts_settings_title)
                     .strong()
                     .color(theme.text),
             );
@@ -184,8 +184,8 @@ pub(super) fn render_tts_panel(
                     crate::gui::icons::Icon::Warning,
                     theme.warning,
                 );
-                ui.label(egui::RichText::new(locale.device_mode_warning).color(theme.warning));
-                if compact_button(ui, locale.select_app_btn, false, theme).clicked() {
+                ui.label(egui::RichText::new(locale.shell.device_mode_warning).color(theme.warning));
+                if compact_button(ui, locale.shell.select_app_btn, false, theme).clicked() {
                     crate::overlay::realtime_webview::app_selection::show_audio_app_selector_overlay();
                 }
             });
@@ -193,7 +193,7 @@ pub(super) fn render_tts_panel(
 
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(locale.realtime_tts_speed).color(theme.muted));
+            ui.label(egui::RichText::new(locale.realtime.realtime_tts_speed).color(theme.muted));
 
             let current_speed = CURRENT_TTS_SPEED.load(Ordering::Relaxed);
             let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
@@ -217,7 +217,7 @@ pub(super) fn render_tts_panel(
 
             let mut auto_on = auto_speed;
             if ui
-                .checkbox(&mut auto_on, locale.realtime_tts_auto)
+                .checkbox(&mut auto_on, locale.realtime.realtime_tts_auto)
                 .changed()
             {
                 controller::set_tts_auto_speed(auto_on);
@@ -225,7 +225,7 @@ pub(super) fn render_tts_panel(
         });
 
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(locale.realtime_tts_volume).color(theme.muted));
+            ui.label(egui::RichText::new(locale.realtime.realtime_tts_volume).color(theme.muted));
 
             let mut volume = CURRENT_TTS_VOLUME.load(Ordering::Relaxed) as i32;
             if ui
@@ -311,13 +311,13 @@ fn render_source_group(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 1.0;
             if compact_button(ui, "Mic", !is_device_mode, theme)
-                .on_hover_text(locale.audio_src_mic)
+                .on_hover_text(locale.preset_basics.audio_src_mic)
                 .clicked()
             {
                 controller::set_audio_source("mic");
             }
             if compact_button(ui, "Device", is_device_mode, theme)
-                .on_hover_text(locale.audio_src_device)
+                .on_hover_text(locale.preset_basics.audio_src_device)
                 .clicked()
             {
                 controller::set_audio_source("device");
@@ -336,14 +336,14 @@ fn render_font_group(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 1.0;
             if compact_button(ui, "-", false, theme)
-                .on_hover_text(locale.font_minus_tooltip)
+                .on_hover_text(locale.shell.font_minus_tooltip)
                 .clicked()
             {
                 state.font_size = (state.font_size - 2.0).max(10.0);
                 controller::set_font_size(state.font_size as u32);
             }
             if compact_button(ui, "+", false, theme)
-                .on_hover_text(locale.font_plus_tooltip)
+                .on_hover_text(locale.shell.font_plus_tooltip)
                 .clicked()
             {
                 state.font_size = (state.font_size + 2.0).min(40.0);
@@ -392,7 +392,7 @@ fn render_transcription_controls(
             }
         },
     )
-    .on_hover_text(locale.realtime_tooltip_transcription_model);
+    .on_hover_text(locale.realtime.realtime_tooltip_transcription_model);
 
     ui.add_enabled_ui(current_model == "zipformer", |ui| {
         render_combo(
@@ -423,7 +423,7 @@ fn render_transcription_controls(
                 }
             },
         )
-        .on_hover_text(locale.realtime_tooltip_transcription_language);
+        .on_hover_text(locale.realtime.realtime_tooltip_transcription_language);
     });
 }
 
@@ -459,9 +459,9 @@ fn render_translation_model_menu(
         .unwrap_or_default();
     let (current_model, is_s2s) = current_model;
     let model_label = if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX {
-        locale.google_gtx_label
+        locale.shell.google_gtx_label
     } else {
-        locale.llm_label
+        locale.shell.llm_label
     };
 
     ui.add_enabled_ui(!is_s2s, |ui| {
@@ -475,7 +475,7 @@ fn render_translation_model_menu(
                 if ui
                     .selectable_label(
                         current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_LLM,
-                        locale.llm_label,
+                        locale.shell.llm_label,
                     )
                     .clicked()
                 {
@@ -487,7 +487,7 @@ fn render_translation_model_menu(
                 if ui
                     .selectable_label(
                         current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX,
-                        locale.google_gtx_label.to_string(),
+                        locale.shell.google_gtx_label.to_string(),
                     )
                     .clicked()
                 {
@@ -499,9 +499,9 @@ fn render_translation_model_menu(
             },
         )
         .on_hover_text(if is_s2s {
-            locale.realtime_tooltip_s2s_translation_model
+            locale.realtime.realtime_tooltip_s2s_translation_model
         } else {
-            locale.realtime_tooltip_translation_model
+            locale.realtime.realtime_tooltip_translation_model
         });
     });
 }

@@ -97,3 +97,5 @@ __pycache__/
 # Computer-control debug traces (CC_TRACE_DIR) + scratch design docs
 /cc-*/
 /temp-*.md
+/temp-cc-live-traces*/
+/target-cc-*/

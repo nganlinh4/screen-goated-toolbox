@@ -157,8 +157,8 @@ pub fn download_kokoro_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> R
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = locale.kokoro_downloading_title.to_string();
-        state.download_message = locale.kokoro_downloading_message.to_string();
+        state.download_title = locale.tool_runtime.kokoro_downloading_title.to_string();
+        state.download_message = locale.tool_runtime.kokoro_downloading_message.to_string();
         state.download_progress = 0.0;
     }
     clear_kokoro_action_error();
@@ -170,6 +170,7 @@ pub fn download_kokoro_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> R
         }
         if let Ok(mut state) = REALTIME_STATE.lock() {
             state.download_message = locale
+                .tool_runtime
                 .kokoro_downloading_file
                 .replace("{}", ARCHIVE_FILENAME);
         }

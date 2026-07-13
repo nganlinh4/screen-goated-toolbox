@@ -89,8 +89,11 @@ pub fn download_parakeet_tdt_model(stop_signal: Arc<AtomicBool>, use_badge: bool
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = locale.parakeet_tdt_downloading_title.to_string();
-        state.download_message = locale.parakeet_downloading_message.to_string();
+        state.download_title = locale
+            .tool_runtime
+            .parakeet_tdt_downloading_title
+            .to_string();
+        state.download_message = locale.tool_runtime.parakeet_downloading_message.to_string();
         state.download_progress = 0.0;
     }
     clear_parakeet_tdt_action_error();
@@ -103,7 +106,10 @@ pub fn download_parakeet_tdt_model(stop_signal: Arc<AtomicBool>, use_badge: bool
             }
 
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = locale.parakeet_downloading_file.replace("{}", filename);
+                state.download_message = locale
+                    .tool_runtime
+                    .parakeet_downloading_file
+                    .replace("{}", filename);
             }
             post_download_state();
 

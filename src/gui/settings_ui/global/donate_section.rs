@@ -25,7 +25,11 @@ pub fn render_donate_section_content(ui: &mut egui::Ui, text: &LocaleText) {
     let header_resp = ui
         .horizontal(|ui| {
             icons::draw_icon_static(ui, Icon::PottedPlant, Some(icons::ICON_MD));
-            ui.label(egui::RichText::new(text.donate_header).strong().size(14.0));
+            ui.label(
+                egui::RichText::new(text.global_settings.donate_header)
+                    .strong()
+                    .size(14.0),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let size = ui.spacing().icon_width;
                 let (rect, _) =
@@ -56,7 +60,7 @@ pub fn render_donate_section_content(ui: &mut egui::Ui, text: &LocaleText) {
 
     state.show_body_unindented(ui, |ui| {
         ui.add_space(6.0);
-        ui.label(text.donate_body);
+        ui.label(text.global_settings.donate_body);
         ui.add_space(4.0);
         ui.label(egui::RichText::new(DONATE_BANK_LINE).strong());
         ui.add_space(6.0);
@@ -69,10 +73,10 @@ pub fn render_donate_section_content(ui: &mut egui::Ui, text: &LocaleText) {
             }
         });
         // EN/KO get an extra line clarifying the bank transfer is for Vietnamese donors.
-        if !text.donate_vietnamese {
+        if !text.global_settings.donate_vietnamese {
             ui.add_space(6.0);
             ui.label(
-                egui::RichText::new(text.donate_note)
+                egui::RichText::new(text.global_settings.donate_note)
                     .size(11.5)
                     .color(crate::gui::theme::AppTheme::from_ui(ui).on_surface_variant()),
             );

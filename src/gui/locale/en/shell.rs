@@ -1,0 +1,38 @@
+use crate::gui::locale::ShellLocaleText;
+
+pub(super) fn get() -> ShellLocaleText {
+    ShellLocaleText {
+        tray_settings: "Settings",
+        tray_quit: "Quit",
+        tray_favorite_bubble: "Show favorite bubble",
+        tray_favorite_bubble_disabled: "Show favorite bubble (No favorites set yet)",
+        favorites_empty: "Please favorite some presets using the star button",
+        favorites_keep_open: "Keep Open",
+        recording_subtext: "Press ESC/Hotkey to stop",
+        recording_paused: "Paused",
+        auto_copied_badge: "Auto-copied",
+        auto_copied_image_badge: "Image copied",
+        text_input_loading: "Loading text input...",
+        recording_loading: "Loading recording...",
+        preset_wheel_loading: "Loading preset selector...",
+        update_available_notification: "New update available!",
+        cannot_type_no_caret: "Auto paste/write active but no text input selected!",
+        drop_overlay_text: "Drop here to process",
+        video_drop_work_record: "Work with SGT Record",
+        video_drop_generate_subtitles: "Generate subtitles now",
+        audio_drop_add_to_record: "Add to SGT Record",
+        device_mode_warning: "Device audio selected but no app chosen",
+        select_app_btn: "Select App",
+        toggle_translation_tooltip: "Toggle Translation",
+        toggle_transcription_tooltip: "Toggle Transcription",
+        font_minus_tooltip: "Font -",
+        font_plus_tooltip: "Font +",
+        google_gtx_label: "Google Translate",
+        llm_label: "LLM",
+        downloaded_successfully: "Downloaded!",
+        download_recording_tooltip: "Download Recording",
+        help_assistant_btn: "How to use",
+        help_assistant_title: "Ask about SGT",
+        prompt_dj_btn: "Be a DJ",
+    }
+}

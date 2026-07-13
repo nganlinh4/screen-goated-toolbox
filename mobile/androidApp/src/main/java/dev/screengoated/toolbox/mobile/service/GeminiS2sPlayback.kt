@@ -3,47 +3,12 @@ package dev.screengoated.toolbox.mobile.service
 import android.os.SystemClock
 import android.util.Log
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
-import dev.screengoated.toolbox.mobile.service.tts.BlockingWebSocketSession
-import dev.screengoated.toolbox.mobile.service.tts.WebSocketEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
-import java.io.IOException
 import java.util.TreeMap
 import java.util.concurrent.atomic.AtomicInteger
-
-internal fun waitForGeminiS2sSetup(
-    session: BlockingWebSocketSession,
-    logTag: String,
-): Boolean {
-    val deadline = SystemClock.elapsedRealtime() + 15_000
-    while (SystemClock.elapsedRealtime() < deadline) {
-        when (val event = session.poll(50)) {
-            null -> Unit
-            is WebSocketEvent.Text -> {
-                if (event.payload.contains("setupComplete")) return true
-                parseGeminiS2sUpdate(event.payload).error?.let { throw IOException(it) }
-            }
-            is WebSocketEvent.Binary -> {
-                val payload = event.payload.utf8()
-                if (payload.contains("setupComplete")) return true
-                parseGeminiS2sUpdate(payload).error?.let { throw IOException(it) }
-                Log.w(logTag, "setup-unexpected-binary bytes=${event.payload.size}")
-            }
-            is WebSocketEvent.Failure -> {
-                Log.w(logTag, "setup-websocket-failure error=${event.throwable.message}", event.throwable)
-                throw event.throwable
-            }
-            WebSocketEvent.Closed -> {
-                Log.w(logTag, "setup-websocket-closed")
-                return false
-            }
-        }
-    }
-    Log.w(logTag, "setup-timeout")
-    return false
-}
 
 internal suspend fun runGeminiS2sPlaybackCoordinator(
     player: AudioTrackPlayer,

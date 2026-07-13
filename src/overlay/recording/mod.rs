@@ -95,7 +95,7 @@ pub fn show_recording_overlay(preset_idx: usize) {
         // Show loading notification
         let ui_lang = APP.lock().unwrap().config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-        crate::overlay::auto_copy_badge::show_notification(locale.recording_loading);
+        crate::overlay::auto_copy_badge::show_notification(locale.shell.recording_loading);
 
         // Spawn a thread to wait for warmup completion and then trigger show
         std::thread::spawn(move || {
@@ -135,6 +135,6 @@ pub fn show_recording_overlay(preset_idx: usize) {
 
         let ui_lang = APP.lock().unwrap().config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-        crate::overlay::auto_copy_badge::show_notification(locale.recording_loading);
+        crate::overlay::auto_copy_badge::show_notification(locale.shell.recording_loading);
     }
 }

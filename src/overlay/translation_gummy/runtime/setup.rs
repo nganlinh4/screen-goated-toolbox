@@ -6,6 +6,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use crate::APP;
+use crate::api::gemini_live::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
 use crate::config::TranslationGummySettings;
 use tungstenite::Message;
 
@@ -32,24 +33,15 @@ fn build_setup_payload(
     voice_name: &str,
     system_instruction: &str,
 ) -> serde_json::Value {
-    let mut payload = serde_json::json!({
-        "setup": {
-            "model": format!("models/{}", model_name),
-            "generationConfig": {
-                "responseModalities": ["AUDIO"],
-                "mediaResolution": "MEDIA_RESOLUTION_LOW",
-                "speechConfig": {
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {
-                            "voiceName": voice_name
-                        }
-                    }
-                }
-            },
-            "systemInstruction": {
-                "parts": [{ "text": system_instruction }]
-            },
-            "realtimeInputConfig": {
+    LiveSetupBuilder::new(model_name)
+        .media_resolution(MediaResolution::Low)
+        .voice(voice_name)
+        .system_instruction(system_instruction)
+        .transcription(TranscriptionMode::Both)
+        .context_window_compression()
+        .setup_field(
+            "realtimeInputConfig",
+            serde_json::json!({
                 "automaticActivityDetection": {
                     "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
                     "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH",
@@ -58,18 +50,9 @@ fn build_setup_payload(
                 },
                 "activityHandling": "START_OF_ACTIVITY_INTERRUPTS",
                 "turnCoverage": "TURN_INCLUDES_ONLY_ACTIVITY"
-            },
-            "contextWindowCompression": {
-                "slidingWindow": {}
-            },
-            "inputAudioTranscription": {},
-            "outputAudioTranscription": {}
-        }
-    });
-    if let Some(config) = crate::model_config::live_thinking_config_json(model_name) {
-        payload["setup"]["generationConfig"]["thinkingConfig"] = config;
-    }
-    payload
+            }),
+        )
+        .build()
 }
 
 pub(in crate::overlay::translation_gummy) fn current_gemini_tts_settings() -> (String, String) {
@@ -78,11 +61,7 @@ pub(in crate::overlay::translation_gummy) fn current_gemini_tts_settings() -> (S
             let model = app.config.tts_gemini_live_model.trim();
             let voice = app.config.tts_voice.trim();
             (
-                if model.is_empty() {
-                    "gemini-3.1-flash-live-preview".to_string()
-                } else {
-                    model.to_string()
-                },
+                crate::model_config::normalize_tts_gemini_model(model).to_string(),
                 if voice.is_empty() {
                     "Aoede".to_string()
                 } else {
@@ -92,7 +71,7 @@ pub(in crate::overlay::translation_gummy) fn current_gemini_tts_settings() -> (S
         })
         .unwrap_or_else(|_| {
             (
-                "gemini-3.1-flash-live-preview".to_string(),
+                crate::model_config::DEFAULT_GEMINI_LIVE_TTS_MODEL.to_string(),
                 "Aoede".to_string(),
             )
         })
