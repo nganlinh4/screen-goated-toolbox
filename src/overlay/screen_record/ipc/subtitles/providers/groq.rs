@@ -3,10 +3,11 @@ use std::io::Cursor;
 use std::sync::atomic::Ordering;
 
 use crate::APP;
-use crate::api::client::UREQ_AGENT;
+use crate::api::client::{UREQ_AGENT, record_usage_simple};
 use crate::model_config::get_model_by_id;
 use crate::overlay::screen_record::ipc::subtitles::types::SubtitleGenerationMethod;
 
+use super::groq_diagnostics::GroqTranscriptDiagnostics;
 use super::{
     SubtitleBackend, SubtitleBackendProgress, SubtitleBackendRequest, ends_sentence,
     join_word_tokens, normalize_groq_language_hint, normalize_subtitle_text,
@@ -97,6 +98,9 @@ struct GroqSegment {
     start: f64,
     end: f64,
     text: String,
+    avg_logprob: Option<f64>,
+    no_speech_prob: Option<f64>,
+    compression_ratio: Option<f64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -109,6 +113,14 @@ struct GroqWord {
 enum GroqRequestError {
     TooLarge(String),
     Other(String),
+}
+
+impl GroqRequestError {
+    fn message(&self) -> &str {
+        match self {
+            Self::TooLarge(message) | Self::Other(message) => message,
+        }
+    }
 }
 
 fn transcribe_with_groq_auto_split(
@@ -222,13 +234,50 @@ fn transcribe_groq_split_attempt(
             chunk.duration_sec,
             chunk_wav.len()
         );
-        let response = transcribe_with_groq_verbose(
+        let mut response = transcribe_with_groq_verbose(
             api_key,
             model_name,
-            chunk_wav,
+            chunk_wav.clone(),
             language_hint,
             vocabulary,
         )?;
+        let diagnostics = transcript_diagnostics(&response);
+        diagnostics.log(model_name, part_index + 1, total_parts);
+
+        // Retry a suspicious Turbo chunk once with the accurate model. Keep the
+        // original successful transcript if the diagnostic retry itself fails.
+        if model_name == "whisper-large-v3-turbo" && diagnostics.should_retry() {
+            if cancel_token.load(Ordering::SeqCst) {
+                return Err(GroqRequestError::Other(
+                    "Groq subtitle generation cancelled".to_string(),
+                ));
+            }
+            crate::log_info!(
+                "[SubtitleGen][Groq] part-retry {}/{} reason=quality model=whisper-large-v3",
+                part_index + 1,
+                total_parts
+            );
+            match transcribe_with_groq_verbose(
+                api_key,
+                "whisper-large-v3",
+                chunk_wav,
+                language_hint,
+                vocabulary,
+            ) {
+                Ok(accurate) => {
+                    transcript_diagnostics(&accurate).log(
+                        "whisper-large-v3",
+                        part_index + 1,
+                        total_parts,
+                    );
+                    response = accurate;
+                }
+                Err(error) => crate::log_info!(
+                    "[SubtitleGen][Groq] diagnostic retry failed; keeping original: {}",
+                    error.message()
+                ),
+            }
+        }
         let mut segments = build_sentence_blocks(&response);
         for segment in &mut segments {
             segment.start_time += chunk.offset_sec;
@@ -297,6 +346,8 @@ fn transcribe_with_groq_verbose(
         .send(&body)
         .map_err(map_groq_request_error)?;
 
+    record_usage_simple(response.headers(), model_name);
+
     let json: serde_json::Value = response
         .into_body()
         .read_json()
@@ -353,6 +404,20 @@ fn add_multipart_field(body: &mut Vec<u8>, boundary: &str, name: &str, value: &[
     );
     body.extend_from_slice(value);
     body.extend_from_slice(b"\r\n");
+}
+
+fn transcript_diagnostics(response: &GroqVerboseResponse) -> GroqTranscriptDiagnostics {
+    let segments = response.segments.as_deref().unwrap_or_default();
+    GroqTranscriptDiagnostics::from_metrics(
+        segments.len(),
+        segments.iter().map(|segment| {
+            (
+                segment.avg_logprob,
+                segment.no_speech_prob,
+                segment.compression_ratio,
+            )
+        }),
+    )
 }
 
 struct GroqWavChunk {

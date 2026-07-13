@@ -1,7 +1,7 @@
 // --- GROQ TRANSLATE PROVIDERS ---
 // Groq compound and standard API translation handlers.
 
-use crate::api::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
+use crate::api::client::{UREQ_AGENT, is_auth_error, record_groq_json_usage, record_usage_simple};
 use crate::api::types::ChatCompletionResponse;
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
@@ -72,6 +72,7 @@ where
         .into_body()
         .read_json()
         .map_err(|e| anyhow::anyhow!("Failed to parse compound response: {}", e))?;
+    record_groq_json_usage(model, &json);
 
     let mut full_content = String::new();
 
@@ -246,7 +247,16 @@ where
         });
 
         if use_json_format {
-            payload_obj["response_format"] = serde_json::json!({ "type": "json_object" });
+            payload_obj["response_format"] = crate::api::groq::structured_response_format(
+                model,
+                "translation_result",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "translation": { "type": "string" } },
+                    "required": ["translation"],
+                    "additionalProperties": false
+                }),
+            );
         }
 
         payload_obj
@@ -276,10 +286,13 @@ where
             &mut on_chunk,
         )?;
     } else {
-        let chat_resp: ChatCompletionResponse = resp
+        let root: serde_json::Value = resp
             .into_body()
             .read_json()
             .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+        record_groq_json_usage(model, &root);
+        let chat_resp: ChatCompletionResponse = serde_json::from_value(root)
+            .map_err(|e| anyhow::anyhow!("Failed to decode non-streaming response: {}", e))?;
 
         if let Some(choice) = chat_resp.choices.first() {
             let content_str = &choice.message.content;

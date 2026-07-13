@@ -63,6 +63,31 @@ pub fn record_usage_simple(headers: &HeaderMap, stats_key: &str) {
     }
 }
 
+/// Log Groq's automatic prompt-cache contribution without changing quota UI.
+/// Cache hits are response metadata; no request flag enables them.
+pub fn record_groq_json_usage(stats_key: &str, root: &serde_json::Value) {
+    let Some(usage) = root.get("usage") else {
+        return;
+    };
+    let prompt_tokens = usage
+        .get("prompt_tokens")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let cached_tokens = usage
+        .pointer("/prompt_tokens_details/cached_tokens")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if prompt_tokens > 0 {
+        crate::log_info!(
+            "[Groq][cache] model={} cached_tokens={}/{} ({:.1}%)",
+            stats_key,
+            cached_tokens,
+            prompt_tokens,
+            cached_tokens as f64 * 100.0 / prompt_tokens as f64
+        );
+    }
+}
+
 /// Record model usage from the Cerebras rate-limit headers.
 ///
 /// Prefers the per-day headers (`-requests-day`) and falls back to the

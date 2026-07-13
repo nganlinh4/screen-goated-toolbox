@@ -267,9 +267,8 @@ mod tests {
         )
         .expect("image chain should produce a next model");
 
-        // Catalog image_to_text chain is [scout, gemma-4-26b-a4b-vision,
-        // gemini-3.1-flash-lite]; failing "scout" advances to the next
-        // available model in order.
-        assert_eq!(next.id, "gemma-4-26b-a4b-vision");
+        // Qwen 3.6 is the first image fallback. A failed Scout attempt starts
+        // again at the highest-priority eligible model.
+        assert_eq!(next.id, "qwen-3.6-27b-vision");
     }
 }

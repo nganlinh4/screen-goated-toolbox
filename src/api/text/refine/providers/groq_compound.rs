@@ -1,4 +1,4 @@
-use crate::api::client::{UREQ_AGENT, record_usage_simple};
+use crate::api::client::{UREQ_AGENT, record_groq_json_usage, record_usage_simple};
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
 use anyhow::Result;
@@ -49,6 +49,7 @@ where
     record_usage_simple(resp.headers(), p_model);
 
     let json: serde_json::Value = resp.into_body().read_json()?;
+    record_groq_json_usage(p_model, &json);
     let mut full_content = String::new();
 
     if let Some(choices) = json.get("choices").and_then(|c| c.as_array())

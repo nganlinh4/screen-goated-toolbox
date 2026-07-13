@@ -78,8 +78,10 @@ fn migrate_config(config: &mut Config) {
 
     config.ensure_preset_profiles();
     migrate_preset_list(&mut config.presets, &default_presets);
+    promote_builtin_image_defaults(&mut config.presets);
     for profile in &mut config.preset_profiles {
         migrate_preset_list(&mut profile.presets, &default_presets);
+        promote_builtin_image_defaults(&mut profile.presets);
         profile.active_preset_idx = profile
             .active_preset_idx
             .min(profile.presets.len().saturating_sub(1));
@@ -110,6 +112,20 @@ fn migrate_config(config: &mut Config) {
     }
 
     config.sync_active_profile_from_presets();
+}
+
+fn promote_builtin_image_defaults(presets: &mut [Preset]) {
+    for preset in presets.iter_mut().filter(|preset| preset.is_builtin()) {
+        for block in &mut preset.blocks {
+            let was_scout_default = block.block_type == "image" && block.model == "scout";
+            let was_translate_default = preset.id == "preset_translate"
+                && block.block_type == "image"
+                && block.model == "gemma-4-26b-a4b-vision";
+            if was_scout_default || was_translate_default {
+                block.model = crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string();
+            }
+        }
+    }
 }
 
 fn normalize_removed_tts_methods(config: &mut Config) {
@@ -389,6 +405,34 @@ mod tests {
     }
 
     #[test]
+    fn migrate_config_promotes_old_builtin_image_defaults_only() {
+        let builtin = Preset {
+            id: "preset_ocr".to_string(),
+            blocks: vec![ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "scout".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let custom = Preset {
+            id: "custom_scout".to_string(),
+            blocks: vec![ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "scout".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut config = legacy_config_with_presets(vec![builtin, custom]);
+
+        migrate_config(&mut config);
+
+        assert_eq!(config.presets[0].blocks[0].model, "qwen-3.6-27b-vision");
+        assert_eq!(config.presets[1].blocks[0].model, "scout");
+    }
+
+    #[test]
     fn migrate_config_sanitizes_model_priority_chains() {
         let mut config = Config::default();
         config.model_priority_chains.image_to_text = vec![
@@ -409,7 +453,11 @@ mod tests {
 
         assert_eq!(
             config.model_priority_chains.image_to_text,
-            vec!["gemini-3.1-flash-lite".to_string(), "scout".to_string()]
+            vec![
+                "gemini-3.1-flash-lite".to_string(),
+                "qwen-3.6-27b-vision".to_string(),
+                "scout".to_string()
+            ]
         );
         assert_eq!(
             config.model_priority_chains.text_to_text,

@@ -2,7 +2,7 @@ use isolang;
 use serde::Deserialize;
 use urlencoding;
 
-use crate::api::client::{UREQ_AGENT, record_usage_tokens};
+use crate::api::client::{UREQ_AGENT, record_groq_json_usage, record_usage_tokens};
 use crate::api::realtime_audio::state::TranslationRequest;
 use crate::config::Config;
 
@@ -245,12 +245,17 @@ fn translate_with_groq(
         return None;
     }
 
+    let schema = cerebras_response_format()["json_schema"]["schema"].clone();
     let payload = serde_json::json!({
         "model": model_name,
         "messages": build_chat_messages(request, target_language, history_entries),
         "stream": false,
         "max_tokens": 512,
-        "response_format": { "type": "json_object" },
+        "response_format": crate::api::groq::structured_response_format(
+            model_name,
+            "live_translate_patches",
+            schema,
+        ),
     });
 
     let resp = UREQ_AGENT
@@ -261,6 +266,7 @@ fn translate_with_groq(
         .ok()?;
 
     let root: serde_json::Value = resp.into_body().read_json().ok()?;
+    record_groq_json_usage(model_name, &root);
     let content = root
         .get("choices")?
         .as_array()?

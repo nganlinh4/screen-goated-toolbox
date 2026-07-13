@@ -2,6 +2,7 @@ mod gemini;
 mod gemini_segments;
 mod gemini_stream;
 mod groq;
+mod groq_diagnostics;
 mod language;
 mod parakeet_tdt;
 mod qwen;

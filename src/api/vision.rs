@@ -1,4 +1,4 @@
-use super::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
+use super::client::{UREQ_AGENT, is_auth_error, record_groq_json_usage, record_usage_simple};
 use super::gemini_generate::stream_gemini_generate;
 use super::openai_compat::stream_openai_compat_chat;
 use super::types::ChatCompletionResponse;
@@ -325,10 +325,13 @@ where
                 &mut on_chunk,
             )?;
         } else {
-            let chat_resp: ChatCompletionResponse = resp
+            let root: serde_json::Value = resp
                 .into_body()
                 .read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+            record_groq_json_usage(&model, &root);
+            let chat_resp: ChatCompletionResponse = serde_json::from_value(root)
+                .map_err(|e| anyhow::anyhow!("Failed to decode non-streaming response: {}", e))?;
 
             if let Some(choice) = chat_resp.choices.first() {
                 let content_str = &choice.message.content;
