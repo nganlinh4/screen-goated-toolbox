@@ -5,7 +5,7 @@ use image::{ExtendedColorType, ImageBuffer, Rgba, codecs::jpeg::JpegEncoder};
 use std::io::Cursor;
 
 const MAX_DIMENSION: u32 = 2048;
-const GROQ_SAFE_REQUEST_BYTES: usize = 3_800_000;
+pub(super) const GROQ_SAFE_REQUEST_BYTES: usize = 3_800_000;
 const GROQ_JSON_RESERVE_BYTES: usize = 16_384;
 const GROQ_MAX_IMAGE_BYTES: usize = 2_500_000;
 const GROQ_MIN_IMAGE_BYTES: usize = 262_144;

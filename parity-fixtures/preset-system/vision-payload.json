@@ -9,7 +9,8 @@
     "rules": [
       "keep_png_when_within_budget",
       "otherwise_encode_jpeg_until_within_budget",
-      "send_the_actual_mime_type"
+      "send_the_actual_mime_type",
+      "omit_max_completion_tokens"
     ]
   }
 }
