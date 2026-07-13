@@ -61,6 +61,11 @@ where
             }
         })
         .unwrap_or_default();
+    let cerebras_api_key = crate::APP
+        .lock()
+        .ok()
+        .map(|app| app.config.cerebras_api_key.clone())
+        .unwrap_or_default();
 
     let prepared_image = prepare_image_payload(provider.as_str(), image, original_bytes)?;
     let b64_image = prepared_image.b64_image;
@@ -215,6 +220,36 @@ where
             None,
             true,
             response_schema.as_ref(),
+            &mut on_chunk,
+        )?;
+    } else if Provider::from_wire(&provider) == Some(Provider::Cerebras) {
+        let ui_language = crate::APP
+            .lock()
+            .ok()
+            .map(|app| app.config.ui_language.clone())
+            .unwrap_or_else(|| "en".to_string());
+        let messages = serde_json::json!([{
+            "role": "user",
+            "content": [
+                { "type": "text", "text": prompt },
+                { "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", mime_type, b64_image) } }
+            ]
+        }]);
+        let response_format = response_schema
+            .map(|schema| crate::api::cerebras::strict_json_schema("image_result", schema))
+            .or_else(|| use_json_format.then(|| serde_json::json!({ "type": "json_object" })));
+        full_content = crate::api::cerebras::stream_chat(
+            crate::api::cerebras::StreamChatRequest {
+                api_key: &cerebras_api_key,
+                model: &model,
+                messages,
+                streaming: streaming_enabled,
+                ui_language: &ui_language,
+                cancel_token: &cancel_token,
+                error_label: "Cerebras Vision API Error",
+                response_format,
+                prediction: None,
+            },
             &mut on_chunk,
         )?;
     } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {

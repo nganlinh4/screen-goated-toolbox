@@ -1,10 +1,17 @@
 {
   "cases": [
     {
-      "name": "qwen_preset_model_resolves_to_windows_api_name",
+      "name": "deprecated_qwen_selection_migrates_to_gpt_oss",
       "model_id": "qwen_3_235b_a22b_instruct_2507",
       "provider": "CEREBRAS",
-      "api_model": "qwen-3-235b-a22b-instruct-2507",
+      "api_model": "gpt-oss-120b",
+      "supports_search": false
+    },
+    {
+      "name": "cerebras_gemma_is_the_cerebras_vision_route",
+      "model_id": "gemma-4-31b-cerebras-vision",
+      "provider": "CEREBRAS",
+      "api_model": "gemma-4-31b",
       "supports_search": false
     },
     {

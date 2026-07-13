@@ -2,7 +2,7 @@ use isolang;
 use serde::Deserialize;
 use urlencoding;
 
-use crate::api::client::{UREQ_AGENT, record_groq_json_usage, record_usage_tokens};
+use crate::api::client::{UREQ_AGENT, record_groq_json_usage, record_usage_cerebras};
 use crate::api::realtime_audio::state::TranslationRequest;
 use crate::config::Config;
 
@@ -178,17 +178,13 @@ fn translate_with_cerebras(
         return None;
     }
 
-    // Cerebras reasoning models reject strict json_schema; fall back to free-text JSON.
-    let is_reasoning = model_name.contains("gpt-oss") || model_name.contains("zai-glm");
-    let mut payload = serde_json::json!({
+    let payload = serde_json::json!({
         "model": model_name,
         "messages": build_chat_messages(request, target_language, history_entries),
         "stream": false,
-        "max_tokens": 512,
+        "max_completion_tokens": 512,
+        "response_format": cerebras_response_format(),
     });
-    if !is_reasoning {
-        payload["response_format"] = cerebras_response_format();
-    }
 
     let resp = UREQ_AGENT
         .post("https://api.cerebras.ai/v1/chat/completions")
@@ -197,7 +193,7 @@ fn translate_with_cerebras(
         .send_json(payload)
         .ok()?;
 
-    record_usage_tokens(resp.headers(), stats_key);
+    record_usage_cerebras(resp.headers(), stats_key);
 
     let root: serde_json::Value = resp.into_body().read_json().ok()?;
     let content = root

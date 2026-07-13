@@ -1,8 +1,8 @@
 {
   "constants": {
-    "default_image_model_id": "qwen-3.6-27b-vision",
-    "default_text_model_id": "qwen_3_235b_a22b_instruct_2507",
-    "default_text_api_model": "qwen-3-235b-a22b-instruct-2507",
+    "default_image_model_id": "gemma-4-31b-cerebras-vision",
+    "default_text_model_id": "gpt_oss_120b_cerebras",
+    "default_text_api_model": "gpt-oss-120b",
     "gemini_live_api_model_2_5": "gemini-2.5-flash-native-audio-preview-12-2025",
     "gemini_live_api_model_3_1": "gemini-3.1-flash-live-preview",
     "gemini_live_vision_model_id_2_5": "gemini-live-vision",
@@ -20,7 +20,9 @@
     "realtime_translation_model_gtx": "google-gtx"
   },
   "model_id_migrations": {
-    "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite"
+    "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite",
+    "llama_3_1_8b_cerebras": "gpt_oss_120b_cerebras",
+    "qwen_3_235b_a22b_instruct_2507": "gpt_oss_120b_cerebras"
   },
   "endpoint_lifecycle": {
     "gemini-3.1-flash-lite": {
@@ -63,7 +65,7 @@
     "live_session_translation_provider_id": "text-llm"
   },
   "preset_defaults": {
-    "PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID": "qwen-3.6-27b-vision",
+    "PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID": "gemma-4-31b-cerebras-vision",
     "PRESET_IMAGE_ASK_MODEL_ID": "gemini-3-flash-preview",
     "PRESET_TRANSLATE_ARENA_GTX_MODEL_ID": "google-gtx",
     "PRESET_TEXT_ARENA_FAST_MODEL_ID": "text_gemini_flash_lite",
@@ -83,6 +85,7 @@
   },
   "priority_chains": {
     "image_to_text": [
+      "gemma-4-31b-cerebras-vision",
       "qwen-3.6-27b-vision",
       "scout",
       "gemini-3.1-flash-lite",
@@ -91,7 +94,6 @@
       "gemini-flash"
     ],
     "text_to_text": [
-      "qwen_3_235b_a22b_instruct_2507",
       "gpt_oss_120b_cerebras",
       "zai_glm_4_7",
       "text_llama_3_3_70b",
@@ -298,6 +300,19 @@
       "quota_vi": "Không giới hạn",
       "quota_ko": "무제한",
       "quota_en": "Unlimited"
+    },
+    {
+      "id": "gemma-4-31b-cerebras-vision",
+      "provider": "cerebras",
+      "name_vi": "Gemma 4 31B Cerebras",
+      "name_ko": "Gemma 4 31B Cerebras",
+      "name_en": "Gemma 4 31B Cerebras",
+      "full_name": "gemma-4-31b",
+      "model_type": "Vision",
+      "enabled": true,
+      "quota_vi": "5 RPM · 30K TPM",
+      "quota_ko": "5 RPM · 30K TPM",
+      "quota_en": "5 RPM · 30K TPM"
     },
     {
       "id": "qwen-3.6-27b-vision",
@@ -534,19 +549,6 @@
       "quota_en": "250 requests/day"
     },
     {
-      "id": "llama_3_1_8b_cerebras",
-      "provider": "cerebras",
-      "name_vi": "C-Tốc độ",
-      "name_ko": "C-속도",
-      "name_en": "C-Speed",
-      "full_name": "llama3.1-8b",
-      "model_type": "Text",
-      "enabled": true,
-      "quota_vi": "2400 lượt/ngày",
-      "quota_ko": "2400 요청/일",
-      "quota_en": "2400 requests/day"
-    },
-    {
       "id": "gpt_oss_120b_cerebras",
       "provider": "cerebras",
       "name_vi": "C-Suy luận",
@@ -555,22 +557,9 @@
       "full_name": "gpt-oss-120b",
       "model_type": "Text",
       "enabled": true,
-      "quota_vi": "2400 lượt/ngày",
-      "quota_ko": "2400 요청/일",
-      "quota_en": "2400 requests/day"
-    },
-    {
-      "id": "qwen_3_235b_a22b_instruct_2507",
-      "provider": "cerebras",
-      "name_vi": "C-Chính xác",
-      "name_ko": "C-정확함",
-      "name_en": "C-Accurate",
-      "full_name": "qwen-3-235b-a22b-instruct-2507",
-      "model_type": "Text",
-      "enabled": true,
-      "quota_vi": "2400 lượt/ngày",
-      "quota_ko": "2400 요청/일",
-      "quota_en": "2400 requests/day"
+      "quota_vi": "5 RPM · 30K TPM",
+      "quota_ko": "5 RPM · 30K TPM",
+      "quota_en": "5 RPM · 30K TPM"
     },
     {
       "id": "zai_glm_4_7",
@@ -581,9 +570,9 @@
       "full_name": "zai-glm-4.7",
       "model_type": "Text",
       "enabled": true,
-      "quota_vi": "2400 lượt/ngày",
-      "quota_ko": "2400 요청/일",
-      "quota_en": "2400 requests/day"
+      "quota_vi": "5 RPM · 30K TPM",
+      "quota_ko": "5 RPM · 30K TPM",
+      "quota_en": "5 RPM · 30K TPM"
     },
     {
       "id": "gemini-live-text",

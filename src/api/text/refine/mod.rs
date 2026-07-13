@@ -104,6 +104,7 @@ where
             openrouter_api_key: &openrouter_api_key,
             cerebras_api_key: &cerebras_api_key,
             final_prompt: &final_prompt,
+            previous_text: &previous_text,
             model: p_model,
             provider: p_provider,
             streaming_enabled,
@@ -185,6 +186,7 @@ struct RefineTextOnlyRequest<'a, F> {
     openrouter_api_key: &'a str,
     cerebras_api_key: &'a str,
     final_prompt: &'a str,
+    previous_text: &'a str,
     model: String,
     provider: String,
     streaming_enabled: bool,
@@ -203,6 +205,7 @@ where
         openrouter_api_key,
         cerebras_api_key,
         final_prompt,
+        previous_text,
         model,
         provider,
         streaming_enabled,
@@ -238,12 +241,15 @@ where
         providers::refine_taalas(final_prompt, cancel_token, on_chunk)
     } else if Provider::from_wire(&provider) == Some(Provider::Cerebras) {
         providers::refine_cerebras(
-            cerebras_api_key,
-            final_prompt,
-            &model,
-            streaming_enabled,
-            ui_language,
-            cancel_token,
+            providers::RefineCerebrasRequest {
+                cerebras_api_key,
+                final_prompt,
+                previous_text,
+                model: &model,
+                streaming_enabled,
+                ui_language,
+                cancel_token,
+            },
             on_chunk,
         )
     } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {

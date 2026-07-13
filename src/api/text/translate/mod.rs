@@ -175,12 +175,15 @@ where
         Some(Provider::Cerebras) => {
             // --- CEREBRAS API ---
             full_content = translate_cerebras(
-                &cerebras_api_key,
-                &model,
-                &prompt,
-                streaming_enabled,
-                ui_language,
-                &cancel_token,
+                providers::TranslateCerebrasRequest {
+                    cerebras_api_key: &cerebras_api_key,
+                    model: &model,
+                    instruction: &instruction,
+                    text: &text,
+                    streaming_enabled,
+                    ui_language,
+                    cancel_token: &cancel_token,
+                },
                 &mut on_chunk,
             )?;
         }

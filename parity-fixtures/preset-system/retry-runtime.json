@@ -8,6 +8,7 @@
   },
   "model_priority_chains": {
     "image_to_text": [
+      "gemma-4-31b-cerebras-vision",
       "qwen-3.6-27b-vision",
       "scout",
       "gemini-3.1-flash-lite",
@@ -16,7 +17,6 @@
       "gemini-flash"
     ],
     "text_to_text": [
-      "qwen_3_235b_a22b_instruct_2507",
       "gpt_oss_120b_cerebras",
       "zai_glm_4_7",
       "text_llama_3_3_70b",

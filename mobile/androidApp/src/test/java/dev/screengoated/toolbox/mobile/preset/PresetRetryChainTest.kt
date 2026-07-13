@@ -69,7 +69,7 @@ class PresetRetryChainTest {
         )
 
         assertNotNull(next)
-        assertEquals("qwen_3_235b_a22b_instruct_2507", next?.id)
+        assertEquals("gpt_oss_120b_cerebras", next?.id)
     }
 
     @Test

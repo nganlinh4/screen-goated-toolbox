@@ -101,6 +101,7 @@ internal suspend fun TextApiClient.streamCerebras(
     uiLanguage: String,
     onChunk: (String) -> Unit,
     streamingEnabled: Boolean,
+    predictionContent: String?,
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:cerebras")
     if (!streamingEnabled) {
@@ -110,15 +111,20 @@ internal suspend fun TextApiClient.streamCerebras(
             inputText = inputText,
             apiKey = apiKey,
             onChunk = onChunk,
+            predictionContent = predictionContent,
         )
     }
 
-    val request = Request.Builder()
+    val encoded = encodeCerebrasJson(
+        cerebrasPayload(model.fullName, prompt, inputText, predictionContent = predictionContent),
+    )
+    val requestBuilder = Request.Builder()
         .url(CEREBRAS_ENDPOINT)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
-        .post(openAiPayload(model.fullName, prompt, inputText).toString().toRequestBody(jsonMediaType))
-        .build()
+        .post(encoded.body)
+    if (encoded.gzipEncoded) requestBuilder.header("Content-Encoding", "gzip")
+    val request = requestBuilder.build()
 
     val fullContent = StringBuilder()
     var thinkingShown = false
@@ -136,6 +142,7 @@ internal suspend fun TextApiClient.streamCerebras(
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("cerebras"))
             throw IOException("Cerebras request failed with $code")
         }
+        ModelUsageStats.updateCerebras(model.fullName, response.headers)
 
         val body = response.body
         body.charStream().buffered().useLines { lines ->
@@ -320,13 +327,24 @@ private suspend fun TextApiClient.generateCerebrasBlocking(
     inputText: String,
     apiKey: String,
     onChunk: (String) -> Unit,
+    predictionContent: String?,
 ): String {
-    val request = Request.Builder()
+    val encoded = encodeCerebrasJson(
+        cerebrasPayload(
+            model.fullName,
+            prompt,
+            inputText,
+            stream = false,
+            predictionContent = predictionContent,
+        ),
+    )
+    val requestBuilder = Request.Builder()
         .url(CEREBRAS_ENDPOINT)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
-        .post(openAiPayload(model.fullName, prompt, inputText, stream = false).toString().toRequestBody(jsonMediaType))
-        .build()
+        .post(encoded.body)
+    if (encoded.gzipEncoded) requestBuilder.header("Content-Encoding", "gzip")
+    val request = requestBuilder.build()
 
     httpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
@@ -339,6 +357,7 @@ private suspend fun TextApiClient.generateCerebrasBlocking(
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("cerebras"))
             throw IOException("Cerebras request failed with $code")
         }
+        ModelUsageStats.updateCerebras(model.fullName, response.headers)
 
         val content = try {
             JSONObject(response.body.string().orEmpty())
