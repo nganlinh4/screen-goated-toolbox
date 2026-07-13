@@ -3,7 +3,9 @@
 
 mod groq_compound;
 
-use crate::api::client::{UREQ_AGENT, record_usage_cerebras, record_usage_simple};
+use crate::api::client::{
+    UREQ_AGENT, record_groq_json_usage, record_usage_cerebras, record_usage_simple,
+};
 use crate::api::gemini_generate::stream_gemini_generate;
 use crate::api::openai_compat::stream_openai_compat_chat;
 use crate::api::types::ChatCompletionResponse;
@@ -175,7 +177,9 @@ where
         full_content =
             crate::api::openai_compat::consume_content_stream(reader, cancel_token, on_chunk)?;
     } else {
-        let json: ChatCompletionResponse = resp.into_body().read_json()?;
+        let root: serde_json::Value = resp.into_body().read_json()?;
+        record_groq_json_usage(p_model, &root);
+        let json: ChatCompletionResponse = serde_json::from_value(root)?;
         if let Some(choice) = json.choices.first() {
             full_content = choice.message.content.clone();
             on_chunk(&full_content);

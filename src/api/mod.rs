@@ -3,6 +3,7 @@ pub mod client;
 pub mod gemini_embed;
 pub mod gemini_generate;
 pub mod gemini_live;
+pub mod groq;
 pub mod ollama;
 pub mod openai_compat;
 pub mod providers;

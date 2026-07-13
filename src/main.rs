@@ -3,7 +3,7 @@
 // expands recursively, so the default macro recursion limit (128) is too low.
 #![recursion_limit = "512"]
 
-mod api;
+pub mod api;
 mod assets;
 mod atomic_json;
 mod config;

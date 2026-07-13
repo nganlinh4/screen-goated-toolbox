@@ -8,9 +8,12 @@
   },
   "model_priority_chains": {
     "image_to_text": [
+      "qwen-3.6-27b-vision",
       "scout",
-      "gemma-4-26b-a4b-vision",
-      "gemini-3.1-flash-lite"
+      "gemini-3.1-flash-lite",
+      "gemini-flash-lite",
+      "gemini-live-vision-3.1",
+      "gemini-flash"
     ],
     "text_to_text": [
       "qwen_3_235b_a22b_instruct_2507",

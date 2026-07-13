@@ -1,4 +1,4 @@
-use crate::api::client::UREQ_AGENT;
+use crate::api::client::{UREQ_AGENT, record_groq_json_usage};
 use crate::api::gemini_live::{GeminiLiveGenerateRequest, gemini_live_generate};
 use crate::api::ollama::ollama_generate_text;
 use crate::config::Config;
@@ -348,6 +348,7 @@ fn post_openai_compat_chat(
     label: &str,
     payload: serde_json::Value,
     extra_headers: &[(&str, &str)],
+    groq_stats_key: Option<&str>,
 ) -> Result<String, String> {
     let mut request = UREQ_AGENT
         .post(url)
@@ -362,6 +363,9 @@ fn post_openai_compat_chat(
         .into_body()
         .read_json()
         .map_err(|error| format!("{label} subtitle translation JSON failed: {error}"))?;
+    if let Some(stats_key) = groq_stats_key {
+        record_groq_json_usage(stats_key, &root);
+    }
     root.get("choices")
         .and_then(|value| value.as_array())
         .and_then(|items| items.first())
@@ -383,11 +387,16 @@ fn translate_with_groq(
     if config.api_key.trim().is_empty() {
         return Err("NO_API_KEY:groq".to_string());
     }
+    let schema = cerebras_response_format()["json_schema"]["schema"].clone();
     let payload = serde_json::json!({
         "model": model.full_name,
         "messages": build_chat_messages(target_language, instructions, user_payload, history),
         "stream": false,
-        "response_format": { "type": "json_object" },
+        "response_format": crate::api::groq::structured_response_format(
+            &model.full_name,
+            "subtitle_translation_items",
+            schema,
+        ),
     });
     post_openai_compat_chat(
         "https://api.groq.com/openai/v1/chat/completions",
@@ -395,6 +404,7 @@ fn translate_with_groq(
         "Groq",
         payload,
         &[],
+        Some(&model.full_name),
     )
 }
 
@@ -450,6 +460,7 @@ fn translate_with_cerebras(
         "Cerebras",
         payload,
         &[("Content-Type", "application/json")],
+        None,
     )
 }
 
@@ -479,6 +490,7 @@ fn translate_with_openrouter(
             ("HTTP-Referer", "https://screen-goated-toolbox.local"),
             ("X-Title", "Screen Goated Toolbox"),
         ],
+        None,
     )
 }
 

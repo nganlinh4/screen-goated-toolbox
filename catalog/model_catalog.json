@@ -1,6 +1,6 @@
 {
   "constants": {
-    "default_image_model_id": "scout",
+    "default_image_model_id": "qwen-3.6-27b-vision",
     "default_text_model_id": "qwen_3_235b_a22b_instruct_2507",
     "default_text_api_model": "qwen-3-235b-a22b-instruct-2507",
     "gemini_live_api_model_2_5": "gemini-2.5-flash-native-audio-preview-12-2025",
@@ -49,6 +49,11 @@
       "lifecycle": "preview",
       "replacement": null,
       "verified_at": "2026-07-13"
+    },
+    "qwen/qwen3.6-27b": {
+      "lifecycle": "preview",
+      "replacement": null,
+      "verified_at": "2026-07-13"
     }
   },
   "defaults": {
@@ -58,7 +63,7 @@
     "live_session_translation_provider_id": "text-llm"
   },
   "preset_defaults": {
-    "PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID": "gemma-4-26b-a4b-vision",
+    "PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID": "qwen-3.6-27b-vision",
     "PRESET_IMAGE_ASK_MODEL_ID": "gemini-3-flash-preview",
     "PRESET_TRANSLATE_ARENA_GTX_MODEL_ID": "google-gtx",
     "PRESET_TEXT_ARENA_FAST_MODEL_ID": "text_gemini_flash_lite",
@@ -78,9 +83,12 @@
   },
   "priority_chains": {
     "image_to_text": [
+      "qwen-3.6-27b-vision",
       "scout",
-      "gemma-4-26b-a4b-vision",
-      "gemini-3.1-flash-lite"
+      "gemini-3.1-flash-lite",
+      "gemini-flash-lite",
+      "gemini-live-vision-3.1",
+      "gemini-flash"
     ],
     "text_to_text": [
       "qwen_3_235b_a22b_instruct_2507",
@@ -290,6 +298,19 @@
       "quota_vi": "Không giới hạn",
       "quota_ko": "무제한",
       "quota_en": "Unlimited"
+    },
+    {
+      "id": "qwen-3.6-27b-vision",
+      "provider": "groq",
+      "name_vi": "Qwen 3.6 27B",
+      "name_ko": "Qwen 3.6 27B",
+      "name_en": "Qwen 3.6 27B",
+      "full_name": "qwen/qwen3.6-27b",
+      "model_type": "Vision",
+      "enabled": true,
+      "quota_vi": "",
+      "quota_ko": "",
+      "quota_en": ""
     },
     {
       "id": "scout",
