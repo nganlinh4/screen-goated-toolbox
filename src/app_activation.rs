@@ -1,7 +1,8 @@
 //! Cross-process activation for the single running desktop instance.
 
-use std::io::Write;
-use std::path::Path;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Once};
 
 use sha2::{Digest, Sha256};
@@ -55,9 +56,9 @@ fn current_exe_namespace_suffix() -> String {
 
 pub(crate) fn notify_primary_instance(pending_file: Option<&Path>) {
     if let Some(path) = pending_file
-        && let Ok(mut file) = std::fs::File::create(pending_file_path())
+        && let Err(error) = enqueue_pending_file(path)
     {
-        let _ = write!(file, "{}", path.to_string_lossy());
+        crate::log_info!("[Activation] Failed to queue pending file: {error}");
     }
 
     if let Some(event) = RESTORE_EVENT.as_ref() {
@@ -88,18 +89,63 @@ fn wait_for_activations() {
             return;
         }
 
-        process_pending_file();
+        process_pending_files();
         crate::gui::app::accept_restore_activation();
     }
 }
 
-fn process_pending_file() {
-    let temp_file = pending_file_path();
-    if !temp_file.exists() {
-        return;
-    }
+fn enqueue_pending_file(path: &Path) -> io::Result<()> {
+    let queue_dir = activation_queue_dir();
+    std::fs::create_dir_all(&queue_dir)?;
 
-    if let Ok(content) = std::fs::read_to_string(&temp_file) {
+    static NEXT_FILE_ID: AtomicU64 = AtomicU64::new(0);
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let stem = pending_file_stem(
+        timestamp,
+        std::process::id(),
+        NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed),
+    );
+    let temporary = queue_dir.join(format!("{stem}.tmp"));
+    let ready = queue_dir.join(format!("{stem}.pending"));
+
+    let result = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(path.to_string_lossy().as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temporary, ready)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
+    }
+    result
+}
+
+fn process_pending_files() {
+    let Ok(entries) = std::fs::read_dir(activation_queue_dir()) else {
+        return;
+    };
+    let mut pending = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "pending")
+        })
+        .collect::<Vec<_>>();
+    pending.sort();
+
+    for queued_file in pending {
+        let Ok(content) = std::fs::read_to_string(&queued_file) else {
+            continue;
+        };
+        let _ = std::fs::remove_file(&queued_file);
         let path = std::path::PathBuf::from(content.trim());
         if path.exists() {
             crate::log_info!("[Activation] Processing pending file: {:?}", path);
@@ -108,16 +154,19 @@ fn process_pending_file() {
             });
         }
     }
-    let _ = std::fs::remove_file(temp_file);
 }
 
-fn pending_file_path() -> std::path::PathBuf {
-    std::env::temp_dir().join("sgt_pending_file.txt")
+fn activation_queue_dir() -> PathBuf {
+    std::env::temp_dir().join(format!("sgt-activation-{}", current_exe_namespace_suffix()))
+}
+
+fn pending_file_stem(timestamp: u128, process_id: u32, sequence: u64) -> String {
+    format!("{timestamp:039}-{process_id:010}-{sequence:020}")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::namespaced_object_name;
+    use super::{activation_queue_dir, namespaced_object_name, pending_file_stem};
 
     #[test]
     fn kernel_object_names_are_global_namespaced_and_null_terminated() {
@@ -127,5 +176,21 @@ mod tests {
         assert!(decoded.starts_with("Global\\ActivationContract-"));
         assert_eq!(name.last(), Some(&0));
         assert_eq!(decoded.rsplit('-').next().map(str::len), Some(32));
+    }
+
+    #[test]
+    fn pending_file_queue_is_namespaced_and_uniquely_ordered() {
+        let queue_name = activation_queue_dir()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let first = pending_file_stem(12, 34, 0);
+        let second = pending_file_stem(12, 34, 1);
+
+        assert!(queue_name.starts_with("sgt-activation-"));
+        assert_eq!(queue_name.len(), "sgt-activation-".len() + 32);
+        assert!(first < second);
+        assert_ne!(first, pending_file_stem(12, 35, 0));
     }
 }

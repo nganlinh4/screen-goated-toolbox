@@ -2,13 +2,15 @@ use super::types::{REQUEST_OPEN_DOWNLOADED_TOOLS, RESTORE_SIGNAL, SettingsApp};
 use crate::config::save_config;
 use eframe::egui;
 use std::sync::atomic::Ordering;
-use windows::Win32::Foundation::RECT;
+use windows::Win32::Foundation::{LPARAM, RECT};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetWindowRect, SW_RESTORE, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow, SetWindowPos, ShowWindow,
+    EnumWindows, FindWindowW, GetClassNameW, GetWindowRect, GetWindowThreadProcessId, SW_RESTORE,
+    SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SetForegroundWindow, SetWindowPos, ShowWindow,
 };
 use windows::core::*;
+use windows_core::BOOL;
 
 // Simple Linear Congruential Generator for randomness without external crate
 pub fn simple_rand(seed: u32) -> u32 {
@@ -255,18 +257,71 @@ fn restore_main_window_resize_pulse(width: i32, height: i32) {
     }
 }
 
-/// Win32 window class of the eframe main window.
-pub(crate) const MAIN_WINDOW_CLASS: PCWSTR = w!("eframe");
 /// Title of the eframe main window.
 pub(crate) const MAIN_WINDOW_TITLE: PCWSTR = w!("Screen Goated Toolbox (SGT by nganlinh4)");
 
-/// Locate the eframe main window HWND (class first, falling back to title).
-pub(crate) unsafe fn main_window_hwnd() -> windows::Win32::Foundation::HWND {
-    let mut hwnd = unsafe { FindWindowW(MAIN_WINDOW_CLASS, None).unwrap_or_default() };
-    if hwnd.is_invalid() {
-        hwnd = unsafe { FindWindowW(None, MAIN_WINDOW_TITLE).unwrap_or_default() };
+struct MainWindowSearch {
+    process_id: u32,
+    hwnd: windows::Win32::Foundation::HWND,
+}
+
+extern "system" fn find_process_eframe_window(
+    hwnd: windows::Win32::Foundation::HWND,
+    lparam: LPARAM,
+) -> BOOL {
+    unsafe {
+        let search = &mut *(lparam.0 as *mut MainWindowSearch);
+        let mut process_id = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+        if process_id != search.process_id {
+            return BOOL(1);
+        }
+
+        const EFRAME_CLASS: &[u16] = &[
+            b'e' as u16,
+            b'f' as u16,
+            b'r' as u16,
+            b'a' as u16,
+            b'm' as u16,
+            b'e' as u16,
+        ];
+        let mut class_name = [0u16; 32];
+        let length = GetClassNameW(hwnd, &mut class_name);
+        if length > 0 && &class_name[..length as usize] == EFRAME_CLASS {
+            search.hwnd = hwnd;
+            return BOOL(0);
+        }
+        BOOL(1)
     }
-    hwnd
+}
+
+/// Locate this process's eframe window without selecting a normal/smoke sibling.
+pub(crate) unsafe fn main_window_hwnd() -> windows::Win32::Foundation::HWND {
+    let mut search = MainWindowSearch {
+        process_id: std::process::id(),
+        hwnd: windows::Win32::Foundation::HWND::default(),
+    };
+    unsafe {
+        let _ = EnumWindows(
+            Some(find_process_eframe_window),
+            LPARAM(&mut search as *mut _ as isize),
+        );
+    }
+    if !search.hwnd.is_invalid() {
+        return search.hwnd;
+    }
+
+    // Preserve the title fallback, but never return another process's window.
+    let hwnd = unsafe { FindWindowW(None, MAIN_WINDOW_TITLE).unwrap_or_default() };
+    let mut process_id = 0;
+    if !hwnd.is_invalid() {
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id)) };
+    }
+    if process_id == std::process::id() {
+        hwnd
+    } else {
+        windows::Win32::Foundation::HWND::default()
+    }
 }
 
 /// Robustly restart the application on Windows.
