@@ -9,7 +9,7 @@ use std::io::BufReader;
 use std::sync::{Arc, atomic::AtomicBool};
 
 mod image_payload;
-use image_payload::prepare_image_payload;
+use image_payload::{GROQ_SAFE_REQUEST_BYTES, prepare_image_payload};
 
 pub struct TranslateImageRequest<'a> {
     pub groq_api_key: &'a str,
@@ -26,6 +26,29 @@ pub struct TranslateImageRequest<'a> {
     /// for other models / providers.
     pub response_schema: Option<serde_json::Value>,
     pub cancel_token: Option<Arc<AtomicBool>>,
+}
+
+fn groq_vision_payload(
+    model: &str,
+    prompt: &str,
+    mime_type: &str,
+    b64_image: &str,
+    streaming: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": prompt },
+                    { "type": "image_url", "image_url": { "url": format!("data:{mime_type};base64,{b64_image}") } }
+                ]
+            }
+        ],
+        "temperature": 0.1,
+        "stream": streaming
+    })
 }
 
 pub fn translate_image_streaming<F>(
@@ -296,46 +319,29 @@ where
             return Err(anyhow::anyhow!("NO_API_KEY:groq"));
         }
 
-        let payload = if streaming_enabled {
-            serde_json::json!({
-                "model": model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            { "type": "text", "text": prompt },
-                            { "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", mime_type, b64_image) } }
-                        ]
-                    }
-                ],
-                "temperature": 0.1,
-                "max_completion_tokens": 8192,
-                "stream": true
-            })
-        } else {
-            let payload_obj = serde_json::json!({
-                "model": model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            { "type": "text", "text": prompt },
-                            { "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", mime_type, b64_image) } }
-                        ]
-                    }
-                ],
-                "temperature": 0.1,
-                "max_completion_tokens": 8192,
-                "stream": false
-            });
+        let payload =
+            groq_vision_payload(&model, &prompt, &mime_type, &b64_image, streaming_enabled);
 
-            payload_obj
-        };
+        let payload_bytes = serde_json::to_vec(&payload)
+            .map_err(|e| anyhow::anyhow!("Failed to encode Groq vision request: {e}"))?;
+        println!(
+            "[vision] Groq request model={model} mime={mime_type} image_bytes={} request_bytes={} limit={GROQ_SAFE_REQUEST_BYTES}",
+            image_data.len(),
+            payload_bytes.len()
+        );
+        if payload_bytes.len() > GROQ_SAFE_REQUEST_BYTES {
+            return Err(anyhow::anyhow!(
+                "Groq vision request exceeded the local byte limit: {} > {}",
+                payload_bytes.len(),
+                GROQ_SAFE_REQUEST_BYTES
+            ));
+        }
 
         let resp = UREQ_AGENT
             .post("https://api.groq.com/openai/v1/chat/completions")
             .header("Authorization", &format!("Bearer {}", groq_api_key))
-            .send_json(payload)
+            .header("Content-Type", "application/json")
+            .send(payload_bytes.as_slice())
             .map_err(|e| {
                 if is_auth_error(&e) {
                     anyhow::anyhow!("INVALID_API_KEY")
@@ -394,4 +400,54 @@ where
     }
 
     Ok(full_content)
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    #[test]
+    fn groq_payload_does_not_reserve_the_entire_tpm_limit() {
+        let payload = groq_vision_payload("model", "prompt", "image/png", "AA==", false);
+        assert!(payload.get("max_completion_tokens").is_none());
+    }
+
+    #[test]
+    #[ignore = "requires GROQ_API_KEY and calls the live Groq vision endpoint"]
+    fn groq_rust_pipeline_live() {
+        let api_key = std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY is required");
+        let image = if let Ok(path) = std::env::var("GROQ_TEST_IMAGE") {
+            image::open(path).unwrap().to_rgba8()
+        } else {
+            let dimension = std::env::var("GROQ_TEST_DIMENSION")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(1200);
+            let mut state = 0x89ab_cdef_u32;
+            ImageBuffer::from_fn(dimension, dimension, |_, _| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                Rgba([state as u8, (state >> 8) as u8, (state >> 16) as u8, 255])
+            })
+        };
+        let answer = translate_image_streaming(
+            TranslateImageRequest {
+                groq_api_key: &api_key,
+                gemini_api_key: "",
+                prompt: "Reply with only OK.".to_string(),
+                model: "qwen/qwen3.6-27b".to_string(),
+                provider: "groq".to_string(),
+                image,
+                original_bytes: None,
+                streaming_enabled: false,
+                use_json_format: false,
+                response_schema: None,
+                cancel_token: None,
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert!(!answer.trim().is_empty());
+    }
 }

@@ -37,7 +37,7 @@
 - Blank, legacy, or unknown Gemini TTS model values normalize to the catalog-owned TTS default on both platforms; listed models remain unchanged.
 - Provider/auth failures and retryable model failures remain distinct. Retrying an open result updates its loading status.
 - Cerebras vision is base64 PNG/JPEG through `gemma-4-31b` only. It uses the Cerebras key and endpoint on both platforms; it must never fall through to Groq.
-- Vision payloads preserve their real MIME type. Groq images use a prompt-aware encoded-byte budget below the provider request ceiling: keep PNG when it fits, otherwise use adaptive JPEG compression and resizing before sending. Windows and Android use the same limits and quality ladder.
+- Vision payloads preserve their real MIME type. Groq images use a prompt-aware encoded-byte budget below the provider request ceiling: keep PNG when it fits, otherwise use adaptive JPEG compression and resizing before sending. Groq vision leaves `max_completion_tokens` unset so a request does not reserve the model's entire TPM allowance. Windows and Android use the same contract.
 - The canonical image retry order is Cerebras Gemma 4 31B, Groq Qwen 3.6 27B, Groq Scout, Gemini 3.1 Flash Lite, Gemini 2.5 Flash Lite, Gemini Live 3.1, then Gemini 2.5 Flash.
 - Deprecated Cerebras Llama 3.1 8B and Qwen 3 235B selections normalize to GPT-OSS 120B before execution.
 - Cerebras requests set a bounded `max_completion_tokens`, keep provider reasoning defaults, gzip JSON bodies at 12 KiB, and expose daily-request plus token-minute rate data.
