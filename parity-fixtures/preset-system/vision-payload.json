@@ -10,10 +10,12 @@
       "keep_png_when_within_budget",
       "otherwise_encode_jpeg_until_within_budget",
       "send_the_actual_mime_type",
-      "qwen_max_completion_tokens_1024",
+      "qwen_max_completion_tokens_2048",
       "other_groq_models_omit_max_completion_tokens",
       "qwen_reasoning_format_hidden",
+      "retry_qwen_once_without_reasoning_when_final_content_is_empty",
       "retry_one_token_rate_limit_when_retry_after_is_at_most_30_seconds",
+      "cool_down_a_rate_limited_vision_model_for_300_seconds",
       "preserve_provider_error_details_after_retry"
     ]
   }

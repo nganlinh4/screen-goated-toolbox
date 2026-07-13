@@ -118,10 +118,9 @@
   "priority_chains": {
     "image_to_text": [
       "gemma-4-31b-cerebras-vision",
-      "qwen-3.6-27b-vision",
       "scout",
+      "qwen-3.6-27b-vision",
       "gemini-3.1-flash-lite",
-      "gemini-flash-lite",
       "gemini-live-vision-3.1",
       "gemini-flash"
     ],

@@ -8,7 +8,9 @@ use crate::api::{
 use crate::config::{Config, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
 use crate::overlay::result::{ChainCancelToken, RefineContext, WINDOW_STATES, update_window_text};
-use crate::retry_model_chain::{RetryChainKind, preflight_skip_reason, resolve_next_retry_model};
+use crate::retry_model_chain::{
+    RetryChainKind, preflight_skip_reason, record_model_failure, resolve_next_retry_model,
+};
 use crate::win_types::SendHwnd;
 use std::collections::HashSet;
 use std::sync::{
@@ -187,6 +189,8 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 if cancel_token.is_cancelled() {
                     break Err(e);
                 }
+
+                record_model_failure(&current_model_id, &e.to_string());
 
                 if let Some(chain_kind) = retry_chain_kind
                     && crate::overlay::utils::should_advance_retry_chain(&e.to_string())

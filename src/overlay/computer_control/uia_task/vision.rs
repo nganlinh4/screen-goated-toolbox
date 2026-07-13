@@ -280,7 +280,7 @@ pub(super) fn locate_in_view(
 ) -> Result<Located> {
     let cap = session::capture_virtual()?;
     let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None)?;
-    match std::env::var("CC_LOCATE_MODE").as_deref() {
+    let located = match std::env::var("CC_LOCATE_MODE").as_deref() {
         Ok("refine") => refine_in_view(&cap, view, &jpeg, description, ctx, cancel),
         Ok("box") => {
             let (j, d, c) = (jpeg.clone(), description.to_string(), ctx.to_string());
@@ -304,7 +304,12 @@ pub(super) fn locate_in_view(
                 super::super::vision_reader::locate_point(&j, &d, &c)
             })
         }
-    }
+    }?;
+    // Re-capture after the potentially slow locate call. This both detects a
+    // stale/moving UI and verifies the exact proposed point on a marked crop.
+    let fresh = session::capture_virtual()?;
+    let (fresh_jpeg, _) = session::encode_view(&fresh, view, VISION_SHORT, None, None)?;
+    verify_located(&fresh_jpeg, located, description, ctx, cancel)
 }
 
 /// Ask the aux vision stack to map EVERY target matching `description` to a list
@@ -408,6 +413,11 @@ pub(super) fn locate_css(
     let loc = run_cancellable(cancel, move || {
         super::super::vision_reader::locate_point(&jpeg, &d, &c)
     })?;
+    let (fresh_jpeg, fresh_w, fresh_h) = super::super::browser::shot()?;
+    if (fresh_w - cw).abs() > f64::EPSILON || (fresh_h - ch).abs() > f64::EPSILON {
+        anyhow::bail!("browser viewport changed while locating the target");
+    }
+    let loc = verify_located(&fresh_jpeg, loc, description, ctx, cancel)?;
     Ok((loc.x / 1000.0 * cw, loc.y / 1000.0 * ch, loc.note))
 }
 

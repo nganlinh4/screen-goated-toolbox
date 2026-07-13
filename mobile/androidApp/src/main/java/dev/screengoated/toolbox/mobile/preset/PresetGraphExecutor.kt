@@ -342,6 +342,7 @@ internal class PresetGraphExecutor(
             val error = attemptResult.exceptionOrNull()
             if (error != null) {
                 val message = error.message ?: "Execution failed"
+                recordPresetModelFailure(currentModelId, message)
                 if (!shouldAdvanceRetryChain(message)) {
                     throw error
                 }

@@ -52,6 +52,22 @@ class PresetRetryChainTest {
     }
 
     @Test
+    fun preflightSkipsModelDuringRateLimitCooldown() {
+        val modelId = "rate-limited-test-model"
+        recordPresetModelFailure(modelId, "vision request failed with 429: quota exceeded")
+
+        val reason = preflightSkipReason(
+            modelId = modelId,
+            provider = PresetModelProvider.GROQ,
+            apiKeys = ApiKeys(groqKey = "g"),
+            blockedProviders = emptySet(),
+            settings = PresetRuntimeSettings(),
+        )
+
+        assertTrue(reason?.startsWith("MODEL_RATE_LIMIT_COOLDOWN:$modelId:") == true)
+    }
+
+    @Test
     fun retryResolutionUsesWindowsDefaultChainFirst() {
         val next = resolveNextRetryModel(
             currentModelId = "gemma-4-26b-a4b",

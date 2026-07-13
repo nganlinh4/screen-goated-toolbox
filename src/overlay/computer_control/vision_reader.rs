@@ -15,6 +15,8 @@ use crate::api::{TranslateImageRequest, translate_image_streaming};
 use crate::config::Config;
 use crate::model_config::{get_model_by_id_with_custom, model_is_non_llm};
 
+mod circuit;
+
 /// Per-provider API key, preferring the repo `.env` overrides (so the headless
 /// harness works) and falling back to the saved app config.
 fn key_for(provider: &str, config: &Config) -> Option<String> {
@@ -41,28 +43,29 @@ fn key_for(provider: &str, config: &Config) -> Option<String> {
 /// `CC_VISION_MODEL`.
 const CC_DEFAULT_VISION_MODEL: &str = "gemini-3.1-flash-lite";
 
-/// CC vision fallback order AFTER the accurate default (flash-lite): the Live
-/// model as a vision model (Unlimited quota, comparable accuracy, ~2x slower) and
-/// then accurate gemma. So flash-lite stays #1; these are graceful fallbacks if it
-/// fails / is rate-limited. Tried before the user's generic image_to_text chain.
-const CC_VISION_FALLBACKS: &[&str] = &["gemini-live-vision-3.1", "gemma-4-26b-a4b-vision"];
+#[derive(Clone, Copy)]
+enum VisionTask {
+    General,
+    Grounding,
+}
 
-/// The ordered model ids to try: `prefer` (if any) first, then the CC default
-/// (or `CC_VISION_MODEL` override), then the CC fallbacks, then the user's
-/// `image_to_text` chain. A preferred (e.g. faster) model is tried first but
-/// ALWAYS falls back to the accurate default — it can never lose correctness.
-fn chain_ids(config: &Config, prefer: &[&str]) -> Vec<String> {
+/// General reading follows the user's image chain. Pixel grounding is isolated
+/// to its benchmarked locator model: a weak image-to-text fallback must fail
+/// closed rather than silently becoming permission to click the wrong place.
+fn chain_ids(config: &Config, prefer: &[&str], task: VisionTask) -> Vec<String> {
     let default_first = std::env::var("CC_VISION_MODEL")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| CC_DEFAULT_VISION_MODEL.to_string());
+    let configured: Vec<String> = match task {
+        VisionTask::General => config.model_priority_chains.image_to_text.clone(),
+        VisionTask::Grounding => vec![default_first],
+    };
     let candidates = prefer
         .iter()
         .map(|p| p.trim().to_string())
-        .chain(std::iter::once(default_first))
-        .chain(CC_VISION_FALLBACKS.iter().map(|s| s.to_string()))
-        .chain(config.model_priority_chains.image_to_text.iter().cloned());
+        .chain(configured);
     let mut ids: Vec<String> = Vec::new();
     for c in candidates {
         if !c.is_empty() && !ids.contains(&c) {
@@ -79,6 +82,7 @@ fn run_chain(
     prompt: &str,
     prefer: &[&str],
     schema: Option<serde_json::Value>,
+    task: VisionTask,
 ) -> Result<String> {
     let config = crate::load_config();
     let gemini_key = key_for("google", &config).unwrap_or_default();
@@ -88,7 +92,15 @@ fn run_chain(
         .to_rgba8();
 
     let mut last_err = None;
-    for id in &chain_ids(&config, prefer) {
+    for id in &chain_ids(&config, prefer, task) {
+        if let Some(remaining) = circuit::remaining(id) {
+            eprintln!(
+                "[vision] {id} skipped: rate-limit cooldown {}s remaining",
+                remaining.as_secs().max(1)
+            );
+            last_err = Some(anyhow!("{id} is cooling down after a rate limit"));
+            continue;
+        }
         let Some(mc) = get_model_by_id_with_custom(id, &config.custom_models) else {
             continue;
         };
@@ -119,6 +131,10 @@ fn run_chain(
             Ok(_) => last_err = Some(anyhow!("{} returned empty", mc.id)),
             Err(e) => {
                 eprintln!("[vision] {} failed: {e}", mc.id);
+                if circuit::is_rate_limit_error(&e.to_string()) {
+                    circuit::cool_down(&mc.id);
+                    eprintln!("[vision] {} entered rate-limit cooldown", mc.id);
+                }
                 last_err = Some(e);
             }
         }
@@ -163,12 +179,30 @@ fn points_schema() -> serde_json::Value {
     })
 }
 
+fn verification_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "matches": {"type": "boolean"},
+            "confidence": {"type": "integer"},
+            "what": {"type": "string"}
+        },
+        "required": ["matches", "confidence", "what"]
+    })
+}
+
 /// A located click point (0-1000 over the image) plus what the vision model
 /// observed AT that point (e.g. "empty cell", "an X") — fed back to the Live
 /// model so it knows the target's state without a separate look.
 pub(super) struct Located {
     pub x: f64,
     pub y: f64,
+    pub note: Option<String>,
+}
+
+pub(super) struct Verification {
+    pub matches: bool,
+    pub confidence: u64,
     pub note: Option<String>,
 }
 
@@ -197,6 +231,7 @@ pub(super) fn read_image_pref(
         &format!("{}{question}", ctx_prefix(ctx)),
         prefer,
         None,
+        VisionTask::General,
     )
 }
 
@@ -232,13 +267,62 @@ visible, output {{\"error\": \"not visible\"}}.",
         ctx_prefix(ctx)
     );
     let pref: Vec<&str> = prefer.into_iter().collect();
-    let answer = run_chain(jpeg, &prompt, &pref, Some(point_schema()))?;
+    let answer = run_chain(
+        jpeg,
+        &prompt,
+        &pref,
+        Some(point_schema()),
+        VisionTask::Grounding,
+    )?;
     let (x, y) = parse_point(&answer)
         .ok_or_else(|| anyhow!("could not parse a point from vision answer: {answer}"))?;
     Ok(Located {
         x,
         y,
         note: parse_str_field(&answer, "what"),
+    })
+}
+
+/// Independently inspect a fresh crop whose red crosshair marks the proposed
+/// click point. A localization is authorization to click only when this check
+/// confirms that the crosshair itself lies inside the requested target.
+pub(super) fn verify_target(jpeg: &[u8], description: &str, ctx: &str) -> Result<Verification> {
+    let prompt = format!(
+        "{}The red crosshair marks a proposed click. Requested target: {description}. \
+Output ONLY JSON {{\"matches\": <bool>, \"confidence\": <0-100 int>, \"what\": \"<what the crosshair is on>\"}}. \
+matches is true only if the CROSSHAIR CENTER is visibly inside the requested target; merely seeing the target \
+elsewhere in the crop is false.",
+        ctx_prefix(ctx)
+    );
+    let answer = run_chain(
+        jpeg,
+        &prompt,
+        &[],
+        Some(verification_schema()),
+        VisionTask::Grounding,
+    )?;
+    let start = answer
+        .find('{')
+        .ok_or_else(|| anyhow!("verification JSON missing: {answer}"))?;
+    let end = answer
+        .rfind('}')
+        .ok_or_else(|| anyhow!("verification JSON missing: {answer}"))?;
+    let value: serde_json::Value = serde_json::from_str(&answer[start..=end])
+        .map_err(|_| anyhow!("verification JSON invalid: {answer}"))?;
+    Ok(Verification {
+        matches: value
+            .get("matches")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        confidence: value
+            .get("confidence")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0)
+            .min(100),
+        note: value
+            .get("what")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
     })
 }
 
@@ -252,7 +336,13 @@ pub(super) fn locate_box(jpeg: &[u8], description: &str, ctx: &str) -> Result<Lo
 visible, output {{\"error\": \"not visible\"}}.",
         ctx_prefix(ctx)
     );
-    let answer = run_chain(jpeg, &prompt, &[], Some(box_schema()))?;
+    let answer = run_chain(
+        jpeg,
+        &prompt,
+        &[],
+        Some(box_schema()),
+        VisionTask::Grounding,
+    )?;
     parse_box(&answer)
         // box_2d order is [ymin, xmin, ymax, xmax]; center = (x mid, y mid).
         .map(|[ymin, xmin, ymax, xmax]| Located {
@@ -273,7 +363,13 @@ order (top row left-to-right, then next row): [{{\"x\": <int>, \"y\": <int>, \"w
 - x,y are the CENTER on a 0-1000 grid (x 0 left..1000 right, y 0 top..1000 bottom). Output [] if none. Cap at 60.",
         ctx_prefix(ctx)
     );
-    let answer = run_chain(jpeg, &prompt, &[], Some(points_schema()))?;
+    let answer = run_chain(
+        jpeg,
+        &prompt,
+        &[],
+        Some(points_schema()),
+        VisionTask::Grounding,
+    )?;
     let pts = parse_points(&answer);
     if pts.is_empty() {
         anyhow::bail!("no points parsed from vision answer: {answer}");
@@ -369,6 +465,7 @@ fn num_after_key(s: &str, key: u8) -> Option<f64> {
     let b = lc.as_bytes();
     let key = key.to_ascii_lowercase();
     let mut i = 0;
+    let mut found = None;
     while i < b.len() {
         if b[i] == key && (i == 0 || !b[i - 1].is_ascii_alphanumeric()) {
             let mut j = i + 1;
@@ -387,18 +484,36 @@ fn num_after_key(s: &str, key: u8) -> Option<f64> {
                 if j > start
                     && let Ok(v) = lc[start..j].parse::<f64>()
                 {
-                    return Some(v);
+                    found = Some(v);
                 }
             }
         }
         i += 1;
     }
-    None
+    found
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_box, parse_point};
+    use super::{VisionTask, chain_ids, parse_box, parse_point};
+    use crate::config::Config;
+
+    #[test]
+    fn grounding_chain_never_inherits_general_vision_models() {
+        let mut config = Config::default();
+        config.model_priority_chains.image_to_text = vec!["scout".into(), "gemini-flash".into()];
+        let grounding = chain_ids(&config, &[], VisionTask::Grounding);
+        assert_eq!(grounding.len(), 1);
+        assert!(
+            !grounding
+                .iter()
+                .any(|id| id == "scout" || id == "gemini-flash")
+        );
+        assert_eq!(
+            chain_ids(&config, &[], VisionTask::General),
+            ["scout", "gemini-flash"]
+        );
+    }
 
     #[test]
     fn parses_box_2d_ignoring_the_key_digit() {
@@ -433,4 +548,13 @@ mod tests {
     fn rejects_not_visible() {
         assert_eq!(parse_point(r#"{"error": "not visible"}"#), None);
     }
+
+    #[test]
+    fn verbose_reasoning_uses_final_coordinates() {
+        let answer = "The grid starts at x=0 and y=0. Final: {\"x\": 150, \"y\": 250}.";
+        assert_eq!(parse_point(answer), Some((150.0, 250.0)));
+    }
 }
+
+#[cfg(test)]
+mod vision_benchmark_tests;

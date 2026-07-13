@@ -34,10 +34,12 @@ mod render;
 mod review;
 mod setup_guard;
 mod vision;
+mod vision_verify;
 pub(crate) use prompt::build_setup;
 use render::*;
 use review::*;
 use vision::*;
+use vision_verify::*;
 
 const SYS: &str = "You control a Windows PC, ONE tool action per turn. Each turn you get a SCREENSHOT of the ACTIVE \
 window with a NUMBERED GRID over it, plus its READOUTS and CLICKABLE elements (Windows accessibility = ground truth, \
@@ -257,7 +259,9 @@ pub(super) struct Brain {
     /// Reusable click anchors (screen px + label) from map_targets — the model
     /// clicks these by id (click_mark) with no per-click vision. Cleared whenever
     /// the layout changes (zoom/reset) so stale points can't cause wrong clicks.
-    anchors: Vec<(i32, i32, Option<String>)>,
+    /// The final field is the original vision-map description. Detector-owned
+    /// anchors leave it empty; mapped anchors must be re-verified before click.
+    anchors: Vec<(i32, i32, Option<String>, Option<String>)>,
     /// The deterministic controller (resolve→execute→verify→gate) behind the
     /// observe/act/do_steps tools — drives the browser surface (and native windows
     /// via UIA), always on.

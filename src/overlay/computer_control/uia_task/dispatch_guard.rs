@@ -27,7 +27,7 @@ pub(super) fn block_grid_click(
         "code": "ERR_COARSE_CLICK_HAS_NATIVE_TARGETS",
         "error": "grid-cell center is ambiguous because native elements occupy this cell",
         "candidates": candidates,
-        "instruction": "Do not guess with click_at. Use observe/act for an exact native element, or click_target with the exact resolved description.",
+        "instruction": "Do not guess with pixel tools. Use observe/act for an exact native element; use click_target only when no semantic element exists.",
     }))
 }
 

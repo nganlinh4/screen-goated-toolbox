@@ -295,21 +295,21 @@ impl Brain {
                             .iter()
                             .map(|p| {
                                 let (sx, sy) = self.view.to_screen_px(p.x, p.y);
-                                (sx, sy, p.note.clone())
+                                (sx, sy, p.note.clone(), Some(desc.to_string()))
                             })
                             .collect();
                         let list: Vec<Value> = self
                             .anchors
                             .iter()
                             .enumerate()
-                            .map(|(i, (_, _, note))| json!({"mark": i + 1, "what": note}))
+                            .map(|(i, (_, _, note, _))| json!({"mark": i + 1, "what": note}))
                             .collect();
                         eprintln!(
                             "[cc] step {step:02} MAP_TARGETS '{desc}' -> {} anchors",
                             self.anchors.len()
                         );
                         json!({"ok": true, "anchor_count": self.anchors.len(), "anchors": list,
-                            "note": "Click any of these by its mark number with click_mark(mark). They stay valid until the layout changes - then re-run map_targets."})
+                            "note": "Click any by mark number with click_mark(mark). Each mapped point is freshly verified before clicking; re-run map_targets after layout changes."})
                     }
                     Err(e) => json!({"ok": false, "error": format!("could not map '{desc}': {e}")}),
                 }
@@ -323,10 +323,42 @@ impl Brain {
                 let anchor = self
                     .anchors
                     .get(id.wrapping_sub(1))
-                    .map(|(sx, sy, n)| (*sx, *sy, n.clone()));
+                    .map(|(sx, sy, n, verify)| (*sx, *sy, n.clone(), verify.clone()));
                 match anchor {
-                    Some((sx, sy, note)) => {
+                    Some((sx, sy, note, verify_description)) => {
                         let view_norm = screen_to_view_norm(self.view, sx, sy);
+                        if let Some(description) = verify_description {
+                            let verification = session::capture_virtual()
+                                .and_then(|fresh| {
+                                    session::encode_view(
+                                        &fresh,
+                                        self.view,
+                                        VISION_SHORT,
+                                        None,
+                                        None,
+                                    )
+                                    .map(|encoded| encoded.0)
+                                })
+                                .and_then(|fresh_jpeg| {
+                                    verify_located(
+                                        &fresh_jpeg,
+                                        super::super::vision_reader::Located {
+                                            x: view_norm.0,
+                                            y: view_norm.1,
+                                            note: note.clone(),
+                                        },
+                                        &description,
+                                        ctx,
+                                        cancel,
+                                    )
+                                });
+                            if let Err(error) = verification {
+                                return json!({
+                                    "ok": false,
+                                    "error": format!("mapped click verification failed: {error}"),
+                                });
+                            }
+                        }
                         self.last_click = Some((sx, sy));
                         self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
                         append_click(

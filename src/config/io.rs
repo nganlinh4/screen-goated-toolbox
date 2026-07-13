@@ -89,6 +89,7 @@ fn migrate_config(config: &mut Config) {
 
     let custom_models = config.custom_models.clone();
 
+    migrate_builtin_image_priority_chain(&mut config.model_priority_chains.image_to_text);
     normalize_model_priority_chain(
         &mut config.model_priority_chains.image_to_text,
         ModelType::Vision,
@@ -112,6 +113,39 @@ fn migrate_config(config: &mut Config) {
     }
 
     config.sync_active_profile_from_presets();
+}
+
+/// Replace only known historical defaults. A user-customized chain remains
+/// untouched, including an intentional Gemini 2.5 Flash Lite selection.
+fn migrate_builtin_image_priority_chain(chain: &mut Vec<String>) {
+    const RECENT_DEFAULT: &[&str] = &[
+        "gemma-4-31b-cerebras-vision",
+        "scout",
+        "qwen-3.6-27b-vision",
+        "gemini-3.1-flash-lite",
+        "gemini-flash",
+        "gemini-flash-lite",
+        "gemini-live-vision-3.1",
+    ];
+    const RELEASED_DEFAULT: &[&str] = &[
+        "gemma-4-31b-cerebras-vision",
+        "qwen-3.6-27b-vision",
+        "scout",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite",
+        "gemini-live-vision-3.1",
+        "gemini-flash",
+    ];
+    let matches = |old: &[&str]| {
+        chain.len() == old.len() && chain.iter().map(String::as_str).eq(old.iter().copied())
+    };
+    let is_old_default = matches(RECENT_DEFAULT) || matches(RELEASED_DEFAULT);
+    if is_old_default {
+        *chain = crate::model_config::default_image_to_text_priority_chain_ids()
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect();
+    }
 }
 
 fn promote_builtin_image_defaults(presets: &mut [Preset]) {
