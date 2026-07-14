@@ -1,8 +1,11 @@
 //! Win32 top-level window management: find / raise / minimize / resize / move a
-//! window by a piece of its title or exe name, including fullscreen games that
+//! window by an exact title, executable, or stable HWND/PID identity, including fullscreen games that
 //! expose no UIA provider. Split from the UIA tree code (`uia.rs`) for the
 //! file-size limit. Self-contained — only Win32 windowing + process APIs, no UIA.
 
+use std::fmt;
+
+use unicode_normalization::UnicodeNormalization;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_NAME_WIN32,
@@ -11,37 +14,133 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
-    IsIconic, IsWindowVisible, SW_MINIMIZE, SW_RESTORE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    SetForegroundWindow, SetWindowPos, ShowWindow,
+    IsIconic, IsWindow, IsWindowVisible, SW_MINIMIZE, SW_RESTORE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SetForegroundWindow, SetWindowPos, ShowWindow,
 };
 use windows_core::BOOL;
 
-/// Bring the top-level window whose title contains `target` to the foreground
+const STABLE_TARGET_PREFIX: &str = "@hwnd:";
+
+#[derive(Clone, Debug)]
+struct WindowCandidate {
+    hwnd: HWND,
+    pid: u32,
+    title: String,
+    exe: String,
+}
+
+impl WindowCandidate {
+    fn stable_target(&self) -> String {
+        format!(
+            "{STABLE_TARGET_PREFIX}{}:{}",
+            self.hwnd.0 as usize, self.pid
+        )
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub(crate) struct WindowDescriptor {
+    title: String,
+    executable: String,
+    hwnd: usize,
+    pid: u32,
+    target: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WindowError {
+    EmptyTarget,
+    InvalidStableTarget {
+        target: String,
+    },
+    NotFound {
+        target: String,
+    },
+    StaleStableTarget {
+        hwnd: usize,
+        expected_pid: u32,
+        actual_pid: u32,
+    },
+    Ambiguous {
+        target: String,
+        matches: Vec<String>,
+    },
+    InvalidSize {
+        width: i32,
+        height: i32,
+    },
+}
+
+impl WindowError {
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::EmptyTarget | Self::InvalidStableTarget { .. } => "invalid_window_target",
+            Self::InvalidSize { .. } => "invalid_window_size",
+            Self::NotFound { .. } => "window_not_found",
+            Self::StaleStableTarget { .. } => "stale_window_target",
+            Self::Ambiguous { .. } => "ambiguous_window_target",
+        }
+    }
+}
+
+impl fmt::Display for WindowError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyTarget => write!(f, "window target is empty"),
+            Self::InvalidStableTarget { target } => {
+                write!(f, "invalid stable window target {target:?}")
+            }
+            Self::NotFound { target } => write!(f, "no window exactly matches {target:?}"),
+            Self::StaleStableTarget {
+                hwnd,
+                expected_pid,
+                actual_pid,
+            } => write!(
+                f,
+                "stable window target @hwnd:{hwnd}:{expected_pid} is stale (current pid {actual_pid})"
+            ),
+            Self::Ambiguous { target, matches } => write!(
+                f,
+                "window target {target:?} is ambiguous; choose one stable target: {}",
+                matches.join(", ")
+            ),
+            Self::InvalidSize { width, height } => {
+                write!(f, "window size must be positive, got {width}x{height}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for WindowError {}
+
+type WindowResult<T> = Result<T, WindowError>;
+
+/// Bring the exactly resolved top-level window to the foreground
 /// (restoring it if minimized), and VERIFY it actually took. General-purpose:
 /// used at startup for `CC_UIA_WINDOW` scoping AND by the agent's `focus_window`
 /// tool to switch to any app by name (e.g. when a window it opened is hidden
-/// behind a fullscreen game). Returns false if no window matched OR the switch
-/// could not be forced (e.g. an exclusive-fullscreen app owns the foreground —
+/// behind a fullscreen game). Resolution errors are distinct from a false result,
+/// which means the switch could not be forced (e.g. an exclusive-fullscreen app owns the foreground —
 /// which nothing short of minimizing it can move, elevated or not).
-pub(crate) fn raise_window(target: &str) -> bool {
+pub(crate) fn raise_window(target: &str) -> WindowResult<bool> {
     let before = unsafe { GetForegroundWindow() };
-    let selected = find_top_window(target);
-    let raised = selected.is_some_and(|hwnd| unsafe { force_foreground_hwnd(hwnd) });
+    let selected = find_top_window(target)?;
+    let raised = unsafe { force_foreground_hwnd(selected) };
     let after = unsafe { GetForegroundWindow() };
     super::super::telemetry::event(
         "focus_window_result",
         "windowing",
-        super::super::telemetry::Privacy::Safe,
+        super::super::telemetry::Privacy::UserText,
         serde_json::json!({
             "requested_target": target,
-            "selected_hwnd": selected.map(|hwnd| hwnd.0 as usize),
+            "selected_hwnd": selected.0 as usize,
             "foreground_before_hwnd": before.0 as usize,
             "foreground_after_hwnd": after.0 as usize,
             "raised": raised,
-            "verified": selected.is_some_and(|hwnd| hwnd.0 == after.0),
+            "verified": selected.0 == after.0,
         }),
     );
-    raised
+    Ok(raised)
 }
 
 // --- Win32 EnumWindows: finds EVERY top-level window, including fullscreen GAMES (Unity/Unreal/
@@ -78,7 +177,7 @@ fn process_exe_name(pid: u32) -> String {
 
 /// (hwnd, title, exe basename) for each visible, titled top-level window of ANOTHER process (our
 /// own windows — the orb, the app — are skipped). Win32-level, so it sees games the UIA tree can't.
-pub(crate) fn enum_top_windows() -> Vec<(HWND, String, String)> {
+fn enum_top_windows() -> Vec<WindowCandidate> {
     extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
         unsafe {
             if !IsWindowVisible(hwnd).as_bool() {
@@ -99,160 +198,204 @@ pub(crate) fn enum_top_windows() -> Vec<(HWND, String, String)> {
                 return BOOL(1);
             }
             let title = String::from_utf16_lossy(&buf[..len as usize]);
-            if title.is_empty() || title == "Program Manager" || title == "Settings" {
+            if title.is_empty() {
                 return BOOL(1);
             }
-            let out = &mut *(lparam.0 as *mut Vec<(HWND, String, String)>);
-            out.push((hwnd, title, process_exe_name(pid)));
+            let out = &mut *(lparam.0 as *mut Vec<WindowCandidate>);
+            out.push(WindowCandidate {
+                hwnd,
+                pid,
+                title,
+                exe: process_exe_name(pid),
+            });
             BOOL(1)
         }
     }
-    let mut out: Vec<(HWND, String, String)> = Vec::new();
+    let mut out: Vec<WindowCandidate> = Vec::new();
     unsafe {
         let _ = EnumWindows(Some(cb), LPARAM(&mut out as *mut _ as isize));
     }
     out
 }
 
-/// Resolve `target` (a title OR exe-name substring, case-insensitive) to a top-level HWND.
-/// Exact/executable and title-prefix matches outrank a loose title substring. That
-/// keeps a real app window ahead of another window whose document title merely
-/// mentions the requested app. Foreground is only a tie-breaker; it must never make
-/// a weak substring beat a precise match.
-pub(crate) fn find_top_window(target: &str) -> Option<HWND> {
-    let want = target.trim().to_lowercase();
-    if want.is_empty() {
-        return None;
-    }
-    let fg = unsafe { GetForegroundWindow() };
-    let mut best: Option<(HWND, String, String, i32, bool)> = None;
-    let mut best_score = i32::MIN;
-    let mut matched_count = 0usize;
-    for (hwnd, title, exe) in enum_top_windows() {
-        let foreground = hwnd.0 == fg.0;
-        let Some(score) = window_match_score(&want, &title, &exe, foreground) else {
-            continue;
-        };
-        matched_count += 1;
-        if score > best_score {
-            best_score = score;
-            best = Some((hwnd, title, exe, score, foreground));
+/// Resolve a stable `@hwnd:<handle>:<pid>` identity, exact normalized title,
+/// exact normalized executable basename, or executable stem. Multiple exact
+/// matches are an error; the caller must use one of their stable identities.
+pub(crate) fn find_top_window(target: &str) -> WindowResult<HWND> {
+    let result = match parse_stable_target(target)? {
+        Some((raw, expected_pid)) => resolve_stable_target(raw, expected_pid),
+        None => {
+            let candidates = enum_top_windows();
+            resolve_named_candidate(target, &candidates).map(|candidate| candidate.hwnd)
         }
-    }
-    let mut pid = 0u32;
-    if let Some((hwnd, ..)) = best.as_ref() {
-        unsafe { GetWindowThreadProcessId(*hwnd, Some(&mut pid)) };
-    }
+    };
     super::super::telemetry::event(
         "window_resolution",
         "windowing",
-        super::super::telemetry::Privacy::Safe,
+        super::super::telemetry::Privacy::UserText,
         serde_json::json!({
             "requested_target": target,
-            "normalized_target": want,
-            "matched_count": matched_count,
-            "selected": best.as_ref().map(|(hwnd, title, exe, score, foreground)| serde_json::json!({
-                "hwnd": hwnd.0 as usize,
-                "pid": pid,
-                "title": title,
-                "exe": exe,
-                "score": score,
-                "was_foreground": foreground,
-            })),
+            "selected_hwnd": result.as_ref().ok().map(|hwnd| hwnd.0 as usize),
+            "error_code": result.as_ref().err().map(WindowError::code),
         }),
     );
-    best.map(|(hwnd, ..)| hwnd)
+    result
 }
 
-fn window_match_score(want: &str, title: &str, exe: &str, foreground: bool) -> Option<i32> {
-    let title = title.trim().to_lowercase();
-    let exe = exe.trim().to_lowercase();
-    let exe_stem = exe.strip_suffix(".exe").unwrap_or(&exe);
-
-    let (base, matched_len) = if exe == want || exe_stem == want {
-        (1_000, exe_stem.len())
-    } else if exe_stem.starts_with(want) {
-        (900, exe_stem.len())
-    } else if exe_stem.contains(want) {
-        (800, exe_stem.len())
-    } else if title == want {
-        (700, title.len())
-    } else if title.starts_with(want) {
-        (600, title.len())
-    } else if title.contains(want) {
-        (400, title.len())
-    } else {
-        return None;
-    };
-
-    // Prefer the least-surprising match within the same tier: less unrelated
-    // trailing title text, then the window already in front.
-    let extra = matched_len.saturating_sub(want.len()).min(100) as i32;
-    Some(base - extra + i32::from(foreground) * 10)
-}
-
-/// Labels of the open top-level windows — the agent's situational awareness of what's open to
-/// switch to (`focus_window`) or push aside (`minimize_window`). Each is `"title  [exe]"` so the
-/// agent can disambiguate a fullscreen game/app from a browser tab whose title
-/// mentions the same thing. Best-effort.
-pub(crate) fn list_windows() -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for (_, title, exe) in enum_top_windows() {
-        let label = if exe.is_empty() {
-            title
-        } else {
-            format!("{title}  [{exe}]")
-        };
-        if !out.contains(&label) {
-            out.push(label);
-        }
+/// Resolve an exact title, executable, or stable identity once, then carry the
+/// HWND/PID identity for the lifetime of the task. Window titles are mutable
+/// document state and must not be re-matched after navigation.
+pub(crate) fn stable_window_target(target: &str) -> WindowResult<String> {
+    if let Some((raw, expected_pid)) = parse_stable_target(target)? {
+        resolve_stable_target(raw, expected_pid)?;
+        return Ok(format!("{STABLE_TARGET_PREFIX}{raw}:{expected_pid}"));
     }
-    out
+    let candidates = enum_top_windows();
+    resolve_named_candidate(target, &candidates).map(WindowCandidate::stable_target)
 }
 
-/// Minimize the top-level window whose title contains `target` via a DIRECT
+pub(crate) fn window_identity(target: &str) -> WindowResult<(u64, u64)> {
+    let hwnd = find_top_window(target)?;
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    if pid == 0 {
+        return Err(WindowError::NotFound {
+            target: target.to_string(),
+        });
+    }
+    Ok((hwnd.0 as usize as u64, u64::from(pid)))
+}
+
+fn normalize_window_key(value: &str) -> String {
+    value
+        .nfkc()
+        .flat_map(char::to_lowercase)
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn parse_stable_target(target: &str) -> WindowResult<Option<(usize, u32)>> {
+    let trimmed = target.trim();
+    let Some(encoded) = trimmed.strip_prefix(STABLE_TARGET_PREFIX) else {
+        return Ok(None);
+    };
+    let Some((raw, pid)) = encoded.split_once(':') else {
+        return Err(WindowError::InvalidStableTarget {
+            target: target.to_string(),
+        });
+    };
+    let parsed = raw
+        .parse::<usize>()
+        .ok()
+        .zip(pid.parse::<u32>().ok())
+        .filter(|(raw, pid)| *raw != 0 && *pid != 0);
+    parsed
+        .map(Some)
+        .ok_or_else(|| WindowError::InvalidStableTarget {
+            target: target.to_string(),
+        })
+}
+
+fn resolve_stable_target(raw: usize, expected_pid: u32) -> WindowResult<HWND> {
+    let hwnd = HWND(raw as *mut _);
+    let mut actual_pid = 0u32;
+    if unsafe { IsWindow(Some(hwnd)).as_bool() } {
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut actual_pid)) };
+    }
+    if actual_pid != expected_pid {
+        return Err(WindowError::StaleStableTarget {
+            hwnd: raw,
+            expected_pid,
+            actual_pid,
+        });
+    }
+    Ok(hwnd)
+}
+
+fn resolve_named_candidate<'a>(
+    target: &str,
+    candidates: &'a [WindowCandidate],
+) -> WindowResult<&'a WindowCandidate> {
+    let want = normalize_window_key(target);
+    if want.is_empty() {
+        return Err(WindowError::EmptyTarget);
+    }
+    let matches = candidates
+        .iter()
+        .filter(|candidate| {
+            let title = normalize_window_key(&candidate.title);
+            let exe = normalize_window_key(&candidate.exe);
+            let stem = exe.strip_suffix(".exe").unwrap_or(&exe);
+            title == want || exe == want || stem == want
+        })
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [candidate] => Ok(*candidate),
+        [] => Err(WindowError::NotFound {
+            target: target.to_string(),
+        }),
+        _ => Err(WindowError::Ambiguous {
+            target: target.to_string(),
+            matches: matches
+                .iter()
+                .map(|candidate| candidate.stable_target())
+                .collect(),
+        }),
+    }
+}
+
+/// Open top-level windows with both human-readable state and a stable target.
+/// The stable target is preferred whenever titles/executables are duplicated.
+pub(crate) fn list_windows() -> Vec<WindowDescriptor> {
+    enum_top_windows()
+        .into_iter()
+        .map(|candidate| WindowDescriptor {
+            title: candidate.title.clone(),
+            executable: candidate.exe.clone(),
+            hwnd: candidate.hwnd.0 as usize,
+            pid: candidate.pid,
+            target: candidate.stable_target(),
+        })
+        .collect()
+}
+
+/// Minimize the exactly resolved top-level window via a DIRECT
 /// `ShowWindow` on its handle (no input injection — so it works even on a
 /// fullscreen game that's swallowing keystrokes, unlike a synthetic Win+D).
-/// Returns whether a window matched. Non-elevated.
-pub(crate) fn minimize_window(target: &str) -> bool {
-    match find_top_window(target) {
-        Some(hwnd) => unsafe {
-            let _ = ShowWindow(hwnd, SW_MINIMIZE);
-            true
-        },
-        None => false,
+/// Returns a resolution error when no unique window is known. Non-elevated.
+pub(crate) fn minimize_window(target: &str) -> WindowResult<bool> {
+    let hwnd = find_top_window(target)?;
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_MINIMIZE);
     }
-}
-
-/// Resolve the top-level window whose title contains `target` to its handle.
-fn find_window(target: &str) -> Option<HWND> {
-    find_top_window(target)
+    Ok(true)
 }
 
 /// Resize the window matching `target` to `w`x`h` pixels (restoring it first, so
 /// a maximized window can shrink). Keeps its position. Non-elevated.
-pub(crate) fn resize_window(target: &str, w: i32, h: i32) -> bool {
+pub(crate) fn resize_window(target: &str, w: i32, h: i32) -> WindowResult<bool> {
     if w <= 0 || h <= 0 {
-        return false;
+        return Err(WindowError::InvalidSize {
+            width: w,
+            height: h,
+        });
     }
     unsafe {
-        let Some(hwnd) = find_window(target) else {
-            return false;
-        };
+        let hwnd = find_top_window(target)?;
         let _ = ShowWindow(hwnd, SW_RESTORE); // can't resize while maximized
-        SetWindowPos(hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER).is_ok()
+        Ok(SetWindowPos(hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER).is_ok())
     }
 }
 
 /// Move the window matching `target` so its top-left corner is at screen pixel
 /// (x, y). Keeps its size. Non-elevated.
-pub(crate) fn move_window(target: &str, x: i32, y: i32) -> bool {
+pub(crate) fn move_window(target: &str, x: i32, y: i32) -> WindowResult<bool> {
     unsafe {
-        let Some(hwnd) = find_window(target) else {
-            return false;
-        };
+        let hwnd = find_top_window(target)?;
         let _ = ShowWindow(hwnd, SW_RESTORE); // can't move while maximized
-        SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER).is_ok()
+        Ok(SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER).is_ok())
     }
 }
 
@@ -267,9 +410,8 @@ unsafe fn force_foreground_hwnd(hwnd: HWND) -> bool {
             if GetForegroundWindow().0 == hwnd.0 {
                 return true;
             }
-            // Only UN-MINIMIZE; never SW_RESTORE a MAXIMIZED window — that un-maximizes it (the user
-            // saw a maximized Chrome shrink when focus_window switched to it). SW_RESTORE on a minimized
-            // window correctly brings back its prior maximized/normal state.
+            // Only un-minimize. SW_RESTORE changes a maximized window's placement,
+            // while on a minimized window it restores the prior maximized/normal state.
             if IsIconic(hwnd).as_bool() {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
@@ -297,39 +439,69 @@ unsafe fn force_foreground_hwnd(hwnd: HWND) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::window_match_score;
+    use super::{WindowCandidate, WindowError, parse_stable_target, resolve_named_candidate};
+    use windows::Win32::Foundation::HWND;
 
-    #[test]
-    fn executable_match_beats_document_title_mention() {
-        let app = window_match_score("editor", "Untitled", "editor.exe", false).unwrap();
-        let mention = window_match_score(
-            "editor",
-            "Editor usage guide - Web Browser",
-            "browser.exe",
-            true,
-        )
-        .unwrap();
-        assert!(app > mention);
+    fn candidate(raw: usize, pid: u32, title: &str, exe: &str) -> WindowCandidate {
+        WindowCandidate {
+            hwnd: HWND(raw as *mut _),
+            pid,
+            title: title.to_string(),
+            exe: exe.to_string(),
+        }
     }
 
     #[test]
-    fn title_prefix_beats_loose_foreground_substring() {
-        let app = window_match_score("sample app", "Sample App 2.0 - Project", "host.exe", false)
-            .unwrap();
-        let mention = window_match_score(
-            "sample app",
-            "Article about Sample App - Web Browser",
-            "browser.exe",
-            true,
-        )
-        .unwrap();
-        assert!(app > mention);
+    fn title_substrings_are_not_window_targets() {
+        let candidates = [candidate(1, 10, "Notes 10", "host.exe")];
+        assert!(matches!(
+            resolve_named_candidate("Notes 1", &candidates),
+            Err(WindowError::NotFound { .. })
+        ));
     }
 
     #[test]
-    fn foreground_breaks_ties_without_overriding_match_quality() {
-        let background = window_match_score("notes", "Notes - A", "host.exe", false).unwrap();
-        let foreground = window_match_score("notes", "Notes - B", "host.exe", true).unwrap();
-        assert!(foreground > background);
+    fn ambiguous_exact_titles_fail_with_stable_choices() {
+        let candidates = [
+            candidate(1, 10, "Notes", "host-a.exe"),
+            candidate(2, 11, "Notes", "host-b.exe"),
+        ];
+        let error = resolve_named_candidate(" notes ", &candidates).unwrap_err();
+        assert_eq!(
+            error,
+            WindowError::Ambiguous {
+                target: " notes ".to_string(),
+                matches: vec!["@hwnd:1:10".to_string(), "@hwnd:2:11".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn exact_executable_stem_resolves_uniquely() {
+        let candidates = [
+            candidate(1, 10, "Document", "editor.exe"),
+            candidate(2, 11, "Editor guide", "browser.exe"),
+        ];
+        assert_eq!(
+            resolve_named_candidate("ＥＤＩＴＯＲ", &candidates)
+                .unwrap()
+                .hwnd
+                .0 as usize,
+            1
+        );
+    }
+
+    #[test]
+    fn stable_target_requires_both_nonzero_identity_parts() {
+        assert_eq!(
+            parse_stable_target("@hwnd:123:77").unwrap(),
+            Some((123, 77))
+        );
+        for invalid in ["@hwnd:123", "@hwnd:0:77", "@hwnd:123:0", "@hwnd:x:77"] {
+            assert!(matches!(
+                parse_stable_target(invalid),
+                Err(WindowError::InvalidStableTarget { .. })
+            ));
+        }
     }
 }

@@ -7,7 +7,7 @@
 //! specific top-level window instead of the foreground one).
 
 use anyhow::{Result, anyhow};
-use windows::Win32::Foundation::POINT;
+use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
@@ -17,19 +17,20 @@ use windows::Win32::UI::Accessibility::{
     ExpandCollapseState_PartiallyExpanded, IUIAutomation, IUIAutomationElement,
     IUIAutomationExpandCollapsePattern, IUIAutomationRangeValuePattern,
     IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern, IUIAutomationValuePattern,
-    ToggleState_Indeterminate, ToggleState_On, TreeScope_Children, TreeScope_Descendants,
-    UIA_ExpandCollapsePatternId, UIA_RangeValuePatternId, UIA_SelectionItemPatternId,
-    UIA_TogglePatternId, UIA_ValuePatternId,
+    ToggleState_Indeterminate, ToggleState_On, TreeScope_Descendants, UIA_ExpandCollapsePatternId,
+    UIA_RangeValuePatternId, UIA_SelectionItemPatternId, UIA_TogglePatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowTextW,
-    GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, SetForegroundWindow,
+    GW_OWNER, GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindow,
+    GetWindowTextW, GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SetForegroundWindow,
 };
 
 #[derive(Debug, Clone)]
 pub(super) struct UiElement {
     pub name: String,
+    pub automation_id: String,
+    pub runtime_id: Vec<i32>,
     pub control_type: &'static str,
     pub left: i32,
     pub top: i32,
@@ -52,39 +53,6 @@ impl UiElement {
     /// Center in physical screen pixels.
     pub fn center(&self) -> (i32, i32) {
         ((self.left + self.right) / 2, (self.top + self.bottom) / 2)
-    }
-}
-
-fn control_type_name(id: i32) -> &'static str {
-    match id {
-        50000 => "Button",
-        50002 => "CheckBox",
-        50003 => "ComboBox",
-        50004 => "Edit",
-        50005 => "Hyperlink",
-        50006 => "Image",
-        50007 => "ListItem",
-        50008 => "List",
-        50009 => "Menu",
-        50010 => "MenuBar",
-        50011 => "MenuItem",
-        50013 => "RadioButton",
-        50015 => "Slider",
-        50018 => "Tab",
-        50019 => "TabItem",
-        50020 => "Text",
-        50021 => "ToolBar",
-        50023 => "Tree",
-        50024 => "TreeItem",
-        50025 => "Custom",
-        50026 => "Group",
-        50030 => "Document",
-        50031 => "SplitButton",
-        50032 => "Window",
-        50033 => "Pane",
-        50036 => "Table",
-        50037 => "TitleBar",
-        _ => "Other",
     }
 }
 
@@ -185,16 +153,31 @@ fn with_timeout<T: Send + 'static>(
 /// return empty so grounding falls back to the visual marks instead of freezing (see `with_timeout`).
 pub(super) fn enumerate(target: Option<&str>) -> Result<Vec<UiElement>> {
     let owned = target.map(str::to_string);
-    with_timeout("enumerate", 6, Ok(Vec::new()), move || {
-        enumerate_inner(owned.as_deref())
-    })
+    let result = with_timeout(
+        "enumerate",
+        6,
+        Err(anyhow!("UIA enumeration timed out")),
+        move || enumerate_inner(owned.as_deref()),
+    );
+    if let Err(error) = &result {
+        super::telemetry::typed_error(
+            "ERR_UIA_ENUMERATION_FAILED",
+            "grounding",
+            "accessible control enumeration was unavailable",
+            serde_json::json!({"error": error.to_string()}),
+        );
+    }
+    result
 }
 
 fn enumerate_inner(target: Option<&str>) -> Result<Vec<UiElement>> {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
-        let root = pick_window(&uia, target)?;
+        let (root, selected_hwnd) = pick_window(&uia, target)?;
+        ensure_native_accessibility_authority(selected_hwnd)?;
+        let point_hit_test_is_authoritative =
+            target::point_hit_test_is_authoritative(selected_hwnd);
         let cond = uia.CreateTrueCondition()?;
         let arr = root.FindAll(TreeScope_Descendants, &cond)?;
         let n = arr.Length()?;
@@ -210,6 +193,31 @@ fn enumerate_inner(target: Option<&str>) -> Result<Vec<UiElement>> {
             }
             let name = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
             let ct = el.CurrentControlType().map(|c| c.0).unwrap_or(0);
+            let actionable = target::is_interactive_control_type(ct);
+            if point_hit_test_is_authoritative
+                && target::is_grounding_control_type(ct)
+                && !target::point_resolves_to_element(
+                    &uia,
+                    &el,
+                    (rect.left + rect.right) / 2,
+                    (rect.top + rect.bottom) / 2,
+                )
+            {
+                continue;
+            }
+            let (automation_id, runtime_id) = if actionable {
+                (
+                    el.CurrentAutomationId()
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                    target::runtime_id(&el).unwrap_or_default(),
+                )
+            } else {
+                (String::new(), Vec::new())
+            };
+            if actionable && runtime_id.is_empty() {
+                continue;
+            }
             let enabled = el.CurrentIsEnabled().map(|b| b.as_bool()).unwrap_or(false);
             // Read control state only for named elements (the ones we display), to
             // bound the extra per-element pattern probes.
@@ -231,7 +239,9 @@ fn enumerate_inner(target: Option<&str>) -> Result<Vec<UiElement>> {
                 .unwrap_or(false);
             out.push(UiElement {
                 name,
-                control_type: control_type_name(ct),
+                automation_id,
+                runtime_id,
+                control_type: target::control_type_name(ct),
                 left: rect.left,
                 top: rect.top,
                 right: rect.right,
@@ -263,35 +273,55 @@ fn read_value_at_inner(x: i32, y: i32) -> Option<String> {
     }
 }
 
-unsafe fn pick_window(uia: &IUIAutomation, target: Option<&str>) -> Result<IUIAutomationElement> {
+unsafe fn pick_window(
+    uia: &IUIAutomation,
+    target: Option<&str>,
+) -> Result<(IUIAutomationElement, HWND)> {
     unsafe {
         if let Some(t) = target {
-            let want = t.to_lowercase();
-            // Prefer the FOREGROUND window when it matches — disambiguates several
-            // windows of the same app (e.g. multiple Chrome windows), which a
-            // first-match scan would otherwise pick wrongly.
-            if let Ok(fg) = uia.ElementFromHandle(GetForegroundWindow()) {
-                let name = fg.CurrentName().map(|b| b.to_string()).unwrap_or_default();
-                if name.to_lowercase().contains(&want) {
-                    return Ok(fg);
-                }
-            }
-            let root = uia.GetRootElement()?;
-            let cond = uia.CreateTrueCondition()?;
-            let children = root.FindAll(TreeScope_Children, &cond)?;
-            for i in 0..children.Length()? {
-                let Ok(el) = children.GetElement(i) else {
-                    continue;
-                };
-                let name = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
-                if name.to_lowercase().contains(&want) {
-                    return Ok(el);
-                }
-            }
-            return Err(anyhow!("no top-level window matching {t:?}"));
+            let hwnd = windowing::find_top_window(t).map_err(anyhow::Error::new)?;
+            let foreground = GetForegroundWindow();
+            let active = if foreground == hwnd || window_is_owned_by(foreground, hwnd) {
+                foreground
+            } else {
+                hwnd
+            };
+            return Ok((uia.ElementFromHandle(active)?, active));
         }
-        Ok(uia.ElementFromHandle(GetForegroundWindow())?)
+        let foreground = GetForegroundWindow();
+        Ok((uia.ElementFromHandle(foreground)?, foreground))
     }
+}
+
+unsafe fn window_is_owned_by(mut candidate: HWND, root: HWND) -> bool {
+    unsafe {
+        for _ in 0..16 {
+            let Ok(owner) = GetWindow(candidate, GW_OWNER) else {
+                return false;
+            };
+            if owner.0.is_null() {
+                return false;
+            }
+            if owner == root {
+                return true;
+            }
+            candidate = owner;
+        }
+        false
+    }
+}
+
+const PINNED_TARGET_PREFIX: &str = "@hwnd:";
+
+/// Turn a successfully focused task window into a stable HWND/PID scope. Window
+/// titles are document state and routinely change during navigation; identity is
+/// not. PID validation prevents a recycled HWND from silently targeting a new
+/// process later in a long task.
+pub(super) fn pin_foreground_target() -> Option<String> {
+    let snapshot = input_target_snapshot();
+    let hwnd = snapshot.get("hwnd")?.as_u64()?;
+    let pid = snapshot.get("pid")?.as_u64()?;
+    (hwnd != 0 && pid != 0).then(|| format!("{PINNED_TARGET_PREFIX}{hwnd}:{pid}"))
 }
 
 /// Screen-pixel rect (x, y, w, h) of the target window (or foreground window if
@@ -310,7 +340,7 @@ fn target_window_rect_inner(target: Option<&str>) -> Option<(i32, i32, i32, i32)
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let uia: IUIAutomation =
             CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
-        let win = pick_window(&uia, target).ok()?;
+        let (win, _) = pick_window(&uia, target).ok()?;
         let r = win.CurrentBoundingRectangle().ok()?;
         if r.right > r.left && r.bottom > r.top {
             Some((r.left, r.top, r.right - r.left, r.bottom - r.top))
@@ -348,16 +378,57 @@ pub(super) fn input_target_snapshot() -> serde_json::Value {
             let class_len = GetClassNameW(hwnd, &mut class_buf).max(0) as usize;
             let mut pid = 0u32;
             let thread_id = GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            let generation = window_instance::known(hwnd.0 as usize as u64, u64::from(pid));
             serde_json::json!({
                 "available": true,
                 "hwnd": hwnd.0 as usize,
                 "pid": pid,
                 "thread_id": thread_id,
+                "generation": generation,
                 "title": String::from_utf16_lossy(&title_buf[..title_len]),
                 "class": String::from_utf16_lossy(&class_buf[..class_len]),
             })
         },
     )
+}
+
+pub(super) fn resolved_window_identity(target: Option<&str>) -> Result<(u64, u64)> {
+    if let Some(target) = target {
+        return windowing::window_identity(target).map_err(anyhow::Error::new);
+    }
+    let snapshot = input_target_snapshot();
+    let available = snapshot
+        .get("available")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true);
+    let hwnd = snapshot
+        .get("hwnd")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let pid = snapshot
+        .get("pid")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if !available || hwnd == 0 || pid == 0 {
+        anyhow::bail!("concrete window HWND/PID unavailable");
+    }
+    Ok((hwnd, pid))
+}
+
+pub(super) fn observe_native_identity(target: Option<&str>) -> Result<(u64, u64, u64)> {
+    let (hwnd, pid) = resolved_window_identity(target)?;
+    let generation = window_instance::observe(hwnd, pid)?;
+    Ok((hwnd, pid, generation))
+}
+
+pub(super) fn current_native_identity(target: Option<&str>) -> Result<(u64, u64, u64)> {
+    let (hwnd, pid) = resolved_window_identity(target)?;
+    let generation = window_instance::current(hwnd, pid)?;
+    Ok((hwnd, pid, generation))
+}
+
+pub(super) fn validate_native_identity(hwnd: u64, pid: u64, generation: u64) -> Result<()> {
+    window_instance::validate(hwnd, pid, generation)
 }
 
 fn focus_foreground_inner() {
@@ -373,8 +444,8 @@ fn focus_foreground_inner() {
         let n = GetWindowTextW(hwnd, &mut buf);
         let title = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
         eprintln!(
-            "[cc] keys -> '{}'",
-            title.chars().take(50).collect::<String>()
+            "[cc] keys -> target title has {} chars",
+            title.chars().count()
         );
         let this_tid = GetCurrentThreadId();
         let fg_tid = GetWindowThreadProcessId(hwnd, None);
@@ -437,18 +508,13 @@ fn pointer_context_inner() -> (String, i32, i32) {
     }
 }
 
-/// True when the foreground window is a Chromium browser. Chrome, Edge, Brave,
-/// Opera and Vivaldi all use the `Chrome_WidgetWin_1` top-level window class -
-/// a signal that is brand-independent, NOT localized, and (unlike the title) not
-/// subject to truncation. Used to decide whether a vision-located click/drag
-/// should be driven through the browser's OWN trusted input pipeline (CDP)
-/// instead of synthetic OS mouse events, which canvas/WebGL web games ignore.
-pub(super) fn foreground_is_chromium() -> bool {
-    unsafe {
-        let mut buf = [0u16; 64];
-        let n = GetClassNameW(GetForegroundWindow(), &mut buf);
-        String::from_utf16_lossy(&buf[..n.max(0) as usize]) == "Chrome_WidgetWin_1"
+fn ensure_native_accessibility_authority(hwnd: HWND) -> Result<()> {
+    if super::browser::owns_foreground_window(hwnd.0 as usize as u64) {
+        anyhow::bail!(
+            "native accessibility is not authoritative while the exact foreground window is owned by the browser provider"
+        );
     }
+    Ok(())
 }
 
 /// Virtual desktop origin + size in physical px (x, y, w, h).
@@ -495,7 +561,16 @@ pub fn run_dump(target: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+mod activation;
+mod target;
+mod window_instance;
 mod windowing;
+pub(super) use activation::{ActivationError, FailureKind, activate_at};
+pub(super) use target::{
+    ExpectedNativeElement, validate_native_element_at, validate_native_focused_element,
+    validate_native_provider_ownership,
+};
 pub(crate) use windowing::{
-    list_windows, minimize_window, move_window, raise_window, resize_window,
+    WindowError, list_windows, minimize_window, move_window, raise_window, resize_window,
+    stable_window_target,
 };

@@ -3,6 +3,12 @@
 //! file-size limit. `use super::*` pulls in the shared imports/types/consts.
 
 use super::*;
+use base64::{Engine as _, engine::general_purpose};
+
+mod input;
+mod semantic_marks;
+pub(super) use input::*;
+use semantic_marks::semantic_filter_detector_marks;
 
 /// The view the model is grounded on. DEFAULT = the ACTIVE window (precise clicks,
 /// no whole-screen ambiguity) - the target window if `target` is set, else the
@@ -42,32 +48,161 @@ pub(super) fn vc_min() -> u32 {
         .unwrap_or(14)
 }
 
-pub(super) fn render_view(
-    dir: &str,
-    step: usize,
-    view: View,
-    grid: Grid,
-    marker: Option<(i32, i32)>,
-    reason: &str,
-    action: Option<super::super::telemetry::ActionTrace>,
-) -> Result<(String, View, Vec<u8>, u64)> {
+pub(super) struct RenderRequest<'a> {
+    pub dir: &'a str,
+    pub target: Option<&'a str>,
+    pub step: usize,
+    pub view: View,
+    pub whole_screen: bool,
+    pub preserve_view: bool,
+    pub bound_source: Option<&'a FrameSource>,
+    pub perception_surface: Option<&'a super::super::controller::world::SurfaceIdentity>,
+    pub grid: Grid,
+    pub marker: Option<(i32, i32)>,
+    pub reason: &'a str,
+    pub action: Option<super::super::telemetry::ActionTrace>,
+    pub existing_marks: &'a [(i32, i32, u32)],
+    pub detector_start_id: Option<u32>,
+    pub excluded_rects: &'a [[i32; 4]],
+    pub show_grid: bool,
+}
+
+pub(super) struct Rendered {
+    pub frame_b64: String,
+    pub view: View,
+    pub fingerprint: Vec<u8>,
+    pub frame_id: u64,
+    pub surface: Option<SurfaceIdentity>,
+    pub source: FrameSource,
+    pub fixed_view_retained: bool,
+    pub perception_matched: bool,
+    pub detected: Vec<super::super::detector::DetBox>,
+}
+
+pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
+    let RenderRequest {
+        dir,
+        target,
+        step,
+        view: requested_view,
+        whole_screen,
+        preserve_view,
+        bound_source,
+        perception_surface,
+        grid,
+        marker,
+        reason,
+        action,
+        existing_marks,
+        detector_start_id,
+        excluded_rects,
+        show_grid,
+    } = request;
     use super::super::telemetry;
     let frame_id = telemetry::next_frame_for(reason, action);
     let capture_t0 = Instant::now();
-    let cap = match session::capture_virtual() {
-        Ok(cap) => cap,
-        Err(error) => {
-            frame_event(
-                "frame_failed",
-                action,
-                json!({"frame_id": frame_id, "reason": reason, "phase": "capture", "error": error.to_string()}),
-            );
-            return Err(error);
-        }
+    let fixed = preserve_view
+        .then(|| bound_source.map(|source| (&source.surface, requested_view)))
+        .flatten();
+    let (cap, frame_surface, view, fixed_view_retained) =
+        match super::frame_identity::capture_current(target, fixed, || {
+            window_view(target, whole_screen)
+        }) {
+            Ok(captured) => captured,
+            Err(error) => {
+                frame_event(
+                    "frame_failed",
+                    action,
+                    json!({"frame_id": frame_id, "reason": reason, "phase": "capture", "error": error.to_string()}),
+                );
+                return Err(error);
+            }
+        };
+    let source = FrameSource {
+        frame_id,
+        surface: frame_surface,
     };
+    let perception_matched = perception_matches(perception_surface, &source.surface);
+    let surface = source.native_identity();
     let capture_ms = capture_t0.elapsed().as_millis();
+    let detector_start_id = perception_matched.then_some(detector_start_id).flatten();
+    let excluded_rects = if perception_matched {
+        excluded_rects
+    } else {
+        &[]
+    };
+    let existing_marks = if perception_matched {
+        existing_marks
+    } else {
+        &[]
+    };
+    let mut detected = detector_start_id
+        .map(|_| super::super::detector::detect_capture(&cap, view, frame_id))
+        .unwrap_or_default();
+    let detected_before_filter = detected.len();
+    detected.retain(|item| {
+        !excluded_rects.iter().any(|rect| {
+            item.cx >= rect[0] && item.cx <= rect[2] && item.cy >= rect[1] && item.cy <= rect[3]
+        })
+    });
+    if detected.len() != detected_before_filter {
+        telemetry::event(
+            "detector_anchor_filter",
+            "detector",
+            telemetry::Privacy::Safe,
+            json!({
+                "frame_id": frame_id,
+                "before": detected_before_filter,
+                "after": detected.len(),
+                "reason": "center_overlaps_accessible_control",
+            }),
+        );
+    }
+    let filtered_count = detected.len();
+    detected =
+        super::super::detector::select_marks(detected, view, super::super::detector::DISPLAY_MARKS);
+    if detected.len() != filtered_count {
+        telemetry::event(
+            "detector_anchor_cap",
+            "detector",
+            telemetry::Privacy::Safe,
+            json!({
+                "frame_id": frame_id,
+                "before": filtered_count,
+                "after": detected.len(),
+                "strategy": "spatial_coverage_then_confidence",
+            }),
+        );
+    }
+    if let Some(first_id) = detector_start_id {
+        detected = semantic_filter_detector_marks(&cap, view, frame_id, first_id, detected);
+    }
+    let detector_marks: Vec<(i32, i32, u32)> = detector_start_id
+        .map(|first| {
+            detected
+                .iter()
+                .enumerate()
+                .map(|(index, item)| (item.cx, item.cy, first.saturating_add(index as u32)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let marks = if detector_start_id.is_some() {
+        detector_marks.as_slice()
+    } else {
+        existing_marks
+    };
+    // One coordinate vocabulary per frame: mark IDs are precise, while drawing
+    // the coarse grid at the same time doubles label noise and creates collisions.
+    let shown_grid = (perception_matched && show_grid && marks.is_empty()).then_some(grid);
     let encode_t0 = Instant::now();
-    let (jpeg, shown) = match session::encode_view(&cap, view, VIEW_SHORT, Some(grid), marker) {
+    let (jpeg, shown) = match session::encode_view(
+        &cap,
+        view,
+        VIEW_SHORT,
+        shown_grid,
+        marker,
+        Some(marks),
+    ) {
         Ok(encoded) => encoded,
         Err(error) => {
             frame_event(
@@ -109,7 +244,11 @@ pub(super) fn render_view(
             "artifact_path": file_name,
             "artifact_write_ok": artifact_write_ok,
             "view": [shown.x, shown.y, shown.w, shown.h],
+            "surface": surface,
+            "frame_source": &source,
+            "perception_matched": perception_matched,
             "marker_screen_px": marker.map(|(x, y)| [x, y]),
+            "coarse_grid_shown": shown_grid.is_some(),
         }),
     );
     eprintln!(
@@ -117,7 +256,24 @@ pub(super) fn render_view(
         jpeg.len() / 1024,
         path.display()
     );
-    Ok((general_purpose::STANDARD.encode(&jpeg), shown, fp, frame_id))
+    Ok(Rendered {
+        frame_b64: general_purpose::STANDARD.encode(&jpeg),
+        view: shown,
+        fingerprint: fp,
+        frame_id,
+        surface,
+        source,
+        fixed_view_retained,
+        perception_matched,
+        detected,
+    })
+}
+
+fn perception_matches(
+    perception: Option<&super::super::controller::world::SurfaceIdentity>,
+    frame: &super::super::controller::world::SurfaceIdentity,
+) -> bool {
+    perception == Some(frame)
 }
 
 fn frame_event(event: &str, action: Option<super::super::telemetry::ActionTrace>, fields: Value) {
@@ -131,127 +287,6 @@ fn frame_event(event: &str, action: Option<super::super::telemetry::ActionTrace>
 fn frame_file_name(frame_id: u64, turn_id: u64, action_id: Option<u64>, step: usize) -> String {
     let action = action_id.map_or_else(|| "none".to_string(), |id| format!("{id:06}"));
     format!("frame-{frame_id:06}-turn-{turn_id:04}-action-{action}-step-{step:04}.jpg")
-}
-
-/// Click at an absolute screen pixel (maps to 0-1000 over the virtual desktop,
-/// which the executor turns into the SendInput absolute coordinate). `button` is
-/// "left" or "right" (right is for context menus, e.g. "Save image as").
-pub(super) fn click_screen(
-    sx: i32,
-    sy: i32,
-    dry: bool,
-    button: &str,
-    profile: &HumanProfile,
-    cancel: &AtomicBool,
-) -> Value {
-    let (vx, vy, vw, vh) = uia::virtual_desktop();
-    let nx = (sx - vx) as f64 / vw.max(1) as f64 * 1000.0;
-    let ny = (sy - vy) as f64 / vh.max(1) as f64 * 1000.0;
-    if dry {
-        return json!({"ok": true, "note": "dry", "screen_px": [sx, sy], "button": button});
-    }
-    // Grid/vision-located clicks are "uncertain" → humanized executor hesitates
-    // on the target so the user can barge in before it commits.
-    executor::execute_ex(
-        "click",
-        &json!({"x": nx, "y": ny, "button": button, "uncertain": true}),
-        profile,
-        cancel,
-    )
-}
-
-/// Wrap a pointer executor result with both coordinate spaces used to derive it.
-/// Keeping these fields at the top level makes truncated human logs and JSONL
-/// telemetry auditable without reverse-engineering the desktop/view transform.
-pub(super) fn pointer_result(
-    input_result: Value,
-    view: View,
-    view_norm: (f64, f64),
-    screen_px: (i32, i32),
-    extra: Value,
-) -> Value {
-    let ok = input_result
-        .get("ok")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let mut fields = match extra {
-        Value::Object(fields) => fields,
-        _ => serde_json::Map::new(),
-    };
-    fields.insert("ok".to_string(), json!(ok));
-    fields.insert("view_norm".to_string(), json!([view_norm.0, view_norm.1]));
-    fields.insert("screen_px".to_string(), json!([screen_px.0, screen_px.1]));
-    fields.insert(
-        "view_rect".to_string(),
-        json!([view.x, view.y, view.w, view.h]),
-    );
-    fields.insert(
-        "coordinate_spaces".to_string(),
-        json!({
-            "view_norm": "0..1000 relative to view_rect",
-            "screen_px": "virtual-desktop pixels",
-            "view_rect": "screen pixels [x,y,width,height]",
-        }),
-    );
-    fields.insert("input_result".to_string(), input_result);
-    Value::Object(fields)
-}
-
-pub(super) fn screen_to_view_norm(view: View, sx: i32, sy: i32) -> (f64, f64) {
-    (
-        (sx - view.x) as f64 / view.w.max(1) as f64 * 1000.0,
-        (sy - view.y) as f64 / view.h.max(1) as f64 * 1000.0,
-    )
-}
-
-/// Glide the cursor to an absolute screen pixel WITHOUT clicking (point/hover);
-/// `dwell_ms` lingers there so a hover tooltip / menu can surface. Mirrors
-/// `click_screen` but runs the executor's `point` action (move only).
-pub(super) fn point_screen(
-    sx: i32,
-    sy: i32,
-    dwell_ms: u64,
-    dry: bool,
-    profile: &HumanProfile,
-    cancel: &AtomicBool,
-) -> Value {
-    let (vx, vy, vw, vh) = uia::virtual_desktop();
-    let nx = (sx - vx) as f64 / vw.max(1) as f64 * 1000.0;
-    let ny = (sy - vy) as f64 / vh.max(1) as f64 * 1000.0;
-    if dry {
-        return json!({"ok": true, "note": "dry", "screen_px": [sx, sy]});
-    }
-    executor::execute_ex(
-        "point",
-        &json!({"x": nx, "y": ny, "dwell_ms": dwell_ms}),
-        profile,
-        cancel,
-    )
-}
-
-/// Drag from one absolute screen pixel to another (press, glide, release) - the
-/// precise drag for canvas drag-and-drop (place a card on a slot, move a slider).
-/// The executor's `drag` takes 0-1000 normalized, so convert screen px back.
-pub(super) fn drag_screen(
-    fx: i32,
-    fy: i32,
-    tx: i32,
-    ty: i32,
-    dry: bool,
-    profile: &HumanProfile,
-    cancel: &AtomicBool,
-) -> Value {
-    if dry {
-        return json!({"ok": true, "note": "dry", "from_px": [fx, fy], "to_px": [tx, ty]});
-    }
-    let (fnx, fny) = executor::screen_to_norm(fx, fy);
-    let (tnx, tny) = executor::screen_to_norm(tx, ty);
-    executor::execute_ex(
-        "drag",
-        &json!({"x": fnx, "y": fny, "dest_x": tnx, "dest_y": tny}),
-        profile,
-        cancel,
-    )
 }
 
 /// A new view magnified to the labeled grid cell (plus a little context), in
@@ -300,24 +335,32 @@ pub(super) fn readouts_inline(elements: &[UiElement]) -> String {
         .join(" | ")
 }
 
-/// Order-independent signature of the accessible UI (readout + clickable names),
-/// for detecting whether an action changed anything (#2 state-delta).
+/// Order-independent signature of accessible identity, value, state, and geometry.
 pub(super) fn state_signature(elements: &[UiElement]) -> String {
-    let mut names: Vec<&str> = elements
+    let mut states: Vec<String> = elements
         .iter()
         .filter(|e| {
             !e.name.trim().is_empty() && (e.control_type == "Text" || is_clickable(e.control_type))
         })
-        .map(|e| e.name.as_str())
+        .map(|e| {
+            format!(
+                "{}|{}|value={:?}|state={:?}|enabled={}|required={}|rect={},{},{},{}",
+                e.control_type,
+                e.name,
+                e.value,
+                e.state,
+                e.enabled,
+                e.required,
+                e.left,
+                e.top,
+                e.right,
+                e.bottom,
+            )
+        })
         .collect();
-    names.sort_unstable();
-    names.dedup();
-    names.join("|")
-}
-
-/// A truncated action signature for the stuck-loop detector (#1).
-pub(super) fn compact_args(args: &Value) -> String {
-    args.to_string().chars().take(60).collect()
+    states.sort_unstable();
+    states.dedup();
+    states.join("\n")
 }
 
 /// The structured state the model sees each turn: window title, live READOUTS
@@ -331,15 +374,24 @@ pub(super) fn format_state(
     target: Option<&str>,
     view: View,
     grid: Grid,
+    show_grid: bool,
+    indexed_controls: Option<&str>,
 ) -> String {
     let title = elements
         .iter()
         .find(|e| e.control_type == "Window" && !e.name.trim().is_empty())
         .map(|e| e.name.clone())
+        .or_else(|| {
+            let title = uia::pointer_context().0;
+            (!title.trim().is_empty()).then_some(title)
+        })
         .or_else(|| target.map(str::to_string))
         .unwrap_or_else(|| "(unknown)".to_string());
 
     let cell_of = |e: &UiElement| -> String {
+        if !show_grid {
+            return String::new();
+        }
         let (cx, cy) = e.center();
         let mx = (cx - view.x) as f64 / view.w.max(1) as f64 * 1000.0;
         let my = (cy - view.y) as f64 / view.h.max(1) as f64 * 1000.0;
@@ -391,12 +443,17 @@ pub(super) fn format_state(
     if readouts.is_empty() {
         readouts.push_str("(none)\n");
     }
+    let controls = indexed_controls.unwrap_or(&clickable);
+    let spatial = if show_grid { ", with grid cell" } else { "" };
+    let blind_route = if show_grid {
+        "use a detector mark when present, otherwise zoom a grid cell before click_at"
+    } else {
+        "use a detector mark when present, otherwise use the vision targeting tools"
+    };
     format!(
-        "WINDOW: {title}\n\nREADOUTS (live values, with grid cell):\n{readouts}\nCLICKABLE \
-(click_target by its name, or click_at its @cellN grid cell; a [tag] like [on]/[off]/[selected]/[expanded]/[value N] \
-is its CURRENT state - TRUST that over the screenshot):\n{clickable}\nNote: targets with NO \
-UIA element (game boards, canvas, images) are not listed - locate them visually, using the @cell anchors \
-above as reference, then zoom that cell and click_at.\n"
+        "WINDOW: {title}\n\nREADOUTS (live values{spatial}):\n{readouts}\nINDEXED CONTROLS \
+(act by @id; click is one ordinary click, activate enters/opens; current [state] is ground truth):\n\
+{controls}\nTargets with no accessible control are not listed; {blind_route}.\n"
     )
 }
 
@@ -428,7 +485,19 @@ pub(super) fn wait_for_setup(socket: &mut Sock) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::frame_file_name;
+    use super::{frame_file_name, perception_matches};
+    use crate::overlay::computer_control::controller::world::{
+        BrowserWindowIdentity, SurfaceIdentity,
+    };
+
+    fn browser_window() -> BrowserWindowIdentity {
+        BrowserWindowIdentity {
+            browser_window_id: 2,
+            hwnd: 3,
+            pid: 4,
+            generation: 5,
+        }
+    }
 
     #[test]
     fn frame_names_are_unique_and_carry_correlation_ids() {
@@ -439,5 +508,34 @@ mod tests {
         assert!(first.contains("turn-0003"));
         assert!(first.contains("action-000021"));
         assert!(first.contains("step-0005"));
+    }
+
+    #[test]
+    fn overlays_require_the_same_document_or_native_generation_as_pixels() {
+        let browser_frame = SurfaceIdentity::Browser {
+            tab_id: 8,
+            document_id: "doc-new".into(),
+            window: browser_window(),
+        };
+        let browser_state = SurfaceIdentity::Browser {
+            tab_id: 8,
+            document_id: "doc-old".into(),
+            window: browser_window(),
+        };
+        let native_frame = SurfaceIdentity::Native {
+            hwnd: 3,
+            pid: 4,
+            generation: 6,
+        };
+        let native_state = SurfaceIdentity::Native {
+            hwnd: 3,
+            pid: 4,
+            generation: 5,
+        };
+
+        assert!(!perception_matches(Some(&browser_state), &browser_frame));
+        assert!(!perception_matches(Some(&native_state), &native_frame));
+        assert!(perception_matches(Some(&browser_frame), &browser_frame));
+        assert!(!perception_matches(None, &browser_frame));
     }
 }

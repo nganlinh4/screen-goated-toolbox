@@ -361,7 +361,7 @@ pub(super) fn push_log(line: impl Into<String>) {
     super::telemetry::event(
         "log",
         "runtime",
-        super::telemetry::Privacy::Safe,
+        super::telemetry::Privacy::Sensitive,
         serde_json::json!({"line": line.clone()}),
     );
 }

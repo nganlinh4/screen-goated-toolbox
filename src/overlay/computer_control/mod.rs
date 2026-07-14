@@ -81,6 +81,11 @@ pub fn run_vision_test_cli(target: Option<&str>, question: &str) -> Result<(), S
     uia_task::run_vision_test(target, question).map_err(|e| format!("{e:?}"))
 }
 
+/// CLI entry for validated local UI-DETR inference: `--cc-detector-test`.
+pub fn run_detector_test_cli(target: Option<&str>) -> Result<(), String> {
+    detector::run_test(target).map_err(|e| format!("{e:?}"))
+}
+
 /// CLI entry for the MCP stdio bridge smoke test: `--cc-mcp-test <id>` (no Gemini).
 pub fn run_mcp_test_cli(
     id: &str,

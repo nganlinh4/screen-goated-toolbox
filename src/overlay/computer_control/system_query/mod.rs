@@ -161,7 +161,7 @@ fn log_result(domain: &str, query: &str, result: &Value) {
     telemetry::human(
         "cc-system",
         format!(
-            "{domain}.{query} ok={ok} source={source} confidence={confidence} items={item_count} warnings={warning_count}"
+            "query ok={ok} source={source} confidence={confidence} items={item_count} warnings={warning_count}"
         ),
     );
     telemetry::event(

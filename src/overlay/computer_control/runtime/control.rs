@@ -1,6 +1,6 @@
 //! Public session entry points and the typed-command bridge.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, mpsc};
 
 use super::super::overlay;
@@ -34,7 +34,10 @@ fn run_with_turns(stop: Arc<AtomicBool>, turns: Option<Vec<String>>) {
         Ok(()) => overlay::set_status("stopped"),
         Err(error) => {
             let message = error.to_string().to_lowercase();
-            if stop.load(Ordering::SeqCst) || message == "stopped" {
+            // Cleanup sets the shared stop flag on every exit. Only the explicit
+            // cancellation sentinel is therefore evidence of a normal stop;
+            // transport/setup failures must remain visible.
+            if message == "stopped" {
                 overlay::set_status("stopped");
             } else if message.contains("quota")
                 || message.contains("exceeded")

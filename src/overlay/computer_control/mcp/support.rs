@@ -1,7 +1,7 @@
 //! Safe support tools for app-side MCP setup: fetch curated docs and probe
 //! declarative readiness. Nothing here executes model-provided commands or URLs.
 
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use std::io::Read;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
@@ -24,7 +24,7 @@ pub(super) fn status_tool(
     let transport = readiness(integ.readiness_probe);
     let server_connected = connected.is_some();
     let health = match connected {
-        Some((client, tools)) => semantic_health(&client, &tools),
+        Some((client, tools)) => semantic_health(&client, &tools, integ.semantic_probe_tool),
         None => SemanticHealth {
             ready: false,
             evidence: json!({"kind": "mcp_tool", "error": "MCP server is not connected"}),
@@ -86,25 +86,31 @@ pub(super) struct SemanticHealth {
     pub evidence: Value,
 }
 
-pub(super) fn semantic_health(client: &McpClient, tools: &[McpTool]) -> SemanticHealth {
-    let Some((tool, args)) = select_probe_tool(tools) else {
+pub(super) fn semantic_health(
+    client: &McpClient,
+    tools: &[McpTool],
+    catalog_probe_tool: Option<&str>,
+) -> SemanticHealth {
+    let Some(probe) = select_probe_tool(tools, catalog_probe_tool) else {
         return SemanticHealth {
             ready: false,
             evidence: json!({
                 "kind": "mcp_tool",
-                "error": "no safe read/status/info/list MCP tool with satisfiable required args was found"
+                "error": "no structurally authorized zero-argument MCP readiness probe was found"
             }),
         };
     };
-    match client.call_tool_timeout(&tool.name, &args, HEALTH_TIMEOUT) {
+    let args = json!({});
+    match client.call_tool_timeout(&probe.tool.name, &args, HEALTH_TIMEOUT) {
         Ok(result) => {
             let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
             SemanticHealth {
                 ready: ok,
                 evidence: json!({
                     "kind": "mcp_tool",
-                    "tool": tool.name,
+                    "tool": probe.tool.name,
                     "args": args,
+                    "authorization": probe.authorization.as_str(),
                     "ok": ok,
                     "content": result.get("content").cloned().unwrap_or(Value::Null),
                 }),
@@ -114,8 +120,9 @@ pub(super) fn semantic_health(client: &McpClient, tools: &[McpTool]) -> Semantic
             ready: false,
             evidence: json!({
                 "kind": "mcp_tool",
-                "tool": tool.name,
+                "tool": probe.tool.name,
                 "args": args,
+                "authorization": probe.authorization.as_str(),
                 "ok": false,
                 "error": format!("{e:#}"),
             }),
@@ -123,96 +130,103 @@ pub(super) fn semantic_health(client: &McpClient, tools: &[McpTool]) -> Semantic
     }
 }
 
-fn select_probe_tool(tools: &[McpTool]) -> Option<(&McpTool, Value)> {
-    let mut candidates: Vec<(u8, &McpTool, Value)> = tools
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProbeAuthorization {
+    ReadOnlyClosedWorld,
+    ReadOnlyOpenWorld,
+    Catalog,
+}
+
+impl ProbeAuthorization {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadOnlyClosedWorld => "mcp_read_only_closed_world",
+            Self::ReadOnlyOpenWorld => "mcp_read_only_open_world",
+            Self::Catalog => "curated_catalog",
+        }
+    }
+}
+
+struct ProbeSelection<'a> {
+    tool: &'a McpTool,
+    authorization: ProbeAuthorization,
+}
+
+fn select_probe_tool<'a>(
+    tools: &'a [McpTool],
+    catalog_probe_tool: Option<&str>,
+) -> Option<ProbeSelection<'a>> {
+    let mut candidates = tools
         .iter()
+        .filter(|tool| schema_accepts_empty_object(&tool.input_schema))
         .filter_map(|tool| {
-            let score = safe_tool_score(tool)?;
-            let (args, penalty) = required_args(&tool.input_schema)?;
-            Some((score.saturating_add(penalty), tool, args))
+            let authorization = probe_authorization(tool, catalog_probe_tool)?;
+            Some((authorization_rank(authorization), tool, authorization))
         })
-        .collect();
-    candidates.sort_by_key(|(score, tool, _)| (*score, tool.name.clone()));
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        (left.0, left.1.name.as_str()).cmp(&(right.0, right.1.name.as_str()))
+    });
     candidates
         .into_iter()
         .next()
-        .map(|(_, tool, args)| (tool, args))
+        .map(|(_, tool, authorization)| ProbeSelection {
+            tool,
+            authorization,
+        })
 }
 
-fn safe_tool_score(tool: &McpTool) -> Option<u8> {
-    let name = tool.name.to_ascii_lowercase();
-    let text = format!("{} {}", name, tool.description.to_ascii_lowercase());
-    let unsafe_terms = [
-        "execute", "download", "import", "generate", "create", "delete", "remove", "update",
-        "start", "stop", "poll", "search", "upload", "apply", "save", "write", "edit", "set_",
-        "set ",
-    ];
-    if unsafe_terms.iter().any(|term| text.contains(term)) {
+fn probe_authorization(
+    tool: &McpTool,
+    catalog_probe_tool: Option<&str>,
+) -> Option<ProbeAuthorization> {
+    if tool.annotations.destructive == Some(true) {
         return None;
     }
-    if name.starts_with("get_") && name.contains("info") {
-        Some(0)
-    } else if name.starts_with("get_") || name.starts_with("read_") {
-        Some(1)
-    } else if name.contains("status") {
-        Some(2)
-    } else if name.starts_with("list_") || name.contains("list") {
-        Some(3)
-    } else if name.contains("info") || name.contains("read") {
-        Some(4)
-    } else {
-        None
+    match tool.annotations.read_only {
+        Some(true) => match tool.annotations.open_world {
+            Some(false) => Some(ProbeAuthorization::ReadOnlyClosedWorld),
+            _ => Some(ProbeAuthorization::ReadOnlyOpenWorld),
+        },
+        Some(false) => None,
+        None if catalog_probe_tool == Some(tool.name.as_str()) => Some(ProbeAuthorization::Catalog),
+        None => None,
     }
 }
 
-fn required_args(schema: &Value) -> Option<(Value, u8)> {
-    let props = schema.get("properties").and_then(Value::as_object);
-    let required = schema
-        .get("required")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let mut args = Map::new();
-    let mut penalty = 0u8;
-    for key in required.iter().filter_map(Value::as_str) {
-        let field = props.and_then(|p| p.get(key)).unwrap_or(&Value::Null);
-        let (value, value_penalty) = probe_value_for(key, field)?;
-        penalty = penalty.saturating_add(value_penalty);
-        args.insert(key.to_string(), value);
+fn authorization_rank(authorization: ProbeAuthorization) -> u8 {
+    match authorization {
+        ProbeAuthorization::ReadOnlyClosedWorld => 0,
+        ProbeAuthorization::ReadOnlyOpenWorld => 1,
+        ProbeAuthorization::Catalog => 2,
     }
-    Some((Value::Object(args), penalty))
 }
 
-fn probe_value_for(key: &str, schema: &Value) -> Option<(Value, u8)> {
-    let lower = key.to_ascii_lowercase();
-    if lower.contains("timezone") || lower == "tz" {
-        return Some((json!("UTC"), 0));
+fn schema_accepts_empty_object(schema: &Value) -> bool {
+    let Some(object) = schema.as_object() else {
+        return false;
+    };
+    if object.get("type").and_then(Value::as_str) != Some("object") {
+        return false;
     }
-    if lower.contains("user_prompt")
-        || lower.contains("prompt")
-        || lower.contains("question")
-        || lower.contains("query")
-    {
-        return Some((
-            json!(
-                "Health check: verify the integration can read current state. Do not change anything."
-            ),
-            0,
-        ));
+    let required_is_empty = match object.get("required") {
+        None => true,
+        Some(Value::Array(required)) => required.is_empty(),
+        Some(_) => false,
+    };
+    if !required_is_empty {
+        return false;
     }
-    let ty = schema
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("string");
-    match ty {
-        "string" => Some((json!("health-check"), 8)),
-        "integer" => Some((json!(1), 4)),
-        "number" => Some((json!(1.0), 4)),
-        "boolean" => Some((json!(false), 2)),
-        "array" => Some((json!([]), 6)),
-        "object" => Some((json!({}), 6)),
-        _ => None,
+    match object.get("minProperties") {
+        None => {}
+        Some(Value::Number(value)) if value.as_u64() == Some(0) => {}
+        Some(_) => return false,
     }
+    ![
+        "$ref", "allOf", "anyOf", "oneOf", "not", "if", "then", "else", "const", "enum",
+    ]
+    .iter()
+    .any(|keyword| object.contains_key(*keyword))
 }
 
 struct Readiness {
@@ -285,8 +299,105 @@ fn github_readme_url(source_url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::client::McpToolAnnotations;
     use super::*;
     use std::net::TcpListener;
+
+    fn tool(name: &str, schema: Value, annotations: McpToolAnnotations) -> McpTool {
+        McpTool {
+            name: name.to_string(),
+            description: "arbitrary catalog prose".to_string(),
+            input_schema: schema,
+            annotations,
+        }
+    }
+
+    fn read_only(open_world: bool) -> McpToolAnnotations {
+        McpToolAnnotations {
+            read_only: Some(true),
+            destructive: Some(false),
+            open_world: Some(open_world),
+        }
+    }
+
+    #[test]
+    fn probe_prefers_structural_closed_world_annotation() {
+        let tools = vec![
+            tool("catalog", json!({"type": "object"}), Default::default()),
+            tool("external", json!({"type": "object"}), read_only(true)),
+            tool("local", json!({"type": "object"}), read_only(false)),
+        ];
+
+        let selected = select_probe_tool(&tools, Some("catalog")).unwrap();
+
+        assert_eq!(selected.tool.name, "local");
+        assert_eq!(
+            selected.authorization,
+            ProbeAuthorization::ReadOnlyClosedWorld
+        );
+    }
+
+    #[test]
+    fn catalog_fallback_is_exact_and_zero_argument_only() {
+        let tools = vec![
+            tool("other", json!({"type": "object"}), Default::default()),
+            tool("approved", json!({"type": "object"}), Default::default()),
+        ];
+        let selected = select_probe_tool(&tools, Some("approved")).unwrap();
+        assert_eq!(selected.tool.name, "approved");
+        assert_eq!(selected.authorization, ProbeAuthorization::Catalog);
+
+        let required = vec![tool(
+            "approved",
+            json!({"type": "object", "required": ["value"]}),
+            Default::default(),
+        )];
+        assert!(select_probe_tool(&required, Some("approved")).is_none());
+    }
+
+    #[test]
+    fn absent_or_unsafe_metadata_fails_closed() {
+        let unsafe_tools = vec![
+            tool("unknown", json!({"type": "object"}), Default::default()),
+            tool(
+                "mutable",
+                json!({"type": "object"}),
+                McpToolAnnotations {
+                    read_only: Some(false),
+                    destructive: Some(false),
+                    open_world: Some(false),
+                },
+            ),
+            tool(
+                "contradictory",
+                json!({"type": "object"}),
+                McpToolAnnotations {
+                    read_only: Some(true),
+                    destructive: Some(true),
+                    open_world: Some(false),
+                },
+            ),
+        ];
+
+        assert!(select_probe_tool(&unsafe_tools, None).is_none());
+        assert!(select_probe_tool(&unsafe_tools, Some("mutable")).is_none());
+        assert!(select_probe_tool(&unsafe_tools, Some("contradictory")).is_none());
+    }
+
+    #[test]
+    fn malformed_input_schema_cannot_be_probed() {
+        for schema in [
+            json!(null),
+            json!({}),
+            json!({"type": "array"}),
+            json!({"type": "object", "required": "value"}),
+            json!({"type": "object", "minProperties": 1}),
+            json!({"type": "object", "allOf": [{"required": ["value"]}]}),
+        ] {
+            let tools = vec![tool("candidate", schema, read_only(false))];
+            assert!(select_probe_tool(&tools, None).is_none());
+        }
+    }
 
     #[test]
     fn tcp_probe_reports_open_and_closed() {

@@ -4,7 +4,8 @@ Manifest V3 bridge between Computer Control and the user's existing Chromium ses
 
 ## Components
 
-- `manifest.json` — extension metadata and `debugger`, `tabs`, `storage` permissions.
+- `manifest.json` — extension metadata and permissions for debugger/tab control
+  and paired storage.
 - `sw.js` — WebSocket owner, HMAC authentication, CDP sessions, frame targets, and tab operations.
 - `bootstrap.js` — generated per extraction with a one-time bootstrap credential.
 - `popup.html` / `popup.js` — status, manual pairing fallback, and Forget action.
@@ -32,7 +33,9 @@ The app opens a ten-minute setup pairing window. A newly loaded/reloaded extensi
 - Reconnects use HMAC challenge-response; the durable secret is not sent as a static wire token.
 - Forget removes the stored secret.
 - Chrome's debugging banner remains visible while CDP is attached.
-- Protocol version is shared by `BRIDGE_PROTOCOL` in `sw.js` and the Rust setup/status checks.
+- The connection hello advertises protocol and per-command capabilities. Rust keeps
+  conservative maps for older shipped protocols, so optional staged updates do not
+  disable commands the connected extension already supports.
 
 ## Packaging
 

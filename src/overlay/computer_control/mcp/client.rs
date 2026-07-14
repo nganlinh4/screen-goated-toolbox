@@ -13,9 +13,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60); // a cold uvx/npx fetch on first run is slow
@@ -28,6 +28,16 @@ pub(super) struct McpTool {
     pub name: String,
     pub description: String,
     pub input_schema: Value,
+    pub annotations: McpToolAnnotations,
+}
+
+/// Structured MCP risk hints. Servers are pinned by the curated catalog, but
+/// absent or malformed hints still retain the protocol's conservative meaning.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct McpToolAnnotations {
+    pub read_only: Option<bool>,
+    pub destructive: Option<bool>,
+    pub open_world: Option<bool>,
 }
 
 /// A live connection to one stdio MCP server.
@@ -43,6 +53,16 @@ pub(super) struct McpClient {
 impl McpClient {
     /// Spawn the server, complete the MCP handshake, and return a ready client.
     pub fn spawn(launch: &LaunchSpec) -> Result<McpClient> {
+        Self::spawn_inner(launch, None)
+    }
+
+    /// Session-owned startup variant. A stopped owner aborts bounded protocol
+    /// waits; dropping the partial client then shuts down its child process.
+    pub fn spawn_until(launch: &LaunchSpec, stop: &AtomicBool) -> Result<McpClient> {
+        Self::spawn_inner(launch, Some(stop))
+    }
+
+    fn spawn_inner(launch: &LaunchSpec, stop: Option<&AtomicBool>) -> Result<McpClient> {
         use std::os::windows::process::CommandExt;
         let mut child = std::process::Command::new(launch.program)
             .args(launch.args)
@@ -78,12 +98,12 @@ impl McpClient {
             alive,
             reader: Mutex::new(Some(reader)),
         };
-        client.handshake()?;
+        client.handshake(stop)?;
         Ok(client)
     }
 
-    fn handshake(&self) -> Result<()> {
-        self.request(
+    fn handshake(&self, stop: Option<&AtomicBool>) -> Result<()> {
+        self.request_until(
             "initialize",
             json!({
                 "protocolVersion": "2025-06-18",
@@ -91,12 +111,21 @@ impl McpClient {
                 "clientInfo": {"name": "screen-goated-toolbox", "version": env!("CARGO_PKG_VERSION")}
             }),
             HANDSHAKE_TIMEOUT,
+            stop,
         )?;
         self.notify("notifications/initialized", json!({}))
     }
 
     pub fn list_tools(&self) -> Result<Vec<McpTool>> {
-        let result = self.request("tools/list", json!({}), LIST_TIMEOUT)?;
+        self.list_tools_until(None)
+    }
+
+    pub fn list_tools_owned(&self, stop: &AtomicBool) -> Result<Vec<McpTool>> {
+        self.list_tools_until(Some(stop))
+    }
+
+    fn list_tools_until(&self, stop: Option<&AtomicBool>) -> Result<Vec<McpTool>> {
+        let result = self.request_until("tools/list", json!({}), LIST_TIMEOUT, stop)?;
         let tools = result
             .get("tools")
             .and_then(Value::as_array)
@@ -113,6 +142,7 @@ impl McpClient {
                         .unwrap_or("")
                         .to_string(),
                     input_schema: t.get("inputSchema").cloned().unwrap_or_else(|| json!({})),
+                    annotations: parse_annotations(t.get("annotations")),
                 })
             })
             .collect())
@@ -163,8 +193,21 @@ impl McpClient {
     }
 
     fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
+        self.request_until(method, params, timeout, None)
+    }
+
+    fn request_until(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        stop: Option<&AtomicBool>,
+    ) -> Result<Value> {
         if !self.alive.load(Ordering::SeqCst) {
             bail!("mcp server is not running");
+        }
+        if stop.is_some_and(|stop| stop.load(Ordering::SeqCst)) {
+            bail!("mcp request cancelled because its session stopped");
         }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
@@ -175,21 +218,37 @@ impl McpClient {
             self.pending.lock().remove(&id);
             bail!("mcp write failed: {e}");
         }
-        match rx.recv_timeout(timeout) {
-            Ok(resp) => {
-                if let Some(err) = resp.get("error") {
-                    bail!(
-                        "mcp error: {}",
-                        err.get("message")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown")
-                    );
-                }
-                Ok(resp.get("result").cloned().unwrap_or(Value::Null))
+        let deadline = Instant::now() + timeout;
+        loop {
+            if stop.is_some_and(|stop| stop.load(Ordering::SeqCst)) {
+                self.pending.lock().remove(&id);
+                bail!("mcp request cancelled because its session stopped");
             }
-            Err(_) => {
+            let now = Instant::now();
+            if now >= deadline {
                 self.pending.lock().remove(&id);
                 bail!("mcp '{method}' timed out");
+            }
+            let poll = deadline
+                .saturating_duration_since(now)
+                .min(Duration::from_millis(100));
+            match rx.recv_timeout(poll) {
+                Ok(resp) => {
+                    if let Some(err) = resp.get("error") {
+                        bail!(
+                            "mcp error: {}",
+                            err.get("message")
+                                .and_then(Value::as_str)
+                                .unwrap_or("unknown")
+                        );
+                    }
+                    return Ok(resp.get("result").cloned().unwrap_or(Value::Null));
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    self.pending.lock().remove(&id);
+                    bail!("mcp server disconnected while handling '{method}'");
+                }
             }
         }
     }
@@ -205,6 +264,15 @@ impl McpClient {
         let mut stdin = self.stdin.lock();
         stdin.write_all(&line)?;
         stdin.flush()
+    }
+}
+
+fn parse_annotations(value: Option<&Value>) -> McpToolAnnotations {
+    let boolean = |key| value?.get(key)?.as_bool();
+    McpToolAnnotations {
+        read_only: boolean("readOnlyHint"),
+        destructive: boolean("destructiveHint"),
+        open_world: boolean("openWorldHint"),
     }
 }
 
@@ -275,4 +343,26 @@ fn content_text(result: &Value) -> String {
         }
     }
     out.chars().take(4000).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_only_boolean_tool_annotations() {
+        assert_eq!(
+            parse_annotations(Some(&json!({
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "openWorldHint": "false"
+            }))),
+            McpToolAnnotations {
+                read_only: Some(true),
+                destructive: Some(false),
+                open_world: None,
+            }
+        );
+        assert_eq!(parse_annotations(None), McpToolAnnotations::default());
+    }
 }

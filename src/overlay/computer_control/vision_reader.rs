@@ -16,6 +16,8 @@ use crate::config::Config;
 use crate::model_config::{get_model_by_id_with_custom, model_is_non_llm};
 
 mod circuit;
+mod mark_labels;
+pub(super) use mark_labels::label_clickable_marks;
 
 /// Per-provider API key, preferring the repo `.env` overrides (so the headless
 /// harness works) and falling back to the saved app config.
@@ -84,6 +86,20 @@ fn run_chain(
     schema: Option<serde_json::Value>,
     task: VisionTask,
 ) -> Result<String> {
+    run_chain_where(jpeg, prompt, prefer, schema, task, |_| true)
+}
+
+/// As [`run_chain`], but a non-empty answer is accepted only when `accept`
+/// validates its task-specific contract. Invalid structured output falls
+/// through to the next configured provider instead of disabling grounding.
+fn run_chain_where(
+    jpeg: &[u8],
+    prompt: &str,
+    prefer: &[&str],
+    schema: Option<serde_json::Value>,
+    task: VisionTask,
+    accept: impl Fn(&str) -> bool,
+) -> Result<String> {
     let config = crate::load_config();
     let gemini_key = key_for("google", &config).unwrap_or_default();
     let groq_key = key_for("groq", &config).unwrap_or_default();
@@ -124,11 +140,17 @@ fn run_chain(
             cancel_token: None,
         };
         match translate_image_streaming(req, |_| {}) {
-            Ok(t) if !t.trim().is_empty() => {
+            Ok(t) if !t.trim().is_empty() && accept(t.trim()) => {
                 eprintln!("[vision] {} ({})", mc.id, mc.provider);
                 return Ok(t.trim().to_string());
             }
-            Ok(_) => last_err = Some(anyhow!("{} returned empty", mc.id)),
+            Ok(t) if t.trim().is_empty() => {
+                last_err = Some(anyhow!("{} returned empty", mc.id));
+            }
+            Ok(_) => {
+                eprintln!("[vision] {} returned invalid structured output", mc.id);
+                last_err = Some(anyhow!("{} returned invalid structured output", mc.id));
+            }
             Err(e) => {
                 eprintln!("[vision] {} failed: {e}", mc.id);
                 if circuit::is_rate_limit_error(&e.to_string()) {
@@ -194,6 +216,7 @@ fn verification_schema() -> serde_json::Value {
 /// A located click point (0-1000 over the image) plus what the vision model
 /// observed AT that point (e.g. "empty cell", "an X") — fed back to the Live
 /// model so it knows the target's state without a separate look.
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Located {
     pub x: f64,
     pub y: f64,
@@ -360,7 +383,7 @@ pub(super) fn locate_points(jpeg: &[u8], description: &str, ctx: &str) -> Result
     let prompt = format!(
         "{}Find EVERY target matching: {description}. Output ONLY a JSON array, one object per target, in reading \
 order (top row left-to-right, then next row): [{{\"x\": <int>, \"y\": <int>, \"what\": \"<2-4 words at that spot>\"}}, ...] \
-- x,y are the CENTER on a 0-1000 grid (x 0 left..1000 right, y 0 top..1000 bottom). Output [] if none. Cap at 60.",
+- x,y are the CENTER on a 0-1000 grid (x 0 left..1000 right, y 0 top..1000 bottom). Output [] if none. Cap at 30.",
         ctx_prefix(ctx)
     );
     let answer = run_chain(
@@ -370,37 +393,62 @@ order (top row left-to-right, then next row): [{{\"x\": <int>, \"y\": <int>, \"w
         Some(points_schema()),
         VisionTask::Grounding,
     )?;
-    let pts = parse_points(&answer);
-    if pts.is_empty() {
-        anyhow::bail!("no points parsed from vision answer: {answer}");
-    }
-    Ok(pts)
+    parse_points(&answer)
+        .ok_or_else(|| anyhow!("could not parse point array from vision answer: {answer}"))
 }
 
 /// Parse a JSON array of `{x,y,what}` objects from a vision answer (tolerant of
 /// surrounding prose / markdown fences).
-fn parse_points(s: &str) -> Vec<Located> {
+fn parse_points(s: &str) -> Option<Vec<Located>> {
     let (Some(a), Some(b)) = (s.find('['), s.rfind(']')) else {
-        return Vec::new();
+        return None;
     };
     if b <= a {
-        return Vec::new();
+        return None;
     }
     let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(&s[a..=b])
     else {
-        return Vec::new();
+        return None;
     };
-    arr.iter()
+    let input_was_empty = arr.is_empty();
+    let mut points: Vec<Located> = arr
+        .iter()
         .filter_map(|item| {
             let x = item.get("x").and_then(serde_json::Value::as_f64)?;
             let y = item.get("y").and_then(serde_json::Value::as_f64)?;
+            if !x.is_finite()
+                || !y.is_finite()
+                || !(0.0..=1000.0).contains(&x)
+                || !(0.0..=1000.0).contains(&y)
+            {
+                return None;
+            }
             let note = item
                 .get("what")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string);
             Some(Located { x, y, note })
         })
-        .collect()
+        .collect();
+    if !input_was_empty && points.is_empty() {
+        return None;
+    }
+    points.sort_by(|left, right| left.y.total_cmp(&right.y).then(left.x.total_cmp(&right.x)));
+    let mut unique: Vec<Located> = Vec::with_capacity(points.len().min(30));
+    for point in points {
+        let duplicate = unique.iter().any(|existing| {
+            let dx = existing.x - point.x;
+            let dy = existing.y - point.y;
+            dx * dx + dy * dy < 100.0
+        });
+        if !duplicate {
+            unique.push(point);
+        }
+        if unique.len() == 30 {
+            break;
+        }
+    }
+    Some(unique)
 }
 
 /// Extract a JSON string field `"key": "value"` from a vision answer.
@@ -494,67 +542,7 @@ fn num_after_key(s: &str, key: u8) -> Option<f64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{VisionTask, chain_ids, parse_box, parse_point};
-    use crate::config::Config;
-
-    #[test]
-    fn grounding_chain_never_inherits_general_vision_models() {
-        let mut config = Config::default();
-        config.model_priority_chains.image_to_text = vec!["scout".into(), "gemini-flash".into()];
-        let grounding = chain_ids(&config, &[], VisionTask::Grounding);
-        assert_eq!(grounding.len(), 1);
-        assert!(
-            !grounding
-                .iter()
-                .any(|id| id == "scout" || id == "gemini-flash")
-        );
-        assert_eq!(
-            chain_ids(&config, &[], VisionTask::General),
-            ["scout", "gemini-flash"]
-        );
-    }
-
-    #[test]
-    fn parses_box_2d_ignoring_the_key_digit() {
-        // The "2" in box_2d must NOT be read as the first coordinate.
-        let b = parse_box(r#"{"box_2d": [100, 200, 300, 460]}"#).unwrap();
-        assert_eq!(b, [100.0, 200.0, 300.0, 460.0]);
-    }
-
-    #[test]
-    fn parses_bare_box_array() {
-        let b = parse_box("```json\n[10, 20, 30, 40]\n```").unwrap();
-        assert_eq!(b, [10.0, 20.0, 30.0, 40.0]);
-    }
-
-    #[test]
-    fn rejects_box_not_visible() {
-        assert_eq!(parse_box(r#"{"error": "not visible"}"#), None);
-    }
-
-    #[test]
-    fn parses_json_point() {
-        assert_eq!(parse_point(r#"{"x": 420, "y": 680}"#), Some((420.0, 680.0)));
-    }
-
-    #[test]
-    fn parses_fenced_and_reordered() {
-        let s = "```json\n{ \"y\": 100, \"x\": 900 }\n```";
-        assert_eq!(parse_point(s), Some((900.0, 100.0)));
-    }
-
-    #[test]
-    fn rejects_not_visible() {
-        assert_eq!(parse_point(r#"{"error": "not visible"}"#), None);
-    }
-
-    #[test]
-    fn verbose_reasoning_uses_final_coordinates() {
-        let answer = "The grid starts at x=0 and y=0. Final: {\"x\": 150, \"y\": 250}.";
-        assert_eq!(parse_point(answer), Some((150.0, 250.0)));
-    }
-}
+mod tests;
 
 #[cfg(test)]
 mod vision_benchmark_tests;

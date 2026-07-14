@@ -64,7 +64,7 @@ pub(in crate::overlay::computer_control) fn run_mcp_test(
             return Err("explicit tool call returned ok:false".to_string());
         }
     } else {
-        let health = support::semantic_health(&client, &tools);
+        let health = support::semantic_health(&client, &tools, integration.semantic_probe_tool);
         eprintln!(
             "[mcp-test] semantic health: {}",
             serde_json::to_string(&health.evidence)

@@ -31,23 +31,12 @@ pub(super) fn type_text(
         .get("text")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("missing text"))?;
-    // Submit handling: models routinely append a submit token ("…{enter}", a
-    // trailing newline) or pass press_enter. Honor all of them — type the literal
-    // text, then press Enter instead of typing the submit marker verbatim.
-    let mut text = raw.to_string();
-    let mut enter = args
-        .get("press_enter")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let lower = text.to_lowercase();
-    for tok in ["{enter}", "{return}", "\n"] {
-        if lower.ends_with(tok) {
-            text.truncate(text.len() - tok.len());
-            enter = true;
-            break;
-        }
-    }
+    // Text is always literal. Submitting is a separate, explicit effect; neither
+    // a newline nor a marker embedded in user text is permission to press Enter.
+    let text = raw.to_string();
+    let enter = press_enter_requested(args);
     let n = text.chars().count();
+    super::verify_expected_keyboard_target(args)?;
     // PASTE longer text via the clipboard instead of a keystroke per character
     // (slow for paragraphs, mangles non-ASCII). Save/restore the user's clipboard.
     // Short inputs still type, to leave the clipboard alone and play nice with
@@ -64,7 +53,7 @@ pub(super) fn type_text(
         let paste_result = if cancelled_before_paste {
             Ok(())
         } else {
-            send_ctrl_v()
+            send_ctrl_v(args)
         };
         let cancelled_after_paste = if paste_result.is_ok() && !cancelled_before_paste {
             human_input::sleep_cancellable(140, cancel)
@@ -80,7 +69,7 @@ pub(super) fn type_text(
             return Ok(aborted_typing(n, false));
         }
         if enter {
-            send_key_tap(VK_RETURN)?;
+            send_key_tap(args, VK_RETURN)?;
         }
         return Ok(json!({"ok": true, "typed_chars": n, "method": "paste", "submitted": enter}));
     }
@@ -90,7 +79,8 @@ pub(super) fn type_text(
     // pointless. Default falls through to the instant batch below.
     let slow = args.get("slow").and_then(Value::as_bool).unwrap_or(false);
     if slow && n > 0 {
-        let failure = RefCell::new(None);
+        super::verify_expected_keyboard_target(args)?;
+        let failure: RefCell<Option<anyhow::Error>> = RefCell::new(None);
         let r = human_input::human_type(
             &text,
             profile,
@@ -99,11 +89,15 @@ pub(super) fn type_text(
                 if failure.borrow().is_some() {
                     return false;
                 }
+                if let Err(error) = super::verify_expected_keyboard_target(args) {
+                    *failure.borrow_mut() = Some(error);
+                    return false;
+                }
                 match super::send(&[super::key_unicode(unit, false)]) {
                     Ok(()) => true,
                     Err(error) => {
                         let _ = super::release(&[super::key_unicode(unit, true)]);
-                        *failure.borrow_mut() = Some(error);
+                        *failure.borrow_mut() = Some(error.into());
                         false
                     }
                 }
@@ -112,18 +106,23 @@ pub(super) fn type_text(
                 if failure.borrow().is_some() {
                     return false;
                 }
+                if let Err(error) = super::verify_expected_keyboard_target(args) {
+                    let _ = super::release(&[super::key_unicode(unit, true)]);
+                    *failure.borrow_mut() = Some(error);
+                    return false;
+                }
                 match super::send(&[super::key_unicode(unit, true)]) {
                     Ok(()) => true,
                     Err(error) => {
                         let _ = super::release(&[super::key_unicode(unit, true)]);
-                        *failure.borrow_mut() = Some(error);
+                        *failure.borrow_mut() = Some(error.into());
                         false
                     }
                 }
             },
         );
         if let Some(error) = failure.into_inner() {
-            return Err(error.into());
+            return Err(error);
         }
         if r == Outcome::Aborted {
             return Ok(aborted_typing(n, true));
@@ -132,55 +131,49 @@ pub(super) fn type_text(
             return Ok(aborted_typing(n, false));
         }
         if enter {
-            send_key_tap(VK_RETURN)?;
+            send_key_tap(args, VK_RETURN)?;
         }
         return Ok(json!({"ok": true, "typed_chars": n, "submitted": enter}));
     }
     let units: Vec<u16> = text.encode_utf16().collect();
-    // Send in chunks so very long strings don't overflow a single call.
-    for chunk in units.chunks(32) {
+    for unit in units {
         if cancel.load(Ordering::Relaxed) {
             return Ok(aborted_typing(n, true));
         }
-        let mut inputs = Vec::with_capacity(chunk.len() * 2);
-        for &unit in chunk {
-            inputs.push(super::key_unicode(unit, false));
-            inputs.push(super::key_unicode(unit, true));
-        }
-        if let Err(error) = super::send(&inputs) {
-            let releases: Vec<INPUT> = chunk
-                .iter()
-                .rev()
-                .map(|&unit| super::key_unicode(unit, true))
-                .collect();
-            let _ = super::release(&releases);
-            return Err(error.into());
-        }
+        send_key_edges(
+            args,
+            &[super::key_unicode(unit, false)],
+            &[super::key_unicode(unit, true)],
+        )?;
         sleep(Duration::from_millis(2));
     }
     if cancel.load(Ordering::Relaxed) {
         return Ok(aborted_typing(n, false));
     }
     if enter {
-        send_key_tap(VK_RETURN)?;
+        send_key_tap(args, VK_RETURN)?;
     }
     Ok(json!({"ok": true, "typed_chars": n, "submitted": enter}))
 }
 
 /// Press Ctrl+V (paste) — Ctrl down, V down, V up, Ctrl up.
-fn send_ctrl_v() -> Result<()> {
+fn send_ctrl_v(args: &Value) -> Result<()> {
     let v = VIRTUAL_KEY(0x56); // 'V'
-    let inputs = [
-        super::key_vk(VK_CONTROL, false),
-        super::key_vk(v, false),
-        super::key_vk(v, true),
-        super::key_vk(VK_CONTROL, true),
-    ];
-    if let Err(error) = super::send(&inputs) {
-        let _ = super::release(&[super::key_vk(v, true), super::key_vk(VK_CONTROL, true)]);
-        return Err(error.into());
-    }
-    Ok(())
+    let downs = [super::key_vk(VK_CONTROL, false), super::key_vk(v, false)];
+    let ups = [super::key_vk(v, true), super::key_vk(VK_CONTROL, true)];
+    send_key_edges(args, &downs, &ups)
+}
+
+fn send_key_edges(args: &Value, downs: &[INPUT], ups: &[INPUT]) -> Result<()> {
+    dispatch_guarded_key_edges(
+        || super::verify_expected_keyboard_target(args),
+        || super::send(downs).map_err(Into::into),
+        || (),
+        || super::send(ups).map_err(Into::into),
+        || {
+            let _ = super::release(ups);
+        },
+    )
 }
 
 pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value> {
@@ -208,7 +201,7 @@ pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value
         if cancel.load(Ordering::Relaxed) {
             return Ok(aborted_keys(completed_groups));
         }
-        if press_chord(vks, hold_ms, cancel)? {
+        if press_chord(args, vks, hold_ms, cancel)? {
             return Ok(aborted_keys(completed_groups));
         }
         completed_groups += 1;
@@ -252,36 +245,60 @@ fn parse_key_sequence(combo: &str) -> Result<Vec<Vec<VIRTUAL_KEY>>> {
 
 /// Press all keys down in order and release them in reverse so modifiers wrap
 /// the primary key. Returns true when cancellation interrupted the hold.
-fn press_chord(vks: &[VIRTUAL_KEY], hold_ms: u64, cancel: &AtomicBool) -> Result<bool> {
+fn press_chord(
+    args: &Value,
+    vks: &[VIRTUAL_KEY],
+    hold_ms: u64,
+    cancel: &AtomicBool,
+) -> Result<bool> {
     let downs: Vec<INPUT> = vks.iter().map(|&vk| super::key_vk(vk, false)).collect();
     let ups: Vec<INPUT> = vks
         .iter()
         .rev()
         .map(|&vk| super::key_vk(vk, true))
         .collect();
-    if let Err(error) = super::send(&downs) {
-        let _ = super::release(&ups);
-        return Err(error.into());
-    }
-    let interrupted = human_input::sleep_cancellable(hold_ms, cancel);
-    if let Err(error) = super::send(&ups) {
-        let _ = super::release(&ups);
-        return Err(error.into());
-    }
-    Ok(interrupted)
+    dispatch_guarded_key_edges(
+        || super::verify_expected_keyboard_target(args),
+        || super::send(&downs).map_err(Into::into),
+        || human_input::sleep_cancellable(hold_ms, cancel),
+        || super::send(&ups).map_err(Into::into),
+        || {
+            let _ = super::release(&ups);
+        },
+    )
 }
 
-fn send_key_tap(vk: VIRTUAL_KEY) -> Result<()> {
-    let up = super::key_vk(vk, true);
-    if let Err(error) = super::send(&[super::key_vk(vk, false)]) {
-        let _ = super::release(std::slice::from_ref(&up));
-        return Err(error.into());
+/// Validate the original focus only at the final pre-dispatch edge. Key-down is
+/// itself allowed to change focus, close a surface, submit, or switch windows;
+/// requiring the old target to survive that requested effect creates a false
+/// failure and can provoke a duplicate retry. Once key-down is attempted, key-up
+/// is always attempted and then retried best-effort on any dispatch error.
+fn dispatch_guarded_key_edges<T>(
+    mut guard: impl FnMut() -> Result<()>,
+    mut key_down: impl FnMut() -> Result<()>,
+    between_edges: impl FnOnce() -> T,
+    mut key_up: impl FnMut() -> Result<()>,
+    mut emergency_release: impl FnMut(),
+) -> Result<T> {
+    guard()?;
+    if let Err(error) = key_down() {
+        emergency_release();
+        return Err(error);
     }
-    if let Err(error) = super::send(std::slice::from_ref(&up)) {
-        let _ = super::release(std::slice::from_ref(&up));
-        return Err(error.into());
+    let outcome = between_edges();
+    if let Err(error) = key_up() {
+        emergency_release();
+        return Err(error);
     }
-    Ok(())
+    Ok(outcome)
+}
+
+fn send_key_tap(args: &Value, vk: VIRTUAL_KEY) -> Result<()> {
+    send_key_edges(
+        args,
+        &[super::key_vk(vk, false)],
+        &[super::key_vk(vk, true)],
+    )
 }
 
 fn restore_clipboard(saved: &str) {
@@ -290,6 +307,12 @@ fn restore_clipboard(saved: &str) {
     } else {
         super::super::clipboard::set_text(saved);
     }
+}
+
+fn press_enter_requested(args: &Value) -> bool {
+    args.get("press_enter")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn aborted_typing(requested_chars: usize, partial: bool) -> Value {
@@ -362,6 +385,7 @@ fn token_to_vk(token: &str) -> Option<VIRTUAL_KEY> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn maps_letter_and_named_keys() {
@@ -387,5 +411,98 @@ mod tests {
     fn rejects_empty_sequence_groups() {
         let error = parse_key_sequence("A, ,B").unwrap_err();
         assert!(error.to_string().contains("empty key group"));
+    }
+
+    #[test]
+    fn text_content_never_implies_submission() {
+        for text in ["hello{enter}", "hello{return}", "hello\n"] {
+            assert!(!press_enter_requested(&json!({"text": text})));
+        }
+        assert!(press_enter_requested(
+            &json!({"text": "hello\n", "press_enter": true})
+        ));
+    }
+
+    #[test]
+    fn tab_focus_transition_after_key_down_still_releases() {
+        let original_focus = Cell::new(true);
+        let guard_calls = Cell::new(0);
+        let released = Cell::new(false);
+
+        dispatch_guarded_key_edges(
+            || {
+                guard_calls.set(guard_calls.get() + 1);
+                anyhow::ensure!(original_focus.get(), "focus changed");
+                Ok(())
+            },
+            || {
+                original_focus.set(false);
+                Ok(())
+            },
+            || (),
+            || {
+                released.set(true);
+                Ok(())
+            },
+            || panic!("successful release must not use the emergency path"),
+        )
+        .unwrap();
+
+        assert_eq!(guard_calls.get(), 1);
+        assert!(released.get());
+    }
+
+    #[test]
+    fn enter_target_disappearance_after_key_down_is_not_a_false_failure() {
+        let target_exists = Cell::new(true);
+        let released = Cell::new(false);
+
+        dispatch_guarded_key_edges(
+            || {
+                anyhow::ensure!(target_exists.get(), "target disappeared");
+                Ok(())
+            },
+            || {
+                target_exists.set(false);
+                Ok(())
+            },
+            || (),
+            || {
+                released.set(true);
+                Ok(())
+            },
+            || panic!("successful release must not use the emergency path"),
+        )
+        .unwrap();
+
+        assert!(!target_exists.get());
+        assert!(released.get());
+    }
+
+    #[test]
+    fn interrupted_transitioning_chord_releases_before_reporting_cancellation() {
+        let original_window = Cell::new(true);
+        let released = Cell::new(false);
+
+        let interrupted = dispatch_guarded_key_edges(
+            || {
+                anyhow::ensure!(original_window.get(), "window changed");
+                Ok(())
+            },
+            || {
+                original_window.set(false);
+                Ok(())
+            },
+            || true,
+            || {
+                released.set(true);
+                Ok(())
+            },
+            || panic!("successful release must not use the emergency path"),
+        )
+        .unwrap();
+
+        assert!(interrupted);
+        assert!(released.get());
     }
 }

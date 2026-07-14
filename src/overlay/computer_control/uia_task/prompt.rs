@@ -1,6 +1,6 @@
 //! The Live session setup payload (`build_setup`) and the controller prompt
-//! addendum — split out of `uia_task.rs` for the file-size limit. The big `SYS`
-//! system instruction stays in the parent (referenced here as `super::SYS`).
+//! addendum — split out of `uia_task.rs` for the file-size limit. The compact
+//! core system contract stays in the parent (referenced here as `super::SYS`).
 
 use serde_json::{Value, json};
 
@@ -9,25 +9,20 @@ use crate::api::gemini_live::setup::{LiveSetupBuilder, MediaResolution, Transcri
 use super::super::{executor, protocol};
 
 /// A compact route map keeps the broad tool kit usable without repeating every
-/// declaration in the system prompt. Each declaration remains available; this
-/// only tells the model which mutually-exclusive lane to try first.
-const CONTROLLER_RULES: &str = "TOOL ROUTING - choose the narrowest lane that fits; do not explore tools merely \
-because they exist. ACCESSIBLE UI: observe() once, then act() by @id; use do_steps() only for a short known sequence \
-on the same stable view. These calls pair labels to controls, verify results, block incomplete required fields, and \
-gate consequential actions; set confirm:true only after the user explicitly approves that exact action. VISUAL-ONLY \
-UI: when observe() has no usable target, use look() to read, click_target/drag_target for precise action, or grid \
-tools for coarse action. CURRENT WEB PAGE: prefer browser_read_page and observe/act; use browser_eval only as an \
-escape hatch. WEB FACTS: use research_web without changing the foreground. COMPUTER FACTS: use system_query before \
-run_command. RAW INPUT: use type_text, key_combination, scroll, or drag only when focus and the intended input are \
-known. Re-read after a view change, and switch lanes only when the result shows the first lane cannot reach the \
-target. STRUCTURED COLLECTIONS: when the goal names an item in a collection such as tabs, windows, files, or \
-records, enumerate once and select the exact returned id; never cycle next/previous controls to discover items.";
+/// declaration in the system prompt. It ranks evidence by fidelity without
+/// encoding task phrases or application-specific workflows.
+const CONTROLLER_RULES: &str = "TOOL ROUTING: use the highest-fidelity available evidence. For an accessible surface, observe and act by current @id. For pixel-only content, use vision targets or current marks. Prefer direct browser, system, file, or integration providers when they expose the needed state. Raw input requires known focus and intended effect. Change route after a typed failure.";
 
 pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Value {
-    // "low" (not "medium") for a fast, action-oriented real-time agent: medium
-    // thinking noticeably slows every turn and made it over-deliberate (narrate
-    // instead of act). Override with CC_THINK=minimal|low|medium|high.
-    let think = std::env::var("CC_THINK").unwrap_or_else(|_| "low".to_string());
+    build_setup_with_integrations(resume, voice, search, true)
+}
+
+pub(super) fn build_setup_with_integrations(
+    resume: Option<&str>,
+    voice: bool,
+    search: bool,
+    include_integrations: bool,
+) -> Value {
     // Match the global TTS voice preference ("Cài đặt giọng đọc" in settings) so
     // the agent speaks in the user's chosen Gemini voice, not a hardcoded one.
     let voice_name = {
@@ -48,19 +43,19 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
         "PRIVILEGE: you are running as a STANDARD user (not elevated). run_command still does most things; but admin-only tasks (stop a service, kill another user's or a protected process, system-wide settings) fail with Access Denied - for THOSE, relaunch just that command via run_command with Start-Process -Verb RunAs (the user approves one UAC prompt), then verify."
     };
     let tools = json!([{"googleSearch": {}}, {"functionDeclarations": [
-        {"name": "observe", "description": "Read the CURRENT web page as an INDEXED list of its interactive elements - each with an @id, role, its paired label, current value, and flags (required / disabled / destructive). Use this on a connected browser page instead of guessing pixels or CSS selectors: the label is paired to its own field, so you target the right control. Returns the list; then act(id, ...) on any element. Re-run after the page changes.",
+        {"name": "observe", "description": "Read the current controlled surface as an indexed list of interactive elements with @id, role, paired label, value, and structural flags. Returns current ids for act; re-run after the surface changes.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "act", "description": "Act on an element from the latest observe() list, BY ITS @id. The controller resolves the exact element, performs the action, VERIFIES it took (reads the value back), and is a SAFETY CHECKPOINT: it BLOCKS a consequential/irreversible act (one whose @id is flagged with a '⚠' reason - signs you out, submits a payment or password, starts a purchase/transfer, deletes an account) and any submit while a required field is empty, returning a 'blocked' message to read and act on. Always observe() first to get current ids; the result includes the refreshed element list.",
+        {"name": "act", "description": "Act on an @id from the latest observe. The controller resolves the exact element, enforces structural preconditions, preserves an execution receipt, verifies supported effects, and returns a fresh element list.",
          "parameters": {"type": "object", "properties": {
              "id": {"type": "integer", "description": "The @id of the target element from observe()."},
-             "verb": {"type": "string", "enum": ["click", "fill", "select", "submit", "toggle"], "description": "click a button/link; fill a text field (value=text); select a dropdown option (value=option); submit a form; toggle a checkbox."},
+             "verb": {"type": "string", "enum": ["click", "activate", "fill", "select", "submit", "toggle"], "description": "click for one ordinary click (selection/simple control); activate for a default enter/open action; fill a text field; select an option; submit a form; toggle a checkbox."},
              "value": {"type": "string", "description": "The text to fill, or the option to select. Omit for click/submit/toggle."},
              "confirm": {"type": "boolean", "description": "Set true ONLY to clear a consequential-action checkpoint AFTER the user just explicitly approved this exact action (e.g. a payment, sign-out, account change, posting/sending content). Never set it pre-emptively or on your own judgement."}
          }, "required": ["id", "verb"]}},
-        {"name": "do_steps", "description": "Run a SHORT SEQUENCE of controller actions in ONE call (after a single observe), each gated + verified, stopping at the first failure and returning how far it got + the refreshed element list. Use it for a known multi-step run on a stable view - e.g. fill a form (several fills then submit) - to avoid a round-trip per step. observe() FIRST to get the @ids, then pass them here in order. If it stops early, read 'stopped', re-observe, and continue from there.",
+        {"name": "do_steps", "description": "Run a short ordered sequence of current @id actions on one stable surface. Every step is independently resolved, gated, executed, and verified; execution stops at the first failure and returns fresh state.",
          "parameters": {"type": "object", "properties": {
              "steps": {"type": "array", "description": "The ordered steps, each shaped like an act() call.", "items": {"type": "object", "properties": {
-                 "id": {"type": "integer"}, "verb": {"type": "string", "enum": ["click", "fill", "select", "submit", "toggle"]},
+                 "id": {"type": "integer"}, "verb": {"type": "string", "enum": ["click", "activate", "fill", "select", "submit", "toggle"]},
                  "value": {"type": "string"}, "confirm": {"type": "boolean"}
              }, "required": ["id", "verb"]}}
          }, "required": ["steps"]}},
@@ -70,35 +65,35 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
          "parameters": {"type": "object", "properties": {"cell": {"type": "integer", "description": "The grid number to magnify."}}, "required": ["cell"]}},
         {"name": "reset_view", "description": "Return the view to the ACTIVE window (the default; undoes zoom and see_whole_screen).",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "see_whole_screen", "description": "Switch the view to your ENTIRE screen (all windows) instead of just the active window. Use it for awareness - 'what's on my screen', counting/finding things across windows, or locating another window to switch to. Acting precisely (clicks) is best in the default active-window view, so reset_view (or focus_window) afterward.",
+        {"name": "see_whole_screen", "description": "Switch perception to the entire desktop for cross-window awareness. Return to an active-window view before precise input.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "look", "description": "Get a precise HIGH-RESOLUTION reading of what is currently on screen, for content you cannot read clearly yourself (game boards, charts, images, tiny text). Ask a specific question; a dedicated vision model answers from a clean high-res capture of the current view. Use this to read a board/canvas state before deciding a move, and to check results.",
+        {"name": "look", "description": "Get a precise high-resolution reading of visible content that structured providers cannot expose. Ask one specific spatial or visual question; the result comes from a clean capture of the current view.",
          "parameters": {"type": "object", "properties": {"question": {"type": "string", "description": "A precise question about the visible content and its spatial state."}}, "required": ["question"]}},
-        {"name": "click_target", "description": "Click a target described in plain words only when observe()/browser semantics expose no usable element (canvas, board, raster image). A grounding model locates it, then a fresh marked crop must verify the exact point before any click occurs. Prefer act on semantic elements. Set button='right' for a context menu.",
-         "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Unambiguous target, e.g. 'the generated image' or 'the download button'."}, "button": {"type": "string", "enum": ["left", "right"], "description": "left (default) or right for a context menu."}}, "required": ["description"]}},
-        {"name": "map_targets", "description": "Build reusable candidate anchors in one vision call for a UIA-blind board/canvas/image. click_mark freshly verifies a mapped point before clicking, so stale or incorrect anchors fail closed. Re-run map_targets after any layout change; zoom clears it automatically.",
-         "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "What set of targets to map, e.g. 'every empty cell of the board'."}}, "required": ["description"]}},
-        {"name": "click_mark", "description": "Click a numbered anchor previously built by map_targets (exact pixel, no vision cost). Set button='right' for a context menu.",
+        {"name": "click_target", "description": "Click a visually described target only when structured providers expose no usable element. A grounding model locates it, then a fresh marked crop verifies the exact point before input. Prefer act on semantic elements. Set button='right' for a context menu.",
+         "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "A visible, unambiguous target description."}, "button": {"type": "string", "enum": ["left", "right"], "description": "left (default) or right for a context menu."}}, "required": ["description"]}},
+        {"name": "map_targets", "description": "Build numbered candidate anchors in one vision call for a structured-access-blind region. click_mark freshly verifies a mapped point before clicking, and any mutating action invalidates the set.",
+         "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "The visible target set to map."}}, "required": ["description"]}},
+        {"name": "click_mark", "description": "Click a numbered anchor shown on the current grounded frame. Stale marks fail closed. Set button='right' for a context menu.",
          "parameters": {"type": "object", "properties": {"mark": {"type": "integer", "description": "The anchor number from map_targets."}, "button": {"type": "string", "enum": ["left", "right"]}}, "required": ["mark"]}},
-        {"name": "wait", "description": "Pause for N seconds, for slow or asynchronous operations (e.g. waiting for an image to finish generating or a page to load). Then re-observe.",
+        {"name": "wait", "description": "Pause for N seconds only when an asynchronous operation is known to be pending. Then re-observe.",
          "parameters": {"type": "object", "properties": {"seconds": {"type": "number", "description": "Seconds to wait (max 30)."}}, "required": ["seconds"]}},
-        {"name": "type_text", "description": "Type text at the current keyboard focus (FAST - instant/paste). Set press_enter=true to submit afterward (e.g. an address bar or search box) - do NOT put '{enter}' inside the text, it would be typed literally.",
+        {"name": "type_text", "description": "Insert text at the current keyboard focus. Text is always literal, including newlines and brace tokens. Set press_enter=true only when the requested effect includes a separate Enter keypress.",
          "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "press_enter": {"type": "boolean", "description": "Press Enter after typing (to submit)."}, "slow": {"type": "boolean", "description": "Rarely needed: type slowly key-by-key for a field that genuinely demands paced input. Default false (fast)."}}, "required": ["text"]}},
-        {"name": "scroll", "description": "Scroll with the REAL mouse wheel (not PageDown) over the page/list. direction up/down (or left/right); 'amount' is how far (default 5; larger scrolls more). Optionally pass a grid 'cell' to scroll over a specific area, else it scrolls over the centre. Prefer this for natural scrolling.",
+        {"name": "scroll", "description": "Inject a mouse-wheel scroll in the requested direction. Optionally target a current grid cell; otherwise scroll at view center.",
          "parameters": {"type": "object", "properties": {"direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "number"}, "cell": {"type": "integer"}}, "required": ["direction"]}},
-        {"name": "drag", "description": "Press at one grid cell, glide to another, and release - for sliders, reordering items, drawing, or click-drag to SELECT text/items. Pass from_cell and to_cell (the printed grid numbers). zoom() first for finer cells when precision matters.",
+        {"name": "drag", "description": "Press at one current grid cell, move to another, and release. Zoom first when either endpoint needs finer localization.",
          "parameters": {"type": "object", "properties": {"from_cell": {"type": "integer", "description": "Grid cell to press at."}, "to_cell": {"type": "integer", "description": "Grid cell to release at."}}, "required": ["from_cell", "to_cell"]}},
-        {"name": "drag_target", "description": "PRECISE drag-and-drop: a vision model locates the EXACT pixel of BOTH endpoints (described in plain words) and drags from one to the other. Use this - NOT drag(cells) - to place a card on a board slot, drop an item, or move a slider on a canvas/game, where grid cells are too coarse to hit the small targets.",
-         "parameters": {"type": "object", "properties": {"from": {"type": "string", "description": "What to grab, e.g. 'the selected card in my hand'."}, "to": {"type": "string", "description": "Where to drop it, e.g. 'the empty center slot of the board'."}}, "required": ["from", "to"]}},
-        {"name": "click_here", "description": "Click EXACTLY where the mouse cursor currently is, without moving it (button='right' for a context menu). Use when the user refers to what THEY are pointing at - 'this', 'the one I'm hovering on', 'where my mouse is' - because their pointer is already on the target. Far more reliable than guessing the target by description with click_target.",
+        {"name": "drag_target", "description": "Precisely drag between two visually described endpoints when grid cells are too coarse. A vision model locates both current pixels before input.",
+         "parameters": {"type": "object", "properties": {"from": {"type": "string", "description": "The visible object or handle to grab."}, "to": {"type": "string", "description": "The visible destination or final handle position."}}, "required": ["from", "to"]}},
+        {"name": "click_here", "description": "Click exactly at the user's current cursor without moving it. Use only when the requested target is explicitly cursor-relative.",
          "parameters": {"type": "object", "properties": {"button": {"type": "string", "enum": ["left", "right", "middle"]}}}},
-        {"name": "point_at", "description": "MOVE the mouse onto a target described in plain words and STOP there - point/hover, NO click. Use when the user wants you to POINT something OUT to them ('point at the save button', 'show me which one', 'where is X') rather than act on it, OR to HOVER and reveal a tooltip / hover-menu. A high-res vision model locates the exact pixel (same as click_target). Set dwell_seconds to linger so a hover reveal can appear before you look() again.",
-         "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Unambiguous target to point at, e.g. 'the settings gear' or 'the second result'."}, "dwell_seconds": {"type": "number", "description": "Optional: seconds to hover in place (0-10) to let a tooltip / hover-menu surface. Default 0."}}, "required": ["description"]}},
-        {"name": "key_combination", "description": "Press a keyboard shortcut (e.g. Enter, Control+C, Alt+Tab) - keys are held a few frames so even a game registers the press. To MOVE / walk in a game, or hold a key down, set hold_seconds (the key stays DOWN that long - e.g. hold 'd' or 'Right' for 1-2s to move the character).",
-         "parameters": {"type": "object", "properties": {"keys": {"type": "string"}, "hold_seconds": {"type": "number", "description": "Hold the key(s) DOWN this many seconds before releasing (0-10). Use it to walk/move in a game or hold a key; omit for a normal quick shortcut."}}, "required": ["keys"]}},
-        {"name": "open_url", "description": "Open an http(s) URL in the default browser as a NEW foreground tab (via the OS shell). Use this to go to a web page directly - far more reliable than typing into the address bar.",
+        {"name": "point_at", "description": "Move the cursor onto a visually described target without clicking. Optional dwell_seconds keeps the pointer there for hover state.",
+         "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "A visible, unambiguous target description."}, "dwell_seconds": {"type": "number", "description": "Optional hover duration, 0-10 seconds."}}, "required": ["description"]}},
+        {"name": "key_combination", "description": "Press a keyboard key or chord. Set hold_seconds only when the requested interaction is duration-sensitive; otherwise input is a normal quick press.",
+         "parameters": {"type": "object", "properties": {"keys": {"type": "string"}, "hold_seconds": {"type": "number", "description": "Seconds to hold all requested keys before release (0-10)."}}, "required": ["keys"]}},
+        {"name": "open_url", "description": "Open an http(s) URL in a new foreground tab through the OS shell.",
          "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-        {"name": "launch_app", "description": "Launch or focus a Windows app by name/path via the OS shell, e.g. 'chrome', 'notepad', 'explorer'. Pass 'args' to give it arguments - e.g. open a file in an app: name='notepad', args='C:\\\\path\\\\file.txt' (or just launch_app the file path itself to open it in its default app). Do NOT cram args into 'name'.",
+        {"name": "launch_app", "description": "Launch or focus a Windows application or open a file through the OS shell. Put the executable/path in name and keep optional command-line arguments separate in args.",
          "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "string", "description": "Optional command-line arguments / file to open."}}, "required": ["name"]}},
         {"name": "system_query", "description": "Read trusted OS facts without mutation; capabilities.list describes domains.",
          "parameters": {"type": "object", "properties": {
@@ -115,86 +110,84 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
              "order": {"type": "string", "enum": ["descending", "ascending"]},
              "limit": {"type": "integer"}
          }, "required": ["path"]}},
-        {"name": "run_command", "description": "Run a PowerShell command and get stdout/stderr/exit. Use as a LAST-RESORT system escape hatch when no dedicated tool or system_query domain fits, or for a user-requested shell operation. Add '| ConvertTo-Json -Depth 4' when you need structured data back. Non-interactive: a command that prompts FAILS rather than hangs. If a task needs ADMIN and you are NOT elevated (see PRIVILEGE), relaunch JUST that command elevated via Start-Process -Verb RunAs (one UAC prompt for the user), then verify. Returns truncated stdout/stderr.",
+        {"name": "run_command", "description": "Run a noninteractive PowerShell command and return bounded stdout, stderr, and exit status. Use only when no dedicated capability fits or the user requested a shell operation.",
          "parameters": {"type": "object", "properties": {"command": {"type": "string", "description": "The PowerShell command line to run."}}, "required": ["command"]}},
-        {"name": "focus_window", "description": "Bring an already-open window to the FRONT by a piece of its title OR its app/exe name (e.g. 'Chrome', 'Notepad', 'Game.exe'). It matches the EXE name too, so target a FULLSCREEN GAME by its app name from list_windows (its on-screen title may collide with a browser tab about it). Restores the window if it was minimized. Returns the window now in front so you can confirm. If it reports the SAME covering window, that app is exclusive-fullscreen (a game) — you canNOT switch away from it and must not minimize what the user is playing; read any web content with browser_read_page instead, or ask the user to alt-tab.",
-         "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "A substring of the target window's title bar."}}, "required": ["title"]}},
-        {"name": "list_windows", "description": "List every open top-level window as 'title [app.exe]' — INCLUDING fullscreen GAMES that have no normal title bar and don't appear to other tools — so you know what's open to focus_window or minimize_window, and can target a game by its app name. No arguments.",
+        {"name": "focus_window", "description": "Bring an already-open top-level window to the foreground by exact normalized title/executable or the stable target returned by list_windows. Duplicate exact matches fail with stable choices.",
+         "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "Exact title/executable, or @hwnd:<handle>:<pid> from list_windows."}}, "required": ["title"]}},
+        {"name": "list_windows", "description": "List open top-level windows as title, executable, and stable identity so another window tool can target an unambiguous match.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "minimize_window", "description": "Minimize a window by a piece of its title - use this to get a FULLSCREEN game or app OUT OF THE WAY when it covers what you need (it works even when the game swallows alt+tab/Win+D keystrokes, because it acts on the window directly). Returns what's in front afterward.",
-         "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "A substring of the window to minimize."}}, "required": ["title"]}},
-        {"name": "resize_window", "description": "Resize a window (matched by a piece of its title) to width x height in PIXELS. Restores it first if maximized, so you can make it smaller. e.g. resize_window('Notepad', 700, 500).",
+        {"name": "minimize_window", "description": "Minimize an exact or stable top-level window target and return the resulting foreground identity.",
+         "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "Exact title/executable, or stable target from list_windows."}}, "required": ["title"]}},
+        {"name": "resize_window", "description": "Resize an exact or stable top-level window target to width x height in screen pixels, restoring it first if necessary.",
          "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "width": {"type": "integer"}, "height": {"type": "integer"}}, "required": ["title", "width", "height"]}},
-        {"name": "move_window", "description": "Move a window (matched by a piece of its title) so its top-left corner is at screen pixel (x, y). Keeps its current size.",
+        {"name": "move_window", "description": "Move an exact or stable top-level window target so its top-left corner is at screen pixel (x, y). Keeps its current size.",
          "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["title", "x", "y"]}},
-        {"name": "read_clipboard", "description": "Read the text currently on the Windows clipboard (e.g. what you or the user just copied). Lets you grab a selection without retyping it. No arguments. (type_text already PASTES via the clipboard, so writing long text is fast.)",
+        {"name": "read_clipboard", "description": "Read current Windows clipboard text without mutation.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "artifact_info", "description": "Inspect a local large-content artifact by id/path: counts, SHA-256, saved path, and a short preview. Use for verification; it does NOT return the full text.",
+        {"name": "artifact_info", "description": "Inspect local artifact metadata, counts, hash, path, and bounded preview without returning full content.",
          "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Artifact id returned by browser_extract_page/browser_read_page, or an artifact file path."}}, "required": ["id"]}},
-        {"name": "save_artifact", "description": "Save/copy a local text artifact to a file path without routing its contents through the model. If path is omitted, returns the artifact's existing temp file path. Use for exact export/file workflows.",
+        {"name": "save_artifact", "description": "Save or copy a local text artifact without routing its full content through the model.",
          "parameters": {"type": "object", "properties": {"id": {"type": "string"}, "path": {"type": "string", "description": "Optional absolute output path."}, "overwrite": {"type": "boolean", "description": "Default false; true to overwrite an existing file."}}, "required": ["id"]}},
-        {"name": "paste_artifact", "description": "Paste a local text artifact into the currently focused app by setting the clipboard from the artifact and pressing Ctrl+V. Use this for large/exact transfers into Word, Notepad, email, chats, etc. Do NOT use type_text with the artifact preview/full text.",
+        {"name": "paste_artifact", "description": "Paste a local text artifact into the focused destination without routing its full contents through the model. Use for large or exact transfers.",
          "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Artifact id returned by browser_extract_page/browser_read_page, or an artifact file path."}}, "required": ["id"]}},
         {"name": "done", "description": "Finish a confirmed computer action; quote evidence. Never use for an answer.",
          "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}},
-        {"name": "search_memory", "description": "Search YOUR memory of PAST conversations (every prior session is saved). Use when the user refers to something from before ('remember when we...', 'what did we decide about X', 'last time'). Returns matching past conversations as numbered results with a title + snippet + id. Then call open_memory(id) to read the full one.",
-         "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "What to recall, in plain words, e.g. 'the plan for the memory feature' or 'the quest story'."}}, "required": ["query"]}},
+        {"name": "search_memory", "description": "Search saved prior-conversation records when the current request depends on earlier context. Returns matching ids and bounded snippets.",
+         "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "The prior context to retrieve."}}, "required": ["query"]}},
         {"name": "open_memory", "description": "Read the FULL transcript of one past conversation returned by search_memory. Pass its id.",
          "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "The conversation id from a search_memory result."}}, "required": ["id"]}},
-        {"name": "browser_setup", "description": "Bring up DEEP browser control (read/act on the real page DOM, not just pixels) via the SGT browser extension. It writes the extension folder and returns it plus a 'do_yourself' checklist. DO the install YOURSELF with your tools (toggle Developer mode, Load unpacked the folder) - do NOT recite steps to the user. It auto-pairs over the socket, so there is NO code to paste and NO popup. Pause ONLY if a permission prompt appears. Then poll browser_status.",
+        {"name": "browser_setup", "description": "Prepare the browser-control extension and return its bounded setup state. Use only when browser control is needed but disconnected; follow the returned state once, then check browser_status.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "browser_status", "description": "Check whether the deep-browser extension is connected. Returns connected, port, and whether a pairing window is open.",
+        {"name": "browser_status", "description": "Check browser-bridge connection, negotiated capabilities, compatibility, staged-update state, and pairing state.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "browser_reset", "description": "Reset/repair browser control when it's stuck or won't connect (e.g. the user says 'reset/fix/forget browser control'): re-opens the pairing window so a loaded extension re-pairs cleanly and re-enables the setup offer. To fully UNINSTALL, the user removes the extension on the browser's extensions page.",
+        {"name": "browser_reset", "description": "Reset browser-control pairing state and reopen its pairing window. Use only when the connection state requires repair.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "browser_read_page", "description": "Read the current page's real DOM: title, url, and visible text. Far more complete/reliable than look() for web pages once the extension is connected.",
+        {"name": "browser_read_page", "description": "Read the controlled page's title, URL, and visible DOM text.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "research_web", "description": "Search/read web sources for factual verification or definitions, returning source-aware answer material. Use this when the user asks to search/verify, says Google, asks for sources, or asks about terms you are not certain about. Default source_policy 'best_available' reads result pages when possible instead of relying on snippets.",
+        {"name": "research_web", "description": "Retrieve source-aware web evidence for claims requiring external verification. Default source_policy 'best_available' reads source pages when possible.",
          "parameters": {"type": "object", "properties": {
              "query": {"type": "string", "description": "Concise search query for the user's question."},
              "purpose": {"type": "string", "description": "Why this research is needed for the current user turn."},
              "source_policy": {"type": "string", "enum": ["best_available", "broad"], "description": "best_available reads source pages when possible; broad keeps the search general."},
              "max_sources": {"type": "integer", "description": "Number of source pages to read, 1-5. Default 3."}
          }, "required": ["query"]}},
-        {"name": "browser_extract_page", "description": "Extract the current page's full visible DOM text into a local artifact and return only metadata/counts/preview. Use this for exact copy/export or any page text too large to safely pass through the model; then call paste_artifact or save_artifact with artifact.id.",
+        {"name": "browser_extract_page", "description": "Extract full visible DOM text into a local artifact and return only metadata, counts, and preview.",
          "parameters": {"type": "object", "properties": {}}},
         {"name": "browser_wait_for", "description": "Wait until an element matching a CSS selector appears (or timeout). Use after a click/navigation that loads content.",
          "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "timeout_ms": {"type": "integer"}}, "required": ["selector"]}},
-        {"name": "browser_eval", "description": "Run JavaScript in the page and return its (JSON-able) result. Your general escape hatch for extracting structured data or doing precise DOM work. NEVER call alert(), confirm() or prompt() in your code, and don't write an infinite/blocking loop - they FREEZE the page and this call hangs until it times out; for game-over or messages, draw on the canvas or set element text instead. Use setInterval/requestAnimationFrame (non-blocking) for game loops.",
-         "parameters": {"type": "object", "properties": {"code": {"type": "string", "description": "A JS expression; its value is returned (use an IIFE for statements). Must NOT block (no alert/confirm/prompt, no while(true))."}}, "required": ["code"]}},
-        {"name": "browser_navigate", "description": "Navigate the CURRENT tab to a URL (replaces what's on it). Use when the current page is disposable or the user wants to go somewhere fresh.",
+        {"name": "browser_eval", "description": "Run nonblocking JavaScript in the page and return a JSON-compatible result. Modal dialogs and blocking or unbounded loops are forbidden.",
+         "parameters": {"type": "object", "properties": {"code": {"type": "string", "description": "A JS expression; its value is returned. An IIFE containing statements must explicitly return a JSON-compatible value. Must NOT block (no alert/confirm/prompt, no while(true))."}}, "required": ["code"]}},
+        {"name": "browser_navigate", "description": "Navigate the controlled tab to a URL (replaces what's on it). Use when the current page is disposable or the user wants to go somewhere fresh.",
          "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-        {"name": "browser_open_tab", "description": "Open a URL in a NEW tab in the same window (keeps the current page). Use when the user is working with the current page or wants something opened alongside. Prefer this over browser_navigate when unsure (less disruptive).",
+        {"name": "browser_open_tab", "description": "Open a URL in a new tab while preserving the current page. Call browser_switch_tab with its returned id before targeting the new tab with page tools.",
          "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
         {"name": "browser_upload", "description": "Set the file for a file <input> matching a CSS selector (real upload via DevTools). Pass an absolute file path.",
          "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "path": {"type": "string"}}, "required": ["selector", "path"]}},
         {"name": "browser_tabs", "description": "List the open browser tabs (id, title, url, active).",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "browser_switch_tab", "description": "Make a browser tab active by its id (from browser_tabs).",
+        {"name": "browser_switch_tab", "description": "Select a browser tab by id (from browser_tabs). Page tools keep targeting that exact tab for the rest of the current user turn even if focus moves.",
          "parameters": {"type": "object", "properties": {"tab_id": {"type": "integer"}}, "required": ["tab_id"]}},
-        {"name": "browser_network", "description": "Read recent network requests the page made (url + status). Enables capture if needed; call again after the page loads to see results.",
+        {"name": "browser_close_tab", "description": "Close exactly one browser tab by its id (from browser_tabs).",
+         "parameters": {"type": "object", "properties": {"tab_id": {"type": "integer"}}, "required": ["tab_id"]}},
+        {"name": "browser_network", "description": "Read bounded recent network events from the controlled page, enabling capture first if needed.",
          "parameters": {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring of the CDP event name, e.g. 'responseReceived'."}}}},
-        {"name": "browser_console", "description": "Read the page's CONSOLE output - console.log/info/warn/error(...) calls AND browser log entries (CORS / security / network / deprecation errors). Use this to DEBUG a web app or read the 'real developer error' behind a failure, instead of opening DevTools. Enables capture if needed, so the first call may be empty - run the page, then call again.",
+        {"name": "browser_console", "description": "Read bounded page console and browser-log events, enabling capture first if needed.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "decline_browser_control", "description": "Call ONLY when the user declines your offer to set up deep browser control - records it so you stop asking this session and don't nag (you may bring it up again much later). No args.",
+        {"name": "list_app_integrations", "description": "List curated precise-control providers and their installed/connected state. Use only when such a provider is relevant to the requested outcome.",
          "parameters": {"type": "object", "properties": {}}},
-        {"name": "list_app_integrations", "description": "List the CURATED app-control integrations available - dedicated MCP tools that drive a specific app's real API far more precisely than clicking its UI - and whether each is installed/connected. Use to see what deeper control you can offer for the app the user is working in. No args.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "setup_app_integration", "description": "Install + activate a curated app-control integration by its id (from list_app_integrations) so you gain its precise tools instead of guessing clicks. It INSTALLS AND RUNS third-party software, so get the user's explicit YES first, THEN call with confirmed:true. Its tools become available after a brief reconnect.",
+        {"name": "setup_app_integration", "description": "Install and activate a curated precise-control provider by id. This runs third-party software and requires explicit user approval represented by confirmed:true.",
          "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id from list_app_integrations."}, "confirmed": {"type": "boolean", "description": "Pass true ONLY after the user agreed to install it."}}, "required": ["id"]}},
-        {"name": "app_integration_status", "description": "Check whether a curated app-control integration is actually ready: pinned MCP server connected, app-side readiness probe passed, and tools active after reconnect. Use this to verify setup and stop; do not guess from screenshots.",
+        {"name": "app_integration_status", "description": "Return structural readiness evidence for a curated provider: connection, app-side probe, and tool activation.",
          "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}},
         {"name": "read_app_integration_docs", "description": "Fetch the curated integration's own README/docs from its catalog source URL. Use this to research in-app setup. This cannot fetch arbitrary model-provided URLs.",
          "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}},
         {"name": "remove_app_integration", "description": "Uninstall and disconnect a curated app-control integration by id (stops its server, forgets it). Use when the user wants it gone.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}},
-        {"name": "decline_app_integration", "description": "Call ONLY when the user declines your proactive offer to set up an app integration - snoozes that offer so you don't nag (you may bring it up again much later).",
          "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}}
     ]}]);
     let mut setup = LiveSetupBuilder::new(protocol::MODEL)
         .media_resolution(MediaResolution::High)
         .voice(&voice_name)
-        .thinking_override(json!({"thinkingLevel": think, "includeThoughts": true}))
+        .thinking_override(protocol::thinking_config())
         .system_instruction(&format!(
             "{}\n{}\n{}\n{privilege}",
             super::SYS,
@@ -236,8 +229,19 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
     }
     // Append any connected MCP integrations' tools. Gemini freezes the tool set at setup, so
     // installing/removing an integration triggers a reconnect that re-runs build_setup.
-    let mcp_decls = super::super::mcp::active_tool_declarations();
-    if !mcp_decls.is_empty()
+    let mcp_decls = integration_declarations(include_integrations, || {
+        super::super::mcp::active_tool_declarations()
+    });
+    append_integration_declarations(&mut setup, mcp_decls);
+    setup
+}
+
+fn integration_declarations(include: bool, load: impl FnOnce() -> Vec<Value>) -> Vec<Value> {
+    if include { load() } else { Vec::new() }
+}
+
+fn append_integration_declarations(setup: &mut Value, declarations: Vec<Value>) {
+    if !declarations.is_empty()
         && let Some(fd) = setup["setup"]["tools"]
             .as_array_mut()
             .and_then(|tools| {
@@ -247,9 +251,8 @@ pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Va
             })
             .and_then(|d| d.as_array_mut())
     {
-        fd.extend(mcp_decls);
+        fd.extend(declarations);
     }
-    setup
 }
 
 #[cfg(test)]
@@ -294,20 +297,51 @@ mod tests {
         );
         assert_eq!(
             declarations.len(),
-            58,
+            57,
             "built-in capability was added or lost"
         );
         assert!(
-            serde_json::to_string(declarations).unwrap().len() <= 27_000,
+            serde_json::to_string(declarations).unwrap().len() <= 20_000,
             "function catalog exceeded its reviewed prompt budget"
         );
         assert!(
-            setup["setup"]["systemInstruction"].to_string().len() <= 15_000,
+            setup["setup"]["systemInstruction"].to_string().len() < 5_000,
             "system instruction exceeded its reviewed prompt budget"
         );
         assert!(
             setup.to_string().len() <= 42_000,
             "base Live setup exceeded its reviewed prompt budget"
         );
+    }
+
+    #[test]
+    fn exact_tab_close_requires_a_tab_id() {
+        let setup = super::build_setup(None, false, false);
+        let close = declarations(&setup)
+            .iter()
+            .find(|declaration| declaration["name"] == "browser_close_tab")
+            .expect("browser_close_tab declaration");
+        assert_eq!(
+            close["parameters"]["required"],
+            serde_json::json!(["tab_id"])
+        );
+        assert_eq!(
+            close["parameters"]["properties"]["tab_id"]["type"],
+            "integer"
+        );
+    }
+
+    #[test]
+    fn integration_omission_is_scoped_to_one_setup() {
+        let declaration = serde_json::json!({
+            "name": "future_integration_tool",
+            "parameters": {"type": "object", "properties": {}}
+        });
+        let omitted = super::integration_declarations(false, || vec![declaration.clone()]);
+        let included = super::integration_declarations(true, || vec![declaration]);
+
+        assert!(omitted.is_empty());
+        assert_eq!(included.len(), 1);
+        assert_eq!(included[0]["name"], "future_integration_tool");
     }
 }

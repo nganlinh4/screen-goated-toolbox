@@ -1,4 +1,4 @@
-use super::{catalog, install, prefs, registry, runtime, support};
+use super::{catalog, install, registry, runtime, support};
 use serde_json::{Value, json};
 
 pub(in crate::overlay::computer_control) fn list_tool() -> Value {
@@ -91,33 +91,6 @@ pub(in crate::overlay::computer_control) fn remove_tool(id: &str) -> Value {
     runtime::disconnect(id);
     registry::remove(id);
     json!({"ok": true, "removed": id})
-}
-
-pub(in crate::overlay::computer_control) fn decline_tool(id: &str) -> Value {
-    prefs::record_decline(id);
-    json!({"ok": true, "noted": "won't proactively offer that again for a while"})
-}
-
-/// The id of a curated integration whose app is in the foreground, NOT installed, and
-/// NOT snoozed — drives the runtime's proactive offer. `None` = nothing to offer.
-pub(in crate::overlay::computer_control) fn detect_uninstalled_match(
-    foreground_title: &str,
-) -> Option<&'static str> {
-    let title = foreground_title.to_lowercase();
-    catalog::all().iter().find_map(|integration| {
-        let hit = !integration.match_signals.is_empty()
-            && !registry::is_installed(integration.id)
-            && prefs::offer_due(integration.id)
-            && integration
-                .match_signals
-                .iter()
-                .any(|signal| title.contains(&signal.to_lowercase()));
-        hit.then_some(integration.id)
-    })
-}
-
-pub(in crate::overlay::computer_control) fn display_name(id: &str) -> Option<&'static str> {
-    catalog::get(id).map(|integration| integration.display_name)
 }
 
 fn now_secs() -> u64 {

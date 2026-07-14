@@ -36,6 +36,7 @@ mod input;
 mod keyboard;
 mod mouse;
 mod shell;
+mod target;
 
 /// Whether THIS process is running elevated (full administrator). The agent is told its privilege
 /// level each session so it knows what it can do directly vs. when to relaunch a command via UAC.
@@ -139,15 +140,30 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
     value
 }
 
+fn verify_expected_input_target(args: &Value) -> Result<()> {
+    target::verify_window(args)
+}
+
+fn verify_expected_pointer_target(args: &Value) -> Result<()> {
+    target::verify_pointer(args)
+}
+
+fn verify_expected_keyboard_target(args: &Value) -> Result<()> {
+    target::verify_keyboard(args)
+}
+
 /// Input receipts may be returned directly by the native executor or nested by
 /// higher-level pointer tools. Consumers must use one canonical lookup so a
 /// successful injection cannot disappear from telemetry after wrapping.
 pub(super) fn input_injection(value: &Value) -> Option<&Value> {
-    value
-        .get("input_injection")
-        .or_else(|| value.pointer("/input_result/input_injection"))
-        .or_else(|| value.pointer("/action_result/input_injection"))
-        .or_else(|| value.pointer("/action_result/input_result/input_injection"))
+    if let Some(injection) = value.get("input_injection") {
+        return Some(injection);
+    }
+    match value {
+        Value::Object(fields) => fields.values().find_map(input_injection),
+        Value::Array(items) => items.iter().find_map(input_injection),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -158,12 +174,22 @@ mod receipt_tests {
     fn finds_direct_and_wrapped_input_receipts() {
         let direct = json!({"input_injection": {"fully_inserted": true}});
         let wrapped = json!({"input_result": {"input_injection": {"fully_inserted": true}}});
+        let controller = json!({"execution": {"typed": wrapped.clone()}});
+        let batch = json!({"receipts": [{"execution": controller.clone()}]});
         assert_eq!(
             input_injection(&direct).and_then(|v| v.get("fully_inserted")),
             Some(&Value::Bool(true))
         );
         assert_eq!(
             input_injection(&wrapped).and_then(|v| v.get("fully_inserted")),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            input_injection(&controller).and_then(|v| v.get("fully_inserted")),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            input_injection(&batch).and_then(|v| v.get("fully_inserted")),
             Some(&Value::Bool(true))
         );
     }

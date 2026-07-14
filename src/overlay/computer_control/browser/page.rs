@@ -21,49 +21,70 @@ pub(in crate::overlay::computer_control) fn read_page_on_tab(tab_id: i64) -> Val
 fn read_page_impl(tab_id: Option<i64>) -> Value {
     let page = match extract_current_page(tab_id) {
         Ok(page) => page,
-        Err(v) => return v,
+        Err(value) => return tag_target(value, tab_id),
     };
     let text: String = page.text.chars().take(READ_PAGE_LIMIT).collect();
     let truncated = page.text.chars().count() > READ_PAGE_LIMIT;
     let artifact = save_page_artifact(&page);
-    json!({
-        "ok": true,
-        "page": {
-            "title": page.title,
-            "url": page.url,
-            "text": text,
-            "truncated": truncated,
-            "char_count": page.text.chars().count(),
-            "word_count": page.text.split_whitespace().count(),
-            "same_origin_iframes": page.same_origin_iframes,
-            "skipped_iframes": page.skipped_iframes,
-        },
-        "artifact": artifact,
-        "instruction": if truncated {
-            "The returned page.text is a preview. For exact copy/export, use artifact.id with paste_artifact or save_artifact."
-        } else {
-            "For exact copy/export, still prefer artifact.id with paste_artifact or save_artifact instead of retyping page.text."
-        },
-    })
+    tag_target(
+        json!({
+            "ok": true,
+            "page": {
+                "title": page.title,
+                "url": page.url,
+                "text": text,
+                "truncated": truncated,
+                "char_count": page.text.chars().count(),
+                "word_count": page.text.split_whitespace().count(),
+                "same_origin_iframes": page.same_origin_iframes,
+                "skipped_iframes": page.skipped_iframes,
+            },
+            "artifact": artifact,
+            "instruction": if truncated {
+                "The returned page.text is a preview. For exact copy/export, use artifact.id with paste_artifact or save_artifact."
+            } else {
+                "For exact copy/export, still prefer artifact.id with paste_artifact or save_artifact instead of retyping page.text."
+            },
+        }),
+        tab_id,
+    )
 }
 
 pub(in crate::overlay::computer_control) fn extract_page() -> Value {
-    let page = match extract_current_page(None) {
+    extract_page_impl(None)
+}
+
+pub(in crate::overlay::computer_control) fn extract_page_on_tab(tab_id: i64) -> Value {
+    extract_page_impl(Some(tab_id))
+}
+
+fn extract_page_impl(tab_id: Option<i64>) -> Value {
+    let page = match extract_current_page(tab_id) {
         Ok(page) => page,
-        Err(v) => return v,
+        Err(value) => return tag_target(value, tab_id),
     };
-    json!({
-        "ok": true,
-        "page": {
-            "title": page.title,
-            "url": page.url,
-            "char_count": page.text.chars().count(),
-            "word_count": page.text.split_whitespace().count(),
-            "same_origin_iframes": page.same_origin_iframes,
-            "skipped_iframes": page.skipped_iframes,
-        },
-        "artifact": save_page_artifact(&page),
-    })
+    tag_target(
+        json!({
+            "ok": true,
+            "page": {
+                "title": page.title,
+                "url": page.url,
+                "char_count": page.text.chars().count(),
+                "word_count": page.text.split_whitespace().count(),
+                "same_origin_iframes": page.same_origin_iframes,
+                "skipped_iframes": page.skipped_iframes,
+            },
+            "artifact": save_page_artifact(&page),
+        }),
+        tab_id,
+    )
+}
+
+fn tag_target(mut result: Value, tab_id: Option<i64>) -> Value {
+    if let (Some(tab_id), Some(object)) = (tab_id, result.as_object_mut()) {
+        object.insert("target_tab_id".to_string(), json!(tab_id));
+    }
+    result
 }
 
 fn extract_current_page(tab_id: Option<i64>) -> Result<PageText, Value> {

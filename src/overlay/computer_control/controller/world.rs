@@ -28,12 +28,9 @@ pub struct IndexedElement {
     pub submit: bool,
     /// Index of the owning form, so the required-field gate scopes to one form.
     pub form: Option<i32>,
-    /// Best-effort, LANGUAGE-NEUTRAL high-stakes signal carrying a short REASON
-    /// ("signs you out", "submits a password or payment details", "starts a
-    /// payment") when acting on this element is consequential/irreversible — from
-    /// structure only (form-reset, logout/pay/delete href or path, a submit of a
-    /// form with password/payment fields). `None` = ordinary. Semantic
-    /// send/post/publish detection stays in the prompt (it is language-bound).
+    /// Standards-derived high-stakes signal carrying a short reason, currently
+    /// form reset or submission of a form with password/payment fields. URL text
+    /// and localized labels are never treated as structural semantics.
     /// Acting on a risky element is GATED: it needs the user's explicit ask or a
     /// `confirm` flag.
     pub risk: Option<String>,
@@ -42,23 +39,65 @@ pub struct IndexedElement {
 }
 
 /// A surface-specific handle to re-find and act on an element.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ElHandle {
     /// Browser: the stamped selector `[data-sgt-id="N"]`, plus the CDP session of
     /// the cross-origin frame it lives in (`None` = the top frame).
     Browser {
         selector: String,
         session: Option<String>,
+        tab_id: i64,
+        document_id: String,
+        element_id: String,
     },
     /// Native (desktop UIA): the screen-pixel center to click / read-back at.
-    Native { cx: i32, cy: i32 },
+    Native {
+        cx: i32,
+        cy: i32,
+        /// Provider-owned identity fields captured from the exact UIA node.
+        /// The input edge re-resolves the point and requires these to match, so
+        /// an occluded or inactive accessibility subtree cannot receive a click.
+        provider_name: String,
+        automation_id: String,
+        runtime_id: Vec<i32>,
+    },
+}
+
+/// Stable identity of the surface from which an indexed world was observed.
+/// IDs and coordinates are valid only while this identity still matches.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SurfaceIdentity {
+    Native {
+        hwnd: u64,
+        pid: u64,
+        generation: u64,
+    },
+    Browser {
+        tab_id: i64,
+        document_id: String,
+        window: BrowserWindowIdentity,
+    },
+}
+
+/// Exact native window owned by the extension's browser window. The browser
+/// window id distinguishes sibling windows in one browser process; HWND/PID and
+/// generation bind the model-visible page to the actual foreground OS surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct BrowserWindowIdentity {
+    pub browser_window_id: i64,
+    pub hwnd: u64,
+    pub pid: u64,
+    pub generation: u64,
 }
 
 /// A snapshot of the interactive world of the active surface.
+#[derive(Debug, Clone)]
 pub struct WorldState {
     pub elements: Vec<IndexedElement>,
     pub url: Option<String>,
     pub title: Option<String>,
+    pub identity: SurfaceIdentity,
 }
 
 impl WorldState {

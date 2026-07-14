@@ -18,27 +18,44 @@
 //! unexpected export degrades to a clean error (detector off) rather than a panic.
 
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
-use ort::session::Session;
-use ort::session::builder::GraphOptimizationLevel;
+use sha2::{Digest, Sha256};
 
-use super::session::{View, capture_virtual};
+use super::session::{Capture, View};
+pub(super) use postprocess::DetBox;
+use postprocess::{PostprocessResult, postprocess};
+
+mod postprocess;
+mod runtime;
+mod selection;
+pub(super) use selection::select_marks;
 
 /// Model input side length. MUST match the exported ONNX (UI-DETR-1 / RF-DETR-M,
 /// exported at 1024 — a ÷32 resolution). Verified against the real model's
 /// `input [1,3,1024,1024]`.
 const RES: usize = 1024;
 /// Max marks surfaced (strongest first) — keep the list readable for the model.
-const MAX_MARKS: usize = 60;
+const MAX_CANDIDATES: usize = 90;
+pub(super) const DISPLAY_MARKS: usize = 30;
 /// ImageNet normalization (RF-DETR preprocessing).
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
 
 fn score_threshold() -> f32 {
-    std::env::var("CC_DETECTOR_THRESH")
+    probability_env("CC_DETECTOR_THRESH", 0.70)
+}
+
+fn nms_iou_threshold() -> f32 {
+    probability_env("CC_DETECTOR_NMS_IOU", 0.92)
+}
+
+fn probability_env(name: &str, default: f32) -> f32 {
+    std::env::var(name)
         .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.45)
+        .and_then(|s| s.parse::<f32>().ok())
+        .filter(|value| value.is_finite() && (0.0..=1.0).contains(value))
+        .unwrap_or(default)
 }
 
 /// Models dir for the detector (a single `.onnx` lives here). Doubles as the
@@ -53,11 +70,63 @@ fn model_path() -> std::path::PathBuf {
 
 /// Hosted on the SGT runtime-bundles release; fetched once into the models dir.
 const MODEL_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/ui-detr-1.onnx";
+const MODEL_BYTES: u64 = 131_216_489;
+const MODEL_SHA256: &str = "1892092320cd55fd182c6afd76ae5bb0fb9695f5fcdf0ba875c1f68d49792ff4";
 /// Title used in REALTIME_STATE + the badge; the Downloaded Tools card matches it.
 pub(crate) const DOWNLOAD_TITLE: &str = "Downloading UI detector";
 
 pub(crate) fn is_detector_downloaded() -> bool {
-    model_path().exists()
+    validate_model_file(&model_path()).is_ok()
+}
+
+fn runtime_ready() -> bool {
+    crate::unpack_dlls::is_ai_runtime_installed()
+}
+
+fn validate_model_file(path: &std::path::Path) -> anyhow::Result<()> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| anyhow::anyhow!("detector model unavailable: {error}"))?;
+    if !metadata.is_file() || metadata.len() != MODEL_BYTES {
+        anyhow::bail!(
+            "detector model size {} does not match expected {MODEL_BYTES}",
+            metadata.len()
+        );
+    }
+    let modified_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|value| value.as_millis())
+        .unwrap_or(0);
+    static CACHE: OnceLock<Mutex<Option<(u64, u128, bool)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Some((bytes, modified, valid)) = *cache.lock().unwrap_or_else(|p| p.into_inner())
+        && bytes == metadata.len()
+        && modified == modified_ms
+    {
+        return if valid {
+            Ok(())
+        } else {
+            anyhow::bail!("detector model checksum mismatch");
+        };
+    }
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1024 * 1024];
+    loop {
+        use std::io::Read as _;
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    let valid = format!("{:x}", hasher.finalize()) == MODEL_SHA256;
+    *cache.lock().unwrap_or_else(|p| p.into_inner()) = Some((metadata.len(), modified_ms, valid));
+    if !valid {
+        anyhow::bail!("detector model checksum mismatch");
+    }
+    Ok(())
 }
 
 pub(crate) fn remove_detector_model() -> anyhow::Result<()> {
@@ -78,9 +147,26 @@ pub(crate) fn download_detector_model(
     use crate::overlay::auto_copy_badge::{hide_progress_notification, show_progress_notification};
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
 
+    static DOWNLOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _download_guard = DOWNLOAD_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    crate::unpack_dlls::ensure_ai_runtime_installed(
+        stop.clone(),
+        if use_badge {
+            crate::unpack_dlls::AiRuntimeUi::Badge
+        } else {
+            crate::unpack_dlls::AiRuntimeUi::None
+        },
+    )?;
     let path = model_path();
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
+    }
+    if path.exists() && validate_model_file(&path).is_err() {
+        std::fs::remove_file(&path)?;
     }
     let msg = "Fetching UI element detector...";
     if let Ok(mut s) = REALTIME_STATE.lock() {
@@ -114,7 +200,8 @@ pub(crate) fn download_detector_model(
                 );
             }
         },
-    );
+    )
+    .and_then(|()| validate_model_file(&path));
 
     if let Ok(mut s) = REALTIME_STATE.lock() {
         s.is_downloading = false;
@@ -126,116 +213,161 @@ pub(crate) fn download_detector_model(
     result.map_err(|e| anyhow::anyhow!("detector model download: {e}"))
 }
 
-/// Kick off the model download ONCE in the background (with badge + card progress)
-/// so it never blocks a turn; until it lands `available()` stays false and the
-/// detector is simply off.
+/// Kick off a background download with bounded retry. A transient network failure
+/// or a later model deletion must recover without restarting the application.
 fn ensure_download() {
-    static STARTED: OnceLock<()> = OnceLock::new();
-    STARTED.get_or_init(|| {
-        std::thread::spawn(|| {
-            if model_path().exists() {
-                return;
-            }
-            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static RUNNING: AtomicBool = AtomicBool::new(false);
+    static LAST_ATTEMPT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    if RUNNING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let mut last = LAST_ATTEMPT
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if last.is_some_and(|attempt| attempt.elapsed() < std::time::Duration::from_secs(30)) {
+        RUNNING.store(false, Ordering::Release);
+        return;
+    }
+    *last = Some(Instant::now());
+    drop(last);
+    std::thread::spawn(|| {
+        if !is_detector_downloaded() || !runtime_ready() {
+            let stop = std::sync::Arc::new(AtomicBool::new(false));
             match download_detector_model(stop, true) {
                 Ok(()) => eprintln!("[cc-detector] model downloaded"),
-                Err(e) => eprintln!("[cc-detector] auto-download failed: {e}"),
+                Err(error) => eprintln!("[cc-detector] auto-download failed: {error}"),
             }
-        });
+        }
+        RUNNING.store(false, Ordering::Release);
     });
-}
-
-/// A detected clickable region: center in physical SCREEN px + confidence.
-pub(super) struct DetBox {
-    pub cx: i32,
-    pub cy: i32,
-    pub score: f32,
 }
 
 /// Whether the detector model is installed. If absent, kicks off a one-time
 /// background download from the release and returns false until it lands.
 pub(super) fn available() -> bool {
-    if model_path().exists() {
+    if is_detector_downloaded() && runtime_ready() {
         return true;
     }
     ensure_download();
     false
 }
 
-/// Lazily build the session once. `None` when the model is absent or fails to load.
-fn session() -> Option<&'static Mutex<Session>> {
-    static S: OnceLock<Option<Mutex<Session>>> = OnceLock::new();
-    S.get_or_init(|| {
-        let path = model_path();
-        if !path.exists() {
-            return None;
-        }
-        match build_session(&path) {
-            Ok(s) => {
-                eprintln!("[cc-detector] loaded {}", path.display());
-                Some(Mutex::new(s))
+/// Model-only diagnostic: download/validate if needed, detect one requested
+/// window (or the virtual desktop), and write the exact annotated input frame.
+pub(crate) fn run_test(target: Option<&str>) -> anyhow::Result<()> {
+    if !is_detector_downloaded() || !runtime_ready() {
+        eprintln!("[cc-detector-test] installing validated model + runtime...");
+        download_detector_model(
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            false,
+        )?;
+    }
+    let view = match target {
+        Some(title) => {
+            match super::uia::raise_window(title) {
+                Ok(true) => {}
+                Ok(false) => anyhow::bail!("target window {title:?} could not be foregrounded"),
+                Err(error) => anyhow::bail!("cannot resolve target window {title:?}: {error}"),
             }
-            Err(e) => {
-                eprintln!("[cc-detector] load failed ({}): {e}", path.display());
-                None
-            }
+            std::thread::sleep(std::time::Duration::from_millis(350));
+            // `raise_window` accepts either a title or executable name and verifies
+            // that its resolved HWND became foreground. Re-resolving `title` through
+            // UIA here is a different (title-only) contract: an executable target
+            // such as `sample.exe` can focus correctly and then spuriously be
+            // reported missing. Crop the verified foreground window instead.
+            super::uia::target_window_rect(None)
+                .map(|(x, y, w, h)| View { x, y, w, h })
+                .ok_or_else(|| anyhow::anyhow!("target window {title:?} not found"))?
         }
-    })
-    .as_ref()
+        None => {
+            let (x, y, w, h) = super::uia::virtual_desktop();
+            View { x, y, w, h }
+        }
+    };
+    super::telemetry::begin_session();
+    let trace_dir = super::telemetry::trace_dir();
+    std::fs::create_dir_all(&trace_dir)?;
+    let capture = super::session::capture_virtual()?;
+    let frame_id = super::telemetry::next_frame("detector_test");
+    let boxes = selection::select_marks(
+        detect_capture_result(&capture, view, frame_id)?,
+        view,
+        DISPLAY_MARKS,
+    );
+    let marks: Vec<_> = boxes
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (item.cx, item.cy, index as u32 + 1))
+        .collect();
+    let (jpeg, shown) =
+        super::session::encode_view(&capture, view, 1080, None, None, Some(&marks))?;
+    let path = trace_dir.join("detector-test-annotated.jpg");
+    std::fs::write(&path, jpeg)?;
+    let evidence: Vec<_> = boxes
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            serde_json::json!({
+                "mark": index + 1,
+                "center": [item.cx, item.cy],
+                "bounds": [item.left, item.top, item.right, item.bottom],
+                "score": item.score,
+                "label": item.label,
+            })
+        })
+        .collect();
+    let result = serde_json::json!({
+        "ok": true,
+        "target": target,
+        "view": [shown.x, shown.y, shown.w, shown.h],
+        "model_bytes": std::fs::metadata(model_path())?.len(),
+        "mark_count": boxes.len(),
+        "requested_execution_provider": runtime::requested_provider(),
+        "actual_execution_provider": runtime::actual_provider(),
+        "score_threshold": score_threshold(),
+        "duplicate_iou_threshold": nms_iou_threshold(),
+        "marks": evidence,
+        "annotated_frame": path,
+        "trace_dir": trace_dir,
+    });
+    let result_text = serde_json::to_string_pretty(&result)?;
+    std::fs::write(trace_dir.join("detector-test.json"), &result_text)?;
+    println!("{result_text}");
+    Ok(())
 }
 
-fn build_session(path: &std::path::Path) -> anyhow::Result<Session> {
-    // ort's error type isn't Send+Sync, so it can't flow through `?` into anyhow -
-    // stringify each step (the repo's parakeet path does the same).
-    let mut builder = Session::builder()
-        .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
-        .with_optimization_level(GraphOptimizationLevel::Level3)
-        .map_err(|e| anyhow::anyhow!("opt level: {e}"))?
-        .with_execution_providers([
-            ort::ep::DirectML::default().build(),
-            ort::ep::CPU::default().build().error_on_failure(),
-        ])
-        .map_err(|e| anyhow::anyhow!("execution providers: {e}"))?;
-    builder
-        .commit_from_file(path)
-        .map_err(|e| anyhow::anyhow!("commit model: {e}"))
-}
-
-/// True when the image is so close to one flat colour (e.g. all-black GPU content
-/// the capture missed) that running detection is pointless.
-fn crop_near_uniform(img: &image::RgbImage) -> bool {
-    let (w, h) = (img.width(), img.height());
-    if w == 0 || h == 0 {
+/// True only for an effectively black capture failure. A visually sparse or flat
+/// application is still valid detector input and must not be discarded.
+fn crop_capture_failed(img: &image::RgbImage) -> bool {
+    if img.width() == 0 || img.height() == 0 {
         return true;
     }
-    let (sx, sy) = ((w / 32).max(1), (h / 32).max(1));
-    let (mut sum, mut sumsq, mut n) = (0f64, 0f64, 0f64);
-    let mut y = 0;
-    while y < h {
-        let mut x = 0;
-        while x < w {
-            let p = img.get_pixel(x, y);
-            let luma = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
-            sum += luma;
-            sumsq += luma * luma;
-            n += 1.0;
-            x += sx;
-        }
-        y += sy;
-    }
-    let mean = sum / n;
-    (sumsq / n - mean * mean) < 25.0 // std-dev < 5 luma => effectively flat
+    img.pixels()
+        .all(|pixel| pixel.0.iter().all(|value| *value < 2))
 }
 
-/// Capture the current `view`, run the detector, and return clickable-region centers
-/// in SCREEN px. Empty if no model / capture fails / nothing found.
-pub(super) fn detect_view(view: View) -> Vec<DetBox> {
-    if session().is_none() {
-        return Vec::new();
+/// Run the detector against the exact clean capture that will be annotated and
+/// sent to the model. This keeps every numbered mark tied to one frame.
+pub(super) fn detect_capture(cap: &Capture, view: View, frame_id: u64) -> Vec<DetBox> {
+    match detect_capture_result(cap, view, frame_id) {
+        Ok(boxes) => boxes,
+        Err(error) => {
+            eprintln!("[cc-detector] inference error: {error}");
+            super::telemetry::typed_error(
+                "ERR_UI_DETECTOR_INFERENCE",
+                "detector",
+                &error.to_string(),
+                serde_json::json!({"frame_id": frame_id, "view": [view.x, view.y, view.w, view.h]}),
+            );
+            Vec::new()
+        }
     }
-    let Ok(cap) = capture_virtual() else {
-        return Vec::new();
-    };
+}
+
+fn detect_capture_result(cap: &Capture, view: View, frame_id: u64) -> anyhow::Result<Vec<DetBox>> {
+    let started = Instant::now();
     let (cw, ch) = (cap.rgb.width() as i32, cap.rgb.height() as i32);
     // Clamp the view rect into the captured buffer (capture is origin-relative).
     let x0 = (view.x - cap.origin_x).clamp(0, cw);
@@ -243,7 +375,8 @@ pub(super) fn detect_view(view: View) -> Vec<DetBox> {
     let x1 = (view.x + view.w - cap.origin_x).clamp(0, cw);
     let y1 = (view.y + view.h - cap.origin_y).clamp(0, ch);
     if x1 <= x0 || y1 <= y0 {
-        return Vec::new();
+        detector_event(frame_id, view, "view_outside_capture", started, None);
+        anyhow::bail!("target view is outside the captured desktop");
     }
     let crop = image::imageops::crop_imm(
         &cap.rgb,
@@ -253,24 +386,73 @@ pub(super) fn detect_view(view: View) -> Vec<DetBox> {
         (y1 - y0) as u32,
     )
     .to_image();
-    // Skip inference on a near-uniform/black crop (GPU content the capture still
-    // couldn't grab) - it would only emit noise and wastes ~1s.
-    if crop_near_uniform(&crop) {
-        return Vec::new();
+    if crop_capture_failed(&crop) {
+        detector_event(frame_id, view, "black_capture", started, None);
+        return Ok(Vec::new());
     }
     // Screen-px origin of the crop's top-left.
     let (ox, oy) = (x0 + cap.origin_x, y0 + cap.origin_y);
     match run(&crop, ox, oy) {
-        Ok(v) => v,
+        Ok(processed) => {
+            detector_event(frame_id, view, "complete", started, Some(&processed));
+            Ok(processed.boxes)
+        }
         Err(e) => {
-            eprintln!("[cc-detector] inference error: {e}");
-            Vec::new()
+            detector_event(frame_id, view, "inference_error", started, None);
+            Err(e)
         }
     }
 }
 
-fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<Vec<DetBox>> {
-    let sess = session().ok_or_else(|| anyhow::anyhow!("no detector session"))?;
+fn detector_event(
+    frame_id: u64,
+    view: View,
+    outcome: &str,
+    started: Instant,
+    processed: Option<&PostprocessResult>,
+) {
+    let boxes = processed.map_or(&[][..], |value| value.boxes.as_slice());
+    let evidence: Vec<_> = boxes
+        .iter()
+        .map(|item| {
+            serde_json::json!({
+                "center": [item.cx, item.cy],
+                "bounds": [item.left, item.top, item.right, item.bottom],
+                "score": item.score,
+                "label": item.label,
+            })
+        })
+        .collect();
+    super::telemetry::event(
+        "detector_run",
+        "detector",
+        if boxes.iter().any(|item| item.label.is_some()) {
+            super::telemetry::Privacy::UserText
+        } else {
+            super::telemetry::Privacy::Safe
+        },
+        serde_json::json!({
+            "provider": "local_ui_detr_1",
+            "requested_execution_provider": runtime::requested_provider(),
+            "actual_execution_provider": runtime::actual_provider(),
+            "score_threshold": score_threshold(),
+            "duplicate_iou_threshold": nms_iou_threshold(),
+            "frame_id": frame_id,
+            "view": [view.x, view.y, view.w, view.h],
+            "outcome": outcome,
+            "duration_ms": started.elapsed().as_millis(),
+            "thresholded": processed.map(|value| value.thresholded),
+            "rejected_invalid": processed.map(|value| value.rejected_invalid),
+            "suppressed_duplicates": processed.map(|value| value.suppressed_duplicates),
+            "truncated": processed.map(|value| value.truncated),
+            "mark_count": boxes.len(),
+            "marks": evidence,
+        }),
+    );
+}
+
+fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<PostprocessResult> {
+    let started = Instant::now();
     let (cw, ch) = (crop.width() as f32, crop.height() as f32);
 
     // Square resize to RES×RES + ImageNet normalize → NCHW f32 (matches RF-DETR's
@@ -292,57 +474,63 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<Vec<DetBox>> 
     let input = ort::value::Value::from_array((vec![1i64, 3, RES as i64, RES as i64], chw))
         .map_err(|e| anyhow::anyhow!("input tensor: {e}"))?;
 
-    // Hold the lock through extraction: the output tensors borrow the session guard.
-    let mut s = sess.lock().unwrap();
-    let outputs = s
-        .run(ort::inputs!["input" => input])
-        .map_err(|e| anyhow::anyhow!("run: {e}"))?;
-    // Look outputs up by NAME (not index) so an unexpected export fails cleanly with
-    // a clear message instead of panicking on a missing key.
-    let dets_v = outputs
-        .get("dets")
-        .ok_or_else(|| anyhow::anyhow!("model has no 'dets' output"))?;
-    let labels_v = outputs
-        .get("labels")
-        .ok_or_else(|| anyhow::anyhow!("model has no 'labels' output"))?;
-    let (dshape, dets) = dets_v
-        .try_extract_tensor::<f32>()
-        .map_err(|e| anyhow::anyhow!("dets: {e}"))?; // [1, N, 4] cxcywh 0..1
-    let (lshape, labels) = labels_v
-        .try_extract_tensor::<f32>()
-        .map_err(|e| anyhow::anyhow!("labels: {e}"))?; // [1, N, C] logits
-    let dd = dshape.as_ref();
-    let ld = lshape.as_ref();
-    let n = if dd.len() >= 2 { dd[1] as usize } else { 0 };
-    let nc = if ld.len() >= 3 {
-        ld[2].max(1) as usize
-    } else {
-        1
-    };
+    let processed = runtime::with_session(&model_path(), move |session| {
+        // Outputs borrow the session, so extraction and postprocessing stay inside
+        // the cache lock. One detector run is serialized by design.
+        let outputs = session
+            .run(ort::inputs!["input" => input])
+            .map_err(|error| anyhow::anyhow!("run: {error}"))?;
+        let dets_v = outputs
+            .get("dets")
+            .ok_or_else(|| anyhow::anyhow!("model has no 'dets' output"))?;
+        let labels_v = outputs
+            .get("labels")
+            .ok_or_else(|| anyhow::anyhow!("model has no 'labels' output"))?;
+        let (dshape, dets) = dets_v
+            .try_extract_tensor::<f32>()
+            .map_err(|error| anyhow::anyhow!("dets: {error}"))?;
+        let (lshape, labels) = labels_v
+            .try_extract_tensor::<f32>()
+            .map_err(|error| anyhow::anyhow!("labels: {error}"))?;
+        postprocess(
+            dshape.as_ref(),
+            dets,
+            lshape.as_ref(),
+            labels,
+            cw,
+            ch,
+            ox,
+            oy,
+            score_threshold(),
+            nms_iou_threshold(),
+        )
+    })?;
+    eprintln!(
+        "[cc-detector] inference {}ms: {} candidates over threshold, {} invalid, {} duplicates suppressed, {} truncated, {} marks",
+        started.elapsed().as_millis(),
+        processed.thresholded,
+        processed.rejected_invalid,
+        processed.suppressed_duplicates,
+        processed.truncated,
+        processed.boxes.len()
+    );
+    Ok(processed)
+}
 
-    let thr = score_threshold();
-    let mut out = Vec::new();
-    for i in 0..n {
-        // Class-agnostic: best class logit → sigmoid → confidence.
-        let mut best = f32::MIN;
-        for c in 0..nc {
-            best = best.max(labels[i * nc + c]);
-        }
-        let score = 1.0 / (1.0 + (-best).exp());
-        if score < thr {
-            continue;
-        }
-        let cxn = dets[i * 4];
-        let cyn = dets[i * 4 + 1];
-        let sx = ox + (cxn * cw).round() as i32;
-        let sy = oy + (cyn * ch).round() as i32;
-        out.push(DetBox {
-            cx: sx,
-            cy: sy,
-            score,
-        });
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_effectively_black_capture_is_skipped() {
+        let black = image::RgbImage::from_pixel(64, 64, image::Rgb([0, 0, 0]));
+        assert!(crop_capture_failed(&black));
+        let dark = image::RgbImage::from_pixel(64, 64, image::Rgb([8, 8, 8]));
+        assert!(!crop_capture_failed(&dark));
+        let light = image::RgbImage::from_pixel(64, 64, image::Rgb([240, 240, 240]));
+        assert!(!crop_capture_failed(&light));
+        let mut sparse = image::RgbImage::from_pixel(128, 128, image::Rgb([0, 0, 0]));
+        sparse.put_pixel(17, 43, image::Rgb([255, 255, 255]));
+        assert!(!crop_capture_failed(&sparse));
     }
-    out.sort_by(|a, b| b.score.total_cmp(&a.score));
-    out.truncate(MAX_MARKS);
-    Ok(out)
 }

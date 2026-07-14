@@ -63,20 +63,10 @@ pub(super) fn poll_action_result(
         );
     } else {
         let response_ok = response.get("ok").and_then(Value::as_bool).unwrap_or(false);
+        let terminal_blocker = is_terminal_blocker(&response);
         reconnect_for_activation = name == "app_integration_status"
             && super::session_control::activation_pending(&response);
-        record_observation(state, &name, &response);
-        record_tool_result(state, &name, &response);
-        if response_ok && answer_evidence_tool(&name) {
-            state.speech_gate.defer_until_boundary(false);
-            telemetry::event_for_action(
-                "answer_evidence_ready",
-                "speech",
-                Privacy::Safe,
-                action,
-                serde_json::json!({"tool": name.clone()}),
-            );
-        }
+        let delivered_response = response.clone();
         let response_send = send(socket, tool_response(&id, &name, response));
         telemetry::event_for_action(
             "tool_response_sent",
@@ -92,46 +82,88 @@ pub(super) fn poll_action_result(
             }),
         );
         response_send?;
-        if let Some((b64, frame_id)) = frame
-            && super::frames::send_action_frame(socket, &b64, frame_id, action).is_ok()
+        record_observation(state, &name, &delivered_response);
+        record_tool_result(state, &name);
+        state
+            .turn_outcomes
+            .record_delivered(&name, &delivered_response);
+        if let Some((b64, source)) = frame
+            && super::frames::send_action_frame(socket, &b64, &source, action).is_ok()
         {
-            state.source_frame_id = Some(frame_id);
+            state.source_frame = Some(source);
         }
         if name == "done" && response_ok {
             overlay::push_log("[done] goal reached".to_string());
             overlay::set_orb_done();
             emit_turn_summary(state, "done");
-            state.active = false;
-            state.awaiting = false;
-            state.awaiting_done_boundary = true;
-        } else if reconnect_for_activation {
-            state.awaiting = false;
+            super::terminal_drain::begin_final_response(state, true);
+        } else if terminal_blocker {
+            close_terminal_blocker(state);
         } else {
             state.awaiting = true;
+            state.recovery_owed = true;
             state.think_start = Some(Instant::now());
         }
     }
     state.pending = Pending::default();
+    if !state.terminal_response.is_open() {
+        state.pending_tool_boundary_seen = false;
+    }
     state.nudged = false;
-    overlay::set_status("ready - speak a command");
+    overlay::set_status(result_status(state, reconnect_for_activation));
     Ok(Some(reconnect_for_activation))
 }
 
-fn answer_evidence_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "look"
-            | "observe"
-            | "research_web"
-            | "browser_read_page"
-            | "browser_extract_page"
-            | "system_query"
-            | "list_files"
-            | "read_clipboard"
-            | "list_windows"
-            | "search_memory"
-            | "open_memory"
-    )
+pub(super) fn send_immediate_tool_responses(
+    socket: &mut Sock,
+    state: &mut Reader,
+) -> anyhow::Result<bool> {
+    let mut sent = false;
+    while let Some((id, name, response)) = state.immediate_tool_responses.pop_front() {
+        let delivered_response = response.clone();
+        send(socket, tool_response(&id, &name, response))?;
+        state
+            .turn_outcomes
+            .record_delivered(&name, &delivered_response);
+        telemetry::event(
+            "immediate_tool_response_sent",
+            "turn_policy",
+            Privacy::Safe,
+            serde_json::json!({
+                "tool_call_id": id,
+                "tool": name,
+                "turn_mode": state.turn_mode.as_str(),
+            }),
+        );
+        sent = true;
+    }
+    Ok(sent)
+}
+
+fn is_terminal_blocker(response: &Value) -> bool {
+    response
+        .get("terminal_blocker")
+        .or_else(|| response.pointer("/action_result/terminal_blocker"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn close_terminal_blocker(state: &mut Reader) {
+    emit_turn_summary(state, "terminal_blocker");
+    super::terminal_drain::begin_final_response(state, false);
+    overlay::set_orb_resting();
+}
+
+fn result_status(state: &Reader, reconnect_for_activation: bool) -> &'static str {
+    if state.awaiting {
+        "working..."
+    } else if state.terminal_drain && !state.terminal_accepted {
+        "blocked - speak a new command"
+    } else if reconnect_for_activation {
+        "waiting to refresh capabilities..."
+    } else {
+        "ready - speak a command"
+    }
 }
 
 fn delivery_status(response: &Value) -> (&'static str, bool) {
@@ -155,14 +187,35 @@ fn delivery_status(response: &Value) -> (&'static str, bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::answer_evidence_tool;
+    use super::{Reader, close_terminal_blocker, is_terminal_blocker, result_status};
 
     #[test]
-    fn answer_gate_opens_for_evidence_not_status_or_navigation() {
-        assert!(answer_evidence_tool("look"));
-        assert!(answer_evidence_tool("browser_read_page"));
-        assert!(!answer_evidence_tool("browser_status"));
-        assert!(!answer_evidence_tool("open_url"));
-        assert!(!answer_evidence_tool("see_whole_screen"));
+    fn terminal_blocker_allows_one_explanation_without_accepting_completion() {
+        assert!(is_terminal_blocker(
+            &serde_json::json!({"terminal_blocker": true})
+        ));
+        assert!(is_terminal_blocker(&serde_json::json!({
+            "action_result": {"terminal_blocker": true}
+        })));
+        let mut state = Reader {
+            active: true,
+            awaiting: true,
+            recovery_owed: true,
+            ..Reader::default()
+        };
+        close_terminal_blocker(&mut state);
+        assert!(state.terminal_drain);
+        assert!(!state.terminal_accepted);
+        assert!(state.active);
+        assert!(state.awaiting);
+        assert!(!state.recovery_owed);
+        assert!(state.terminal_response.is_open());
+        assert_eq!(result_status(&state, false), "working...");
+
+        let working = Reader {
+            awaiting: true,
+            ..Reader::default()
+        };
+        assert_eq!(result_status(&working, false), "working...");
     }
 }

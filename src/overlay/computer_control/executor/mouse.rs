@@ -25,6 +25,7 @@ pub(super) fn click(
     let (x, y) = super::xy(args)?;
     let target_w = args.get("target_w").and_then(Value::as_f64).unwrap_or(40.0);
     let (down, up) = super::button_flags(args);
+    super::verify_expected_input_target(args)?;
     if super::move_humanized(x, y, target_w, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
@@ -52,6 +53,7 @@ pub(super) fn click(
         if cancel.load(Ordering::Relaxed) {
             return Ok(aborted_click(completed));
         }
+        super::verify_expected_pointer_target(args)?;
         press_button(down, up)?;
         let interrupted = human_input::sleep_cancellable(dwell, cancel);
         release_button(up)?;
@@ -76,12 +78,14 @@ pub(super) fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) ->
         .get("dest_y")
         .and_then(Value::as_f64)
         .ok_or_else(|| anyhow!("missing dest_y"))?;
+    super::verify_expected_input_target(args)?;
     if super::move_humanized(x, y, 40.0, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
     if human_input::sleep_cancellable(30, cancel) {
         return Ok(super::aborted());
     }
+    super::verify_expected_input_target(args)?;
     press_button(MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)?;
     if human_input::sleep_cancellable(40, cancel) {
         release_button(MOUSEEVENTF_LEFTUP)?;
@@ -99,6 +103,10 @@ pub(super) fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) ->
         }
     }
     let interrupted = human_input::sleep_cancellable(40, cancel);
+    if let Err(error) = super::verify_expected_input_target(args) {
+        release_button(MOUSEEVENTF_LEFTUP)?;
+        return Err(error);
+    }
     release_button(MOUSEEVENTF_LEFTUP)?;
     if interrupted {
         return Ok(super::aborted());
@@ -112,9 +120,11 @@ pub(super) fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) ->
 /// before the next frame is captured. Pollable by `cancel` like every motion.
 pub(super) fn point(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
     let (x, y) = super::xy(args)?;
+    super::verify_expected_input_target(args)?;
     if super::move_humanized(x, y, 40.0, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
+    super::verify_expected_input_target(args)?;
     let dwell = args
         .get("dwell_ms")
         .and_then(Value::as_u64)
@@ -134,6 +144,7 @@ pub(super) fn click_here(args: &Value, cancel: &AtomicBool) -> Result<Value> {
         return Ok(super::aborted());
     }
     super::super::uia::focus_foreground();
+    super::verify_expected_input_target(args)?;
     let (down, up) = super::button_flags(args);
     press_button(down, up)?;
     release_button(up)?;
@@ -142,6 +153,7 @@ pub(super) fn click_here(args: &Value, cancel: &AtomicBool) -> Result<Value> {
 
 pub(super) fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
     let (x, y) = super::xy(args)?;
+    super::verify_expected_input_target(args)?;
     if super::move_humanized(x, y, 40.0, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
@@ -165,6 +177,7 @@ pub(super) fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) 
     if cancel.load(Ordering::Relaxed) {
         return Ok(super::aborted());
     }
+    super::verify_expected_input_target(args)?;
     super::send(&[super::mouse_input(0, 0, data, flag)])?;
     Ok(json!({"ok": true, "scroll": dir, "magnitude": magnitude}))
 }

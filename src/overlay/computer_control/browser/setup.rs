@@ -21,9 +21,8 @@ fn write_extension() -> anyhow::Result<std::path::PathBuf> {
     // time (Chrome wants a plain x.y.z, so drop any -pre/+build suffix).
     let ver = env!("CARGO_PKG_VERSION");
     let ver = ver.split(['-', '+']).next().unwrap_or(ver);
-    let manifest = String::from_utf8_lossy(EXT_MANIFEST)
-        .replace("\"version\": \"0.1.0\"", &format!("\"version\": \"{ver}\""));
-    std::fs::write(dir.join("manifest.json"), manifest.as_bytes())?;
+    let manifest = rendered_manifest(EXT_MANIFEST, ver)?;
+    std::fs::write(dir.join("manifest.json"), manifest)?;
     std::fs::write(dir.join("sw.js"), EXT_SW)?;
     // Stamp the per-install bootstrap key into a script the service worker loads via
     // importScripts() on startup. The extension proves knowledge of it on first
@@ -41,6 +40,12 @@ fn write_extension() -> anyhow::Result<std::path::PathBuf> {
     std::fs::write(dir.join("icon48.png"), EXT_ICON48)?;
     std::fs::write(dir.join("icon128.png"), EXT_ICON128)?;
     Ok(dir)
+}
+
+fn rendered_manifest(source: &[u8], version: &str) -> anyhow::Result<Vec<u8>> {
+    let mut manifest: Value = serde_json::from_slice(source)?;
+    manifest["version"] = json!(version);
+    Ok(serde_json::to_vec_pretty(&manifest)?)
 }
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -108,9 +113,9 @@ fn default_https_progid() -> Option<String> {
         .map(str::to_string)
 }
 
-/// Bring the bridge up, lay down the extension files, and open chrome://extensions.
-/// Returns what the agent needs to finish the install ITSELF (it should perform
-/// the clicks, not recite them to the user) — pausing only at the permission grant.
+/// Bring the bridge up and lay down the extension files. Existing installations
+/// reconnect without setup UI; a first-time or stale install returns explicit
+/// user-only steps because browser extension-manager pages cannot be automated.
 pub(in crate::overlay::computer_control) fn setup() -> Value {
     super::ensure_started();
     // Stage the newest bundled files even for an existing install. A running MV3
@@ -119,43 +124,121 @@ pub(in crate::overlay::computer_control) fn setup() -> Value {
         Ok(d) => d.display().to_string(),
         Err(e) => return super::err(e),
     };
-    if super::is_connected() && super::bridge::protocol_version() >= 2 {
-        return json!({
-            "ok": true,
-            "connected": true,
-            "state": "connected",
-            "note": "Browser control is ALREADY set up and connected - do NOT install again. Tell the user it's ready and stop."
-        });
+    let connected = super::is_connected();
+    let usable = connected && super::capabilities::usable();
+    let route = setup_route(connected, usable, super::ever_connected());
+    if opens_pairing_before_response(route) {
+        super::bridge::open_pairing_window();
     }
+    match route {
+        SetupRoute::Connected => {
+            return connected_result();
+        }
+        SetupRoute::Reconnecting => {
+            return reconnecting_result();
+        }
+        SetupRoute::Manual => {}
+    }
+
     let browser = detect_browser();
-    super::bridge::open_pairing_window(); // a fresh extension auto-pairs INSTANTLY on connect, no popup
+    super::bridge::open_pairing_window(); // a fresh extension auto-pairs on connect
+    if super::is_connected() && super::capabilities::usable() {
+        return connected_result();
+    }
+    let connected = super::is_connected();
+    let update_staged = super::capabilities::update_staged();
     json!({
         "ok": true,
-        "connected": super::is_connected(),
+        "connected": connected,
         "state": super::connection_state(),
-        "code": if super::is_connected() { json!("BROWSER_EXTENSION_RELOAD_REQUIRED") } else { json!("BROWSER_SETUP_NEEDS_EXTENSION_LOAD") },
+        "code": if connected && update_staged {
+            json!("BROWSER_EXTENSION_RELOAD_REQUIRED")
+        } else if connected {
+            json!("BROWSER_EXTENSION_INCOMPATIBLE")
+        } else {
+            json!("BROWSER_SETUP_NEEDS_EXTENSION_LOAD")
+        },
         "browser": browser.name,
         "chromium": browser.chromium,
         "extensions_page": browser.ext_url,
         "extension_folder": dir,
         "port": super::bridge::port_for_display(),
         "warning": if browser.chromium { Value::Null } else {
-            json!(format!("Your default browser ({}) isn't Chromium - deep browser control needs Chrome/Edge/Brave.", browser.name))
+            json!(format!("Your default browser ({}) isn't Chromium - deep browser control needs a Chromium browser.", browser.name))
         },
-        "do_yourself": [
-            format!("Open a new tab in the current browser window, go to {}, and use observe/act or keyboard controls from there.", browser.ext_url),
-            "If the extension is already listed, press its Reload button once so the staged protocol update takes effect; otherwise continue with Load unpacked.",
-            "For Load unpacked, type_text the extension_folder path with press_enter:true, then click 'Select Folder'.",
-            "Check browser_status after each visible setup step. If connected is true, stop; if it remains false after a bounded recovery, report the blocker instead of looping."
+        "manual_user_steps": [
+            format!("In {}, open {} yourself. Browser extension-manager pages cannot be automated by Computer Control.", browser.name, browser.ext_url),
+            "If the extension is already listed, manually press its Reload button once; otherwise choose Load unpacked.",
+            format!("For Load unpacked, select this folder: {dir}"),
+            "After that user action, check browser_status up to three times and stop as soon as connected is true."
         ]
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SetupRoute {
+    Connected,
+    Reconnecting,
+    Manual,
+}
+
+fn setup_route(connected: bool, usable: bool, ever_connected: bool) -> SetupRoute {
+    if connected && usable {
+        SetupRoute::Connected
+    } else if !connected && ever_connected {
+        SetupRoute::Reconnecting
+    } else {
+        SetupRoute::Manual
+    }
+}
+
+fn opens_pairing_before_response(route: SetupRoute) -> bool {
+    route == SetupRoute::Reconnecting
+}
+
+fn connected_result() -> Value {
+    json!({
+        "ok": true,
+        "connected": true,
+        "state": "connected",
+        "protocol_version": super::capabilities::protocol_version(),
+        "capabilities": super::capabilities::list(),
+        "update_staged": super::capabilities::update_staged(),
+        "reload_required": false,
+        "note": "Browser control is connected and usable for its negotiated capabilities. Do not reinstall it. A staged update is optional until a requested command reports a typed missing-capability error."
+    })
+}
+
+fn reconnecting_result() -> Value {
+    reconnecting_payload(
+        super::capabilities::protocol_version(),
+        super::capabilities::list(),
+    )
+}
+
+fn reconnecting_payload(protocol_version: u64, capabilities: Vec<String>) -> Value {
+    json!({
+        "ok": true,
+        "connected": false,
+        "state": "reconnecting",
+        "code": "BROWSER_EXTENSION_RECONNECTING",
+        "protocol_version": protocol_version,
+        "capabilities": capabilities,
+        "retry": {
+            "tool": "browser_status",
+            "max_attempts": 4,
+            "delay_ms": 2000,
+            "stop_when": "connected is true"
+        },
+        "instruction": "The previously connected extension is reconnecting through a fresh pairing window. Do not rerun browser_setup or start installation. Check browser_status at most four times about two seconds apart, then report the current typed state if it is still disconnected."
+    })
+}
+
 /// Reset / repair browser control: re-open the pairing window so a stuck or
-/// stale-secret extension re-pairs cleanly, and re-enable the proactive offer.
+/// stale-secret extension re-pairs cleanly.
 /// The clean alternative to manually deleting files - no raw deletion, bounded.
 pub(in crate::overlay::computer_control) fn reset() -> Value {
-    super::prefs::clear(); // re-enable the setup offer
+    super::prefs::clear();
     super::bridge::open_pairing_window(); // a loaded extension re-pairs within the window
     json!({
         "ok": true,
@@ -167,13 +250,79 @@ pub(in crate::overlay::computer_control) fn reset() -> Value {
 pub(in crate::overlay::computer_control) fn status() -> Value {
     // Deliberately does NOT return the pairing secret: with auto-pair the model
     // never needs it, and exposing it widens the blast radius if a transcript leaks.
+    let connected = super::is_connected();
+    let usable = connected && super::capabilities::usable();
+    let (update_staged, reload_required) =
+        update_flags(connected, usable, super::capabilities::update_staged());
     json!({
         "ok": true,
-        "connected": super::is_connected(),
+        "connected": connected,
         "state": super::connection_state(),
         "pairing_window_open": super::bridge::pairing_window_open(),
-        "protocol_version": super::bridge::protocol_version(),
-        "reload_required": super::is_connected() && super::bridge::protocol_version() < 2,
+        "protocol_version": super::capabilities::protocol_version(),
+        "capabilities": super::capabilities::list(),
+        "usable": usable,
+        "update_staged": update_staged,
+        "reload_required": reload_required,
         "port": super::bridge::port_for_display()
     })
+}
+
+fn update_flags(connected: bool, usable: bool, staged: bool) -> (bool, bool) {
+    (connected && staged, connected && !usable && staged)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        EXT_MANIFEST, SetupRoute, opens_pairing_before_response, reconnecting_payload,
+        rendered_manifest, setup_route, update_flags,
+    };
+    use serde_json::Value;
+
+    #[test]
+    fn manifest_version_is_stamped_without_a_placeholder_dependency() {
+        let rendered = rendered_manifest(EXT_MANIFEST, "7.8.9").unwrap();
+        let value: Value = serde_json::from_slice(&rendered).unwrap();
+        assert_eq!(value["version"], "7.8.9");
+    }
+
+    #[test]
+    fn compatible_connected_extension_keeps_optional_update_non_blocking() {
+        assert_eq!(update_flags(true, true, true), (true, false));
+        assert_eq!(update_flags(true, false, true), (true, true));
+        assert_eq!(update_flags(false, false, true), (false, false));
+    }
+
+    #[test]
+    fn setup_route_preserves_usable_connected_control() {
+        assert_eq!(setup_route(true, true, true), SetupRoute::Connected);
+    }
+
+    #[test]
+    fn setup_route_separates_reconnect_from_first_time_setup() {
+        assert_eq!(setup_route(false, false, true), SetupRoute::Reconnecting);
+        assert_eq!(setup_route(false, false, false), SetupRoute::Manual);
+        assert_eq!(setup_route(true, false, true), SetupRoute::Manual);
+    }
+
+    #[test]
+    fn prior_connection_recovery_opens_pairing_without_waiting() {
+        let route = setup_route(false, false, true);
+        assert_eq!(route, SetupRoute::Reconnecting);
+        assert!(opens_pairing_before_response(route));
+        assert!(!opens_pairing_before_response(SetupRoute::Connected));
+    }
+
+    #[test]
+    fn reconnecting_payload_is_bounded_and_has_no_install_route() {
+        let payload = reconnecting_payload(1, vec!["cdp.command".to_string()]);
+        assert_eq!(payload["state"], "reconnecting");
+        assert_eq!(payload["retry"]["tool"], "browser_status");
+        assert_eq!(payload["retry"]["max_attempts"], 4);
+        assert_eq!(payload["retry"]["delay_ms"], 2000);
+        assert!(payload.get("extensions_page").is_none());
+        assert!(payload.get("extension_folder").is_none());
+        assert!(payload.get("manual_user_steps").is_none());
+    }
 }
