@@ -6,6 +6,8 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 /// A connected integration: its live client + the tool list it advertised.
 struct Connected {
@@ -32,9 +34,6 @@ fn manager() -> &'static parking_lot::Mutex<Manager> {
 /// Set when the connected set changes → the runtime reconnects so `build_setup`
 /// re-declares the tools (Gemini Live freezes tools at session setup).
 static TOOLS_CHANGED: AtomicBool = AtomicBool::new(false);
-/// Emergency escape: if a reconnect's setup ever fails (a bad MCP schema), the runtime
-/// flips this so the next `build_setup` omits MCP tools and the session always returns.
-static SUPPRESS_TOOLS: AtomicBool = AtomicBool::new(false);
 
 pub(in crate::overlay::computer_control) fn tools_changed() -> bool {
     TOOLS_CHANGED.load(Ordering::SeqCst)
@@ -42,10 +41,6 @@ pub(in crate::overlay::computer_control) fn tools_changed() -> bool {
 
 pub(in crate::overlay::computer_control) fn clear_tools_changed() {
     TOOLS_CHANGED.store(false, Ordering::SeqCst);
-}
-
-pub(in crate::overlay::computer_control) fn set_suppress_tools(on: bool) {
-    SUPPRESS_TOOLS.store(on, Ordering::SeqCst);
 }
 
 pub(in crate::overlay::computer_control) fn is_connected(id: &str) -> bool {
@@ -67,25 +62,52 @@ pub(super) fn connected_snapshot(id: &str) -> Option<(Arc<McpClient>, Vec<McpToo
 
 /// Spawn + handshake + list tools, store the live client. Idempotent.
 pub(super) fn connect(id: &str) -> Result<usize, String> {
+    connect_inner(id, None)?.ok_or_else(|| "connection owner stopped".to_string())
+}
+
+fn connect_inner(id: &str, stop: Option<&AtomicBool>) -> Result<Option<usize>, String> {
+    if stop.is_some_and(|stop| stop.load(Ordering::SeqCst)) {
+        return Ok(None);
+    }
     if is_connected(id) {
-        return Ok(0);
+        return Ok(Some(0));
     }
     let integration = catalog::get(id).ok_or_else(|| format!("unknown integration '{id}'"))?;
-    let client =
-        McpClient::spawn(&integration.launch).map_err(|error| format!("spawn: {error:#}"))?;
-    let tools = client
-        .list_tools()
-        .map_err(|error| format!("tools/list: {error:#}"))?;
+    let client = match stop {
+        Some(stop) => McpClient::spawn_until(&integration.launch, stop),
+        None => McpClient::spawn(&integration.launch),
+    }
+    .map_err(|error| format!("spawn: {error:#}"))?;
+    let tools = match stop {
+        Some(stop) => client.list_tools_owned(stop),
+        None => client.list_tools(),
+    }
+    .map_err(|error| format!("tools/list: {error:#}"))?;
     let count = tools.len();
-    manager().lock().connected.insert(
-        id.to_string(),
-        Connected {
-            client: Arc::new(client),
-            tools,
-        },
-    );
+    let mut manager = manager().lock();
+    let registered = register_if_owner_active(stop, || {
+        manager.connected.insert(
+            id.to_string(),
+            Connected {
+                client: Arc::new(client),
+                tools,
+            },
+        );
+    });
+    drop(manager);
+    if !registered {
+        return Ok(None);
+    }
     TOOLS_CHANGED.store(true, Ordering::SeqCst);
-    Ok(count)
+    Ok(Some(count))
+}
+
+fn register_if_owner_active(stop: Option<&AtomicBool>, register: impl FnOnce()) -> bool {
+    if stop.is_some_and(|stop| stop.load(Ordering::SeqCst)) {
+        return false;
+    }
+    register();
+    true
 }
 
 pub(super) fn disconnect(id: &str) {
@@ -95,15 +117,108 @@ pub(super) fn disconnect(id: &str) {
     TOOLS_CHANGED.store(true, Ordering::SeqCst);
 }
 
-/// Best-effort: bring every installed integration back on session start (each on its
-/// own thread, since a cold spawn can block). The runtime's reconnect-on-tools-changed
-/// then declares their tools.
-pub(in crate::overlay::computer_control) fn connect_all_installed() {
-    for id in registry::installed_ids() {
-        std::thread::spawn(move || match connect(&id) {
-            Ok(count) => eprintln!("[mcp] connected '{id}' ({count} tools)"),
-            Err(error) => eprintln!("[mcp] connect '{id}' failed: {error}"),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StartupAttempt {
+    Connected,
+    Failed,
+    Stopped,
+}
+
+/// Bounded startup barrier for the installed integration catalog. Connection
+/// workers remain asynchronous; this handle reports when all attempts settle or
+/// when the caller's deadline expires.
+pub(in crate::overlay::computer_control) struct StartupCatalog {
+    installed: usize,
+    attempts: Receiver<StartupAttempt>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::overlay::computer_control) struct StartupCatalogReport {
+    pub installed: usize,
+    pub connected: usize,
+    pub failed: usize,
+    pub pending: usize,
+    pub stopped: bool,
+}
+
+impl StartupCatalog {
+    pub(in crate::overlay::computer_control) fn wait(
+        self,
+        timeout: Duration,
+        stop: &AtomicBool,
+    ) -> StartupCatalogReport {
+        let deadline = Instant::now() + timeout;
+        let mut report = StartupCatalogReport {
+            installed: self.installed,
+            ..StartupCatalogReport::default()
+        };
+        while report.connected + report.failed < report.installed {
+            if stop.load(Ordering::SeqCst) {
+                report.stopped = true;
+                break;
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let poll = remaining.min(Duration::from_millis(50));
+            match self.attempts.recv_timeout(poll) {
+                Ok(StartupAttempt::Connected) => report.connected += 1,
+                Ok(StartupAttempt::Failed) => report.failed += 1,
+                Ok(StartupAttempt::Stopped) => {
+                    report.stopped = true;
+                    break;
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    report.failed += report
+                        .installed
+                        .saturating_sub(report.connected + report.failed);
+                    break;
+                }
+            }
+        }
+        report.pending = report
+            .installed
+            .saturating_sub(report.connected + report.failed);
+        report
+    }
+}
+
+/// Bring every installed integration online concurrently and return a bounded
+/// lifecycle handle. A slow provider never blocks the owning session thread
+/// indefinitely, and a late success still raises `TOOLS_CHANGED` for activation.
+pub(in crate::overlay::computer_control) fn connect_all_installed(
+    stop: Arc<AtomicBool>,
+) -> StartupCatalog {
+    let ids = registry::installed_ids();
+    let installed = ids.len();
+    let (tx, attempts) = mpsc::channel();
+    for id in ids {
+        let tx = tx.clone();
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            let outcome = match connect_inner(&id, Some(&stop)) {
+                Ok(Some(count)) => {
+                    eprintln!("[mcp] connected '{id}' ({count} tools)");
+                    StartupAttempt::Connected
+                }
+                Ok(None) => StartupAttempt::Stopped,
+                Err(error) => {
+                    if stop.load(Ordering::SeqCst) {
+                        StartupAttempt::Stopped
+                    } else {
+                        eprintln!("[mcp] connect '{id}' failed: {error}");
+                        StartupAttempt::Failed
+                    }
+                }
+            };
+            let _ = tx.send(outcome);
         });
+    }
+    drop(tx);
+    StartupCatalog {
+        installed,
+        attempts,
     }
 }
 
@@ -121,9 +236,6 @@ pub(in crate::overlay::computer_control) fn disconnect_all() {
 /// The legacy route map is still refreshed so an in-flight pre-reconnect call can
 /// finish safely.
 pub(in crate::overlay::computer_control) fn active_tool_declarations() -> Vec<Value> {
-    if SUPPRESS_TOOLS.load(Ordering::SeqCst) {
-        return Vec::new();
-    }
     let mut manager = manager().lock();
     manager.routes.clear();
     // Snapshot to avoid borrowing `connected` and `routes` at once.
@@ -273,6 +385,7 @@ pub(in crate::overlay::computer_control) fn try_dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicBool;
 
     #[test]
     fn proxy_catalog_keeps_search_and_call_schemas() {
@@ -291,5 +404,58 @@ mod tests {
     #[test]
     fn non_mcp_names_remain_available_to_native_dispatch() {
         assert_eq!(try_dispatch("future_native_capability", &json!({})), None);
+    }
+
+    #[test]
+    fn startup_catalog_reports_settled_attempts() {
+        let (tx, attempts) = mpsc::channel();
+        tx.send(StartupAttempt::Connected).unwrap();
+        tx.send(StartupAttempt::Failed).unwrap();
+        drop(tx);
+        let report = StartupCatalog {
+            installed: 2,
+            attempts,
+        }
+        .wait(Duration::from_secs(1), &AtomicBool::new(false));
+
+        assert_eq!(report.connected, 1);
+        assert_eq!(report.failed, 1);
+        assert_eq!(report.pending, 0);
+        assert!(!report.stopped);
+    }
+
+    #[test]
+    fn startup_catalog_deadline_is_bounded_and_preserves_pending_count() {
+        let (_tx, attempts) = mpsc::channel();
+        let report = StartupCatalog {
+            installed: 1,
+            attempts,
+        }
+        .wait(Duration::ZERO, &AtomicBool::new(false));
+
+        assert_eq!(report.connected, 0);
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.pending, 1);
+        assert!(!report.stopped);
+    }
+
+    #[test]
+    fn stopped_owner_cannot_register_after_attempt_settles() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let registered = Arc::new(AtomicBool::new(false));
+        let (settle_tx, settle_rx) = mpsc::channel();
+        let worker_stop = Arc::clone(&stop);
+        let worker_registered = Arc::clone(&registered);
+        let worker = std::thread::spawn(move || {
+            settle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            register_if_owner_active(Some(&worker_stop), || {
+                worker_registered.store(true, Ordering::SeqCst);
+            })
+        });
+
+        stop.store(true, Ordering::SeqCst);
+        settle_tx.send(()).unwrap();
+        assert!(!worker.join().unwrap());
+        assert!(!registered.load(Ordering::SeqCst));
     }
 }

@@ -23,14 +23,15 @@ fn read_click_points(dir: &str) -> Vec<(i32, i32)> {
     points
 }
 
-pub(super) fn final_review(dir: &str, target: Option<&str>, note: &str) {
+pub(super) fn final_review(dir: &str, target: Option<&str>, task: &str, note: &str) {
     use super::super::telemetry::{self, Privacy};
     let view = window_view(target, false);
     let reading = read_view(
         view,
-        "Describe the final on-screen state in detail. If this is a game, state the exact result \
-(win / lose / draw) and the full final board.",
-        "",
+        "Assess the final visible state against the requested task. State the exact on-screen \
+evidence that supports completion, plus any contradiction, modal interruption, blocker, or \
+unfinished state. Do not propose new actions. Keep the report concise and factual.",
+        &format!("task: {task}"),
         &AtomicBool::new(false),
     )
     .unwrap_or_else(|error| format!("(vision read failed: {error})"));
@@ -39,7 +40,7 @@ pub(super) fn final_review(dir: &str, target: Option<&str>, note: &str) {
     let text_path = std::path::Path::new(dir).join(&text_name);
     match std::fs::write(
         &text_path,
-        format!("NOTE: {note}\n\nFINAL VISION READING:\n{reading}\n"),
+        format!("TASK: {task}\nNOTE: {note}\n\nFINAL VISION READING:\n{reading}\n"),
     ) {
         Ok(()) => telemetry::event(
             "final_review_ready",
@@ -66,7 +67,7 @@ fn save_click_frame(dir: &str, view: View, frame_id: u64) -> Result<()> {
     use super::super::telemetry::{self, Privacy};
     let cap = session::capture_virtual().context("capture")?;
     let (jpeg, clamped) =
-        session::encode_view(&cap, view, VISION_SHORT, None, None).context("encode")?;
+        session::encode_view(&cap, view, VISION_SHORT, None, None, None).context("encode")?;
     let image = image::load_from_memory(&jpeg).context("decode")?;
     let mut rgb = image.to_rgb8();
     for (screen_x, screen_y) in read_click_points(dir) {

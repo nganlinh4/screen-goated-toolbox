@@ -8,6 +8,9 @@ use super::*;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 
+mod browser;
+pub(super) use browser::{browser_click, browser_drag, browser_vision_target};
+
 /// Longest edge target for the view crop sent to the model (short edge actually).
 pub(super) const VIEW_SHORT: u32 = 1024;
 
@@ -46,8 +49,8 @@ pub(super) fn read_view_pref(
             json!({"request_id": request_id, "error": error.to_string()}),
         );
     })?;
-    let (jpeg, shown) =
-        session::encode_view(&cap, view, VISION_SHORT, None, None).inspect_err(|error| {
+    let (jpeg, shown) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)
+        .inspect_err(|error| {
             telemetry::typed_error(
                 "ERR_VISION_ENCODE_FAILED",
                 "vision",
@@ -100,98 +103,37 @@ pub(super) fn read_view_pref(
     result
 }
 
-/// Stall-planner vision chain: the benchmark's strongest vision PLANNERS first
-/// (`gemini-flash-lite` = 2.5-flash-lite — fast, no harmful picks; `gemini-flash`
-/// = 2.5-flash — top score), then the abundant 3.1-flash-lite default takes over
-/// via the standard fallback chain (those 2.5 ids are 20/day; stalls are rare).
+/// Bounded planner-grade preference before the normal vision fallback chain.
+/// This affects only auxiliary recovery advice; execution still requires fresh
+/// grounding and the ordinary structural action guards.
 const PLANNER_VISION_PREFER: &[&str] = &["gemini-flash-lite", "gemini-flash"];
 
 impl Brain {
-    /// Some goals are completed by speaking/returning information, not by changing
-    /// the screen. A screen-only verifier will reject those and make the model read
-    /// the same answer again. Accept them when a recent read/info tool succeeded.
-    fn informational_done_verdict(&self, task: &str) -> Option<String> {
-        let lower = task.to_lowercase();
-        let wants_spoken_answer = [
-            "read",
-            "read out",
-            "read aloud",
-            "say",
-            "tell me",
-            "summarize",
-            "summary",
-            "explain",
-            "answer",
-            "what",
-            "who",
-            "clipboard",
-            "clip",
-            "lore",
-        ]
-        .iter()
-        .any(|needle| lower.contains(needle));
-        let visible_destination = [
-            "paste",
-            "put into",
-            "copy into",
-            "word",
-            "document",
-            "file",
-            "send",
-            "submit",
-            "click",
-            "turn on",
-            "change",
-            "create",
-            "install",
-        ]
-        .iter()
-        .any(|needle| lower.contains(needle));
-        if !wants_spoken_answer || visible_destination {
-            return None;
-        }
-        let info_tool = self.trail.iter().rev().find(|entry| {
-            [
-                "read_clipboard=ok",
-                "browser_read_page=ok",
-                "browser_extract_page=ok",
-                "artifact_info=ok",
-                "search_memory=ok",
-                "open_memory=ok",
-                "look=ok",
-            ]
-            .iter()
-            .any(|prefix| entry.starts_with(prefix))
-        })?;
-        Some(format!(
-            "YES - accepted as an informational/spoken-output task; recent evidence: {info_tool}. Screen state is not the completion signal for this task."
+    /// Independent high-res vision check of a `done` claim. Returns (accepted,
+    /// typed verdict). Checker errors are unavailable and fail closed.
+    pub fn verify_done(&self, task: &str, cancel: &AtomicBool) -> DoneCheck {
+        let full = window_view(self.target.as_deref(), self.whole_screen);
+        let q = done_verifier_question(task);
+        classify_done_read(read_view(
+            full,
+            &q,
+            &self.done_verifier_context(task),
+            cancel,
         ))
     }
 
-    /// Independent high-res vision check of a `done` claim. Returns (accepted,
-    /// verdict text). Checker errors are unknown and fail closed.
-    pub fn verify_done(&self, task: &str, cancel: &AtomicBool) -> (bool, String) {
-        if let Some(verdict) = self.informational_done_verdict(task) {
-            return (true, verdict);
-        }
-        let full = window_view(self.target.as_deref(), self.whole_screen);
-        let q = format!(
-            "A computer agent claims this task is COMPLETE: \"{task}\". \
-If the task is INFORMATIONAL - to read, summarize, explain, identify, find, compare or report what something is \
-(the deliverable is the agent's spoken answer; there is NO visible 'done' state on screen) - answer YES as long as \
-the relevant content is visible or has clearly been read. \
-If the task is an ACTION with a visible end-state (a setting changed, a form submitted, an item placed, a level won) \
-- answer YES only if that end-state is actually visible right now, otherwise NO. \
-Start your answer with YES or NO, then quote the exact on-screen evidence (or state what is shown instead)."
-        );
-        classify_done_read(read_view(full, &q, &format!("task: {task}"), cancel))
+    pub(super) fn done_verifier_context(&self, task: &str) -> String {
+        format!(
+            "task: {task}; bounded provenance-labelled evidence this turn:\n{}",
+            self.completion_evidence.context()
+        )
     }
 
     /// Stall safety-net — the "merge" planner: ONE grounded vision call that SEES
     /// the screen and proposes the single best NEXT action when the agent is
     /// looping (perception + plan in one shot). Prefers the fast/accurate 2.5
-    /// vision models. None on vision failure (the static stuck_warning note still
-    /// stands). Cancellable, so a barge-in returns immediately.
+    /// vision models. None on vision failure; the compact typed postcondition
+    /// still reports the unchanged state. Cancellable, so barge-in is immediate.
     pub fn stuck_advice(&self, task: &str, cancel: &AtomicBool) -> Option<String> {
         let view = window_view(self.target.as_deref(), self.whole_screen);
         let trail = if self.recent_actions.is_empty() {
@@ -220,24 +162,76 @@ Answer in ONE or TWO sentences as a direct instruction to the agent. No preamble
         (!advice.is_empty()).then_some(advice)
     }
 
-    pub fn final_review(&self, note: &str) {
-        final_review(&self.dir, self.target.as_deref(), note);
+    pub fn final_review(&self, task: &str, note: &str) {
+        final_review(&self.dir, self.target.as_deref(), task, note);
     }
+}
+
+fn done_verifier_question(task: &str) -> String {
+    format!(
+        "Independently evaluate whether the current visible state and supplied receipts prove this requested outcome: {task:?}. \
+Do not trust the acting agent's claim or infer an effect from intent. Evidence provenance is strict: job_source proves only the exact surface where the job began; grounded_surface proves only its exact title, URL, and identity; capability_result proves only the fields that capability directly returned (an ok status proves execution, not a semantic premise); model_inference is advisory and cannot by itself establish a factual, ordinal, comparative, or relational premise; model_authored_computation proves only that supplied code ran, never that its output reflects provider state; model_mediated_effect proves execution metadata but its inferred target label is advisory. A click or navigation receipt proves the interaction, not that its target satisfied a requested selection rule. Build a complete evidence chain, preserve any source-identity constraint in the task, and return complete=false when a required premise is missing or contradicted. A communicative outcome may be proven by a direct read receipt even when there is no terminal visual state; a state-change outcome requires the requested postcondition. \
+Return one JSON object only: {{\"complete\":boolean,\"evidence\":\"specific supporting state or receipt\",\"contradiction\":\"specific missing or conflicting state, or empty\"}}."
+    )
 }
 
 /// A missing independent reading is an unknown outcome, never proof that an
 /// action task succeeded. This also keeps cancellation from becoming fail-open.
-fn classify_done_read(reading: Result<String>) -> (bool, String) {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::overlay::computer_control) struct DoneCheck {
+    pub(in crate::overlay::computer_control) complete: bool,
+    pub(in crate::overlay::computer_control) unavailable: bool,
+    pub(in crate::overlay::computer_control) verdict: String,
+}
+
+fn classify_done_read(reading: Result<String>) -> DoneCheck {
     match reading {
-        Ok(answer) => (
-            answer.trim_start().to_lowercase().starts_with("yes"),
-            answer,
-        ),
-        Err(error) => (
-            false,
-            format!("UNKNOWN - independent vision check unavailable: {error}"),
-        ),
+        Ok(answer) => match parse_done_verdict(&answer) {
+            Some((complete, evidence, contradiction)) => {
+                let verdict = serde_json::json!({
+                    "complete": complete,
+                    "evidence": evidence,
+                    "contradiction": contradiction,
+                })
+                .to_string();
+                DoneCheck {
+                    complete,
+                    unavailable: false,
+                    verdict,
+                }
+            }
+            None => DoneCheck {
+                complete: false,
+                unavailable: true,
+                verdict: "independent vision check returned an invalid verdict schema".to_string(),
+            },
+        },
+        Err(error) => DoneCheck {
+            complete: false,
+            unavailable: true,
+            verdict: format!("independent vision check unavailable: {error}"),
+        },
     }
+}
+
+fn parse_done_verdict(answer: &str) -> Option<(bool, String, String)> {
+    let start = answer.find('{')?;
+    let end = answer.rfind('}')?;
+    let value: Value = serde_json::from_str(&answer[start..=end]).ok()?;
+    let complete = value.get("complete")?.as_bool()?;
+    let evidence = value.get("evidence")?.as_str()?.trim().to_string();
+    let contradiction = value
+        .get("contradiction")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if (complete && (evidence.is_empty() || !contradiction.is_empty()))
+        || (!complete && contradiction.is_empty())
+    {
+        return None;
+    }
+    Some((complete, evidence, contradiction))
 }
 
 /// Run a (slow, blocking) vision call on a worker thread while polling `cancel`
@@ -279,7 +273,7 @@ pub(super) fn locate_in_view(
     cancel: &AtomicBool,
 ) -> Result<Located> {
     let cap = session::capture_virtual()?;
-    let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None)?;
+    let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)?;
     let located = match std::env::var("CC_LOCATE_MODE").as_deref() {
         Ok("refine") => refine_in_view(&cap, view, &jpeg, description, ctx, cancel),
         Ok("box") => {
@@ -308,7 +302,7 @@ pub(super) fn locate_in_view(
     // Re-capture after the potentially slow locate call. This both detects a
     // stale/moving UI and verifies the exact proposed point on a marked crop.
     let fresh = session::capture_virtual()?;
-    let (fresh_jpeg, _) = session::encode_view(&fresh, view, VISION_SHORT, None, None)?;
+    let (fresh_jpeg, _) = session::encode_view(&fresh, view, VISION_SHORT, None, None, None)?;
     verify_located(&fresh_jpeg, located, description, ctx, cancel)
 }
 
@@ -322,7 +316,7 @@ pub(super) fn map_in_view(
     cancel: &AtomicBool,
 ) -> Result<Vec<Located>> {
     let cap = session::capture_virtual()?;
-    let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None)?;
+    let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)?;
     let (d, c) = (description.to_string(), ctx.to_string());
     run_cancellable(cancel, move || {
         super::super::vision_reader::locate_points(&jpeg, &d, &c)
@@ -358,7 +352,8 @@ pub(super) fn refine_in_view(
         w: zw,
         h: zh,
     };
-    let Ok((fine_jpeg, shown)) = session::encode_view(cap, zoom, VISION_SHORT, None, None) else {
+    let Ok((fine_jpeg, shown)) = session::encode_view(cap, zoom, VISION_SHORT, None, None, None)
+    else {
         return Ok(coarse);
     };
     // The fine pass is easy localization (target fills the zoomed crop), so an
@@ -400,65 +395,6 @@ pub(super) fn refine_in_view(
 // SendInput. This is what lets the agent operate <canvas>/WebGL web games and
 // cross-origin iframes that ignore synthetic OS mouse events — with better pixel
 // precision too (full-res page image, exact CSS-px coordinates, no chrome/DPR math).
-
-/// Locate `description` in the controlled browser's viewport via a CDP screenshot,
-/// returning the point in CSS px (the space CDP input uses) plus what was seen.
-pub(super) fn locate_css(
-    description: &str,
-    ctx: &str,
-    cancel: &AtomicBool,
-) -> Result<(f64, f64, Option<String>)> {
-    let (jpeg, cw, ch) = super::super::browser::shot()?;
-    let (d, c) = (description.to_string(), ctx.to_string());
-    let loc = run_cancellable(cancel, move || {
-        super::super::vision_reader::locate_point(&jpeg, &d, &c)
-    })?;
-    let (fresh_jpeg, fresh_w, fresh_h) = super::super::browser::shot()?;
-    if (fresh_w - cw).abs() > f64::EPSILON || (fresh_h - ch).abs() > f64::EPSILON {
-        anyhow::bail!("browser viewport changed while locating the target");
-    }
-    let loc = verify_located(&fresh_jpeg, loc, description, ctx, cancel)?;
-    Ok((loc.x / 1000.0 * cw, loc.y / 1000.0 * ch, loc.note))
-}
-
-/// click_target via the trusted browser pipeline.
-pub(super) fn browser_click(desc: &str, right: bool, ctx: &str, cancel: &AtomicBool) -> Value {
-    match locate_css(desc, ctx, cancel) {
-        Ok((x, y, note)) => {
-            eprintln!("[cc] CLICK_TARGET(browser) '{desc}' -> css({x:.0},{y:.0}) saw={note:?}");
-            match super::super::browser::click(x, y, right) {
-                Ok(()) => {
-                    json!({"ok": true, "via": "browser", "css_px": [x.round(), y.round()], "saw_at_target": note})
-                }
-                Err(e) => json!({"ok": false, "error": e.to_string()}),
-            }
-        }
-        Err(e) => json!({"ok": false, "error": format!("could not locate '{desc}': {e}")}),
-    }
-}
-
-/// drag_target via the trusted browser pipeline (vision-locate BOTH endpoints).
-pub(super) fn browser_drag(from: &str, to: &str, ctx: &str, cancel: &AtomicBool) -> Value {
-    let f = match locate_css(from, ctx, cancel) {
-        Ok(v) => v,
-        Err(e) => {
-            return json!({"ok": false, "error": format!("could not locate from '{from}': {e}")});
-        }
-    };
-    let t = match locate_css(to, ctx, cancel) {
-        Ok(v) => v,
-        Err(e) => return json!({"ok": false, "error": format!("could not locate to '{to}': {e}")}),
-    };
-    eprintln!(
-        "[cc] DRAG_TARGET(browser) '{from}'->'{to}' : css({:.0},{:.0})->({:.0},{:.0})",
-        f.0, f.1, t.0, t.1
-    );
-    match super::super::browser::drag(f.0, f.1, t.0, t.1) {
-        Ok(()) => json!({"ok": true, "via": "browser", "from": f.2, "to": t.2,
-            "from_css": [f.0.round(), f.1.round()], "to_css": [t.0.round(), t.1.round()]}),
-        Err(e) => json!({"ok": false, "error": e.to_string()}),
-    }
-}
 
 /// True if every token in a `key_combination` is a scroll/navigation key — those
 /// are legitimately repeated (paging through a feed), so the stuck detector skips
@@ -513,18 +449,63 @@ pub(super) fn append_click(dir: &str, action: super::super::telemetry::ActionTra
 
 #[cfg(test)]
 mod tests {
-    use super::classify_done_read;
+    use super::{classify_done_read, done_verifier_question};
 
     #[test]
     fn completion_check_errors_fail_closed() {
-        let (accepted, verdict) = classify_done_read(Err(anyhow::anyhow!("cancelled")));
-        assert!(!accepted);
-        assert!(verdict.starts_with("UNKNOWN"));
+        let result = classify_done_read(Err(anyhow::anyhow!("cancelled")));
+        assert!(!result.complete);
+        assert!(result.unavailable);
     }
 
     #[test]
-    fn completion_check_requires_explicit_yes() {
-        assert!(classify_done_read(Ok("YES - visible".into())).0);
-        assert!(!classify_done_read(Ok("NO - not visible".into())).0);
+    fn completion_check_uses_typed_verdict_not_language_phrases() {
+        assert!(
+            classify_done_read(Ok(
+                r#"{"complete":true,"evidence":"opaque-evidence-17","contradiction":""}"#.into()
+            ))
+            .complete
+        );
+        let prose = classify_done_read(Ok("YES - visible".into()));
+        assert!(!prose.complete);
+        assert!(prose.unavailable);
+        assert!(!classify_done_read(Ok(
+            r#"{"complete":false,"evidence":"opaque-observation-2","contradiction":"opaque-contradiction-9"}"#
+                .into()
+        ))
+        .complete);
+        assert!(
+            !classify_done_read(Ok(
+                r#"{"complete":true,"evidence":"state","contradiction":"missing"}"#.into()
+            ))
+            .complete
+        );
+    }
+
+    #[test]
+    fn incomplete_typed_verdict_needs_only_a_contradiction() {
+        let result = classify_done_read(Ok(
+            r#"{"complete":false,"evidence":"","contradiction":"opaque-contradiction-11"}"#.into(),
+        ));
+        assert!(!result.complete);
+        assert!(!result.unavailable);
+        assert!(result.verdict.contains("opaque-contradiction-11"));
+
+        let invalid = classify_done_read(Ok(
+            r#"{"complete":false,"evidence":"opaque-observation-4","contradiction":""}"#.into(),
+        ));
+        assert!(!invalid.complete);
+        assert!(invalid.unavailable);
+    }
+
+    #[test]
+    fn verifier_contract_does_not_promote_inference_or_effect_receipts_to_proof() {
+        let question = done_verifier_question("opaque task");
+        assert!(question.contains("model_inference is advisory"));
+        assert!(question.contains("model_authored_computation proves only"));
+        assert!(question.contains("ordinal, comparative, or relational premise"));
+        assert!(question.contains("A click or navigation receipt proves the interaction"));
+        assert!(question.contains("source-identity constraint"));
+        assert!(question.contains("complete=false"));
     }
 }

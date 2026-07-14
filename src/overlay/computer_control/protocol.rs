@@ -15,13 +15,23 @@ use crate::api::realtime_audio::websocket::pcm_bytes_to_i16;
 /// The Live model that backs Computer Control (catalog id `gemini-live-vision-3.1`).
 pub const MODEL: &str = crate::model_config::GEMINI_LIVE_API_MODEL_3_1;
 
-/// Reasoning budget for 3.1: `minimal|low|medium|high`. Overridable via `CC_THINK`
-/// for debugging (default `low`).
-fn thinking_level() -> String {
-    std::env::var("CC_THINK")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "low".to_string())
+/// Preserve the endpoint's native reasoning level unless the operator explicitly
+/// overrides it. Thought parts stay enabled so intent never has to be inferred
+/// from narration.
+pub(crate) fn thinking_config() -> Value {
+    thinking_config_for(
+        std::env::var("CC_THINK")
+            .ok()
+            .filter(|value| !value.trim().is_empty()),
+    )
+}
+
+fn thinking_config_for(level: Option<String>) -> Value {
+    let mut config = json!({"includeThoughts": true});
+    if let Some(level) = level {
+        config["thinkingLevel"] = json!(level);
+    }
+    config
 }
 
 /// Function declarations exposed to the model. Mirrors the Computer-Use action
@@ -96,11 +106,7 @@ pub fn build_setup(system_instruction: &str) -> Value {
         // HIGH is the OCR knob — required to read small on-screen text.
         .media_resolution(crate::api::gemini_live::setup::MediaResolution::High)
         .voice("Aoede")
-        // Computer Control deliberately overrides the endpoint's minimal default.
-        .thinking_override(json!({
-            "thinkingLevel": thinking_level(),
-            "includeThoughts": true
-        }))
+        .thinking_override(thinking_config())
         .system_instruction(system_instruction)
         .transcription(crate::api::gemini_live::setup::TranscriptionMode::Both)
         .context_window_compression()
@@ -109,31 +115,9 @@ pub fn build_setup(system_instruction: &str) -> Value {
         .build()
 }
 
-/// Behavioural overlay appended to the LIVE system prompt — the JUDGMENT layer SYS underweights (it pushes
-/// autonomy in 4 places with only one weak "ask" escape): when to act vs. ASK (questions, the user's own
-/// data / account choices, unclear requests), and never blind-clicking destructive controls that can wipe
-/// the user's work. Balanced — autonomous by default, asks only for the three named cases. NO language
-/// anchoring; works in any language; the user never sees this.
+/// One ambiguity invariant not tied to grammar, keywords, language, or app.
 pub fn session_rules() -> &'static str {
-    "INTENT FIRST: at the start of a turn, silently settle in ONE line what the user wants from what you \
-HEARD (e.g. 'play this video', 'go back') - never from a word on screen - then pursue THAT. \
-JUDGMENT (act vs. ask): DEFAULT TO ACTING and keep going - carry out the task's mechanical steps \
-back-to-back; do NOT pause to ask 'shall we / do you want' between them, and do NOT narrate every step \
-(it is slow and the user finds it tiring). BUT if one step or your thinking is taking a WHILE (writing code, a \
-long search or read), say ONE short line about what you're doing so the user knows you're still on it - many \
-seconds of silence reads as 'frozen'. Only STOP to ask when: (a) the user asks you a question or for \
-advice ('what should I', 'do you think', 'what would') - answer in WORDS, do not act on it; (b) a step needs \
-the user's OWN data or choice you were NOT given (a username, which account or email, a password, payment \
-details) - NEVER invent it from what is on screen; (c) the request makes no sense for what's on screen - it \
-sounds garbled, or you catch yourself GUESSING what a word means or wanting to look UP its meaning: that is a \
-MIS-HEARING, not a task. Say what you heard in ONE short line and ask them to repeat it - do NOT act on the \
-guess, and NEVER both act on it AND research what it means (doing both is proof you did not understand). Also \
-do ONE thing per command: if you have done it, STOP - do not wander into nearby actions you were not asked for; or (d) you \
-are about to do something CONSEQUENTIAL or IRREVERSIBLE - send or post a message / email / comment, publish \
-content, pay / buy / transfer money, create or delete an account, or submit personal or financial data - in \
-that case confirm THAT exact action with the user first, and only then do it (for the act tool, pass \
-confirm:true only after they agree). If something unexpected or destructive happens, STOP and tell the user - \
-do NOT silently undo or redo it."
+    "Interpret communicative intent, not grammatical form. If the requested outcome is too uncertain to choose an effect safely, ask one concise clarification and do not act."
 }
 
 /// `realtimeInput` carrying one JPEG screen frame (base64).
@@ -192,6 +176,14 @@ pub fn parse_server_message(raw: &str) -> Vec<ServerEvent> {
     if frame.setup_complete {
         out.push(ServerEvent::SetupComplete);
     }
+    // A coalesced user turn owns all model output in the same transport frame.
+    // Establish interruption and turn identity before routing its typed output.
+    if frame.interrupted {
+        out.push(ServerEvent::Interrupted);
+    }
+    if let Some(text) = frame.input_transcript {
+        out.push(ServerEvent::InputTranscript(text));
+    }
     for bytes in frame.audio_chunks {
         out.push(ServerEvent::Audio(pcm_bytes_to_i16(&bytes)));
     }
@@ -202,17 +194,8 @@ pub fn parse_server_message(raw: &str) -> Vec<ServerEvent> {
             out.push(ServerEvent::ModelText(part.text));
         }
     }
-    if let Some(text) = frame.input_transcript {
-        out.push(ServerEvent::InputTranscript(text));
-    }
     if let Some(text) = frame.output_transcript {
         out.push(ServerEvent::OutputTranscript(text));
-    }
-    if frame.interrupted {
-        out.push(ServerEvent::Interrupted);
-    }
-    if frame.turn_complete {
-        out.push(ServerEvent::TurnComplete);
     }
     for call in frame.tool_calls {
         out.push(ServerEvent::ToolCall {
@@ -223,6 +206,12 @@ pub fn parse_server_message(raw: &str) -> Vec<ServerEvent> {
     }
     if let Some(ids) = frame.tool_cancellation_ids {
         out.push(ServerEvent::ToolCancellation(ids));
+    }
+    // A function call belongs to the generation that produced it. Dispatch it
+    // before closing that generation, even if the server coalesces both flags
+    // into one wire frame.
+    if frame.turn_complete {
+        out.push(ServerEvent::TurnComplete);
     }
     if let Some(go_away) = frame.go_away {
         out.push(ServerEvent::GoAway {
@@ -264,13 +253,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn setup_uses_thinking_level_and_high_media_resolution() {
+    fn setup_uses_endpoint_thinking_default_and_high_media_resolution() {
         let s = build_setup("hi");
         assert_eq!(s["setup"]["model"], "models/gemini-3.1-flash-live-preview");
         let gc = &s["setup"]["generationConfig"];
         assert_eq!(gc["mediaResolution"], "MEDIA_RESOLUTION_HIGH");
         assert_eq!(gc["maxOutputTokens"], 65536);
-        assert_eq!(gc["thinkingConfig"]["thinkingLevel"], "low");
+        assert_eq!(gc["thinkingConfig"]["includeThoughts"], true);
+        assert!(thinking_config_for(None).get("thinkingLevel").is_none());
         // The 3.1 trap: must NOT carry the legacy budget knob alongside the level.
         assert!(gc["thinkingConfig"].get("thinkingBudget").is_none());
         assert!(s["setup"]["tools"].is_array());
@@ -304,5 +294,35 @@ mod tests {
                 .any(|e| matches!(e, ServerEvent::OutputTranscript(t) if t == "ok"))
         );
         assert!(evs.iter().any(|e| matches!(e, ServerEvent::TurnComplete)));
+    }
+
+    #[test]
+    fn coalesced_tool_call_precedes_its_turn_boundary() {
+        let raw = r#"{"serverContent":{"turnComplete":true},"toolCall":{"functionCalls":[{"id":"d1","name":"done","args":{"summary":"complete"}}]}}"#;
+        let evs = parse_server_message(raw);
+        let call = evs
+            .iter()
+            .position(|event| matches!(event, ServerEvent::ToolCall { .. }))
+            .unwrap();
+        let boundary = evs
+            .iter()
+            .position(|event| matches!(event, ServerEvent::TurnComplete))
+            .unwrap();
+        assert!(call < boundary);
+    }
+
+    #[test]
+    fn coalesced_user_turn_precedes_model_output() {
+        let raw = r#"{"serverContent":{"inputTranscription":{"text":"new goal"},"outputTranscription":{"text":"answer"}}}"#;
+        let events = parse_server_message(raw);
+        let input = events
+            .iter()
+            .position(|event| matches!(event, ServerEvent::InputTranscript(_)))
+            .unwrap();
+        let output = events
+            .iter()
+            .position(|event| matches!(event, ServerEvent::OutputTranscript(_)))
+            .unwrap();
+        assert!(input < output);
     }
 }

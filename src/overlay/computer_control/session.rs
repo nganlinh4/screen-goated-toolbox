@@ -93,7 +93,7 @@ pub(super) struct Capture {
 
 /// A screen-pixel rectangle: the region the model is currently shown. All of the
 /// model's `click_at` / `zoom` coordinates (0-1000) are relative to THIS region.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct View {
     pub x: i32,
     pub y: i32,
@@ -104,9 +104,11 @@ pub(super) struct View {
 impl View {
     /// Map a 0-1000 coordinate over this view to an absolute screen pixel.
     pub fn to_screen_px(self, mx: f64, my: f64) -> (i32, i32) {
+        let max_x = self.w.saturating_sub(1).max(0) as f64;
+        let max_y = self.h.saturating_sub(1).max(0) as f64;
         (
-            self.x + (mx / 1000.0 * self.w as f64).round() as i32,
-            self.y + (my / 1000.0 * self.h as f64).round() as i32,
+            self.x + (mx.clamp(0.0, 1000.0) / 1000.0 * max_x).round() as i32,
+            self.y + (my.clamp(0.0, 1000.0) / 1000.0 * max_y).round() as i32,
         )
     }
 }
@@ -304,6 +306,7 @@ pub(super) fn encode_view(
     max_short: u32,
     grid: Option<super::grid::Grid>,
     marker: Option<(i32, i32)>,
+    marks: Option<&[(i32, i32, u32)]>,
 ) -> Result<(Vec<u8>, View)> {
     let iw = cap.rgb.width() as i32;
     let ih = cap.rgb.height() as i32;
@@ -338,6 +341,17 @@ pub(super) fn encode_view(
     let mut rgb = dynimg.to_rgb8();
     if let Some(g) = grid {
         g.draw(&mut rgb);
+    }
+    if let Some(marks) = marks {
+        for &(sx, sy, label) in marks {
+            let fx = ((sx - clamped.x) as f64 / clamped.w.max(1) as f64 * rgb.width() as f64)
+                .round() as i32;
+            let fy = ((sy - clamped.y) as f64 / clamped.h.max(1) as f64 * rgb.height() as f64)
+                .round() as i32;
+            if fx >= 0 && fy >= 0 && (fx as u32) < rgb.width() && (fy as u32) < rgb.height() {
+                super::grid::draw_anchor_marker(&mut rgb, fx, fy, label);
+            }
+        }
     }
     // Mark exactly where the last click landed, mapping screen px -> frame px via
     // the clamped view (the screen rect this image represents).
@@ -415,4 +429,22 @@ fn encode_jpeg(img: &image::DynamicImage) -> Result<Vec<u8>> {
     img.write_to(&mut buf, image::ImageFormat::Jpeg)
         .context("jpeg encode")?;
     Ok(buf.into_inner())
+}
+
+#[cfg(test)]
+mod view_tests {
+    use super::View;
+
+    #[test]
+    fn normalized_edges_stay_inside_the_view() {
+        let view = View {
+            x: -100,
+            y: 20,
+            w: 10,
+            h: 8,
+        };
+        assert_eq!(view.to_screen_px(0.0, 0.0), (-100, 20));
+        assert_eq!(view.to_screen_px(1000.0, 1000.0), (-91, 27));
+        assert_eq!(view.to_screen_px(-50.0, 1200.0), (-100, 27));
+    }
 }

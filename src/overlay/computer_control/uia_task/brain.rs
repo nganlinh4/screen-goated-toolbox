@@ -1,12 +1,78 @@
-//! The `Brain` impl — per-turn grounding, tool-call dispatch, and `done`
-//! verification — split out of `uia_task.rs` for the file-size limit. `use
-//! super::*` pulls in the shared imports, types, and render/vision helpers;
-//! explicit `super::super::` paths reach the sibling CC modules.
+//! Per-turn grounding, dispatch finalization, and evidence state for `Brain`.
 
 use super::*;
 impl Brain {
     pub(crate) fn bind_action(&mut self, action: super::super::telemetry::ActionTrace) {
         self.active_action = Some(action);
+    }
+
+    pub(crate) fn begin_job(&mut self, turn_id: u64, source_frame: Option<FrameSource>) {
+        self.setup_guard.begin_turn(turn_id);
+        if self.current_turn_id == Some(turn_id) {
+            if let Some(source) = source_frame.as_ref() {
+                self.completion_evidence.record_provider_source(source);
+            }
+            if let Some(FrameSource {
+                surface:
+                    super::super::controller::world::SurfaceIdentity::Browser {
+                        tab_id,
+                        document_id,
+                        ..
+                    },
+                ..
+            }) = source_frame.as_ref()
+                && self.controlled_tab_id == Some(*tab_id)
+            {
+                self.controlled_document_id = Some(document_id.clone());
+            }
+            self.source_frame = source_frame;
+            return;
+        }
+        self.current_turn_id = Some(turn_id);
+        let browser_source = source_frame
+            .as_ref()
+            .and_then(|source| match &source.surface {
+                super::super::controller::world::SurfaceIdentity::Browser {
+                    tab_id,
+                    document_id,
+                    ..
+                } => Some((*tab_id, document_id.clone())),
+                super::super::controller::world::SurfaceIdentity::Native { .. } => None,
+            });
+        self.controlled_tab_id = browser_source.as_ref().map(|source| source.0);
+        self.controlled_document_id = browser_source.map(|source| source.1);
+        self.source_frame = source_frame;
+        self.active_action = None;
+        self.recent_actions.clear();
+        self.advice_latches.clear();
+        self.prev_state_sig = None;
+        self.trail.clear();
+        self.completion_evidence.clear();
+        if let Some(source) = self.source_frame.clone() {
+            self.completion_evidence.record_job_source(&source);
+            self.completion_evidence.record_provider_source(&source);
+        }
+        self.wait_accum = 0.0;
+        self.last_click = None;
+        self.click_before = None;
+        self.zoomed = false;
+        self.whole_screen = false;
+        self.view = window_view(self.target.as_deref(), false);
+        self.show_coarse_grid = false;
+        self.controller
+            .set_browser_tab_target(self.controlled_tab_id);
+        self.clear_anchors("new_turn");
+    }
+
+    pub(crate) fn retire_turn(&mut self, turn_id: u64) {
+        if self.current_turn_id == Some(turn_id) {
+            self.active_action = None;
+            self.controlled_tab_id = None;
+            self.controlled_document_id = None;
+            self.source_frame = None;
+            self.controller.set_browser_tab_target(None);
+            self.setup_guard.retire();
+        }
     }
 
     pub fn new(target: Option<String>) -> Self {
@@ -23,6 +89,7 @@ impl Brain {
             );
         }
         let dir = trace_dir.to_string_lossy().into_owned();
+        let requested_target = target.clone();
         let view = window_view(target.as_deref(), false);
         let dry = std::env::var("CC_DRY").is_ok();
         let desktop = uia::virtual_desktop();
@@ -30,7 +97,8 @@ impl Brain {
             "app_version": env!("CARGO_PKG_VERSION"),
             "live_model": super::super::protocol::MODEL,
             "dry_run": dry,
-            "target": target,
+            "target": requested_target,
+            "pinned_target": target,
             "trace_dir": dir,
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
@@ -38,6 +106,7 @@ impl Brain {
             "initial_view": [view.x, view.y, view.w, view.h],
             "executable": executable_provenance(),
         }));
+        let controller = super::super::controller::Controller::new(target.clone());
         Self {
             dir,
             grid: Grid::from_env(),
@@ -50,14 +119,21 @@ impl Brain {
             last_click: None,
             step: 0,
             active_action: None,
+            current_turn_id: None,
+            source_frame: None,
+            controlled_tab_id: None,
+            controlled_document_id: None,
             recent_actions: Vec::new(),
+            advice_latches: Vec::new(),
             prev_state_sig: None,
             click_before: None,
             trail: Vec::new(),
+            completion_evidence: CompletionEvidence::default(),
             wait_accum: 0.0,
             anchors: Vec::new(),
-            controller: super::super::controller::Controller::new(),
-            no_effect_strikes: 0,
+            next_anchor_id: 1,
+            controller,
+            show_coarse_grid: false,
             setup_guard: super::setup_guard::SetupGuard::default(),
         }
     }
@@ -68,6 +144,7 @@ impl Brain {
         name: &str,
         args: &Value,
         result: Value,
+        evidence_provenance: EvidenceProvenance,
         started: Instant,
     ) -> Value {
         self.setup_guard.record_result(name, &result);
@@ -150,15 +227,12 @@ impl Brain {
                 },
             }),
         );
-        if !matches!(name, "observe" | "act") {
+        if !matches!(name, "observe" | "act" | "do_steps") {
             self.controller.invalidate();
         }
-        let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(true);
-        self.trail
-            .push(format!("{name}={}", if ok { "ok" } else { "fail" }));
-        if self.trail.len() > 6 {
-            self.trail.remove(0);
-        }
+        super::receipts::push_result(&mut self.trail, name, &result);
+        self.completion_evidence
+            .record_dispatch(name, args, &result, evidence_provenance);
         self.wait_accum = if name == "wait" {
             self.wait_accum
                 + result
@@ -200,99 +274,207 @@ impl Brain {
     /// Turn-0 grounding: (frame_b64, state_text). No click marker yet.
     pub fn initial(&mut self) -> Result<(String, String)> {
         let semantic = self.semantic_surface_state();
-        let elements = if semantic.is_none() {
-            uia::enumerate(self.target.as_deref()).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        let (b, v, _fp, _frame_id) = render_view(
-            &self.dir, self.step, self.view, self.grid, None, "initial", None,
-        )?;
+        let has_semantic_surface = semantic.is_some();
+        let native = semantic
+            .is_none()
+            .then(|| native_perception(self.target.as_deref()));
+        let elements = native
+            .as_ref()
+            .map(|perception| perception.elements.clone())
+            .unwrap_or_default();
+        let accessibility_observed = native.as_ref().is_none_or(|state| state.observed);
+        let perception_surface = semantic
+            .as_ref()
+            .map(|state| &state.identity)
+            .or_else(|| native.as_ref().and_then(|state| state.surface.as_ref()));
+        let detector_start_id = (!has_semantic_surface
+            && self.anchors.is_empty()
+            && current_surface_identity().is_some()
+            && detector_surface_blind(&elements, self.view)
+            && super::super::detector::available())
+        .then_some(self.next_anchor_id);
+        let excluded = accessible_rects(&elements, self.view);
+        self.show_coarse_grid =
+            !has_semantic_surface && accessibility_observed && excluded.is_empty();
+        let existing_marks = self.anchor_marks();
+        let Rendered {
+            frame_b64: b,
+            view: v,
+            fingerprint: _fp,
+            frame_id,
+            surface,
+            source,
+            fixed_view_retained: _,
+            perception_matched,
+            detected,
+        } = render_view(RenderRequest {
+            dir: &self.dir,
+            target: self.target.as_deref(),
+            step: self.step,
+            view: self.view,
+            whole_screen: false,
+            preserve_view: false,
+            bound_source: None,
+            perception_surface,
+            grid: self.grid,
+            marker: None,
+            reason: "initial",
+            action: None,
+            existing_marks: &existing_marks,
+            detector_start_id,
+            excluded_rects: &excluded,
+            show_grid: self.show_coarse_grid,
+        })?;
+        if !perception_matched {
+            anyhow::bail!("surface changed between initial perception and frame capture");
+        }
         self.view = v;
+        self.source_frame = Some(source);
+        if detector_start_id.is_some() {
+            self.install_detector_anchors(detected, frame_id, v, surface);
+        }
         self.prev_state_sig = Some(
             semantic
                 .as_ref()
-                .map(|state| format!("structured:{state}"))
+                .map(|state| format!("structured:{}", state.elements))
                 .unwrap_or_else(|| state_signature(&elements)),
         );
-        let mut state = semantic.unwrap_or_else(|| {
-            format_state(&elements, self.target.as_deref(), self.view, self.grid)
+        let indexed = semantic.is_none().then(|| self.controller.prime_native());
+        let mut state = semantic.map(|state| state.elements).unwrap_or_else(|| {
+            format_state(
+                &elements,
+                self.target.as_deref(),
+                self.view,
+                self.grid,
+                self.show_coarse_grid,
+                indexed.as_deref(),
+            )
         });
-        if !elements.is_empty()
-            && let Some(marks) = self.detect_marks(&elements)
-        {
+        if let Some(marks) = self.marks_state() {
             state.push_str(&format!("\n{marks}"));
         }
         Ok((b, state))
     }
 
     /// Re-ground after an action: re-resolve the view (foreground-follow unless
-    /// zoomed), render a marked frame, format state, and compute the #1 stuck +
-    /// #2 state-delta notes.
+    /// zoomed), render a marked frame, format state, and produce one typed
+    /// postcondition assessment from the visual/accessibility delta.
     pub fn ground(&mut self, name: &str, args: &Value) -> Result<Grounded> {
-        if !self.zoomed {
-            self.view = window_view(self.target.as_deref(), self.whole_screen);
-        }
         let action = self.active_action.take();
-        let (b, v, fp, frame_id) = render_view(
-            &self.dir,
-            self.step,
-            self.view,
-            self.grid,
-            self.last_click,
-            name,
+        // Read-only capabilities already return their own evidence, so a second
+        // accessibility dump would only bury it. Every state-changing or unknown
+        // capability is grounded; the central classifier defaults future tools
+        // to mutating instead of relying on a local exception list.
+        let suppress_readouts = !super::super::turn_policy::is_mutating_tool(name);
+        let semantic = self.semantic_surface_state();
+        let (elements, accessibility_observed, perception_surface) = if suppress_readouts {
+            (
+                Vec::new(),
+                true,
+                semantic.as_ref().map(|state| state.identity.clone()),
+            )
+        } else {
+            let native = semantic
+                .is_none()
+                .then(|| native_perception(self.target.as_deref()));
+            let elements = native
+                .as_ref()
+                .map(|perception| perception.elements.clone())
+                .unwrap_or_default();
+            let observed = native.as_ref().is_none_or(|state| state.observed);
+            let surface = semantic
+                .as_ref()
+                .map(|state| state.identity.clone())
+                .or_else(|| native.as_ref().and_then(|state| state.surface.clone()));
+            (elements, observed, surface)
+        };
+        // Every capture defines a new coordinate-evidence frame. Existing bound
+        // marks cannot be silently redrawn and assigned that new frame id.
+        self.invalidate_bound_anchors_for_new_frame();
+        let detector_start_id = (!suppress_readouts
+            && semantic.is_none()
+            && self.anchors.is_empty()
+            && current_surface_identity().is_some()
+            && detector_surface_blind(&elements, self.view)
+            && super::super::detector::available())
+        .then_some(self.next_anchor_id);
+        let excluded = accessible_rects(&elements, self.view);
+        if !suppress_readouts {
+            self.show_coarse_grid =
+                semantic.is_none() && accessibility_observed && excluded.is_empty();
+        }
+        let existing_marks = self.anchor_marks();
+        let Rendered {
+            frame_b64: b,
+            view: v,
+            fingerprint: fp,
+            frame_id,
+            surface,
+            source,
+            fixed_view_retained,
+            perception_matched,
+            detected,
+        } = render_view(RenderRequest {
+            dir: &self.dir,
+            target: self.target.as_deref(),
+            step: self.step,
+            view: self.view,
+            whole_screen: self.whole_screen,
+            preserve_view: self.zoomed,
+            bound_source: self.source_frame.as_ref(),
+            perception_surface: perception_surface.as_ref(),
+            grid: self.grid,
+            marker: self.last_click,
+            reason: name,
             action,
-        )?;
+            existing_marks: &existing_marks,
+            detector_start_id,
+            excluded_rects: &excluded,
+            show_grid: self.show_coarse_grid,
+        })?;
+        if perception_surface.is_some() && !perception_matched {
+            super::super::telemetry::typed_error(
+                "ERR_FRAME_PERCEPTION_SURFACE_CHANGED",
+                "grounding",
+                "surface changed between perception and frame capture",
+                json!({
+                    "frame_source": source,
+                    "perception_surface": perception_surface,
+                    "tool": name,
+                }),
+            );
+            anyhow::bail!("surface changed between perception and frame capture");
+        }
         self.view = v;
-        // Informational tools don't change the screen; skip the heavy UIA readout
-        // dump so their OWN result (memory transcript, clipboard text, window list)
-        // is the dominant signal instead of being buried under hundreds of on-screen
-        // elements — which made the agent answer from the SCREEN, not from memory.
-        if matches!(
-            name,
-            "observe"
-                | "act"
-                | "do_steps"
-                | "search_memory"
-                | "open_memory"
-                | "read_clipboard"
-                | "list_windows"
-                | "system_query"
-                | "run_command"
-                | "browser_setup"
-                | "browser_status"
-                | "browser_reset"
-                | "browser_read_page"
-                | "research_web"
-                | "browser_eval"
-                | "browser_tabs"
-                | "browser_network"
-                | "browser_console"
-                | "decline_browser_control"
-                | "list_app_integrations"
-                | "setup_app_integration"
-                | "app_integration_status"
-                | "read_app_integration_docs"
-                | "remove_app_integration"
-                | "decline_app_integration"
-        ) {
+        self.source_frame = Some(source.clone());
+        if self.zoomed && !fixed_view_retained {
+            self.zoomed = false;
+            self.clear_anchors("zoomed_surface_changed");
+        }
+        if detector_start_id.is_some() {
+            self.install_detector_anchors(detected, frame_id, v, surface);
+        } else if !self.anchors.is_empty() {
+            self.bind_pending_anchors(frame_id, v, surface);
+        }
+        if let Some(state) = &semantic {
+            self.completion_evidence.record_grounded_surface(
+                &state.title,
+                &state.url,
+                &state.identity,
+            );
+        }
+        if suppress_readouts {
             eprintln!(
                 "[cc] step {:02} (info tool; screen readouts suppressed)",
                 self.step
             );
             return Ok(Grounded {
                 frame_b64: b,
-                frame_id,
+                source,
                 state_text: self.context_block(),
-                notes: Vec::new(),
+                postcondition: GroundPostcondition::default(),
             });
         }
-        let semantic = self.semantic_surface_state();
-        let elements = if semantic.is_none() {
-            uia::enumerate(self.target.as_deref()).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
         // Did the click change ITS OWN target cell? Compare the region snapshot
         // taken just before the click (`click_before`) to the same region now
         // (`fp`, fingerprinted around the click point). Localized, so a timer or
@@ -308,7 +490,10 @@ impl Brain {
                 super::super::telemetry::Privacy::Safe,
                 json!({
                     "provider": "browser_bridge",
-                    "state_preview": state.chars().take(240).collect::<String>(),
+                    "title": state.title,
+                    "url": state.url,
+                    "identity": state.identity,
+                    "state_preview": state.elements.chars().take(240).collect::<String>(),
                     "input_target": uia::input_target_snapshot(),
                 }),
             );
@@ -324,19 +509,11 @@ impl Brain {
         }
         let new_sig = semantic
             .as_ref()
-            .map(|state| format!("structured:{state}"))
+            .map(|state| format!("structured:{}", state.elements))
             .unwrap_or_else(|| state_signature(&elements));
         let ui_changed = self.prev_state_sig.as_deref() != Some(new_sig.as_str());
-        self.prev_state_sig = Some(new_sig);
-        let uia_action = matches!(
-            name,
-            "type_text" | "key_combination" | "open_url" | "launch_app"
-        );
-        let act_sig = format!("{name}|{}", compact_args(args));
-        self.recent_actions.push(act_sig.clone());
-        if self.recent_actions.len() > 8 {
-            self.recent_actions.remove(0);
-        }
+        self.prev_state_sig = Some(new_sig.clone());
+        let act_sig = record_action(&mut self.recent_actions, name, args);
         // Repeating an action is only STUCK if nothing is changing. Paging through a
         // long page (scroll down, down, down) legitimately repeats while NEW content
         // keeps appearing - so gate on !ui_changed: a real loop (click not landing,
@@ -348,141 +525,44 @@ impl Brain {
                 .and_then(Value::as_str)
                 .map(is_nav_keys)
                 .unwrap_or(false);
-        let stuck = !is_nav
-            && !ui_changed
-            && self
-                .recent_actions
-                .iter()
-                .filter(|a| **a == act_sig)
-                .count()
-                >= 3;
-        let mut notes: Vec<(&'static str, &'static str)> = Vec::new();
+        let stuck = is_repeated_unchanged(&self.recent_actions, &act_sig, ui_changed, is_nav);
         if visual_no_change {
             eprintln!("[cc] step {:02} NO VISUAL CHANGE after {name}", self.step);
-            notes.push(("screen_change", "NONE - the visible screen did NOT change after this action, so it likely did NOT register (wrong target, the element isn't focused, or this surface ignores that input). Try a different approach - do not just repeat it."));
-        }
-        if uia_action && !ui_changed && !visual_no_change {
-            notes.push(("ui_change", "none - the accessible UI did not change after this action; it may not have registered."));
         }
         if stuck {
             eprintln!("[cc] step {:02} STUCK: repeated '{act_sig}'", self.step);
-            notes.push(("stuck_warning", "You have repeated the same action ~3 times with NOTHING changing. If you were scrolling, you have reached the end of the page/list - STOP scrolling and finish (answer the user or call done). Otherwise the target likely isn't where you think or the click isn't landing: change approach (zoom in, a more specific click_target, or read the page text directly)."));
         }
-        let no_effect = notes
-            .iter()
-            .any(|(k, _)| matches!(*k, "screen_change" | "ui_change" | "stuck_warning"));
-        if no_effect {
-            self.no_effect_strikes += 1;
-            notes.push((
-                "postcondition",
-                "This action produced no confirmed effect. Re-observe/replan or change tool family; do not repeat the same action.",
-            ));
-            if self.no_effect_strikes >= 2 {
-                notes.push((
-                    "postcondition_block",
-                    "Repeated no-effect actions detected. Stop retrying; use a different route or explain the concrete blocker.",
-                ));
-            }
+        let postcondition = if stuck {
+            let request_advice = latch_advice(&mut self.advice_latches, &act_sig, &new_sig);
+            GroundPostcondition::no_effect(
+                NoEffectReason::RepeatedUnchangedState,
+                true,
+                request_advice,
+            )
         } else {
-            self.no_effect_strikes = 0;
-        }
-        self.setup_guard.after_ground(&notes);
-        if let Some(note) = self.setup_guard.note() {
-            notes.push(note);
-        }
-        let surface_state = semantic.unwrap_or_else(|| {
-            format_state(&elements, self.target.as_deref(), self.view, self.grid)
+            GroundPostcondition::default()
+        };
+        let indexed = semantic.is_none().then(|| self.controller.prime_native());
+        let surface_state = semantic.map(|state| state.elements).unwrap_or_else(|| {
+            format_state(
+                &elements,
+                self.target.as_deref(),
+                self.view,
+                self.grid,
+                self.show_coarse_grid,
+                indexed.as_deref(),
+            )
         });
         let mut state = format!("{}\n\n{}", self.context_block(), surface_state);
-        if !elements.is_empty()
-            && let Some(marks) = self.detect_marks(&elements)
-        {
+        if let Some(marks) = self.marks_state() {
             state.push_str(&format!("\n{marks}"));
         }
         Ok(Grounded {
             frame_b64: b,
-            frame_id,
+            source,
             state_text: state,
-            notes,
+            postcondition,
         })
-    }
-
-    fn semantic_surface_state(&mut self) -> Option<String> {
-        if !super::super::browser::input_active() {
-            return None;
-        }
-        let observed = self.controller.observe();
-        if observed.get("ok").and_then(Value::as_bool) != Some(true) {
-            return None;
-        }
-        let elements = observed.get("elements").and_then(Value::as_str)?;
-        let title = observed.get("title").and_then(Value::as_str).unwrap_or("");
-        let url = observed.get("url").and_then(Value::as_str).unwrap_or("");
-        super::super::telemetry::human(
-            "cc",
-            format!(
-                "semantic provider=browser_bridge title={:?} url={:?}",
-                title.chars().take(70).collect::<String>(),
-                url.chars().take(100).collect::<String>()
-            ),
-        );
-        Some(elements.to_string())
-    }
-
-    /// On a UIA-blind surface (canvas/game/custom-drawn) auto-run the local detector
-    /// to mark clickable regions the accessibility tree can't see, populate
-    /// `click_mark` anchors, and return a MARKS section for the state. `None` when not
-    /// blind, no model installed, or nothing found. Throttled: only (re)detects while
-    /// there are no anchors yet (zoom/reset_view clear them, re-triggering).
-    fn detect_marks(&mut self, elements: &[UiElement]) -> Option<String> {
-        if !super::super::detector::available() {
-            return None;
-        }
-        // "Blind" = almost nothing actionable is visible in the current view.
-        let visible = elements
-            .iter()
-            .filter(|e| {
-                !e.name.trim().is_empty() && is_clickable(e.control_type) && {
-                    let (cx, cy) = e.center();
-                    cx >= self.view.x
-                        && cx <= self.view.x + self.view.w
-                        && cy >= self.view.y
-                        && cy <= self.view.y + self.view.h
-                }
-            })
-            .count();
-        if visible > 2 {
-            return None;
-        }
-        if self.anchors.is_empty() {
-            self.anchors = super::super::detector::detect_view(self.view)
-                .into_iter()
-                .map(|b| (b.cx, b.cy, Some("clickable".to_string()), None))
-                .collect();
-        }
-        if self.anchors.is_empty() {
-            return None;
-        }
-        let mut s = String::from(
-            "DETECTED CLICKABLE MARKS (this surface exposes NO UIA elements; these clickable \
-regions were found visually - click_mark by its number; @cellN is where it sits):\n",
-        );
-        for (i, (sx, sy, note, _)) in self.anchors.iter().enumerate() {
-            let mx = (*sx - self.view.x) as f64 / self.view.w.max(1) as f64 * 1000.0;
-            let my = (*sy - self.view.y) as f64 / self.view.h.max(1) as f64 * 1000.0;
-            let cell = if (0.0..=1000.0).contains(&mx) && (0.0..=1000.0).contains(&my) {
-                format!("@cell{}", self.grid.cell_at(mx, my))
-            } else {
-                "@off-view".to_string()
-            };
-            let what = note.as_deref().unwrap_or("clickable");
-            s.push_str(&format!("[{}] {what} {cell}\n", i + 1));
-        }
-        eprintln!(
-            "[cc] {} clickable marks on UIA-blind surface",
-            self.anchors.len()
-        );
-        Some(s)
     }
 }
 

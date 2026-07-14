@@ -3,10 +3,10 @@
 //! the extension authenticates with HMAC challenge-response over a shared secret.
 
 use std::collections::{HashMap, VecDeque};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -14,10 +14,12 @@ use tungstenite::handshake::server::{Request, Response};
 use tungstenite::{Message, WebSocket, accept_hdr};
 
 use super::super::telemetry::{self, Privacy};
+pub(super) use super::bridge_rpc::rpc;
 use super::crypto;
 
 const PORT_DEFAULT: u16 = 47800;
 const REQ_TIMEOUT: Duration = Duration::from_secs(15);
+const CLEANUP_REQ_TIMEOUT: Duration = Duration::from_secs(2);
 const READ_TICK: Duration = Duration::from_millis(50);
 /// Most recent debugger events kept for `read_network` etc.
 const EVENT_RING: usize = 400;
@@ -25,6 +27,8 @@ const EVENT_RING: usize = 400;
 struct Outbound {
     json: Value,
     reply: mpsc::Sender<Value>,
+    cancel: Option<Arc<AtomicBool>>,
+    deadline: Instant,
 }
 
 struct Bridge {
@@ -51,7 +55,6 @@ struct Bridge {
 }
 
 static BRIDGE: OnceLock<Bridge> = OnceLock::new();
-static PROTOCOL_VERSION: AtomicU64 = AtomicU64::new(0);
 
 fn port() -> u16 {
     std::env::var("CC_BROWSER_PORT")
@@ -125,10 +128,6 @@ pub(super) fn port_for_display() -> u16 {
     port()
 }
 
-pub(super) fn protocol_version() -> u64 {
-    PROTOCOL_VERSION.load(Ordering::SeqCst)
-}
-
 /// Start the local server once (idempotent). The extension connects in.
 pub(crate) fn ensure_started() {
     static STARTED: OnceLock<()> = OnceLock::new();
@@ -139,18 +138,7 @@ pub(crate) fn ensure_started() {
 
 fn listen_loop() {
     let addr = format!("127.0.0.1:{}", port());
-    let listener = match TcpListener::bind(&addr) {
-        Ok(l) => l,
-        Err(e) => {
-            telemetry::typed_error(
-                "ERR_BROWSER_BRIDGE_BIND",
-                "browser_bridge",
-                "browser bridge failed to bind",
-                json!({"addr": addr, "error": e.to_string()}),
-            );
-            return;
-        }
-    };
+    let listener = super::bridge_listener::bind_with_retry(&addr);
     telemetry::human("cc-browser", format!("bridge listening on {addr}"));
     telemetry::event(
         "browser_bridge_listening",
@@ -173,6 +161,7 @@ fn listen_loop() {
         if bridge().connected.swap(false, Ordering::SeqCst) {
             super::record_connection();
         }
+        super::capabilities::reset();
         *bridge().req_tx.lock().unwrap() = None;
     }
 }
@@ -222,7 +211,11 @@ fn handle_conn(stream: TcpStream) -> anyhow::Result<()> {
         "browser_extension_connected",
         "browser_bridge",
         Privacy::Safe,
-        json!({"port": port()}),
+        json!({
+            "port": port(),
+            "protocol_version": super::capabilities::protocol_version(),
+            "capabilities": super::capabilities::list(),
+        }),
     );
     bridge().connected.store(true, Ordering::SeqCst);
     super::record_connection(); // stamp the live moment - so a later nap reads as "reconnecting", not "set me up"
@@ -265,13 +258,11 @@ fn wait_for_type(
 fn do_pairing(ws: &mut WebSocket<TcpStream>) -> anyhow::Result<bool> {
     let deadline = Instant::now() + Duration::from_secs(12);
     let hello = wait_for_type(ws, deadline, "hello")?;
-    PROTOCOL_VERSION.store(
-        hello
-            .get("bridgeProtocol")
-            .and_then(Value::as_u64)
-            .unwrap_or(1),
-        Ordering::SeqCst,
-    );
+    let protocol = hello
+        .get("bridgeProtocol")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    let advertised_capabilities = hello.get("capabilities").cloned();
     let ext_id = hello
         .get("extId")
         .and_then(Value::as_str)
@@ -298,6 +289,7 @@ fn do_pairing(ws: &mut WebSocket<TcpStream>) -> anyhow::Result<bool> {
             send(ws, json!({"type": "pair", "secret": bridge().secret}))?;
             *bridge().pairing_until.lock().unwrap() = None; // one extension per window
             commit_ext_id(ext_id);
+            super::capabilities::negotiate(protocol, advertised_capabilities.as_ref());
             telemetry::human("cc-browser", "paired extension (bootstrap proof)");
             telemetry::event(
                 "browser_extension_paired",
@@ -334,6 +326,7 @@ fn do_pairing(ws: &mut WebSocket<TcpStream>) -> anyhow::Result<bool> {
         let expect = crypto::hmac_sha256_hex(bridge().secret.as_bytes(), nonce.as_bytes());
         if crypto::ct_eq(mac.as_bytes(), expect.as_bytes()) {
             commit_ext_id(ext_id);
+            super::capabilities::negotiate(protocol, advertised_capabilities.as_ref());
             return Ok(true);
         }
         return Ok(false);
@@ -370,12 +363,24 @@ fn record_event(v: Value) {
 /// The single-owner message pump: drains outbound CDP requests onto the socket and
 /// routes inbound replies back to their waiting caller by id; buffers events.
 fn pump(ws: &mut WebSocket<TcpStream>, rx: mpsc::Receiver<Outbound>) -> anyhow::Result<()> {
-    let mut pending: HashMap<u64, mpsc::Sender<Value>> = HashMap::new();
+    let mut pending: HashMap<u64, super::bridge_wait::PendingReply> = HashMap::new();
     loop {
+        super::bridge_wait::prune_inactive(&mut pending, Instant::now());
         // Outbound first so a fresh request goes out without waiting a read tick.
         while let Ok(out) = rx.try_recv() {
+            if Instant::now() >= out.deadline
+                || out
+                    .cancel
+                    .as_deref()
+                    .is_some_and(|token| token.load(Ordering::SeqCst))
+            {
+                continue;
+            }
             if let Some(id) = out.json.get("id").and_then(Value::as_u64) {
-                pending.insert(id, out.reply);
+                pending.insert(
+                    id,
+                    super::bridge_wait::PendingReply::new(out.reply, out.cancel, out.deadline),
+                );
             }
             send(ws, out.json)?;
         }
@@ -384,7 +389,7 @@ fn pump(ws: &mut WebSocket<TcpStream>, rx: mpsc::Receiver<Outbound>) -> anyhow::
                 if let Ok(v) = serde_json::from_str::<Value>(&t) {
                     if let Some(id) = v.get("id").and_then(Value::as_u64) {
                         if let Some(reply) = pending.remove(&id) {
-                            let _ = reply.send(v);
+                            reply.deliver(v);
                         }
                     } else if v.get("type").and_then(Value::as_str) == Some("event") {
                         record_event(v);
@@ -403,19 +408,41 @@ fn pump(ws: &mut WebSocket<TcpStream>, rx: mpsc::Receiver<Outbound>) -> anyhow::
 }
 
 /// Send one envelope and block for its correlated reply.
-fn request(json_msg: Value) -> anyhow::Result<Value> {
+pub(super) fn request(json_msg: Value) -> anyhow::Result<Value> {
+    let cancel = super::readiness::current_cancel();
+    request_with(json_msg, cancel, REQ_TIMEOUT)
+}
+
+/// Dispatch bounded compensating cleanup after an input edge. Cleanup must not
+/// inherit user cancellation: its only purpose is to release already-held input.
+pub(super) fn request_cleanup(json_msg: Value) -> anyhow::Result<Value> {
+    request_with(json_msg, None, CLEANUP_REQ_TIMEOUT)
+}
+
+fn request_with(
+    json_msg: Value,
+    cancel: Option<Arc<AtomicBool>>,
+    timeout: Duration,
+) -> anyhow::Result<Value> {
+    super::bridge_wait::ensure_dispatch_allowed(cancel.as_deref())?;
     let tx = bridge().req_tx.lock().unwrap().clone();
     let Some(tx) = tx else {
         anyhow::bail!("browser extension not connected");
     };
     let (rtx, rrx) = mpsc::channel();
+    let deadline = Instant::now() + timeout;
     tx.send(Outbound {
         json: json_msg,
         reply: rtx,
+        cancel: cancel.clone(),
+        deadline,
     })
     .map_err(|_| anyhow::anyhow!("bridge closed"))?;
-    rrx.recv_timeout(REQ_TIMEOUT)
-        .map_err(|_| anyhow::anyhow!("browser request timed out"))
+    super::bridge_wait::receive(&rrx, deadline, cancel.as_deref())
+}
+
+pub(super) fn next_request_id() -> u64 {
+    bridge().next_id.fetch_add(1, Ordering::SeqCst)
 }
 
 /// Run a raw CDP command in the active tab's TOP frame and return its `result`.
@@ -424,25 +451,63 @@ pub(super) fn cdp(method: &str, params: Value) -> anyhow::Result<Value> {
 }
 
 pub(super) fn cdp_on_tab(method: &str, params: Value, tab_id: i64) -> anyhow::Result<Value> {
-    let id = bridge().next_id.fetch_add(1, Ordering::SeqCst);
-    let env = json!({
+    cdp_in_tab_with_policy(method, params, None, tab_id, false)
+}
+
+pub(super) fn cdp_in_tab(
+    method: &str,
+    params: Value,
+    session_id: Option<&str>,
+    tab_id: i64,
+) -> anyhow::Result<Value> {
+    cdp_in_tab_with_policy(method, params, session_id, tab_id, false)
+}
+
+fn cdp_in_tab_with_policy(
+    method: &str,
+    params: Value,
+    session_id: Option<&str>,
+    tab_id: i64,
+    require_active: bool,
+) -> anyhow::Result<Value> {
+    super::capabilities::require(super::capabilities::CDP)?;
+    super::capabilities::require(super::capabilities::CDP_EXPLICIT_TAB)?;
+    if require_active {
+        super::capabilities::require(super::capabilities::CDP_REQUIRE_ACTIVE)?;
+    }
+    if session_id.is_some() {
+        super::capabilities::require(super::capabilities::CDP_SESSION)?;
+    }
+    let id = next_request_id();
+    let mut env = json!({
         "id": id,
         "type": "cdp",
         "method": method,
         "params": params,
         "tabId": tab_id,
+        "requireActive": require_active,
     });
+    if let Some(session_id) = session_id {
+        env["sessionId"] = json!(session_id);
+    }
     let resp = request(env)?;
     if resp.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(resp.get("result").cloned().unwrap_or_else(|| json!({})))
     } else {
-        anyhow::bail!(
-            "{}",
-            resp.get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("cdp error")
-        )
+        Err(response_error(&resp, "cdp error"))
     }
+}
+
+/// Session-aware counterpart of `cdp_on_active_tab`. Child-frame sessions are
+/// still bound to their owning tab, and the extension rejects the call if that
+/// tab stopped being active before dispatch.
+pub(super) fn cdp_in_active_tab(
+    method: &str,
+    params: Value,
+    session_id: Option<&str>,
+    tab_id: i64,
+) -> anyhow::Result<Value> {
+    cdp_in_tab_with_policy(method, params, session_id, tab_id, true)
 }
 
 /// Run a raw CDP command, optionally inside a specific (cross-origin) FRAME's CDP
@@ -455,7 +520,11 @@ pub(super) fn cdp_in(
     params: Value,
     session_id: Option<&str>,
 ) -> anyhow::Result<Value> {
-    let id = bridge().next_id.fetch_add(1, Ordering::SeqCst);
+    super::capabilities::require(super::capabilities::CDP)?;
+    if session_id.is_some() {
+        super::capabilities::require(super::capabilities::CDP_SESSION)?;
+    }
+    let id = next_request_id();
     let mut env = json!({"id": id, "type": "cdp", "method": method, "params": params});
     if let Some(sid) = session_id {
         env["sessionId"] = json!(sid);
@@ -464,47 +533,58 @@ pub(super) fn cdp_in(
     if resp.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(resp.get("result").cloned().unwrap_or_else(|| json!({})))
     } else {
-        anyhow::bail!(
-            "{}",
-            resp.get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("cdp error")
-        )
+        Err(response_error(&resp, "cdp error"))
     }
 }
 
-/// Send a non-CDP RPC envelope (e.g. `tabs`) the extension handles directly, and
-/// return its `result`.
-pub(super) fn rpc(type_: &str, mut extra: Value) -> anyhow::Result<Value> {
-    let id = bridge().next_id.fetch_add(1, Ordering::SeqCst);
-    extra["id"] = json!(id);
-    extra["type"] = json!(type_);
-    let resp = request(extra)?;
-    if resp.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(resp.get("result").cloned().unwrap_or_else(|| json!({})))
-    } else {
-        anyhow::bail!(
-            "{}",
-            resp.get("error")
+pub(super) fn response_error(response: &Value, fallback: &str) -> anyhow::Error {
+    if response.get("code").and_then(Value::as_str) == Some("ERR_BROWSER_CAPABILITY_UNSUPPORTED") {
+        return super::capabilities::unsupported(
+            response
+                .get("capability")
                 .and_then(Value::as_str)
-                .unwrap_or("rpc error")
-        )
+                .unwrap_or("unknown"),
+        );
     }
+    anyhow::anyhow!(
+        "{}",
+        response
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or(fallback)
+    )
 }
 
-/// Snapshot the buffered debugger events whose CDP `method` contains `filter`.
-pub(super) fn recent_events(filter: &str, limit: usize) -> Vec<Value> {
+pub(super) fn recent_events_on_tab(filter: &str, limit: usize, tab_id: Option<i64>) -> Vec<Value> {
     let q = bridge().events.lock().unwrap();
     q.iter()
-        .filter(|v| {
-            filter.is_empty()
-                || v.get("method")
-                    .and_then(Value::as_str)
-                    .map(|m| m.contains(filter))
-                    .unwrap_or(false)
-        })
+        .filter(|event| event_matches(event, filter, tab_id))
         .rev()
         .take(limit)
         .cloned()
         .collect()
+}
+
+fn event_matches(event: &Value, filter: &str, tab_id: Option<i64>) -> bool {
+    let method_matches = filter.is_empty()
+        || event
+            .get("method")
+            .and_then(Value::as_str)
+            .is_some_and(|method| method.contains(filter));
+    let tab_matches = tab_id.is_none() || event.get("tabId").and_then(Value::as_i64) == tab_id;
+    method_matches && tab_matches
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_filter_matches_method_and_exact_root_tab() {
+        let event = json!({"method": "Network.responseReceived", "tabId": 31});
+        assert!(event_matches(&event, "response", Some(31)));
+        assert!(!event_matches(&event, "response", Some(32)));
+        assert!(!event_matches(&event, "console", Some(31)));
+        assert!(event_matches(&event, "", None));
+    }
 }

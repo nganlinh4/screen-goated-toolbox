@@ -71,6 +71,8 @@ mod tests {
     fn element(name: &str, left: i32, right: i32) -> UiElement {
         UiElement {
             name: name.to_string(),
+            automation_id: format!("element-{name}"),
+            runtime_id: vec![left, right],
             control_type: "ListItem",
             left,
             top: 50,

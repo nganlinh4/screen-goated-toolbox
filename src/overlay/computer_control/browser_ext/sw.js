@@ -15,7 +15,21 @@
 try { importScripts("bootstrap.js"); } catch (_) { /* no bootstrap file present */ }
 
 const DEFAULT_PORT = 47800;
-const BRIDGE_PROTOCOL = 2;
+const BRIDGE_PROTOCOL = 5;
+const BRIDGE_CAPABILITIES = Object.freeze([
+  "cdp.command",
+  "cdp.explicit_tab",
+  "cdp.session",
+  "cdp.require_active",
+  "tabs.list",
+  "tabs.active",
+  "tabs.active.focused_window",
+  "tabs.activate",
+  "tabs.navigate",
+  "tabs.create.foreground",
+  "tabs.create.background",
+  "tabs.remove",
+]);
 let ws = null;          // the current active socket (for unsolicited events)
 let connecting = false; // guard against overlapping connect() calls
 let backoff = 1000;
@@ -73,7 +87,7 @@ async function connect() {
     connecting = false;
     backoff = 1000;
     if (detachTimer) { clearTimeout(detachTimer); detachTimer = null; } // reconnected in time
-    reply({ type: "hello", bridgeProtocol: BRIDGE_PROTOCOL, extId: chrome.runtime.id, hasSecret: !!secret, hasBootstrap: !!self.SGT_BOOTSTRAP });
+    reply({ type: "hello", bridgeProtocol: BRIDGE_PROTOCOL, capabilities: BRIDGE_CAPABILITIES, extId: chrome.runtime.id, hasSecret: !!secret, hasBootstrap: !!self.SGT_BOOTSTRAP });
   };
   sock.onmessage = (ev) => onMessage(ev.data, reply).catch((e) => console.error("[sgt]", e));
   sock.onclose = () => {
@@ -122,6 +136,7 @@ async function onMessage(raw, reply) {
       await handleTabs(msg, reply);
       break;
     default:
+      if (msg.id) reply({ id: msg.id, ok: false, code: "ERR_BROWSER_CAPABILITY_UNSUPPORTED", capability: `rpc.${msg.type}`, error: "unsupported bridge command" });
       break;
   }
 }
@@ -132,7 +147,13 @@ async function handleCdp(msg, reply) {
   try {
     const tabId = msg.tabId || (await activeTabId());
     if (!tabId) throw new Error("no target tab");
+    if (msg.requireActive && tabId !== (await activeTabId())) {
+      throw new Error("target tab is no longer active");
+    }
     await ensureAttached(tabId);
+    if (msg.requireActive && tabId !== (await activeTabId())) {
+      throw new Error("target tab changed before input dispatch");
+    }
     const target = msg.sessionId ? { sessionId: msg.sessionId } : { tabId };
     const result = await chrome.debugger.sendCommand(target, msg.method, msg.params || {});
     reply({ id: msg.id, ok: true, result });
@@ -147,9 +168,30 @@ async function handleTabs(msg, reply) {
     if (msg.action === "list") {
       const tabs = await chrome.tabs.query({});
       reply({ id: msg.id, ok: true, result: tabs.map((t) => ({ id: t.id, title: t.title, url: t.url, active: t.active })) });
+    } else if (msg.action === "active") {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!tab || !tab.id) throw new Error("no active tab");
+      const browserWindow = await chrome.windows.get(tab.windowId);
+      if (!browserWindow || !browserWindow.focused) throw new Error("active browser window is not OS-focused");
+      reply({ id: msg.id, ok: true, result: {
+        id: tab.id, title: tab.title, url: tab.url, windowId: tab.windowId,
+        windowFocused: true,
+      } });
     } else if (msg.action === "activate") {
       await chrome.tabs.update(msg.tabId, { active: true });
       reply({ id: msg.id, ok: true, result: {} });
+    } else if (msg.action === "navigate") {
+      if (!Number.isInteger(msg.tabId)) throw new Error("navigate requires an exact tab id");
+      if (typeof msg.url !== "string" || !msg.url) throw new Error("navigate requires a non-empty URL");
+      const before = await chrome.tabs.get(msg.tabId);
+      const tab = await chrome.tabs.update(msg.tabId, { url: msg.url });
+      if (!tab || tab.id !== msg.tabId) throw new Error("exact target tab changed during navigation dispatch");
+      reply({ id: msg.id, ok: true, result: {
+        id: tab.id,
+        beforeUrl: before.url || "",
+        url: tab.url || "",
+        pendingUrl: tab.pendingUrl || "",
+      } });
     } else if (msg.action === "create") {
       const tab = await chrome.tabs.create({ url: msg.url, active: msg.active !== false });
       reply({ id: msg.id, ok: true, result: { id: tab.id, url: tab.url } });
@@ -157,7 +199,7 @@ async function handleTabs(msg, reply) {
       await chrome.tabs.remove(msg.tabId);
       reply({ id: msg.id, ok: true, result: {} });
     } else {
-      reply({ id: msg.id, ok: false, error: "bad tabs action" });
+      reply({ id: msg.id, ok: false, code: "ERR_BROWSER_CAPABILITY_UNSUPPORTED", capability: `tabs.${msg.action || "unknown"}`, error: "unsupported tabs action" });
     }
   } catch (e) {
     reply({ id: msg.id, ok: false, error: String(e && e.message ? e.message : e) });

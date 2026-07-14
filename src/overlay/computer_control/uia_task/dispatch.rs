@@ -12,7 +12,7 @@ impl Brain {
         name: &str,
         args: &Value,
         ctx: &str,
-        cancel: &AtomicBool,
+        cancel: &Arc<AtomicBool>,
         trace: Option<super::super::telemetry::ActionTrace>,
     ) -> Value {
         self.step += 1;
@@ -20,6 +20,10 @@ impl Brain {
         let action = trace.unwrap_or_else(|| super::super::telemetry::claim_action(name));
         self.active_action = Some(action);
         let t0 = Instant::now();
+        let capability = EvidenceProvenance::CapabilityResult;
+        if action_invalidates_anchors(name) {
+            self.clear_anchors(&format!("before_{name}"));
+        }
         // Strengthen the (stateless) aux models' context: hand them what the agent has already DONE
         // this task (last few actions), not just the one-line task+intent — so "the other one" / "the
         // next button" disambiguate and the stall planner sees the trajectory. ~Free: a few tokens.
@@ -32,8 +36,12 @@ impl Brain {
             &enriched_ctx
         };
         if let Some(blocked) = self.setup_guard.before_action(name) {
-            return self.finish_dispatch(action, name, args, blocked, t0);
+            return self.finish_dispatch(action, name, args, blocked, capability, t0);
         }
+        if let Some((result, provenance)) = self.dispatch_browser_tool(name, args, cancel) {
+            return self.finish_dispatch(action, name, args, result, provenance, t0);
+        }
+        let mut evidence_provenance = EvidenceProvenance::for_dispatch(name);
         let result = match name {
             // Deterministic controller (Stage 1): the model reads the indexed world
             // and acts by @id; the controller resolves/executes/verifies/gates.
@@ -48,7 +56,6 @@ impl Brain {
                     args.get("id").and_then(Value::as_u64).unwrap_or(0) as u32,
                     args.get("verb").and_then(Value::as_str).unwrap_or(""),
                     args.get("value").and_then(Value::as_str),
-                    ctx,
                     args.get("confirm")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
@@ -66,7 +73,7 @@ impl Brain {
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
-                self.controller.do_steps(&steps, ctx, &act_ctx)
+                self.controller.do_steps(&steps, &act_ctx)
             }
             "click_at" => {
                 let cell = args.get("cell").and_then(Value::as_u64).unwrap_or(0) as u32;
@@ -76,7 +83,7 @@ impl Brain {
                     cell,
                     self.target.as_deref(),
                 ) {
-                    return self.finish_dispatch(action, name, args, blocked, t0);
+                    return self.finish_dispatch(action, name, args, blocked, capability, t0);
                 }
                 match self.grid.center_norm(cell) {
                     Some((mx, my)) => {
@@ -90,7 +97,18 @@ impl Brain {
                             "view_norm": [mx.round(), my.round()], "screen_px": [sx, sy],
                             "view_rect": [self.view.x, self.view.y, self.view.w, self.view.h]}),
                         );
-                        let input = click_screen(sx, sy, self.dry, "left", &self.profile, cancel);
+                        let input = click_screen(
+                            sx,
+                            sy,
+                            "left",
+                            InputContext {
+                                dry: self.dry,
+                                profile: &self.profile,
+                                cancel,
+                                target: self.target.as_deref(),
+                                source: self.source_frame.as_ref(),
+                            },
+                        );
                         pointer_result(
                             input,
                             self.view,
@@ -110,7 +128,7 @@ impl Brain {
                     Some(v) => {
                         self.view = v;
                         self.zoomed = true;
-                        self.anchors.clear(); // view changed -> old anchors are stale
+                        self.clear_anchors("zoom_changed_view");
                         json!({"ok": true, "zoomed_cell": cell})
                     }
                     None => {
@@ -121,7 +139,7 @@ impl Brain {
             "reset_view" => {
                 self.zoomed = false;
                 self.whole_screen = false;
-                self.anchors.clear();
+                self.clear_anchors("reset_view");
                 json!({"ok": true, "view": "the active window"})
             }
             "see_whole_screen" => {
@@ -130,10 +148,11 @@ impl Brain {
                 // the precise active-window view.
                 self.whole_screen = true;
                 self.zoomed = false;
-                self.anchors.clear();
+                self.clear_anchors("whole_screen_view");
                 json!({"ok": true, "view": "the whole screen"})
             }
             "look" => {
+                evidence_provenance = EvidenceProvenance::ModelInference;
                 let q = args
                     .get("question")
                     .and_then(Value::as_str)
@@ -147,6 +166,7 @@ impl Brain {
                 }
             }
             "click_target" => {
+                evidence_provenance = EvidenceProvenance::ModelMediatedEffect;
                 let desc = args
                     .get("description")
                     .and_then(Value::as_str)
@@ -158,8 +178,26 @@ impl Brain {
                 // In a Chromium browser, drive the click through the page's OWN
                 // trusted input (CDP) so canvas/WebGL games + cross-origin iframes
                 // that ignore synthetic OS clicks respond — and with crisper coords.
-                if !self.dry && super::super::browser::input_active() {
-                    browser_click(desc, button == "right", ctx, cancel)
+                let browser_target = match browser_vision_target(
+                    self.controlled_tab_id,
+                    self.source_frame.as_ref(),
+                ) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        return self.finish_dispatch(
+                            action,
+                            name,
+                            args,
+                            json!({"ok": false, "code": "ERR_STALE_FRAME_SURFACE", "error": error.to_string()}),
+                            EvidenceProvenance::CapabilityResult,
+                            t0,
+                        );
+                    }
+                };
+                if !self.dry
+                    && let Some(browser_target) = browser_target
+                {
+                    browser_click(browser_target, desc, button == "right", ctx, cancel)
                 } else {
                     match locate_in_view(self.view, desc, ctx, cancel) {
                         Ok(loc) => {
@@ -178,8 +216,18 @@ impl Brain {
                                 "[cc] step {step:02} CLICK_TARGET[{button}] '{desc}' -> screen({sx},{sy}) saw={:?}",
                                 loc.note
                             );
-                            let input =
-                                click_screen(sx, sy, self.dry, button, &self.profile, cancel);
+                            let input = click_screen(
+                                sx,
+                                sy,
+                                button,
+                                InputContext {
+                                    dry: self.dry,
+                                    profile: &self.profile,
+                                    cancel,
+                                    target: self.target.as_deref(),
+                                    source: self.source_frame.as_ref(),
+                                },
+                            );
                             pointer_result(
                                 input,
                                 self.view,
@@ -195,14 +243,33 @@ impl Brain {
                 }
             }
             "drag_target" => {
+                evidence_provenance = EvidenceProvenance::ModelMediatedEffect;
                 // Precise drag: vision-locate BOTH endpoints and drag between them -
                 // for canvas drag-and-drop (place a card on a slot, move a slider).
                 let from = args.get("from").and_then(Value::as_str).unwrap_or("");
                 let to = args.get("to").and_then(Value::as_str).unwrap_or("");
                 // In a Chromium browser, drag through the page's trusted input (CDP):
                 // canvas/WebGL + HTML5 drag-and-drop ignore synthetic OS drags.
-                if !self.dry && super::super::browser::input_active() {
-                    browser_drag(from, to, ctx, cancel)
+                let browser_target = match browser_vision_target(
+                    self.controlled_tab_id,
+                    self.source_frame.as_ref(),
+                ) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        return self.finish_dispatch(
+                            action,
+                            name,
+                            args,
+                            json!({"ok": false, "code": "ERR_STALE_FRAME_SURFACE", "error": error.to_string()}),
+                            EvidenceProvenance::CapabilityResult,
+                            t0,
+                        );
+                    }
+                };
+                if !self.dry
+                    && let Some(browser_target) = browser_target
+                {
+                    browser_drag(browser_target, from, to, ctx, cancel)
                 } else {
                     match (
                         locate_in_view(self.view, from, ctx, cancel),
@@ -222,8 +289,17 @@ impl Brain {
                             eprintln!(
                                 "[cc] step {step:02} DRAG_TARGET '{from}' -> '{to}' : ({fsx},{fsy})->({tsx},{tsy})"
                             );
-                            let r =
-                                drag_screen(fsx, fsy, tsx, tsy, self.dry, &self.profile, cancel);
+                            let r = drag_screen(
+                                (fsx, fsy),
+                                (tsx, tsy),
+                                InputContext {
+                                    dry: self.dry,
+                                    profile: &self.profile,
+                                    cancel,
+                                    target: self.target.as_deref(),
+                                    source: self.source_frame.as_ref(),
+                                },
+                            );
                             json!({"ok": true, "from": f.note, "to": t.note, "drag": r})
                         }
                         (Err(e), _) => {
@@ -236,6 +312,7 @@ impl Brain {
                 }
             }
             "point_at" => {
+                evidence_provenance = EvidenceProvenance::ModelMediatedEffect;
                 // Same vision-locate as click_target, but MOVE the cursor onto the
                 // target and stop - no click. For "point at / show me X" or to hover
                 // and reveal a tooltip / hover-menu (dwell_seconds lets it surface).
@@ -267,9 +344,13 @@ impl Brain {
                             sx,
                             sy,
                             (dwell * 1000.0) as u64,
-                            self.dry,
-                            &self.profile,
-                            cancel,
+                            InputContext {
+                                dry: self.dry,
+                                profile: &self.profile,
+                                cancel,
+                                target: self.target.as_deref(),
+                                source: self.source_frame.as_ref(),
+                            },
                         );
                         pointer_result(
                             input,
@@ -284,105 +365,9 @@ impl Brain {
                     }
                 }
             }
-            "map_targets" => {
-                let desc = args
-                    .get("description")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                match map_in_view(self.view, desc, ctx, cancel) {
-                    Ok(pts) => {
-                        self.anchors = pts
-                            .iter()
-                            .map(|p| {
-                                let (sx, sy) = self.view.to_screen_px(p.x, p.y);
-                                (sx, sy, p.note.clone(), Some(desc.to_string()))
-                            })
-                            .collect();
-                        let list: Vec<Value> = self
-                            .anchors
-                            .iter()
-                            .enumerate()
-                            .map(|(i, (_, _, note, _))| json!({"mark": i + 1, "what": note}))
-                            .collect();
-                        eprintln!(
-                            "[cc] step {step:02} MAP_TARGETS '{desc}' -> {} anchors",
-                            self.anchors.len()
-                        );
-                        json!({"ok": true, "anchor_count": self.anchors.len(), "anchors": list,
-                            "note": "Click any by mark number with click_mark(mark). Each mapped point is freshly verified before clicking; re-run map_targets after layout changes."})
-                    }
-                    Err(e) => json!({"ok": false, "error": format!("could not map '{desc}': {e}")}),
-                }
-            }
-            "click_mark" => {
-                let id = args.get("mark").and_then(Value::as_u64).unwrap_or(0) as usize;
-                let button = match args.get("button").and_then(Value::as_str) {
-                    Some("right") => "right",
-                    _ => "left",
-                };
-                let anchor = self
-                    .anchors
-                    .get(id.wrapping_sub(1))
-                    .map(|(sx, sy, n, verify)| (*sx, *sy, n.clone(), verify.clone()));
-                match anchor {
-                    Some((sx, sy, note, verify_description)) => {
-                        let view_norm = screen_to_view_norm(self.view, sx, sy);
-                        if let Some(description) = verify_description {
-                            let verification = session::capture_virtual()
-                                .and_then(|fresh| {
-                                    session::encode_view(
-                                        &fresh,
-                                        self.view,
-                                        VISION_SHORT,
-                                        None,
-                                        None,
-                                    )
-                                    .map(|encoded| encoded.0)
-                                })
-                                .and_then(|fresh_jpeg| {
-                                    verify_located(
-                                        &fresh_jpeg,
-                                        super::super::vision_reader::Located {
-                                            x: view_norm.0,
-                                            y: view_norm.1,
-                                            note: note.clone(),
-                                        },
-                                        &description,
-                                        ctx,
-                                        cancel,
-                                    )
-                                });
-                            if let Err(error) = verification {
-                                return json!({
-                                    "ok": false,
-                                    "error": format!("mapped click verification failed: {error}"),
-                                });
-                            }
-                        }
-                        self.last_click = Some((sx, sy));
-                        self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
-                        append_click(
-                            &self.dir,
-                            action,
-                            json!({"step": step, "kind": "click_mark", "mark": id,
-                            "button": button, "view_norm": [view_norm.0, view_norm.1],
-                            "screen_px": [sx, sy], "saw": note,
-                            "view_rect": [self.view.x, self.view.y, self.view.w, self.view.h]}),
-                        );
-                        eprintln!("[cc] step {step:02} CLICK_MARK {id} -> screen({sx},{sy})");
-                        let input = click_screen(sx, sy, self.dry, button, &self.profile, cancel);
-                        pointer_result(
-                            input,
-                            self.view,
-                            view_norm,
-                            (sx, sy),
-                            json!({"kind": "click_mark", "clicked_mark": id, "what": note}),
-                        )
-                    }
-                    None => {
-                        json!({"ok": false, "error": format!("no anchor #{id} (have {}); run map_targets first", self.anchors.len())})
-                    }
-                }
+            "map_targets" | "click_mark" => {
+                evidence_provenance = EvidenceProvenance::ModelMediatedEffect;
+                self.dispatch_anchor_action(name, args, ctx, cancel, action, step)
             }
             "wait" => {
                 let secs = args
@@ -393,8 +378,21 @@ impl Brain {
                 let aborted = human_input::sleep_cancellable((secs * 1000.0) as u64, cancel);
                 json!({"ok": !aborted, "waited_seconds": secs})
             }
-            "type_text" | "key_combination" | "open_url" | "launch_app" | "run_command"
-            | "click_here" => {
+            "type_text" | "key_combination" | "click_here" => {
+                if self.dry {
+                    json!({"ok": true, "note": "dry"})
+                } else {
+                    match guarded_input_args(
+                        args.clone(),
+                        self.target.as_deref(),
+                        self.source_frame.as_ref(),
+                    ) {
+                        Ok(guarded) => executor::execute_ex(name, &guarded, &self.profile, cancel),
+                        Err(error) => json!({"ok": false, "error": error.to_string()}),
+                    }
+                }
+            }
+            "open_url" | "launch_app" | "run_command" => {
                 if self.dry {
                     json!({"ok": true, "note": "dry"})
                 } else {
@@ -423,7 +421,13 @@ impl Brain {
                 if self.dry {
                     json!({"ok": true, "note": "dry"})
                 } else {
-                    executor::execute_ex("scroll", &a, &self.profile, cancel)
+                    match guarded_input_args(a, self.target.as_deref(), self.source_frame.as_ref())
+                    {
+                        Ok(guarded) => {
+                            executor::execute_ex("scroll", &guarded, &self.profile, cancel)
+                        }
+                        Err(error) => json!({"ok": false, "error": error.to_string()}),
+                    }
                 }
             }
             "drag" => {
@@ -449,7 +453,18 @@ impl Brain {
                         if self.dry {
                             json!({"ok": true, "note": "dry"})
                         } else {
-                            executor::execute_ex("drag", &a, &self.profile, cancel)
+                            match guarded_input_args(
+                                a,
+                                self.target.as_deref(),
+                                self.source_frame.as_ref(),
+                            ) {
+                                Ok(guarded) => {
+                                    executor::execute_ex("drag", &guarded, &self.profile, cancel)
+                                }
+                                Err(error) => {
+                                    json!({"ok": false, "error": error.to_string()})
+                                }
+                            }
                         }
                     }
                     _ => json!({"ok": false, "error": "drag needs from_cell and to_cell"}),
@@ -457,22 +472,24 @@ impl Brain {
             }
             "focus_window" => {
                 let title = args.get("title").and_then(Value::as_str).unwrap_or("");
-                let raised = super::super::uia::raise_window(title);
-                std::thread::sleep(Duration::from_millis(200)); // let the switch settle
-                if raised {
-                    // Return to the precise active-window view (the prompt promises
-                    // this): drop any whole-screen/zoom override and stale anchors so
-                    // grounding re-frames on the newly-focused window.
-                    self.whole_screen = false;
-                    self.zoomed = false;
-                    self.anchors.clear();
+                match super::super::uia::raise_window(title) {
+                    Err(error) => window_error(error),
+                    Ok(raised) => {
+                        std::thread::sleep(Duration::from_millis(200));
+                        if raised {
+                            // Re-frame on the newly focused window and discard stale anchors.
+                            self.whole_screen = false;
+                            self.zoomed = false;
+                            self.clear_anchors("focused_different_window");
+                        }
+                        let now = super::super::uia::pointer_context().0;
+                        json!({
+                            "ok": raised,
+                            "foreground_now": now,
+                            "note": if raised { "switched" } else { "BLOCKED: the resolved window did not become foreground. Do not repeat the same focus attempt blindly; use a non-foreground provider when one exposes the needed state, otherwise report the blocker." }
+                        })
+                    }
                 }
-                let now = super::super::uia::pointer_context().0;
-                json!({
-                    "ok": raised,
-                    "foreground_now": now,
-                    "note": if raised { "switched" } else { "BLOCKED: the foreground is holding the screen — an exclusive-fullscreen game won't let any window in front of it, ignores minimize, and swallows hotkeys. Do NOT retry this or minimize the game the user is playing. To read WEB content, use browser_read_page (it reads via the browser's debugger, no foreground needed); otherwise ask the user to alt-tab." }
-                })
             }
             "list_windows" => {
                 json!({"ok": true, "windows": super::super::uia::list_windows()})
@@ -482,21 +499,31 @@ impl Brain {
             }
             "minimize_window" => {
                 let title = args.get("title").and_then(Value::as_str).unwrap_or("");
-                let ok = super::super::uia::minimize_window(title);
-                std::thread::sleep(Duration::from_millis(200)); // let the minimize settle
-                json!({"ok": ok, "foreground_now": super::super::uia::pointer_context().0})
+                match super::super::uia::minimize_window(title) {
+                    Err(error) => window_error(error),
+                    Ok(ok) => {
+                        std::thread::sleep(Duration::from_millis(200));
+                        json!({"ok": ok, "foreground_now": super::super::uia::pointer_context().0})
+                    }
+                }
             }
             "resize_window" => {
                 let title = args.get("title").and_then(Value::as_str).unwrap_or("");
                 let w = args.get("width").and_then(Value::as_i64).unwrap_or(0) as i32;
                 let h = args.get("height").and_then(Value::as_i64).unwrap_or(0) as i32;
-                json!({"ok": super::super::uia::resize_window(title, w, h)})
+                match super::super::uia::resize_window(title, w, h) {
+                    Ok(ok) => json!({"ok": ok}),
+                    Err(error) => window_error(error),
+                }
             }
             "move_window" => {
                 let title = args.get("title").and_then(Value::as_str).unwrap_or("");
                 let x = args.get("x").and_then(Value::as_i64).unwrap_or(0) as i32;
                 let y = args.get("y").and_then(Value::as_i64).unwrap_or(0) as i32;
-                json!({"ok": super::super::uia::move_window(title, x, y)})
+                match super::super::uia::move_window(title, x, y) {
+                    Ok(ok) => json!({"ok": ok}),
+                    Err(error) => window_error(error),
+                }
             }
             "search_memory" => {
                 let query = args.get("query").and_then(Value::as_str).unwrap_or("");
@@ -520,43 +547,6 @@ impl Brain {
                     None => json!({"ok": false, "error": "no saved conversation with that id"}),
                 }
             }
-            "browser_setup" => super::super::browser::setup(),
-            "browser_status" => super::super::browser::status(),
-            "browser_reset" => super::super::browser::reset(),
-            "browser_read_page" => super::super::browser::read_page(),
-            "research_web" => super::super::research::research_web(args),
-            "browser_extract_page" => super::super::browser::extract_page(),
-            "browser_wait_for" => super::super::browser::wait_for(
-                args.get("selector").and_then(Value::as_str).unwrap_or(""),
-                args.get("timeout_ms")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(8000),
-            ),
-            "browser_eval" => super::super::browser::eval_js(
-                args.get("code").and_then(Value::as_str).unwrap_or(""),
-            ),
-            "browser_navigate" => super::super::browser::navigate(
-                args.get("url").and_then(Value::as_str).unwrap_or(""),
-            ),
-            "browser_open_tab" => super::super::browser::open_tab(
-                args.get("url").and_then(Value::as_str).unwrap_or(""),
-            ),
-            "browser_upload" => super::super::browser::upload_file(
-                args.get("selector").and_then(Value::as_str).unwrap_or(""),
-                args.get("path").and_then(Value::as_str).unwrap_or(""),
-            ),
-            "browser_tabs" => super::super::browser::get_tabs(),
-            "browser_switch_tab" => super::super::browser::switch_tab(
-                args.get("tab_id").and_then(Value::as_i64).unwrap_or(0),
-            ),
-            "browser_network" => super::super::browser::read_network(
-                args.get("filter").and_then(Value::as_str).unwrap_or(""),
-            ),
-            "browser_console" => super::super::browser::read_console(),
-            "decline_browser_control" => {
-                super::super::browser::record_decline();
-                json!({"ok": true, "noted": "won't ask again for a while"})
-            }
             "list_app_integrations" => super::super::mcp::list_tool(),
             "setup_app_integration" => super::super::mcp::setup_tool(
                 args.get("id").and_then(Value::as_str).unwrap_or(""),
@@ -573,9 +563,6 @@ impl Brain {
             "remove_app_integration" => {
                 super::super::mcp::remove_tool(args.get("id").and_then(Value::as_str).unwrap_or(""))
             }
-            "decline_app_integration" => super::super::mcp::decline_tool(
-                args.get("id").and_then(Value::as_str).unwrap_or(""),
-            ),
             "integration_tool_search" => super::super::mcp::search_tools(
                 args.get("query").and_then(Value::as_str).unwrap_or(""),
                 args.get("integration_id").and_then(Value::as_str),
@@ -594,6 +581,14 @@ impl Brain {
                     .unwrap_or_else(|| json!({"ok": false, "error": "unknown action"}))
             }
         };
-        self.finish_dispatch(action, name, args, result, t0)
+        self.finish_dispatch(action, name, args, result, evidence_provenance, t0)
     }
+}
+
+fn window_error(error: super::super::uia::WindowError) -> Value {
+    json!({
+        "ok": false,
+        "code": error.code(),
+        "error": error.to_string(),
+    })
 }

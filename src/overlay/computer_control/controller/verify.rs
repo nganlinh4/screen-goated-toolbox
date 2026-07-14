@@ -6,6 +6,8 @@
 //! (wrong target, field not focused, surface ignored the input) is caught HERE,
 //! in code, and reported to the model — instead of being assumed successful.
 
+use unicode_normalization::UnicodeNormalization;
+
 /// What a surface read back for an element after acting on it.
 #[derive(Debug, Default)]
 pub struct ReadBack {
@@ -46,9 +48,9 @@ impl VerifyOutcome {
     }
 }
 
-/// Compare a requested fill value against what was read back. Lenient on
-/// surrounding whitespace and on fields that reformat (the read-back containing
-/// the requested text counts as confirmed — e.g. a phone field that adds spacing).
+/// Compare a requested fill value against what was read back. Unicode form,
+/// line endings, and surrounding whitespace are normalized, but extra or
+/// missing content is never accepted.
 pub fn verify_fill(expected: &str, rb: &ReadBack) -> VerifyOutcome {
     if let Some(msg) = rb.validity.as_deref().filter(|m| !m.is_empty()) {
         return VerifyOutcome::Invalid {
@@ -57,16 +59,55 @@ pub fn verify_fill(expected: &str, rb: &ReadBack) -> VerifyOutcome {
     }
     match &rb.value {
         Some(got) => {
-            let (g, e) = (got.trim(), expected.trim());
-            if g == e || (!e.is_empty() && g.contains(e)) {
+            let (g, e) = (normalize_exact(got), normalize_exact(expected));
+            if g == e {
                 VerifyOutcome::Confirmed
             } else {
                 VerifyOutcome::Mismatch {
-                    expected: e.to_string(),
-                    got: g.to_string(),
+                    expected: e,
+                    got: g,
                 }
             }
         }
         None => VerifyOutcome::Unknown,
+    }
+}
+
+fn normalize_exact(value: &str) -> String {
+    value
+        .nfkc()
+        .collect::<String>()
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .trim()
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ReadBack, VerifyOutcome, verify_fill};
+
+    #[test]
+    fn a_superset_is_not_a_confirmed_fill() {
+        let result = verify_fill(
+            "1",
+            &ReadBack {
+                value: Some("10".to_string()),
+                validity: None,
+            },
+        );
+        assert!(matches!(result, VerifyOutcome::Mismatch { .. }));
+    }
+
+    #[test]
+    fn harmless_unicode_and_line_ending_forms_compare_equal() {
+        let result = verify_fill(
+            "Ａ\r\nvalue",
+            &ReadBack {
+                value: Some("A\nvalue".to_string()),
+                validity: None,
+            },
+        );
+        assert!(matches!(result, VerifyOutcome::Confirmed));
     }
 }

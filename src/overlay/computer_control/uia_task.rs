@@ -5,11 +5,10 @@
 //! UIA so the model verifies from ground truth, not pixels. Saves per-step
 //! screenshots. `--cc-uia-task --cc-task "..."`.
 
-use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, atomic::AtomicBool};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use base64::{Engine as _, engine::general_purpose};
 use serde_json::{Value, json};
 use tungstenite::Message;
 
@@ -26,179 +25,40 @@ use super::protocol::{
 use super::session::{self, Sock, View, connect_ws, send};
 use super::uia::{self, UiElement};
 
+mod anchors;
 mod brain;
+mod browser_dispatch;
+mod completion_evidence;
 mod dispatch;
 mod dispatch_guard;
+mod evidence_provenance;
+mod frame_identity;
+mod perception;
+mod postcondition;
 mod prompt;
+mod receipts;
 mod render;
 mod review;
 mod setup_guard;
+mod snapshot;
+#[cfg(test)]
+mod turn_state_tests;
 mod vision;
 mod vision_verify;
+use anchors::*;
+use completion_evidence::CompletionEvidence;
+use evidence_provenance::EvidenceProvenance;
+pub(in crate::overlay::computer_control) use frame_identity::FrameSource;
+use perception::*;
+use postcondition::*;
 pub(crate) use prompt::build_setup;
 use render::*;
 use review::*;
+pub(super) use snapshot::{SnapshotFrame, snapshot};
 use vision::*;
 use vision_verify::*;
 
-const SYS: &str = "You control a Windows PC, ONE tool action per turn. Each turn you get a SCREENSHOT of the ACTIVE \
-window with a NUMBERED GRID over it, plus its READOUTS and CLICKABLE elements (Windows accessibility = ground truth, \
-each tagged @cellN = its grid cell). zoom() into a cell for detail. To see your WHOLE screen (all windows) - for \
-awareness, counting/finding across windows, or to reach another window - call see_whole_screen; reset_view returns \
-to the precise active-window view. \
-Grid cells are coarse; zoom refines them and reset_view restores the active-window view. Also type_text, \
-key_combination. \
-CONVERSATION: respond to the user's actual request and never invent a task. Software-directed hostility is not \
-self-harm. INFORMATIONAL: gather evidence, answer ONCE, end; \
-never call done. \
-A board/canvas has NO element: READ it with look(question) before deciding (never guess), and CLICK it with \
-click_target(description) - a high-res model locates the exact pixel, far more accurate than click_at for small/ \
-precise targets. Use zoom + click_at(cell) only for coarse navigation. To DRAG-AND-DROP on a canvas (place a card on \
-a slot, drop an item, move a slider) use drag_target(from, to) - it vision-locates BOTH endpoints precisely; the \
-grid-cell drag(from_cell,to_cell) is too coarse to hit small game targets. On such a UIA-blind surface you may also \
-be given a DETECTED CLICKABLE MARKS list (found by a local detector) - click_mark its number for a precise click. \
-Open a web page: open_url(url) opens it as a new foreground tab. Launch an app: launch_app(name). These OS-level \
-tools beat driving the Start menu / address bar by keystrokes - prefer them. Wait for slow/async results (image \
-generation, page loads) with wait(seconds). \
-EFFICIENCY: when acting, emit the tool first. Zoom only for tiny targets; observe once, plan several \
-moves, and execute them without redundant resets. Narrate only when requested or when reporting a blocker. \
-STAY ON TASK: keep doing the user's CURRENT task; do NOT open new pages/apps/tabs or switch context unless the task \
-needs it. If unsure what to do next, look() and continue the SAME task - never wander off to an unrelated app. \
-INPUT CHOICE: prefer exact structured ids and direct tools when available. Otherwise, when focus and target are \
-already certain, use a conventional shortcut (Enter confirm, Esc cancel, Ctrl+A/C/V/X/Z, Ctrl+S/F/L). Do not cycle \
-through an unknown collection with navigation keys; enumerate it and select the exact item. \
-POINTING: if the user refers to what THEY are hovering/pointing at ('this', 'the one I'm hovering on', 'where my \
-mouse is'), use click_here - it acts at their ACTUAL cursor. Do NOT guess the target by description (you'll pick the \
-wrong thing). Your context shows 'Cursor at (x,y)' if you need the position. If instead the user wants YOU to point \
-something OUT to them (show/point at/'where is' X), or to hover to reveal a tooltip/hover-menu, use \
-point_at(description): it moves the cursor onto the target and STOPS, no click (dwell_seconds to linger for a reveal). \
-SWITCHING WINDOWS: if a window you opened isn't visible (the view still shows the SAME app, often a FULLSCREEN game), \
-do NOT spam alt+tab - those keystrokes get swallowed by the game. Call focus_window('Chrome') to bring it forward; \
-if that fails, minimize_window the covering app first. list_windows() shows what's open. \
-MEMORY: search_memory/open_memory recall our PAST conversations. When the user asks about something from BEFORE, \
-answer from the open_memory TRANSCRIPT - NOT from the current screen. Quote what the transcript actually says; if a \
-detail isn't in it, say it's not in your memory rather than guessing from what's on screen. \
-DOING TASKS: DO the task yourself with your tools, don't narrate a step list for the user; submit a typed URL/search \
-with type_text press_enter:true (never a literal '{enter}'). An element's STATE is a [tag] in your list - [on]/[off] \
-(toggles/checkboxes), [selected] (tabs), [expanded]/[collapsed], [value N] - READ that, never eyeball a tiny toggle \
-(vision guesses on a few pixels - this caused real dev-mode thrash). If untagged, use a consequence signal \
-(Developer mode is ON exactly when a 'Load unpacked' button appears), or ZOOM before look(). Click a toggle ONCE; \
-don't retry on 'no visual change' (the detector misses tiny toggles). \
-SETUP COMPLETION: trust typed status fields. If browser_status/browser_setup reports connected:true, stop setup and use \
-browser tools. If a browser tool returns a code/state, follow that result instead of repeating the same GUI action. \
-BROWSER NAVIGATION: once connected, open URLs with the extension, NOT open_url (which opens a new WINDOW). Choose: \
-browser_navigate replaces the CURRENT tab - use it when the current page is disposable or the user wants to go \
-somewhere fresh; browser_open_tab opens a NEW tab in the same window, keeping the current page - use it when the user \
-is working with the current page or wants something opened alongside. When unsure, prefer a new tab (less \
-disruptive). Reserve open_url for when the extension isn't connected or to leave a chrome:// page. \
-observe()/act() read + act on the MAIN page, not CROSS-ORIGIN iframes (some login/payment/embed widgets) - if an \
-element you need is not in observe()'s list, it may be in such a frame: fall back to vision (click_target / \
-click_here on what the user points at). \
-MULTI-STEP TASKS: once you START a multi-step task (e.g. browser setup), carry out ALL its steps BACK-TO-BACK in one \
-go - do NOT do one step then stop and wait for the user. If the user makes a remark or asks a status question ('are \
-you doing it?', 'why did you stop?') mid-task, answer in ONE short sentence if needed but KEEP GOING immediately with \
-the next step in the same turn. Only stop for an explicit 'stop'/'wait' or when you truly need their input. \
-BROWSER CONTROL SETUP: if the user asks for browser control, call browser_setup; follow its bounded result fields and \
-the setup_guard notes, not an open-ended manual checklist. \
-WEB BROWSING - when deep browser control is connected, do web work THROUGH the bridge, NOT visually: browser_read_page \
-returns page text for reading/summarizing plus an artifact for exact transfer; do NOT scroll screen-by-screen, you'll loop. \
-For exact copy/export of a page or any large text, call browser_extract_page, then paste_artifact or save_artifact with \
-artifact.id - NEVER pass the full text through type_text or rewrite it from preview. \
-observe()/act() read + act on page elements; browser_eval runs JS; browser_navigate moves the page. With several tabs open it is \
-easy to land on the WRONG one, so VERIFY the url/title that browser_switch_tab and browser_read_page report is the page you \
-meant before reading or acting. Do NOT click_mark / click_target \
-/ zoom / scroll a web page (use scroll + look ONLY to eyeball a SPECIFIC image the text points to), and do NOT try to read \
-a VIDEO or other hard-to-read media - choose a text-first source instead. If an action no-ops or errors twice, CHANGE \
-approach - never repeat the same failing call. When a result carries a 'stuck_advice' field, a high-res look at the \
-current screen has diagnosed WHY you are stuck and the single best next move - trust it and do exactly that next. \
-To answer a question, look() at the CURRENT screen FIRST - it reads ONLY what is on screen now (it does NOT search \
-the web). If the answer is already visible, just read it - do NOT open a search. Lore, a story/quest, or any 'look up X' \
-is NOT inside the on-screen app or game - web-search it directly, do NOT hunt through a game's menus for it. ONLY when the needed information \
-is genuinely NOT on the current screen, SEARCH THE WEB - and if deep browser control is connected, do it INVISIBLY: \
-browser_navigate('https://www.google.com/search?q=...') then browser_read_page reads the answer through the browser's \
-debugger WITHOUT bringing it to the front (works even while a fullscreen game covers the screen, and never disturbs what \
-the user is doing). Only fall back to open_url + look() when browser control is NOT connected. \
-FULLSCREEN GAME (an exclusive-fullscreen / UIA-blind surface in front, e.g. a game the user is playing): you CANNOT bring \
-another window in front of it and you must NOT minimize it - to read web content use browser_read_page (it needs no \
-foreground) and SPEAK the answer. NEVER loop focus_window / minimize_window / Win+D against a fullscreen game - they do NOT \
-work on it; if something truly needs that covered window visible, just ask the user to alt-tab to it. \
-NEVER pass a 'search for X' question to look(), and NEVER claim you searched when you only read the screen. \
-Report ONLY what the screenshot shows; if it is not what you expected, say so and correct course. \
-NEVER judge the screen state or claim done from your own low-res view - call look() and QUOTE what it says; your \
-own view is unreliable for fine detail. Do NOT call look() twice without acting in between. You ALREADY have \
-high-res tools (look to read, zoom to magnify) - use them yourself; never ask the user for a clearer or zoomed-in view. \
-AUTONOMY: one tool call per reply, but keep going - after each result IMMEDIATELY make the next tool call toward the \
-goal; do NOT pause or ask what to do between steps. 'Play and win' / 'book the flight' = do the WHOLE task, many \
-actions in a row, until finished. Call done ONLY when the goal is fully achieved (a fresh look() confirms it; an \
-independent check verifies), then stop and wait for the next request. If you get STUCK or an action isn't \
-registering, say so briefly - never go silent while struggling. \
-SYSTEM TASKS: use system_query for OS facts and list_files for directory facts/ranking; never hunt through GUIs for \
-facts a read-only provider can report. Use run_command only when no provider fits or for an actual shell operation. \
-Most system tasks just DO - keep it smooth, never ask permission for routine ones; ONLY pause to confirm before \
-something CATASTROPHIC or clearly unexpected (formatting/wiping, shutting down, deleting the user's files). \
-GAMES: read the board with look()/zoom and plan the WHOLE sequence before moving; never act blindly. Play by whatever \
-the game uses - keyboard for key-driven games, or click_target / drag_target for pointer, card and tile games. \
-To MOVE a character that walks while a key is HELD (most action games), a quick tap won't register - use \
-key_combination with hold_seconds (e.g. keys:'d' or 'Right', hold_seconds:1-2) so the key stays down long enough to \
-move; a normal tap is only for discrete inputs (jump, confirm). \
-If a game running in a BROWSER ignores your clicks or drags (a canvas/WebGL game often does - plain OS clicks aren't \
-trusted by the page), that is exactly when to set up deep browser control with browser_setup: once it is connected, \
-click_target and drag_target automatically drive the page's OWN trusted input, which works on canvas/WebGL/iframe \
-games. Then retry the same move.";
-
-/// A gridded snapshot of the current foreground window as base64 JPEG, with NO
-/// click marker — for the voice runtime's initial + periodic idle frames.
-#[derive(Clone)]
-pub(super) struct SnapshotFrame {
-    pub b64: String,
-    pub frame_id: u64,
-    pub captured_at: Instant,
-    pub byte_count: usize,
-}
-
-pub(super) fn snapshot(target: Option<&str>) -> Result<SnapshotFrame> {
-    let origin_turn_id = super::telemetry::current_turn();
-    let frame_id = super::telemetry::next_frame("snapshot");
-    let view = window_view(target, false);
-    let capture_t0 = Instant::now();
-    let cap = session::capture_virtual()?;
-    let captured_at = Instant::now();
-    let capture_ms = capture_t0.elapsed().as_millis();
-    let encode_t0 = Instant::now();
-    let (jpeg, _) = session::encode_view(&cap, view, VIEW_SHORT, Some(Grid::from_env()), None)?;
-    let window_title = super::uia::pointer_context().0;
-    let artifact_name = if frame_id == 1 || frame_id.is_multiple_of(30) {
-        let name = format!("live-frame-{frame_id:06}.jpg");
-        let path = super::telemetry::trace_dir().join(&name);
-        match std::fs::write(&path, &jpeg) {
-            Ok(()) => Some(name),
-            Err(error) => {
-                super::telemetry::artifact_write_failed("live_frame", &path, None, &error);
-                None
-            }
-        }
-    } else {
-        None
-    };
-    super::telemetry::frame_ready(super::telemetry::FrameReady {
-        turn_id: origin_turn_id,
-        frame_id,
-        reason: "snapshot",
-        capture_ms,
-        encode_ms: encode_t0.elapsed().as_millis(),
-        byte_count: jpeg.len(),
-        target,
-        view: [view.x, view.y, view.w, view.h],
-        window_title: &window_title,
-        artifact_path: artifact_name.as_deref(),
-    });
-    Ok(SnapshotFrame {
-        b64: general_purpose::STANDARD.encode(&jpeg),
-        frame_id,
-        captured_at,
-        byte_count: jpeg.len(),
-    })
-}
+const SYS: &str = include_str!("uia_task/prompt_core.txt");
 
 /// What a socket read yielded: a frame to process, nothing (skip), or an
 /// unexpected close/error that should trigger a resumption reconnect.
@@ -214,9 +74,10 @@ pub(super) fn reconnect(
     resume: Option<&str>,
     voice: bool,
     search: bool,
+    include_integrations: bool,
 ) -> Result<Sock> {
     let mut s = connect_ws(key).context("reconnect")?;
-    let setup = build_setup(resume, voice, search);
+    let setup = prompt::build_setup_with_integrations(resume, voice, search, include_integrations);
     super::telemetry::record_model_setup(&setup, "reconnect");
     send(&mut s, setup)?;
     wait_for_setup(&mut s)?;
@@ -244,7 +105,21 @@ pub(super) struct Brain {
     /// Immutable ids for the action currently being executed. Captures the
     /// originating turn so barge-in cannot relabel its click/frame evidence.
     active_action: Option<super::telemetry::ActionTrace>,
+    /// Turn currently owning recovery and setup state. The executor advances
+    /// this before every queued job so task-local evidence cannot cross turns.
+    current_turn_id: Option<u64>,
+    /// Identity of the exact latest frame the model could reason from. Direct
+    /// input may use this identity only; foreground state at dispatch is not an
+    /// implicit retarget signal.
+    source_frame: Option<FrameSource>,
+    /// Exact browser tab selected during this user turn. Never crosses turns.
+    controlled_tab_id: Option<i64>,
+    controlled_document_id: Option<String>,
     recent_actions: Vec<String>,
+    /// Structural action+state signatures for which recovery vision was already
+    /// attempted this turn. Prevents unchanged frames from producing repeated
+    /// advice while still allowing a distinct action or state one bounded try.
+    advice_latches: Vec<String>,
     prev_state_sig: Option<String>,
     /// Region snapshot taken JUST BEFORE a click (around the click point), so
     /// grounding can tell whether the click changed its own target cell — the only
@@ -253,32 +128,42 @@ pub(super) struct Brain {
     /// Compact "what I just did" trail (last few actions + outcomes) so the model
     /// keeps the thread of a multi-step task.
     trail: Vec<String>,
+    /// Direct, sanitized capability results used only by the independent done
+    /// verifier. Never included in the acting model's normal grounding context.
+    completion_evidence: CompletionEvidence,
     /// Seconds spent in consecutive `wait` calls (reset by any other action), to
     /// tell the model how long it's been waiting on an async result.
     wait_accum: f64,
-    /// Reusable click anchors (screen px + label) from map_targets — the model
-    /// clicks these by id (click_mark) with no per-click vision. Cleared whenever
-    /// the layout changes (zoom/reset) so stale points can't cause wrong clicks.
-    /// The final field is the original vision-map description. Detector-owned
-    /// anchors leave it empty; mapped anchors must be re-verified before click.
-    anchors: Vec<(i32, i32, Option<String>, Option<String>)>,
+    /// Frame-owned, source-aware click anchors. Every mutating transition clears
+    /// the set; IDs only increase within a session so a remap cannot silently make
+    /// an old number mean a different target.
+    anchors: Vec<ClickAnchor>,
+    next_anchor_id: u32,
     /// The deterministic controller (resolve→execute→verify→gate) behind the
     /// observe/act/do_steps tools — drives the browser surface (and native windows
     /// via UIA), always on.
     controller: super::controller::Controller,
-    /// Consecutive grounded actions where the harness detected no useful effect.
-    /// This is code-owned state, so recovery is not left entirely to prompt text.
-    no_effect_strikes: u32,
+    /// Last-resort coordinate vocabulary for surfaces with no accessible
+    /// actionable controls. Structured apps keep this off so the overlay cannot
+    /// cover labels, values, or other evidence the model needs to read.
+    show_coarse_grid: bool,
     setup_guard: setup_guard::SetupGuard,
 }
 
 /// Result of grounding after an action: the frame to send, the textual state, and
-/// any robustness notes (#1 stuck-loop / #2 state-delta) to fold into the reply.
+/// one typed postcondition assessment to fold into the reply.
 pub(super) struct Grounded {
     pub frame_b64: String,
-    pub frame_id: u64,
+    pub source: FrameSource,
     pub state_text: String,
-    pub notes: Vec<(&'static str, &'static str)>,
+    pub postcondition: GroundPostcondition,
+}
+
+struct SemanticSurfaceState {
+    elements: String,
+    title: String,
+    url: String,
+    identity: super::controller::world::SurfaceIdentity,
 }
 
 pub fn run(task: &str) -> Result<()> {
@@ -292,21 +177,33 @@ pub fn run(task: &str) -> Result<()> {
     // If a specific window was requested, raise it to the foreground (the agent
     // is scoped to it) and confirm it's real — otherwise we'd silently fall back
     // to the whole desktop and click random places.
-    if let Some(t) = &target {
-        uia::raise_window(t);
+    let pinned_target = if let Some(t) = &target {
+        match uia::raise_window(t) {
+            Ok(true) => {}
+            Ok(false) => anyhow::bail!(
+                "target window {t:?} was resolved but could not be verified as foreground"
+            ),
+            Err(error) => anyhow::bail!("cannot resolve target window {t:?}: {error}"),
+        }
         std::thread::sleep(Duration::from_millis(500));
-        match uia::target_window_rect(Some(t)) {
+        let pinned = uia::pin_foreground_target()
+            .ok_or_else(|| anyhow::anyhow!("focused window identity is unavailable"))?;
+        match uia::target_window_rect(Some(&pinned)) {
             Some((x, y, w, h)) => eprintln!("[cc] target window rect ({x},{y},{w},{h})"),
             None => anyhow::bail!(
-                "target window {t:?} not found or not visible — open it and make sure that tab/window is the \
-active, foreground one (its title must contain {t:?})"
+                "focused target window {t:?} is no longer visible or its stable identity changed"
             ),
         }
-    }
+        Some(pinned)
+    } else {
+        None
+    };
 
     let key = session::load_key()?;
     let mut socket = connect_ws(&key).context("connect")?;
-    send(&mut socket, build_setup(None, false, false))?;
+    let setup = build_setup(None, false, false);
+    super::telemetry::record_model_setup(&setup, "initial");
+    send(&mut socket, setup)?;
     wait_for_setup(&mut socket)?;
     set_socket_nonblocking(&mut socket)?;
     // Resilience: the preview Live model intermittently drops the WS with
@@ -318,8 +215,8 @@ active, foreground one (its title must contain {t:?})"
     let mut forced_drop = false;
     const MAX_RECONNECTS: u32 = 6;
 
-    let cancel = AtomicBool::new(false);
-    let mut brain = Brain::new(target.clone());
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut brain = Brain::new(pinned_target);
     // Turn 0 (no pending tool): send the VIEW crop, then the state + task.
     let (b0, st0) = brain.initial()?;
     send(&mut socket, realtime_video_jpeg_b64(&b0))?;
@@ -334,7 +231,9 @@ active, foreground one (its title must contain {t:?})"
         .unwrap_or(180);
     let deadline = Instant::now() + Duration::from_secs(deadline_secs);
     let mut reasoning = String::new();
-    while Instant::now() < deadline && brain.step < max_steps {
+    let mut tool_since_boundary = false;
+    let mut stop_reason = "deadline_expired";
+    'task_loop: while Instant::now() < deadline && brain.step < max_steps {
         // Test hook: simulate an unexpected drop at a given step to exercise the
         // resumption-reconnect path (CC_FORCE_DROP=<step>).
         if !forced_drop
@@ -378,7 +277,7 @@ active, foreground one (its title must contain {t:?})"
                     break;
                 }
                 eprintln!("[cc] reconnecting #{reconnects} (fresh session + re-seed)");
-                match reconnect(&key, None, false, false) {
+                match reconnect(&key, None, false, false, true) {
                     Ok(s) => socket = s,
                     Err(e) => {
                         eprintln!("[cc] reconnect failed: {e}");
@@ -406,6 +305,7 @@ state shown below.\n{}",
                     reasoning.push_str(&t)
                 }
                 ServerEvent::ToolCall { id, name, args } => {
+                    tool_since_boundary = true;
                     let say = reasoning.trim().to_string();
                     if !say.is_empty() {
                         eprintln!("[cc] step {:02} SAYS: {say}", brain.step + 1);
@@ -426,12 +326,37 @@ state shown below.\n{}",
                     if name == "done" {
                         // Verify INDEPENDENTLY with the high-res vision model (the
                         // Live agent confabulates success, so it cannot judge itself).
-                        let (ok, verdict) = brain.verify_done(task, &cancel);
+                        let check = brain.verify_done(task, &cancel);
+                        let ok = check.complete;
+                        let verifier_unavailable = check.unavailable;
+                        let verdict = check.verdict;
                         eprintln!("[cc] DONE-claim verdict: {verdict}");
                         if ok {
-                            brain.final_review(&verdict);
+                            brain.final_review(task, &verdict);
                             send(&mut socket, tool_response(&id, &name, json!({"ok": true})))?;
+                            super::telemetry::event(
+                                "turn_summary",
+                                "runtime",
+                                super::telemetry::Privacy::Safe,
+                                json!({"outcome": "done", "steps": brain.step}),
+                            );
+                            record_focused_session_end("completed", "accepted_done", brain.step);
                             return Ok(());
+                        }
+                        if verifier_unavailable {
+                            super::telemetry::typed_error(
+                                "ERR_DONE_VERIFIER_UNAVAILABLE",
+                                "done_verifier",
+                                "independent completion verification was unavailable",
+                                json!({"verdict": verdict}),
+                            );
+                            brain.final_review(task, "completion verifier unavailable");
+                            record_focused_session_end(
+                                "failed",
+                                "done_verifier_unavailable",
+                                brain.step,
+                            );
+                            anyhow::bail!("completion verifier unavailable");
                         }
                         let g = brain.ground(&name, &args)?;
                         let resp = json!({
@@ -448,32 +373,93 @@ state shown below.\n{}",
 
                     let action_result = brain.dispatch(&name, &args, &ctx, &cancel, None);
                     let g = brain.ground(&name, &args)?;
-                    let mut resp =
-                        json!({"action_result": action_result, "new_state": g.state_text});
-                    for (k, v) in &g.notes {
-                        resp[*k] = json!(*v);
-                    }
-                    // On a stall, one grounded vision call proposes a concrete next action.
-                    if g.notes.iter().any(|(k, _)| *k == "stuck_warning")
-                        && let Some(advice) = brain.stuck_advice(task, &cancel)
+                    let execution_ok = action_result.get("ok").and_then(Value::as_bool);
+                    let effect_verified = action_result
+                        .get("effect_verified")
+                        .and_then(Value::as_bool)
+                        == Some(true);
+                    let recovery_advice = (execution_ok != Some(false)
+                        && g.postcondition.request_advice())
+                    .then(|| brain.stuck_advice(task, &cancel))
+                    .flatten();
+                    let postcondition = g.postcondition.response(
+                        execution_ok,
+                        super::turn_policy::is_mutating_tool(&name),
+                        effect_verified,
+                        recovery_advice,
+                    );
+                    let mut resp = json!({
+                        "action_result": action_result,
+                        "execution_ok": execution_ok,
+                        "new_state": g.state_text,
+                        "postcondition": postcondition,
+                    });
+                    if execution_ok == Some(false)
+                        || (g.postcondition.detected_no_effect() && !effect_verified)
                     {
-                        resp["stuck_advice"] = json!(advice);
+                        resp["ok"] = json!(false);
+                    } else if let Some(ok) = execution_ok {
+                        resp["ok"] = json!(ok);
                     }
                     send(&mut socket, tool_response(&id, &name, resp))?; // answer first
                     send(&mut socket, realtime_video_jpeg_b64(&g.frame_b64))?; // then the new frame
+                }
+                ServerEvent::TurnComplete => {
+                    let boundary = classify_autonomous_boundary(&mut tool_since_boundary);
+                    if boundary == AutonomousBoundary::ToolGeneration {
+                        continue;
+                    }
+                    let text = reasoning.trim();
+                    if !text.is_empty() {
+                        eprintln!(
+                            "[cc] turn ended without a tool: {}",
+                            text.chars().take(240).collect::<String>()
+                        );
+                    }
+                    reasoning.clear();
+                    stop_reason = "turn_complete_without_tool";
+                    super::telemetry::typed_error(
+                        "ERR_AUTONOMOUS_TURN_UNVERIFIED",
+                        "runtime",
+                        "model ended an autonomous task turn without a tool or accepted completion",
+                        json!({"steps": brain.step}),
+                    );
+                    break 'task_loop;
                 }
                 _ => {}
             }
         }
     }
-    eprintln!(
-        "[cc] STOPPED at step {} (timeout/max-steps without done)",
-        brain.step
+    if brain.step >= max_steps {
+        stop_reason = "max_actions_reached";
+    }
+    eprintln!("[cc] STOPPED at step {} ({stop_reason})", brain.step,);
+    brain.final_review(task, stop_reason);
+    record_focused_session_end("failed", stop_reason, brain.step);
+    anyhow::bail!("computer-control task stopped without accepted done: {stop_reason}")
+}
+
+fn record_focused_session_end(outcome: &str, reason: &str, steps: usize) {
+    super::telemetry::event(
+        "session_end",
+        "runtime",
+        super::telemetry::Privacy::Safe,
+        json!({"outcome": outcome, "reason": reason, "steps": steps}),
     );
-    brain.final_review("(stopped without done)");
-    anyhow::bail!(
-        "computer-control task did not complete within {deadline_secs}s / {max_steps} actions"
-    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutonomousBoundary {
+    ToolGeneration,
+    Stop,
+}
+
+fn classify_autonomous_boundary(tool_since_boundary: &mut bool) -> AutonomousBoundary {
+    if *tool_since_boundary {
+        *tool_since_boundary = false;
+        return AutonomousBoundary::ToolGeneration;
+    }
+    AutonomousBoundary::Stop
 }
 
 /// CLI: read the foreground window with the aux vision stack and print the
@@ -511,7 +497,7 @@ pub fn run_grid_test(target: Option<&str>) -> Result<()> {
     let grid = Grid::from_env();
     let view = window_view(target, false);
     let cap = session::capture_virtual()?;
-    let (jpeg, shown) = session::encode_view(&cap, view, VIEW_SHORT, Some(grid), None)?;
+    let (jpeg, shown) = session::encode_view(&cap, view, VIEW_SHORT, Some(grid), None, None)?;
     let dir = std::env::var("CC_TRACE_DIR").unwrap_or_else(|_| "cc-grid".to_string());
     std::fs::create_dir_all(&dir).ok();
     std::fs::write(format!("{dir}/grid.jpg"), &jpeg)?;
@@ -526,4 +512,22 @@ pub fn run_grid_test(target: Option<&str>) -> Result<()> {
         shown.h
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AutonomousBoundary, classify_autonomous_boundary};
+
+    #[test]
+    fn autonomous_boundary_never_manufactures_a_new_user_turn() {
+        let mut tool = true;
+        assert_eq!(
+            classify_autonomous_boundary(&mut tool),
+            AutonomousBoundary::ToolGeneration
+        );
+        assert_eq!(
+            classify_autonomous_boundary(&mut tool),
+            AutonomousBoundary::Stop
+        );
+    }
 }

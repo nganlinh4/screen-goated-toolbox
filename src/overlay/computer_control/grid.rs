@@ -122,6 +122,20 @@ pub(super) fn draw_click_marker(img: &mut RgbImage, cx: i32, cy: i32) {
     }
 }
 
+/// Draw a compact numbered detector/map anchor without covering its click center.
+pub(super) fn draw_anchor_marker(img: &mut RgbImage, cx: i32, cy: i32, label: u32) {
+    let cyan = Rgb([20, 235, 255]);
+    let radius = 9.0;
+    for k in 0..72 {
+        let angle = k as f32 / 72.0 * std::f32::consts::TAU;
+        let x = cx + (radius * angle.cos()).round() as i32;
+        let y = cy + (radius * angle.sin()).round() as i32;
+        blend(img, x, y, cyan, 0.95);
+    }
+    // Keep the center unobscured; the small plate sits just above/right.
+    draw_label(img, cx + 11, cy - 18, label, 2);
+}
+
 fn env_dim(key: &str, default: u32) -> u32 {
     std::env::var(key)
         .ok()

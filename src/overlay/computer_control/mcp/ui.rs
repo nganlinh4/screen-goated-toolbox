@@ -1,4 +1,4 @@
-use super::{catalog, install, prefs, registry, runtime};
+use super::{catalog, install, registry, runtime};
 
 /// One integration row for the settings panel.
 pub(crate) struct UiIntegration {
@@ -43,5 +43,4 @@ pub(crate) fn ui_remove_all() {
         runtime::disconnect(&id);
         registry::remove(&id);
     }
-    prefs::clear();
 }

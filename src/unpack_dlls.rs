@@ -7,8 +7,8 @@ use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
 
 pub use self::ai_runtime::{
     AiRuntimeStatus, AiRuntimeUi, ai_runtime_version_label, current_ai_runtime_notice,
-    current_ai_runtime_status, ensure_ai_runtime_installed, remove_ai_runtime,
-    start_ai_runtime_install,
+    current_ai_runtime_status, ensure_ai_runtime_installed, is_ai_runtime_installed,
+    remove_ai_runtime, start_ai_runtime_install,
 };
 
 pub(crate) fn private_bin_dir() -> PathBuf {

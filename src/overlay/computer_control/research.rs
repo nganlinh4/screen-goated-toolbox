@@ -36,7 +36,8 @@ pub(super) fn research_web(args: &Value) -> Value {
         "research",
         super::telemetry::Privacy::Safe,
         json!({
-            "query_preview": query.chars().take(180).collect::<String>(),
+            "query_char_count": query.chars().count(),
+            "query_byte_count": query.len(),
             "source_policy": policy,
             "max_sources": max_sources,
         }),
@@ -95,7 +96,8 @@ pub(super) fn research_web(args: &Value) -> Value {
         "research",
         super::telemetry::Privacy::Safe,
         json!({
-            "query_preview": query.chars().take(180).collect::<String>(),
+            "query_char_count": query.chars().count(),
+            "query_byte_count": query.len(),
             "source_count": sources.len(),
             "confidence": confidence,
         }),
@@ -109,7 +111,6 @@ pub(super) fn research_web(args: &Value) -> Value {
         "sources": sources,
         "answer_material": answer_material.chars().take(9000).collect::<String>(),
         "instruction": "Use answer_material and cite/source-name the sources in your spoken answer. If sources disagree or are only search snippets, say that clearly.",
-        "rerouted_from": args.get("rerouted_from").cloned().unwrap_or(Value::Null),
     })
 }
 
@@ -137,14 +138,14 @@ struct TemporaryTab {
 
 impl TemporaryTab {
     fn open(url: &str) -> anyhow::Result<Self> {
-        let id = super::browser::open_background_tab(url)?;
+        let tab = super::browser::open_temporary_tab(url)?;
         super::telemetry::event(
             "research_surface_opened",
             "research",
             super::telemetry::Privacy::Safe,
-            json!({"tab_id": id, "foreground": false}),
+            json!({"tab_id": tab.id, "foreground": tab.foreground}),
         );
-        Ok(Self { id })
+        Ok(Self { id: tab.id })
     }
 }
 
@@ -161,10 +162,14 @@ impl Drop for TemporaryTab {
 }
 
 fn browser_error(error: anyhow::Error) -> Value {
+    let typed = super::browser::err(error);
+    if typed.get("code").and_then(Value::as_str) == Some("ERR_BROWSER_CAPABILITY_UNSUPPORTED") {
+        return typed;
+    }
     json!({
         "ok": false,
         "code": "ERR_RESEARCH_BROWSER_TOOL_FAILED",
-        "error": error.to_string(),
+        "error": typed.get("error").cloned().unwrap_or(Value::Null),
     })
 }
 

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "125",
   "name": "SGT Browser Use",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lets Screen Goated Toolbox's Computer Control agent drive THIS browser via the DevTools Protocol over a local, paired connection.",
   "permissions": ["debugger", "tabs", "storage"],
   "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },

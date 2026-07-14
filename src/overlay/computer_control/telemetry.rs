@@ -11,6 +11,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+mod privacy;
+
 static START: OnceLock<Instant> = OnceLock::new();
 static TURN_ID: AtomicU64 = AtomicU64::new(0);
 static STEP_ID: AtomicU64 = AtomicU64::new(0);
@@ -34,9 +36,14 @@ struct SessionState {
     start_recorded: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Privacy {
     Safe,
+    /// Non-transcript content that is useful inside the per-session trace but
+    /// must never be copied into the rolling global diagnostics file.
+    Sensitive,
+    /// User-visible user/assistant transcript content. Like `Sensitive`, this
+    /// remains in the per-session trace only.
     UserText,
 }
 
@@ -44,8 +51,13 @@ impl Privacy {
     fn as_str(self) -> &'static str {
         match self {
             Privacy::Safe => "safe",
+            Privacy::Sensitive => "sensitive",
             Privacy::UserText => "user_text",
         }
+    }
+
+    fn may_write_global(self) -> bool {
+        matches!(self, Privacy::Safe)
     }
 }
 
@@ -129,6 +141,17 @@ pub(super) fn record_model_setup(setup: &Value, stage: &str) {
         })
         .and_then(Value::as_array);
     let function_count = declarations.map_or(0, Vec::len);
+    let dynamic_function_count = declarations.map_or(0, |items| {
+        items
+            .iter()
+            .filter(|item| {
+                item.get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| name.starts_with("mcp__"))
+            })
+            .count()
+    });
+    let built_in_function_count = function_count.saturating_sub(dynamic_function_count);
     let declaration_bytes = declarations
         .and_then(|items| serde_json::to_vec(items).ok())
         .map_or(0, |bytes| bytes.len());
@@ -145,8 +168,8 @@ pub(super) fn record_model_setup(setup: &Value, stage: &str) {
             "stage": stage,
             "model": setup.pointer("/setup/model"),
             "function_count": function_count,
-            "built_in_function_count": function_count.min(57),
-            "dynamic_function_count": function_count.saturating_sub(57),
+            "built_in_function_count": built_in_function_count,
+            "dynamic_function_count": dynamic_function_count,
             "declaration_bytes": declaration_bytes,
             "instruction_bytes": instruction_bytes,
             "setup_bytes": encoded.len(),
@@ -271,9 +294,8 @@ pub(super) fn event_for_turn(
     turn_id: u64,
     fields: Value,
 ) {
+    let fields = privacy::sanitize_safe_fields(privacy, fields);
     let record = json!({
-        "ts_ms": unix_ms(),
-        "mono_ms": mono_ms(),
         "session_id": session_id(),
         "turn_id": turn_id,
         "action_id": Value::Null,
@@ -282,7 +304,7 @@ pub(super) fn event_for_turn(
         "privacy": privacy.as_str(),
         "fields": fields,
     });
-    write_jsonl(&record);
+    write_jsonl(record, privacy);
 }
 
 pub(super) fn human(component: &str, line: impl AsRef<str>) {
@@ -318,9 +340,8 @@ fn event_with_context(
     action: Option<ActionTrace>,
     fields: Value,
 ) {
+    let fields = privacy::sanitize_safe_fields(privacy, fields);
     let record = json!({
-        "ts_ms": unix_ms(),
-        "mono_ms": mono_ms(),
         "session_id": session_id(),
         "turn_id": action.map_or_else(current_turn, |trace| trace.turn_id),
         "action_id": action.map(|trace| trace.action_id),
@@ -329,7 +350,13 @@ fn event_with_context(
         "privacy": privacy.as_str(),
         "fields": fields,
     });
-    write_jsonl(&record);
+    write_jsonl(record, privacy);
+}
+
+/// Content-free JSON diagnostics for values that may contain commands,
+/// clipboard text, page content, paths, URLs, or provider output.
+pub(super) fn value_metadata(value: &Value) -> Value {
+    privacy::value_metadata(value)
 }
 
 pub(super) fn tool_result(
@@ -343,7 +370,7 @@ pub(super) fn tool_result(
     event_for_action(
         "tool_result",
         "tool",
-        Privacy::Safe,
+        Privacy::Sensitive,
         action,
         json!({
             "tool": tool,
@@ -390,8 +417,10 @@ pub(super) fn artifact_write_failed(
     error: &dyn std::fmt::Display,
 ) {
     let path = artifact_path(path);
-    let message = format!("failed to write {kind} artifact {path}: {error}");
-    human("cc-telemetry", &message);
+    human(
+        "cc-telemetry",
+        format!("failed to write {kind} artifact (details kept in session trace)"),
+    );
     event_with_context(
         "artifact_write_failed",
         "artifact",
@@ -431,19 +460,33 @@ fn mono_ms() -> u128 {
     START.get_or_init(Instant::now).elapsed().as_millis()
 }
 
-fn write_jsonl(record: &Value) {
+fn write_jsonl(mut record: Value, privacy: Privacy) {
     let _guard = WRITE_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Sampling before this lock lets a preempted producer write an older
+    // timestamp after a newer record. Stamp at the serialization boundary so
+    // JSONL order and monotonic time describe the same event order.
+    stamp_for_serialized_write(&mut record, unix_ms(), mono_ms());
     let mut global = crate::paths::app_sgt_dir();
     global.push("logs");
     global.push("cc-events.jsonl");
     let session = trace_dir().join("events.jsonl");
-    for path in [&global, &session] {
-        if let Err(error) = append_line(path, record) {
-            report_telemetry_failure(path, &error);
-        }
+    if privacy.may_write_global()
+        && let Err(error) = append_line(&global, &record)
+    {
+        report_telemetry_failure(&global, &error);
+    }
+    if let Err(error) = append_line(&session, &record) {
+        report_telemetry_failure(&session, &error);
+    }
+}
+
+fn stamp_for_serialized_write(record: &mut Value, ts_ms: u128, mono_ms: u128) {
+    if let Value::Object(object) = record {
+        object.insert("ts_ms".to_string(), json!(ts_ms));
+        object.insert("mono_ms".to_string(), json!(mono_ms));
     }
 }
 
@@ -486,9 +529,17 @@ fn artifact_path(path: &Path) -> String {
 }
 
 fn report_telemetry_failure(path: &Path, error: &std::io::Error) {
+    let destination = if path
+        .file_name()
+        .is_some_and(|name| name == "cc-events.jsonl")
+    {
+        "global"
+    } else {
+        "session"
+    };
     let message = format!(
-        "[cc-telemetry] failed to append {}: {error}",
-        path.to_string_lossy()
+        "[cc-telemetry] failed to append {destination} trace: {:?}",
+        error.kind()
     );
     eprintln!("{message}");
     crate::debug_log::log_debug(&message);
@@ -516,5 +567,22 @@ mod tests {
         assert_eq!(record["action_id"], 17);
         assert_eq!(record["record_id"], 9);
         assert_eq!(record["kind"], "target");
+    }
+
+    #[test]
+    fn only_content_free_events_may_reach_the_global_trace() {
+        assert!(Privacy::Safe.may_write_global());
+        assert!(!Privacy::Sensitive.may_write_global());
+        assert!(!Privacy::UserText.may_write_global());
+    }
+
+    #[test]
+    fn serialized_write_stamp_replaces_a_producer_sample() {
+        let mut record = json!({"event": "test", "ts_ms": 900, "mono_ms": 800});
+
+        stamp_for_serialized_write(&mut record, 101, 42);
+
+        assert_eq!(record["ts_ms"], 101);
+        assert_eq!(record["mono_ms"], 42);
     }
 }

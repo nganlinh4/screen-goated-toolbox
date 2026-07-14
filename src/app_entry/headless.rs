@@ -96,6 +96,16 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
+    if args.has("--cc-detector-test") {
+        let target = args
+            .value("--cc-window")
+            .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
+        return Some(report_result(
+            crate::overlay::computer_control::run_detector_test_cli(target.as_deref()),
+            "detector-test",
+        ));
+    }
+
     if args.has("--cc-cursor-demo") {
         crate::overlay::computer_control::run_cursor_demo_cli();
         return Some(0);

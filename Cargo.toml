@@ -106,6 +106,7 @@ features = [
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Kernel",
     "Win32_System_Memory",
+    "Win32_System_Ole",
     "Win32_Storage_FileSystem",
     "Win32_Media",
     "Win32_Media_Audio",

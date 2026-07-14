@@ -12,7 +12,6 @@ mod catalog;
 mod client;
 mod install;
 mod management;
-mod prefs;
 mod registry;
 mod runtime;
 mod schema;
@@ -20,13 +19,10 @@ mod smoke;
 mod support;
 mod ui;
 
-pub(super) use management::{
-    decline_tool, detect_uninstalled_match, display_name, docs_tool, list_tool, remove_tool,
-    setup_tool, status_tool,
-};
+pub(super) use management::{docs_tool, list_tool, remove_tool, setup_tool, status_tool};
 pub(super) use runtime::{
-    active_tool_declarations, call_tool, clear_tools_changed, connect_all_installed,
-    disconnect_all, is_connected, search_tools, set_suppress_tools, tools_changed, try_dispatch,
+    StartupCatalog, active_tool_declarations, call_tool, clear_tools_changed,
+    connect_all_installed, disconnect_all, is_connected, search_tools, tools_changed, try_dispatch,
 };
 pub(super) use smoke::run_mcp_test;
 pub(crate) use ui::{UiIntegration, ui_install, ui_remove, ui_remove_all};
