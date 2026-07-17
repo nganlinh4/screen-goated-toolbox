@@ -11,5 +11,6 @@ pub(super) fn get() -> AuxiliaryLocaleText {
         win_select_display_only_badge: "DISPLAY ONLY",
         win_select_display_only_title: "Use Display Capture",
         win_select_display_only_message: "This fullscreen or presentation window cannot be recorded reliably as an individual window. Choose Display capture instead.",
+        win_select_display_only_action: "Back to window list",
     }
 }

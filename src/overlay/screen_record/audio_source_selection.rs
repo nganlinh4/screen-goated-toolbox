@@ -81,6 +81,7 @@ pub fn show_audio_app_selector(is_dark: bool, lang: String) {
             width: candidate.width,
             height: candidate.height,
             badge_text: None,
+            selection_notice: None,
             disabled: false,
         })
         .collect();

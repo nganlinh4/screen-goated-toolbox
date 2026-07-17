@@ -51,7 +51,17 @@ pub struct SelectorEntry {
     pub height: u32,
     #[serde(rename = "badgeText")]
     pub badge_text: Option<String>,
+    #[serde(rename = "selectionNotice")]
+    pub selection_notice: Option<SelectorNotice>,
     pub disabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SelectorNotice {
+    pub title: String,
+    pub message: String,
+    #[serde(rename = "actionLabel")]
+    pub action_label: String,
 }
 
 #[derive(Clone, Debug)]
@@ -81,5 +91,43 @@ impl SelectorCallbacks {
             on_select: Arc::new(on_select),
             on_cancel: Arc::new(on_cancel),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notice_entry_renders_an_accessible_in_selector_dialog() {
+        let entry = SelectorEntry {
+            id: "42".to_string(),
+            title: "Presentation".to_string(),
+            subtitle: "example.exe".to_string(),
+            icon_data_url: None,
+            preview_data_url: None,
+            width: 1920,
+            height: 1080,
+            badge_text: Some("DISPLAY ONLY".to_string()),
+            selection_notice: Some(SelectorNotice {
+                title: "Use Display Capture".to_string(),
+                message: "Choose the complete display for this source.".to_string(),
+                action_label: "Back to window list".to_string(),
+            }),
+            disabled: false,
+        };
+        let text = SelectorText {
+            title: "Select a window".to_string(),
+            subtitle: "Escape to cancel".to_string(),
+            count_label: "1 window".to_string(),
+            cancel_label: "Cancel".to_string(),
+        };
+
+        let generated = html::generate_html(&[entry], "", true, &text);
+
+        assert!(generated.contains("class=\"notice-layer\""));
+        assert!(generated.contains("role=\"dialog\" aria-modal=\"true\""));
+        assert!(generated.contains("if(entry.selectionNotice) openNotice(entry,card);"));
+        assert!(generated.contains("\"actionLabel\":\"Back to window list\""));
     }
 }

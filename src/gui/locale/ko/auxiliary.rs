@@ -11,5 +11,6 @@ pub(super) fn get() -> AuxiliaryLocaleText {
         win_select_display_only_badge: "화면만",
         win_select_display_only_title: "화면 캡처를 사용하세요",
         win_select_display_only_message: "이 전체 화면 또는 프레젠테이션 창은 개별 창으로 안정적으로 녹화할 수 없습니다. 대신 화면 캡처를 선택하세요.",
+        win_select_display_only_action: "창 목록으로 돌아가기",
     }
 }

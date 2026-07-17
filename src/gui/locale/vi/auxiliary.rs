@@ -11,5 +11,6 @@ pub(super) fn get() -> AuxiliaryLocaleText {
         win_select_display_only_badge: "CHỈ MÀN HÌNH",
         win_select_display_only_title: "Hãy dùng Quay màn hình",
         win_select_display_only_message: "Không thể quay ổn định cửa sổ toàn màn hình hoặc trình chiếu này như một cửa sổ riêng. Hãy chọn Quay màn hình.",
+        win_select_display_only_action: "Quay lại danh sách cửa sổ",
     }
 }
