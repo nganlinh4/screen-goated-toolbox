@@ -10,4 +10,5 @@ pub struct AuxiliaryLocaleText {
     pub win_select_display_only_badge: &'static str,
     pub win_select_display_only_title: &'static str,
     pub win_select_display_only_message: &'static str,
+    pub win_select_display_only_action: &'static str,
 }

@@ -36,6 +36,13 @@ html[data-theme='dark']{{
   --wave-color: #60a5fa;
   --header-color: rgba(255,255,255,0.52);
   --scroll-thumb: rgba(255,255,255,0.18);
+  --notice-scrim: rgba(3,5,10,0.68);
+  --notice-bg: #1b1d28;
+  --notice-border: rgba(251,191,36,0.42);
+  --notice-accent: #fbbf24;
+  --notice-accent-soft: rgba(251,191,36,0.13);
+  --notice-muted: rgba(255,255,255,0.58);
+  --notice-shadow: rgba(0,0,0,0.48);
 }}
 
 html[data-theme='light']{{
@@ -52,6 +59,13 @@ html[data-theme='light']{{
   --wave-color: #1d4ed8;
   --header-color: rgba(0,0,0,0.42);
   --scroll-thumb: rgba(0,0,0,0.22);
+  --notice-scrim: rgba(15,23,42,0.34);
+  --notice-bg: #ffffff;
+  --notice-border: rgba(180,83,9,0.34);
+  --notice-accent: #b45309;
+  --notice-accent-soft: rgba(245,158,11,0.13);
+  --notice-muted: rgba(15,23,42,0.62);
+  --notice-shadow: rgba(15,23,42,0.24);
 }}
 
 ::-webkit-scrollbar{{width:6px}}
@@ -73,6 +87,10 @@ html[data-theme='light']{{
 @keyframes thumbFadeIn{{
   from{{opacity:0}}
   to{{opacity:1}}
+}}
+@keyframes noticeIn{{
+  from{{opacity:0;transform:translateY(10px) scale(0.965)}}
+  to{{opacity:1;transform:translateY(0) scale(1)}}
 }}
 
 .overlay{{
@@ -202,6 +220,58 @@ html[data-theme='light']{{
   border-radius:3px;font-size:8px;font-weight:700;
   padding:1px 4px;letter-spacing:0.07em;text-transform:uppercase;flex-shrink:0
 }}
+.notice-layer{{
+  position:fixed;inset:0;z-index:50;padding:24px;
+  display:grid;place-items:center;
+  background:var(--notice-scrim);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity 0.16s ease,visibility 0.16s ease
+}}
+.notice-layer.is-open{{opacity:1;visibility:visible;pointer-events:auto}}
+.notice-dialog{{
+  position:relative;width:min(440px,calc(100vw - 32px));overflow:hidden;
+  padding:26px 26px 22px;border:1px solid var(--notice-border);border-radius:18px;
+  background:var(--notice-bg);color:var(--title-color);
+  box-shadow:0 24px 80px var(--notice-shadow),0 0 0 1px var(--notice-accent-soft) inset;
+  outline:none
+}}
+.notice-layer.is-open .notice-dialog{{animation:noticeIn 0.24s cubic-bezier(0.2,0,0,1) both}}
+.notice-rail{{
+  position:absolute;left:0;right:0;top:0;height:3px;
+  background:linear-gradient(90deg,var(--notice-accent),var(--wave-color))
+}}
+.notice-dismiss{{
+  position:absolute;right:12px;top:12px;width:32px;height:32px;border:0;border-radius:9px;
+  display:grid;place-items:center;background:transparent;color:var(--close-color);
+  font-size:17px;cursor:pointer;transition:background 0.14s,color 0.14s
+}}
+.notice-dismiss:hover,.notice-dismiss:focus-visible{{background:var(--card-bg);color:var(--title-color);outline:none}}
+.notice-route{{display:flex;align-items:center;justify-content:center;gap:13px;height:70px;margin:2px 0 14px}}
+.route-frame{{position:relative;border-radius:7px}}
+.route-window{{width:62px;height:42px;border:2px solid var(--notice-muted);opacity:0.56}}
+.route-window::before{{content:'';position:absolute;left:0;right:0;top:7px;border-top:1px solid currentColor}}
+.route-window::after,.route-window span::after{{
+  content:'';position:absolute;left:17px;top:19px;width:26px;height:2px;border-radius:2px;
+  background:var(--notice-accent);transform:rotate(36deg)
+}}
+.route-window span::after{{transform:rotate(-36deg)}}
+.route-arrow{{width:42px;height:2px;background:linear-gradient(90deg,var(--notice-muted),var(--wave-color));position:relative}}
+.route-arrow::after{{content:'';position:absolute;right:-1px;top:-4px;width:8px;height:8px;border-right:2px solid var(--wave-color);border-top:2px solid var(--wave-color);transform:rotate(45deg)}}
+.route-display{{width:72px;height:46px;border:2px solid var(--wave-color);box-shadow:0 0 22px color-mix(in srgb,var(--wave-color) 34%,transparent)}}
+.route-display::before{{content:'';position:absolute;inset:5px;border-radius:3px;background:color-mix(in srgb,var(--wave-color) 18%,transparent)}}
+.route-display::after{{content:'';position:absolute;left:25px;right:25px;bottom:-8px;height:7px;border-bottom:2px solid var(--wave-color);border-left:2px solid transparent;border-right:2px solid transparent}}
+.notice-kicker{{color:var(--notice-accent);font-size:9px;font-weight:750;letter-spacing:0.13em;text-transform:uppercase;margin-bottom:6px}}
+.notice-title{{font-size:21px;line-height:1.2;font-weight:650;letter-spacing:-0.015em;padding-right:28px}}
+.notice-message{{color:var(--notice-muted);font-size:12px;line-height:1.65;margin-top:9px}}
+.notice-action{{
+  width:100%;min-height:42px;margin-top:20px;border:1px solid color-mix(in srgb,var(--wave-color) 78%,white 10%);
+  border-radius:11px;background:var(--wave-color);color:#fff;font:inherit;font-size:12px;font-weight:650;
+  cursor:pointer;box-shadow:0 8px 22px color-mix(in srgb,var(--wave-color) 24%,transparent);
+  transition:filter 0.14s,transform 0.14s,box-shadow 0.14s
+}}
+.notice-action:hover{{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 10px 28px color-mix(in srgb,var(--wave-color) 32%,transparent)}}
+.notice-action:focus-visible{{outline:3px solid color-mix(in srgb,var(--wave-color) 36%,transparent);outline-offset:3px}}
 @media (max-width: 1100px){{
   .overlay{{padding:40px 18px 18px}}
   .header{{width:min(96vw,1200px)}}
@@ -224,6 +294,10 @@ html[data-theme='light']{{
   }}
   .thumb{{max-height:148px}}
 }}
+@media (prefers-reduced-motion:reduce){{
+  .overlay,.card,.notice-layer.is-open .notice-dialog{{animation:none!important}}
+  .notice-layer,.notice-action{{transition:none!important}}
+}}
 </style>
 </head>
 <body>
@@ -234,6 +308,21 @@ html[data-theme='light']{{
     <div class="subtitle">{subtitle}<span class="entry-count">{count_label}</span></div>
   </div>
   <div class="grid" id="grid"></div>
+</div>
+<div class="notice-layer" id="selection-notice" aria-hidden="true">
+  <section class="notice-dialog" id="selection-notice-dialog" role="dialog" aria-modal="true" aria-labelledby="selection-notice-title" aria-describedby="selection-notice-message" tabindex="-1">
+    <div class="notice-rail"></div>
+    <button class="notice-dismiss" id="selection-notice-dismiss" type="button">&#x2715;</button>
+    <div class="notice-route" aria-hidden="true">
+      <div class="route-frame route-window"><span></span></div>
+      <div class="route-arrow"></div>
+      <div class="route-frame route-display"></div>
+    </div>
+    <div class="notice-kicker" id="selection-notice-kicker"></div>
+    <h2 class="notice-title" id="selection-notice-title"></h2>
+    <p class="notice-message" id="selection-notice-message"></p>
+    <button class="notice-action" id="selection-notice-action" type="button"></button>
+  </section>
 </div>
 <script>
 var entries={entries_json};
@@ -336,8 +425,39 @@ function attachCardAccentFromIcon(card,img){{
 
 var grid=document.getElementById('grid');
 var overlay=document.getElementById('overlay');
+var noticeLayer=document.getElementById('selection-notice');
+var noticeDialog=document.getElementById('selection-notice-dialog');
+var noticeDismiss=document.getElementById('selection-notice-dismiss');
+var noticeAction=document.getElementById('selection-notice-action');
+var noticeReturnFocus=null;
+
+function noticeIsOpen(){{return noticeLayer.classList.contains('is-open');}}
+function openNotice(entry,card){{
+  var notice=entry.selectionNotice;
+  if(!notice) return;
+  noticeReturnFocus=card;
+  document.getElementById('selection-notice-kicker').textContent=entry.badgeText||'';
+  document.getElementById('selection-notice-title').textContent=notice.title;
+  document.getElementById('selection-notice-message').textContent=notice.message;
+  noticeAction.textContent=notice.actionLabel;
+  noticeDismiss.setAttribute('aria-label',notice.actionLabel);
+  noticeLayer.classList.add('is-open');
+  noticeLayer.setAttribute('aria-hidden','false');
+  requestAnimationFrame(function(){{noticeAction.focus();}});
+}}
+function closeNotice(){{
+  if(!noticeIsOpen()) return;
+  noticeLayer.classList.remove('is-open');
+  noticeLayer.setAttribute('aria-hidden','true');
+  if(noticeReturnFocus) noticeReturnFocus.focus();
+  noticeReturnFocus=null;
+}}
 
 document.getElementById('close-btn').addEventListener('click',cancel);
+noticeDismiss.addEventListener('click',closeNotice);
+noticeAction.addEventListener('click',closeNotice);
+noticeLayer.addEventListener('click',function(e){{if(e.target===noticeLayer)closeNotice();}});
+noticeDialog.addEventListener('click',function(e){{e.stopPropagation();}});
 
 entries.forEach(function(entry,idx){{
   var raw=(entry.winW&&entry.winH)?(entry.winW/entry.winH):(16/9);
@@ -345,6 +465,9 @@ entries.forEach(function(entry,idx){{
 
   var card=document.createElement('div');
   card.className='card'+(entry.disabled?' is-disabled':'');
+  card.setAttribute('role','button');
+  card.setAttribute('aria-disabled',entry.disabled?'true':'false');
+  card.tabIndex=entry.disabled?-1:0;
   card.style.animation='cardIn 0.22s cubic-bezier(0.2,0,0,1) forwards '+(0.04+idx*0.022).toFixed(3)+'s';
 
   var thumb=document.createElement('div');
@@ -375,7 +498,16 @@ entries.forEach(function(entry,idx){{
     var badge=document.createElement('span');badge.className='status-badge';badge.textContent=entry.badgeText;info.appendChild(badge);
   }}
   card.appendChild(thumb);card.appendChild(info);
-  if(!entry.disabled){{card.addEventListener('click',function(){{selectEntry(entry.id);}});}}
+  if(!entry.disabled){{
+    var activate=function(){{
+      if(entry.selectionNotice) openNotice(entry,card);
+      else selectEntry(entry.id);
+    }};
+    card.addEventListener('click',activate);
+    card.addEventListener('keydown',function(e){{
+      if(e.key==='Enter'||e.key===' '){{e.preventDefault();activate();}}
+    }});
+  }}
   grid.appendChild(card);
 }});
 
@@ -394,7 +526,19 @@ window.setTheme=function(theme){{
   document.documentElement.setAttribute('data-theme', theme==='light' ? 'light' : 'dark');
 }};
 
-document.addEventListener('keydown',function(e){{if(e.key==='Escape')cancel();}});
+document.addEventListener('keydown',function(e){{
+  if(noticeIsOpen()){{
+    if(e.key==='Escape'){{e.preventDefault();closeNotice();}}
+    else if(e.key==='Tab'){{
+      var focusable=[noticeDismiss,noticeAction];
+      var current=focusable.indexOf(document.activeElement);
+      var next=e.shiftKey?(current<=0?focusable.length-1:current-1):(current+1)%focusable.length;
+      e.preventDefault();focusable[next].focus();
+    }}
+    return;
+  }}
+  if(e.key==='Escape')cancel();
+}});
 overlay.addEventListener('click',function(e){{if(e.target===overlay)cancel();}});
 </script>
 </body>
