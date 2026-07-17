@@ -121,8 +121,7 @@ fn window_bounds(hwnd: HWND) -> Option<RECT> {
 }
 
 fn classify_signals(signals: WindowSignals) -> WindowCaptureEligibility {
-    let has_no_redirection_surface = signals.ex_style & WS_EX_NOREDIRECTIONBITMAP.0 != 0;
-    if has_no_redirection_surface || is_monitor_filling_presentation(signals, signals.monitor) {
+    if is_monitor_filling_presentation(signals, signals.monitor) {
         WindowCaptureEligibility::DisplayOnly
     } else {
         WindowCaptureEligibility::Supported
@@ -228,27 +227,33 @@ mod tests {
     }
 
     #[test]
-    fn no_redirection_surface_is_display_only_at_any_size() {
-        let windowed = Bounds {
-            left: 100,
-            top: 100,
-            right: 1100,
-            bottom: 800,
+    fn framed_no_redirection_work_area_window_remains_supported() {
+        let work_area = Bounds {
+            bottom: 1032,
+            ..MONITOR
         };
         assert_eq!(
-            classify(windowed, WS_CAPTION.0, WS_EX_NOREDIRECTIONBITMAP.0),
-            WindowCaptureEligibility::DisplayOnly
+            classify(
+                work_area,
+                WS_CAPTION.0 | WS_THICKFRAME.0,
+                WS_EX_NOREDIRECTIONBITMAP.0,
+            ),
+            WindowCaptureEligibility::Supported
         );
     }
 
     #[test]
-    fn no_redirection_monitor_surface_does_not_force_the_display_backend() {
+    fn no_redirection_monitor_surface_does_not_trigger_compatibility_mode() {
         let signals = WindowSignals {
             bounds: MONITOR,
             monitor: MONITOR,
             style: 0x9400_0000,
             ex_style: WS_EX_NOREDIRECTIONBITMAP.0,
         };
+        assert_eq!(
+            classify_signals(signals),
+            WindowCaptureEligibility::Supported
+        );
         assert!(!is_monitor_filling_presentation(signals, MONITOR));
     }
 }
