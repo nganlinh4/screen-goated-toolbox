@@ -182,6 +182,7 @@ class DownloaderRepository(
                         }
                     }
                 }
+                removeNativePayload()
                 // Clear the library's SharedPreferences so init() will re-extract next time
                 val prefNames = listOf("youtubedl-android", "com.yausername.youtubedl_android")
                 for (name in prefNames) {
@@ -237,7 +238,7 @@ class DownloaderRepository(
         val dir3 = nativeZipDir
         val s1 = dirSizeMb(dir1)
         val s2 = dirSizeMb(dir2)
-        val s3 = dirSizeMb(dir3)
+        val s3 = nativePayloadSizeMb()
         android.util.Log.d("SGT-DL", "totalDepsSize: noBackup/ytdl=%.1f MB, files/ytdl=%.1f MB, zips=%.1f MB".format(s1, s2, s3))
         return "%.0f MB".format(s1 + s2 + s3)
     }

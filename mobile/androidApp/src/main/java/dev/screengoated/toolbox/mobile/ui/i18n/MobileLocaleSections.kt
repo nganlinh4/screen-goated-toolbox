@@ -24,6 +24,8 @@ data class MobileShellLocale(
     override val shellLiveTitle: String,
     override val shellLiveDescription: String,
     override val appVideoDownloaderTitle: String,
+    override val appFeatureUnsupportedTitle: String,
+    override val appFeatureUnsupportedMessage: String,
     override val appDjTitle: String,
     override val appTranslationGummyTitle: String,
     override val toolsCategoryImage: String,

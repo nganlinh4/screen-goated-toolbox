@@ -24,11 +24,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -55,6 +57,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyScreen
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
@@ -118,6 +121,7 @@ fun SgtMobileApp(
     var showUsageStats by rememberSaveable { mutableStateOf(false) }
     var showDownloadedTools by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
+    var showFeatureUnsupported by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
     var showTranslationGummy by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -296,7 +300,13 @@ fun SgtMobileApp(
                     ),
                     navActions = ShellNavActions(
                         onSessionToggle = onSessionToggle,
-                        onDownloaderClick = { showDownloader = true },
+                        onDownloaderClick = {
+                            if (BuildConfig.DOWNLOADER_SUPPORTED) {
+                                showDownloader = true
+                            } else {
+                                showFeatureUnsupported = true
+                            }
+                        },
                         onDjClick = { showDj = true },
                         onTranslationGummyClick = { showTranslationGummy = true },
                         onPresetClick = { presetId -> activePresetId = presetId },
@@ -311,6 +321,19 @@ fun SgtMobileApp(
                     onThemeCycleRequested = onThemeCycleRequested,
                 )
             }
+        }
+
+        if (showFeatureUnsupported) {
+            AlertDialog(
+                onDismissRequest = { showFeatureUnsupported = false },
+                title = { Text(locale.appFeatureUnsupportedTitle) },
+                text = { Text(locale.appFeatureUnsupportedMessage) },
+                confirmButton = {
+                    TextButton(onClick = { showFeatureUnsupported = false }) {
+                        Text(locale.closeLabel)
+                    }
+                },
+            )
         }
 
         // Downloader overlay with container-transform-style animation

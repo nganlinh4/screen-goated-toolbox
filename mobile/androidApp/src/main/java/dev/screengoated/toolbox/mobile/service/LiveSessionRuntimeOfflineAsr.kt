@@ -17,7 +17,6 @@ import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.live.TranscriptionMethod
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
-import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

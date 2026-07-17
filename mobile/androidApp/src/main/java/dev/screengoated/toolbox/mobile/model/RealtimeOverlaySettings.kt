@@ -48,6 +48,13 @@ object RealtimeModelIds {
         return normalizeTranscriptionModelId(modelId) == TRANSCRIPTION_GEMINI_TRANSLATE
     }
 
+    /** True for the on-device engines, which transcribe without any network call or API key. */
+    fun isOfflineTranscriptionModelId(modelId: String): Boolean {
+        val normalized = normalizeTranscriptionModelId(modelId)
+        return normalized.startsWith("moonshine-") || normalized.startsWith("zipformer") ||
+            normalized == TRANSCRIPTION_MOONSHINE
+    }
+
     fun normalizeTtsGeminiModel(apiModel: String): String {
         return GeneratedLiveModelCatalog.normalizeTtsGeminiModel(apiModel)
     }

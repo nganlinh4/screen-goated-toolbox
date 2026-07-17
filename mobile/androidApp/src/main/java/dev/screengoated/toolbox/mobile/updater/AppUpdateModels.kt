@@ -1,5 +1,7 @@
 package dev.screengoated.toolbox.mobile.updater
 
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
 import kotlinx.coroutines.flow.StateFlow
 
 enum class AppUpdateStatus {
@@ -13,14 +15,13 @@ enum class AppUpdateStatus {
     ERROR,
 }
 
-/**
- * Update source abstraction. The `full` (sideload) flavor uses [AppUpdateRepository]
- * (GitHub releases); the `play` flavor uses PlayInAppUpdateManager (Play In-App Updates).
- */
+/** Distribution-owned update source abstraction. */
 interface AppUpdateController {
     val state: StateFlow<AppUpdateUiState>
     fun autoCheckForUpdates()
     fun checkForUpdates()
+    fun startUpdate(launcher: ActivityResultLauncher<IntentSenderRequest>): Boolean = false
+    fun completeUpdate(): Boolean = false
 }
 
 data class AppUpdateUiState(
@@ -28,20 +29,9 @@ data class AppUpdateUiState(
     val currentVersion: String,
     val latestVersion: String? = null,
     val releaseNotes: String = "",
-    val releaseUrl: String? = null,
-    val assetUrl: String? = null,
+    val actionUrl: String? = null,
     val errorMessage: String? = null,
     val notificationSerial: Int = 0,
-) {
-    val actionUrl: String?
-        get() = assetUrl ?: releaseUrl
-}
-
-internal data class GitHubReleaseInfo(
-    val version: String,
-    val body: String,
-    val releaseUrl: String,
-    val assetUrl: String?,
 )
 
 internal fun canonicalAppVersion(versionName: String): String = versionName.substringBefore('-').trim()
@@ -64,10 +54,6 @@ internal fun isRemoteVersionNewer(
         }
     }
     return false
-}
-
-internal fun selectAndroidAssetUrl(assets: List<Pair<String, String>>): String? {
-    return assets.firstOrNull { it.first.endsWith(".apk", ignoreCase = true) }?.second
 }
 
 private fun versionTokens(version: String): List<Int> {

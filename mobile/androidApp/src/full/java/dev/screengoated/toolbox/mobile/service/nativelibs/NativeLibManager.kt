@@ -256,7 +256,7 @@ class NativeLibManager(private val context: Context) {
             val nativeDirsField = pathList.javaClass.getDeclaredField("nativeLibraryDirectories")
             nativeDirsField.isAccessible = true
             @Suppress("UNCHECKED_CAST")
-            val dirs = nativeDirsField.get(pathList) as? java.util.List<File> ?: return
+            val dirs = nativeDirsField.get(pathList) as? MutableList<File> ?: return
 
             val dir = libDir
             if (dirs.contains(dir)) {
@@ -273,7 +273,8 @@ class NativeLibManager(private val context: Context) {
             // Also rebuild nativeLibraryPathElements which is what's actually searched
             try {
                 val makeElements = pathList.javaClass.getDeclaredMethod(
-                    "makePathElements", java.util.List::class.java
+                    "makePathElements",
+                    MutableList::class.java,
                 )
                 makeElements.isAccessible = true
                 val elements = makeElements.invoke(null, newDirs)

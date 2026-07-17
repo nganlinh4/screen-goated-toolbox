@@ -1,0 +1,31 @@
+plugins {
+    alias(libs.plugins.android.dynamic.feature)
+    alias(libs.plugins.kotlin.android)
+}
+
+val generatedJni = layout.buildDirectory.dir("generated/jniLibs")
+val prepareNativePayload by tasks.registering(Sync::class) {
+    from(zipTree(project(":androidApp").projectDir.resolve("libs/ort-runtime.zip"))) {
+        include("libonnxruntime.so", "libonnxruntime_real.so")
+    }
+    into(generatedJni.map { it.dir("arm64-v8a") })
+    outputs.upToDateWhen { false }
+}
+
+android {
+    namespace = "dev.screengoated.toolbox.mobile.feature.asr.ort"
+    compileSdk = 36
+    defaultConfig { minSdk = 29 }
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("full") { dimension = "distribution" }
+        create("play") { dimension = "distribution" }
+    }
+    sourceSets.named("main") { jniLibs.srcDir(generatedJni) }
+}
+
+tasks.named("preBuild").configure { dependsOn(prepareNativePayload) }
+
+dependencies {
+    implementation(project(":androidApp"))
+}

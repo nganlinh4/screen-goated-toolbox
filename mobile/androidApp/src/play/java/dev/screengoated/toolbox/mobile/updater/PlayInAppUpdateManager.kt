@@ -120,19 +120,20 @@ class PlayInAppUpdateManager(
     }
 
     /** Launch Play's flexible-update flow for the cached available update. */
-    fun startFlexibleUpdate(launcher: ActivityResultLauncher<IntentSenderRequest>) {
-        val info = cachedInfo ?: return
-        runCatching {
+    override fun startUpdate(launcher: ActivityResultLauncher<IntentSenderRequest>): Boolean {
+        val info = cachedInfo ?: return false
+        return runCatching {
             appUpdateManager.startUpdateFlowForResult(
                 info,
                 launcher,
                 AppUpdateOptions.newBuilder(AppUpdateType.FLEXIBLE).build(),
             )
-        }
+        }.isSuccess
     }
 
     /** Apply a downloaded flexible update (restarts the app). */
-    fun completeUpdate() {
+    override fun completeUpdate(): Boolean {
         appUpdateManager.completeUpdate()
+        return true
     }
 }

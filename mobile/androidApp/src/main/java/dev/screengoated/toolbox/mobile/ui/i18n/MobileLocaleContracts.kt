@@ -24,6 +24,8 @@ interface MobileShellText {
     val shellLiveTitle: String
     val shellLiveDescription: String
     val appVideoDownloaderTitle: String
+    val appFeatureUnsupportedTitle: String
+    val appFeatureUnsupportedMessage: String
     val appDjTitle: String
     val appTranslationGummyTitle: String
     val toolsCategoryImage: String

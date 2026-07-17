@@ -13,7 +13,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,7 +27,6 @@ import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.updater.AppUpdateStatus
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
-import dev.screengoated.toolbox.mobile.updater.PlayInAppUpdateManager
 import dev.screengoated.toolbox.mobile.updater.openAppUpdate
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -40,20 +38,10 @@ internal fun AppUpdateSection(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    // The `play` flavor drives Google Play In-App Updates; the `full` (sideload)
-    // flavor keeps the GitHub-release flow. See `.claude/parity/app-update.md`.
     val isPlayFlavor = BuildConfig.FLAVOR == "play"
-    val playController = if (isPlayFlavor) {
-        remember(context) {
-            (context.applicationContext as? SgtMobileApplication)
-                ?.appContainer
-                ?.appUpdateController as? PlayInAppUpdateManager
-        }
-    } else {
-        null
-    }
-    // Flexible-update acceptance is reported here; download progress and completion
-    // are tracked by the install listener inside PlayInAppUpdateManager.
+    val updateController = (context.applicationContext as SgtMobileApplication)
+        .appContainer
+        .appUpdateController
     val updateFlowLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { }
@@ -146,7 +134,7 @@ internal fun AppUpdateSection(
                         text = if (isPlayFlavor) locale.updateNowButton else locale.downloadUpdateButton,
                         onClick = {
                             if (isPlayFlavor) {
-                                playController?.startFlexibleUpdate(updateFlowLauncher)
+                                updateController.startUpdate(updateFlowLauncher)
                             } else if (!openAppUpdate(context, state)) {
                                 Toast.makeText(
                                     context,
@@ -171,7 +159,7 @@ internal fun AppUpdateSection(
                     )
                     UpdateSectionPrimaryButton(
                         text = locale.restartToUpdateButton,
-                        onClick = { playController?.completeUpdate() },
+                        onClick = { updateController.completeUpdate() },
                     )
                 }
 
