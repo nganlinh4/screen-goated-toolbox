@@ -38,9 +38,10 @@ html[data-theme='dark']{{
   --scroll-thumb: rgba(255,255,255,0.18);
   --notice-scrim: rgba(3,5,10,0.68);
   --notice-bg: #1b1d28;
-  --notice-border: rgba(251,191,36,0.42);
+  --notice-border: rgba(255,255,255,0.14);
   --notice-accent: #fbbf24;
-  --notice-accent-soft: rgba(251,191,36,0.13);
+  --notice-action: #2f6fca;
+  --notice-action-hover: #285fb3;
   --notice-muted: rgba(255,255,255,0.58);
   --notice-shadow: rgba(0,0,0,0.48);
 }}
@@ -61,9 +62,10 @@ html[data-theme='light']{{
   --scroll-thumb: rgba(0,0,0,0.22);
   --notice-scrim: rgba(15,23,42,0.34);
   --notice-bg: #ffffff;
-  --notice-border: rgba(180,83,9,0.34);
+  --notice-border: rgba(15,23,42,0.14);
   --notice-accent: #b45309;
-  --notice-accent-soft: rgba(245,158,11,0.13);
+  --notice-action: #2f6fca;
+  --notice-action-hover: #285fb3;
   --notice-muted: rgba(15,23,42,0.62);
   --notice-shadow: rgba(15,23,42,0.24);
 }}
@@ -233,14 +235,10 @@ html[data-theme='light']{{
   position:relative;width:min(440px,calc(100vw - 32px));overflow:hidden;
   padding:26px 26px 22px;border:1px solid var(--notice-border);border-radius:18px;
   background:var(--notice-bg);color:var(--title-color);
-  box-shadow:0 24px 80px var(--notice-shadow),0 0 0 1px var(--notice-accent-soft) inset;
+  box-shadow:0 24px 80px var(--notice-shadow);
   outline:none
 }}
 .notice-layer.is-open .notice-dialog{{animation:noticeIn 0.24s cubic-bezier(0.2,0,0,1) both}}
-.notice-rail{{
-  position:absolute;left:0;right:0;top:0;height:3px;
-  background:linear-gradient(90deg,var(--notice-accent),var(--wave-color))
-}}
 .notice-dismiss{{
   position:absolute;right:12px;top:12px;width:32px;height:32px;border:0;border-radius:9px;
   display:grid;place-items:center;background:transparent;color:var(--close-color);
@@ -265,13 +263,13 @@ html[data-theme='light']{{
 .notice-title{{font-size:21px;line-height:1.2;font-weight:650;letter-spacing:-0.015em;padding-right:28px}}
 .notice-message{{color:var(--notice-muted);font-size:12px;line-height:1.65;margin-top:9px}}
 .notice-action{{
-  width:100%;min-height:42px;margin-top:20px;border:1px solid color-mix(in srgb,var(--wave-color) 78%,white 10%);
-  border-radius:11px;background:var(--wave-color);color:#fff;font:inherit;font-size:12px;font-weight:650;
-  cursor:pointer;box-shadow:0 8px 22px color-mix(in srgb,var(--wave-color) 24%,transparent);
-  transition:filter 0.14s,transform 0.14s,box-shadow 0.14s
+  width:100%;min-height:42px;margin-top:20px;border:1px solid var(--notice-action);
+  border-radius:11px;background:var(--notice-action);color:#fff;font:inherit;font-size:12px;font-weight:650;
+  cursor:pointer;box-shadow:0 8px 22px color-mix(in srgb,var(--notice-action) 24%,transparent);
+  transition:background 0.14s,transform 0.14s,box-shadow 0.14s
 }}
-.notice-action:hover{{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 10px 28px color-mix(in srgb,var(--wave-color) 32%,transparent)}}
-.notice-action:focus-visible{{outline:3px solid color-mix(in srgb,var(--wave-color) 36%,transparent);outline-offset:3px}}
+.notice-action:hover{{background:var(--notice-action-hover);transform:translateY(-1px);box-shadow:0 10px 28px color-mix(in srgb,var(--notice-action) 32%,transparent)}}
+.notice-action:focus-visible{{outline:3px solid color-mix(in srgb,var(--notice-action) 36%,transparent);outline-offset:3px}}
 @media (max-width: 1100px){{
   .overlay{{padding:40px 18px 18px}}
   .header{{width:min(96vw,1200px)}}
@@ -311,7 +309,6 @@ html[data-theme='light']{{
 </div>
 <div class="notice-layer" id="selection-notice" aria-hidden="true">
   <section class="notice-dialog" id="selection-notice-dialog" role="dialog" aria-modal="true" aria-labelledby="selection-notice-title" aria-describedby="selection-notice-message" tabindex="-1">
-    <div class="notice-rail"></div>
     <button class="notice-dismiss" id="selection-notice-dismiss" type="button">&#x2715;</button>
     <div class="notice-route" aria-hidden="true">
       <div class="route-frame route-window"><span></span></div>
