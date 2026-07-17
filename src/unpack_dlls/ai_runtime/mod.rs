@@ -4,8 +4,11 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, Mutex};
 
 mod install;
+mod onnx_runtime;
 mod packages;
 mod progress;
+
+pub(crate) use onnx_runtime::ensure_onnx_runtime_initialized;
 
 use install::install_runtime;
 use packages::{

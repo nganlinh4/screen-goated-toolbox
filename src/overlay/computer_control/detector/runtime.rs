@@ -45,6 +45,7 @@ pub(super) fn with_session<T>(
     path: &std::path::Path,
     work: impl FnOnce(&mut Session) -> Result<T>,
 ) -> Result<T> {
+    crate::unpack_dlls::ensure_onnx_runtime_initialized()?;
     let key = session_key(path)?;
     let mut guard = cache()
         .lock()
@@ -78,10 +79,6 @@ fn session_key(path: &std::path::Path) -> Result<SessionKey> {
 }
 
 fn build_cached(path: &std::path::Path, key: SessionKey) -> Result<CachedSession> {
-    let runtime = crate::unpack_dlls::private_bin_dir().join("onnxruntime.dll");
-    ort::init_from(&runtime)
-        .map_err(|error| anyhow::anyhow!("load {}: {error}", runtime.display()))?
-        .commit();
     let requested = key.provider;
     let built = build_for(path, requested);
     let (session, actual_provider) = match built {

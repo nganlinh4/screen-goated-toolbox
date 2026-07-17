@@ -206,7 +206,7 @@ impl DownloadManager {
         let stop = Arc::new(AtomicBool::new(false));
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<()> {
-                if !sherpa_onnx::dlls::is_sherpa_dlls_installed() {
+                if !sherpa_onnx::dlls::is_sherpa_runtime_ready() {
                     *dll_status.lock().unwrap() = InstallStatus::Downloading(0.0);
                     let dll_status_cb = dll_status.clone();
                     sherpa_onnx::dlls::download_sherpa_dlls_with_progress(
@@ -225,7 +225,7 @@ impl DownloadManager {
             })();
             let s = status_after_result(result);
             *status.lock().unwrap() = s;
-            if !sherpa_onnx::dlls::is_sherpa_dlls_installed()
+            if !sherpa_onnx::dlls::is_sherpa_runtime_ready()
                 && !matches!(*dll_status.lock().unwrap(), InstallStatus::Downloading(_))
             {
                 *dll_status.lock().unwrap() = InstallStatus::Missing;

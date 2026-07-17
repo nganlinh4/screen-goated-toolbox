@@ -16,14 +16,24 @@ struct ConnectionPrefs {
 /// once it lapses, a genuine removal self-heals back to offering setup again.
 const CONN_GRACE_SECS: u64 = 180;
 
-fn prefs_path() -> std::path::PathBuf {
+fn persisted_prefs_path() -> std::path::PathBuf {
     crate::paths::app_config_dir().join("cc_browser_prefs.json")
 }
 
+fn writable_prefs_path() -> std::path::PathBuf {
+    crate::paths::app_runtime_config_dir().join("cc_browser_prefs.json")
+}
+
 fn load_prefs() -> ConnectionPrefs {
-    std::fs::File::open(prefs_path())
-        .ok()
-        .and_then(|f| serde_json::from_reader(f).ok())
+    let writable = writable_prefs_path();
+    let persisted = persisted_prefs_path();
+    [writable, persisted]
+        .into_iter()
+        .find_map(|path| {
+            std::fs::File::open(path)
+                .ok()
+                .and_then(|file| serde_json::from_reader(file).ok())
+        })
         .unwrap_or_default()
 }
 
@@ -52,10 +62,10 @@ pub(crate) fn recently_connected() -> bool {
 pub(crate) fn record_connection() {
     let mut p = load_prefs();
     p.connected_at = now_secs();
-    let _ = crate::atomic_json::write_json_atomic(&prefs_path(), &p);
+    let _ = crate::atomic_json::write_json_atomic(&writable_prefs_path(), &p);
 }
 
 /// Forget the remembered connection state during an explicit pairing reset.
 pub(crate) fn clear() {
-    let _ = std::fs::remove_file(prefs_path());
+    let _ = std::fs::remove_file(writable_prefs_path());
 }

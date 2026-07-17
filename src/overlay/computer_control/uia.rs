@@ -148,114 +148,6 @@ fn with_timeout<T: Send + 'static>(
     }
 }
 
-/// Enumerate the on-screen UIA elements of `target` (foreground if None), filtering zero-area and
-/// offscreen elements. `FindAll` walks the WHOLE descendant tree with no timeout; on a stall we
-/// return empty so grounding falls back to the visual marks instead of freezing (see `with_timeout`).
-pub(super) fn enumerate(target: Option<&str>) -> Result<Vec<UiElement>> {
-    let owned = target.map(str::to_string);
-    let result = with_timeout(
-        "enumerate",
-        6,
-        Err(anyhow!("UIA enumeration timed out")),
-        move || enumerate_inner(owned.as_deref()),
-    );
-    if let Err(error) = &result {
-        super::telemetry::typed_error(
-            "ERR_UIA_ENUMERATION_FAILED",
-            "grounding",
-            "accessible control enumeration was unavailable",
-            serde_json::json!({"error": error.to_string()}),
-        );
-    }
-    result
-}
-
-fn enumerate_inner(target: Option<&str>) -> Result<Vec<UiElement>> {
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
-        let (root, selected_hwnd) = pick_window(&uia, target)?;
-        ensure_native_accessibility_authority(selected_hwnd)?;
-        let point_hit_test_is_authoritative =
-            target::point_hit_test_is_authoritative(selected_hwnd);
-        let cond = uia.CreateTrueCondition()?;
-        let arr = root.FindAll(TreeScope_Descendants, &cond)?;
-        let n = arr.Length()?;
-        let mut out = Vec::new();
-        for i in 0..n {
-            let Ok(el) = arr.GetElement(i) else { continue };
-            let rect = el.CurrentBoundingRectangle().unwrap_or_default();
-            if rect.right <= rect.left || rect.bottom <= rect.top {
-                continue; // no on-screen area
-            }
-            if el.CurrentIsOffscreen().map(|b| b.as_bool()).unwrap_or(true) {
-                continue;
-            }
-            let name = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
-            let ct = el.CurrentControlType().map(|c| c.0).unwrap_or(0);
-            let actionable = target::is_interactive_control_type(ct);
-            if point_hit_test_is_authoritative
-                && target::is_grounding_control_type(ct)
-                && !target::point_resolves_to_element(
-                    &uia,
-                    &el,
-                    (rect.left + rect.right) / 2,
-                    (rect.top + rect.bottom) / 2,
-                )
-            {
-                continue;
-            }
-            let (automation_id, runtime_id) = if actionable {
-                (
-                    el.CurrentAutomationId()
-                        .map(|value| value.to_string())
-                        .unwrap_or_default(),
-                    target::runtime_id(&el).unwrap_or_default(),
-                )
-            } else {
-                (String::new(), Vec::new())
-            };
-            if actionable && runtime_id.is_empty() {
-                continue;
-            }
-            let enabled = el.CurrentIsEnabled().map(|b| b.as_bool()).unwrap_or(false);
-            // Read control state only for named elements (the ones we display), to
-            // bound the extra per-element pattern probes.
-            let state = if name.trim().is_empty() {
-                None
-            } else {
-                read_state(&el)
-            };
-            // Text value (Edit/Document/ComboBox) + required-for-form — powers the
-            // native controller's perception, gates, and fill verification.
-            let value = if matches!(ct, 50004 | 50030 | 50003) {
-                read_value(&el)
-            } else {
-                None
-            };
-            let required = el
-                .CurrentIsRequiredForForm()
-                .map(|b| b.as_bool())
-                .unwrap_or(false);
-            out.push(UiElement {
-                name,
-                automation_id,
-                runtime_id,
-                control_type: target::control_type_name(ct),
-                left: rect.left,
-                top: rect.top,
-                right: rect.right,
-                bottom: rect.bottom,
-                enabled,
-                state,
-                value,
-                required,
-            });
-        }
-        Ok(out)
-    }
-}
-
 /// The text value of whatever value-bearing control sits at screen point (x, y),
 /// via UIA `ElementFromPoint` + ValuePattern — the native controller's fill
 /// read-back. Timeout-guarded (ElementFromPoint is a no-timeout cross-process call).
@@ -390,6 +282,13 @@ pub(super) fn input_target_snapshot() -> serde_json::Value {
             })
         },
     )
+}
+
+pub(super) fn foreground_stable_target() -> Option<String> {
+    let target = input_target_snapshot();
+    let hwnd = target.get("hwnd").and_then(serde_json::Value::as_u64)?;
+    let pid = target.get("pid").and_then(serde_json::Value::as_u64)?;
+    (hwnd > 0 && pid > 0).then(|| format!("@hwnd:{hwnd}:{pid}"))
 }
 
 pub(super) fn resolved_window_identity(target: Option<&str>) -> Result<(u64, u64)> {
@@ -562,15 +461,18 @@ pub fn run_dump(target: Option<&str>) -> Result<()> {
 }
 
 mod activation;
+mod circuit;
+mod enumeration;
 mod target;
 mod window_instance;
 mod windowing;
 pub(super) use activation::{ActivationError, FailureKind, activate_at};
+pub(super) use enumeration::{enumerate, enumerate_best_effort};
 pub(super) use target::{
     ExpectedNativeElement, validate_native_element_at, validate_native_focused_element,
     validate_native_provider_ownership,
 };
 pub(crate) use windowing::{
-    WindowError, list_windows, minimize_window, move_window, raise_window, resize_window,
-    stable_window_target,
+    WindowError, list_windows, minimize_window, move_window, raise_window,
+    raise_window_with_target, resize_window, stable_window_target, window_identity,
 };

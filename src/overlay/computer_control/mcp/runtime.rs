@@ -1,49 +1,146 @@
 use super::catalog;
 use super::client::{McpClient, McpTool};
+use super::client_protocol::{ClientLifecycleEvents, ClientLifecycleKind};
 use super::registry;
-use super::schema::{sanitize_schema, unique_decl_name};
+use super::schema::{bounded_prose, sanitize_schema, unique_decl_name};
+use super::startup::{StartupAttempt, StartupCatalog};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc;
 
 /// A connected integration: its live client + the tool list it advertised.
 struct Connected {
     client: Arc<McpClient>,
     tools: Vec<McpTool>,
+    catalog_valid: bool,
 }
 
 #[derive(Default)]
 struct Manager {
     connected: HashMap<String, Connected>,
-    /// declared tool name (`mcp__id__tool`, possibly truncated/de-duped) → (id, real tool name).
-    routes: HashMap<String, (String, String)>,
+    /// Declared name → exact dispatch route plus protocol-authored effect metadata.
+    routes: HashMap<String, ToolRoute>,
 }
 
-/// Per-integration `(id, [(tool name, description, input schema)])` snapshot taken
-/// under the lock so declaration-building doesn't borrow `connected` + `routes` at once.
-type ConnSnapshot = Vec<(String, Vec<(String, String, Value)>)>;
+#[derive(Clone)]
+struct ToolSnapshot {
+    name: String,
+    description: String,
+    input_schema: Value,
+    annotations: super::client::McpToolAnnotations,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ToolRoute {
+    integration_id: String,
+    tool_name: String,
+    annotations: super::client::McpToolAnnotations,
+    connection_token: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ConnectionStatus {
+    connection_token: u64,
+    catalog_valid: bool,
+    alive: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RefreshDisposition {
+    Replace,
+    Remove,
+    Ignore,
+}
+
+fn refresh_disposition(
+    current: Option<ConnectionStatus>,
+    connection_token: u64,
+    refresh_succeeded: bool,
+) -> RefreshDisposition {
+    let Some(current) = current else {
+        return RefreshDisposition::Ignore;
+    };
+    if current.connection_token != connection_token {
+        return RefreshDisposition::Ignore;
+    }
+    if refresh_succeeded && current.alive {
+        RefreshDisposition::Replace
+    } else {
+        RefreshDisposition::Remove
+    }
+}
+
+fn connection_status(connection: &Connected) -> ConnectionStatus {
+    ConnectionStatus {
+        connection_token: connection.client.connection_token(),
+        catalog_valid: connection.catalog_valid,
+        alive: connection.client.is_alive(),
+    }
+}
+
+/// Per-integration snapshot taken under the lock so declaration-building does
+/// not borrow `connected` and `routes` at once.
+type ConnSnapshot = Vec<(String, u64, Vec<ToolSnapshot>)>;
 
 fn manager() -> &'static parking_lot::Mutex<Manager> {
     static MANAGER: std::sync::OnceLock<parking_lot::Mutex<Manager>> = std::sync::OnceLock::new();
     MANAGER.get_or_init(|| parking_lot::Mutex::new(Manager::default()))
 }
 
-/// Set when the connected set changes → the runtime reconnects so `build_setup`
-/// re-declares the tools (Gemini Live freezes tools at session setup).
-static TOOLS_CHANGED: AtomicBool = AtomicBool::new(false);
+/// Monotonic catalog generation. A boolean loses an event when a concurrent
+/// lifecycle update lands between a reconnect check and its clear operation.
+struct CatalogChangeClock {
+    generation: AtomicU64,
+    consumed: AtomicU64,
+}
+
+impl CatalogChangeClock {
+    const fn new() -> Self {
+        Self {
+            generation: AtomicU64::new(0),
+            consumed: AtomicU64::new(0),
+        }
+    }
+
+    fn mark(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn changed(&self) -> bool {
+        self.generation.load(Ordering::SeqCst) != self.consumed.load(Ordering::SeqCst)
+    }
+
+    fn clear(&self) {
+        self.consumed
+            .store(self.generation.load(Ordering::SeqCst), Ordering::SeqCst);
+    }
+}
+
+static CATALOG_CHANGES: CatalogChangeClock = CatalogChangeClock::new();
+
+fn mark_catalog_changed() {
+    CATALOG_CHANGES.mark();
+}
 
 pub(in crate::overlay::computer_control) fn tools_changed() -> bool {
-    TOOLS_CHANGED.load(Ordering::SeqCst)
+    CATALOG_CHANGES.changed()
 }
 
 pub(in crate::overlay::computer_control) fn clear_tools_changed() {
-    TOOLS_CHANGED.store(false, Ordering::SeqCst);
+    CATALOG_CHANGES.clear();
 }
 
 pub(in crate::overlay::computer_control) fn is_connected(id: &str) -> bool {
+    manager()
+        .lock()
+        .connected
+        .get(id)
+        .is_some_and(|connection| connection.catalog_valid && connection.client.is_alive())
+}
+
+fn has_live_connection(id: &str) -> bool {
     manager()
         .lock()
         .connected
@@ -56,7 +153,7 @@ pub(super) fn connected_snapshot(id: &str) -> Option<(Arc<McpClient>, Vec<McpToo
         .lock()
         .connected
         .get(id)
-        .filter(|connection| connection.client.is_alive())
+        .filter(|connection| connection.catalog_valid && connection.client.is_alive())
         .map(|connection| (connection.client.clone(), connection.tools.clone()))
 }
 
@@ -69,28 +166,28 @@ fn connect_inner(id: &str, stop: Option<&AtomicBool>) -> Result<Option<usize>, S
     if stop.is_some_and(|stop| stop.load(Ordering::SeqCst)) {
         return Ok(None);
     }
-    if is_connected(id) {
+    if has_live_connection(id) {
         return Ok(Some(0));
     }
     let integration = catalog::get(id).ok_or_else(|| format!("unknown integration '{id}'"))?;
-    let client = match stop {
-        Some(stop) => McpClient::spawn_until(&integration.launch, stop),
-        None => McpClient::spawn(&integration.launch),
-    }
-    .map_err(|error| format!("spawn: {error:#}"))?;
+    let (client, lifecycle) = McpClient::spawn_managed(&integration.launch, stop)
+        .map_err(|error| format!("spawn: {error:#}"))?;
     let tools = match stop {
         Some(stop) => client.list_tools_owned(stop),
         None => client.list_tools(),
     }
     .map_err(|error| format!("tools/list: {error:#}"))?;
     let count = tools.len();
+    let connection_token = client.connection_token();
+    let client = Arc::new(client);
     let mut manager = manager().lock();
     let registered = register_if_owner_active(stop, || {
         manager.connected.insert(
             id.to_string(),
             Connected {
-                client: Arc::new(client),
+                client: Arc::clone(&client),
                 tools,
+                catalog_valid: true,
             },
         );
     });
@@ -98,7 +195,8 @@ fn connect_inner(id: &str, stop: Option<&AtomicBool>) -> Result<Option<usize>, S
     if !registered {
         return Ok(None);
     }
-    TOOLS_CHANGED.store(true, Ordering::SeqCst);
+    spawn_lifecycle_worker(id.to_string(), connection_token, lifecycle);
+    mark_catalog_changed();
     Ok(Some(count))
 }
 
@@ -110,78 +208,131 @@ fn register_if_owner_active(stop: Option<&AtomicBool>, register: impl FnOnce()) 
     true
 }
 
+fn spawn_lifecycle_worker(
+    integration_id: String,
+    connection_token: u64,
+    lifecycle: ClientLifecycleEvents,
+) {
+    std::thread::spawn(move || {
+        consume_lifecycle_events(lifecycle, connection_token, |kind| match kind {
+            ClientLifecycleKind::ToolsChanged => refresh_catalog(&integration_id, connection_token),
+            ClientLifecycleKind::Disconnected => {
+                remove_current_connection(&integration_id, connection_token);
+            }
+        });
+    });
+}
+
+fn consume_lifecycle_events(
+    lifecycle: ClientLifecycleEvents,
+    connection_token: u64,
+    mut handle: impl FnMut(ClientLifecycleKind),
+) {
+    if lifecycle.connection_token() != connection_token {
+        return;
+    }
+    while let Some(batch) = lifecycle.recv() {
+        if batch.disconnected {
+            handle(ClientLifecycleKind::Disconnected);
+            return;
+        }
+        if batch.tools_changed {
+            handle(ClientLifecycleKind::ToolsChanged);
+        }
+    }
+}
+
+/// Invalidate under the manager lock before performing the blocking relist on
+/// this worker. This makes old annotations and dispatch routes unavailable at
+/// the notification boundary, not after network/process work completes.
+fn refresh_catalog(integration_id: &str, connection_token: u64) {
+    let client = {
+        let mut manager = manager().lock();
+        let Some(connection) = manager.connected.get_mut(integration_id) else {
+            return;
+        };
+        if connection.client.connection_token() != connection_token {
+            return;
+        }
+        connection.catalog_valid = false;
+        connection.tools.clear();
+        let client = Arc::clone(&connection.client);
+        manager
+            .routes
+            .retain(|_, route| route.connection_token != connection_token);
+        client
+    };
+    mark_catalog_changed();
+
+    match client.list_tools() {
+        Ok(tools) => replace_current_catalog(integration_id, connection_token, tools),
+        Err(error) => {
+            eprintln!("[mcp] refresh '{integration_id}' failed: {error:#}");
+            remove_current_connection(integration_id, connection_token);
+            client.shutdown();
+        }
+    }
+}
+
+fn replace_current_catalog(integration_id: &str, connection_token: u64, tools: Vec<McpTool>) {
+    let replaced = {
+        let mut manager = manager().lock();
+        let Some(connection) = manager.connected.get_mut(integration_id) else {
+            return;
+        };
+        if refresh_disposition(Some(connection_status(connection)), connection_token, true)
+            != RefreshDisposition::Replace
+        {
+            return;
+        }
+        connection.tools = tools;
+        connection.catalog_valid = true;
+        true
+    };
+    if replaced {
+        mark_catalog_changed();
+    }
+}
+
+fn remove_current_connection(integration_id: &str, connection_token: u64) {
+    let removed = {
+        let mut manager = manager().lock();
+        let disposition = manager
+            .connected
+            .get(integration_id)
+            .map(connection_status)
+            .map_or(RefreshDisposition::Ignore, |current| {
+                refresh_disposition(Some(current), connection_token, false)
+            });
+        if disposition != RefreshDisposition::Remove {
+            return;
+        }
+        manager.connected.remove(integration_id);
+        manager
+            .routes
+            .retain(|_, route| route.connection_token != connection_token);
+        true
+    };
+    if removed {
+        mark_catalog_changed();
+    }
+}
+
 pub(super) fn disconnect(id: &str) {
-    if let Some(connection) = manager().lock().connected.remove(id) {
+    let connection = {
+        let mut manager = manager().lock();
+        let connection = manager.connected.remove(id);
+        if let Some(connection) = &connection {
+            manager
+                .routes
+                .retain(|_, route| route.connection_token != connection.client.connection_token());
+        }
+        connection
+    };
+    if let Some(connection) = connection {
         connection.client.shutdown();
     }
-    TOOLS_CHANGED.store(true, Ordering::SeqCst);
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StartupAttempt {
-    Connected,
-    Failed,
-    Stopped,
-}
-
-/// Bounded startup barrier for the installed integration catalog. Connection
-/// workers remain asynchronous; this handle reports when all attempts settle or
-/// when the caller's deadline expires.
-pub(in crate::overlay::computer_control) struct StartupCatalog {
-    installed: usize,
-    attempts: Receiver<StartupAttempt>,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(in crate::overlay::computer_control) struct StartupCatalogReport {
-    pub installed: usize,
-    pub connected: usize,
-    pub failed: usize,
-    pub pending: usize,
-    pub stopped: bool,
-}
-
-impl StartupCatalog {
-    pub(in crate::overlay::computer_control) fn wait(
-        self,
-        timeout: Duration,
-        stop: &AtomicBool,
-    ) -> StartupCatalogReport {
-        let deadline = Instant::now() + timeout;
-        let mut report = StartupCatalogReport {
-            installed: self.installed,
-            ..StartupCatalogReport::default()
-        };
-        while report.connected + report.failed < report.installed {
-            if stop.load(Ordering::SeqCst) {
-                report.stopped = true;
-                break;
-            }
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                break;
-            };
-            let poll = remaining.min(Duration::from_millis(50));
-            match self.attempts.recv_timeout(poll) {
-                Ok(StartupAttempt::Connected) => report.connected += 1,
-                Ok(StartupAttempt::Failed) => report.failed += 1,
-                Ok(StartupAttempt::Stopped) => {
-                    report.stopped = true;
-                    break;
-                }
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => {
-                    report.failed += report
-                        .installed
-                        .saturating_sub(report.connected + report.failed);
-                    break;
-                }
-            }
-        }
-        report.pending = report
-            .installed
-            .saturating_sub(report.connected + report.failed);
-        report
-    }
+    mark_catalog_changed();
 }
 
 /// Bring every installed integration online concurrently and return a bounded
@@ -216,25 +367,26 @@ pub(in crate::overlay::computer_control) fn connect_all_installed(
         });
     }
     drop(tx);
-    StartupCatalog {
-        installed,
-        attempts,
-    }
+    StartupCatalog::new(installed, attempts)
 }
 
 /// Kill every server (session stop / app exit) so no child outlives the session.
 pub(in crate::overlay::computer_control) fn disconnect_all() {
     let mut manager = manager().lock();
+    let changed = !manager.connected.is_empty() || !manager.routes.is_empty();
     for (_, connection) in manager.connected.drain() {
         connection.client.shutdown();
     }
     manager.routes.clear();
+    drop(manager);
+    if changed {
+        mark_catalog_changed();
+    }
 }
 
-/// Keep the live setup small: connected integrations are discovered and invoked
-/// through two stable proxy tools instead of injecting every schema every turn.
-/// The legacy route map is still refreshed so an in-flight pre-reconnect call can
-/// finish safely.
+/// Declare every tool exposed by every live connection. The model receives the
+/// complete capability catalog and owns semantic selection; Rust only namespaces
+/// names, sanitizes wire schemas, and records exact dispatch routes.
 pub(in crate::overlay::computer_control) fn active_tool_declarations() -> Vec<Value> {
     let mut manager = manager().lock();
     manager.routes.clear();
@@ -242,117 +394,102 @@ pub(in crate::overlay::computer_control) fn active_tool_declarations() -> Vec<Va
     let snapshot: ConnSnapshot = manager
         .connected
         .iter()
+        .filter(|(_, connection)| connection.catalog_valid && connection.client.is_alive())
         .map(|(id, connection)| {
             (
                 id.clone(),
+                connection.client.connection_token(),
                 connection
                     .tools
                     .iter()
-                    .map(|tool| {
-                        (
-                            tool.name.clone(),
-                            tool.description.clone(),
-                            tool.input_schema.clone(),
-                        )
+                    .map(|tool| ToolSnapshot {
+                        name: tool.name.clone(),
+                        description: tool.description.clone(),
+                        input_schema: tool.input_schema.clone(),
+                        annotations: tool.annotations,
                     })
                     .collect(),
             )
         })
         .collect();
-    if snapshot.is_empty() {
-        return Vec::new();
-    }
+    let (declarations, routes) = direct_declarations(&snapshot);
+    manager.routes = routes;
+    declarations
+}
+
+fn direct_declarations(snapshot: &ConnSnapshot) -> (Vec<Value>, HashMap<String, ToolRoute>) {
+    let tool_count = snapshot.iter().map(|(_, _, tools)| tools.len()).sum();
+    let mut declarations = Vec::with_capacity(tool_count);
+    let mut routes = HashMap::with_capacity(tool_count);
     let mut seen: HashSet<String> = HashSet::new();
-    for (id, tools) in &snapshot {
+    for (id, connection_token, tools) in snapshot {
         let display = catalog::get(id)
             .map(|integration| integration.display_name)
             .unwrap_or(id.as_str());
-        for (tool_name, description, schema) in tools {
-            let name = unique_decl_name(id, tool_name, &mut seen);
-            manager.routes.insert(name, (id.clone(), tool_name.clone()));
-            let _ = (display, description, schema);
+        for tool in tools {
+            let parameters = match sanitize_schema(&tool.input_schema) {
+                Ok(parameters) => parameters,
+                Err(issue) => {
+                    super::super::overlay::push_log(format!(
+                        "[mcp] quarantined unrepresentable tool schema: {id}/{} ({}, observed {}, limit {})",
+                        tool.name, issue.reason, issue.observed, issue.limit
+                    ));
+                    super::super::telemetry::typed_error(
+                        "ERR_MCP_TOOL_SCHEMA_UNREPRESENTABLE",
+                        "mcp",
+                        "an MCP tool was omitted because its input schema exceeds provider-wire bounds",
+                        json!({
+                            "integration_id": id,
+                            "tool_name": tool.name,
+                            "reason": issue.reason,
+                            "observed": issue.observed,
+                            "limit": issue.limit,
+                        }),
+                    );
+                    continue;
+                }
+            };
+            let name = unique_decl_name(id, &tool.name, &mut seen);
+            routes.insert(
+                name.clone(),
+                ToolRoute {
+                    integration_id: id.clone(),
+                    tool_name: tool.name.clone(),
+                    annotations: tool.annotations,
+                    connection_token: *connection_token,
+                },
+            );
+            declarations.push(json!({
+                "name": name,
+                "description": bounded_prose(&format!("{display}: {}", tool.description)),
+                "parameters": parameters,
+            }));
         }
     }
-    proxy_tool_declarations()
+    (declarations, routes)
 }
 
-fn proxy_tool_declarations() -> Vec<Value> {
-    vec![
-        json!({
-            "name": "integration_tool_search",
-            "description": "Find relevant tools exposed by connected app integrations. Call once with the capability you need; returns a small ranked list with exact integration_id, tool name, description, and input schema.",
-            "parameters": {"type": "object", "properties": {
-                "query": {"type": "string", "description": "Capability or outcome needed."},
-                "integration_id": {"type": "string", "description": "Optional integration id to restrict the search."}
-            }, "required": ["query"]}
-        }),
-        json!({
-            "name": "integration_tool_call",
-            "description": "Invoke one exact connected integration tool returned by integration_tool_search.",
-            "parameters": {"type": "object", "properties": {
-                "integration_id": {"type": "string"},
-                "tool": {"type": "string"},
-                "arguments": {"type": "object", "properties": {}}
-            }, "required": ["integration_id", "tool", "arguments"]}
-        }),
-    ]
-}
-
-pub(in crate::overlay::computer_control) fn search_tools(
-    query: &str,
-    integration_id: Option<&str>,
-) -> Value {
-    let terms: Vec<String> = query
-        .to_lowercase()
-        .split_whitespace()
-        .filter(|term| term.len() > 1)
-        .map(str::to_string)
-        .collect();
+/// Return the connected tool's protocol-declared read-only effect. Missing,
+/// malformed, stale, or destructive metadata remains conservative.
+pub(in crate::overlay::computer_control) fn declared_tool_is_read_only(name: &str) -> Option<bool> {
     let manager = manager().lock();
-    let mut matches: Vec<(usize, Value)> = Vec::new();
-    for (id, connected) in &manager.connected {
-        if integration_id.is_some_and(|wanted| wanted != id) || !connected.client.is_alive() {
-            continue;
-        }
-        for tool in &connected.tools {
-            let haystack = format!("{} {}", tool.name, tool.description).to_lowercase();
-            let score = terms
-                .iter()
-                .filter(|term| haystack.contains(term.as_str()))
-                .count();
-            if score > 0 || terms.is_empty() {
-                matches.push((
-                    score,
-                    json!({
-                        "integration_id": id,
-                        "tool": tool.name,
-                        "description": tool.description,
-                        "parameters": sanitize_schema(&tool.input_schema),
-                    }),
-                ));
-            }
-        }
-    }
-    matches.sort_by(|left, right| right.0.cmp(&left.0));
-    let tools = matches
-        .into_iter()
-        .take(8)
-        .map(|(_, tool)| tool)
-        .collect::<Vec<_>>();
-    json!({"ok": true, "query": query, "tools": tools})
+    let route = manager.routes.get(name)?;
+    let connection = manager.connected.get(&route.integration_id)?;
+    route_read_only(route, connection_status(connection))
 }
 
-pub(in crate::overlay::computer_control) fn call_tool(id: &str, tool: &str, args: &Value) -> Value {
-    let Some((client, tools)) = connected_snapshot(id) else {
-        return json!({"ok": false, "error": format!("integration '{id}' not connected")});
-    };
-    if !tools.iter().any(|candidate| candidate.name == tool) {
-        return json!({"ok": false, "error": "tool is not exposed by this integration"});
-    }
-    match client.call_tool(tool, args) {
-        Ok(value) => value,
-        Err(error) => json!({"ok": false, "error": format!("integration call failed: {error:#}")}),
-    }
+fn annotations_are_read_only(annotations: super::client::McpToolAnnotations) -> bool {
+    annotations.read_only == Some(true) && annotations.destructive != Some(true)
+}
+
+fn route_is_current(route: &ToolRoute, connection: ConnectionStatus) -> bool {
+    route.connection_token == connection.connection_token
+        && connection.catalog_valid
+        && connection.alive
+}
+
+fn route_read_only(route: &ToolRoute, connection: ConnectionStatus) -> Option<bool> {
+    route_is_current(route, connection).then(|| annotations_are_read_only(route.annotations))
 }
 
 /// Route an `mcp__…` tool call to its server. `None` = not an MCP call (let native
@@ -365,97 +502,26 @@ pub(in crate::overlay::computer_control) fn try_dispatch(
     if !name.starts_with("mcp__") {
         return None;
     }
-    let Some((id, tool)) = manager().lock().routes.get(name).cloned() else {
+    let target = {
+        let manager = manager().lock();
+        let Some(route) = manager.routes.get(name) else {
+            return Some(json!({"ok": false, "error": "mcp tool not currently available"}));
+        };
+        let connection = manager.connected.get(&route.integration_id);
+        connection.and_then(|connection| {
+            route_is_current(route, connection_status(connection))
+                .then(|| (Arc::clone(&connection.client), route.tool_name.clone()))
+        })
+    };
+    let Some((client, tool_name)) = target else {
         return Some(json!({"ok": false, "error": "mcp tool not currently available"}));
     };
-    let client = manager()
-        .lock()
-        .connected
-        .get(&id)
-        .map(|connection| connection.client.clone());
-    let Some(client) = client else {
-        return Some(json!({"ok": false, "error": format!("integration '{id}' not connected")}));
-    };
-    Some(match client.call_tool(&tool, args) {
+    Some(match client.call_tool(&tool_name, args) {
         Ok(value) => value,
         Err(error) => json!({"ok": false, "error": format!("mcp call failed: {error:#}")}),
     })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::AtomicBool;
-
-    #[test]
-    fn proxy_catalog_keeps_search_and_call_schemas() {
-        let declarations = proxy_tool_declarations();
-
-        assert_eq!(declarations.len(), 2);
-        assert_eq!(declarations[0]["name"], "integration_tool_search");
-        assert_eq!(declarations[0]["parameters"]["required"], json!(["query"]));
-        assert_eq!(declarations[1]["name"], "integration_tool_call");
-        assert_eq!(
-            declarations[1]["parameters"]["required"],
-            json!(["integration_id", "tool", "arguments"])
-        );
-    }
-
-    #[test]
-    fn non_mcp_names_remain_available_to_native_dispatch() {
-        assert_eq!(try_dispatch("future_native_capability", &json!({})), None);
-    }
-
-    #[test]
-    fn startup_catalog_reports_settled_attempts() {
-        let (tx, attempts) = mpsc::channel();
-        tx.send(StartupAttempt::Connected).unwrap();
-        tx.send(StartupAttempt::Failed).unwrap();
-        drop(tx);
-        let report = StartupCatalog {
-            installed: 2,
-            attempts,
-        }
-        .wait(Duration::from_secs(1), &AtomicBool::new(false));
-
-        assert_eq!(report.connected, 1);
-        assert_eq!(report.failed, 1);
-        assert_eq!(report.pending, 0);
-        assert!(!report.stopped);
-    }
-
-    #[test]
-    fn startup_catalog_deadline_is_bounded_and_preserves_pending_count() {
-        let (_tx, attempts) = mpsc::channel();
-        let report = StartupCatalog {
-            installed: 1,
-            attempts,
-        }
-        .wait(Duration::ZERO, &AtomicBool::new(false));
-
-        assert_eq!(report.connected, 0);
-        assert_eq!(report.failed, 0);
-        assert_eq!(report.pending, 1);
-        assert!(!report.stopped);
-    }
-
-    #[test]
-    fn stopped_owner_cannot_register_after_attempt_settles() {
-        let stop = Arc::new(AtomicBool::new(false));
-        let registered = Arc::new(AtomicBool::new(false));
-        let (settle_tx, settle_rx) = mpsc::channel();
-        let worker_stop = Arc::clone(&stop);
-        let worker_registered = Arc::clone(&registered);
-        let worker = std::thread::spawn(move || {
-            settle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-            register_if_owner_active(Some(&worker_stop), || {
-                worker_registered.store(true, Ordering::SeqCst);
-            })
-        });
-
-        stop.store(true, Ordering::SeqCst);
-        settle_tx.send(()).unwrap();
-        assert!(!worker.join().unwrap());
-        assert!(!registered.load(Ordering::SeqCst));
-    }
-}
+#[path = "runtime_tests.rs"]
+mod tests;

@@ -2,6 +2,7 @@ pub mod dlls;
 pub mod ffi;
 pub mod ffi_tts;
 mod streaming;
+mod success_cache;
 
 use super::state::SharedRealtimeState;
 use super::utils::update_overlay_text;
@@ -394,7 +395,7 @@ pub fn run_sherpa_transcription(
     }
 
     // Download sherpa-onnx DLLs on first use
-    if !dlls::is_sherpa_dlls_installed() {
+    if !dlls::is_sherpa_runtime_ready() {
         dlls::download_sherpa_dlls(stop_signal.clone(), overlay_hwnd)?;
         if stop_signal.load(Ordering::Relaxed) {
             return Ok(());

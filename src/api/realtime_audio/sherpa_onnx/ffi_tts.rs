@@ -15,7 +15,7 @@ use anyhow::{Result, anyhow};
 use libloading::Library;
 use std::os::raw::{c_char, c_float, c_int, c_void};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 pub const SHERPA_TTS_LOAD_PROBE_FLAG: &str = "--sherpa-tts-load-probe";
@@ -190,7 +190,6 @@ type FnDestroyGenerated = unsafe extern "C" fn(*const SherpaOnnxGeneratedAudioSt
 
 pub struct SherpaTtsLib {
     _lib: Library,
-    _dep_libs: Vec<Library>,
     pub create_tts: FnCreateTts,
     pub destroy_tts: FnDestroyTts,
     pub generate: FnGenerate,
@@ -201,35 +200,17 @@ pub struct SherpaTtsLib {
 unsafe impl Send for SherpaTtsLib {}
 unsafe impl Sync for SherpaTtsLib {}
 
-static SHERPA_TTS_LIB: OnceLock<Result<SherpaTtsLib, String>> = OnceLock::new();
+static SHERPA_TTS_LIB: OnceLock<SherpaTtsLib> = OnceLock::new();
+static SHERPA_TTS_LOAD_LOCK: Mutex<()> = Mutex::new(());
 
 fn sherpa_dll_dir() -> std::path::PathBuf {
-    let private_bin = crate::unpack_dlls::private_bin_dir();
-    let sherpa_bin = private_bin.join("sherpa-onnx");
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-
-    let candidates = [
-        sherpa_bin,
-        private_bin,
-        exe_dir,
-        std::path::PathBuf::from("third_party/sherpa-onnx-win/lib"),
-    ];
-
-    for c in &candidates {
-        if c.join("sherpa-onnx-c-api.dll").exists() {
-            return std::fs::canonicalize(c).unwrap_or_else(|_| c.clone());
-        }
-    }
-    candidates[0].clone()
+    super::dlls::resolved_sherpa_dll_dir()
 }
 
 pub fn run_load_probe_process() -> i32 {
     let dir = sherpa_dll_dir();
     let dll_path = dir.join("sherpa-onnx-c-api.dll");
-    match load_dlls_for_probe(&dir, &dll_path) {
+    match load_dlls_for_probe(&dll_path) {
         Ok(_) => 0,
         Err(err) => {
             eprintln!("[Sherpa-TTS probe] {err}");
@@ -272,51 +253,18 @@ fn ensure_load_probe_passed() -> Result<()> {
     }
 }
 
-fn set_dll_search_dir(dir: &std::path::Path) {
-    unsafe {
-        use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
-        let dir_wide: Vec<u16> = dir
-            .to_string_lossy()
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        let _ = SetDllDirectoryW(windows::core::PCWSTR(dir_wide.as_ptr()));
-    }
-}
-
-fn preload_sherpa_deps(dir: &std::path::Path, log_prefix: &str) -> Vec<Library> {
-    let mut dep_libs: Vec<Library> = Vec::new();
-    for dep in &[
-        "onnxruntime.dll",
-        "onnxruntime_providers_shared.dll",
-        "sherpa-onnx-cxx-api.dll",
-    ] {
-        let dep_path = dir.join(dep);
-        if dep_path.exists() {
-            match unsafe { Library::new(&dep_path) } {
-                Ok(l) => dep_libs.push(l),
-                Err(e) => {
-                    crate::log_info!("{log_prefix} Warning: failed to pre-load {dep}: {e}");
-                }
-            }
-        }
-    }
-    dep_libs
-}
-
-fn load_dlls_for_probe(
-    dir: &std::path::Path,
-    dll_path: &std::path::Path,
-) -> std::result::Result<Vec<Library>, String> {
+fn load_dlls_for_probe(dll_path: &std::path::Path) -> std::result::Result<Library, String> {
     if !dll_path.exists() {
         return Err(format!("sherpa-onnx-c-api.dll not found at {:?}", dll_path));
     }
 
-    set_dll_search_dir(dir);
-    let mut libs = preload_sherpa_deps(dir, "[Sherpa-TTS probe]");
+    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+        .map_err(|error| format!("initialize shared ONNX runtime: {error}"))?;
     let lib = unsafe {
         Library::new(dll_path).map_err(|e| format!("Failed to load sherpa-onnx-c-api.dll: {e}"))?
     };
+    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+        .map_err(|error| format!("verify shared ONNX runtime after Sherpa load: {error}"))?;
     unsafe {
         lib.get::<FnCreateTts>(b"SherpaOnnxCreateOfflineTts")
             .map_err(|e| e.to_string())?;
@@ -329,69 +277,65 @@ fn load_dlls_for_probe(
         lib.get::<FnDestroyGenerated>(b"SherpaOnnxDestroyOfflineTtsGeneratedAudio")
             .map_err(|e| e.to_string())?;
     }
-    libs.push(lib);
-    Ok(libs)
+    Ok(lib)
 }
 
 pub fn load() -> Result<&'static SherpaTtsLib> {
-    SHERPA_TTS_LIB
-        .get_or_init(|| {
-            let dir = sherpa_dll_dir();
-            let dll_path = dir.join("sherpa-onnx-c-api.dll");
+    super::success_cache::get_or_try_init(&SHERPA_TTS_LIB, &SHERPA_TTS_LOAD_LOCK, load_uncached)
+        .map_err(|error| anyhow!("{error}"))
+}
 
-            crate::log_info!("[Sherpa-TTS] Loading from {:?}", dll_path);
+fn load_uncached() -> std::result::Result<SherpaTtsLib, String> {
+    let dir = sherpa_dll_dir();
+    let dll_path = dir.join("sherpa-onnx-c-api.dll");
 
-            if !dll_path.exists() {
-                return Err(format!("sherpa-onnx-c-api.dll not found at {:?}", dll_path));
-            }
+    crate::log_info!("[Sherpa-TTS] Loading from {:?}", dll_path);
 
-            ensure_load_probe_passed().map_err(|e| e.to_string())?;
+    if !dll_path.exists() {
+        return Err(format!("sherpa-onnx-c-api.dll not found at {:?}", dll_path));
+    }
 
-            set_dll_search_dir(&dir);
-            let dep_libs = preload_sherpa_deps(&dir, "[Sherpa-TTS]");
+    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+        .map_err(|error| format!("initialize shared ONNX runtime: {error}"))?;
+    ensure_load_probe_passed().map_err(|e| e.to_string())?;
 
-            let lib = unsafe {
-                Library::new(&dll_path)
-                    .map_err(|e| format!("Failed to load sherpa-onnx-c-api.dll: {e}"))?
-            };
+    let lib = unsafe {
+        Library::new(&dll_path).map_err(|e| format!("Failed to load sherpa-onnx-c-api.dll: {e}"))?
+    };
+    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+        .map_err(|error| format!("verify shared ONNX runtime after Sherpa load: {error}"))?;
 
-            unsafe {
-                let create_tts = *lib
-                    .get::<FnCreateTts>(b"SherpaOnnxCreateOfflineTts")
-                    .map_err(|e| e.to_string())?;
-                let destroy_tts = *lib
-                    .get::<FnDestroyTts>(b"SherpaOnnxDestroyOfflineTts")
-                    .map_err(|e| e.to_string())?;
-                let generate = *lib
-                    .get::<FnGenerate>(b"SherpaOnnxOfflineTtsGenerate")
-                    .map_err(|e| e.to_string())?;
-                let generate_with_config = *lib
-                    .get::<FnGenerateWithConfig>(b"SherpaOnnxOfflineTtsGenerateWithConfig")
-                    .map_err(|e| e.to_string())?;
-                let destroy_generated = *lib
-                    .get::<FnDestroyGenerated>(b"SherpaOnnxDestroyOfflineTtsGeneratedAudio")
-                    .map_err(|e| e.to_string())?;
-                Ok(SherpaTtsLib {
-                    _lib: lib,
-                    _dep_libs: dep_libs,
-                    create_tts: std::mem::transmute::<*const c_void, FnCreateTts>(
-                        create_tts as *const c_void,
-                    ),
-                    destroy_tts: std::mem::transmute::<*const c_void, FnDestroyTts>(
-                        destroy_tts as *const c_void,
-                    ),
-                    generate: std::mem::transmute::<*const c_void, FnGenerate>(
-                        generate as *const c_void,
-                    ),
-                    generate_with_config: std::mem::transmute::<*const c_void, FnGenerateWithConfig>(
-                        generate_with_config as *const c_void,
-                    ),
-                    destroy_generated: std::mem::transmute::<*const c_void, FnDestroyGenerated>(
-                        destroy_generated as *const c_void,
-                    ),
-                })
-            }
+    unsafe {
+        let create_tts = *lib
+            .get::<FnCreateTts>(b"SherpaOnnxCreateOfflineTts")
+            .map_err(|e| e.to_string())?;
+        let destroy_tts = *lib
+            .get::<FnDestroyTts>(b"SherpaOnnxDestroyOfflineTts")
+            .map_err(|e| e.to_string())?;
+        let generate = *lib
+            .get::<FnGenerate>(b"SherpaOnnxOfflineTtsGenerate")
+            .map_err(|e| e.to_string())?;
+        let generate_with_config = *lib
+            .get::<FnGenerateWithConfig>(b"SherpaOnnxOfflineTtsGenerateWithConfig")
+            .map_err(|e| e.to_string())?;
+        let destroy_generated = *lib
+            .get::<FnDestroyGenerated>(b"SherpaOnnxDestroyOfflineTtsGeneratedAudio")
+            .map_err(|e| e.to_string())?;
+        Ok(SherpaTtsLib {
+            _lib: lib,
+            create_tts: std::mem::transmute::<*const c_void, FnCreateTts>(
+                create_tts as *const c_void,
+            ),
+            destroy_tts: std::mem::transmute::<*const c_void, FnDestroyTts>(
+                destroy_tts as *const c_void,
+            ),
+            generate: std::mem::transmute::<*const c_void, FnGenerate>(generate as *const c_void),
+            generate_with_config: std::mem::transmute::<*const c_void, FnGenerateWithConfig>(
+                generate_with_config as *const c_void,
+            ),
+            destroy_generated: std::mem::transmute::<*const c_void, FnDestroyGenerated>(
+                destroy_generated as *const c_void,
+            ),
         })
-        .as_ref()
-        .map_err(|e| anyhow!("{e}"))
+    }
 }

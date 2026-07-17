@@ -23,11 +23,17 @@ fn request_device_reconnect(reason: &str) {
 #[cfg(target_os = "windows")]
 fn current_default_render_endpoint_id() -> Option<String> {
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let enumerator: IMMDeviceEnumerator =
-            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-        let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
-        device.GetId().ok()?.to_string().ok()
+        let com = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let result = (|| {
+            let enumerator: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+            let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
+            device.GetId().ok()?.to_string().ok()
+        })();
+        if com.is_ok() {
+            CoUninitialize();
+        }
+        result
     }
 }
 
@@ -386,7 +392,10 @@ pub fn current_input_device_name() -> Option<String> {
 #[cfg(target_os = "windows")]
 fn current_default_endpoint_id(flow: EDataFlow) -> Option<String> {
     unsafe {
-        let com = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        // CPAL's WASAPI backend uses the multithreaded apartment. Keep endpoint
+        // discovery in the same apartment so a later CPAL call on this thread
+        // cannot fail with RPC_E_CHANGED_MODE.
+        let com = CoInitializeEx(None, COINIT_MULTITHREADED);
         let result = (|| {
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;

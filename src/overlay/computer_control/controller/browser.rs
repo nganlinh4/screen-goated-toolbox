@@ -20,7 +20,7 @@ use super::{ActCtx, Surface, Verb};
 
 mod errors;
 use errors::stale_action_failure;
-pub(super) use errors::{action_failure, step_failure};
+pub(super) use errors::{action_failure, mark_resynced, step_failure};
 
 pub struct BrowserSurface {
     exact_tab_id: Option<i64>,
@@ -453,6 +453,7 @@ fn parse_el(
             .unwrap_or("")
             .to_string(),
         value: e.get("value").and_then(Value::as_str).map(str::to_string),
+        editable: e.get("editable").and_then(Value::as_bool).unwrap_or(false),
         state: e.get("state").and_then(Value::as_str).map(str::to_string),
         enabled: !e.get("disabled").and_then(Value::as_bool).unwrap_or(false),
         required: e.get("required").and_then(Value::as_bool).unwrap_or(false),
@@ -525,6 +526,8 @@ const PERCEPTION_JS: &str = r#"(() => {
     if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity === 0) continue;
     if (el.offsetParent === null && cs.position !== 'fixed') continue;
     const role = roleOf(el);
+    const nonTextInputs = ['button','submit','reset','image','checkbox','radio','range','file','hidden'];
+    const editable = !el.readOnly && el.getAttribute('aria-readonly') !== 'true' && (el.isContentEditable || tag === 'textarea' || (tag === 'input' && !nonTextInputs.includes(type)));
     const hasHandler = el.hasAttribute('onclick') || ['a','button','input','select','textarea'].includes(tag) || el.isContentEditable;
     if (!INTERACTIVE.includes(role) && !hasHandler) continue;
     let value = null, state = null;
@@ -549,7 +552,7 @@ const PERCEPTION_JS: &str = r#"(() => {
     id += 1; el.setAttribute('data-sgt-id', String(id));
     if (!el[elementKey]) el[elementKey] = nonce();
     const elementId = el[elementKey];
-    out.push({ id, elementId, role, name: labelFor(el), value, state, required, submit, form: formIndex(el), risk,
+    out.push({ id, elementId, role, name: labelFor(el), value, editable, state, required, submit, form: formIndex(el), risk,
       disabled: el.disabled === true || el.getAttribute('aria-disabled') === 'true' });
   } catch (e) {} }
   return { documentId, title: document.title, url: location.href, elements: out.slice(0, 200) };

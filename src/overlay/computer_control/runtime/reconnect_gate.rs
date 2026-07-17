@@ -15,7 +15,10 @@ pub(super) fn generation_progress(event: &ServerEvent) -> bool {
         | ServerEvent::Thought(text)
         | ServerEvent::InputTranscript(text)
         | ServerEvent::OutputTranscript(text) => !text.trim().is_empty(),
-        ServerEvent::ToolCall { .. } | ServerEvent::Interrupted | ServerEvent::TurnComplete => true,
+        ServerEvent::ToolCall { .. }
+        | ServerEvent::Interrupted
+        | ServerEvent::GenerationComplete
+        | ServerEvent::TurnComplete => true,
         ServerEvent::ToolCancellation(ids) => !ids.is_empty(),
         _ => false,
     }

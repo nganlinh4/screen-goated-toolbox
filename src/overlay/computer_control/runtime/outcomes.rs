@@ -14,6 +14,7 @@ enum OutcomeStatus {
     DeliveredBlocked,
     DeliveredCancelled,
     DeliveredUnknown,
+    InterruptedResultUnknown,
     TransportInterruptedUnknown,
 }
 
@@ -25,6 +26,7 @@ impl OutcomeStatus {
             Self::DeliveredBlocked => "delivered_blocked",
             Self::DeliveredCancelled => "delivered_cancelled",
             Self::DeliveredUnknown => "delivered_result_unknown",
+            Self::InterruptedResultUnknown => "interrupted_result_unknown",
             Self::TransportInterruptedUnknown => "transport_interrupted_result_unknown",
         }
     }
@@ -97,6 +99,10 @@ impl ToolOutcomeLedger {
         self.push(tool, OutcomeStatus::TransportInterruptedUnknown);
     }
 
+    pub(super) fn record_interrupted_effect(&mut self, tool: &str) {
+        self.push(tool, OutcomeStatus::InterruptedResultUnknown);
+    }
+
     fn reconnect_lines(&self) -> Vec<String> {
         self.entries
             .iter()
@@ -121,10 +127,21 @@ impl ToolOutcomeLedger {
         selected.join(", ")
     }
 
+    #[cfg(test)]
     pub(super) fn has_transport_uncertainty(&self) -> bool {
         self.entries
             .iter()
             .any(|entry| entry.status == OutcomeStatus::TransportInterruptedUnknown)
+    }
+
+    pub(super) fn clear_interruption_uncertainty(&mut self) {
+        self.entries.retain(|entry| {
+            !matches!(
+                entry.status,
+                OutcomeStatus::InterruptedResultUnknown
+                    | OutcomeStatus::TransportInterruptedUnknown
+            )
+        });
     }
 
     fn push(&mut self, tool: &str, status: OutcomeStatus) {
@@ -206,5 +223,18 @@ mod tests {
         ledger.record_delivered("second_operation", &json!({"ok": false}));
         let summary = ledger.reconnect_summary(50);
         assert_eq!(summary, "second_operation=delivered_failed");
+    }
+
+    #[test]
+    fn resolved_transport_uncertainty_is_removed_without_touching_other_outcomes() {
+        let mut ledger = ToolOutcomeLedger::default();
+        ledger.record_delivered("reader", &json!({"ok": true}));
+        ledger.record_transport_interruption("writer");
+        assert!(ledger.has_transport_uncertainty());
+
+        ledger.clear_interruption_uncertainty();
+
+        assert!(!ledger.has_transport_uncertainty());
+        assert_eq!(ledger.reconnect_summary(1000), "reader=delivered_ok");
     }
 }

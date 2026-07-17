@@ -1,5 +1,5 @@
-//! "Điều khiển máy tính" (Computer Control) — a Gemini Live screen+voice agent
-//! that drives Windows via model tool calls. Development contract:
+//! Computer Control — a Gemini Live screen+voice agent that drives Windows via
+//! model tool calls. Development contract:
 //! `docs/COMPUTER_CONTROL_DEVELOPMENT.md`.
 //!
 //! - `protocol` — setup payloads, tool declarations, the server-frame decoder.
@@ -15,6 +15,7 @@ mod clipboard;
 mod controller;
 mod coord_test;
 mod detector;
+mod effect_receipt;
 mod executor;
 mod grid;
 mod human_input;

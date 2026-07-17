@@ -2,6 +2,7 @@
 //! fail-closed dispatch. Kept out of the main brain/dispatch files so the
 //! lifecycle remains independently testable.
 
+use super::super::controller::world::SurfaceIdentity;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,8 +10,6 @@ pub(super) enum AnchorSource {
     Detector,
     VisionMap,
 }
-
-pub(super) type SurfaceIdentity = (u64, u64, u64);
 
 impl AnchorSource {
     pub(super) fn as_str(self) -> &'static str {
@@ -49,21 +48,22 @@ impl Brain {
         boxes: Vec<super::super::detector::DetBox>,
         frame_id: u64,
         view: View,
-        captured_surface: Option<SurfaceIdentity>,
+        captured_surface: SurfaceIdentity,
     ) {
         let first_id = self.next_anchor_id;
-        let current_surface = current_surface_identity();
-        let Some(surface) = captured_surface.filter(|surface| current_surface == Some(*surface))
-        else {
+        if super::frame_identity::validate_current(self.target.as_deref(), &captured_surface)
+            .is_err()
+        {
             self.clear_anchors("detector_surface_identity_unavailable");
             super::super::telemetry::typed_error(
                 "ERR_ANCHOR_SURFACE_IDENTITY",
                 "grounding",
-                "detector anchors require a concrete foreground HWND and PID",
+                "detector anchors require the captured surface to remain current",
                 json!({"frame_id": frame_id, "view": [view.x, view.y, view.w, view.h]}),
             );
             return;
-        };
+        }
+        let surface = captured_surface;
         self.anchors = boxes
             .into_iter()
             .filter_map(labeled_detector_box)
@@ -79,7 +79,7 @@ impl Brain {
                 bounds: Some([item.left, item.top, item.right, item.bottom]),
                 frame_id,
                 view,
-                surface,
+                surface: surface.clone(),
             })
             .collect();
         self.next_anchor_id = first_id.saturating_add(self.anchors.len() as u32);
@@ -162,17 +162,8 @@ impl Brain {
             .and_then(Value::as_str)
             .unwrap_or("");
         self.clear_anchors("before_map_targets");
-        if super::super::browser::input_active() {
-            return json!({
-                "ok": false,
-                "error": "map_targets uses native screen coordinates and is unavailable on a controlled browser viewport; use browser elements or click_target",
-            });
-        }
-        let Some(surface) = current_surface_identity() else {
-            return json!({
-                "ok": false,
-                "error": "cannot map click anchors without a concrete foreground HWND and PID",
-            });
+        let Some(surface) = current_surface_identity(self.target.as_deref()) else {
+            return json!({"ok": false, "error": "cannot bind click anchors to the current surface"});
         };
         let points = match map_in_view(self.view, description, ctx, cancel) {
             Ok(points) => points,
@@ -180,6 +171,12 @@ impl Brain {
                 return json!({"ok": false, "error": format!("could not map '{description}': {error}")});
             }
         };
+        if super::frame_identity::validate_current(self.target.as_deref(), &surface).is_err() {
+            return json!({
+                "ok": false,
+                "error": "the surface changed while targets were being mapped; observe again",
+            });
+        }
         let first_id = self.next_anchor_id;
         self.anchors = points
             .iter()
@@ -197,7 +194,7 @@ impl Brain {
                     bounds: None,
                     frame_id: 0,
                     view: self.view,
-                    surface,
+                    surface: surface.clone(),
                 }
             })
             .collect();
@@ -273,8 +270,8 @@ impl Brain {
                 "error": "click mark is stale because the target view moved or resized; observe/map again",
             });
         }
-        let current_surface = current_surface_identity();
-        if current_surface != Some(anchor.surface) {
+        let current_surface = current_surface_identity(self.target.as_deref());
+        if current_surface.as_ref() != Some(&anchor.surface) {
             self.clear_anchors("click_mark_surface_changed");
             return json!({
                 "ok": false,
@@ -307,7 +304,7 @@ impl Brain {
             clamp_to_virtual_desktop(window_view(self.target.as_deref(), self.whole_screen))
         };
         if !same_view(anchor.view, latest_view)
-            || current_surface_identity() != Some(anchor.surface)
+            || current_surface_identity(self.target.as_deref()).as_ref() != Some(&anchor.surface)
         {
             self.clear_anchors("click_mark_context_changed_during_verification");
             return json!({
@@ -339,7 +336,10 @@ impl Brain {
             "[cc] step {step:02} CLICK_MARK {id} -> screen({},{})",
             anchor.x, anchor.y
         );
-        let source = FrameSource::native(anchor.frame_id, anchor.surface);
+        let source = FrameSource {
+            frame_id: anchor.frame_id,
+            surface: anchor.surface.clone(),
+        };
         let input = click_screen(
             anchor.x,
             anchor.y,
@@ -394,15 +394,8 @@ fn verify_mapped_anchor(
     Ok(())
 }
 
-pub(super) fn current_surface_identity() -> Option<SurfaceIdentity> {
-    surface_identity_from_snapshot(&uia::input_target_snapshot())
-}
-
-fn surface_identity_from_snapshot(snapshot: &Value) -> Option<SurfaceIdentity> {
-    let hwnd = snapshot.get("hwnd")?.as_u64()?;
-    let pid = snapshot.get("pid")?.as_u64()?;
-    let generation = snapshot.get("generation")?.as_u64()?;
-    (hwnd != 0 && pid != 0 && generation != 0).then_some((hwnd, pid, generation))
+pub(super) fn current_surface_identity(target: Option<&str>) -> Option<SurfaceIdentity> {
+    super::frame_identity::current_surface(target).ok()
 }
 
 fn labeled_detector_box(
@@ -431,14 +424,14 @@ pub(super) fn clamp_to_virtual_desktop(view: View) -> View {
 }
 
 fn refresh_detector_anchor(anchor: &ClickAnchor) -> Result<ClickAnchor> {
-    if current_surface_identity() != Some(anchor.surface) {
+    if super::frame_identity::validate_current(None, &anchor.surface).is_err() {
         anyhow::bail!("foreground surface changed before verification");
     }
     let expected = anchor
         .bounds
         .ok_or_else(|| anyhow::anyhow!("detector anchor has no bounds"))?;
     let capture = session::capture_virtual()?;
-    if current_surface_identity() != Some(anchor.surface) {
+    if super::frame_identity::validate_current(None, &anchor.surface).is_err() {
         anyhow::bail!("foreground surface changed while capturing verification frame");
     }
     let frame_id = super::super::telemetry::next_frame("detector_anchor_verify");
@@ -468,7 +461,7 @@ fn refresh_detector_anchor(anchor: &ClickAnchor) -> Result<ClickAnchor> {
         .find_map(|(id, label)| (id == anchor.id).then_some(label))
         .filter(|label| !label.trim().is_empty())
         .ok_or_else(|| anyhow::anyhow!("fresh candidate is not an enabled actionable control"))?;
-    if current_surface_identity() != Some(anchor.surface) {
+    if super::frame_identity::validate_current(None, &anchor.surface).is_err() {
         anyhow::bail!("foreground surface changed during semantic verification");
     }
     let mut refreshed = anchor.clone();
@@ -556,8 +549,10 @@ pub(super) fn action_invalidates_anchors(name: &str) -> bool {
             | "search_memory"
             | "open_memory"
             | "list_files"
+            | "read_text_file"
             | "system_query"
             | "artifact_info"
+            | "extract_artifact"
             | "browser_status"
             | "browser_read_page"
             | "browser_extract_page"

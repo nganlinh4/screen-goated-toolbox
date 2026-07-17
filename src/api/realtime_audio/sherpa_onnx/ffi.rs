@@ -5,7 +5,7 @@
 use anyhow::{Result, anyhow};
 use libloading::Library;
 use std::os::raw::{c_char, c_float, c_void};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 // Opaque types
 pub type SherpaOnnxOnlineRecognizer = c_void;
@@ -129,7 +129,6 @@ type FnDestroyResultJson = unsafe extern "C" fn(*const c_char);
 
 pub struct SherpaLib {
     _lib: Library,
-    _dep_libs: Vec<Library>,
     pub create: FnCreate,
     pub destroy: FnDestroy,
     pub create_stream: FnCreateStream,
@@ -144,124 +143,78 @@ pub struct SherpaLib {
 unsafe impl Send for SherpaLib {}
 unsafe impl Sync for SherpaLib {}
 
-static SHERPA_LIB: OnceLock<Result<SherpaLib, String>> = OnceLock::new();
+static SHERPA_LIB: OnceLock<SherpaLib> = OnceLock::new();
+static SHERPA_LOAD_LOCK: Mutex<()> = Mutex::new(());
 
 fn sherpa_dll_dir() -> std::path::PathBuf {
-    let private_bin = crate::unpack_dlls::private_bin_dir();
-    let sherpa_bin = private_bin.join("sherpa-onnx");
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-
-    let candidates = [
-        sherpa_bin,
-        private_bin,
-        exe_dir,
-        std::path::PathBuf::from("third_party/sherpa-onnx-win/lib"),
-    ];
-
-    for c in &candidates {
-        if c.join("sherpa-onnx-c-api.dll").exists() {
-            // Canonicalize so LoadLibraryExW gets absolute path
-            return std::fs::canonicalize(c).unwrap_or_else(|_| c.clone());
-        }
-    }
-    candidates[0].clone()
+    super::dlls::resolved_sherpa_dll_dir()
 }
 
 pub fn load() -> Result<&'static SherpaLib> {
-    SHERPA_LIB
-        .get_or_init(|| {
-            let dir = sherpa_dll_dir();
-            let dll_path = dir.join("sherpa-onnx-c-api.dll");
+    super::success_cache::get_or_try_init(&SHERPA_LIB, &SHERPA_LOAD_LOCK, load_uncached)
+        .map_err(|error| anyhow!("{error}"))
+}
 
-            crate::log_info!("[Sherpa] Loading from {:?}", dll_path);
+fn load_uncached() -> std::result::Result<SherpaLib, String> {
+    let dir = sherpa_dll_dir();
+    let dll_path = dir.join("sherpa-onnx-c-api.dll");
 
-            if !dll_path.exists() {
-                return Err(format!("sherpa-onnx-c-api.dll not found at {:?}", dll_path));
-            }
+    crate::log_info!("[Sherpa] Loading from {:?}", dll_path);
 
-            // Set DLL search directory
-            unsafe {
-                use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
-                let dir_wide: Vec<u16> = dir
-                    .to_string_lossy()
-                    .encode_utf16()
-                    .chain(std::iter::once(0))
-                    .collect();
-                let _ = SetDllDirectoryW(windows::core::PCWSTR(dir_wide.as_ptr()));
-            }
+    if !dll_path.exists() {
+        return Err(format!("sherpa-onnx-c-api.dll not found at {:?}", dll_path));
+    }
 
-            // Pre-load dependency DLLs in order
-            let mut dep_libs: Vec<Library> = Vec::new();
-            for dep in &[
-                "onnxruntime.dll",
-                "onnxruntime_providers_shared.dll",
-                "sherpa-onnx-cxx-api.dll",
-            ] {
-                let dep_path = dir.join(dep);
-                if dep_path.exists() {
-                    match unsafe { Library::new(&dep_path) } {
-                        Ok(l) => {
-                            crate::log_info!("[Sherpa] Pre-loaded {dep}");
-                            dep_libs.push(l);
-                        }
-                        Err(e) => {
-                            crate::log_info!("[Sherpa] Warning: failed to pre-load {dep}: {e}");
-                        }
-                    }
-                }
-            }
+    // Sherpa and Rust `ort` share one verified process-wide runtime. Loading
+    // another same-named ONNX DLL here makes module identity order-dependent.
+    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+        .map_err(|error| format!("initialize shared ONNX runtime: {error}"))?;
 
-            let lib = unsafe {
-                Library::new(&dll_path)
-                    .map_err(|e| format!("Failed to load sherpa-onnx-c-api.dll: {e}"))?
-            };
+    let lib = unsafe {
+        Library::new(&dll_path).map_err(|e| format!("Failed to load sherpa-onnx-c-api.dll: {e}"))?
+    };
+    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+        .map_err(|error| format!("verify shared ONNX runtime after Sherpa load: {error}"))?;
 
-            unsafe {
-                let create = *lib
-                    .get::<FnCreate>(b"SherpaOnnxCreateOnlineRecognizer")
-                    .map_err(|e| e.to_string())?;
-                let destroy = *lib
-                    .get::<FnDestroy>(b"SherpaOnnxDestroyOnlineRecognizer")
-                    .map_err(|e| e.to_string())?;
-                let create_stream = *lib
-                    .get::<FnCreateStream>(b"SherpaOnnxCreateOnlineStream")
-                    .map_err(|e| e.to_string())?;
-                let destroy_stream = *lib
-                    .get::<FnDestroyStream>(b"SherpaOnnxDestroyOnlineStream")
-                    .map_err(|e| e.to_string())?;
-                let accept_waveform = *lib
-                    .get::<FnAcceptWaveform>(b"SherpaOnnxOnlineStreamAcceptWaveform")
-                    .map_err(|e| e.to_string())?;
-                let is_ready = *lib
-                    .get::<FnIsReady>(b"SherpaOnnxIsOnlineStreamReady")
-                    .map_err(|e| e.to_string())?;
-                let decode = *lib
-                    .get::<FnDecode>(b"SherpaOnnxDecodeOnlineStream")
-                    .map_err(|e| e.to_string())?;
-                let get_result_json = *lib
-                    .get::<FnGetResultJson>(b"SherpaOnnxGetOnlineStreamResultAsJson")
-                    .map_err(|e| e.to_string())?;
-                let destroy_result_json = *lib
-                    .get::<FnDestroyResultJson>(b"SherpaOnnxDestroyOnlineStreamResultJson")
-                    .map_err(|e| e.to_string())?;
-                Ok(SherpaLib {
-                    _lib: lib,
-                    _dep_libs: dep_libs,
-                    create,
-                    destroy,
-                    create_stream,
-                    destroy_stream,
-                    accept_waveform,
-                    is_ready,
-                    decode,
-                    get_result_json,
-                    destroy_result_json,
-                })
-            }
+    unsafe {
+        let create = *lib
+            .get::<FnCreate>(b"SherpaOnnxCreateOnlineRecognizer")
+            .map_err(|e| e.to_string())?;
+        let destroy = *lib
+            .get::<FnDestroy>(b"SherpaOnnxDestroyOnlineRecognizer")
+            .map_err(|e| e.to_string())?;
+        let create_stream = *lib
+            .get::<FnCreateStream>(b"SherpaOnnxCreateOnlineStream")
+            .map_err(|e| e.to_string())?;
+        let destroy_stream = *lib
+            .get::<FnDestroyStream>(b"SherpaOnnxDestroyOnlineStream")
+            .map_err(|e| e.to_string())?;
+        let accept_waveform = *lib
+            .get::<FnAcceptWaveform>(b"SherpaOnnxOnlineStreamAcceptWaveform")
+            .map_err(|e| e.to_string())?;
+        let is_ready = *lib
+            .get::<FnIsReady>(b"SherpaOnnxIsOnlineStreamReady")
+            .map_err(|e| e.to_string())?;
+        let decode = *lib
+            .get::<FnDecode>(b"SherpaOnnxDecodeOnlineStream")
+            .map_err(|e| e.to_string())?;
+        let get_result_json = *lib
+            .get::<FnGetResultJson>(b"SherpaOnnxGetOnlineStreamResultAsJson")
+            .map_err(|e| e.to_string())?;
+        let destroy_result_json = *lib
+            .get::<FnDestroyResultJson>(b"SherpaOnnxDestroyOnlineStreamResultJson")
+            .map_err(|e| e.to_string())?;
+        Ok(SherpaLib {
+            _lib: lib,
+            create,
+            destroy,
+            create_stream,
+            destroy_stream,
+            accept_waveform,
+            is_ready,
+            decode,
+            get_result_json,
+            destroy_result_json,
         })
-        .as_ref()
-        .map_err(|e| anyhow!("{e}"))
+    }
 }

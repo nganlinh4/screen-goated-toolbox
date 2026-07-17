@@ -30,7 +30,13 @@ pub(in crate::overlay::computer_control) fn label_clickable_marks(
         &prompt,
         &[],
         Some(schema()),
-        super::VisionTask::General,
+        super::ChainRun {
+            task: super::VisionTask::General,
+            cancel_token: None,
+            request_timeout: None,
+            attempts: None,
+        },
+        |_| {},
         |answer| parse_labels(answer, ids).is_some(),
     )?;
     parse_labels(&answer, ids)

@@ -19,6 +19,10 @@ pub struct IndexedElement {
     pub name: String,
     /// Current text/selection value, when the element holds one (passwords masked).
     pub value: Option<String>,
+    /// True when the control structurally accepts free-form text input. Roles such
+    /// as `combobox` may be either editable or selection-only, so role alone is
+    /// not sufficient to authorize `fill`.
+    pub editable: bool,
     /// Ground-truth state when exposed: "checked"/"unchecked"/"expanded"/… .
     pub state: Option<String>,
     pub enabled: bool,
@@ -147,6 +151,9 @@ impl WorldState {
             }
             if !e.enabled {
                 flags.push("disabled");
+            }
+            if e.editable && !matches!(e.role.as_str(), "textbox" | "searchbox" | "spinbutton") {
+                flags.push("editable");
             }
             if !flags.is_empty() {
                 s.push_str(&format!(" [{}]", flags.join(", ")));

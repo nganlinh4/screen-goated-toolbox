@@ -4,6 +4,13 @@ use anyhow::{Context, Result};
 
 use super::arguments::StartupArgs;
 
+pub(super) const EXPORT_REPLAY_FLAG: &str = "--sr-export-replay";
+pub(super) const EXPORT_REPLAY_LAST_FLAG: &str = "--sr-export-replay-last";
+
+pub(crate) fn is_requested(args: &StartupArgs) -> bool {
+    args.has(EXPORT_REPLAY_FLAG) || args.has(EXPORT_REPLAY_LAST_FLAG)
+}
+
 pub(crate) fn run(args: &StartupArgs) -> Option<i32> {
     let replay_path = resolve_replay_path(args)?;
     let payload = match load_replay_payload(&replay_path) {
@@ -118,8 +125,8 @@ pub(crate) fn run(args: &StartupArgs) -> Option<i32> {
 }
 
 fn resolve_replay_path(args: &StartupArgs) -> Option<String> {
-    args.value("--sr-export-replay").or_else(|| {
-        if args.has("--sr-export-replay-last") {
+    args.value(EXPORT_REPLAY_FLAG).or_else(|| {
+        if args.has(EXPORT_REPLAY_LAST_FLAG) {
             crate::overlay::screen_record::native_export::export_replay_args_path()
                 .map(|path| path.to_string_lossy().to_string())
         } else {

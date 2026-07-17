@@ -60,12 +60,26 @@ pub(super) fn commit_transition(
     current: &MainFrameState,
     dispatch_loader_id: Option<&str>,
 ) -> bool {
-    dispatch_loader_id.is_some_and(|loader| current.loader_id.as_deref() == Some(loader))
-        || before.is_some_and(|before| {
-            before.loader_id != current.loader_id
-                || !urls_equivalent(before.committed_url(), current.committed_url())
-                || before.unreachable_url != current.unreachable_url
-        })
+    if let Some(dispatch_loader_id) = dispatch_loader_id {
+        return current.loader_id.as_deref() == Some(dispatch_loader_id);
+    }
+    before.is_some_and(|before| {
+        before.loader_id != current.loader_id
+            || !urls_equivalent(before.committed_url(), current.committed_url())
+            || before.unreachable_url != current.unreachable_url
+    })
+}
+
+pub(super) fn track_transition(
+    previously_seen: bool,
+    current_matches_dispatch: bool,
+    has_dispatch_loader: bool,
+) -> bool {
+    if has_dispatch_loader {
+        current_matches_dispatch
+    } else {
+        previously_seen || current_matches_dispatch
+    }
 }
 
 pub(super) fn classify_navigation(
@@ -75,7 +89,7 @@ pub(super) fn classify_navigation(
     transition_seen: bool,
 ) -> Option<NavigationOutcome> {
     let committed_url = current.committed_url();
-    if committed_url.is_empty() {
+    if !super::super::tab_lifecycle::bindable_document_url(committed_url) {
         return None;
     }
     let direct = urls_equivalent(requested_url, committed_url);
@@ -161,6 +175,39 @@ mod tests {
             ),
             None
         );
+
+        let synthetic = frame(":", "loader-new");
+        assert_eq!(
+            classify_navigation(
+                "http://source.invalid/article",
+                Some(&before),
+                &synthetic,
+                true,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn dispatch_loader_does_not_bless_an_unrelated_same_tab_navigation() {
+        let before = frame("https://example.invalid/old", "loader-old");
+        let unrelated = frame("https://unrelated.invalid/", "loader-unrelated");
+        assert!(!commit_transition(
+            Some(&before),
+            &unrelated,
+            Some("loader-requested")
+        ));
+        assert_eq!(
+            classify_navigation(
+                "https://requested.invalid/",
+                Some(&before),
+                &unrelated,
+                false,
+            ),
+            None
+        );
+        assert!(!track_transition(true, false, true));
+        assert!(track_transition(true, false, false));
     }
 
     #[test]

@@ -8,13 +8,17 @@
 //! default profile). All logic lives here in Rust; the extension just forwards CDP.
 
 mod bridge;
+mod bridge_cdp;
+mod bridge_cleanup;
 mod bridge_listener;
 mod bridge_rpc;
 mod bridge_wait;
 mod capabilities;
 mod controller_io;
 mod crypto;
+mod document_readiness;
 mod errors;
+mod extension_update;
 mod frame_identity;
 mod page;
 mod pointer;
@@ -22,7 +26,9 @@ mod prefs;
 mod readiness;
 mod setup;
 mod surface_binding;
+mod tab_lifecycle;
 mod tab_tools;
+mod temporary_tabs;
 mod upload;
 
 use serde_json::{Value, json};
@@ -34,24 +40,48 @@ pub(super) use controller_io::{
     DOCUMENT_ID_JS, active_tab_id, click_selector_on_active_tab, click_selector_on_tab,
     eval_value_in_active_tab, fill_in_on_active_tab, fill_in_on_tab,
 };
+pub(super) use document_readiness::await_readable_document_on_tab;
 pub(super) use frame_identity::{
-    active_document_identity, validate_active_document_identity, validate_document_identity_on_tab,
+    StableDocumentIdentity, acquire_stable_document_identity_on_tab, active_document_identity,
+    validate_active_document_identity, validate_document_identity_on_tab,
 };
-pub(super) use page::{extract_page, extract_page_on_tab, read_page, read_page_on_tab};
+pub(super) use page::{
+    capture_page_on_tab, extract_page, extract_page_on_tab, publish_bounded_page_on_tab, read_page,
+    read_page_on_tab,
+};
 pub(super) use pointer::{
     cancelled_before_pointer_effect, click_on_document, drag_on_document, pointer_error_response,
 };
 pub(super) use prefs::{ever_connected, recently_connected, record_connection};
 pub(super) use setup::{reset, setup, status};
+pub(super) use tab_lifecycle::close_tab_checked;
 pub(super) use tab_tools::{
     eval_js, eval_js_on_document, navigate, navigate_on_tab, read_console, read_console_on_tab,
-    read_network, read_network_on_tab, wait_for, wait_for_on_tab,
+    read_network, read_network_on_tab, traverse_history, traverse_history_on_tab, wait_for,
+    wait_for_on_tab,
+};
+pub(super) use temporary_tabs::{
+    TemporaryBrowserTab, TemporaryTabCleanup, close_tab_verified, close_tab_verified_until,
+    open_effect_ambiguous as temporary_tab_open_effect_ambiguous, open_persistent_tab,
+    open_temporary_tab, open_turn_owned_tab,
 };
 pub(super) use upload::{upload_file, upload_file_on_document};
 
 pub(super) fn ensure_started() {
     readiness::mark_bridge_start();
     bridge::ensure_started();
+}
+
+pub(super) fn action_cancelled() -> bool {
+    readiness::action_cancelled()
+}
+
+pub(super) fn pause_cancelled(duration: Duration) -> bool {
+    readiness::pause_cancelled(duration)
+}
+
+pub(super) fn enter_request_deadline(duration: Duration) -> readiness::RequestDeadline {
+    readiness::enter_request_deadline(duration)
 }
 
 /// Hold the session's public ready boundary briefly for an extension that has
@@ -109,7 +139,10 @@ fn not_connected() -> Value {
         "code": "ERR_BROWSER_NOT_CONNECTED",
         "state": connection_state(),
         "error": "the browser extension isn't connected",
-        "hint": "Call browser_setup and follow its do_yourself steps to load the unpacked extension yourself; it auto-pairs (no code to paste). Then poll browser_status until connected."
+        "hint": "Call browser_setup and follow its do_yourself steps to load the unpacked extension yourself; it auto-pairs (no code to paste). Then poll browser_status until connected.",
+        "effect_verified": false,
+        "effect_may_have_occurred": false,
+        "executed": false,
     })
 }
 
@@ -314,7 +347,10 @@ fn conn_guard_with_cancel(cancel: Option<&AtomicBool>) -> Option<Value> {
                 "code": "ERR_BROWSER_RECONNECTING",
                 "state": connection_state(),
                 "error": "the browser extension is reconnecting",
-                "hint": "Browser control IS installed here - its background service worker just went idle and reconnects on its own. Do NOT run browser_setup and do NOT tell the user to set anything up; wait a moment and retry this call."
+                "hint": "Browser control IS installed here - its background service worker just went idle and reconnects on its own. Do NOT run browser_setup and do NOT tell the user to set anything up; wait a moment and retry this call.",
+                "effect_verified": false,
+                "effect_may_have_occurred": false,
+                "executed": false,
             })
         } else {
             json!({
@@ -322,7 +358,10 @@ fn conn_guard_with_cancel(cancel: Option<&AtomicBool>) -> Option<Value> {
                 "code": "ERR_BROWSER_DISCONNECTED",
                 "state": connection_state(),
                 "error": "browser control isn't responding",
-                "hint": "It was set up here before but hasn't connected for a while - the extension may have been removed or the browser closed. If the user still wants deep browser control, run browser_setup; otherwise just proceed without it (use the on-screen tools)."
+                "hint": "It was set up here before but hasn't connected for a while - the extension may have been removed or the browser closed. If the user still wants deep browser control, run browser_setup; otherwise just proceed without it (use the on-screen tools).",
+                "effect_verified": false,
+                "effect_may_have_occurred": false,
+                "executed": false,
             })
         });
     }
@@ -391,53 +430,18 @@ fn shot_impl(tab_id: Option<i64>) -> anyhow::Result<(Vec<u8>, f64, f64)> {
     Ok((jpeg, cw, ch))
 }
 
-/// Open `url` in a NEW tab of the current window (keeps the existing page).
-pub(super) fn open_tab(url: &str) -> Value {
-    require_conn!();
-    match bridge::rpc("tabs", json!({"action": "create", "url": url})) {
-        Ok(v) => json!({"ok": true, "tab": v}),
-        Err(e) => err(e),
+pub(super) fn tab_lease_result(
+    requested_url: &str,
+    tab: &TemporaryBrowserTab,
+    lifetime: &str,
+) -> Value {
+    let mut result = tab_lifecycle::created_tab_result(requested_url, json!({"id": tab.id}));
+    if let Some(object) = result.as_object_mut() {
+        object.insert("lifetime".to_string(), json!(lifetime));
+        object.insert("foreground".to_string(), json!(tab.foreground));
+        object.insert("create_recovered".to_string(), json!(tab.recovered_create));
     }
-}
-
-pub(super) struct TemporaryBrowserTab {
-    pub id: i64,
-    pub foreground: bool,
-}
-
-pub(super) fn open_temporary_tab(url: &str) -> anyhow::Result<TemporaryBrowserTab> {
-    let can_close = capabilities::supports(capabilities::TABS_REMOVE)
-        || capabilities::supports(capabilities::CDP_EXPLICIT_TAB);
-    if !can_close {
-        return Err(capabilities::unsupported(capabilities::TABS_REMOVE));
-    }
-    let Some(foreground) = temporary_tab_foreground(
-        capabilities::supports(capabilities::TABS_CREATE_BACKGROUND),
-        capabilities::supports(capabilities::TABS_CREATE_FOREGROUND),
-    ) else {
-        return Err(capabilities::unsupported(
-            capabilities::TABS_CREATE_BACKGROUND,
-        ));
-    };
-    let tab = bridge::rpc(
-        "tabs",
-        json!({"action": "create", "url": url, "active": foreground}),
-    )?;
-    let id = tab
-        .get("id")
-        .and_then(Value::as_i64)
-        .ok_or_else(|| anyhow::anyhow!("browser did not return a temporary tab id"))?;
-    Ok(TemporaryBrowserTab { id, foreground })
-}
-
-fn temporary_tab_foreground(can_background: bool, can_foreground: bool) -> Option<bool> {
-    if can_background {
-        Some(false)
-    } else if can_foreground {
-        Some(true)
-    } else {
-        None
-    }
+    result
 }
 
 pub(super) fn close_tab(tab_id: i64) -> anyhow::Result<()> {
@@ -460,40 +464,52 @@ pub(super) fn get_tabs() -> Value {
 }
 
 pub(super) fn switch_tab(tab_id: i64) -> Value {
+    let tab_id = match tab_lifecycle::required_tab_id(tab_id, "browser_switch_tab") {
+        Ok(tab_id) => tab_id,
+        Err(error) => return error,
+    };
     require_conn!();
+    let tabs = match bridge::rpc("tabs", json!({"action": "list"})) {
+        Ok(tabs) => tabs,
+        Err(error) => return tab_lifecycle::tab_inventory_unavailable(&error),
+    };
+    if let Err(error) = tab_lifecycle::preflight_tab_activation(tab_id, &tabs) {
+        return error;
+    }
     if let Err(e) = bridge::rpc("tabs", json!({"action": "activate", "tabId": tab_id})) {
         return err(e);
     }
     // Confirm WHERE we landed (title + url) so the agent doesn't keep reading/acting on the wrong tab.
-    let (title, url) = tab_title_url(tab_id);
+    let (title, url, pending_url) = tab_title_url(tab_id);
     json!({
         "ok": true,
         "switched": tab_id,
         "target_tab_id": tab_id,
         "title": title,
         "url": url,
+        "pending_url": pending_url,
+        "effect_verified": true,
+        "effect_may_have_occurred": true,
+        "executed": true,
     })
 }
 
-/// A tab's title + url from the live tab list (best-effort; nulls on miss).
-fn tab_title_url(tab_id: i64) -> (Value, Value) {
+/// A tab's title, committed URL, and pending URL (best-effort; nulls on miss).
+fn tab_title_url(tab_id: i64) -> (Value, Value, Value) {
     if let Ok(v) = bridge::rpc("tabs", json!({"action": "list"}))
         && let Some(t) = v.as_array().and_then(|tabs| {
             tabs.iter()
                 .find(|t| t.get("id").and_then(Value::as_i64) == Some(tab_id))
         })
     {
-        return (
-            t.get("title").cloned().unwrap_or(Value::Null),
-            t.get("url").cloned().unwrap_or(Value::Null),
-        );
+        return tab_lifecycle::tab_title_url(t);
     }
-    (Value::Null, Value::Null)
+    (Value::Null, Value::Null, Value::Null)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{runtime_result_value, temporary_tab_foreground};
+    use super::runtime_result_value;
     use serde_json::json;
 
     #[test]
@@ -517,12 +533,5 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(unserializable.contains("non-JSON-compatible number"));
-    }
-
-    #[test]
-    fn temporary_tabs_degrade_only_to_an_available_foreground_create() {
-        assert_eq!(temporary_tab_foreground(true, true), Some(false));
-        assert_eq!(temporary_tab_foreground(false, true), Some(true));
-        assert_eq!(temporary_tab_foreground(false, false), None);
     }
 }

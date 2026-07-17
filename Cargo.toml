@@ -1,6 +1,6 @@
 [package]
 name = "screen-goated-toolbox"
-version = "5.3.1"
+version = "5.3.2"
 edition = "2024"
 default-run = "screen-goated-toolbox"
 
@@ -17,6 +17,7 @@ native-tls = "0.2"
 sha2 = "0.10"
 sha1 = "0.10"
 url = "2.5"
+psl2 = "0.1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_path_to_error = "0.1"

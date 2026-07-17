@@ -44,6 +44,7 @@ fn transcript_fragments_update_one_turn_without_cancelling_its_action() {
     state.pending = super::super::reader::Pending {
         id: Some("current-action".to_string()),
         tool: Some("future_operation".to_string()),
+        turn_id: Some(1),
         cancelled: false,
         cancel: Some(cancel.clone()),
     };
@@ -70,7 +71,7 @@ fn transcript_fragments_update_one_turn_without_cancelling_its_action() {
 }
 
 #[test]
-fn completed_turn_resets_input_transcript_assembly() {
+fn fresh_input_epoch_starts_a_new_turn_after_completion() {
     let mut state = Reader::default();
     let (exec_tx, _exec_rx) = mpsc::channel();
     super::super::reader::handle_event(
@@ -80,6 +81,7 @@ fn completed_turn_resets_input_transcript_assembly() {
         &mut state,
     );
     super::super::reader::handle_event(ServerEvent::TurnComplete, None, &exec_tx, &mut state);
+    state.input_transcript.begin_epoch();
     super::super::reader::handle_event(
         ServerEvent::InputTranscript("second request".to_string()),
         None,
@@ -95,5 +97,39 @@ fn completed_turn_resets_input_transcript_assembly() {
             .filter(|entry| entry.starts_with("User:"))
             .count(),
         2
+    );
+}
+
+#[test]
+fn late_cumulative_asr_revision_updates_history_without_reviving_the_turn() {
+    let mut state = Reader::default();
+    let (exec_tx, _exec_rx) = mpsc::channel();
+    super::super::reader::handle_event(
+        ServerEvent::InputTranscript("perform the fir".to_string()),
+        None,
+        &exec_tx,
+        &mut state,
+    );
+    super::super::reader::handle_event(ServerEvent::TurnComplete, None, &exec_tx, &mut state);
+    assert!(state.terminal_drain);
+
+    super::super::reader::handle_event(
+        ServerEvent::InputTranscript("perform the first operation".to_string()),
+        None,
+        &exec_tx,
+        &mut state,
+    );
+
+    assert!(state.terminal_drain);
+    assert!(!state.active);
+    assert!(!state.awaiting);
+    assert_eq!(state.last_cmd, "perform the first operation");
+    assert_eq!(
+        state
+            .history
+            .iter()
+            .filter(|entry| entry.starts_with("User:"))
+            .count(),
+        1
     );
 }

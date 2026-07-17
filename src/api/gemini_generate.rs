@@ -14,6 +14,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+use std::time::Duration;
 
 /// Build the `generateContent` URL for `model`, selecting the SSE streaming
 /// variant when `streaming` is `true`.
@@ -57,6 +58,7 @@ pub fn stream_gemini_generate<F>(
     cancel_token: &Option<Arc<AtomicBool>>,
     error_label: Option<&str>,
     map_auth_errors: bool,
+    request_timeout: Option<Duration>,
     response_schema: Option<&serde_json::Value>,
     on_chunk: &mut F,
 ) -> Result<String>
@@ -107,9 +109,8 @@ where
     } else {
         &*UREQ_AGENT
     };
-    let resp = agent
-        .post(&url)
-        .header("x-goog-api-key", api_key)
+    let request = agent.post(&url).header("x-goog-api-key", api_key);
+    let resp = crate::api::client::with_request_timeout(request, request_timeout)
         .send_json(payload)
         .map_err(|e| {
             if map_auth_errors && is_auth_error(&e) {

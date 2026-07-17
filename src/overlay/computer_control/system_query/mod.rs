@@ -6,6 +6,7 @@
 mod audio;
 mod filesystem;
 mod process;
+mod storage;
 
 use serde_json::{Value, json};
 
@@ -30,6 +31,7 @@ pub(crate) fn query(args: &Value) -> Value {
             ("audio", "active_sessions") => audio::active_sessions(payload, observed_at_ms),
             ("clipboard", "text") => clipboard_text(observed_at_ms),
             ("process", "list_basic") => process::list_basic(payload, observed_at_ms),
+            ("storage", "volumes") => storage::volumes(observed_at_ms),
             ("window", "list") => window_list(observed_at_ms),
             _ => failure(
                 domain,
@@ -94,6 +96,7 @@ fn capabilities(observed_at_ms: u128) -> Value {
             json!({"domain": "audio", "queries": ["active_sessions"], "source": "windows_core_audio"}),
             json!({"domain": "clipboard", "queries": ["text"], "source": "windows_clipboard"}),
             json!({"domain": "process", "queries": ["list_basic"], "source": "windows_toolhelp"}),
+            json!({"domain": "storage", "queries": ["volumes"], "source": "win32_volume_api"}),
             json!({"domain": "window", "queries": ["list"], "source": "existing_uia_window_index"}),
         ],
         Vec::new(),

@@ -16,7 +16,10 @@ $AndroidNdk = if ($env:ANDROID_NDK_ROOT) { $env:ANDROID_NDK_ROOT } else { Join-P
 $CmakeBin = Join-Path $AndroidSdk "cmake\3.22.1\bin\cmake.exe"
 $NinjaBin = Join-Path $AndroidSdk "cmake\3.22.1\bin\ninja.exe"
 $Toolchain = Join-Path $AndroidNdk "build\cmake\android.toolchain.cmake"
-$OrtRuntime = Join-Path $env:USERPROFILE ".gradle\caches\8.11.1\transforms\3845b6abb3b517f8fa7f545d2f96e7af\transformed\jetified-onnxruntime-android-1.24.2\jni\arm64-v8a\libonnxruntime.so"
+# Resolve from whatever gradle transform cache currently holds the ORT AAR
+# (the cache hash changes across gradle versions).
+$OrtRuntime = Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\*\transforms\*\transformed\jetified-onnxruntime-android-*\jni\arm64-v8a\libonnxruntime.so") -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 $CxxRuntime = Join-Path $AndroidNdk "toolchains\llvm\prebuilt\windows-x86_64\sysroot\usr\lib\aarch64-linux-android\libc++_shared.so"
 
 if (!(Test-Path $CmakeBin)) { throw "Missing cmake.exe at $CmakeBin" }

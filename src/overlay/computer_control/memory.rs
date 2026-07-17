@@ -37,9 +37,7 @@ const EMBED_TEXT_BUDGET: usize = 12_000;
 const MAX_EMBED_IMAGES: usize = 6;
 
 fn mem_dir() -> PathBuf {
-    let dir = crate::paths::app_config_dir().join("cc_memory");
-    let _ = fs::create_dir_all(&dir);
-    dir
+    crate::paths::app_config_dir().join("cc_memory")
 }
 
 fn index_path() -> PathBuf {
@@ -83,6 +81,7 @@ fn save_inner(transcript: Vec<String>, frames: Vec<Vec<u8>>) -> anyhow::Result<(
     let id = now.timestamp_nanos_opt().unwrap_or(0);
     let timestamp = now.format("%Y-%m-%d %H:%M:%S").to_string();
     let dir = mem_dir();
+    fs::create_dir_all(&dir)?;
 
     // Persist representative frames (already JPEG).
     let mut images = Vec::new();

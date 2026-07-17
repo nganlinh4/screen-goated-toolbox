@@ -15,6 +15,7 @@ pub(super) fn response(error: anyhow::Error) -> Value {
     }
     if let Some(capability) = super::capabilities::unsupported_from(&error) {
         let update_staged = super::capabilities::update_staged();
+        let self_reload_available = super::extension_update::available();
         return json!({
             "ok": false,
             "code": "ERR_BROWSER_CAPABILITY_UNSUPPORTED",
@@ -23,8 +24,12 @@ pub(super) fn response(error: anyhow::Error) -> Value {
             "protocol_version": super::capabilities::protocol_version(),
             "capabilities": super::capabilities::list(),
             "update_staged": update_staged,
-            "reload_required": update_staged,
-            "instruction": if update_staged {
+            "reload_required": update_staged && !self_reload_available,
+            "self_reload_available": self_reload_available,
+            "recovery_tool": if self_reload_available { Value::String("browser_setup".to_string()) } else { Value::Null },
+            "instruction": if self_reload_available {
+                "This connected extension remains usable for its advertised capabilities. Do not retry this unsupported command. Call browser_setup once to activate the staged update, then follow its bounded browser_status retry contract."
+            } else if update_staged {
                 "This connected extension remains usable for its advertised capabilities. Do not retry this unsupported command. The staged update takes effect only after the user manually reloads the extension in the browser extension manager."
             } else {
                 "This connected extension does not expose the requested capability. Do not retry the same command."

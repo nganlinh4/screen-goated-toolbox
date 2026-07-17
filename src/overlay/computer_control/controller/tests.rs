@@ -81,6 +81,7 @@ fn element(
         role: role.to_string(),
         name: name.to_string(),
         value: value.map(str::to_string),
+        editable: role == "textbox",
         state: None,
         enabled: true,
         required,
@@ -231,4 +232,38 @@ fn first_exact_browser_observation_is_adopted_without_losing_cached_ids() {
     assert!(!controller.adopt_observed_browser_target(&other));
     assert_eq!(controller.browser_tab_id, Some(73));
     assert_eq!(controller.observed_identity(), Some(&identity));
+}
+
+#[test]
+fn turn_retirement_and_exact_source_rebinding_preserve_only_matching_ids() {
+    let identity = SurfaceIdentity::Browser {
+        tab_id: 73,
+        document_id: "document-1".into(),
+        window: browser_window(),
+    };
+    let mut controller = Controller {
+        last: Some(WorldState {
+            elements: Vec::new(),
+            url: Some("https://example.invalid/".into()),
+            title: Some("page".into()),
+            identity: identity.clone(),
+        }),
+        browser_tab_id: Some(73),
+        ..Controller::default()
+    };
+
+    controller.release_turn_target();
+    assert_eq!(controller.browser_tab_id, None);
+    assert_eq!(controller.observed_identity(), Some(&identity));
+    assert!(controller.bind_source_surface(Some(&identity)));
+    assert_eq!(controller.browser_tab_id, Some(73));
+    assert_eq!(controller.observed_identity(), Some(&identity));
+
+    let changed = SurfaceIdentity::Browser {
+        tab_id: 73,
+        document_id: "document-2".into(),
+        window: browser_window(),
+    };
+    assert!(!controller.bind_source_surface(Some(&changed)));
+    assert!(controller.observed_identity().is_none());
 }

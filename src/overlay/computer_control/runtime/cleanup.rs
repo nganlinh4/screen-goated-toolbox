@@ -12,6 +12,14 @@ use super::reader::Reader;
 
 const JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 
+pub(super) fn drain_turn_cleanup_acks(receiver: &mpsc::Receiver<u64>, state: &mut Reader) {
+    while let Ok(turn_id) = receiver.try_recv() {
+        if state.turn_cleanup_pending == Some(turn_id) {
+            state.turn_cleanup_pending = None;
+        }
+    }
+}
+
 #[derive(Default)]
 struct EndSnapshot {
     connection_generation: u32,
@@ -159,6 +167,22 @@ fn join_bounded(name: &'static str, worker: JoinHandle<()>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cleanup_ack_clears_only_the_matching_pending_turn() {
+        let (tx, rx) = mpsc::channel();
+        let mut state = Reader {
+            turn_cleanup_pending: Some(8),
+            ..Reader::default()
+        };
+        tx.send(7).unwrap();
+        drain_turn_cleanup_acks(&rx, &mut state);
+        assert_eq!(state.turn_cleanup_pending, Some(8));
+
+        tx.send(8).unwrap();
+        drain_turn_cleanup_acks(&rx, &mut state);
+        assert_eq!(state.turn_cleanup_pending, None);
+    }
 
     #[test]
     fn dropping_cleanup_stops_and_joins_registered_workers() {

@@ -3,68 +3,6 @@
 use super::*;
 
 const STARTUP_CATALOG_WAIT: Duration = Duration::from_secs(12);
-const CATALOG_RETRY_BACKOFF: Duration = Duration::from_secs(5);
-
-#[derive(Debug)]
-pub(super) struct CatalogRecovery {
-    retry_at: Option<Instant>,
-    retry_available: bool,
-    terminal_reported: bool,
-}
-
-impl Default for CatalogRecovery {
-    fn default() -> Self {
-        Self {
-            retry_at: None,
-            retry_available: true,
-            terminal_reported: false,
-        }
-    }
-}
-
-impl CatalogRecovery {
-    fn catalog_present(&mut self) {
-        self.retry_at = None;
-        self.retry_available = true;
-        self.terminal_reported = false;
-    }
-
-    fn catalog_omitted(&mut self, now: Instant) {
-        if self.retry_at.is_some() {
-            return;
-        }
-        if self.retry_available {
-            self.retry_at = Some(now + CATALOG_RETRY_BACKOFF);
-            overlay::push_log(format!(
-                "(mcp) fallback catalog retry queued for an idle gap in {}s",
-                CATALOG_RETRY_BACKOFF.as_secs()
-            ));
-            telemetry::event(
-                "integration_catalog_retry_scheduled",
-                "runtime",
-                Privacy::Safe,
-                serde_json::json!({"backoff_ms": CATALOG_RETRY_BACKOFF.as_millis()}),
-            );
-        } else if !self.terminal_reported {
-            self.terminal_reported = true;
-            telemetry::typed_error(
-                "ERR_INTEGRATION_CATALOG_REACTIVATION_EXHAUSTED",
-                "runtime",
-                "the bounded full-catalog retry failed; the current connection remains usable without integration proxies",
-                serde_json::json!({"retry_limit": 1}),
-            );
-        }
-    }
-
-    pub(super) fn retry_due(&self, now: Instant) -> bool {
-        self.retry_at.is_some_and(|retry_at| now >= retry_at)
-    }
-
-    pub(super) fn begin_retry(&mut self) {
-        self.retry_at = None;
-        self.retry_available = false;
-    }
-}
 
 /// Wait only long enough to know the installed catalog's startup outcome. The
 /// microphone keeps buffering on its worker while this runs; unresolved workers
@@ -174,13 +112,25 @@ pub(super) fn connect_initial_session(key: &str, stop: &Arc<AtomicBool>) -> anyh
     Ok(socket)
 }
 
+fn complete_catalog_with_one_retry<T, E>(
+    mut connect: impl FnMut() -> Result<T, E>,
+    mut before_retry: impl FnMut(&E),
+) -> Result<T, (E, E)> {
+    match connect() {
+        Ok(connected) => Ok(connected),
+        Err(first_error) => {
+            before_retry(&first_error);
+            connect().map_err(|retry_error| (first_error, retry_error))
+        }
+    }
+}
+
 pub(super) fn activate_integrations(
     socket: &mut Sock,
     key: &str,
     target: Option<&str>,
     reconnects: &mut u32,
     state: &mut Reader,
-    catalog_recovery: &mut CatalogRecovery,
 ) -> anyhow::Result<bool> {
     super::super::mcp::clear_tools_changed();
     overlay::push_log("(mcp) health passed - reconnecting now to activate tools".to_string());
@@ -190,7 +140,6 @@ pub(super) fn activate_integrations(
         target,
         reconnects,
         state,
-        catalog_recovery,
         "integration_activation",
     )
 }
@@ -202,7 +151,6 @@ pub(super) fn reconnect_session(
     target: Option<&str>,
     reconnects: &mut u32,
     state: &mut Reader,
-    catalog_recovery: &mut CatalogRecovery,
     trigger: &str,
 ) -> anyhow::Result<bool> {
     let started = Instant::now();
@@ -233,44 +181,55 @@ pub(super) fn reconnect_session(
         }),
     );
     cancel_pending_for_transport_replacement(state);
-    let catalog_omitted = match uia_task::reconnect(key, None, true, false, true) {
-        Ok(s) => {
-            *socket = s;
-            false
-        }
-        Err(e) => {
+    flush_reply(state);
+    let reconnect_context = reconnect_setup_context(state);
+    let replacement = match complete_catalog_with_one_retry(
+        || {
+            uia_task::reconnect(
+                key,
+                None,
+                true,
+                false,
+                (!reconnect_context.is_empty()).then_some(reconnect_context.as_str()),
+            )
+        },
+        |first_error| {
             overlay::push_log(format!(
-                "reconnect failed: {e} - retrying without MCP tools"
+                "reconnect failed: {first_error} - retrying once with the complete tool catalog"
             ));
-            match uia_task::reconnect(key, None, true, false, false) {
-                Ok(s) => {
-                    *socket = s;
-                    true
-                }
-                Err(e2) => {
-                    overlay::push_log(format!("reconnect failed again: {e2}"));
-                    telemetry::typed_error(
-                        "ERR_SESSION_RECONNECT_FAILED",
-                        "runtime",
-                        "session reconnect failed with and without optional tools",
-                        serde_json::json!({
-                            "attempt": *reconnects,
-                            "first_error": e.to_string(),
-                            "fallback_error": e2.to_string(),
-                        }),
-                    );
-                    return Ok(false);
-                }
-            }
+            telemetry::event(
+                "session_reconnect_retry",
+                "runtime",
+                Privacy::Safe,
+                serde_json::json!({
+                    "attempt": *reconnects,
+                    "trigger": trigger,
+                    "catalog_policy": "complete",
+                    "retry_limit": 1,
+                }),
+            );
+        },
+    ) {
+        Ok(replacement) => replacement,
+        Err((first_error, retry_error)) => {
+            overlay::push_log(format!("reconnect failed again: {retry_error}"));
+            telemetry::typed_error(
+                "ERR_SESSION_RECONNECT_FAILED",
+                "runtime",
+                "session reconnect failed after one bounded retry with the complete tool catalog",
+                serde_json::json!({
+                    "attempt": *reconnects,
+                    "catalog_policy": "complete",
+                    "retry_limit": 1,
+                    "first_error": first_error.to_string(),
+                    "retry_error": retry_error.to_string(),
+                }),
+            );
+            return Ok(false);
         }
     };
-    if catalog_omitted {
-        catalog_recovery.catalog_omitted(Instant::now());
-    } else {
-        catalog_recovery.catalog_present();
-    }
+    *socket = replacement;
     state.connection_generation = state.connection_generation.saturating_add(1);
-    state.pending = Pending::default();
     let terminal_response_open = state.terminal_response.is_open();
     if super::terminal_drain::retire_for_connection_replacement(state) {
         telemetry::event(
@@ -287,7 +246,7 @@ pub(super) fn reconnect_session(
     }
     state.ignore_stale_boundary = false;
     state.nudged = false;
-    flush_reply(state);
+    super::speech_events::discard_generation_audio(state, "connection_replaced");
     match uia_task::snapshot(target) {
         Ok(frame) => {
             super::frames::send_snapshot(socket, &frame, "reconnect_reseed")?;
@@ -309,6 +268,8 @@ pub(super) fn reconnect_session(
                 "trigger": trigger,
                 "duration_ms": started.elapsed().as_millis(),
                 "connection_generation": state.connection_generation,
+                "history_chars": reconnect_context.chars().count(),
+                "history_entries": state.history.len(),
             }),
         );
         return Ok(true);
@@ -330,6 +291,8 @@ pub(super) fn reconnect_session(
         serde_json::json!({
             "attempt": *reconnects,
             "recap_chars": recap.chars().count(),
+            "history_chars": reconnect_context.chars().count(),
+            "history_entries": state.history.len(),
             "turn_mode": state.turn_mode.as_str(),
             "connection_generation": state.connection_generation,
             "trigger": trigger,
@@ -339,12 +302,32 @@ pub(super) fn reconnect_session(
     Ok(true)
 }
 
+fn reconnect_setup_context(state: &Reader) -> String {
+    const BUDGET: usize = 6000;
+    const ENTRY_BUDGET: usize = 2000;
+    let mut remaining = BUDGET;
+    let mut recent = Vec::new();
+    for entry in state.history.iter().rev() {
+        if remaining == 0 {
+            break;
+        }
+        let clipped = entry
+            .chars()
+            .take(remaining.min(ENTRY_BUDGET))
+            .collect::<String>();
+        remaining = remaining.saturating_sub(clipped.chars().count() + 1);
+        recent.push(clipped);
+    }
+    recent.reverse();
+    recent.join("\n")
+}
+
 fn active_reconnect_context(state: &Reader) -> String {
     const BUDGET: usize = 1000;
     const OUTCOME_BUDGET: usize = 220;
     let goal: String = state.last_cmd.trim().chars().take(500).collect();
     let mut parts = vec![format!("Committed task: {goal}")];
-    if state.turn_outcomes.has_transport_uncertainty() {
+    if state.reconciliation_required {
         parts.push(
             "A transport-replaced action has an unknown effect; inspect current state before deciding whether any retry is safe."
                 .to_string(),
@@ -361,22 +344,30 @@ fn active_reconnect_context(state: &Reader) -> String {
 }
 
 fn cancel_pending_for_transport_replacement(state: &mut Reader) -> bool {
-    let pending_tool = state.pending.tool.take();
+    let first_cancel_request = state.pending.id.is_some() && !state.pending.cancelled;
+    let pending_tool = state.pending.tool.clone();
     let cancelled = state.pending.request_cancel();
     if cancelled && let Some(pending_tool) = pending_tool {
-        state
-            .turn_outcomes
-            .record_transport_interruption(&pending_tool);
-        telemetry::event(
-            "pending_action_transport_interrupted",
-            "runtime",
-            Privacy::Safe,
-            serde_json::json!({
-                "tool": pending_tool,
-                "effect": "unknown",
-                "cancel_requested": true,
-            }),
-        );
+        let mutating = super::super::turn_policy::is_mutating_tool(&pending_tool);
+        let newly_reconciling = mutating && !state.reconciliation_required;
+        if mutating {
+            state.reconciliation_required = true;
+        }
+        if first_cancel_request || newly_reconciling {
+            state
+                .turn_outcomes
+                .record_transport_interruption(&pending_tool);
+            telemetry::event(
+                "pending_action_transport_interrupted",
+                "runtime",
+                Privacy::Safe,
+                serde_json::json!({
+                    "tool": pending_tool,
+                    "effect": "unknown",
+                    "cancel_requested": true,
+                }),
+            );
+        }
     }
     cancelled
 }
@@ -412,6 +403,36 @@ pub(super) fn wait_for_setup(socket: &mut Sock, stop: &Arc<AtomicBool>) -> anyho
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reconnect_setup_keeps_recent_conversation_without_creating_a_turn() {
+        let state = Reader {
+            history: vec![
+                "User: earlier subject".to_string(),
+                "Assistant: earlier answer".to_string(),
+                "User: latest follow-up".to_string(),
+            ],
+            ..Reader::default()
+        };
+        let context = reconnect_setup_context(&state);
+        assert!(context.contains("earlier subject"));
+        assert!(context.ends_with("User: latest follow-up"));
+        assert!(context.chars().count() <= 6000);
+    }
+
+    #[test]
+    fn one_large_entry_cannot_evict_the_prior_turn_context() {
+        let state = Reader {
+            history: vec![
+                "User: current subject and constraints".to_string(),
+                format!("Assistant: {}", "x".repeat(10_000)),
+            ],
+            ..Reader::default()
+        };
+        let context = reconnect_setup_context(&state);
+        assert!(context.contains("current subject and constraints"));
+        assert!(context.chars().count() <= 6000);
+    }
 
     #[test]
     fn reconnect_context_keeps_only_goal_and_structural_outcomes() {
@@ -455,6 +476,7 @@ mod tests {
             pending: Pending {
                 id: Some("pending-id".to_string()),
                 tool: Some("future_operation".to_string()),
+                turn_id: Some(1),
                 cancelled: false,
                 cancel: Some(cancel.clone()),
             },
@@ -464,6 +486,9 @@ mod tests {
         assert!(cancel_pending_for_transport_replacement(&mut state));
         assert!(cancel.load(Ordering::SeqCst));
         assert!(cancel_pending_for_transport_replacement(&mut state));
+        assert_eq!(state.pending.id.as_deref(), Some("pending-id"));
+        assert_eq!(state.pending.tool.as_deref(), Some("future_operation"));
+        assert!(state.reconciliation_required);
         let context = active_reconnect_context(&state);
         assert!(context.contains("future_operation=transport_interrupted_result_unknown"));
         assert!(context.contains("inspect current state"));
@@ -474,25 +499,59 @@ mod tests {
                 .count(),
             1
         );
+
+        let mut already_cancelled = Reader {
+            pending: Pending {
+                id: Some("barge-in-id".to_string()),
+                tool: Some("future_operation".to_string()),
+                turn_id: Some(1),
+                cancelled: true,
+                cancel: Some(Arc::new(AtomicBool::new(true))),
+            },
+            ..Reader::default()
+        };
+        assert!(cancel_pending_for_transport_replacement(
+            &mut already_cancelled
+        ));
+        assert!(already_cancelled.reconciliation_required);
+        assert!(
+            active_reconnect_context(&already_cancelled)
+                .contains("transport_interrupted_result_unknown")
+        );
     }
 
     #[test]
-    fn catalog_fallback_retries_once_after_backoff_then_becomes_terminal() {
-        let now = Instant::now();
-        let mut recovery = CatalogRecovery::default();
+    fn complete_catalog_retry_is_bounded_to_two_identical_attempts() {
+        let mut attempts = 0;
+        let mut retry_notices = 0;
+        let result = complete_catalog_with_one_retry(
+            || {
+                attempts += 1;
+                Err::<(), _>(format!("failure-{attempts}"))
+            },
+            |_| retry_notices += 1,
+        );
 
-        recovery.catalog_omitted(now);
-        assert!(!recovery.retry_due(now));
-        assert!(recovery.retry_due(now + CATALOG_RETRY_BACKOFF));
+        assert_eq!(attempts, 2);
+        assert_eq!(retry_notices, 1);
+        assert_eq!(
+            result,
+            Err(("failure-1".to_string(), "failure-2".to_string()))
+        );
+    }
 
-        recovery.begin_retry();
-        recovery.catalog_omitted(now + CATALOG_RETRY_BACKOFF);
-        assert!(!recovery.retry_due(now + CATALOG_RETRY_BACKOFF * 2));
-        assert!(!recovery.retry_available);
-        assert!(recovery.terminal_reported);
+    #[test]
+    fn complete_catalog_retry_recovers_without_a_third_attempt() {
+        let mut attempts = 0;
+        let result = complete_catalog_with_one_retry(
+            || {
+                attempts += 1;
+                if attempts == 1 { Err("first") } else { Ok(()) }
+            },
+            |_| {},
+        );
 
-        recovery.catalog_present();
-        assert!(recovery.retry_available);
-        assert!(!recovery.terminal_reported);
+        assert_eq!(result, Ok(()));
+        assert_eq!(attempts, 2);
     }
 }

@@ -1,6 +1,11 @@
 //! Types for Gemini Live LLM API
 
-use std::sync::mpsc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
+use std::time::{Duration, Instant};
 
 /// Events sent from worker to caller
 #[derive(Debug)]
@@ -43,6 +48,26 @@ pub struct LiveRequest {
     pub instruction: String,
     /// Whether to enable thinking display
     pub show_thinking: bool,
+    /// Per-request cancellation; does not interrupt unrelated pooled requests.
+    pub cancel_token: Option<Arc<AtomicBool>>,
+    /// Optional wall-clock boundary inherited from the caller.
+    pub deadline: Option<Instant>,
+}
+
+impl LiveRequest {
+    pub fn is_cancelled_or_expired(&self) -> bool {
+        self.cancel_token
+            .as_ref()
+            .is_some_and(|token| token.load(Ordering::SeqCst))
+            || self
+                .deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+    }
+
+    pub fn remaining(&self) -> Option<Duration> {
+        self.deadline
+            .map(|deadline| deadline.saturating_duration_since(Instant::now()))
+    }
 }
 
 /// Queued request with generation tracking for interrupts

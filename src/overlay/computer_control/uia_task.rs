@@ -28,26 +28,31 @@ use super::uia::{self, UiElement};
 mod anchors;
 mod brain;
 mod browser_dispatch;
-mod completion_evidence;
 mod dispatch;
 mod dispatch_guard;
-mod evidence_provenance;
+mod dispatch_telemetry;
+mod exact_edit_guard;
+mod executable_provenance;
 mod frame_identity;
+mod harness_options;
+mod keyboard_target_gate;
 mod perception;
 mod postcondition;
 mod prompt;
 mod receipts;
 mod render;
+mod resource_authorization;
 mod review;
 mod setup_guard;
 mod snapshot;
+mod structural_authorization;
+mod structural_edit;
+mod tab_ownership;
 #[cfg(test)]
 mod turn_state_tests;
 mod vision;
 mod vision_verify;
 use anchors::*;
-use completion_evidence::CompletionEvidence;
-use evidence_provenance::EvidenceProvenance;
 pub(in crate::overlay::computer_control) use frame_identity::FrameSource;
 use perception::*;
 use postcondition::*;
@@ -74,10 +79,10 @@ pub(super) fn reconnect(
     resume: Option<&str>,
     voice: bool,
     search: bool,
-    include_integrations: bool,
+    reconnect_context: Option<&str>,
 ) -> Result<Sock> {
     let mut s = connect_ws(key).context("reconnect")?;
-    let setup = prompt::build_setup_with_integrations(resume, voice, search, include_integrations);
+    let setup = prompt::build_setup_with_context(resume, voice, search, reconnect_context);
     super::telemetry::record_model_setup(&setup, "reconnect");
     send(&mut s, setup)?;
     wait_for_setup(&mut s)?;
@@ -115,6 +120,10 @@ pub(super) struct Brain {
     /// Exact browser tab selected during this user turn. Never crosses turns.
     controlled_tab_id: Option<i64>,
     controlled_document_id: Option<String>,
+    /// Browser tabs opened for incidental work in this user turn. They retire
+    /// through an identity-bound, verified lease unless the model explicitly
+    /// selected persistent lifetime.
+    turn_tabs: tab_ownership::TurnTabOwnership,
     recent_actions: Vec<String>,
     /// Structural action+state signatures for which recovery vision was already
     /// attempted this turn. Prevents unchanged frames from producing repeated
@@ -128,9 +137,13 @@ pub(super) struct Brain {
     /// Compact "what I just did" trail (last few actions + outcomes) so the model
     /// keeps the thread of a multi-step task.
     trail: Vec<String>,
-    /// Direct, sanitized capability results used only by the independent done
-    /// verifier. Never included in the acting model's normal grounding context.
-    completion_evidence: CompletionEvidence,
+    /// Prevents a rejected exact-file transaction from being recreated through
+    /// a broader mutation tool during the same turn.
+    exact_edit_guard: exact_edit_guard::ExactEditGuard,
+    /// Bounded user-authored request history used only by the independent
+    /// structural-mutation request-contract checkpoint.
+    structural_authorization: structural_authorization::StructuralAuthorization,
+    resource_authorization: resource_authorization::ResourceAuthorization,
     /// Seconds spent in consecutive `wait` calls (reset by any other action), to
     /// tell the model how long it's been waiting on an async result.
     wait_accum: f64,
@@ -148,6 +161,7 @@ pub(super) struct Brain {
     /// cover labels, values, or other evidence the model needs to read.
     show_coarse_grid: bool,
     setup_guard: setup_guard::SetupGuard,
+    keyboard_target_gate: keyboard_target_gate::KeyboardTargetGate,
 }
 
 /// Result of grounding after an action: the frame to send, the textual state, and
@@ -217,6 +231,7 @@ pub fn run(task: &str) -> Result<()> {
 
     let cancel = Arc::new(AtomicBool::new(false));
     let mut brain = Brain::new(pinned_target);
+    brain.record_user_request(0, task);
     // Turn 0 (no pending tool): send the VIEW crop, then the state + task.
     let (b0, st0) = brain.initial()?;
     send(&mut socket, realtime_video_jpeg_b64(&b0))?;
@@ -277,7 +292,7 @@ pub fn run(task: &str) -> Result<()> {
                     break;
                 }
                 eprintln!("[cc] reconnecting #{reconnects} (fresh session + re-seed)");
-                match reconnect(&key, None, false, false, true) {
+                match reconnect(&key, None, false, false, None) {
                     Ok(s) => socket = s,
                     Err(e) => {
                         eprintln!("[cc] reconnect failed: {e}");
@@ -324,68 +339,53 @@ state shown below.\n{}",
                     );
 
                     if name == "done" {
-                        // Verify INDEPENDENTLY with the high-res vision model (the
-                        // Live agent confabulates success, so it cannot judge itself).
-                        let check = brain.verify_done(task, &cancel);
-                        let ok = check.complete;
-                        let verifier_unavailable = check.unavailable;
-                        let verdict = check.verdict;
-                        eprintln!("[cc] DONE-claim verdict: {verdict}");
-                        if ok {
-                            brain.final_review(task, &verdict);
-                            send(&mut socket, tool_response(&id, &name, json!({"ok": true})))?;
-                            super::telemetry::event(
-                                "turn_summary",
-                                "runtime",
-                                super::telemetry::Privacy::Safe,
-                                json!({"outcome": "done", "steps": brain.step}),
-                            );
-                            record_focused_session_end("completed", "accepted_done", brain.step);
-                            return Ok(());
-                        }
-                        if verifier_unavailable {
-                            super::telemetry::typed_error(
-                                "ERR_DONE_VERIFIER_UNAVAILABLE",
-                                "done_verifier",
-                                "independent completion verification was unavailable",
-                                json!({"verdict": verdict}),
-                            );
-                            brain.final_review(task, "completion verifier unavailable");
-                            record_focused_session_end(
-                                "failed",
-                                "done_verifier_unavailable",
-                                brain.step,
-                            );
-                            anyhow::bail!("completion verifier unavailable");
-                        }
-                        let g = brain.ground(&name, &args)?;
-                        let resp = json!({
-                            "ok": false,
-                            "independent_check": verdict,
-                            "instruction": "An independent high-res check says the goal is NOT yet achieved (see \
-                        above). Do not finish - keep working until it is actually done.",
-                            "new_state": g.state_text,
-                        });
-                        send(&mut socket, tool_response(&id, &name, resp))?; // answer first
-                        send(&mut socket, realtime_video_jpeg_b64(&g.frame_b64))?; // then frame
-                        continue;
+                        let summary = args
+                            .get("summary")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .trim()
+                            .chars()
+                            .take(320)
+                            .collect::<String>();
+                        brain.retire_session_completed();
+                        send(
+                            &mut socket,
+                            tool_response(
+                                &id,
+                                &name,
+                                json!({
+                                    "ok": true,
+                                    "completion_status": "model_declared",
+                                    "summary": summary,
+                                }),
+                            ),
+                        )?;
+                        super::telemetry::event(
+                            "turn_summary",
+                            "runtime",
+                            super::telemetry::Privacy::Safe,
+                            json!({"outcome": "done", "steps": brain.step}),
+                        );
+                        record_focused_session_end("completed", "accepted_done", brain.step);
+                        return Ok(());
                     }
 
-                    let action_result = brain.dispatch(&name, &args, &ctx, &cancel, None);
+                    let action_result = brain.dispatch(&name, &args, &ctx, &cancel, None, false);
                     let g = brain.ground(&name, &args)?;
                     let execution_ok = action_result.get("ok").and_then(Value::as_bool);
-                    let effect_verified = action_result
-                        .get("effect_verified")
-                        .and_then(Value::as_bool)
-                        == Some(true);
+                    let mutating = super::turn_policy::is_mutating_tool(&name);
+                    let effect_status = super::effect_receipt::EffectStatus::after_dispatch(
+                        &action_result,
+                        mutating,
+                    );
                     let recovery_advice = (execution_ok != Some(false)
                         && g.postcondition.request_advice())
                     .then(|| brain.stuck_advice(task, &cancel))
                     .flatten();
                     let postcondition = g.postcondition.response(
                         execution_ok,
-                        super::turn_policy::is_mutating_tool(&name),
-                        effect_verified,
+                        mutating,
+                        effect_status,
                         recovery_advice,
                     );
                     let mut resp = json!({
@@ -395,33 +395,50 @@ state shown below.\n{}",
                         "postcondition": postcondition,
                     });
                     if execution_ok == Some(false)
-                        || (g.postcondition.detected_no_effect() && !effect_verified)
+                        || (g.postcondition.detected_no_effect() && !effect_status.is_verified())
                     {
                         resp["ok"] = json!(false);
                     } else if let Some(ok) = execution_ok {
                         resp["ok"] = json!(ok);
                     }
+                    effect_status.annotate(&mut resp);
                     send(&mut socket, tool_response(&id, &name, resp))?; // answer first
                     send(&mut socket, realtime_video_jpeg_b64(&g.frame_b64))?; // then the new frame
                 }
                 ServerEvent::TurnComplete => {
-                    let boundary = classify_autonomous_boundary(&mut tool_since_boundary);
-                    if boundary == AutonomousBoundary::ToolGeneration {
-                        continue;
-                    }
-                    let text = reasoning.trim();
-                    if !text.is_empty() {
-                        eprintln!(
-                            "[cc] turn ended without a tool: {}",
-                            text.chars().take(240).collect::<String>()
-                        );
+                    match classify_autonomous_boundary(
+                        &mut tool_since_boundary,
+                        !reasoning.trim().is_empty(),
+                    ) {
+                        AutonomousBoundary::ToolGeneration => continue,
+                        AutonomousBoundary::Complete => {
+                            let text = reasoning.trim();
+                            eprintln!(
+                                "[cc] final response: {}",
+                                text.chars().take(240).collect::<String>()
+                            );
+                            brain.retire_session_completed();
+                            super::telemetry::event(
+                                "turn_summary",
+                                "runtime",
+                                super::telemetry::Privacy::Safe,
+                                json!({"outcome": "model_turn_complete", "steps": brain.step}),
+                            );
+                            record_focused_session_end(
+                                "completed",
+                                "model_turn_complete",
+                                brain.step,
+                            );
+                            return Ok(());
+                        }
+                        AutonomousBoundary::SilentStop => {}
                     }
                     reasoning.clear();
-                    stop_reason = "turn_complete_without_tool";
+                    stop_reason = "silent_turn_complete_without_tool";
                     super::telemetry::typed_error(
-                        "ERR_AUTONOMOUS_TURN_UNVERIFIED",
+                        "ERR_AUTONOMOUS_TURN_SILENT",
                         "runtime",
-                        "model ended an autonomous task turn without a tool or accepted completion",
+                        "model ended an autonomous task turn without a tool or user-visible response",
                         json!({"steps": brain.step}),
                     );
                     break 'task_loop;
@@ -451,15 +468,23 @@ fn record_focused_session_end(outcome: &str, reason: &str, steps: usize) {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AutonomousBoundary {
     ToolGeneration,
-    Stop,
+    Complete,
+    SilentStop,
 }
 
-fn classify_autonomous_boundary(tool_since_boundary: &mut bool) -> AutonomousBoundary {
+fn classify_autonomous_boundary(
+    tool_since_boundary: &mut bool,
+    output_seen: bool,
+) -> AutonomousBoundary {
     if *tool_since_boundary {
         *tool_since_boundary = false;
         return AutonomousBoundary::ToolGeneration;
     }
-    AutonomousBoundary::Stop
+    if output_seen {
+        AutonomousBoundary::Complete
+    } else {
+        AutonomousBoundary::SilentStop
+    }
 }
 
 /// CLI: read the foreground window with the aux vision stack and print the
@@ -519,15 +544,19 @@ mod tests {
     use super::{AutonomousBoundary, classify_autonomous_boundary};
 
     #[test]
-    fn autonomous_boundary_never_manufactures_a_new_user_turn() {
+    fn autonomous_boundary_finishes_once_without_manufacturing_a_new_user_turn() {
         let mut tool = true;
         assert_eq!(
-            classify_autonomous_boundary(&mut tool),
+            classify_autonomous_boundary(&mut tool, true),
             AutonomousBoundary::ToolGeneration
         );
         assert_eq!(
-            classify_autonomous_boundary(&mut tool),
-            AutonomousBoundary::Stop
+            classify_autonomous_boundary(&mut tool, true),
+            AutonomousBoundary::Complete
+        );
+        assert_eq!(
+            classify_autonomous_boundary(&mut tool, false),
+            AutonomousBoundary::SilentStop
         );
     }
 }

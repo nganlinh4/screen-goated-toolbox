@@ -6,8 +6,8 @@
 //! marks all `SendInput` with `LLKHF_INJECTED` regardless of trajectory.
 //!
 //! Everything is cancellable: the cursor loop and the typing loop poll a shared
-//! `CANCEL` flag between every emitted micro-step, so a spoken "stop" halts a
-//! click mid-travel or typing mid-word within ~10ms.
+//! `CANCEL` flag between every emitted micro-step, so a cancellation request
+//! halts a click mid-travel or typing mid-word within ~10ms.
 //!
 //! No external RNG dependency — a tiny xorshift PRNG is seeded from `getrandom`,
 //! with Box-Muller normal / log-normal draws (the timing realism, not crypto).

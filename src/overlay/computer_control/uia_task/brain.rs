@@ -2,16 +2,14 @@
 
 use super::*;
 impl Brain {
-    pub(crate) fn bind_action(&mut self, action: super::super::telemetry::ActionTrace) {
-        self.active_action = Some(action);
-    }
-
-    pub(crate) fn begin_job(&mut self, turn_id: u64, source_frame: Option<FrameSource>) {
+    pub(crate) fn begin_job(
+        &mut self,
+        turn_id: u64,
+        source_frame: Option<FrameSource>,
+        inherit_evidence: bool,
+    ) {
         self.setup_guard.begin_turn(turn_id);
         if self.current_turn_id == Some(turn_id) {
-            if let Some(source) = source_frame.as_ref() {
-                self.completion_evidence.record_provider_source(source);
-            }
             if let Some(FrameSource {
                 surface:
                     super::super::controller::world::SurfaceIdentity::Browser {
@@ -27,6 +25,9 @@ impl Brain {
             }
             self.source_frame = source_frame;
             return;
+        }
+        if self.current_turn_id.is_some() {
+            self.retire_owned_tabs(super::tab_ownership::RetirementReason::Superseded);
         }
         self.current_turn_id = Some(turn_id);
         let browser_source = source_frame
@@ -47,11 +48,11 @@ impl Brain {
         self.advice_latches.clear();
         self.prev_state_sig = None;
         self.trail.clear();
-        self.completion_evidence.clear();
-        if let Some(source) = self.source_frame.clone() {
-            self.completion_evidence.record_job_source(&source);
-            self.completion_evidence.record_provider_source(&source);
-        }
+        self.exact_edit_guard.reset();
+        self.resource_authorization
+            .begin_turn(turn_id, inherit_evidence);
+        self.structural_authorization
+            .begin_turn(turn_id, inherit_evidence);
         self.wait_accum = 0.0;
         self.last_click = None;
         self.click_before = None;
@@ -60,24 +61,48 @@ impl Brain {
         self.view = window_view(self.target.as_deref(), false);
         self.show_coarse_grid = false;
         self.controller
-            .set_browser_tab_target(self.controlled_tab_id);
+            .bind_source_surface(self.source_frame.as_ref().map(|source| &source.surface));
         self.clear_anchors("new_turn");
     }
 
     pub(crate) fn retire_turn(&mut self, turn_id: u64) {
         if self.current_turn_id == Some(turn_id) {
-            self.active_action = None;
-            self.controlled_tab_id = None;
-            self.controlled_document_id = None;
-            self.source_frame = None;
-            self.controller.set_browser_tab_target(None);
-            self.setup_guard.retire();
+            self.retire_owned_tabs(super::tab_ownership::RetirementReason::Completed);
+            self.clear_retired_turn_state();
         }
     }
 
+    pub(crate) fn interrupt_turn(&mut self, turn_id: u64) {
+        if self.current_turn_id == Some(turn_id) {
+            self.retire_owned_tabs(super::tab_ownership::RetirementReason::Interrupted);
+            self.clear_retired_turn_state();
+        }
+    }
+
+    pub(crate) fn retire_session_completed(&mut self) {
+        self.retire_owned_tabs(super::tab_ownership::RetirementReason::Completed);
+        self.clear_retired_turn_state();
+    }
+
+    pub(super) fn retire_owned_tabs(&mut self, reason: super::tab_ownership::RetirementReason) {
+        self.turn_tabs
+            .retire(self.current_turn_id, reason)
+            .record_telemetry();
+    }
+
+    fn clear_retired_turn_state(&mut self) {
+        self.active_action = None;
+        self.controlled_tab_id = None;
+        self.controlled_document_id = None;
+        self.source_frame = None;
+        self.current_turn_id = None;
+        self.controller.release_turn_target();
+        self.setup_guard.retire();
+        self.exact_edit_guard.reset();
+        self.keyboard_target_gate.reset();
+    }
+
     pub fn new(target: Option<String>) -> Self {
-        // Frames, clicks and structured events share one session-scoped folder.
-        // The session suffix is mandatory even when CC_TRACE_DIR is overridden.
         super::super::telemetry::begin_session();
         let trace_dir = super::super::telemetry::trace_dir();
         if let Err(error) = std::fs::create_dir_all(&trace_dir) {
@@ -91,7 +116,7 @@ impl Brain {
         let dir = trace_dir.to_string_lossy().into_owned();
         let requested_target = target.clone();
         let view = window_view(target.as_deref(), false);
-        let dry = std::env::var("CC_DRY").is_ok();
+        let dry = super::harness_options::dry_run_requested();
         let desktop = uia::virtual_desktop();
         super::super::telemetry::record_session_start(json!({
             "app_version": env!("CARGO_PKG_VERSION"),
@@ -104,7 +129,7 @@ impl Brain {
             "arch": std::env::consts::ARCH,
             "virtual_desktop": [desktop.0, desktop.1, desktop.2, desktop.3],
             "initial_view": [view.x, view.y, view.w, view.h],
-            "executable": executable_provenance(),
+            "executable": super::executable_provenance::capture(),
         }));
         let controller = super::super::controller::Controller::new(target.clone());
         Self {
@@ -123,18 +148,23 @@ impl Brain {
             source_frame: None,
             controlled_tab_id: None,
             controlled_document_id: None,
+            turn_tabs: super::tab_ownership::TurnTabOwnership::default(),
             recent_actions: Vec::new(),
             advice_latches: Vec::new(),
             prev_state_sig: None,
             click_before: None,
             trail: Vec::new(),
-            completion_evidence: CompletionEvidence::default(),
+            exact_edit_guard: super::exact_edit_guard::ExactEditGuard::default(),
+            structural_authorization:
+                super::structural_authorization::StructuralAuthorization::default(),
+            resource_authorization: super::resource_authorization::ResourceAuthorization::default(),
             wait_accum: 0.0,
             anchors: Vec::new(),
             next_anchor_id: 1,
             controller,
             show_coarse_grid: false,
             setup_guard: super::setup_guard::SetupGuard::default(),
+            keyboard_target_gate: super::keyboard_target_gate::KeyboardTargetGate::default(),
         }
     }
 
@@ -143,11 +173,11 @@ impl Brain {
         action: super::super::telemetry::ActionTrace,
         name: &str,
         args: &Value,
-        result: Value,
-        evidence_provenance: EvidenceProvenance,
+        mut result: Value,
         started: Instant,
     ) -> Value {
         self.setup_guard.record_result(name, &result);
+        self.exact_edit_guard.record_result(name, args, &mut result);
         let dispatch_ms = started.elapsed().as_millis();
         let settle_ms = if matches!(name, "open_url" | "launch_app") {
             1100
@@ -213,6 +243,8 @@ impl Brain {
                 "blocked": result.get("blocked"),
                 "error": result.get("error"),
                 "code": result.get("code"),
+                "failure": dispatch_telemetry::structural_failure(&result),
+                "response": dispatch_telemetry::response_size(&result),
                 "input_injection": super::super::executor::input_injection(&result),
                 "timing": {
                     "dispatch_ms": dispatch_ms,
@@ -231,8 +263,6 @@ impl Brain {
             self.controller.invalidate();
         }
         super::receipts::push_result(&mut self.trail, name, &result);
-        self.completion_evidence
-            .record_dispatch(name, args, &result, evidence_provenance);
         self.wait_accum = if name == "wait" {
             self.wait_accum
                 + result
@@ -245,9 +275,6 @@ impl Brain {
         result
     }
 
-    /// Per-turn grounding context the model gets above the element list: where it
-    /// is (window), where the cursor is + what's under it, what it just did, and
-    /// how long it's been waiting. Cheap situational awareness.
     fn context_block(&self) -> String {
         let (title, cx, cy) = uia::pointer_context();
         let title: String = if title.is_empty() {
@@ -260,8 +287,11 @@ impl Brain {
         } else {
             self.trail.join("  |  ")
         };
-        let mut s =
-            format!("Active window: {title}\nCursor at ({cx},{cy})\nYour recent actions: {trail}");
+        let keyboard_target =
+            uia::foreground_stable_target().unwrap_or_else(|| "(unknown)".to_string());
+        let mut s = format!(
+            "Active window: {title}\nKeyboard target: {keyboard_target}\nCursor at ({cx},{cy})\nYour recent actions: {trail}"
+        );
         if self.wait_accum > 0.0 {
             s.push_str(&format!(
                 "\nWaited {:.0}s so far on this - if nothing has changed, stop waiting and act.",
@@ -275,8 +305,7 @@ impl Brain {
     pub fn initial(&mut self) -> Result<(String, String)> {
         let semantic = self.semantic_surface_state();
         let has_semantic_surface = semantic.is_some();
-        let native = semantic
-            .is_none()
+        let native = (semantic.is_none() && !super::super::browser::input_active())
             .then(|| native_perception(self.target.as_deref()));
         let elements = native
             .as_ref()
@@ -289,7 +318,7 @@ impl Brain {
             .or_else(|| native.as_ref().and_then(|state| state.surface.as_ref()));
         let detector_start_id = (!has_semantic_surface
             && self.anchors.is_empty()
-            && current_surface_identity().is_some()
+            && current_surface_identity(self.target.as_deref()).is_some()
             && detector_surface_blind(&elements, self.view)
             && super::super::detector::available())
         .then_some(self.next_anchor_id);
@@ -356,15 +385,9 @@ impl Brain {
         Ok((b, state))
     }
 
-    /// Re-ground after an action: re-resolve the view (foreground-follow unless
-    /// zoomed), render a marked frame, format state, and produce one typed
-    /// postcondition assessment from the visual/accessibility delta.
+    /// Re-ground and derive one typed visual/accessibility postcondition.
     pub fn ground(&mut self, name: &str, args: &Value) -> Result<Grounded> {
         let action = self.active_action.take();
-        // Read-only capabilities already return their own evidence, so a second
-        // accessibility dump would only bury it. Every state-changing or unknown
-        // capability is grounded; the central classifier defaults future tools
-        // to mutating instead of relying on a local exception list.
         let suppress_readouts = !super::super::turn_policy::is_mutating_tool(name);
         let semantic = self.semantic_surface_state();
         let (elements, accessibility_observed, perception_surface) = if suppress_readouts {
@@ -374,8 +397,7 @@ impl Brain {
                 semantic.as_ref().map(|state| state.identity.clone()),
             )
         } else {
-            let native = semantic
-                .is_none()
+            let native = (semantic.is_none() && !super::super::browser::input_active())
                 .then(|| native_perception(self.target.as_deref()));
             let elements = native
                 .as_ref()
@@ -388,13 +410,11 @@ impl Brain {
                 .or_else(|| native.as_ref().and_then(|state| state.surface.clone()));
             (elements, observed, surface)
         };
-        // Every capture defines a new coordinate-evidence frame. Existing bound
-        // marks cannot be silently redrawn and assigned that new frame id.
         self.invalidate_bound_anchors_for_new_frame();
         let detector_start_id = (!suppress_readouts
             && semantic.is_none()
             && self.anchors.is_empty()
-            && current_surface_identity().is_some()
+            && current_surface_identity(self.target.as_deref()).is_some()
             && detector_surface_blind(&elements, self.view)
             && super::super::detector::available())
         .then_some(self.next_anchor_id);
@@ -456,13 +476,6 @@ impl Brain {
         } else if !self.anchors.is_empty() {
             self.bind_pending_anchors(frame_id, v, surface);
         }
-        if let Some(state) = &semantic {
-            self.completion_evidence.record_grounded_surface(
-                &state.title,
-                &state.url,
-                &state.identity,
-            );
-        }
         if suppress_readouts {
             eprintln!(
                 "[cc] step {:02} (info tool; screen readouts suppressed)",
@@ -475,10 +488,8 @@ impl Brain {
                 postcondition: GroundPostcondition::default(),
             });
         }
-        // Did the click change ITS OWN target cell? Compare the region snapshot
-        // taken just before the click (`click_before`) to the same region now
-        // (`fp`, fingerprinted around the click point). Localized, so a timer or
-        // animation elsewhere doesn't fool it. Only set for click_at/click_target.
+        // Compare the click's own pre/post region so unrelated animation cannot
+        // fake an effect. Only click_at/click_target sets this snapshot.
         let visual_no_change = match self.click_before.take() {
             Some(before) => session::fingerprint_change(&before, &fp) < vc_min(),
             None => false,
@@ -514,11 +525,7 @@ impl Brain {
         let ui_changed = self.prev_state_sig.as_deref() != Some(new_sig.as_str());
         self.prev_state_sig = Some(new_sig.clone());
         let act_sig = record_action(&mut self.recent_actions, name, args);
-        // Repeating an action is only STUCK if nothing is changing. Paging through a
-        // long page (scroll down, down, down) legitimately repeats while NEW content
-        // keeps appearing - so gate on !ui_changed: a real loop (click not landing,
-        // or scrolled to the very bottom) stops changing the accessible state, while
-        // productive scrolling keeps changing it. Nav keys are exempt outright.
+        // Repetition is stuck only when state is unchanged; navigation may reveal new content.
         let is_nav = name == "key_combination"
             && args
                 .get("keys")
@@ -564,37 +571,4 @@ impl Brain {
             postcondition,
         })
     }
-}
-
-fn executable_provenance() -> Value {
-    use sha2::{Digest, Sha256};
-    use std::io::Read;
-
-    let Ok(path) = std::env::current_exe() else {
-        return json!({"error": "current executable path unavailable"});
-    };
-    let metadata = std::fs::metadata(&path).ok();
-    let modified_ms = metadata
-        .as_ref()
-        .and_then(|value| value.modified().ok())
-        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|value| value.as_millis());
-    let sha256 = std::fs::File::open(&path).ok().and_then(|mut file| {
-        let mut hasher = Sha256::new();
-        let mut buffer = [0_u8; 64 * 1024];
-        loop {
-            let count = file.read(&mut buffer).ok()?;
-            if count == 0 {
-                break;
-            }
-            hasher.update(&buffer[..count]);
-        }
-        Some(format!("{:x}", hasher.finalize()))
-    });
-    json!({
-        "path": path,
-        "byte_count": metadata.map(|value| value.len()),
-        "modified_unix_ms": modified_ms,
-        "sha256": sha256,
-    })
 }

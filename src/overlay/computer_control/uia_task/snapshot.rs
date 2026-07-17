@@ -30,7 +30,7 @@ pub(in crate::overlay::computer_control) fn snapshot(
     let (elements, accessibility_observed) = if browser_structured {
         (Vec::new(), true)
     } else {
-        match uia::enumerate(target) {
+        match uia::enumerate_best_effort(target) {
             Ok(elements) => (elements, true),
             Err(_) => (Vec::new(), false),
         }

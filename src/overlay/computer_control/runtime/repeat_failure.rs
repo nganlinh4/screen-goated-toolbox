@@ -1,4 +1,4 @@
-//! Turn-scoped circuit for repeatedly equivalent structured tool failures.
+//! Turn-scoped circuit for repeatedly equivalent structured tool outcomes.
 
 use std::collections::VecDeque;
 
@@ -7,7 +7,11 @@ use serde_json::{Value, json};
 use super::super::controller::world::SurfaceIdentity;
 
 const MAX_FAILURE_KEYS: usize = 32;
+const MAX_STABLE_PROCESS_KEYS: usize = 32;
+const MAX_STALE_SURFACE_KEYS: usize = 8;
 const FAILURE_LIMIT: u8 = 2;
+const STABLE_PROCESS_LIMIT: u8 = 3;
+const STALE_SURFACE_LIMIT: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FailureKey {
@@ -22,19 +26,40 @@ struct FailureEntry {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StableProcessKey {
+    request: u64,
+    result: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StableProcessEntry {
+    key: StableProcessKey,
+    count: u8,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StaleSurfaceEntry {
+    key: u64,
+    count: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DispatchOutcome {
     Succeeded,
     Failed(u64),
     Ambiguous,
 }
 
-/// Allows one retry of the same operation and arguments after a failure. A
-/// third equivalent attempt is stopped only when the same structured failure
-/// class was observed twice during the same user turn.
+/// Allows one retry of an equivalent structured failure. It also bounds an
+/// exact process whose same unverified result was already observed three times.
+/// Changed arguments, changed results, new turns, and verified progress retain
+/// their own budgets.
 #[derive(Debug, Default)]
 pub(super) struct RepeatFailureGuard {
     turn_id: Option<u64>,
     failures: VecDeque<FailureEntry>,
+    stable_processes: VecDeque<StableProcessEntry>,
+    stale_surfaces: VecDeque<StaleSurfaceEntry>,
 }
 
 impl RepeatFailureGuard {
@@ -47,19 +72,55 @@ impl RepeatFailureGuard {
     ) -> Option<Value> {
         self.begin_turn(turn_id);
         let request = request_fingerprint(operation, arguments, surface);
-        self.failures
+        if is_indexed_action(operation)
+            && let Some(key) = indexed_browser_surface_key(surface)
+            && self
+                .stale_surfaces
+                .iter()
+                .any(|entry| entry.key == key && entry.count >= STALE_SURFACE_LIMIT)
+        {
+            return Some(json!({
+                "ok": false,
+                "code": "ERR_STALE_SURFACE_RETRY_LIMIT",
+                "error": "Indexed browser targets changed before dispatch twice on this surface.",
+                "executed": false,
+                "status": "blocked_stale_surface_loop",
+                "effect_may_have_occurred": false,
+                "retryable": false,
+                "instruction": "Do not use act or do_steps again on this unchanged surface this turn. Use a non-indexed current-frame or direct-provider route, or report the blocker once.",
+            }));
+        }
+        if self
+            .failures
             .iter()
             .any(|entry| entry.key.request == request && entry.count >= FAILURE_LIMIT)
+        {
+            return Some(json!({
+                "ok": false,
+                "code": "ERR_EQUIVALENT_FAILURE_LIMIT",
+                "error": "An equivalent operation returned the same structured failure twice during this user turn.",
+                "executed": false,
+                "status": "blocked_repeat_failure",
+                "effect_may_have_occurred": false,
+                "retryable": false,
+                "instruction": "Do not repeat this operation with equivalent arguments again this turn. Change the operation or arguments only when current evidence justifies it; otherwise report the blocker once.",
+            }));
+        }
+        self.stable_processes
+            .iter()
+            .any(|entry| {
+                entry.key.request == request && entry.count >= STABLE_PROCESS_LIMIT
+            })
             .then(|| {
                 json!({
                     "ok": false,
-                    "code": "ERR_EQUIVALENT_FAILURE_LIMIT",
-                    "error": "An equivalent operation returned the same structured failure twice during this user turn.",
+                    "code": "ERR_EQUIVALENT_UNVERIFIED_RESULT_LIMIT",
+                    "error": "An equivalent exact process returned the same unverified result three times during this user turn.",
                     "executed": false,
-                    "status": "blocked_repeat_failure",
+                    "status": "blocked_repeat_result",
                     "effect_may_have_occurred": false,
                     "retryable": false,
-                    "instruction": "Do not repeat this operation with equivalent arguments again this turn. Change the operation or arguments only when current evidence justifies it; otherwise report the blocker once.",
+                    "instruction": "Do not run this exact process again this turn. Use existing evidence, verify with a different authoritative source, or change the operation only when current evidence justifies it.",
                 })
             })
     }
@@ -77,13 +138,18 @@ impl RepeatFailureGuard {
     ) -> bool {
         self.begin_turn(turn_id);
         let request = request_fingerprint(operation, arguments, surface);
+        let stale_surface_limit = self.observe_stale_surface(operation, surface, result);
         let class = match dispatch_outcome(result) {
             DispatchOutcome::Succeeded => {
                 self.failures.retain(|entry| entry.key.request != request);
-                return false;
+                return self.observe_stable_process(request, result) || stale_surface_limit;
             }
-            DispatchOutcome::Failed(class) => class,
-            DispatchOutcome::Ambiguous => return false,
+            DispatchOutcome::Failed(class) => {
+                self.stable_processes
+                    .retain(|entry| entry.key.request != request);
+                class
+            }
+            DispatchOutcome::Ambiguous => return stale_surface_limit,
         };
         let key = FailureKey { request, class };
         if let Some(index) = self.failures.iter().position(|entry| entry.key == key) {
@@ -91,22 +157,128 @@ impl RepeatFailureGuard {
             entry.count = entry.count.saturating_add(1);
             let reached_limit = entry.count == FAILURE_LIMIT;
             self.failures.push_back(entry);
-            reached_limit
+            reached_limit || stale_surface_limit
         } else {
             self.failures.push_back(FailureEntry { key, count: 1 });
             while self.failures.len() > MAX_FAILURE_KEYS {
                 self.failures.pop_front();
             }
-            false
+            stale_surface_limit
         }
+    }
+
+    /// A verified world-state change makes earlier failures stale. The same
+    /// request may now have a different outcome, so it receives a fresh bounded
+    /// retry budget.
+    pub(super) fn clear_after_verified_progress(&mut self, turn_id: u64) -> bool {
+        self.begin_turn(turn_id);
+        let cleared = !self.failures.is_empty()
+            || !self.stable_processes.is_empty()
+            || !self.stale_surfaces.is_empty();
+        self.failures.clear();
+        self.stable_processes.clear();
+        self.stale_surfaces.clear();
+        cleared
+    }
+
+    fn observe_stale_surface(
+        &mut self,
+        operation: &str,
+        surface: Option<&SurfaceIdentity>,
+        result: &Value,
+    ) -> bool {
+        if !is_indexed_action(operation)
+            || result.get("code").and_then(Value::as_str) != Some("ERR_BROWSER_STALE_TARGET")
+        {
+            return false;
+        }
+        let Some(key) = indexed_browser_surface_key(surface) else {
+            return false;
+        };
+        if let Some(entry) = self
+            .stale_surfaces
+            .iter_mut()
+            .find(|entry| entry.key == key)
+        {
+            entry.count = entry.count.saturating_add(1);
+            return entry.count == STALE_SURFACE_LIMIT;
+        }
+        self.stale_surfaces
+            .push_back(StaleSurfaceEntry { key, count: 1 });
+        while self.stale_surfaces.len() > MAX_STALE_SURFACE_KEYS {
+            self.stale_surfaces.pop_front();
+        }
+        false
+    }
+
+    fn observe_stable_process(&mut self, request: u64, result: &Value) -> bool {
+        let Some(result) = stable_process_result_fingerprint(result) else {
+            self.stable_processes
+                .retain(|entry| entry.key.request != request);
+            return false;
+        };
+        let key = StableProcessKey { request, result };
+        if let Some(index) = self
+            .stable_processes
+            .iter()
+            .position(|entry| entry.key == key)
+        {
+            let mut entry = self
+                .stable_processes
+                .remove(index)
+                .expect("located stable process entry");
+            entry.count = entry.count.saturating_add(1);
+            let reached_limit = entry.count == STABLE_PROCESS_LIMIT;
+            self.stable_processes.push_back(entry);
+            return reached_limit;
+        }
+        self.stable_processes
+            .retain(|entry| entry.key.request != request);
+        self.stable_processes
+            .push_back(StableProcessEntry { key, count: 1 });
+        while self.stable_processes.len() > MAX_STABLE_PROCESS_KEYS {
+            self.stable_processes.pop_front();
+        }
+        false
     }
 
     fn begin_turn(&mut self, turn_id: u64) {
         if self.turn_id != Some(turn_id) {
             self.turn_id = Some(turn_id);
             self.failures.clear();
+            self.stable_processes.clear();
+            self.stale_surfaces.clear();
         }
     }
+}
+
+fn is_indexed_action(operation: &str) -> bool {
+    matches!(operation, "act" | "do_steps")
+}
+
+fn indexed_browser_surface_key(surface: Option<&SurfaceIdentity>) -> Option<u64> {
+    let SurfaceIdentity::Browser {
+        tab_id,
+        document_id,
+        window,
+    } = surface?
+    else {
+        return None;
+    };
+    let hash = hash_tagged(0xcbf29ce484222325, b't', &tab_id.to_le_bytes());
+    let hash = hash_tagged(hash, b'd', document_id.as_bytes());
+    let hash = hash_tagged(hash, b'w', &window.browser_window_id.to_le_bytes());
+    let hash = hash_tagged(hash, b'h', &window.hwnd.to_le_bytes());
+    let hash = hash_tagged(hash, b'p', &window.pid.to_le_bytes());
+    Some(hash_tagged(hash, b'g', &window.generation.to_le_bytes()))
+}
+
+fn stable_process_result_fingerprint(result: &Value) -> Option<u64> {
+    (result.get("ok").and_then(Value::as_bool) == Some(true)
+        && result.get("process_completed").and_then(Value::as_bool) == Some(true)
+        && result.get("effect_verified").and_then(Value::as_bool) != Some(true)
+        && result.get("timed_out").and_then(Value::as_bool) != Some(true))
+    .then(|| hash_value(hash_tagged(0xcbf29ce484222325, b'u', &[]), result))
 }
 
 fn dispatch_outcome(result: &Value) -> DispatchOutcome {
@@ -218,253 +390,5 @@ fn hash_tagged(mut hash: u64, tag: u8, bytes: &[u8]) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn browser_window() -> crate::overlay::computer_control::controller::world::BrowserWindowIdentity
-    {
-        crate::overlay::computer_control::controller::world::BrowserWindowIdentity {
-            browser_window_id: 2,
-            hwnd: 3,
-            pid: 4,
-            generation: 5,
-        }
-    }
-
-    #[test]
-    fn equivalent_failure_allows_one_retry_then_blocks() {
-        let mut guard = RepeatFailureGuard::default();
-        let args = json!({"target": 7, "options": {"mode": "x"}});
-        let failure = json!({"ok": false, "code": "ERR_TEMPORARY"});
-
-        assert!(
-            guard
-                .blocked_result(4, "future_operation", &args, None)
-                .is_none()
-        );
-        assert!(!guard.observe(4, "future_operation", &args, None, &failure));
-        assert!(
-            guard
-                .blocked_result(4, "future_operation", &args, None)
-                .is_none()
-        );
-        assert!(guard.observe(4, "future_operation", &args, None, &failure));
-        assert!(
-            guard
-                .blocked_result(4, "future_operation", &args, None)
-                .is_some()
-        );
-    }
-
-    #[test]
-    fn different_arguments_error_classes_and_turns_remain_available() {
-        let mut guard = RepeatFailureGuard::default();
-        let first = json!({"slot": 1});
-        let second = json!({"slot": 2});
-        let class_a = json!({"ok": false, "error": {"class": "A"}});
-        let class_b = json!({"ok": false, "error": {"class": "B"}});
-
-        guard.observe(9, "future_operation", &first, None, &class_a);
-        assert!(guard.observe(9, "future_operation", &first, None, &class_a));
-        assert!(
-            guard
-                .blocked_result(9, "future_operation", &second, None)
-                .is_none()
-        );
-        assert!(!guard.observe(9, "future_operation", &second, None, &class_b));
-        assert!(
-            guard
-                .blocked_result(10, "future_operation", &first, None)
-                .is_none()
-        );
-        guard.observe(10, "future_operation", &first, None, &class_a);
-        guard.observe(10, "future_operation", &first, None, &class_b);
-        assert!(
-            guard
-                .blocked_result(10, "future_operation", &first, None)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn a_success_clears_the_equivalent_failure_streak() {
-        let mut guard = RepeatFailureGuard::default();
-        let args = json!({"slot": 3});
-        let failure = json!({"ok": false, "error": "details are not retained"});
-        guard.observe(2, "unknown_future_tool", &args, None, &failure);
-        guard.observe(2, "unknown_future_tool", &args, None, &failure);
-        assert!(
-            guard
-                .blocked_result(2, "unknown_future_tool", &args, None)
-                .is_some()
-        );
-
-        assert!(!guard.observe(
-            2,
-            "unknown_future_tool",
-            &args,
-            None,
-            &json!({"ok": true, "error": {"code": "advisory_metadata"}})
-        ));
-        assert!(
-            guard
-                .blocked_result(2, "unknown_future_tool", &args, None)
-                .is_none()
-        );
-
-        guard.observe(2, "unknown_future_tool", &args, None, &failure);
-        guard.observe(2, "unknown_future_tool", &args, None, &failure);
-        guard.observe(
-            2,
-            "unknown_future_tool",
-            &args,
-            None,
-            &json!({"ok": true, "error": ""}),
-        );
-        assert!(
-            guard
-                .blocked_result(2, "unknown_future_tool", &args, None)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn ambiguous_error_metadata_neither_counts_nor_clears() {
-        let mut guard = RepeatFailureGuard::default();
-        let args = json!({"slot": 4});
-        let failure = json!({"ok": false, "code": "ERR_TYPED"});
-        assert!(!guard.observe(3, "future_operation", &args, None, &failure));
-        assert!(!guard.observe(
-            3,
-            "future_operation",
-            &args,
-            None,
-            &json!({"error": {"code": "ERR_TYPED"}}),
-        ));
-        assert!(guard.observe(3, "future_operation", &args, None, &failure));
-
-        let other = json!({"slot": 5});
-        guard.observe(
-            3,
-            "future_operation",
-            &other,
-            None,
-            &json!({"error": "unclassified"}),
-        );
-        guard.observe(
-            3,
-            "future_operation",
-            &other,
-            None,
-            &json!({"error": "unclassified"}),
-        );
-        assert!(
-            guard
-                .blocked_result(3, "future_operation", &other, None)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn a_changed_document_or_window_generation_gets_a_fresh_retry_budget() {
-        let mut guard = RepeatFailureGuard::default();
-        let args = json!({"slot": 6});
-        let failure = json!({"ok": false, "code": "ERR_STATE"});
-        let first_document = SurfaceIdentity::Browser {
-            tab_id: 17,
-            document_id: "document-a".to_string(),
-            window: browser_window(),
-        };
-        let next_document = SurfaceIdentity::Browser {
-            tab_id: 17,
-            document_id: "document-b".to_string(),
-            window: browser_window(),
-        };
-        guard.observe(
-            5,
-            "future_operation",
-            &args,
-            Some(&first_document),
-            &failure,
-        );
-        guard.observe(
-            5,
-            "future_operation",
-            &args,
-            Some(&first_document),
-            &failure,
-        );
-        assert!(
-            guard
-                .blocked_result(5, "future_operation", &args, Some(&first_document))
-                .is_some()
-        );
-        assert!(
-            guard
-                .blocked_result(5, "future_operation", &args, Some(&next_document))
-                .is_none()
-        );
-
-        let first_window = SurfaceIdentity::Native {
-            hwnd: 31,
-            pid: 41,
-            generation: 1,
-        };
-        let next_window = SurfaceIdentity::Native {
-            hwnd: 31,
-            pid: 41,
-            generation: 2,
-        };
-        guard.observe(5, "future_operation", &args, Some(&first_window), &failure);
-        guard.observe(5, "future_operation", &args, Some(&first_window), &failure);
-        assert!(
-            guard
-                .blocked_result(5, "future_operation", &args, Some(&first_window))
-                .is_some()
-        );
-        assert!(
-            guard
-                .blocked_result(5, "future_operation", &args, Some(&next_window))
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn typed_retryability_is_part_of_the_failure_class() {
-        let mut guard = RepeatFailureGuard::default();
-        let args = json!({"slot": 7});
-        let retryable = json!({"ok": false, "code": "ERR_STATE", "retryable": true});
-        let final_failure = json!({"ok": false, "code": "ERR_STATE", "retryable": false});
-        guard.observe(7, "future_operation", &args, None, &retryable);
-        guard.observe(7, "future_operation", &args, None, &final_failure);
-        assert!(
-            guard
-                .blocked_result(7, "future_operation", &args, None)
-                .is_none()
-        );
-        assert!(guard.observe(7, "future_operation", &args, None, &retryable));
-        assert!(
-            guard
-                .blocked_result(7, "future_operation", &args, None)
-                .is_some()
-        );
-    }
-
-    #[test]
-    fn fingerprints_do_not_retain_argument_or_error_content() {
-        let mut guard = RepeatFailureGuard::default();
-        let hidden_argument = "argument-content-must-not-survive";
-        let hidden_class = "error-content-must-not-survive";
-        guard.observe(
-            8,
-            "future_operation",
-            &json!({"value": hidden_argument}),
-            None,
-            &json!({"ok": false, "error": {"class": hidden_class}}),
-        );
-
-        let debug = format!("{guard:?}");
-        assert!(!debug.contains(hidden_argument));
-        assert!(!debug.contains(hidden_class));
-    }
-}
+#[path = "repeat_failure_tests.rs"]
+mod tests;

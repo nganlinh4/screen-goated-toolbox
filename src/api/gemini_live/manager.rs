@@ -4,9 +4,10 @@ use super::types::{LiveEvent, LiveInputContent, LiveRequest, QueuedLiveRequest};
 use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::sync::{
-    Condvar, Mutex,
+    Arc, Condvar, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
+use std::time::Instant;
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -43,6 +44,8 @@ impl GeminiLiveManager {
         content: LiveInputContent,
         instruction: String,
         show_thinking: bool,
+        cancel_token: Option<Arc<AtomicBool>>,
+        deadline: Option<Instant>,
     ) -> (u64, mpsc::Receiver<LiveEvent>) {
         let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let current_gen = self.interrupt_generation.load(Ordering::SeqCst);
@@ -54,6 +57,8 @@ impl GeminiLiveManager {
             content,
             instruction,
             show_thinking,
+            cancel_token,
+            deadline,
         };
 
         {

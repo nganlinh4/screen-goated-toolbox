@@ -11,6 +11,11 @@ const GROQ_MAX_IMAGE_BYTES: usize = 2_500_000;
 const GROQ_MIN_IMAGE_BYTES: usize = 262_144;
 const GROQ_JPEG_QUALITIES: [u8; 5] = [90, 82, 74, 66, 58];
 const GROQ_RESIZE_DIMENSIONS: [u32; 6] = [2048, 1792, 1536, 1280, 1024, 768];
+const QWEN_VISION_MODEL: &str = "qwen/qwen3.6-27b";
+const QWEN_PORTABLE_TPM_LIMIT: usize = 8_000;
+const QWEN_COMPLETION_TOKEN_RESERVE: usize = 2_048;
+const QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE: usize = 3_072;
+const QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN: usize = 3;
 
 pub(super) struct PreparedImage {
     pub(super) b64_image: String,
@@ -21,11 +26,15 @@ pub(super) struct PreparedImage {
 
 pub(super) fn prepare_image_payload(
     provider: &str,
+    model: &str,
     image: ImageBuffer<Rgba<u8>, Vec<u8>>,
     original_bytes: Option<Vec<u8>>,
     prompt_bytes: usize,
 ) -> Result<PreparedImage> {
     let provider = Provider::from_wire(provider);
+    if provider == Some(Provider::Groq) && model == QWEN_VISION_MODEL {
+        ensure_qwen_prompt_fits_portable_tpm(prompt_bytes)?;
+    }
     if provider == Some(Provider::Google)
         && let Some(bytes) = original_bytes
     {
@@ -87,6 +96,19 @@ fn groq_image_byte_budget(prompt_bytes: usize) -> Result<usize> {
         bail!("Prompt leaves too little room for a Groq vision image");
     }
     Ok(raw_budget.min(GROQ_MAX_IMAGE_BYTES))
+}
+
+fn ensure_qwen_prompt_fits_portable_tpm(prompt_bytes: usize) -> Result<()> {
+    let estimated_prompt_tokens = prompt_bytes.div_ceil(QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN);
+    let estimated_request_tokens = estimated_prompt_tokens
+        + QWEN_COMPLETION_TOKEN_RESERVE
+        + QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE;
+    if estimated_request_tokens > QWEN_PORTABLE_TPM_LIMIT {
+        bail!(
+            "Qwen Groq vision prompt is too large for the portable {QWEN_PORTABLE_TPM_LIMIT}-TPM request budget (estimated {estimated_request_tokens} tokens)"
+        );
+    }
+    Ok(())
 }
 
 fn resize_to_max(
@@ -158,12 +180,26 @@ mod tests {
             groq["resize_dimensions"],
             serde_json::json!(GROQ_RESIZE_DIMENSIONS)
         );
+        let qwen = &groq["qwen_portable_tpm"];
+        assert_eq!(qwen["limit"], QWEN_PORTABLE_TPM_LIMIT);
+        assert_eq!(
+            qwen["completion_token_reserve"],
+            QWEN_COMPLETION_TOKEN_RESERVE
+        );
+        assert_eq!(
+            qwen["image_and_envelope_token_reserve"],
+            QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE
+        );
+        assert_eq!(
+            qwen["estimated_prompt_bytes_per_token"],
+            QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN
+        );
     }
 
     #[test]
     fn groq_keeps_small_png_and_real_mime() {
         let image = ImageBuffer::from_pixel(64, 64, Rgba([20, 40, 60, 255]));
-        let result = prepare_image_payload("groq", image, None, 100).unwrap();
+        let result = prepare_image_payload("groq", "scout", image, None, 100).unwrap();
         assert_eq!(result.mime_type, "image/png");
         assert!(result.image_data.len() <= groq_image_byte_budget(100).unwrap());
     }
@@ -178,7 +214,7 @@ mod tests {
             Rgba([state as u8, (state >> 8) as u8, (state >> 16) as u8, 255])
         });
         let prompt_bytes = 32_000;
-        let result = prepare_image_payload("groq", image, None, prompt_bytes).unwrap();
+        let result = prepare_image_payload("groq", "scout", image, None, prompt_bytes).unwrap();
         assert_eq!(result.mime_type, "image/jpeg");
         assert!(result.image_data.len() <= groq_image_byte_budget(prompt_bytes).unwrap());
     }
@@ -187,5 +223,14 @@ mod tests {
     fn groq_rejects_prompt_that_leaves_no_image_budget() {
         let result = groq_image_byte_budget(GROQ_SAFE_REQUEST_BYTES);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn qwen_rejects_tpm_oversize_locally_without_reducing_other_models() {
+        assert!(ensure_qwen_prompt_fits_portable_tpm(60_000).is_err());
+        assert!(ensure_qwen_prompt_fits_portable_tpm(1_000).is_ok());
+
+        let image = ImageBuffer::from_pixel(64, 64, Rgba([20, 40, 60, 255]));
+        assert!(prepare_image_payload("groq", QWEN_VISION_MODEL, image, None, 60_000).is_err());
     }
 }

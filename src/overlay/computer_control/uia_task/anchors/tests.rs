@@ -59,6 +59,8 @@ fn mutations_invalidate_anchors_but_observation_does_not() {
         "scroll",
         "wait",
         "browser_navigate",
+        "edit_text_file",
+        "edit_text_file_structure",
         "future_effect_tool",
     ] {
         assert!(action_invalidates_anchors(name), "{name}");
@@ -68,6 +70,7 @@ fn mutations_invalidate_anchors_but_observation_does_not() {
         "look",
         "list_windows",
         "browser_read_page",
+        "read_text_file",
         "map_targets",
         "click_mark",
     ] {
@@ -100,27 +103,6 @@ fn overlap_and_virtual_desktop_clamping_are_stable() {
         h: h + 100,
     });
     assert_eq!((shown.x, shown.y, shown.w, shown.h), (x, y, w, h));
-}
-
-#[test]
-fn surface_identity_requires_nonzero_hwnd_and_pid() {
-    assert_eq!(
-        surface_identity_from_snapshot(&json!({"hwnd": 12, "pid": 34, "generation": 5})),
-        Some((12, 34, 5))
-    );
-    assert_eq!(
-        surface_identity_from_snapshot(&json!({"hwnd": 0, "pid": 34, "generation": 5})),
-        None
-    );
-    assert_eq!(
-        surface_identity_from_snapshot(&json!({"hwnd": 12, "pid": 0, "generation": 5})),
-        None
-    );
-    assert_eq!(
-        surface_identity_from_snapshot(&json!({"hwnd": 12, "pid": 34})),
-        None
-    );
-    assert_eq!(surface_identity_from_snapshot(&json!({})), None);
 }
 
 #[test]

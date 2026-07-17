@@ -1,6 +1,6 @@
-//! MCP capability store — curated, consent-gated app-control integrations that
-//! extend the Computer Control agent's toolset. The model decides; code resolves +
-//! installs + bridges. See the plan in `drifting-pondering-pixel.md`.
+//! MCP capability store for curated external integrations. Connected servers expose
+//! their complete live tool catalog; the model selects semantics while code handles
+//! explicit setup/removal requests, lifecycle, schema transport, and exact routing.
 //!
 //! Pipeline hooks: `active_tool_declarations()` is appended into `build_setup` (so a
 //! connected integration's tools are declared to Gemini on (re)connect), and
@@ -10,21 +10,24 @@
 
 mod catalog;
 mod client;
+mod client_protocol;
 mod install;
 mod management;
 mod registry;
 mod runtime;
 mod schema;
 mod smoke;
+mod startup;
 mod support;
 mod ui;
 
 pub(super) use management::{docs_tool, list_tool, remove_tool, setup_tool, status_tool};
 pub(super) use runtime::{
-    StartupCatalog, active_tool_declarations, call_tool, clear_tools_changed,
-    connect_all_installed, disconnect_all, is_connected, search_tools, tools_changed, try_dispatch,
+    active_tool_declarations, clear_tools_changed, connect_all_installed,
+    declared_tool_is_read_only, disconnect_all, is_connected, tools_changed, try_dispatch,
 };
 pub(super) use smoke::run_mcp_test;
+pub(super) use startup::StartupCatalog;
 pub(crate) use ui::{UiIntegration, ui_install, ui_remove, ui_remove_all};
 
 pub(crate) fn ui_list() -> Vec<UiIntegration> {

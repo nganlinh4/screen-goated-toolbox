@@ -31,7 +31,12 @@ pub(crate) fn run() -> eframe::Result<()> {
 
     // Install panic reporting before any substantial startup work so early failures
     // do not exit silently on Windows release builds.
-    crate::initialization::setup_crash_handler();
+    let crash_report_mode = if headless::is_requested(&startup_args) {
+        crate::initialization::CrashReportMode::NonInteractive
+    } else {
+        crate::initialization::CrashReportMode::Interactive
+    };
+    crate::initialization::setup_crash_handler(crash_report_mode);
 
     crate::unpack_dlls::unpack_dlls();
 

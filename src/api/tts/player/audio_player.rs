@@ -15,6 +15,14 @@ struct AutoSpeedState {
     speed: u32,
 }
 
+struct WasapiApartment;
+
+impl Drop for WasapiApartment {
+    fn drop(&mut self) {
+        wasapi::deinitialize();
+    }
+}
+
 /// Simple audio player using Windows WASAPI with loopback exclusion.
 pub(crate) struct AudioPlayer {
     _sample_rate: u32,
@@ -28,7 +36,6 @@ pub(crate) struct AudioPlayer {
 impl AudioPlayer {
     fn current_default_render_endpoint_id() -> Option<String> {
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
             let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
@@ -50,6 +57,7 @@ impl AudioPlayer {
                 eprintln!("[TTS Player] ERROR: Failed to initialize COM for WASAPI thread");
                 return;
             }
+            let _apartment = WasapiApartment;
 
             eprintln!("[TTS Player] COM initialized, entering audio stream loop...");
 
@@ -113,8 +121,6 @@ impl AudioPlayer {
         unsafe {
             eprintln!("[TTS WASAPI] Initializing audio output...");
 
-            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok();
-
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
 
@@ -150,14 +156,16 @@ impl AudioPlayer {
                 channels, sample_rate, bits
             );
 
-            client.Initialize(
+            let initialize_result = client.Initialize(
                 AUDCLNT_SHAREMODE_SHARED,
                 0,
                 1000000,
                 0,
                 mix_format_ptr,
                 None,
-            )?;
+            );
+            CoTaskMemFree(Some(mix_format_ptr.cast()));
+            initialize_result?;
 
             let buffer_size = client.GetBufferSize()?;
             let render_client: IAudioRenderClient = client.GetService()?;

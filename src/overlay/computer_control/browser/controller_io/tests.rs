@@ -18,6 +18,18 @@ fn fallback_does_not_assume_a_lone_extension_tab_is_foreground() {
 }
 
 #[test]
+fn proven_active_tab_requires_the_focused_window_proof() {
+    assert_eq!(
+        proven_active_tab(&json!({"id": 7, "windowFocused": true})).unwrap(),
+        7
+    );
+    assert!(proven_active_tab(&json!({"id": 7, "windowFocused": false})).is_err());
+    assert!(proven_active_tab(&json!({"id": 7, "title": "matching title"})).is_err());
+    assert!(proven_active_tab(&json!({"windowFocused": true})).is_err());
+    assert!(proven_active_tab(&json!({"id": 0, "windowFocused": true})).is_err());
+}
+
+#[test]
 fn dispatch_prefers_atomic_guard_then_verified_explicit_tab() {
     assert_eq!(
         select_active_dispatch_mode(true, true),
@@ -57,7 +69,7 @@ fn matching_document_element_and_focus_are_fresh() {
     let result = classify(
         json!({
             "documentId":"document-a", "elementId":"element-a", "present":true,
-            "focused":true, "x":12.5, "y":19.0,
+            "focused":true, "interactable":true, "x":12.5, "y":19.0,
         }),
         true,
     )
@@ -70,7 +82,7 @@ fn navigation_between_resolution_and_input_is_typed_stale() {
     let stale = classify(
         json!({
             "documentId":"document-b", "elementId":"element-a", "present":true,
-            "focused":true, "x":12, "y":19,
+            "focused":true, "interactable":true, "x":12, "y":19,
         }),
         true,
     )
@@ -92,10 +104,35 @@ fn replacement_element_or_stolen_focus_fails_before_input() {
     let unfocused = classify(
         json!({
             "documentId":"document-a", "elementId":"element-a", "present":true,
-            "focused":false,
+            "focused":false, "interactable":true,
         }),
         true,
     )
     .unwrap_err();
     assert_eq!(unfocused["reason"], "focus_changed");
+}
+
+#[test]
+fn hidden_or_offscreen_target_fails_before_any_pointer_dispatch() {
+    let blocked = classify(
+        json!({
+            "documentId":"document-a", "elementId":"element-a", "present":true,
+            "focused":false, "interactable":false, "x":4000, "y":20,
+        }),
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(blocked["reason"], "target_not_interactable");
+    assert_eq!(blocked["dispatch_ok"], false);
+    assert_eq!(blocked["effect_may_have_occurred"], false);
+}
+
+#[test]
+fn target_resolution_waits_for_scroll_and_layout_to_settle() {
+    let expression = selector_center_expression("#opaque");
+    assert!(expression.contains("behavior:'instant'"));
+    assert_eq!(expression.matches("requestAnimationFrame").count(), 2);
+    assert!(expression.contains("const initial = document.querySelector"));
+    assert!(expression.contains("const e = document.querySelector"));
+    assert!(expression.contains("interactable"));
 }

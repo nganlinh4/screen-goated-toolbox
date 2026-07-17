@@ -223,6 +223,8 @@ fn translate_with_gemini_live(
             audio_data: None,
             streaming_enabled: false,
             ui_language: "",
+            cancel_token: None,
+            request_timeout: None,
         },
         |_| {},
     )

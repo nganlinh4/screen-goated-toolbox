@@ -5,18 +5,21 @@
 //! parse. This module centralizes that core so the per-provider functions stay
 //! thin wrappers that only build their payload + provider-specific preamble.
 
-use crate::api::client::{UREQ_AGENT, is_auth_error};
+use crate::api::client::{UREQ_RESPONSE_AGENT, UREQ_STREAM_RESPONSE_AGENT, is_auth_error};
 use crate::api::types::{ChatCompletionResponse, StreamChunk};
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
 use flate2::{Compression, write::GzEncoder};
-use std::io::Write;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+use std::time::Duration;
 use ureq::http::HeaderMap;
+
+const MAX_PROVIDER_ERROR_BODY_BYTES: u64 = 8 * 1024;
+const MAX_PROVIDER_ERROR_MESSAGE_CHARS: usize = 1_024;
 
 /// POST to an OpenAI-compatible `/chat/completions` endpoint and stream (or
 /// parse) the response, invoking `on_chunk` for each piece of content.
@@ -47,6 +50,7 @@ pub fn stream_openai_compat_chat<F, H>(
     reasoning_fallback: bool,
     ui_language: &str,
     cancel_token: &Option<Arc<AtomicBool>>,
+    request_timeout: Option<Duration>,
     error_label: &str,
     map_auth_errors: bool,
     on_headers: H,
@@ -70,6 +74,7 @@ where
         reasoning_fallback,
         ui_language,
         cancel_token,
+        request_timeout,
         error_label,
         map_auth_errors,
         false,
@@ -91,6 +96,7 @@ pub fn stream_openai_compat_payload<F, H, J>(
     reasoning_fallback: bool,
     ui_language: &str,
     cancel_token: &Option<Arc<AtomicBool>>,
+    request_timeout: Option<Duration>,
     error_label: &str,
     map_auth_errors: bool,
     gzip_large_payload: bool,
@@ -106,14 +112,15 @@ where
     // Streaming responses can legitimately run past the 120s unary cap, so they
     // use the longer-lived streaming agent; unary calls keep the tight bound.
     let agent = if streaming {
-        &*crate::api::client::UREQ_STREAM_AGENT
+        &*UREQ_STREAM_RESPONSE_AGENT
     } else {
-        &*UREQ_AGENT
+        &*UREQ_RESPONSE_AGENT
     };
     let request = agent
         .post(endpoint)
         .header("Authorization", &format!("Bearer {}", api_key))
         .header("Content-Type", "application/json");
+    let request = crate::api::client::with_request_timeout(request, request_timeout);
     let json_bytes = serde_json::to_vec(&payload)?;
     let response = if gzip_large_payload && json_bytes.len() >= 12 * 1024 {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
@@ -133,6 +140,24 @@ where
     })?;
 
     on_headers(resp.headers());
+    let status = resp.status().as_u16();
+    if !resp.status().is_success() {
+        if map_auth_errors && matches!(status, 401 | 403) {
+            return Err(anyhow::anyhow!("INVALID_API_KEY"));
+        }
+        let mut body = String::new();
+        let _ = resp
+            .into_body()
+            .into_reader()
+            .take(MAX_PROVIDER_ERROR_BODY_BYTES)
+            .read_to_string(&mut body);
+        return Err(anyhow::anyhow!(
+            "{} HTTP {}: {}",
+            error_label,
+            status,
+            provider_error_message(status, &body)
+        ));
+    }
 
     let mut full_content = String::new();
 
@@ -213,6 +238,40 @@ where
     Ok(full_content)
 }
 
+fn provider_error_message(status: u16, body: &str) -> String {
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let message = parsed
+        .as_ref()
+        .and_then(|root| {
+            ["/error/message", "/message", "/detail", "/error"]
+                .into_iter()
+                .find_map(|pointer| root.pointer(pointer).and_then(serde_json::Value::as_str))
+        })
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or_else(|| {
+            let body = body.trim();
+            if body.is_empty() {
+                "request failed"
+            } else {
+                body
+            }
+        });
+    let normalized = message.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = normalized.chars();
+    let mut bounded = chars
+        .by_ref()
+        .take(MAX_PROVIDER_ERROR_MESSAGE_CHARS)
+        .collect::<String>();
+    if chars.next().is_some() {
+        bounded.push('…');
+    }
+    if bounded.is_empty() {
+        format!("request failed with status {status}")
+    } else {
+        bounded
+    }
+}
+
 /// Consume an OpenAI-compatible *streaming* chat response, appending each
 /// `delta.content` chunk to a string (forwarded via `on_chunk`) until `[DONE]`,
 /// honoring `cancel_token`. Returns the accumulated content. This is the simple
@@ -248,4 +307,35 @@ where
         }
     }
     Ok(full_content)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::provider_error_message;
+
+    #[test]
+    fn structured_provider_errors_expose_the_bounded_reason() {
+        assert_eq!(
+            provider_error_message(
+                400,
+                r#"{"error":{"message":"unsupported request field","type":"invalid_request"}}"#,
+            ),
+            "unsupported request field"
+        );
+    }
+
+    #[test]
+    fn plain_provider_errors_are_flattened_and_bounded() {
+        assert_eq!(
+            provider_error_message(413, " payload\n too\tlarge "),
+            "payload too large"
+        );
+        assert!(
+            provider_error_message(500, &"x".repeat(2_000))
+                .chars()
+                .count()
+                <= 1_025
+        );
+        assert_eq!(provider_error_message(503, ""), "request failed");
+    }
 }

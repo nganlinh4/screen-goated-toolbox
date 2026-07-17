@@ -42,6 +42,7 @@ where
         Some("Gemini Refine Error"),
         false,
         None,
+        None,
         on_chunk,
     )
 }
@@ -100,6 +101,7 @@ where
             error_label: "Cerebras Refine Error",
             response_format: None,
             prediction: Some(previous_text),
+            request_timeout: None,
         },
         on_chunk,
     )
@@ -133,6 +135,7 @@ where
         false,
         ui_language,
         cancel_token,
+        None,
         "OpenRouter Refine Error",
         false,
         |_| {},

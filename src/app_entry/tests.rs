@@ -59,6 +59,7 @@ fn headless_dispatch_keeps_replay_last() {
             "--cc-coord-test",
             "--cc-uia-dump",
             "--cc-vision-test",
+            "--cc-detector-test",
             "--cc-cursor-demo",
             "--cc-grid-test",
             "--cc-uia-task",

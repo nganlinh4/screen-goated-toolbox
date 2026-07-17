@@ -21,7 +21,7 @@ Then:
 1. Open the browser extension manager.
 2. Enable developer mode.
 3. Load the extracted directory as an unpacked extension.
-4. If it was already loaded, press Reload once after an app update so staged protocol code takes effect.
+4. Protocol 7 and newer activate later staged updates through a bounded self-reload handshake. An installation older than protocol 7 needs one final manual Reload before that mechanism exists.
 
 The app opens a ten-minute setup pairing window. A newly loaded/reloaded extension connects and pairs automatically while that window is open; the popup supports manual recovery.
 
@@ -34,8 +34,12 @@ The app opens a ten-minute setup pairing window. A newly loaded/reloaded extensi
 - Forget removes the stored secret.
 - Chrome's debugging banner remains visible while CDP is attached.
 - The connection hello advertises protocol and per-command capabilities. Rust keeps
-  conservative maps for older shipped protocols, so optional staged updates do not
-  disable commands the connected extension already supports.
+  conservative maps before the capability-schema boundary and honors authenticated
+  advertised capabilities after it, so optional staged updates do not disable
+  commands the connected extension already supports.
+- A staged update can request `runtime.reload` only when the connected worker
+  explicitly advertised that capability. Requests are version-bound and cooldown
+  limited; older workers continue to require the manual legacy reload.
 
 ## Packaging
 

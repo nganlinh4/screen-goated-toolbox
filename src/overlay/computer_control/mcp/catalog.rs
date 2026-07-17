@@ -23,9 +23,12 @@ pub(super) struct Integration {
     pub description: &'static str,
     pub publisher: &'static str,
     pub source_url: &'static str,
+    /// Exact documentation resource fetched by the support tool. Provider URL
+    /// conventions are catalog data, never inferred by generic runtime code.
+    pub docs_url: &'static str,
     pub launch: LaunchSpec,
     /// One-line statement of WHAT in-app setup the integration needs (never HOW — the
-    /// agent researches the steps from `source_url` + the web and figures them out).
+    /// agent researches the steps from `docs_url` + the web and figures them out).
     /// `None` = fully self-contained, no in-app setup.
     pub addon_hint: Option<&'static str>,
     pub readiness_probe: Option<ReadinessProbe>,
@@ -43,6 +46,7 @@ const CATALOG: &[Integration] = &[
         description: "Current time + timezone conversion (IANA zones). Reference integration that verifies the MCP bridge.",
         publisher: "modelcontextprotocol.io (official)",
         source_url: "https://github.com/modelcontextprotocol/servers",
+        docs_url: "https://raw.githubusercontent.com/modelcontextprotocol/servers/HEAD/README.md",
         launch: LaunchSpec {
             program: "uvx",
             args: &["--from", "mcp-server-time==2026.6.4", "mcp-server-time"],
@@ -59,6 +63,7 @@ const CATALOG: &[Integration] = &[
         description: "Drive Blender's Python API directly (objects, materials, render, export, …) instead of clicking its UI.",
         publisher: "ahujasid (blender-mcp)",
         source_url: "https://github.com/ahujasid/blender-mcp",
+        docs_url: "https://raw.githubusercontent.com/ahujasid/blender-mcp/HEAD/README.md",
         launch: LaunchSpec {
             program: "uvx",
             args: &[

@@ -15,6 +15,7 @@ pub(super) const CONNECTION_POLL: Duration = Duration::from_millis(100);
 static BRIDGE_STARTED_AT: OnceLock<Instant> = OnceLock::new();
 thread_local! {
     static PREFLIGHT_CANCEL: RefCell<Vec<Arc<AtomicBool>>> = const { RefCell::new(Vec::new()) };
+    static REQUEST_DEADLINES: RefCell<Vec<Instant>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +51,18 @@ impl StartupWait {
 
 pub(in crate::overlay::computer_control) struct ConnectionPreflight {
     _not_send: PhantomData<Rc<()>>,
+}
+
+pub(in crate::overlay::computer_control) struct RequestDeadline {
+    _not_send: PhantomData<Rc<()>>,
+}
+
+impl Drop for RequestDeadline {
+    fn drop(&mut self) {
+        REQUEST_DEADLINES.with(|deadlines| {
+            deadlines.borrow_mut().pop();
+        });
+    }
 }
 
 impl Drop for ConnectionPreflight {
@@ -93,6 +106,29 @@ pub(super) fn enter_preflight(cancel: &Arc<AtomicBool>) -> ConnectionPreflight {
     ConnectionPreflight {
         _not_send: PhantomData,
     }
+}
+
+pub(super) fn enter_request_deadline(duration: Duration) -> RequestDeadline {
+    REQUEST_DEADLINES.with(|deadlines| {
+        deadlines.borrow_mut().push(Instant::now() + duration);
+    });
+    RequestDeadline {
+        _not_send: PhantomData,
+    }
+}
+
+pub(super) fn bounded_request_timeout(default: Duration) -> Duration {
+    bounded_timeout(
+        default,
+        REQUEST_DEADLINES.with(|deadlines| deadlines.borrow().iter().copied().min()),
+        Instant::now(),
+    )
+}
+
+fn bounded_timeout(default: Duration, deadline: Option<Instant>, now: Instant) -> Duration {
+    deadline
+        .map(|deadline| default.min(deadline.saturating_duration_since(now)))
+        .unwrap_or(default)
 }
 
 pub(super) fn preflight_active() -> bool {
@@ -215,5 +251,26 @@ mod tests {
         }
         assert!(!preflight_active());
         assert!(current_cancel().is_none());
+    }
+
+    #[test]
+    fn request_timeout_never_outlives_the_nearest_deadline() {
+        let now = Instant::now();
+        assert_eq!(
+            bounded_timeout(
+                Duration::from_secs(15),
+                Some(now + Duration::from_secs(2)),
+                now,
+            ),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            bounded_timeout(Duration::from_secs(3), None, now),
+            Duration::from_secs(3)
+        );
+        assert_eq!(
+            bounded_timeout(Duration::from_secs(3), Some(now), now),
+            Duration::ZERO
+        );
     }
 }
