@@ -76,6 +76,7 @@ fn backup_corrupt_config(path: &std::path::Path, err: &serde_json::Error) {
 fn migrate_config(config: &mut Config) {
     let default_presets = get_default_presets();
 
+    migrate_computer_control_launcher(config);
     config.ensure_preset_profiles();
     migrate_preset_list(&mut config.presets, &default_presets);
     promote_builtin_image_defaults(&mut config.presets);
@@ -113,6 +114,52 @@ fn migrate_config(config: &mut Config) {
     }
 
     config.sync_active_profile_from_presets();
+}
+
+/// Computer Control used to masquerade as a realtime-audio preset. Move its
+/// hotkeys into global app state and remove the legacy row from every profile.
+fn migrate_computer_control_launcher(config: &mut Config) {
+    const LEGACY_ID: &str = "preset_computer_control";
+
+    let mut migrated_hotkeys = std::mem::take(&mut config.computer_control_hotkeys);
+    remove_legacy_launcher(
+        &mut config.presets,
+        &mut config.active_preset_idx,
+        LEGACY_ID,
+        &mut migrated_hotkeys,
+    );
+    for profile in &mut config.preset_profiles {
+        remove_legacy_launcher(
+            &mut profile.presets,
+            &mut profile.active_preset_idx,
+            LEGACY_ID,
+            &mut migrated_hotkeys,
+        );
+    }
+    config.computer_control_hotkeys = migrated_hotkeys;
+}
+
+fn remove_legacy_launcher(
+    presets: &mut Vec<Preset>,
+    active_idx: &mut usize,
+    legacy_id: &str,
+    migrated_hotkeys: &mut Vec<crate::config::Hotkey>,
+) {
+    while let Some(idx) = presets.iter().position(|preset| preset.id == legacy_id) {
+        let legacy = presets.remove(idx);
+        for hotkey in legacy.hotkeys {
+            if !migrated_hotkeys.iter().any(|existing| {
+                existing.code == hotkey.code && existing.modifiers == hotkey.modifiers
+            }) {
+                migrated_hotkeys.push(hotkey);
+            }
+        }
+
+        if *active_idx > idx {
+            *active_idx -= 1;
+        }
+        *active_idx = (*active_idx).min(presets.len().saturating_sub(1));
+    }
 }
 
 /// Replace only known historical defaults. A user-customized chain remains

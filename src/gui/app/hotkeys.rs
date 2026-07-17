@@ -25,7 +25,7 @@ impl SettingsApp {
                 self.recording_hotkey_for_preset = None;
                 self.hotkey_conflict_msg = None;
             } else if let Some((vk, mods, key_name)) = key_recorded {
-                self.sync_screen_record_hotkeys();
+                self.sync_global_hotkeys();
                 if let Some(msg) = self.check_hotkey_conflict(vk, mods, preset_idx) {
                     self.hotkey_conflict_msg = Some(msg);
                 } else {
@@ -77,7 +77,7 @@ impl SettingsApp {
                     name: format_hotkey_name(mods, key_name),
                 };
 
-                self.sync_screen_record_hotkeys();
+                self.sync_global_hotkeys();
                 if let Some(msg) = self.config.check_hotkey_conflict(vk, mods, None) {
                     crate::log_info!("Hotkey conflict: {}", msg);
                 } else {
@@ -87,6 +87,51 @@ impl SettingsApp {
                 self.recording_sr_hotkey = false;
             }
         }
+    }
+
+    pub(crate) fn update_computer_control_hotkey_recording(&mut self, ctx: &egui::Context) {
+        if !self.recording_computer_control_hotkey {
+            return;
+        }
+
+        let mut key_recorded: Option<(u32, u32, String)> = None;
+        let mut cancel = false;
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::Escape) {
+                cancel = true;
+            } else {
+                let modifiers_bitmap = current_modifiers_bitmap(i);
+                collect_keyboard_hotkey(i, modifiers_bitmap, &mut key_recorded);
+                if key_recorded.is_none() {
+                    collect_mouse_hotkey(i, modifiers_bitmap, &mut key_recorded);
+                }
+            }
+        });
+
+        if cancel {
+            self.recording_computer_control_hotkey = false;
+            self.computer_control_hotkey_conflict_msg = None;
+            return;
+        }
+
+        let Some((vk, mods, key_name)) = key_recorded else {
+            return;
+        };
+
+        self.sync_global_hotkeys();
+        if let Some(msg) = self.config.check_hotkey_conflict(vk, mods, None) {
+            self.computer_control_hotkey_conflict_msg = Some(msg);
+            return;
+        }
+
+        self.config.computer_control_hotkeys.push(Hotkey {
+            code: vk,
+            modifiers: mods,
+            name: format_hotkey_name(mods, key_name),
+        });
+        self.recording_computer_control_hotkey = false;
+        self.computer_control_hotkey_conflict_msg = None;
+        self.save_and_sync();
     }
 }
 

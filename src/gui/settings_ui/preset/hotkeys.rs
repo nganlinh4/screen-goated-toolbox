@@ -1,7 +1,7 @@
 use crate::config::Hotkey;
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
-use crate::gui::widgets::filled_button;
+use crate::gui::widgets::{filled_button, removable_chip};
 use eframe::egui;
 
 pub(super) fn render_hotkeys(
@@ -70,32 +70,10 @@ pub(super) fn render_hotkeys(
         let hotkey_item_fill = theme.hotkey_item_fill();
 
         let mut hotkey_to_remove = None;
-        // Reserve trailing space in the chip label for a Material "close" icon,
-        // then paint it over that space (filled_button only takes a text label).
-        let icon_px = crate::gui::icons::ICON_SM;
         for (h_idx, hotkey) in hotkeys.iter().enumerate() {
-            let resp = filled_button(
-                ui,
-                &format!("{}      ", hotkey.name),
-                hotkey_item_fill,
-                egui::Color32::WHITE,
-                10,
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
-            let icon_rect = egui::Rect::from_center_size(
-                egui::pos2(
-                    resp.rect.right() - icon_px * 0.5 - 8.0,
-                    resp.rect.center().y,
-                ),
-                egui::vec2(icon_px, icon_px),
-            );
-            crate::gui::icons::paint_icon(
-                ui.painter(),
-                icon_rect,
-                crate::gui::icons::Icon::Close,
-                egui::Color32::WHITE,
-            );
-            if resp.clicked() {
+            let response =
+                removable_chip(ui, &hotkey.name, hotkey_item_fill, egui::Color32::WHITE, 10);
+            if response.clicked() {
                 hotkey_to_remove = Some(h_idx);
             }
         }

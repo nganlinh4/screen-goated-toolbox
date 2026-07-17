@@ -55,6 +55,7 @@ impl SettingsApp {
                     self.tip_scroll,
                     FooterToggles {
                         show_modal: &mut self.show_tips_modal,
+                        show_computer_control: &mut self.show_computer_control_dialog,
                         show_pointer_gallery: &mut self.pointer_gallery.show_window,
                         show_translation_gummy: &mut self.show_translation_gummy,
                         show_tts_playground: &mut self.show_tts_playground,
@@ -65,6 +66,7 @@ impl SettingsApp {
 
         // [TIPS POPUP]
         self.render_tips_popup(ctx, &text);
+        self.render_computer_control_dialog(ctx, &text);
 
         // Pointer Gallery Window
         self.pointer_gallery.render(ctx, &text);

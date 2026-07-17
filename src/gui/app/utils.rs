@@ -86,12 +86,13 @@ impl SettingsApp {
             && self.custom_chrome_resize_pulse_stage == 0
     }
 
-    /// Sync screen_record_hotkeys from the global AppState.
-    /// This ensures we have the latest hotkeys when checking for conflicts,
-    /// since screen record hotkeys can be modified externally via WebView.
-    pub(crate) fn sync_screen_record_hotkeys(&mut self) {
+    /// Pull app-level hotkeys that may be edited outside the main egui window
+    /// before checking conflicts or saving a new binding.
+    pub(crate) fn sync_global_hotkeys(&mut self) {
         if let Ok(state) = self.app_state_ref.lock() {
             self.config.screen_record_hotkeys = state.config.screen_record_hotkeys.clone();
+            self.config.computer_control_hotkeys = state.config.computer_control_hotkeys.clone();
+            self.config.translation_gummy.hotkeys = state.config.translation_gummy.hotkeys.clone();
         }
     }
 

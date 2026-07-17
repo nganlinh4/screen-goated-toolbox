@@ -136,6 +136,14 @@ impl AppTheme {
         )
     }
 
+    /// Computer Control footer launcher — electric indigo.
+    pub fn launch_computer_control(&self) -> Color32 {
+        self.pick(
+            Color32::from_rgb(128, 142, 244),
+            Color32::from_rgb(79, 91, 213),
+        )
+    }
+
     // --- Global settings modal-open buttons ---------------------------------
 
     /// "Usage statistics" modal-open button fill — teal.
