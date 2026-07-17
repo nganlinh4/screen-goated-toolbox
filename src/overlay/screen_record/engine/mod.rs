@@ -22,6 +22,7 @@ use windows::core::BOOL;
 use windows_capture::encoder::VideoEncoder;
 use windows_capture::frame::Frame;
 
+pub(crate) use cursor_sampler::{compute_cursor_sample_interval, spawn_cursor_sampler};
 use encoder_utils::clone_wc_interface_to_app;
 use types::VramFrame;
 

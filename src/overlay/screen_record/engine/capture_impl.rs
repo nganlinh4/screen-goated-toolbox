@@ -23,7 +23,7 @@ use super::CaptureHandler;
 use super::cursor_sampler::{CaptureFlags, compute_cursor_sample_interval, spawn_cursor_sampler};
 use super::encoder_utils::{
     MfEncoderCreateConfig, clone_app_interface_to_wc, clone_wc_interface_to_app,
-    compute_window_max_pending_frames, compute_window_vram_pool_frames,
+    compute_capture_bitrate, compute_window_max_pending_frames, compute_window_vram_pool_frames,
     create_video_encoder_with_canvas_fallback, exact_encoder_canvas, mf_hw_accel_override,
     select_target_fps, should_ignore_window_frame, should_prefer_mf_hw_accel,
 };
@@ -97,11 +97,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // 1920x1080 @ 60fps = ~27 Mbps
         // 2560x1440 @ 60fps = ~48 Mbps
         // 3840x2160 @ 60fps = ~109 Mbps
-        let pixel_count = preferred_canvas.width as u64 * preferred_canvas.height as u64;
-        let target_bitrate = (pixel_count as f64 * target_fps as f64 * 0.22) as u32;
-
-        // Keep a quality floor while capping peak encoder pressure.
-        let final_bitrate = target_bitrate.clamp(8_000_000, 80_000_000);
+        let final_bitrate =
+            compute_capture_bitrate(preferred_canvas.width, preferred_canvas.height, target_fps);
 
         let (sample_rate, channels) = audio_engine::get_default_audio_config();
         let mf_hw_preferred = should_prefer_mf_hw_accel(

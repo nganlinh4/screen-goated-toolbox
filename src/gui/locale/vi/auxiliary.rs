@@ -8,5 +8,8 @@ pub(super) fn get() -> AuxiliaryLocaleText {
         win_select_title: "Chọn Cửa Sổ để Quay",
         win_select_subtitle: "Nhấn Escape hoặc click bên ngoài để hủy",
         win_select_count: "{} cửa sổ",
+        win_select_display_only_badge: "CHỈ MÀN HÌNH",
+        win_select_display_only_title: "Hãy dùng Quay màn hình",
+        win_select_display_only_message: "Không thể quay ổn định cửa sổ toàn màn hình hoặc trình chiếu này như một cửa sổ riêng. Hãy chọn Quay màn hình.",
     }
 }

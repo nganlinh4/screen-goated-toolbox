@@ -35,6 +35,10 @@ fn capture_stop_state() -> String {
 pub(super) fn handle_start_recording(
     args: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    if super::super::compatibility_capture::is_requested(args) {
+        return super::super::compatibility_capture::start(args);
+    }
+
     IS_RECORDING.store(true, std::sync::atomic::Ordering::SeqCst);
     let target_type = args["targetType"].as_str().unwrap_or("monitor");
     let target_id = args["targetId"]
@@ -119,7 +123,21 @@ pub(super) fn handle_start_recording(
             || !unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() }
         {
             IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
+            unsafe {
+                timeEndPeriod(1);
+            }
             return Err(format!("Invalid window handle: 0x{:X}", hwnd_val));
+        }
+        if super::super::window_capture_eligibility::classify(hwnd)
+            == super::super::window_capture_eligibility::WindowCaptureEligibility::DisplayOnly
+        {
+            IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
+            unsafe {
+                timeEndPeriod(1);
+            }
+            return Err(
+                "This fullscreen or presentation window requires Display capture.".to_string(),
+            );
         }
 
         let window =
@@ -275,6 +293,10 @@ pub(super) fn handle_start_recording(
 }
 
 pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
+    if super::super::compatibility_capture::is_active() {
+        return super::super::compatibility_capture::stop();
+    }
+
     let stop_total = std::time::Instant::now();
     eprintln!(
         "[CaptureBackend][Stop] requested state={}",

@@ -1,4 +1,6 @@
+mod app_sidecar;
 mod device_audio;
+mod device_sidecar;
 mod mic_capture;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -13,7 +15,9 @@ use windows::Win32::System::Threading::{
 };
 use windows_capture::encoder::AudioEncoderHandle;
 
+pub(crate) use app_sidecar::record_app_audio_sidecar;
 use device_audio::record_per_app_audio;
+pub(crate) use device_sidecar::record_device_audio_sidecar;
 pub(crate) use mic_capture::record_mic_audio_sidecar;
 
 pub(super) const AUDIO_POLL_SLEEP_MS: u64 = 5;

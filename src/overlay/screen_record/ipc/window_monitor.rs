@@ -13,6 +13,8 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use super::super::window_capture_eligibility::{self, WindowCaptureEligibility};
+
 pub(super) fn get_process_exe_path(pid: u32) -> Option<String> {
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
@@ -430,8 +432,10 @@ pub(super) fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
         }
         let process_name = window.process_name().unwrap_or_default();
         let hwnd_val = window.as_raw_hwnd() as usize;
-        let preview_data_url =
-            capture_window_thumbnail_with_timeout(HWND(hwnd_val as *mut std::ffi::c_void));
+        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+        let preview_data_url = capture_window_thumbnail_with_timeout(hwnd);
+        let display_only =
+            window_capture_eligibility::classify(hwnd) == WindowCaptureEligibility::DisplayOnly;
         let icon_data_url = window
             .process_id()
             .ok()
@@ -454,6 +458,7 @@ pub(super) fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
             "title": title,
             "processName": process_name,
             "isAdmin": is_admin_gated,
+            "displayOnly": display_only,
             "iconDataUrl": icon_data_url,
             "previewDataUrl": preview_data_url,
         }));
@@ -479,6 +484,8 @@ pub(super) fn gather_window_metadata() -> Result<Vec<serde_json::Value>, String>
         let process_name = window.process_name().unwrap_or_default();
         let hwnd_val = window.as_raw_hwnd() as usize;
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+        let display_only =
+            window_capture_eligibility::classify(hwnd) == WindowCaptureEligibility::DisplayOnly;
 
         // Get actual window dimensions for correct aspect ratio.
         let (win_w, win_h) = unsafe {
@@ -520,6 +527,7 @@ pub(super) fn gather_window_metadata() -> Result<Vec<serde_json::Value>, String>
             "title": title,
             "processName": process_name,
             "isAdmin": is_admin,
+            "displayOnly": display_only,
             "iconDataUrl": icon_data_url,
             "previewDataUrl": serde_json::Value::Null,
             "winW": win_w,

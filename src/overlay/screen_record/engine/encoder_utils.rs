@@ -48,6 +48,12 @@ pub(crate) fn select_target_fps(monitor_hz: u32) -> u32 {
     DEFAULT_TARGET_FPS
 }
 
+pub(crate) fn compute_capture_bitrate(width: u32, height: u32, target_fps: u32) -> u32 {
+    let pixel_count = u64::from(width).saturating_mul(u64::from(height));
+    let target_bitrate = (pixel_count as f64 * f64::from(target_fps) * 0.22) as u32;
+    target_bitrate.clamp(8_000_000, 80_000_000)
+}
+
 pub(crate) fn compute_window_max_pending_frames(target_fps: u32) -> usize {
     let target_fps = target_fps.max(1) as usize;
     let buffered_frames = (target_fps * WINDOW_CAPTURE_QUEUE_TARGET_MS).div_ceil(1000);
