@@ -23,6 +23,7 @@ use crate::win_types::SendHwnd;
 pub mod audio_engine;
 pub mod audio_source_selection;
 pub mod capture_border;
+mod compatibility_capture;
 mod d3d_interop;
 pub mod engine;
 pub mod gpu_export;
@@ -33,6 +34,7 @@ mod mf_decode;
 mod mf_encode;
 pub mod native_export;
 mod webcam_capture;
+mod window_capture_eligibility;
 pub mod window_selection;
 
 // Re-exports
@@ -357,6 +359,7 @@ pub fn notify_external_audio_capture_released(reason: &str) {
 /// closed while capture is still active.
 pub fn cleanup_on_app_exit() {
     capture_border::hide_capture_border();
+    compatibility_capture::abort();
 
     engine::SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
     engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);

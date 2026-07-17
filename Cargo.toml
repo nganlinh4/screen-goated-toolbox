@@ -105,6 +105,7 @@ features = [
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Kernel",
+    "Win32_System_JobObjects",
     "Win32_System_Memory",
     "Win32_System_Ole",
     "Win32_Storage_FileSystem",
