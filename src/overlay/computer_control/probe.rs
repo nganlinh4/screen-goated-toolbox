@@ -216,6 +216,7 @@ fn log_event(ev: &ServerEvent) {
         ServerEvent::Thought(t) => eprintln!("[cc-probe] thinks: {t}"),
         ServerEvent::OutputTranscript(t) => eprintln!("[cc-probe] model says: {t}"),
         ServerEvent::InputTranscript(t) => eprintln!("[cc-probe] heard: {t}"),
+        ServerEvent::GenerationComplete => eprintln!("[cc-probe] generationComplete"),
         ServerEvent::TurnComplete => eprintln!("[cc-probe] turnComplete"),
         ServerEvent::Interrupted => eprintln!("[cc-probe] interrupted (barge-in)"),
         ServerEvent::ToolCancellation(ids) => eprintln!("[cc-probe] toolCallCancellation {ids:?}"),

@@ -16,12 +16,16 @@ pub(super) enum BoundaryOutcome {
     PendingTool,
     AlreadyIdle,
     ConversationComplete,
-    ActionUnverified,
+    ActionComplete,
 }
 
 pub(super) fn apply_user_turn_policy(state: &mut Reader, _user_text: &str) -> bool {
     let superseded_generation = state.active || state.awaiting || state.pending.id.is_some();
     let cancelled_pending = state.pending.request_cancel();
+    if cancelled_pending {
+        mark_pending_interruption(state);
+    }
+    state.immediate_tool_responses.clear();
     state.turn_mode = turn_policy::TurnMode::Conversation;
     state.ignore_stale_boundary |= superseded_generation;
     state.active = true;
@@ -30,6 +34,30 @@ pub(super) fn apply_user_turn_policy(state: &mut Reader, _user_text: &str) -> bo
     state.think_start = Some(Instant::now());
     state.nudged = false;
     cancelled_pending
+}
+
+pub(super) fn mark_pending_interruption(state: &mut Reader) -> bool {
+    let Some(tool) = state.pending.tool.clone() else {
+        return false;
+    };
+    if !turn_policy::is_mutating_tool(&tool) {
+        return false;
+    }
+    let newly_required = !state.reconciliation_required;
+    state.reconciliation_required = true;
+    if newly_required {
+        state.turn_outcomes.record_interrupted_effect(&tool);
+        telemetry::event(
+            "interrupted_effect_reconciliation_required",
+            "turn_policy",
+            telemetry::Privacy::Safe,
+            serde_json::json!({
+                "tool": tool,
+                "interrupted_turn_id": state.pending.turn_id,
+            }),
+        );
+    }
+    true
 }
 
 pub(super) fn refine_turn_mode(state: &mut Reader, _intent: &str, tool: &str) {
@@ -52,12 +80,12 @@ pub(super) fn finish_at_model_boundary(state: &mut Reader) -> BoundaryOutcome {
     }
     match state.turn_mode {
         turn_policy::TurnMode::Conversation => BoundaryOutcome::ConversationComplete,
-        turn_policy::TurnMode::Action => BoundaryOutcome::ActionUnverified,
+        turn_policy::TurnMode::Action => BoundaryOutcome::ActionComplete,
     }
 }
 
 pub(super) fn begin_terminal_drain(state: &mut Reader, accepted: bool, boundary_seen: bool) {
-    state.input_transcript.reset();
+    state.carry_unfinished_goal = state.turn_mode == turn_policy::TurnMode::Action && !accepted;
     state.active = false;
     state.awaiting = false;
     state.recovery_owed = false;
@@ -65,8 +93,12 @@ pub(super) fn begin_terminal_drain(state: &mut Reader, accepted: bool, boundary_
     state.terminal_accepted = accepted;
     state.terminal_boundary_seen = boundary_seen;
     state.terminal_dropped_events = 0;
+    state.terminal_effectful_dropped_events = 0;
     state.terminal_response = super::terminal_drain::FinalResponseState::Closed;
+    state.terminal_generation_complete = false;
+    state.terminal_prior_turn_boundary_pending = false;
     state.terminal_activity_at = None;
+    state.terminal_playback_cursor = None;
     state.ignore_stale_boundary = false;
     state.think_start = None;
     state.reasoning.clear();
@@ -75,11 +107,16 @@ pub(super) fn begin_terminal_drain(state: &mut Reader, accepted: bool, boundary_
 
 pub(super) fn retire_terminal_for_user_turn(state: &mut Reader) -> bool {
     let stale_boundary_possible = state.terminal_drain && !state.terminal_boundary_seen;
+    state.carry_unfinished_goal |=
+        state.turn_mode == turn_policy::TurnMode::Action && !state.terminal_accepted;
     state.terminal_drain = false;
     state.terminal_accepted = false;
     state.terminal_boundary_seen = false;
     state.terminal_response = super::terminal_drain::FinalResponseState::Closed;
+    state.terminal_generation_complete = false;
+    state.terminal_prior_turn_boundary_pending = false;
     state.terminal_activity_at = None;
+    state.terminal_playback_cursor = None;
     state.ignore_stale_boundary = stale_boundary_possible;
     stale_boundary_possible
 }
@@ -117,19 +154,88 @@ pub(super) fn guard_tool_call(
     _args: &Value,
     action: telemetry::ActionTrace,
 ) -> bool {
-    // Never overwrite an older pending id while its cancelled job unwinds.
+    // One local action owns the executor at a time. Keep later calls from the
+    // same model generation pending until the owner's result has been delivered;
+    // replying early would start a competing generation without that result.
     if state.pending.id.is_some() {
+        let prior_turn = state
+            .pending
+            .turn_id
+            .is_some_and(|pending_turn| pending_turn != action.turn_id);
+        let status = if prior_turn {
+            "blocked_prior_action_settling"
+        } else {
+            "blocked_tool_call_in_flight"
+        };
+        let code = if prior_turn {
+            "prior_action_settling"
+        } else {
+            "tool_call_in_flight"
+        };
+        let message = if prior_turn {
+            "The interrupted prior action is still settling. This call did not run. After its receipt arrives, inspect fresh state before any completion or mutation claim."
+        } else {
+            "Only one computer tool executes at a time. This call did not run. After the in-flight result arrives, retry it only if still needed against fresh state."
+        };
         queue(
             state,
             id,
             name,
             serde_json::json!({
                 "ok": false,
-                "status": "blocked_previous_action_halting",
+                "status": status,
+                "executed": false,
+                "effect_may_have_occurred": false,
+                "error": {
+                    "code": code,
+                    "message": message,
+                }
+            }),
+        );
+        telemetry::typed_error(
+            if prior_turn {
+                "ERR_PRIOR_ACTION_SETTLING"
+            } else {
+                "ERR_CONCURRENT_TOOL_CALL"
+            },
+            "turn_policy",
+            "held a not-run response until the owning in-flight tool result is delivered",
+            serde_json::json!({
+                "tool": name,
+                "pending_turn_id": state.pending.turn_id,
+                "requested_turn_id": action.turn_id,
+            }),
+        );
+        telemetry::event_for_action(
+            "action_outcome",
+            "turn_policy",
+            telemetry::Privacy::Safe,
+            action,
+            serde_json::json!({
+                "tool_call_id": id,
+                "requested_tool": name,
+                "executed": false,
+                "effect_may_have_occurred": false,
+                "effect_status": "proven_no_effect",
+                "status": status,
+                "error_code": code,
+            }),
+        );
+        return true;
+    }
+
+    if state.reconciliation_required && (turn_policy::is_mutating_tool(name) || name == "done") {
+        queue(
+            state,
+            id,
+            name,
+            serde_json::json!({
+                "ok": false,
+                "status": "blocked_interrupted_effect_reconciliation_required",
                 "executed": false,
                 "error": {
-                    "code": "previous_action_halting",
-                    "message": "The previous action is still halting. Do not act yet; wait for the user or retry after it has stopped."
+                    "code": "interrupted_effect_reconciliation_required",
+                    "message": "An interrupted mutation still needs fresh observed state. Use a read or observation capability before any mutation or completion claim."
                 }
             }),
         );
@@ -137,9 +243,9 @@ pub(super) fn guard_tool_call(
         state.recovery_owed = true;
         state.think_start = Some(Instant::now());
         telemetry::typed_error(
-            "ERR_TOOL_WHILE_PREVIOUS_HALTING",
+            "ERR_TOOL_BEFORE_EFFECT_RECONCILIATION",
             "turn_policy",
-            "blocked a tool call while the prior action was still halting",
+            "blocked a mutation before fresh state reconciled an interrupted action",
             serde_json::json!({"tool": name}),
         );
         telemetry::event_for_action(
@@ -151,7 +257,10 @@ pub(super) fn guard_tool_call(
                 "tool_call_id": id,
                 "requested_tool": name,
                 "executed": false,
-                "status": "blocked_previous_action_halting",
+                "effect_status": "proven_no_effect",
+                "effect_may_have_occurred": false,
+                "status": "blocked_interrupted_effect_reconciliation_required",
+                "error_code": "interrupted_effect_reconciliation_required",
             }),
         );
         return true;
@@ -167,218 +276,5 @@ fn queue(state: &mut Reader, id: &str, name: &str, response: Value) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::overlay::computer_control::runtime::reader::Pending;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    #[test]
-    fn any_new_user_turn_cancels_pending_work_and_starts_fresh() {
-        let cancel = Arc::new(AtomicBool::new(false));
-        let mut state = Reader {
-            pending: Pending {
-                id: Some("in-flight".to_string()),
-                tool: Some("future_operation".to_string()),
-                cancelled: false,
-                cancel: Some(cancel.clone()),
-            },
-            active: true,
-            awaiting: true,
-            turn_mode: turn_policy::TurnMode::Action,
-            ..Reader::default()
-        };
-
-        assert!(apply_user_turn_policy(&mut state, "new turn"));
-        assert!(cancel.load(Ordering::SeqCst));
-        assert!(state.pending.cancelled);
-        assert!(state.active);
-        assert!(state.recovery_owed);
-        assert!(state.ignore_stale_boundary);
-        assert_eq!(state.turn_mode, turn_policy::TurnMode::Conversation);
-    }
-
-    #[test]
-    fn a_model_boundary_finishes_answers_and_actions_without_self_reviving() {
-        let mut answer = Reader {
-            active: true,
-            turn_mode: turn_policy::TurnMode::Conversation,
-            think_start: Some(Instant::now()),
-            ..Reader::default()
-        };
-        assert_eq!(
-            finish_at_model_boundary(&mut answer),
-            BoundaryOutcome::ConversationComplete
-        );
-        assert!(!answer.active);
-        assert!(answer.think_start.is_none());
-
-        let mut action = Reader {
-            active: true,
-            turn_mode: turn_policy::TurnMode::Action,
-            think_start: Some(Instant::now()),
-            ..Reader::default()
-        };
-        assert_eq!(
-            finish_at_model_boundary(&mut action),
-            BoundaryOutcome::ActionUnverified
-        );
-        assert!(!action.active);
-        assert!(action.think_start.is_none());
-
-        let mut in_flight = Reader {
-            pending: Pending {
-                id: Some("tool-call".to_string()),
-                ..Pending::default()
-            },
-            active: true,
-            turn_mode: turn_policy::TurnMode::Action,
-            ..Reader::default()
-        };
-        assert_eq!(
-            finish_at_model_boundary(&mut in_flight),
-            BoundaryOutcome::PendingTool
-        );
-        assert!(in_flight.active);
-    }
-
-    #[test]
-    fn new_user_turn_retires_terminal_latch_and_guards_one_stale_boundary() {
-        let mut state = Reader {
-            active: true,
-            awaiting: true,
-            reasoning: "old generation".to_string(),
-            thinking: "old thought".to_string(),
-            ..Reader::default()
-        };
-        begin_terminal_drain(&mut state, true, false);
-        assert!(state.terminal_drain);
-        assert!(state.terminal_accepted);
-        assert!(!state.active);
-        assert!(state.reasoning.is_empty());
-        assert!(state.thinking.is_empty());
-
-        apply_user_turn_policy(&mut state, "new user turn");
-        assert!(state.terminal_drain);
-        assert!(state.active);
-        assert!(state.awaiting);
-
-        assert!(retire_terminal_for_user_turn(&mut state));
-        assert!(!state.terminal_drain);
-        assert!(!state.terminal_accepted);
-        assert!(state.active);
-        assert!(state.awaiting);
-        assert!(consume_stale_boundary(&mut state));
-        assert!(!consume_stale_boundary(&mut state));
-    }
-
-    #[test]
-    fn new_generation_progress_disarms_the_stale_boundary_guard() {
-        let mut state = Reader {
-            ignore_stale_boundary: true,
-            awaiting: true,
-            recovery_owed: true,
-            ..Reader::default()
-        };
-        record_generation_progress(&mut state);
-        assert!(!consume_stale_boundary(&mut state));
-        assert!(!state.recovery_owed);
-        assert!(!recovery_due(&state));
-    }
-
-    #[test]
-    fn only_substantive_server_output_clears_recovery_debt() {
-        assert!(!is_real_generation_progress(
-            &ServerEvent::Audio(Vec::new())
-        ));
-        assert!(!is_real_generation_progress(
-            &ServerEvent::OutputTranscript("  ".to_string())
-        ));
-        assert!(is_real_generation_progress(&ServerEvent::Thought(
-            "working".to_string()
-        )));
-        assert!(is_real_generation_progress(&ServerEvent::ToolCall {
-            id: "call".to_string(),
-            name: "future_tool".to_string(),
-            args: serde_json::json!({}),
-        }));
-
-        let state = Reader {
-            awaiting: true,
-            recovery_owed: true,
-            ..Reader::default()
-        };
-        assert!(recovery_due(&state));
-    }
-
-    #[test]
-    fn selected_capability_sets_lifecycle_without_parsing_user_language() {
-        let request = "unclassified input";
-        let mut state = Reader {
-            last_user_text: request.to_string(),
-            ..Reader::default()
-        };
-        apply_user_turn_policy(&mut state, request);
-        assert_eq!(state.turn_mode, turn_policy::TurnMode::Conversation);
-        refine_turn_mode(
-            &mut state,
-            "Perform the requested interface action",
-            "click_target",
-        );
-        assert_eq!(state.turn_mode, turn_policy::TurnMode::Action);
-
-        let mut observation = Reader::default();
-        refine_turn_mode(&mut observation, "", "browser_read_page");
-        assert_eq!(observation.turn_mode, turn_policy::TurnMode::Conversation);
-    }
-
-    #[test]
-    fn done_always_reaches_the_independent_verifier() {
-        let mut state = Reader {
-            active: true,
-            awaiting: true,
-            turn_mode: turn_policy::TurnMode::Conversation,
-            ..Reader::default()
-        };
-        refine_turn_mode(&mut state, "", "done");
-        assert_eq!(state.turn_mode, turn_policy::TurnMode::Conversation);
-        assert!(!guard_tool_call(
-            &mut state,
-            "done-id",
-            "done",
-            &serde_json::json!({"summary": "answered"}),
-            telemetry::ActionTrace {
-                action_id: 1,
-                turn_id: 1,
-            },
-        ));
-        assert!(!state.terminal_drain);
-        assert!(state.active);
-        assert!(state.awaiting);
-        assert!(state.immediate_tool_responses.is_empty());
-    }
-
-    #[test]
-    fn cancellation_is_monotonic_and_scoped_to_one_job() {
-        let first_cancel = Arc::new(AtomicBool::new(false));
-        let mut first = Pending {
-            id: Some("shared-id".to_string()),
-            tool: Some("future_operation".to_string()),
-            cancelled: false,
-            cancel: Some(first_cancel.clone()),
-        };
-        assert!(first.request_cancel());
-        assert!(first_cancel.load(Ordering::SeqCst));
-
-        let second_cancel = Arc::new(AtomicBool::new(false));
-        let second = Pending {
-            id: Some("shared-id".to_string()),
-            tool: Some("future_operation".to_string()),
-            cancelled: false,
-            cancel: Some(second_cancel.clone()),
-        };
-        assert!(!second_cancel.load(Ordering::SeqCst));
-        assert!(!second.matches_result("shared-id", &first_cancel));
-        assert!(second.matches_result("shared-id", &second_cancel));
-    }
-}
+#[path = "reader_policy_tests.rs"]
+mod tests;

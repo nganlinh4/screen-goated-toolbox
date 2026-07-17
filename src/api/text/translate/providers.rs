@@ -3,15 +3,16 @@ use crate::api::gemini_generate::stream_gemini_generate;
 use crate::api::openai_compat::stream_openai_compat_chat;
 use anyhow::Result;
 use std::sync::{Arc, atomic::AtomicBool};
+use std::time::Duration;
+
+use super::TranslateTransportOptions;
 
 // --- GEMINI TEXT API ---
 pub(super) fn translate_gemini<F>(
     gemini_api_key: &str,
     model: &str,
     prompt: &str,
-    streaming_enabled: bool,
-    ui_language: &str,
-    cancel_token: &Option<Arc<AtomicBool>>,
+    transport: TranslateTransportOptions<'_>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
@@ -27,11 +28,12 @@ where
         parts,
         model,
         gemini_api_key,
-        streaming_enabled,
-        ui_language,
-        cancel_token,
+        transport.streaming_enabled,
+        transport.ui_language,
+        transport.cancel_token,
         Some("Gemini Text API Error"),
         true,
+        transport.request_timeout,
         None,
         on_chunk,
     )
@@ -46,6 +48,7 @@ pub(super) struct TranslateCerebrasRequest<'a> {
     pub streaming_enabled: bool,
     pub ui_language: &'a str,
     pub cancel_token: &'a Option<Arc<AtomicBool>>,
+    pub request_timeout: Option<Duration>,
 }
 
 pub(super) fn translate_cerebras<F>(
@@ -63,6 +66,7 @@ where
         streaming_enabled,
         ui_language,
         cancel_token,
+        request_timeout,
     } = request;
     // Static instructions precede dynamic input so Cerebras automatic prefix
     // caching can reuse the stable portion across repeated preset runs.
@@ -81,6 +85,7 @@ where
             error_label: "Cerebras API Error",
             response_format: None,
             prediction: None,
+            request_timeout,
         },
         on_chunk,
     )
@@ -106,9 +111,7 @@ pub(super) fn translate_openrouter<F>(
     openrouter_api_key: &str,
     model: &str,
     prompt: &str,
-    streaming_enabled: bool,
-    ui_language: &str,
-    cancel_token: &Option<Arc<AtomicBool>>,
+    transport: TranslateTransportOptions<'_>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
@@ -125,10 +128,11 @@ where
         openrouter_api_key,
         model,
         messages,
-        streaming_enabled,
+        transport.streaming_enabled,
         false,
-        ui_language,
-        cancel_token,
+        transport.ui_language,
+        transport.cancel_token,
+        transport.request_timeout,
         "OpenRouter API Error",
         true,
         |_| {},

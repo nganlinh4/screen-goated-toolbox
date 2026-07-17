@@ -1,9 +1,8 @@
 //! Reader state, rolling conversation history, and server-event handling.
 
 use serde_json::Value;
-use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -13,121 +12,7 @@ use super::super::protocol::ServerEvent;
 use super::super::telemetry::{self, Privacy};
 use super::super::turn_policy;
 use super::Job;
-
-/// One in-flight call, its structural name, and its cancellation token.
-#[derive(Default)]
-pub(super) struct Pending {
-    pub(super) id: Option<String>,
-    pub(super) tool: Option<String>,
-    pub(super) cancelled: bool,
-    pub(super) cancel: Option<Arc<AtomicBool>>,
-}
-
-impl Pending {
-    /// Cancel only this job. The token is never reused by a later action.
-    pub(super) fn request_cancel(&mut self) -> bool {
-        let had_job = self.id.is_some();
-        if had_job {
-            self.cancelled = true;
-            if let Some(cancel) = &self.cancel {
-                cancel.store(true, Ordering::SeqCst);
-            }
-        }
-        had_job
-    }
-
-    pub(super) fn matches_result(&self, id: &str, cancel: &Arc<AtomicBool>) -> bool {
-        self.id.as_deref() == Some(id)
-            && self
-                .cancel
-                .as_ref()
-                .is_some_and(|pending_cancel| Arc::ptr_eq(pending_cancel, cancel))
-    }
-}
-
-/// Mutable reader-side session state threaded through `handle_event`.
-#[derive(Default)]
-pub(super) struct Reader {
-    pub(super) pending: Pending,
-    /// The model's spoken output since the last tool call - its "intent" context.
-    pub(super) reasoning: String,
-    /// The model's SILENT thinking (includeThoughts) since the last tool call - the
-    /// preferred intent source: captured even when the model says nothing aloud.
-    pub(super) thinking: String,
-    /// Committed user goal assembled from this turn's input transcript. Model
-    /// output may explain its rationale, but cannot replace this value.
-    pub(super) last_cmd: String,
-    /// The same committed transcript retained for history and model context.
-    pub(super) last_user_text: String,
-    pub(super) input_transcript: super::speech_events::InputTranscriptAssembler,
-    /// When the current user turn started, for compact turn summaries.
-    pub(super) turn_started_at: Option<Instant>,
-    pub(super) turn_tools: Vec<String>,
-    /// Content-free structural results that were actually delivered this turn.
-    pub(super) turn_outcomes: super::ToolOutcomeLedger,
-    pub(super) turn_research_count: u32,
-    pub(super) turn_stall_count: u32,
-    pub(super) turn_summary_emitted: bool,
-    /// Authorization/lifecycle mode for the current user turn.
-    pub(super) turn_mode: turn_policy::TurnMode,
-    /// Policy-owned responses waiting for the socket loop to send.
-    pub(super) immediate_tool_responses: VecDeque<super::reader_policy::ImmediateToolResponse>,
-    /// Exact latest frame successfully sent to the Live model.
-    pub(super) source_frame: Option<super::super::uia_task::FrameSource>,
-    pub(super) assistant_utterance_id: Option<u64>,
-    pub(super) connection_generation: u32,
-    pub(super) reconnect_total: u32,
-    /// Once a generation closes, latch the session against every model-originated
-    /// event until a real new user turn. A boundary records quiescence but does
-    /// not unlock the model, because a tool response can start a later generation.
-    pub(super) terminal_drain: bool,
-    /// True only when the closed generation satisfied the user's request.
-    pub(super) terminal_accepted: bool,
-    pub(super) terminal_boundary_seen: bool,
-    /// Boundary status for the in-flight tool generation; result delivery can
-    /// race the socket, so final-response ownership must retain it explicitly.
-    pub(super) pending_tool_boundary_seen: bool,
-    pub(super) terminal_dropped_events: u32,
-    /// A successful terminal tool owns one final model generation. Its speech
-    /// may finish, but no tool from that generation may execute.
-    pub(super) terminal_response: super::terminal_drain::FinalResponseState,
-    pub(super) terminal_activity_at: Option<Instant>,
-    /// A new user turn can arrive before the completed generation's boundary.
-    /// Consume that stale boundary only while the new generation has no output.
-    pub(super) ignore_stale_boundary: bool,
-    /// True while a spoken request is being worked on. Idle frames are pushed only
-    /// while active, so after `done` the agent waits for the user instead of
-    /// treating each new frame as a cue to keep acting.
-    pub(super) active: bool,
-    /// Rolling conversation history (alternating "User:"/"Assistant:" lines). The
-    /// preview model rejects sessionResumption, so on a dropped connection we
-    /// re-seed a fresh session with this recap - the agent keeps its memory.
-    pub(super) history: Vec<String>,
-    /// The assistant's spoken reply since the last user turn, flushed into
-    /// `history` when the user speaks again (or on reconnect).
-    pub(super) reply: String,
-    /// True while the current model generation still owes a boundary.
-    pub(super) awaiting: bool,
-    /// True until that generation produces its first substantive output. Silence
-    /// recovery is legal only while both this and `awaiting` are true.
-    pub(super) recovery_owed: bool,
-    /// Set once we've nudged the model during the CURRENT silent spell, so we poke
-    /// it only once before escalating to a reconnect. Cleared on any server event.
-    pub(super) nudged: bool,
-    /// The server sent a `goAway` (session is hitting its duration limit). The run
-    /// loop reconnects PROACTIVELY at the next gap so we migrate cleanly with our
-    /// recap, instead of being force-closed mid-stream.
-    pub(super) go_away: bool,
-    /// When the model started OWING us a response (user spoke, or we answered a tool
-    /// call). Used to log model THINK-time and to catch turns that end mid-task with
-    /// no action ("narrated but didn't act").
-    pub(super) think_start: Option<Instant>,
-    // Rolling diagnostics, logged as a [PROFILE] line every 12 actions.
-    pub(super) tool_calls: u32,
-    pub(super) think_total_ms: u128,
-    pub(super) spoke_count: u32,
-    pub(super) stall_count: u32,
-}
+pub(super) use super::reader_state::{Pending, Reader};
 
 /// Cap on history entries kept (rolling); older turns drop off. Sized to retain
 /// a whole session for conversation MEMORY (the reconnect recap is bounded
@@ -140,7 +25,9 @@ pub(super) fn flush_reply(state: &mut Reader) {
     if !r.is_empty() {
         let clipped: String = r.chars().take(600).collect();
         let utterance_id = state
-            .assistant_utterance_id
+            .reply_utterance_id
+            .take()
+            .or(state.assistant_utterance_id)
             .unwrap_or_else(|| telemetry::next_utterance("assistant_reply_flushed"));
         telemetry::human(
             "cc",
@@ -166,6 +53,7 @@ pub(super) fn flush_reply(state: &mut Reader) {
         }
     }
     state.reply.clear();
+    state.reply_utterance_id = None;
 }
 
 /// Append a compact note of what a vision/read tool actually OBSERVED to the
@@ -227,6 +115,10 @@ pub(super) fn emit_turn_summary(state: &mut Reader, outcome: &str) {
             "tools": state.turn_tools.clone(),
             "stall_count": state.turn_stall_count,
             "research_count": state.turn_research_count,
+            "generation_count": state.model_generation_index,
+            "usage_event_count": state.usage_event_index,
+            "tool_response_bytes": state.turn_tool_response_bytes,
+            "element_chars_delivered": state.turn_element_chars,
             "user_char_count": state.last_user_text.chars().count(),
             "goal_char_count": state.last_cmd.chars().count(),
         }),
@@ -252,7 +144,7 @@ pub(super) fn handle_event(
             // Barge-in: stop TALKING so the agent listens, but let the in-flight
             // ACTION finish until the server identifies which pending call its
             // voice-activity barge-in cancelled.
-            state.input_transcript.reset();
+            state.input_transcript.begin_epoch();
             super::speech_events::interrupted(state, sink);
         }
         ServerEvent::ToolCancellation(ids) => {
@@ -261,10 +153,14 @@ pub(super) fn handle_event(
             // the server's voice-activity barge-in, which works in ANY language, so
             // language-independent and needs no spoken-keyword list.
             super::speech_events::interrupted(state, sink);
-            if let Some(p) = state.pending.id.as_ref()
-                && ids.iter().any(|i| i == p)
-            {
+            let owns_pending = state
+                .pending
+                .id
+                .as_ref()
+                .is_some_and(|pending| ids.iter().any(|id| id == pending));
+            if owns_pending {
                 state.pending.request_cancel(); // don't answer it; abort only that job
+                super::reader_policy::mark_pending_interruption(state);
                 state.awaiting = true;
                 state.recovery_owed = true;
                 state.think_start = Some(Instant::now());
@@ -284,6 +180,11 @@ pub(super) fn handle_event(
             if let Some(update) = state.input_transcript.merge(&t) {
                 let text = update.text;
                 if update.starts_turn {
+                    let inherit_goal = state.carry_unfinished_goal
+                        || (state.turn_mode == turn_policy::TurnMode::Action
+                            && (state.active || state.awaiting || state.pending.id.is_some()));
+                    state.active_goal.start_turn(&text, inherit_goal);
+                    state.carry_unfinished_goal = false;
                     super::speech_events::interrupted(state, sink);
                     if state.active && !state.turn_summary_emitted {
                         emit_turn_summary(state, "superseded");
@@ -301,6 +202,10 @@ pub(super) fn handle_event(
                         serde_json::json!({
                             "text_preview": text.chars().take(240).collect::<String>(),
                             "char_count": text.chars().count(),
+                            "fragment_index": update.fragment_index,
+                            "starts_turn": update.starts_turn,
+                            "changed": update.changed,
+                            "finality": "provider_unspecified",
                         }),
                     );
                     state.assistant_utterance_id = None;
@@ -310,8 +215,15 @@ pub(super) fn handle_event(
                     state.turn_tools.clear();
                     state.turn_outcomes.clear();
                     state.turn_research_count = 0;
+                    state.model_generation_index = 1;
+                    state.usage_event_index = 0;
+                    state.turn_tool_response_bytes = 0;
+                    state.turn_element_chars = 0;
                     state.turn_stall_count = 0;
                     state.turn_summary_emitted = false;
+                    state.generation_output_seen = false;
+                    state.pending_tool_output_seen = false;
+                    state.terminal_final_response_delivered = false;
                     state.history.push(format!("User: {text}"));
                     if state.history.len() > MAX_HISTORY {
                         state.history.remove(0);
@@ -328,6 +240,7 @@ pub(super) fn handle_event(
                         }),
                     );
                 } else if update.changed {
+                    state.active_goal.update_current(&text);
                     if let Some(entry) = state
                         .history
                         .iter_mut()
@@ -343,10 +256,13 @@ pub(super) fn handle_event(
                             "text_preview": text.chars().take(240).collect::<String>(),
                             "char_count": text.chars().count(),
                             "fragment_char_count": t.trim().chars().count(),
+                            "fragment_index": update.fragment_index,
+                            "starts_turn": update.starts_turn,
+                            "finality": "provider_unspecified",
                         }),
                     );
                 }
-                state.last_cmd.clone_from(&text);
+                state.last_cmd = state.active_goal.render();
                 state.last_user_text.clone_from(&text);
                 overlay::set_user_text(text);
             }
@@ -363,6 +279,9 @@ pub(super) fn handle_event(
             // the intent buffer so the turn's task is captured even on a wordless turn.
             state.thinking.push_str(&t);
         }
+        ServerEvent::GenerationComplete => {
+            super::speech_events::generation_complete(state, sink);
+        }
         ServerEvent::TurnComplete => {
             if super::reader_policy::consume_stale_boundary(state) {
                 telemetry::event(
@@ -376,46 +295,101 @@ pub(super) fn handle_event(
             // The server's boundary ends this response. Never turn it into a
             // synthetic "continue" request: that creates unsolicited speech and
             // can loop forever when the model does not call done explicitly.
+            let generation_output_seen = state.generation_output_seen;
             let boundary = super::reader_policy::finish_at_model_boundary(state);
             if boundary == super::reader_policy::BoundaryOutcome::PendingTool {
                 state.pending_tool_boundary_seen = true;
             }
             match boundary {
-                super::reader_policy::BoundaryOutcome::ConversationComplete => {
+                super::reader_policy::BoundaryOutcome::ConversationComplete
+                | super::reader_policy::BoundaryOutcome::ActionComplete => {
+                    super::speech_events::release_generation_audio(
+                        state,
+                        sink,
+                        "model_turn_boundary",
+                    );
                     emit_turn_summary(state, "model_turn_complete");
                     overlay::set_orb_done();
                     overlay::set_status("ready - speak a command");
                 }
-                super::reader_policy::BoundaryOutcome::ActionUnverified => {
-                    emit_turn_summary(state, "unverified_action_boundary");
-                    overlay::set_orb_resting();
-                    overlay::set_status("ready - speak a command");
-                    telemetry::event(
-                        "action_turn_unverified",
-                        "runtime",
-                        Privacy::Safe,
-                        serde_json::json!({"reason": "model_turn_complete_without_accepted_done"}),
-                    );
-                }
                 super::reader_policy::BoundaryOutcome::PendingTool
                 | super::reader_policy::BoundaryOutcome::AlreadyIdle => {}
             }
-            super::speech_events::generation_complete(state, sink);
-            flush_reply(state);
+            super::speech_events::turn_complete(state, sink);
+            if matches!(
+                boundary,
+                super::reader_policy::BoundaryOutcome::ConversationComplete
+                    | super::reader_policy::BoundaryOutcome::ActionComplete
+            ) {
+                flush_reply(state);
+            }
             state.awaiting = false;
             state.recovery_owed = false;
             match boundary {
-                super::reader_policy::BoundaryOutcome::ConversationComplete => {
+                super::reader_policy::BoundaryOutcome::ConversationComplete
+                | super::reader_policy::BoundaryOutcome::ActionComplete => {
+                    state.terminal_final_response_delivered = generation_output_seen;
                     super::reader_policy::begin_terminal_drain(state, true, true);
-                }
-                super::reader_policy::BoundaryOutcome::ActionUnverified => {
-                    super::reader_policy::begin_terminal_drain(state, false, true);
+                    telemetry::event(
+                        "model_generation_closed",
+                        "runtime",
+                        Privacy::Safe,
+                        serde_json::json!({
+                            "accepted": true,
+                            "reason": "model_turn_complete",
+                            "generation_complete_seen": true,
+                            "turn_boundary_seen": true,
+                            "response_completed": generation_output_seen,
+                            "dropped_events": 0,
+                            "effectful_dropped_events": 0,
+                        }),
+                    );
+                    let cleanup_turn_id = telemetry::current_turn();
+                    let cleanup = Job {
+                        id: super::RETIRE_TURN.to_string(),
+                        name: super::RETIRE_TURN.to_string(),
+                        args: serde_json::json!({}),
+                        task: String::new(),
+                        user_text: String::new(),
+                        inherit_evidence: false,
+                        action: telemetry::ActionTrace {
+                            action_id: 0,
+                            turn_id: cleanup_turn_id,
+                        },
+                        source_frame: None,
+                        queued_at: Instant::now(),
+                        cancel: Arc::new(AtomicBool::new(false)),
+                    };
+                    if exec_tx.send(cleanup).is_err() {
+                        telemetry::typed_error(
+                            "ERR_TURN_RETIRE_ENQUEUE",
+                            "runtime",
+                            "could not enqueue local turn cleanup",
+                            serde_json::json!({}),
+                        );
+                    } else {
+                        state.turn_cleanup_pending = Some(cleanup_turn_id);
+                        telemetry::event(
+                            "turn_cleanup_enqueued",
+                            "runtime",
+                            Privacy::Safe,
+                            serde_json::json!({
+                                "cleanup_turn_id": cleanup_turn_id,
+                                "source": "model_turn_complete",
+                            }),
+                        );
+                    }
                 }
                 _ => {}
             }
+            state.generation_output_seen = false;
         }
         ServerEvent::ToolCall { id, name, args } => {
-            super::speech_events::generation_before_tool(state, sink);
+            let tool_generation_output_seen = state.generation_output_seen;
+            if name != "done" {
+                super::speech_events::release_generation_audio(state, sink, "progress_tool_call");
+            }
+            state.generation_output_seen = false;
             state.awaiting = false; // model responded (with an action)
             state.recovery_owed = false;
             if let Some(t) = state.think_start.take() {
@@ -517,6 +491,7 @@ pub(super) fn handle_event(
             if super::reader_policy::guard_tool_call(state, &id, &name, &args, action) {
                 return;
             }
+            state.pending_tool_output_seen = tool_generation_output_seen;
 
             overlay::set_status(format!("doing: {name}"));
             overlay::set_orb_tool(&name, &args);
@@ -524,6 +499,7 @@ pub(super) fn handle_event(
             state.pending = Pending {
                 id: Some(id.clone()),
                 tool: Some(name.clone()),
+                turn_id: Some(action.turn_id),
                 cancelled: false,
                 cancel: Some(cancel.clone()),
             };
@@ -535,6 +511,7 @@ pub(super) fn handle_event(
                 args,
                 task: state.last_cmd.clone(),
                 user_text: state.last_user_text.clone(),
+                inherit_evidence: state.active_goal.is_continuation(),
                 action,
                 source_frame: state.source_frame.clone(),
                 queued_at: Instant::now(),
@@ -543,6 +520,7 @@ pub(super) fn handle_event(
             if exec_tx.send(job).is_err() {
                 state.pending.request_cancel();
                 state.pending = Pending::default();
+                state.pending_tool_output_seen = false;
                 state.immediate_tool_responses.push_back((
                     id.clone(),
                     name.clone(),
@@ -585,11 +563,17 @@ pub(super) fn handle_event(
             state.go_away = true;
         }
         ServerEvent::Usage(usage) => {
+            state.usage_event_index = state.usage_event_index.saturating_add(1);
             telemetry::event(
                 "model_usage",
                 "runtime",
                 Privacy::Safe,
-                serde_json::json!({"usage": usage}),
+                serde_json::json!({
+                    "usage": usage,
+                    "usage_event_index": state.usage_event_index,
+                    "generation_index": state.model_generation_index,
+                    "tool_cycle_index": state.model_generation_index.saturating_sub(1),
+                }),
             );
         }
         _ => {}

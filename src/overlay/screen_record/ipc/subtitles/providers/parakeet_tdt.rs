@@ -33,6 +33,8 @@ impl ParakeetTdtSubtitleBackend {
 
     fn model(&mut self) -> Result<&mut ParakeetTDT, String> {
         if self.model.is_none() {
+            crate::unpack_dlls::ensure_onnx_runtime_initialized()
+                .map_err(|err| format!("Initialize local ONNX runtime: {err}"))?;
             let model_dir = get_parakeet_tdt_model_dir();
             let started = Instant::now();
             crate::log_info!(

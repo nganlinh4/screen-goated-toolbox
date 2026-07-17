@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::navigation_state::{
     MainFrameState, NavigationOutcome, classify_navigation, commit_transition,
-    main_frame_from_tree, nonempty_string,
+    main_frame_from_tree, nonempty_string, track_transition,
 };
 
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -17,6 +17,7 @@ const STABLE_SAMPLES: u8 = 2;
 pub(super) enum NavigationDispatchMethod {
     Cdp,
     ExactTabRpc,
+    History,
 }
 
 impl NavigationDispatchMethod {
@@ -24,6 +25,7 @@ impl NavigationDispatchMethod {
         match self {
             Self::Cdp => "cdp.Page.navigate",
             Self::ExactTabRpc => "tabs.navigate",
+            Self::History => "cdp.Page.navigateToHistoryEntry",
         }
     }
 }
@@ -37,6 +39,12 @@ pub(super) struct NavigationVerification {
 }
 
 pub(super) fn navigate_impl(url: &str, tab_id: Option<i64>) -> Value {
+    let url = match super::super::tab_lifecycle::required_url(url, "browser_navigate") {
+        Ok(url) => url,
+        Err(error) => {
+            return super::tag_target(super::with_effect_verified(error, false), tab_id);
+        }
+    };
     if let Some(result) = super::super::conn_guard() {
         return super::tag_target(super::with_effect_verified(result, false), tab_id);
     }
@@ -86,6 +94,7 @@ pub(super) fn navigate_impl(url: &str, tab_id: Option<i64>) -> Value {
             "tabs",
             json!({"action": "navigate", "tabId": exact_tab_id, "url": url}),
         ),
+        NavigationDispatchMethod::History => unreachable!("URL navigation never uses history"),
     };
     if before.is_none() && dispatch_method == NavigationDispatchMethod::ExactTabRpc {
         before = dispatch_result
@@ -95,6 +104,28 @@ pub(super) fn navigate_impl(url: &str, tab_id: Option<i64>) -> Value {
     }
     let (dispatch, dispatch_loader_id) =
         navigation_dispatch_receipt(&dispatch_result, dispatch_method);
+    if dispatch
+        .get("effect_may_have_occurred")
+        .and_then(Value::as_bool)
+        == Some(false)
+    {
+        let cancelled = dispatch.get("status").and_then(Value::as_str) == Some("cancelled");
+        return super::tag_target(
+            json!({
+                "ok": false,
+                "code": if cancelled { "ERR_BROWSER_OPERATION_CANCELLED" } else { "ERR_BROWSER_NAVIGATION_NOT_DISPATCHED" },
+                "error": if cancelled { "browser navigation was cancelled before dispatch" } else { "browser navigation was unavailable before dispatch" },
+                "cancelled": cancelled,
+                "dispatch_ok": false,
+                "effect_verified": false,
+                "effect_may_have_occurred": false,
+                "executed": false,
+                "requested_url": url,
+                "dispatch": dispatch,
+            }),
+            Some(exact_tab_id),
+        );
+    }
     let started = Instant::now();
     let verification = verify_navigation(
         exact_tab_id,
@@ -159,23 +190,20 @@ pub(super) fn navigation_dispatch_receipt(
                 loader_id,
             )
         }
-        Err(error) => (
-            match super::super::bridge_wait::cancellation_effect(error) {
-                Some(effect) => json!({
-                    "status": "cancelled",
+        Err(error) => {
+            let cancelled = super::super::bridge_wait::cancellation_effect(error).is_some();
+            let effect = super::super::bridge_wait::dispatch_effect(error)
+                .unwrap_or_else(|| super::super::capabilities::unsupported_from(error).is_none());
+            (
+                json!({
+                    "status": if cancelled { "cancelled" } else if effect { "unknown" } else { "not_dispatched" },
                     "method": method.as_str(),
                     "error": error.to_string(),
                     "effect_may_have_occurred": effect,
                 }),
-                None => json!({
-                    "status": "unknown",
-                    "method": method.as_str(),
-                    "error": error.to_string(),
-                    "effect_may_have_occurred": true,
-                }),
-            },
-            None,
-        ),
+                None,
+            )
+        }
     }
 }
 
@@ -199,7 +227,7 @@ pub(super) fn tab_navigation_before_state(value: &Value) -> Option<MainFrameStat
     })
 }
 
-fn verify_navigation(
+pub(super) fn verify_navigation(
     tab_id: i64,
     requested_url: &str,
     before: Option<&MainFrameState>,
@@ -222,7 +250,13 @@ fn verify_navigation(
         attempts = attempts.saturating_add(1);
         match read_main_frame(tab_id) {
             Ok(state) => {
-                transition_seen |= commit_transition(before, &state, dispatch_loader_id);
+                let current_matches_dispatch =
+                    commit_transition(before, &state, dispatch_loader_id);
+                transition_seen = track_transition(
+                    transition_seen,
+                    current_matches_dispatch,
+                    dispatch_loader_id.is_some(),
+                );
                 if last_state.as_ref() == Some(&state) {
                     stable_samples = stable_samples.saturating_add(1);
                 } else {
@@ -270,7 +304,7 @@ pub(super) struct VerificationFailure {
     pub(super) cancelled: bool,
 }
 
-fn read_main_frame(tab_id: i64) -> anyhow::Result<MainFrameState> {
+pub(super) fn read_main_frame(tab_id: i64) -> anyhow::Result<MainFrameState> {
     let tree = super::super::bridge::cdp_on_tab("Page.getFrameTree", json!({}), tab_id)?;
     main_frame_from_tree(&tree)
 }
@@ -306,7 +340,7 @@ pub(super) fn navigation_success(
     })
 }
 
-fn navigation_load_failure(
+pub(super) fn navigation_load_failure(
     requested_url: &str,
     tab_id: i64,
     before: Option<&MainFrameState>,

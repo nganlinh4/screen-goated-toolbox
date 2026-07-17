@@ -10,7 +10,7 @@ pub(super) fn validate_shape(
 ) -> Result<(), String> {
     let role = element.role.as_str();
     match verb {
-        Verb::Fill if !matches!(role, "textbox" | "searchbox" | "spinbutton") => {
+        Verb::Fill if !element.editable => {
             return Err(format!("fill is incompatible with role {role:?}"));
         }
         Verb::Select if role != "combobox" => {
@@ -59,6 +59,7 @@ mod tests {
             role: role.to_string(),
             name: "control".to_string(),
             value: None,
+            editable: matches!(role, "textbox" | "searchbox" | "spinbutton"),
             state: None,
             enabled,
             required: false,
@@ -86,6 +87,10 @@ mod tests {
     #[test]
     fn accepts_structurally_compatible_calls() {
         assert!(validate_action(&element("textbox", true), Verb::Fill, Some("")).is_ok());
+        let mut editable_combobox = element("combobox", true);
+        editable_combobox.editable = true;
+        assert!(validate_action(&editable_combobox, Verb::Fill, Some("query")).is_ok());
+        assert!(validate_action(&element("combobox", true), Verb::Fill, Some("query")).is_err());
         assert!(validate_action(&element("checkbox", true), Verb::Toggle, None).is_ok());
         assert!(validate_action(&element("listitem", true), Verb::Activate, None).is_ok());
     }

@@ -435,11 +435,23 @@ pub(super) fn typed_error(code: &str, component: &str, message: &str, fields: Va
         "typed_error",
         component,
         Privacy::Safe,
-        json!({
-            "code": code,
-            "message": message,
-            "fields": fields,
-        }),
+        json!({"code": code, "message": message, "fields": fields}),
+    );
+}
+
+pub(super) fn typed_error_for_action(
+    code: &str,
+    component: &str,
+    message: &str,
+    action: ActionTrace,
+    fields: Value,
+) {
+    event_for_action(
+        "typed_error",
+        component,
+        Privacy::Safe,
+        action,
+        json!({"code": code, "message": message, "fields": fields}),
     );
 }
 

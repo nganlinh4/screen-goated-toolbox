@@ -1,13 +1,11 @@
-//! Continuous Computer Control voice session with concurrent input, execution,
-//! cancellation, grounding, and reconnect handling.
+//! Continuous Computer Control session with concurrent input, actions, grounding, and reconnects.
 
+use serde_json::Value;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-
-use serde_json::Value;
 use tungstenite::Message;
 
 use crate::api::gemini_live::transport::{
@@ -25,17 +23,24 @@ use super::telemetry::{self, Privacy};
 use super::uia_task;
 
 mod action_worker;
+mod action_worker_receive;
 mod cleanup;
+mod completion_responses;
 mod control;
+mod effect_reporting;
 mod frames;
 mod mic;
 mod outcomes;
 mod reader;
 mod reader_policy;
+mod reader_state;
 mod reconnect_gate;
 mod repeat_failure;
+mod response_telemetry;
 mod results;
 mod scripted;
+#[cfg(any(debug_assertions, test))]
+mod scripted_snapshots;
 mod session_control;
 mod speech_events;
 mod terminal_drain;
@@ -49,13 +54,15 @@ use reader::{
     Pending, Reader, emit_turn_summary, flush_reply, handle_event, record_observation,
     record_tool_result,
 };
+/// One-way worker cleanup when the model ends a turn without calling `done`.
+/// This is never exposed to the model and never produces a model response.
+const RETIRE_TURN: &str = "__retire_turn__";
 use results::{poll_action_result, send_immediate_tool_responses};
 use session_control::{
-    CatalogRecovery, activate_integrations, await_startup_catalog, configured_target,
-    connect_initial_session, reconnect_session,
+    activate_integrations, await_startup_catalog, configured_target, connect_initial_session,
+    reconnect_session,
 };
 use speech_events::{PlaybackTracker, UserAudioTracker};
-
 /// Frame cadence while talking/working; speech onset also pushes a leading frame.
 const FRAME_INTERVAL: Duration = Duration::from_millis(1800);
 const CAPTURE_CACHE_INTERVAL: Duration = Duration::from_millis(500);
@@ -73,6 +80,7 @@ struct Job {
     args: Value,
     task: String,
     user_text: String,
+    inherit_evidence: bool,
     action: telemetry::ActionTrace,
     source_frame: Option<uia_task::FrameSource>,
     queued_at: Instant,
@@ -94,6 +102,9 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
     let mut mem_frames: Vec<Vec<u8>> = Vec::new();
     let mut exit_reason = "external_stop_flag";
     let scripted_mode = scripted_turns.is_some();
+    let mut scripted_driver = scripted_turns
+        .map(scripted::ScriptedDriver::new)
+        .transpose()?;
     super::browser::ensure_started();
     let key = session::load_key()?;
     let target = configured_target()?;
@@ -138,12 +149,14 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
 
     let (exec_tx, exec_rx) = mpsc::channel::<Job>();
     let (res_tx, res_rx) = mpsc::channel::<Done>();
+    let (cleanup_ack_tx, cleanup_ack_rx) = mpsc::channel::<u64>();
     let (cmd_tx, cmd_rx) = mpsc::channel::<String>();
     control::install_text_sender(cmd_tx);
     let exec_target = target.clone();
     let exec_stop = Arc::clone(stop);
-    let exec_thread =
-        std::thread::spawn(move || executor_loop(exec_target, exec_rx, res_tx, exec_stop));
+    let exec_thread = std::thread::spawn(move || {
+        executor_loop(exec_target, exec_rx, res_tx, cleanup_ack_tx, exec_stop)
+    });
     cleanup.register_executor(exec_tx.clone(), exec_thread);
 
     let f0 = match uia_task::snapshot(target.as_deref()) {
@@ -167,22 +180,23 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
         let cap_stop = Arc::clone(stop);
         let cap_target = target.clone();
         let worker = std::thread::spawn(move || {
-            let mut last_capture_error: Option<Instant> = None;
+            let mut failure_gate = frames::CaptureFailureGate::new();
             while !cap_stop.load(Ordering::SeqCst) {
                 if on.load(Ordering::SeqCst) {
                     match uia_task::snapshot(cap_target.as_deref()) {
-                        Ok(frame) => *slot.lock().unwrap() = Some(frame),
+                        Ok(frame) => {
+                            *slot.lock().unwrap() = Some(frame);
+                            failure_gate.on_success();
+                        }
                         Err(error) => {
-                            if last_capture_error
-                                .is_none_or(|last| last.elapsed() >= Duration::from_secs(10))
-                            {
+                            if failure_gate.on_failure(Instant::now()) {
                                 capture_failed("background_cache", cap_target.as_deref(), &error);
-                                last_capture_error = Some(Instant::now());
                             }
                         }
                     }
                     std::thread::sleep(CAPTURE_CACHE_INTERVAL);
                 } else {
+                    failure_gate.on_success();
                     std::thread::sleep(Duration::from_millis(120));
                 }
             }
@@ -198,7 +212,6 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
     let mut last_event = Instant::now();
     let mut reconnect_deferred_for_voice = false;
     let mut activation_reconnect_pending = false;
-    let mut catalog_recovery = CatalogRecovery::default();
     state.source_frame = initial_source;
     state.connection_generation = 1;
     cleanup.track_pending(&state);
@@ -206,14 +219,10 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
     // Keep a small set of distinct screens for searchable conversation memory.
     let mut last_mem_title = String::new();
     let mut last_mem_check = Instant::now();
-    let mut scripted_turns: std::collections::VecDeque<String> =
-        scripted_turns.unwrap_or_default().into();
-    let scripted_started = Instant::now();
-    let mut scripted_finished: Option<Instant> = None;
-    let scripted_idle_settle = scripted::idle_settle();
     // Set CC_MIC_GATE=1 when speaker echo would otherwise self-interrupt replies.
     let echo_gate = std::env::var("CC_MIC_GATE").is_ok();
     while !stop.load(Ordering::SeqCst) {
+        cleanup::drain_turn_cleanup_acks(&cleanup_ack_rx, &mut state);
         let sink_failed = sink.as_ref().is_some_and(AudioSink::needs_rebuild);
         let retry_missing_sink =
             sink.is_none() && last_sink_recovery.elapsed() >= Duration::from_secs(2);
@@ -236,47 +245,32 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                 );
             }
         }
-        if scripted_mode {
-            let deadline = scripted::deadline();
-            if scripted_started.elapsed() > deadline {
-                anyhow::bail!("scripted production run exceeded {}s", deadline.as_secs());
-            }
-            if state.pending.id.is_none()
-                && !state.awaiting
-                && !state.active
-                && !sink.as_ref().is_some_and(AudioSink::is_playing)
-            {
-                if let Some(command) = scripted_turns.pop_front() {
-                    telemetry::event(
-                        "scripted_turn_injected",
-                        "test_harness",
-                        Privacy::UserText,
-                        serde_json::json!({
-                            "remaining_turns": scripted_turns.len(),
-                            "command_preview": command.chars().take(240).collect::<String>(),
-                        }),
-                    );
+        if let Some(driver) = scripted_driver.as_mut() {
+            let idle = scripted::runtime_idle(
+                &state,
+                sink.as_ref().is_some_and(AudioSink::is_playing),
+                super::mcp::tools_changed() || state.go_away || activation_reconnect_pending,
+            );
+            match driver.step(&state, idle)? {
+                scripted::ScriptedStep::Inject(command) => {
                     send(&mut socket, realtime_text(&command))?;
+                    state.input_transcript.begin_epoch();
                     handle_event(
                         ServerEvent::InputTranscript(command),
                         sink.as_ref(),
                         &exec_tx,
                         &mut state,
                     );
-                    user_audio_tracker.commit_transcript();
+                    user_audio_tracker.commit_transcript("scripted_text");
                     cleanup.track_pending(&state);
                     last_event = Instant::now();
-                    scripted_finished = None;
-                } else if scripted_finished.get_or_insert_with(Instant::now).elapsed()
-                    > scripted_idle_settle
-                {
-                    if !scripted::has_accepted_completion(&state) {
-                        anyhow::bail!("scripted turn became idle without an accepted completion");
-                    }
+                }
+                scripted::ScriptedStep::Complete => {
                     exit_reason = "scripted_complete";
                     stop.store(true, Ordering::SeqCst);
                     continue;
                 }
+                scripted::ScriptedStep::Wait => {}
             }
         }
         // 0b) capture a representative clean frame each time the foreground window
@@ -318,7 +312,6 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                 target.as_deref(),
                 &mut reconnects,
                 &mut state,
-                &mut catalog_recovery,
             )? {
                 exit_reason = "integration_activation_reconnect_exhausted";
                 break;
@@ -337,7 +330,6 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                 target.as_deref(),
                 &mut reconnects,
                 &mut state,
-                &mut catalog_recovery,
                 "go_away",
             )? {
                 exit_reason = "go_away_reconnect_exhausted";
@@ -348,20 +340,11 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
             continue;
         }
 
-        let catalog_retry_due = catalog_recovery.retry_due(Instant::now());
-        if (super::mcp::tools_changed() || catalog_retry_due)
+        if super::mcp::tools_changed()
             && reconnect_ready
             && last_event.elapsed() > Duration::from_secs(2)
         {
-            if catalog_retry_due {
-                catalog_recovery.begin_retry();
-            }
             super::mcp::clear_tools_changed();
-            let trigger = if catalog_retry_due {
-                "bounded_catalog_retry"
-            } else {
-                "tool_catalog_changed"
-            };
             overlay::push_log("(mcp) reconnecting to activate full catalog".to_string());
             if !reconnect_session(
                 &mut socket,
@@ -369,8 +352,7 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                 target.as_deref(),
                 &mut reconnects,
                 &mut state,
-                &mut catalog_recovery,
-                trigger,
+                "tool_catalog_changed",
             )? {
                 exit_reason = "tool_catalog_reconnect_exhausted";
                 break;
@@ -396,7 +378,9 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
         } else {
             0.0
         };
-        user_audio_tracker.update(voiced, level, chunk.len());
+        if user_audio_tracker.update_for_local_epoch(voiced, level, chunk.len(), playing) {
+            state.input_transcript.begin_epoch();
+        }
         let _ = user_audio_tracker.report_missing_transcript();
         overlay::set_orb_audio(level);
         // Speech ONSET (first audio after a gap), ONLY when the model isn't speaking. The model needs
@@ -422,7 +406,13 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
         //    warm while there's an active request or recent speech so the cache is fresh.
         let recent_voice = last_voice.elapsed() < Duration::from_secs(5);
         capture_on.store(
-            capture_cache_needed(state.active, state.terminal_drain, recent_voice),
+            capture_cache_needed(
+                state.active,
+                state.terminal_drain,
+                recent_voice,
+                state.pending.id.is_some(),
+                voiced,
+            ),
             Ordering::SeqCst,
         );
         // Periodic frames pause while the model is generating; onset/action frames remain.
@@ -450,22 +440,23 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
             let cmd = cmd.trim().to_string();
             if !cmd.is_empty() {
                 let _ = send(&mut socket, realtime_text(&cmd));
-                state.input_transcript.reset();
+                state.input_transcript.begin_epoch();
                 handle_event(
                     ServerEvent::InputTranscript(cmd),
                     sink.as_ref(),
                     &exec_tx,
                     &mut state,
                 );
-                user_audio_tracker.commit_transcript();
+                user_audio_tracker.commit_transcript("local_text");
                 cleanup.track_pending(&state);
                 last_event = Instant::now();
             }
         }
 
         if let Some(reconnect_for_mcp_activation) =
-            poll_action_result(&mut socket, &res_rx, &mut state)?
+            poll_action_result(&mut socket, &res_rx, &mut state, sink.as_ref())?
         {
+            send_immediate_tool_responses(&mut socket, &mut state)?;
             cleanup.track_pending(&state);
             last_frame = Instant::now();
             last_event = Instant::now();
@@ -495,7 +486,6 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                     target.as_deref(),
                     &mut reconnects,
                     &mut state,
-                    &mut catalog_recovery,
                     &format!("socket_close:{frame:?}"),
                 )? {
                     exit_reason = "socket_close_reconnect_exhausted";
@@ -524,7 +514,6 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                             target.as_deref(),
                             &mut reconnects,
                             &mut state,
-                            &mut catalog_recovery,
                             &format!("silence_timeout:{}ms", silent.as_millis()),
                         )? {
                             exit_reason = "silence_reconnect_exhausted";
@@ -563,7 +552,6 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                     target.as_deref(),
                     &mut reconnects,
                     &mut state,
-                    &mut catalog_recovery,
                     &format!("read_error:{e}"),
                 )? {
                     exit_reason = "read_error_reconnect_exhausted";
@@ -584,7 +572,7 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
                 matches!(&ev, ServerEvent::InputTranscript(text) if !text.trim().is_empty());
             handle_event(ev, sink.as_ref(), &exec_tx, &mut state);
             if commits_user_audio {
-                user_audio_tracker.commit_transcript();
+                user_audio_tracker.commit_transcript("provider_input_transcript");
             }
             cleanup.track_pending(&state);
             if send_immediate_tool_responses(&mut socket, &mut state)? {
@@ -592,9 +580,12 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
             }
         }
     }
+    speech_events::discard_generation_audio(&mut state, "session_stopped");
     flush_reply(&mut state); // close the final spoken reply into the transcript
     emit_turn_summary(&mut state, "session_stop");
-    super::memory::save(state.history.clone(), std::mem::take(&mut mem_frames));
+    if !scripted_mode {
+        super::memory::save(state.history.clone(), std::mem::take(&mut mem_frames));
+    }
     cleanup.finish(&mut state, exit_reason);
     Ok(())
 }

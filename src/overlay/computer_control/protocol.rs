@@ -152,6 +152,9 @@ pub enum ServerEvent {
         args: Value,
     },
     ToolCancellation(Vec<String>),
+    /// The model has finished producing this generation. With realtime audio,
+    /// `TurnComplete` may intentionally follow only after expected playback.
+    GenerationComplete,
     TurnComplete,
     Interrupted,
     GoAway {
@@ -210,6 +213,9 @@ pub fn parse_server_message(raw: &str) -> Vec<ServerEvent> {
     // A function call belongs to the generation that produced it. Dispatch it
     // before closing that generation, even if the server coalesces both flags
     // into one wire frame.
+    if frame.generation_complete {
+        out.push(ServerEvent::GenerationComplete);
+    }
     if frame.turn_complete {
         out.push(ServerEvent::TurnComplete);
     }
@@ -283,7 +289,7 @@ mod tests {
 
     #[test]
     fn server_content_yields_audio_transcript_and_turn() {
-        let raw = r#"{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"data":"AAAA"}}]},"outputTranscription":{"text":"ok"},"turnComplete":true}}"#;
+        let raw = r#"{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"data":"AAAA"}}]},"outputTranscription":{"text":"ok"},"generationComplete":true,"turnComplete":true}}"#;
         let evs = parse_server_message(raw);
         assert!(
             evs.iter()
@@ -293,7 +299,30 @@ mod tests {
             evs.iter()
                 .any(|e| matches!(e, ServerEvent::OutputTranscript(t) if t == "ok"))
         );
+        assert!(
+            evs.iter()
+                .any(|e| matches!(e, ServerEvent::GenerationComplete))
+        );
         assert!(evs.iter().any(|e| matches!(e, ServerEvent::TurnComplete)));
+    }
+
+    #[test]
+    fn generation_and_turn_completion_remain_distinct_ordered_signals() {
+        let events = parse_server_message(
+            r#"{"serverContent":{"generationComplete":true,"turnComplete":true}}"#,
+        );
+        assert!(matches!(
+            events.as_slice(),
+            [ServerEvent::GenerationComplete, ServerEvent::TurnComplete]
+        ));
+
+        let generation_only = parse_server_message(
+            r#"{"serverContent":{"generationComplete":true,"turnComplete":false}}"#,
+        );
+        assert!(matches!(
+            generation_only.as_slice(),
+            [ServerEvent::GenerationComplete]
+        ));
     }
 
     #[test]

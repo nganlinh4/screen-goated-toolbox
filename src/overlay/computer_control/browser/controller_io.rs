@@ -108,6 +108,8 @@ fn classify_target_snapshot(
         Some("target_missing")
     } else if element_id != Some(expected_element_id) {
         Some("element_changed")
+    } else if value.get("interactable").and_then(Value::as_bool) != Some(true) {
+        Some("target_not_interactable")
     } else if require_focus && value.get("focused").and_then(Value::as_bool) != Some(true) {
         Some("focus_changed")
     } else {
@@ -133,10 +135,15 @@ fn classify_target_snapshot(
     })
 }
 
-/// Identity of the active tab in the browser's last-focused window. Newer
-/// extensions answer directly; older staged extensions fall back to the tab list
-/// plus the foreground window title and fail on ambiguity.
+/// Identity of the active tab in the browser's last-focused window. Extensions
+/// that prove focused-window ownership answer directly and fail closed — a failed
+/// proof must never degrade to title matching, which is not ownership evidence.
+/// Older staged extensions cannot make that proof and fall back to the tab list
+/// plus the foreground window title, failing on ambiguity.
 pub(in crate::overlay::computer_control) fn active_tab_id() -> anyhow::Result<i64> {
+    if super::capabilities::supports(super::capabilities::TABS_ACTIVE_FOCUSED_WINDOW) {
+        return proven_active_tab(&bridge::rpc("tabs", json!({"action": "active"}))?);
+    }
     let snapshot = super::super::uia::input_target_snapshot();
     let foreground = snapshot.get("title").and_then(Value::as_str).unwrap_or("");
     if let Ok(value) = bridge::rpc("tabs", json!({"action": "active"}))
@@ -151,6 +158,17 @@ pub(in crate::overlay::computer_control) fn active_tab_id() -> anyhow::Result<i6
     let tabs = bridge::rpc("tabs", json!({"action": "list"}))?;
     select_active_tab(&tabs, foreground)
         .ok_or_else(|| anyhow::anyhow!("active browser tab identity is ambiguous"))
+}
+
+fn proven_active_tab(value: &Value) -> anyhow::Result<i64> {
+    if value.get("windowFocused").and_then(Value::as_bool) != Some(true) {
+        anyhow::bail!("active browser window is not OS-focused");
+    }
+    value
+        .get("id")
+        .and_then(Value::as_i64)
+        .filter(|id| *id > 0)
+        .ok_or_else(|| anyhow::anyhow!("active browser surface omitted id"))
 }
 
 fn select_active_tab(tabs: &Value, foreground_title: &str) -> Option<i64> {
@@ -250,30 +268,20 @@ fn click_selector_impl(
         document_id: expected_document_id,
         element_id: expected_element_id,
     };
-    let first = match inspect_target(route, expected, None, false, "resolved") {
+    // Resolve once after scroll/layout settlement, then cross the activation
+    // boundary with one atomic gesture. A separate hover move creates a
+    // self-induced TOCTOU window on pages that replace controls on hover.
+    let target = match inspect_target(route, expected, None, false, "before_activation") {
         Ok(snapshot) => snapshot,
         Err(error) => return error,
     };
-    if let Err(error) = route.cdp(
-        "Input.dispatchMouseEvent",
-        json!({"type":"mouseMoved","x":first.x,"y":first.y}),
-        None,
-        tab_id,
-    ) {
-        return err(error);
-    }
-    // Hover can replace the target, so re-resolve before the activation edge.
-    let fresh = match inspect_target(route, expected, None, false, "before_activation") {
-        Ok(snapshot) => snapshot,
-        Err(error) => return error,
-    };
-    let (method, params) = atomic_activation(fresh.x, fresh.y);
+    let (method, params) = atomic_activation(target.x, target.y);
     if let Err(error) = route.cdp(method, params, None, tab_id) {
         return err(error);
     }
     json!({
         "ok": true,
-        "clicked": [fresh.x.round(), fresh.y.round()],
+        "clicked": [target.x.round(), target.y.round()],
         "tab_id": tab_id,
         "input_contract": "atomic_activation",
         "document_guard": "matched",
@@ -290,15 +298,27 @@ fn atomic_activation(x: f64, y: f64) -> (&'static str, Value) {
 
 fn selector_center_expression(selector: &str) -> String {
     format!(
-        r#"(() => {{ const documentId = ({document_id});
+        r#"(async () => {{ const documentId = ({document_id});
+            const initial = document.querySelector({selector});
+            if (!initial) return {{documentId, present:false}};
+            initial.scrollIntoView({{block:'center', inline:'center', behavior:'instant'}});
+            await new Promise((resolve) => requestAnimationFrame(
+                () => requestAnimationFrame(resolve)));
             const e = document.querySelector({selector});
             if (!e) return {{documentId, present:false}};
             const elementId = e[Symbol.for('sgt.controller.element-id')] || null;
-            e.scrollIntoView({{block:'center', inline:'center'}});
             const r = e.getBoundingClientRect();
+            const x = r.left + r.width / 2;
+            const y = r.top + r.height / 2;
+            const viewportWidth = document.documentElement?.clientWidth || innerWidth || 0;
+            const viewportHeight = document.documentElement?.clientHeight || innerHeight || 0;
+            const interactable = r.width > 0 && r.height > 0 &&
+                Number.isFinite(x) && Number.isFinite(y) &&
+                x >= 0 && y >= 0 && x < viewportWidth && y < viewportHeight;
             return {{documentId, elementId, present:true,
                 focused:e===document.activeElement || e.contains(document.activeElement),
-                x:r.left+r.width/2, y:r.top+r.height/2}}; }})()"#,
+                interactable, x, y, width:r.width, height:r.height,
+                viewportWidth, viewportHeight}}; }})()"#,
         selector = json!(selector),
         document_id = DOCUMENT_ID_JS,
     )

@@ -28,6 +28,15 @@ fn exact_target_is_added_to_success_and_error_results() {
 }
 
 #[test]
+fn navigation_rejects_a_missing_url_before_dispatch() {
+    let result = navigate_on_tab("  ", 41);
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["code"], "ERR_BROWSER_URL_REQUIRED");
+    assert_eq!(result["effect_verified"], false);
+    assert_eq!(result["target_tab_id"], 41);
+}
+
+#[test]
 fn verified_navigation_keeps_dispatch_and_effect_evidence_distinct() {
     let before = MainFrameState {
         url: "https://example.invalid/before".to_string(),
@@ -92,6 +101,17 @@ fn exact_tab_rpc_preserves_pre_navigation_identity_for_verification() {
     assert_eq!(receipt["status"], "accepted");
     assert_eq!(receipt["method"], "tabs.navigate");
     assert_eq!(receipt["tab_id"], 73);
+    assert_eq!(loader_id, None);
+}
+
+#[test]
+fn navigation_receipt_distinguishes_failure_before_dispatch() {
+    let unavailable = super::super::bridge_wait::unavailable_before_dispatch();
+    let (receipt, loader_id) =
+        navigation_dispatch_receipt(&Err(unavailable), NavigationDispatchMethod::History);
+
+    assert_eq!(receipt["status"], "not_dispatched");
+    assert_eq!(receipt["effect_may_have_occurred"], false);
     assert_eq!(loader_id, None);
 }
 

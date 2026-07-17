@@ -14,6 +14,7 @@ pub(super) fn sanitize_safe_fields(privacy: Privacy, fields: Value) -> Value {
 fn sanitize_value(value: Value, key: Option<&str>) -> Value {
     match value {
         Value::String(text) if safe_identifier_key(key) => Value::String(text),
+        Value::String(text) if safe_sha256_key(key) && valid_sha256(&text) => Value::String(text),
         Value::String(text) => string_metadata(&text),
         Value::Array(items) => Value::Array(
             items
@@ -50,22 +51,29 @@ fn safe_identifier_key(key: Option<&str>) -> bool {
                 | "component"
                 | "confidence"
                 | "delivery_status"
+                | "diagnostic_codes"
                 | "dispatch_tool"
                 | "effect"
+                | "effect_status"
+                | "endpoint_reason"
                 | "effective_tool"
                 | "error_code"
                 | "event"
+                | "finality"
+                | "failure_phase"
                 | "goal_source"
                 | "kind"
                 | "model"
                 | "name"
                 | "outcome"
+                | "observation_status"
                 | "phase"
                 | "privacy"
                 | "proof"
                 | "provider"
                 | "reason"
                 | "record_type"
+                | "retrieval_status"
                 | "requested_execution_provider"
                 | "requested_tool"
                 | "scope"
@@ -82,6 +90,17 @@ fn safe_identifier_key(key: Option<&str>) -> bool {
                 | "worker"
         )
     )
+}
+
+fn safe_sha256_key(key: Option<&str>) -> bool {
+    matches!(
+        key,
+        Some("bundle_sha256" | "input_sha256" | "proof_bundle_sha256" | "vision_bundle_sha256")
+    )
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn string_metadata(text: &str) -> Value {
@@ -155,6 +174,63 @@ mod tests {
         assert_eq!(sanitized["command"]["char_count"], 15);
         assert_eq!(sanitized["nested"]["url"]["redacted"], true);
         assert!(!sanitized.to_string().contains("private.invalid"));
+    }
+
+    #[test]
+    fn controlled_diagnostic_code_arrays_remain_actionable() {
+        let sanitized = sanitize_safe_fields(
+            Privacy::Safe,
+            json!({
+                "diagnostic_codes": ["source_page_unavailable", "temporary_tab_cleanup_failed"],
+                "errors": ["private failure detail"],
+            }),
+        );
+
+        assert_eq!(sanitized["diagnostic_codes"][0], "source_page_unavailable");
+        assert_eq!(
+            sanitized["diagnostic_codes"][1],
+            "temporary_tab_cleanup_failed"
+        );
+        assert_eq!(sanitized["errors"][0]["redacted"], true);
+    }
+
+    #[test]
+    fn structural_outcome_enums_remain_readable() {
+        let sanitized = sanitize_safe_fields(
+            Privacy::Safe,
+            json!({
+                "effect_status": "proven_no_effect",
+                "failure_phase": "before_activation",
+                "observation_status": "unchanged",
+                "retrieval_status": "partial",
+            }),
+        );
+
+        assert_eq!(sanitized["effect_status"], "proven_no_effect");
+        assert_eq!(sanitized["failure_phase"], "before_activation");
+        assert_eq!(sanitized["observation_status"], "unchanged");
+        assert_eq!(sanitized["retrieval_status"], "partial");
+    }
+
+    #[test]
+    fn safe_fields_keep_named_bundle_hashes_but_not_paths_or_unknown_digests() {
+        let fields = json!({
+            "proof_bundle_sha256": "a".repeat(64),
+            "vision_bundle_sha256": "b".repeat(64),
+            "input_sha256": "c".repeat(64),
+            "bundle_sha256": "not-a-hash",
+            "bundle_artifact_path": "C:/private/proof.json",
+            "arbitrary_digest": "d".repeat(64),
+        });
+
+        let sanitized = sanitize_safe_fields(Privacy::Safe, fields);
+
+        assert_eq!(sanitized["proof_bundle_sha256"], "a".repeat(64));
+        assert_eq!(sanitized["vision_bundle_sha256"], "b".repeat(64));
+        assert_eq!(sanitized["input_sha256"], "c".repeat(64));
+        assert_eq!(sanitized["bundle_sha256"]["redacted"], true);
+        assert_eq!(sanitized["bundle_artifact_path"]["redacted"], true);
+        assert_eq!(sanitized["arbitrary_digest"]["redacted"], true);
     }
 
     #[test]

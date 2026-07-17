@@ -15,6 +15,13 @@ impl StartupArgs {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_test(raw: &[&str]) -> Self {
+        Self {
+            raw: raw.iter().map(|arg| (*arg).to_string()).collect(),
+        }
+    }
+
     pub(crate) fn raw(&self) -> &[String] {
         &self.raw
     }

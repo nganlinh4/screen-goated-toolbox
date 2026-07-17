@@ -9,12 +9,36 @@ use std::sync::{
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use windows::Win32::Foundation::*;
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::transcription::execute_audio_processing_logic;
 use super::utils::{calculate_result_rects, create_streaming_overlay, encode_wav};
 use crate::config::Preset;
 use crate::overlay::result::update_window_text;
+
+struct AudioComApartment;
+
+impl AudioComApartment {
+    fn initialize_mta() -> anyhow::Result<Self> {
+        unsafe {
+            CoInitializeEx(None, COINIT_MULTITHREADED)
+                .ok()
+                .map_err(|error| {
+                    anyhow::anyhow!("Failed to initialize audio COM apartment: {error}")
+                })?;
+        }
+        Ok(Self)
+    }
+}
+
+impl Drop for AudioComApartment {
+    fn drop(&mut self) {
+        unsafe {
+            CoUninitialize();
+        }
+    }
+}
 
 /// Record and stream audio using Parakeet (local speech recognition)
 pub fn record_and_stream_parakeet(
@@ -135,6 +159,17 @@ pub fn record_audio_and_transcribe(
     abort_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
 ) {
+    let _com_apartment = match AudioComApartment::initialize_mta() {
+        Ok(apartment) => apartment,
+        Err(error) => {
+            eprintln!("Failed to initialize audio capture: {error}");
+            unsafe {
+                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+            return;
+        }
+    };
+
     let pause_signal_audio = pause_signal.clone();
 
     #[cfg(target_os = "windows")]

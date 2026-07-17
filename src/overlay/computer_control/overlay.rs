@@ -229,6 +229,8 @@ pub(super) fn set_orb_tool(name: &str, args: &serde_json::Value) {
         | "browser_read_page"
         | "browser_extract_page"
         | "artifact_info"
+        | "extract_artifact"
+        | "read_text_file"
         | "save_artifact"
         | "list_windows"
         | "read_clipboard"
@@ -244,7 +246,12 @@ pub(super) fn set_orb_tool(name: &str, args: &serde_json::Value) {
         "drag" | "drag_target" => OrbState::Drag,
         "scroll" => OrbState::Scroll,
         "point" | "point_at" => OrbState::Point,
-        "type_text" | "key_combination" | "browser_eval" | "paste_artifact" => OrbState::Type,
+        "type_text"
+        | "key_combination"
+        | "browser_eval"
+        | "paste_artifact"
+        | "edit_text_file"
+        | "edit_text_file_structure" => OrbState::Type,
         "open_url" | "browser_navigate" | "browser_open_tab" | "browser_switch_tab"
         | "focus_window" => OrbState::Navigate,
         "launch_app" | "browser_setup" => OrbState::Launch,
@@ -352,6 +359,17 @@ pub(super) fn set_model_idle() {
         return;
     }
     set_orb_state(OrbState::Idle, None);
+    super::orb::post_orb_script("window.cc&&window.cc.setCaption('');".to_string());
+}
+
+/// Remove model text that was structurally rejected before it became an
+/// accepted response. Unlike `set_model_idle`, this also clears a caption after
+/// a tool state replaced Responding.
+pub(super) fn clear_model_caption() {
+    ORB_RESPONDING.store(false, Ordering::SeqCst);
+    if let Ok(mut reply) = LAST_REPLY.lock() {
+        reply.clear();
+    }
     super::orb::post_orb_script("window.cc&&window.cc.setCaption('');".to_string());
 }
 

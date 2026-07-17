@@ -10,29 +10,41 @@
 //!     (localization), which fixes the coarse-grid click-accuracy problem.
 
 use anyhow::{Result, anyhow};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::Duration;
 
 use crate::api::{TranslateImageRequest, translate_image_streaming};
 use crate::config::Config;
 use crate::model_config::{get_model_by_id_with_custom, model_is_non_llm};
 
+mod candidates;
 mod circuit;
 mod mark_labels;
+mod schemas;
+mod text_candidates;
+pub(super) use candidates::{CandidateAttempt, CandidateReport};
 pub(super) use mark_labels::label_clickable_marks;
+use schemas::{box_schema, point_schema, points_schema, verification_schema};
+pub(super) use text_candidates::read_text_pref_where;
 
 /// Per-provider API key, preferring the repo `.env` overrides (so the headless
 /// harness works) and falling back to the saved app config.
 fn key_for(provider: &str, config: &Config) -> Option<String> {
-    let env_or = |env: &str, cfg: &str| {
-        std::env::var(env)
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| cfg.to_string())
-    };
     let v = match provider {
-        "google" | "gemini-live" => env_or("GEMINI_API_KEY", &config.gemini_api_key),
-        "groq" => env_or("GROQ_API_KEY", &config.api_key),
-        "openrouter" => config.openrouter_api_key.clone(),
-        "cerebras" => config.cerebras_api_key.clone(),
+        "google" | "gemini-live" => {
+            crate::api::provider_credentials::resolve("GEMINI_API_KEY", &config.gemini_api_key)
+        }
+        "groq" => crate::api::provider_credentials::resolve("GROQ_API_KEY", &config.api_key),
+        "openrouter" => crate::api::provider_credentials::resolve(
+            "OPENROUTER_API_KEY",
+            &config.openrouter_api_key,
+        ),
+        "cerebras" => {
+            crate::api::provider_credentials::resolve("CEREBRAS_API_KEY", &config.cerebras_api_key)
+        }
         _ => String::new(),
     };
     let v = v.trim().to_string();
@@ -49,6 +61,24 @@ const CC_DEFAULT_VISION_MODEL: &str = "gemini-3.1-flash-lite";
 enum VisionTask {
     General,
     Grounding,
+}
+
+struct ChainRun<'a> {
+    task: VisionTask,
+    cancel_token: Option<Arc<AtomicBool>>,
+    request_timeout: Option<Duration>,
+    attempts: Option<&'a mut Vec<CandidateAttempt>>,
+}
+
+pub(super) struct CandidateCallbacks<OnAttempt, Accept> {
+    on_attempt: OnAttempt,
+    accept: Accept,
+}
+
+impl<OnAttempt, Accept> CandidateCallbacks<OnAttempt, Accept> {
+    pub(super) fn new(on_attempt: OnAttempt, accept: Accept) -> Self {
+        Self { on_attempt, accept }
+    }
 }
 
 /// General reading follows the user's image chain. Pixel grounding is isolated
@@ -77,6 +107,10 @@ fn chain_ids(config: &Config, prefer: &[&str], task: VisionTask) -> Vec<String> 
     ids
 }
 
+pub(super) fn configured_general_chain(prefer: &[&str]) -> Vec<String> {
+    chain_ids(&crate::load_config(), prefer, VisionTask::General)
+}
+
 /// Run `prompt` over `jpeg` through the model chain (`prefer` ids tried first),
 /// returning the first non-empty answer.
 fn run_chain(
@@ -86,7 +120,20 @@ fn run_chain(
     schema: Option<serde_json::Value>,
     task: VisionTask,
 ) -> Result<String> {
-    run_chain_where(jpeg, prompt, prefer, schema, task, |_| true)
+    run_chain_where(
+        jpeg,
+        prompt,
+        prefer,
+        schema,
+        ChainRun {
+            task,
+            cancel_token: None,
+            request_timeout: None,
+            attempts: None,
+        },
+        |_| {},
+        |_| true,
+    )
 }
 
 /// As [`run_chain`], but a non-empty answer is accepted only when `accept`
@@ -97,9 +144,16 @@ fn run_chain_where(
     prompt: &str,
     prefer: &[&str],
     schema: Option<serde_json::Value>,
-    task: VisionTask,
-    accept: impl Fn(&str) -> bool,
+    run: ChainRun<'_>,
+    mut on_attempt: impl FnMut(&CandidateAttempt),
+    mut accept: impl FnMut(&str) -> bool,
 ) -> Result<String> {
+    let ChainRun {
+        task,
+        cancel_token,
+        request_timeout,
+        mut attempts,
+    } = run;
     let config = crate::load_config();
     let gemini_key = key_for("google", &config).unwrap_or_default();
     let groq_key = key_for("groq", &config).unwrap_or_default();
@@ -109,6 +163,13 @@ fn run_chain_where(
 
     let mut last_err = None;
     for id in &chain_ids(&config, prefer, task) {
+        if cancel_token
+            .as_ref()
+            .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
+        {
+            last_err = Some(anyhow!("cancelled"));
+            break;
+        }
         if let Some(remaining) = circuit::remaining(id) {
             eprintln!(
                 "[vision] {id} skipped: rate-limit cooldown {}s remaining",
@@ -137,21 +198,36 @@ fn run_chain_where(
             streaming_enabled: false,
             use_json_format: false,
             response_schema: schema.clone(),
-            cancel_token: None,
+            cancel_token: cancel_token.clone(),
+            request_timeout,
         };
         match translate_image_streaming(req, |_| {}) {
-            Ok(t) if !t.trim().is_empty() && accept(t.trim()) => {
-                eprintln!("[vision] {} ({})", mc.id, mc.provider);
-                return Ok(t.trim().to_string());
-            }
-            Ok(t) if t.trim().is_empty() => {
-                last_err = Some(anyhow!("{} returned empty", mc.id));
-            }
-            Ok(_) => {
-                eprintln!("[vision] {} returned invalid structured output", mc.id);
-                last_err = Some(anyhow!("{} returned invalid structured output", mc.id));
+            Ok(response) => {
+                let trimmed = response.trim();
+                let accepted = !trimmed.is_empty() && accept(trimmed);
+                let attempt =
+                    CandidateAttempt::response(&mc.id, &mc.provider, response.clone(), accepted);
+                on_attempt(&attempt);
+                if let Some(attempts) = attempts.as_deref_mut() {
+                    attempts.push(attempt);
+                }
+                if accepted {
+                    eprintln!("[vision] {} ({})", mc.id, mc.provider);
+                    return Ok(trimmed.to_string());
+                }
+                if trimmed.is_empty() {
+                    last_err = Some(anyhow!("{} returned empty", mc.id));
+                } else {
+                    eprintln!("[vision] {} returned non-accepted output", mc.id);
+                    last_err = Some(anyhow!("{} did not satisfy the caller contract", mc.id));
+                }
             }
             Err(e) => {
+                let attempt = CandidateAttempt::error(&mc.id, &mc.provider, e.to_string());
+                on_attempt(&attempt);
+                if let Some(attempts) = attempts.as_deref_mut() {
+                    attempts.push(attempt);
+                }
                 eprintln!("[vision] {} failed: {e}", mc.id);
                 if circuit::is_rate_limit_error(&e.to_string()) {
                     circuit::cool_down(&mc.id);
@@ -162,55 +238,6 @@ fn run_chain_where(
         }
     }
     Err(last_err.unwrap_or_else(|| anyhow!("no usable model in image_to_text chain")))
-}
-
-// JSON schemas for the localization calls — handed to Gemma 4 as
-// `responseJsonSchema` (it ignores `responseMimeType` alone and otherwise
-// free-rambles instead of emitting JSON). Loose on purpose (nothing required) so
-// the "not visible" / error variant is still allowed; other models ignore them
-// and answer straight from the prompt.
-fn point_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "properties": {
-            "x": {"type": "integer"}, "y": {"type": "integer"},
-            "what": {"type": "string"}, "error": {"type": "string"}
-        }
-    })
-}
-
-fn box_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "properties": {
-            "box_2d": {"type": "array", "items": {"type": "integer"}},
-            "error": {"type": "string"}
-        }
-    })
-}
-
-fn points_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {
-                "x": {"type": "integer"}, "y": {"type": "integer"}, "what": {"type": "string"}
-            }
-        }
-    })
-}
-
-fn verification_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "properties": {
-            "matches": {"type": "boolean"},
-            "confidence": {"type": "integer"},
-            "what": {"type": "string"}
-        },
-        "required": ["matches", "confidence", "what"]
-    })
 }
 
 /// A located click point (0-1000 over the image) plus what the vision model
@@ -240,22 +267,36 @@ fn ctx_prefix(ctx: &str) -> String {
     }
 }
 
-/// Read `question` about `jpeg` with the vision stack (optional `ctx`), trying
-/// `prefer` model ids first (then the standard chain) — the stall planner prefers
-/// the benchmark-winning 2.5 vision models; pass `&[]` for the default chain.
-pub(super) fn read_image_pref(
+/// Read a question about one immutable image. A candidate reply is usable only
+/// when `accept` validates the caller's output contract. Every candidate sees
+/// the exact same image and prompt; malformed output falls through the configured
+/// chain. Pass `&[]` to honor its order without an override.
+pub(super) fn read_image_pref_where(
     jpeg: &[u8],
     question: &str,
     ctx: &str,
     prefer: &[&str],
-) -> Result<String> {
-    run_chain(
+    cancel_token: Option<Arc<AtomicBool>>,
+    request_timeout: Duration,
+    callbacks: CandidateCallbacks<impl FnMut(&CandidateAttempt), impl FnMut(&str) -> bool>,
+) -> CandidateReport {
+    let CandidateCallbacks { on_attempt, accept } = callbacks;
+    let mut attempts = Vec::new();
+    let answer = run_chain_where(
         jpeg,
         &format!("{}{question}", ctx_prefix(ctx)),
         prefer,
         None,
-        VisionTask::General,
-    )
+        ChainRun {
+            task: VisionTask::General,
+            cancel_token,
+            request_timeout: Some(request_timeout),
+            attempts: Some(&mut attempts),
+        },
+        on_attempt,
+        accept,
+    );
+    CandidateReport { answer, attempts }
 }
 
 /// Ask the vision stack for the click point of `description` (+ what's there).

@@ -8,6 +8,7 @@ use crate::api::openai_compat::stream_openai_compat_payload;
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::sync::{Arc, atomic::AtomicBool};
+use std::time::Duration;
 
 pub const ENDPOINT: &str = "https://api.cerebras.ai/v1/chat/completions";
 const MAX_COMPLETION_TOKENS: u32 = 8_192;
@@ -23,6 +24,7 @@ pub struct StreamChatRequest<'a> {
     pub error_label: &'a str,
     pub response_format: Option<Value>,
     pub prediction: Option<&'a str>,
+    pub request_timeout: Option<Duration>,
 }
 
 pub fn chat_payload(
@@ -63,6 +65,7 @@ where
         error_label,
         response_format,
         prediction,
+        request_timeout,
     } = request;
     if api_key.trim().is_empty() {
         return Err(anyhow::anyhow!("NO_API_KEY:cerebras"));
@@ -77,6 +80,7 @@ where
         reasoning_fallback,
         ui_language,
         cancel_token,
+        request_timeout,
         error_label,
         true,
         true,

@@ -15,14 +15,17 @@ impl Brain {
         &mut self,
         frame_id: u64,
         view: View,
-        captured_surface: Option<SurfaceIdentity>,
+        captured_surface: SurfaceIdentity,
     ) {
         if self.anchors.is_empty() {
             return;
         }
-        let current_surface = current_surface_identity();
-        let stable_surface = captured_surface.filter(|surface| current_surface == Some(*surface));
-        if !pending_anchors_match(&self.anchors, view, stable_surface) {
+        let stable = super::super::frame_identity::validate_current(
+            self.target.as_deref(),
+            &captured_surface,
+        )
+        .is_ok();
+        if !stable || !pending_anchors_match(&self.anchors, view, &captured_surface) {
             self.clear_anchors("pending_anchor_bind_rejected");
             return;
         }
@@ -36,13 +39,9 @@ fn anchors_bound_to_a_frame(anchors: &[ClickAnchor]) -> bool {
     anchors.iter().any(|anchor| anchor.frame_id != 0)
 }
 
-fn pending_anchors_match(
-    anchors: &[ClickAnchor],
-    view: View,
-    surface: Option<SurfaceIdentity>,
-) -> bool {
+fn pending_anchors_match(anchors: &[ClickAnchor], view: View, surface: &SurfaceIdentity) -> bool {
     anchors.iter().all(|anchor| {
-        anchor.frame_id == 0 && same_view(anchor.view, view) && surface == Some(anchor.surface)
+        anchor.frame_id == 0 && same_view(anchor.view, view) && surface == &anchor.surface
     })
 }
 
@@ -74,18 +73,22 @@ mod tests {
             w: 100,
             h: 100,
         };
-        let surface = (10, 20, 30);
-        let pending = anchor(0, view, surface);
+        let surface = SurfaceIdentity::Native {
+            hwnd: 10,
+            pid: 20,
+            generation: 30,
+        };
+        let pending = anchor(0, view, surface.clone());
         assert!(!anchors_bound_to_a_frame(std::slice::from_ref(&pending)));
         assert!(pending_anchors_match(
             std::slice::from_ref(&pending),
             view,
-            Some(surface)
+            &surface
         ));
 
-        let bound = anchor(7, view, surface);
+        let bound = anchor(7, view, surface.clone());
         assert!(anchors_bound_to_a_frame(std::slice::from_ref(&bound)));
-        assert!(!pending_anchors_match(&[bound], view, Some(surface)));
+        assert!(!pending_anchors_match(&[bound], view, &surface));
     }
 
     #[test]
@@ -96,12 +99,60 @@ mod tests {
             w: 100,
             h: 80,
         };
-        let pending = anchor(0, view, (7, 8, 9));
+        let surface = SurfaceIdentity::Native {
+            hwnd: 7,
+            pid: 8,
+            generation: 9,
+        };
+        let pending = anchor(0, view, surface.clone());
         assert!(!pending_anchors_match(
             std::slice::from_ref(&pending),
             View { x: -19, ..view },
-            Some((7, 8, 9))
+            &surface
         ));
-        assert!(!pending_anchors_match(&[pending], view, None));
+        let other = SurfaceIdentity::Native {
+            hwnd: 10,
+            pid: 11,
+            generation: 12,
+        };
+        assert!(!pending_anchors_match(&[pending], view, &other));
+    }
+
+    #[test]
+    fn pending_browser_anchor_binds_only_to_the_captured_document() {
+        let view = View {
+            x: 0,
+            y: 0,
+            w: 1280,
+            h: 720,
+        };
+        let browser_surface = |tab_id, document_id: &str| SurfaceIdentity::Browser {
+            tab_id,
+            document_id: document_id.into(),
+            window: super::super::super::super::controller::world::BrowserWindowIdentity {
+                browser_window_id: 4,
+                hwnd: 5,
+                pid: 6,
+                generation: 7,
+            },
+        };
+        let captured = browser_surface(31, "document-a");
+        let pending = anchor(0, view, captured.clone());
+
+        assert!(pending_anchors_match(
+            std::slice::from_ref(&pending),
+            view,
+            &captured
+        ));
+        assert!(!pending_anchors_match(
+            std::slice::from_ref(&pending),
+            view,
+            &browser_surface(31, "document-b")
+        ));
+        assert!(!pending_anchors_match(
+            &[pending],
+            view,
+            &browser_surface(32, "document-a")
+        ));
     }
 }

@@ -1,6 +1,42 @@
 use super::arguments::StartupArgs;
 use std::fmt::Display;
 
+const GT_NARRATION_TEST_FLAG: &str = "--gt-narration-test";
+const COMPUTER_CONTROL_PROBE_FLAG: &str = "--computer-control-probe";
+const COMPUTER_CONTROL_RUN_FLAG: &str = "--computer-control-run";
+const COORD_TEST_FLAG: &str = "--cc-coord-test";
+const UIA_DUMP_FLAG: &str = "--cc-uia-dump";
+const VISION_TEST_FLAG: &str = "--cc-vision-test";
+const DETECTOR_TEST_FLAG: &str = "--cc-detector-test";
+const CURSOR_DEMO_FLAG: &str = "--cc-cursor-demo";
+const GRID_TEST_FLAG: &str = "--cc-grid-test";
+const UIA_TASK_FLAG: &str = "--cc-uia-task";
+const MCP_TEST_FLAG: &str = "--cc-mcp-test";
+const SYSTEM_QUERY_TEST_FLAG: &str = "--cc-system-query-test";
+const TASK_TRACE_FLAG: &str = "--cc-task-trace";
+
+const POST_UNPACK_MODE_FLAGS: &[&str] = &[
+    GT_NARRATION_TEST_FLAG,
+    COMPUTER_CONTROL_PROBE_FLAG,
+    COMPUTER_CONTROL_RUN_FLAG,
+    COORD_TEST_FLAG,
+    UIA_DUMP_FLAG,
+    VISION_TEST_FLAG,
+    DETECTOR_TEST_FLAG,
+    CURSOR_DEMO_FLAG,
+    GRID_TEST_FLAG,
+    UIA_TASK_FLAG,
+    MCP_TEST_FLAG,
+    SYSTEM_QUERY_TEST_FLAG,
+    TASK_TRACE_FLAG,
+];
+
+pub(crate) fn is_requested(args: &StartupArgs) -> bool {
+    args.has(crate::api::realtime_audio::sherpa_onnx::ffi_tts::SHERPA_TTS_LOAD_PROBE_FLAG)
+        || POST_UNPACK_MODE_FLAGS.iter().any(|flag| args.has(flag))
+        || super::replay::is_requested(args)
+}
+
 pub(crate) fn run_pre_boot(args: &StartupArgs) -> Option<i32> {
     args.has(crate::api::realtime_audio::sherpa_onnx::ffi_tts::SHERPA_TTS_LOAD_PROBE_FLAG)
         .then(crate::api::realtime_audio::sherpa_onnx::ffi_tts::run_load_probe_process)
@@ -9,7 +45,7 @@ pub(crate) fn run_pre_boot(args: &StartupArgs) -> Option<i32> {
 pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
     // Keep this dispatch order aligned with the historical entrypoint: when
     // callers pass multiple mode flags, the first matching mode owns the process.
-    if let Some(input_wav) = args.value("--gt-narration-test") {
+    if let Some(input_wav) = args.value(GT_NARRATION_TEST_FLAG) {
         let target_language = args
             .value("--gt-narration-lang")
             .unwrap_or_else(|| "vi".to_string());
@@ -19,7 +55,7 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--computer-control-probe") {
+    if args.has(COMPUTER_CONTROL_PROBE_FLAG) {
         let task = args.value("--cc-task").unwrap_or_else(|| {
             "Look at the screen and describe what you see, then call done.".to_string()
         });
@@ -45,7 +81,7 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--computer-control-run") {
+    if args.has(COMPUTER_CONTROL_RUN_FLAG) {
         let scripted_turns = match args.value("--cc-turns-json") {
             Some(raw) => match parse_scripted_turns(&raw) {
                 Ok(turns) => Some(turns),
@@ -66,14 +102,14 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--cc-coord-test") {
+    if args.has(COORD_TEST_FLAG) {
         return Some(report_result(
             crate::overlay::computer_control::run_coord_test_cli(),
             "coord",
         ));
     }
 
-    if args.has("--cc-uia-dump") {
+    if args.has(UIA_DUMP_FLAG) {
         let target = args
             .value("--cc-window")
             .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
@@ -83,7 +119,7 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--cc-vision-test") {
+    if args.has(VISION_TEST_FLAG) {
         let target = args
             .value("--cc-window")
             .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
@@ -96,7 +132,7 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--cc-detector-test") {
+    if args.has(DETECTOR_TEST_FLAG) {
         let target = args
             .value("--cc-window")
             .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
@@ -106,12 +142,12 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--cc-cursor-demo") {
+    if args.has(CURSOR_DEMO_FLAG) {
         crate::overlay::computer_control::run_cursor_demo_cli();
         return Some(0);
     }
 
-    if args.has("--cc-grid-test") {
+    if args.has(GRID_TEST_FLAG) {
         let target = args
             .value("--cc-window")
             .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
@@ -121,7 +157,7 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--cc-uia-task") {
+    if args.has(UIA_TASK_FLAG) {
         let task = args
             .value("--cc-task")
             .unwrap_or_else(|| "Describe the focused window, then call done.".to_string());
@@ -131,9 +167,9 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--cc-mcp-test") {
+    if args.has(MCP_TEST_FLAG) {
         let id = args
-            .value("--cc-mcp-test")
+            .value(MCP_TEST_FLAG)
             .unwrap_or_else(|| "time".to_string());
         let tool = args.value("--cc-mcp-tool");
         let args_json = args.value("--cc-mcp-args-json");
@@ -149,9 +185,9 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--cc-system-query-test") {
+    if args.has(SYSTEM_QUERY_TEST_FLAG) {
         let spec = args
-            .value("--cc-system-query-test")
+            .value(SYSTEM_QUERY_TEST_FLAG)
             .unwrap_or_else(|| "capabilities.list".to_string());
         let args_json = args.value("--cc-system-query-args-json");
         return Some(report_result(
@@ -163,7 +199,7 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         ));
     }
 
-    if args.has("--cc-task-trace") {
+    if args.has(TASK_TRACE_FLAG) {
         let task = args
             .value("--cc-task")
             .unwrap_or_else(|| "Open the Windows Start menu, then call done.".to_string());
@@ -202,7 +238,34 @@ fn parse_scripted_turns(raw: &str) -> Result<Vec<String>, ScriptedTurnsError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ScriptedTurnsError, parse_scripted_turns};
+    use super::{
+        POST_UNPACK_MODE_FLAGS, ScriptedTurnsError, StartupArgs, is_requested, parse_scripted_turns,
+    };
+
+    fn args(raw: &[&str]) -> StartupArgs {
+        let mut full = vec!["sgt.exe"];
+        full.extend_from_slice(raw);
+        StartupArgs::for_test(&full)
+    }
+
+    #[test]
+    fn headless_detection_covers_every_dispatch_mode_without_value_inference() {
+        for flag in POST_UNPACK_MODE_FLAGS {
+            assert!(is_requested(&args(&[flag])), "flag={flag}");
+        }
+        assert!(is_requested(&args(&[
+            crate::api::realtime_audio::sherpa_onnx::ffi_tts::SHERPA_TTS_LOAD_PROBE_FLAG,
+        ])));
+        assert!(is_requested(&args(&[
+            super::super::replay::EXPORT_REPLAY_FLAG
+        ])));
+        assert!(is_requested(&args(&[
+            super::super::replay::EXPORT_REPLAY_LAST_FLAG,
+        ])));
+
+        assert!(!is_requested(&args(&[])));
+        assert!(!is_requested(&args(&["--cc-task", "descriptive text"])));
+    }
 
     #[test]
     fn scripted_turns_require_a_non_empty_list_of_non_empty_strings() {

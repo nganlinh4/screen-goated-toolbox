@@ -10,7 +10,7 @@ const EXT_ICON48: &[u8] = include_bytes!("../browser_ext/icon48.png");
 const EXT_ICON128: &[u8] = include_bytes!("../browser_ext/icon128.png");
 
 fn ext_dir() -> std::path::PathBuf {
-    crate::paths::app_config_dir().join("cc_browser_ext")
+    crate::paths::app_runtime_config_dir().join("cc_browser_ext")
 }
 
 /// Extract the bundled extension to disk and return its folder (for "Load unpacked").
@@ -114,8 +114,8 @@ fn default_https_progid() -> Option<String> {
 }
 
 /// Bring the bridge up and lay down the extension files. Existing installations
-/// reconnect without setup UI; a first-time or stale install returns explicit
-/// user-only steps because browser extension-manager pages cannot be automated.
+/// reconnect without setup UI; a first-time or staged legacy install returns
+/// explicit user-only steps when its worker cannot reload itself.
 pub(in crate::overlay::computer_control) fn setup() -> Value {
     super::ensure_started();
     // Stage the newest bundled files even for an existing install. A running MV3
@@ -126,7 +126,23 @@ pub(in crate::overlay::computer_control) fn setup() -> Value {
     };
     let connected = super::is_connected();
     let usable = connected && super::capabilities::usable();
-    let route = setup_route(connected, usable, super::ever_connected());
+    let update_staged = super::capabilities::update_staged();
+    let self_reload_available = super::extension_update::available();
+    let self_reload_error = match super::extension_update::request_if_staged() {
+        Ok(Some(request)) => return self_reloading_result(request),
+        Ok(None) => None,
+        Err(error) => Some(error.to_string()),
+    };
+    let route = if self_reload_error.is_some() {
+        SetupRoute::Manual
+    } else {
+        setup_route(
+            connected,
+            usable,
+            super::ever_connected(),
+            update_staged && !self_reload_available,
+        )
+    };
     if opens_pairing_before_response(route) {
         super::bridge::open_pairing_window();
     }
@@ -163,6 +179,8 @@ pub(in crate::overlay::computer_control) fn setup() -> Value {
         "extensions_page": browser.ext_url,
         "extension_folder": dir,
         "port": super::bridge::port_for_display(),
+        "self_reload_available": super::extension_update::available(),
+        "self_reload_error": self_reload_error,
         "warning": if browser.chromium { Value::Null } else {
             json!(format!("Your default browser ({}) isn't Chromium - deep browser control needs a Chromium browser.", browser.name))
         },
@@ -182,8 +200,13 @@ enum SetupRoute {
     Manual,
 }
 
-fn setup_route(connected: bool, usable: bool, ever_connected: bool) -> SetupRoute {
-    if connected && usable {
+fn setup_route(
+    connected: bool,
+    usable: bool,
+    ever_connected: bool,
+    manual_update_required: bool,
+) -> SetupRoute {
+    if connected && usable && !manual_update_required {
         SetupRoute::Connected
     } else if !connected && ever_connected {
         SetupRoute::Reconnecting
@@ -205,7 +228,32 @@ fn connected_result() -> Value {
         "capabilities": super::capabilities::list(),
         "update_staged": super::capabilities::update_staged(),
         "reload_required": false,
+        "self_reload_available": super::extension_update::available(),
         "note": "Browser control is connected and usable for its negotiated capabilities. Do not reinstall it. A staged update is optional until a requested command reports a typed missing-capability error."
+    })
+}
+
+fn self_reloading_result(request: super::extension_update::ReloadRequest) -> Value {
+    let newly_requested = request == super::extension_update::ReloadRequest::Requested;
+    json!({
+        "ok": true,
+        "connected": super::is_connected(),
+        "state": "updating",
+        "code": "BROWSER_EXTENSION_SELF_RELOAD_STARTED",
+        "protocol_version": super::capabilities::protocol_version(),
+        "target_protocol_version": super::capabilities::CURRENT_PROTOCOL,
+        "capabilities": super::capabilities::list(),
+        "update_staged": true,
+        "reload_required": false,
+        "self_reload_available": true,
+        "self_reload_requested": newly_requested,
+        "retry": {
+            "tool": "browser_status",
+            "max_attempts": 4,
+            "delay_ms": 1000,
+            "stop_when": "protocol_version equals target_protocol_version and connected is true"
+        },
+        "instruction": "The connected extension accepted the staged update. Check browser_status at most four times about one second apart, then stop and report the typed state if the target protocol has not connected."
     })
 }
 
@@ -264,6 +312,7 @@ pub(in crate::overlay::computer_control) fn status() -> Value {
         "usable": usable,
         "update_staged": update_staged,
         "reload_required": reload_required,
+        "self_reload_available": update_staged && super::extension_update::available(),
         "port": super::bridge::port_for_display()
     })
 }
@@ -288,6 +337,17 @@ mod tests {
     }
 
     #[test]
+    fn embedded_worker_protocol_matches_rust_contract() {
+        let source = std::str::from_utf8(super::EXT_SW).unwrap();
+        let declaration = format!(
+            "const BRIDGE_PROTOCOL = {};",
+            super::super::capabilities::CURRENT_PROTOCOL
+        );
+        assert!(source.contains(&declaration));
+        assert!(source.contains(super::super::capabilities::RUNTIME_RELOAD));
+    }
+
+    #[test]
     fn compatible_connected_extension_keeps_optional_update_non_blocking() {
         assert_eq!(update_flags(true, true, true), (true, false));
         assert_eq!(update_flags(true, false, true), (true, true));
@@ -296,19 +356,27 @@ mod tests {
 
     #[test]
     fn setup_route_preserves_usable_connected_control() {
-        assert_eq!(setup_route(true, true, true), SetupRoute::Connected);
+        assert_eq!(setup_route(true, true, true, false), SetupRoute::Connected);
+    }
+
+    #[test]
+    fn setup_surfaces_a_staged_worker_that_cannot_reload_itself() {
+        assert_eq!(setup_route(true, true, true, true), SetupRoute::Manual);
     }
 
     #[test]
     fn setup_route_separates_reconnect_from_first_time_setup() {
-        assert_eq!(setup_route(false, false, true), SetupRoute::Reconnecting);
-        assert_eq!(setup_route(false, false, false), SetupRoute::Manual);
-        assert_eq!(setup_route(true, false, true), SetupRoute::Manual);
+        assert_eq!(
+            setup_route(false, false, true, false),
+            SetupRoute::Reconnecting
+        );
+        assert_eq!(setup_route(false, false, false, false), SetupRoute::Manual);
+        assert_eq!(setup_route(true, false, true, false), SetupRoute::Manual);
     }
 
     #[test]
     fn prior_connection_recovery_opens_pairing_without_waiting() {
-        let route = setup_route(false, false, true);
+        let route = setup_route(false, false, true, false);
         assert_eq!(route, SetupRoute::Reconnecting);
         assert!(opens_pairing_before_response(route));
         assert!(!opens_pairing_before_response(SetupRoute::Connected));

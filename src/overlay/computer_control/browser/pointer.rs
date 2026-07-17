@@ -1,9 +1,10 @@
 //! Transactional trusted pointer input for an exact browser tab.
 //!
-//! A press is the effect boundary. Before it, cancellation is a proven no-op.
-//! After it, every exit performs a bounded best-effort release that deliberately
-//! ignores cancellation, then reports the effect as uncertain when completion is
-//! not proven.
+//! The first dispatched input is the effect boundary: hover moves are page
+//! effects too. Cancellation before any dispatch is a proven no-op; once the
+//! hover move is out, every exit reports that an effect may have occurred.
+//! After a press, every exit performs a bounded best-effort release that
+//! deliberately ignores cancellation.
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,6 +76,19 @@ impl PointerInputError {
             detail: detail.to_string(),
             cancelled,
             effect_may_have_occurred: false,
+            release_attempted: false,
+            release_succeeded: None,
+        }
+    }
+
+    /// The hover move reached (or may have reached) the page, but no button was
+    /// pressed: an effect may have occurred and there is nothing to release.
+    fn hover_effect(stage: &'static str, detail: impl fmt::Display, cancelled: bool) -> Self {
+        Self {
+            stage,
+            detail: detail.to_string(),
+            cancelled,
+            effect_may_have_occurred: true,
             release_attempted: false,
             release_succeeded: None,
         }
@@ -180,20 +194,27 @@ fn run_click_with(
     mut dispatch: impl FnMut(PointerCommand, DispatchMode) -> Result<()>,
     mut validate: impl FnMut() -> Result<()>,
 ) -> Result<()> {
+    ensure_not_cancelled(cancel, "before_move")?;
     dispatch(
         PointerCommand::Move { x, y, held: false },
         DispatchMode::Normal,
     )
-    .map_err(|error| PointerInputError::before_effect("move", error, cancelled(cancel)))?;
+    .map_err(|error| move_error(error, cancel))?;
     validate().map_err(|error| {
-        PointerInputError::before_effect("document_validation", error, cancelled(cancel))
+        let was_cancelled =
+            cancelled(cancel) || super::bridge_wait::cancellation_effect(&error).is_some();
+        PointerInputError::hover_effect("document_validation", error, was_cancelled)
     })?;
-    ensure_not_cancelled(cancel, "before_press")?;
+    if cancelled(cancel) {
+        return Err(
+            PointerInputError::hover_effect("before_press", "cancelled by user", true).into(),
+        );
+    }
 
     let release = PointerCommand::Release { x, y, right };
     if let Err(error) = dispatch(PointerCommand::Press { x, y, right }, DispatchMode::Normal) {
         if super::bridge_wait::cancellation_effect(&error) == Some(false) {
-            return Err(PointerInputError::before_effect("press", error, true).into());
+            return Err(PointerInputError::hover_effect("press", error, true).into());
         }
         let cleanup = dispatch(release, DispatchMode::Cleanup);
         let dispatch_cancelled = super::bridge_wait::cancellation_effect(&error).is_some();
@@ -247,6 +268,7 @@ fn run_drag_with(
     mut validate: impl FnMut() -> Result<()>,
     mut pause: impl FnMut(Duration) -> bool,
 ) -> Result<()> {
+    ensure_not_cancelled(cancel, "before_move")?;
     dispatch(
         PointerCommand::Move {
             x: from.0,
@@ -255,11 +277,17 @@ fn run_drag_with(
         },
         DispatchMode::Normal,
     )
-    .map_err(|error| PointerInputError::before_effect("move", error, cancelled(cancel)))?;
+    .map_err(|error| move_error(error, cancel))?;
     validate().map_err(|error| {
-        PointerInputError::before_effect("document_validation", error, cancelled(cancel))
+        let was_cancelled =
+            cancelled(cancel) || super::bridge_wait::cancellation_effect(&error).is_some();
+        PointerInputError::hover_effect("document_validation", error, was_cancelled)
     })?;
-    ensure_not_cancelled(cancel, "before_press")?;
+    if cancelled(cancel) {
+        return Err(
+            PointerInputError::hover_effect("before_press", "cancelled by user", true).into(),
+        );
+    }
 
     let press = PointerCommand::Press {
         x: from.0,
@@ -268,7 +296,7 @@ fn run_drag_with(
     };
     if let Err(error) = dispatch(press, DispatchMode::Normal) {
         if super::bridge_wait::cancellation_effect(&error) == Some(false) {
-            return Err(PointerInputError::before_effect("press", error, true).into());
+            return Err(PointerInputError::hover_effect("press", error, true).into());
         }
         let cleanup = dispatch(
             PointerCommand::Release {
@@ -371,6 +399,16 @@ fn drag_body(
         ("document_validation", error, was_cancelled)
     })?;
     Ok(())
+}
+
+/// A failed hover-move dispatch proves a no-op only when the transport proves
+/// the event never left; otherwise the hover may have reached the page.
+fn move_error(error: anyhow::Error, cancel: &AtomicBool) -> PointerInputError {
+    match super::bridge_wait::cancellation_effect(&error) {
+        Some(false) => PointerInputError::before_effect("move", error, true),
+        Some(true) => PointerInputError::hover_effect("move", error, true),
+        None => PointerInputError::hover_effect("move", error, cancelled(cancel)),
+    }
 }
 
 fn ensure_not_cancelled(cancel: &AtomicBool, stage: &'static str) -> Result<()> {

@@ -72,7 +72,7 @@ pub(super) struct Rendered {
     pub view: View,
     pub fingerprint: Vec<u8>,
     pub frame_id: u64,
-    pub surface: Option<SurfaceIdentity>,
+    pub surface: super::super::controller::world::SurfaceIdentity,
     pub source: FrameSource,
     pub fixed_view_retained: bool,
     pub perception_matched: bool,
@@ -123,7 +123,7 @@ pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
         surface: frame_surface,
     };
     let perception_matched = perception_matches(perception_surface, &source.surface);
-    let surface = source.native_identity();
+    let surface = source.surface.clone();
     let capture_ms = capture_t0.elapsed().as_millis();
     let detector_start_id = perception_matched.then_some(detector_start_id).flatten();
     let excluded_rects = if perception_matched {

@@ -23,11 +23,40 @@
 
 use std::path::PathBuf;
 
+const RUNTIME_STATE_ROOT_ENV: &str = "SGT_RUNTIME_STATE_ROOT";
+
+fn runtime_state_root() -> Option<PathBuf> {
+    runtime_state_root_from(std::env::var_os(RUNTIME_STATE_ROOT_ENV))
+}
+
+fn runtime_state_root_from(raw: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let raw = raw?;
+    if raw.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(raw);
+    assert!(
+        path.is_absolute(),
+        "{RUNTIME_STATE_ROOT_ENV} must be an absolute path"
+    );
+    Some(path)
+}
+
 /// `%APPDATA%/screen-goated-toolbox` — config and history database live here.
 pub fn app_config_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_default()
         .join("screen-goated-toolbox")
+}
+
+/// Mutable config-shaped state for an isolated runtime. Normal launches share
+/// [`app_config_dir`]; a run with `SGT_RUNTIME_STATE_ROOT` writes under that
+/// root while remaining free to read the user's existing configuration.
+pub fn app_runtime_config_dir() -> PathBuf {
+    if let Some(root) = runtime_state_root() {
+        return root.join("roaming-state").join("screen-goated-toolbox");
+    }
+    app_config_dir()
 }
 
 /// `%APPDATA%/screen-goated-toolbox` — Roaming app-data root for downloaded models
@@ -54,14 +83,56 @@ pub fn app_local_data_dir() -> PathBuf {
         .join("screen-goated-toolbox")
 }
 
+/// Writable local state for bootstrap/runtime support files. Installed models
+/// and runtimes continue to be read through [`app_local_data_dir`].
+pub fn app_runtime_local_data_dir() -> PathBuf {
+    if let Some(root) = runtime_state_root() {
+        return root.join("local-app-data").join("screen-goated-toolbox");
+    }
+    app_local_data_dir()
+}
+
 /// `%LOCALAPPDATA%/SGT` — legacy folder for logs and live WebView2 data. Preserved
 /// for backward compatibility; see the module note.
 pub fn app_sgt_dir() -> PathBuf {
+    if let Some(root) = runtime_state_root() {
+        return root.join("local-app-data").join("SGT");
+    }
     dirs::data_local_dir().unwrap_or_default().join("SGT")
 }
 
 /// `<temp>/screen-goated-toolbox` — scratch root for short-lived sidecar artifacts
 /// (TTS wavs, subtitle media renders) under the OS temp directory.
 pub fn app_temp_dir() -> PathBuf {
+    if let Some(root) = runtime_state_root() {
+        return root.join("temp").join("screen-goated-toolbox");
+    }
     std::env::temp_dir().join("screen-goated-toolbox")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RUNTIME_STATE_ROOT_ENV, runtime_state_root_from};
+    use std::ffi::OsString;
+
+    #[test]
+    fn runtime_state_override_is_optional() {
+        assert!(runtime_state_root_from(None).is_none());
+        assert!(runtime_state_root_from(Some(OsString::new())).is_none());
+        assert_eq!(
+            runtime_state_root_from(Some(OsString::from(r"C:\isolated-run"))),
+            Some(r"C:\isolated-run".into())
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "SGT_RUNTIME_STATE_ROOT must be an absolute path")]
+    fn runtime_state_override_rejects_relative_paths() {
+        let _ = runtime_state_root_from(Some(OsString::from("relative")));
+    }
+
+    #[test]
+    fn runtime_state_override_name_is_stable() {
+        assert_eq!(RUNTIME_STATE_ROOT_ENV, "SGT_RUNTIME_STATE_ROOT");
+    }
 }

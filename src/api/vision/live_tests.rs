@@ -94,6 +94,7 @@ fn groq_rust_pipeline_live() {
             use_json_format: false,
             response_schema: None,
             cancel_token: None,
+            request_timeout: None,
         },
         |_| {},
     )

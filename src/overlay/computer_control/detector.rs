@@ -390,9 +390,10 @@ fn detect_capture_result(cap: &Capture, view: View, frame_id: u64) -> anyhow::Re
         detector_event(frame_id, view, "black_capture", started, None);
         return Ok(Vec::new());
     }
+    detector_stage(frame_id, "crop_ready", started);
     // Screen-px origin of the crop's top-left.
     let (ox, oy) = (x0 + cap.origin_x, y0 + cap.origin_y);
-    match run(&crop, ox, oy) {
+    match run(&crop, ox, oy, frame_id) {
         Ok(processed) => {
             detector_event(frame_id, view, "complete", started, Some(&processed));
             Ok(processed.boxes)
@@ -402,6 +403,20 @@ fn detect_capture_result(cap: &Capture, view: View, frame_id: u64) -> anyhow::Re
             Err(e)
         }
     }
+}
+
+fn detector_stage(frame_id: u64, stage: &'static str, started: Instant) {
+    super::telemetry::event(
+        "detector_stage",
+        "detector",
+        super::telemetry::Privacy::Safe,
+        serde_json::json!({
+            "frame_id": frame_id,
+            "stage": stage,
+            "elapsed_ms": started.elapsed().as_millis(),
+            "requested_execution_provider": runtime::requested_provider(),
+        }),
+    );
 }
 
 fn detector_event(
@@ -451,8 +466,15 @@ fn detector_event(
     );
 }
 
-fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<PostprocessResult> {
+fn run(
+    crop: &image::RgbImage,
+    ox: i32,
+    oy: i32,
+    frame_id: u64,
+) -> anyhow::Result<PostprocessResult> {
     let started = Instant::now();
+    crate::unpack_dlls::ensure_onnx_runtime_initialized()?;
+    detector_stage(frame_id, "runtime_ready", started);
     let (cw, ch) = (crop.width() as f32, crop.height() as f32);
 
     // Square resize to RES×RES + ImageNet normalize → NCHW f32 (matches RF-DETR's
@@ -464,6 +486,7 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<PostprocessRe
         RES as u32,
         image::imageops::FilterType::Triangle,
     );
+    detector_stage(frame_id, "resize_ready", started);
     let plane = RES * RES;
     let mut chw = vec![0f32; 3 * plane];
     for (i, px) in resized.pixels().enumerate() {
@@ -471,15 +494,19 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<PostprocessRe
             chw[c * plane + i] = (px[c] as f32 / 255.0 - MEAN[c]) / STD[c];
         }
     }
+    detector_stage(frame_id, "tensor_data_ready", started);
     let input = ort::value::Value::from_array((vec![1i64, 3, RES as i64, RES as i64], chw))
         .map_err(|e| anyhow::anyhow!("input tensor: {e}"))?;
+    detector_stage(frame_id, "input_ready", started);
 
     let processed = runtime::with_session(&model_path(), move |session| {
+        detector_stage(frame_id, "session_ready", started);
         // Outputs borrow the session, so extraction and postprocessing stay inside
         // the cache lock. One detector run is serialized by design.
         let outputs = session
             .run(ort::inputs!["input" => input])
             .map_err(|error| anyhow::anyhow!("run: {error}"))?;
+        detector_stage(frame_id, "inference_ready", started);
         let dets_v = outputs
             .get("dets")
             .ok_or_else(|| anyhow::anyhow!("model has no 'dets' output"))?;
@@ -492,7 +519,7 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<PostprocessRe
         let (lshape, labels) = labels_v
             .try_extract_tensor::<f32>()
             .map_err(|error| anyhow::anyhow!("labels: {error}"))?;
-        postprocess(
+        let processed = postprocess(
             dshape.as_ref(),
             dets,
             lshape.as_ref(),
@@ -503,7 +530,9 @@ fn run(crop: &image::RgbImage, ox: i32, oy: i32) -> anyhow::Result<PostprocessRe
             oy,
             score_threshold(),
             nms_iou_threshold(),
-        )
+        )?;
+        detector_stage(frame_id, "postprocess_ready", started);
+        Ok(processed)
     })?;
     eprintln!(
         "[cc-detector] inference {}ms: {} candidates over threshold, {} invalid, {} duplicates suppressed, {} truncated, {} marks",

@@ -8,6 +8,7 @@ use crate::api::providers::Provider;
 use anyhow::Result;
 use providers::{translate_cerebras, translate_gemini, translate_openrouter, translate_taalas};
 use std::sync::{Arc, atomic::AtomicBool};
+use std::time::Duration;
 
 pub struct TranslateTextRequest<'a> {
     pub groq_api_key: &'a str,
@@ -21,7 +22,18 @@ pub struct TranslateTextRequest<'a> {
     pub search_label: Option<String>,
     pub ui_language: &'a str,
     pub cancel_token: Option<Arc<AtomicBool>>,
+    /// Optional end-to-end transport budget for latency-sensitive callers.
+    /// `None` preserves the provider's normal shared-agent timeout.
+    pub request_timeout: Option<Duration>,
     pub target_language: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+struct TranslateTransportOptions<'a> {
+    streaming_enabled: bool,
+    ui_language: &'a str,
+    cancel_token: &'a Option<Arc<AtomicBool>>,
+    request_timeout: Option<Duration>,
 }
 
 pub fn translate_text_streaming<F>(
@@ -43,10 +55,11 @@ where
         search_label,
         ui_language,
         cancel_token,
+        request_timeout,
         target_language,
     } = request;
 
-    let openrouter_api_key = crate::APP
+    let saved_openrouter_api_key = crate::APP
         .lock()
         .ok()
         .and_then(|app| {
@@ -58,8 +71,10 @@ where
             }
         })
         .unwrap_or_default();
+    let openrouter_api_key =
+        crate::api::provider_credentials::resolve("OPENROUTER_API_KEY", &saved_openrouter_api_key);
 
-    let cerebras_api_key = crate::APP
+    let saved_cerebras_api_key = crate::APP
         .lock()
         .ok()
         .and_then(|app| {
@@ -71,14 +86,23 @@ where
             }
         })
         .unwrap_or_default();
+    let cerebras_api_key =
+        crate::api::provider_credentials::resolve("CEREBRAS_API_KEY", &saved_cerebras_api_key);
 
     let full_content;
     let prompt = format!("{}\n\n{}", instruction, text);
+    let transport = TranslateTransportOptions {
+        streaming_enabled,
+        ui_language,
+        cancel_token: &cancel_token,
+        request_timeout,
+    };
 
-    // DEBUG: Log the instruction being sent to the API
-    println!("[DEBUG translate] instruction=«{}»", instruction);
     println!(
-        "[DEBUG translate] text_len={} prompt_len={}",
+        "[translate] provider={} model={} instruction_bytes={} text_bytes={} prompt_bytes={}",
+        provider,
+        model,
+        instruction.len(),
         text.len(),
         prompt.len()
     );
@@ -115,6 +139,8 @@ where
                     audio_data: None,
                     streaming_enabled,
                     ui_language,
+                    cancel_token,
+                    request_timeout,
                 },
                 on_chunk,
             );
@@ -162,15 +188,8 @@ where
         }
         Some(Provider::Google) => {
             // --- GEMINI TEXT API ---
-            full_content = translate_gemini(
-                gemini_api_key,
-                &model,
-                &prompt,
-                streaming_enabled,
-                ui_language,
-                &cancel_token,
-                &mut on_chunk,
-            )?;
+            full_content =
+                translate_gemini(gemini_api_key, &model, &prompt, transport, &mut on_chunk)?;
         }
         Some(Provider::Cerebras) => {
             // --- CEREBRAS API ---
@@ -183,6 +202,7 @@ where
                     streaming_enabled,
                     ui_language,
                     cancel_token: &cancel_token,
+                    request_timeout,
                 },
                 &mut on_chunk,
             )?;
@@ -193,9 +213,7 @@ where
                 &openrouter_api_key,
                 &model,
                 &prompt,
-                streaming_enabled,
-                ui_language,
-                &cancel_token,
+                transport,
                 &mut on_chunk,
             )?;
         }
@@ -214,6 +232,7 @@ where
                     &prompt,
                     search_label,
                     ui_language,
+                    request_timeout,
                     on_chunk,
                 );
             } else {
@@ -221,9 +240,8 @@ where
                     groq_api_key,
                     &model,
                     &prompt,
-                    streaming_enabled,
                     use_json_format,
-                    cancel_token,
+                    transport,
                     on_chunk,
                 );
             }

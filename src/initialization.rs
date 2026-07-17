@@ -143,12 +143,30 @@ pub fn apply_pending_updates() {
     }
 }
 
-/// Set up crash handler to show message box on panic.
-pub fn setup_crash_handler() {
-    remove_persisted_crash_diagnostics();
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CrashReportMode {
+    Interactive,
+    NonInteractive,
+}
+
+impl CrashReportMode {
+    fn shows_modal_dialog(self) -> bool {
+        self == Self::Interactive
+    }
+
+    fn cleans_persisted_diagnostics(self) -> bool {
+        self == Self::Interactive
+    }
+}
+
+/// Set up crash reporting without blocking non-interactive processes on UI.
+pub(crate) fn setup_crash_handler(mode: CrashReportMode) {
+    if mode.cleans_persisted_diagnostics() {
+        remove_persisted_crash_diagnostics();
+    }
     setup_console_ctrl_handler();
 
-    std::panic::set_hook(Box::new(|panic_info| {
+    std::panic::set_hook(Box::new(move |panic_info| {
         // 1. Format the error message
         let location = if let Some(location) = panic_info.location() {
             format!("File: {}\nLine: {}", location.file(), location.line())
@@ -169,7 +187,15 @@ pub fn setup_crash_handler() {
             payload, location
         );
 
-        // Show a Windows Message Box so the user knows it crashed
+        // Headless runners must always receive a report through their inherited
+        // stderr without waiting for a desktop interaction.
+        use std::io::Write;
+        let _ = writeln!(std::io::stderr().lock(), "{error_msg}");
+
+        if !mode.shows_modal_dialog() {
+            return;
+        }
+
         let wide_msg: Vec<u16> = error_msg.encode_utf16().chain(std::iter::once(0)).collect();
         let wide_title: Vec<u16> = "SGT Crash Report"
             .encode_utf16()
@@ -318,4 +344,17 @@ pub fn init_com_and_dpi() {
 pub fn spawn_warmup_thread() {
     // Startup warmups are intentionally disabled.
     // All overlays now initialize on first use.
+}
+
+#[cfg(test)]
+mod crash_report_tests {
+    use super::CrashReportMode;
+
+    #[test]
+    fn only_interactive_startup_may_touch_host_diagnostics_or_open_a_modal() {
+        assert!(CrashReportMode::Interactive.shows_modal_dialog());
+        assert!(!CrashReportMode::NonInteractive.shows_modal_dialog());
+        assert!(CrashReportMode::Interactive.cleans_persisted_diagnostics());
+        assert!(!CrashReportMode::NonInteractive.cleans_persisted_diagnostics());
+    }
 }

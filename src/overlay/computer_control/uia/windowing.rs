@@ -143,6 +143,11 @@ pub(crate) fn raise_window(target: &str) -> WindowResult<bool> {
     Ok(raised)
 }
 
+pub(crate) fn raise_window_with_target(target: &str) -> WindowResult<(bool, String)> {
+    let stable = stable_window_target(target)?;
+    raise_window(&stable).map(|raised| (raised, stable))
+}
+
 // --- Win32 EnumWindows: finds EVERY top-level window, including fullscreen GAMES (Unity/Unreal/
 //     native) that expose NO UI Automation provider and so never appear in the UIA tree. That gap
 //     is exactly why `focus_window` couldn't reach a minimized game and matched a browser tab by

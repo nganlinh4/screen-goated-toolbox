@@ -134,6 +134,7 @@ where
                         use_json_format: false,
                         response_schema: None,
                         cancel_token,
+                        request_timeout: None,
                     },
                     on_chunk,
                 )
@@ -148,6 +149,8 @@ where
                         audio_data: None,
                         streaming_enabled,
                         ui_language,
+                        cancel_token: cancel_token.clone(),
+                        request_timeout: None,
                     },
                     &mut on_chunk,
                 )
@@ -169,6 +172,7 @@ where
                         use_json_format: false,
                         response_schema: None,
                         cancel_token,
+                        request_timeout: None,
                     },
                     on_chunk,
                 )
@@ -234,6 +238,8 @@ where
                 audio_data: None,
                 streaming_enabled,
                 ui_language,
+                cancel_token: cancel_token.clone(),
+                request_timeout: None,
             },
             on_chunk,
         )

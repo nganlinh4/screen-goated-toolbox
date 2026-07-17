@@ -13,6 +13,7 @@ pub(in crate::overlay::computer_control) struct FrameSource {
 }
 
 impl FrameSource {
+    #[cfg(test)]
     pub(super) fn native(frame_id: u64, identity: (u64, u64, u64)) -> Self {
         Self {
             frame_id,
@@ -32,6 +33,13 @@ impl FrameSource {
                 generation,
             } => Some((hwnd, pid, generation)),
             SurfaceIdentity::Browser { .. } => None,
+        }
+    }
+
+    pub(super) fn window_identity(&self) -> (u64, u64) {
+        match &self.surface {
+            SurfaceIdentity::Native { hwnd, pid, .. } => (*hwnd, *pid),
+            SurfaceIdentity::Browser { window, .. } => (window.hwnd, window.pid),
         }
     }
 
@@ -62,12 +70,27 @@ pub(super) fn capture_current(
     fixed: Option<(&SurfaceIdentity, View)>,
     resolve_view: impl FnOnce() -> View,
 ) -> Result<(session::Capture, SurfaceIdentity, View, bool)> {
-    let surface = observe_current(target)?;
-    let dynamic_view = resolve_view();
-    let (view, fixed_retained) = choose_bound_view(&surface, fixed, dynamic_view);
-    let capture = session::capture_virtual()?;
-    validate_current(target, &surface)?;
+    let ((capture, view, fixed_retained), surface) = capture_with_identity(
+        || current_surface(target),
+        |surface| {
+            let dynamic_view = resolve_view();
+            let (view, fixed_retained) = choose_bound_view(surface, fixed, dynamic_view);
+            Ok((session::capture_virtual()?, view, fixed_retained))
+        },
+        |surface| validate_current(target, surface),
+    )?;
     Ok((capture, surface, view, fixed_retained))
+}
+
+fn capture_with_identity<C>(
+    observe: impl FnOnce() -> Result<SurfaceIdentity>,
+    capture: impl FnOnce(&SurfaceIdentity) -> Result<C>,
+    validate: impl FnOnce(&SurfaceIdentity) -> Result<()>,
+) -> Result<(C, SurfaceIdentity)> {
+    let surface = observe()?;
+    let captured = capture(&surface)?;
+    validate(&surface)?;
+    Ok((captured, surface))
 }
 
 fn choose_bound_view(
@@ -81,7 +104,7 @@ fn choose_bound_view(
     }
 }
 
-fn observe_current(target: Option<&str>) -> Result<SurfaceIdentity> {
+pub(super) fn current_surface(target: Option<&str>) -> Result<SurfaceIdentity> {
     if super::super::browser::input_active() {
         let (tab_id, document_id, window) = super::super::browser::active_document_identity()?;
         Ok(SurfaceIdentity::Browser {
@@ -147,6 +170,7 @@ mod tests {
         };
         assert_eq!(native.input_guard()["hwnd"], 17);
         assert_eq!(native.input_guard()["generation"], 3);
+        assert_eq!(native.window_identity(), (17, 29));
 
         let browser = FrameSource {
             frame_id: 5,
@@ -159,6 +183,7 @@ mod tests {
         assert_eq!(browser.input_guard()["tab_id"], 41);
         assert_eq!(browser.input_guard()["document_id"], "doc-a");
         assert_eq!(browser.input_guard()["hwnd"], 3);
+        assert_eq!(browser.window_identity(), (3, 4));
     }
 
     #[test]
@@ -194,5 +219,27 @@ mod tests {
             choose_bound_view(&new, Some((&old, fixed)), dynamic),
             (dynamic, false)
         );
+    }
+
+    #[test]
+    fn capture_result_is_rejected_when_surface_drifts_inside_bracket() {
+        let observed = SurfaceIdentity::Native {
+            hwnd: 11,
+            pid: 12,
+            generation: 13,
+        };
+        let result = capture_with_identity(
+            || Ok(observed.clone()),
+            |surface| {
+                assert_eq!(surface, &observed);
+                Ok("frozen-pixels")
+            },
+            |surface| {
+                assert_eq!(surface, &observed);
+                anyhow::bail!("surface drifted")
+            },
+        );
+
+        assert!(result.unwrap_err().to_string().contains("surface drifted"));
     }
 }

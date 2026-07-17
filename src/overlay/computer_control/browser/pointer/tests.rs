@@ -5,7 +5,30 @@ fn typed(error: anyhow::Error) -> Value {
 }
 
 #[test]
-fn cancellation_at_press_edge_is_a_proven_noop() {
+fn cancellation_before_any_dispatch_is_a_proven_noop() {
+    let cancel = AtomicBool::new(true);
+    let mut events = Vec::new();
+    let result = run_click_with(
+        10.0,
+        20.0,
+        false,
+        &cancel,
+        |command, mode| {
+            events.push((command, mode));
+            Ok(())
+        },
+        || Ok(()),
+    );
+
+    let value = typed(result.unwrap_err());
+    assert!(events.is_empty(), "no input may be dispatched: {events:?}");
+    assert_eq!(value["cancelled"], true);
+    assert_eq!(value["effect_may_have_occurred"], false);
+    assert_eq!(value["release_attempted"], false);
+}
+
+#[test]
+fn cancellation_at_press_edge_reports_the_dispatched_hover() {
     let cancel = AtomicBool::new(false);
     let mut events = Vec::new();
     let result = run_click_with(
@@ -24,10 +47,32 @@ fn cancellation_at_press_edge_is_a_proven_noop() {
     );
 
     let value = typed(result.unwrap_err());
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 1, "only the hover move: {events:?}");
+    assert_eq!(value["cancelled"], true);
+    assert_eq!(value["effect_may_have_occurred"], true);
+    assert_eq!(value["release_attempted"], false);
+}
+
+#[test]
+fn drag_cancellation_before_any_dispatch_is_a_proven_noop() {
+    let cancel = AtomicBool::new(true);
+    let mut events = Vec::new();
+    let result = run_drag_with(
+        (3.0, 4.0),
+        (30.0, 40.0),
+        &cancel,
+        |command, mode| {
+            events.push((command, mode));
+            Ok(())
+        },
+        || Ok(()),
+        |_| false,
+    );
+
+    let value = typed(result.unwrap_err());
+    assert!(events.is_empty(), "no input may be dispatched: {events:?}");
     assert_eq!(value["cancelled"], true);
     assert_eq!(value["effect_may_have_occurred"], false);
-    assert_eq!(value["release_attempted"], false);
 }
 
 #[test]

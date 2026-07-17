@@ -24,6 +24,7 @@ fn load_parakeet_model_with_repair(
     stop_signal: &Arc<AtomicBool>,
     use_badge: bool,
 ) -> Result<ParakeetEOU> {
+    crate::unpack_dlls::ensure_onnx_runtime_initialized()?;
     let model_dir = super::model_loader::get_parakeet_model_dir();
     let initial_attempt =
         ParakeetEOU::from_pretrained(&model_dir, Some(parakeet_execution_config()));

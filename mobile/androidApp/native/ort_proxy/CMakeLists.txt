@@ -15,6 +15,9 @@ target_compile_options(onnxruntime PRIVATE
 
 target_link_options(onnxruntime PRIVATE
     -Wl,--gc-sections
+    # Google Play 16 KB page-size requirement: every LOAD segment must be
+    # 16 KB-aligned or the app cannot run on 16 KB-page devices.
+    -Wl,-z,max-page-size=16384
 )
 
 target_link_libraries(onnxruntime

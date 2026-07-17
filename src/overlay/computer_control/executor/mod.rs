@@ -37,6 +37,7 @@ mod keyboard;
 mod mouse;
 mod shell;
 mod target;
+mod text_file;
 
 /// Whether THIS process is running elevated (full administrator). The agent is told its privilege
 /// level each session so it knows what it can do directly vs. when to relaunch a command via UAC.
@@ -96,7 +97,7 @@ pub fn execute(name: &str, args: &Value) -> Value {
 }
 
 /// Dispatch one tool call to a real OS action. `profile` selects humanization
-/// (instant by default); `cancel` lets a spoken "stop" abort mid-action — it is
+/// (instant by default); `cancel` lets a cancellation abort mid-action — it is
 /// polled between micro-steps (every cursor segment / keystroke). Returns a JSON
 /// result suitable for the `toolResponse`; never panics on bad args.
 pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Value {
@@ -111,6 +112,9 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
         "open_url" => shell::open_url(args),
         "launch_app" => shell::launch_app(args),
         "run_command" => shell::run_command(args),
+        "read_text_file" => Ok(text_file::read_text_file(args)),
+        "edit_text_file" => Ok(text_file::edit_text_file(args)),
+        "edit_text_file_structure" => Ok(text_file::edit_text_file_structure(args)),
         "click_here" => mouse::click_here(args, cancel),
         "point" => mouse::point(args, profile, cancel),
         other => Err(anyhow!("unknown action: {other}")),
@@ -138,6 +142,10 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
         object.insert("input_injection".to_string(), telemetry);
     }
     value
+}
+
+pub(in crate::overlay::computer_control) fn commit_text_file_structure(args: &Value) -> Value {
+    text_file::commit_text_file_structure(args)
 }
 
 fn verify_expected_input_target(args: &Value) -> Result<()> {

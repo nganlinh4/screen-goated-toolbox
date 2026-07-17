@@ -139,3 +139,93 @@ pub(in crate::overlay::computer_control::uia_task) fn guarded_input_args(
     args["expected_input_target"] = source.input_guard();
     Ok(args)
 }
+
+pub(in crate::overlay::computer_control::uia_task) fn guarded_direct_input_args(
+    name: &str,
+    args: Value,
+    target: Option<&str>,
+    source: Option<&FrameSource>,
+    refocus_required: bool,
+) -> Result<Value> {
+    if !matches!(name, "type_text" | "key_combination") {
+        return guarded_input_args(args, target, source);
+    }
+    if refocus_required {
+        anyhow::bail!(
+            "raw keyboard target is stale after a failed window selection; successfully focus the intended window first"
+        );
+    }
+    guarded_keyboard_args(args, target, source)
+}
+
+fn guarded_keyboard_args(
+    mut args: Value,
+    pinned_target: Option<&str>,
+    source: Option<&FrameSource>,
+) -> Result<Value> {
+    let source =
+        source.ok_or_else(|| anyhow::anyhow!("model-visible source frame is unavailable"))?;
+    let requested = args
+        .get("target")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("raw keyboard input requires a stable window target"))?;
+    let stable = uia::stable_window_target(requested)?;
+    ensure_keyboard_window(source, uia::window_identity(&stable)?)?;
+    if !uia::raise_window(&stable)? {
+        anyhow::bail!("the explicit keyboard target could not become foreground");
+    }
+    args["target"] = Value::String(stable);
+    guarded_input_args(args, pinned_target, Some(source))
+}
+
+fn ensure_keyboard_window(source: &FrameSource, requested: (u64, u64)) -> Result<()> {
+    if source.window_identity() != requested {
+        anyhow::bail!(
+            "explicit keyboard target does not match the exact model-visible window identity"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_keyboard_requires_refocus_and_an_explicit_target() {
+        let source = FrameSource::native(1, (11, 12, 13));
+        assert!(
+            guarded_direct_input_args(
+                "type_text",
+                json!({"text": "value"}),
+                None,
+                Some(&source),
+                true,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("stale")
+        );
+        assert!(
+            guarded_direct_input_args(
+                "type_text",
+                json!({"text": "value"}),
+                None,
+                Some(&source),
+                false,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("stable window target")
+        );
+    }
+
+    #[test]
+    fn keyboard_window_identity_must_match_the_visible_frame() {
+        let source = FrameSource::native(1, (11, 12, 13));
+        ensure_keyboard_window(&source, (11, 12)).unwrap();
+        assert!(ensure_keyboard_window(&source, (11, 99)).is_err());
+    }
+}

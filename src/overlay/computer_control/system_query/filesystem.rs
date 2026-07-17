@@ -32,25 +32,9 @@ pub(super) fn list_directory(args: &Value, observed_at_ms: u128) -> Value {
         .filter_map(Value::as_str)
         .map(|value| value.trim_start_matches('.').to_ascii_lowercase())
         .collect();
-    let mut entries = match std::fs::read_dir(&path) {
-        Ok(entries) => entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| entry_item(&entry.path()).map(|item| (entry, item)))
-            .filter(|(entry, _)| match kind {
-                "file" => entry.file_type().is_ok_and(|value| value.is_file()),
-                "directory" => entry.file_type().is_ok_and(|value| value.is_dir()),
-                _ => true,
-            })
-            .filter(|(entry, _)| {
-                extensions.is_empty()
-                    || entry
-                        .path()
-                        .extension()
-                        .and_then(|value| value.to_str())
-                        .is_some_and(|value| extensions.contains(&value.to_ascii_lowercase()))
-            })
-            .map(|(_, item)| item)
-            .collect::<Vec<_>>(),
+    let path = std::fs::canonicalize(&path).unwrap_or(path);
+    let directory = match std::fs::read_dir(&path) {
+        Ok(directory) => directory,
         Err(error) => {
             return failure(
                 "filesystem",
@@ -60,6 +44,35 @@ pub(super) fn list_directory(args: &Value, observed_at_ms: u128) -> Value {
             );
         }
     };
+    let mut entries = Vec::new();
+    let mut total_entries = 0usize;
+    let mut excluded_by_kind = 0usize;
+    let mut excluded_by_extension = 0usize;
+    for entry in directory.filter_map(Result::ok) {
+        let Some(item) = entry_item(&entry.path()) else {
+            continue;
+        };
+        total_entries += 1;
+        let item_kind = item.get("kind").and_then(Value::as_str).unwrap_or("");
+        if (kind == "file" && item_kind != "file")
+            || (kind == "directory" && item_kind != "directory")
+        {
+            excluded_by_kind += 1;
+            continue;
+        }
+        if item_kind == "file"
+            && !extensions.is_empty()
+            && !entry
+                .path()
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| extensions.contains(&value.to_ascii_lowercase()))
+        {
+            excluded_by_extension += 1;
+            continue;
+        }
+        entries.push(item);
+    }
     let descending = args
         .get("order")
         .and_then(Value::as_str)
@@ -83,18 +96,42 @@ pub(super) fn list_directory(args: &Value, observed_at_ms: u128) -> Value {
     for (index, item) in entries.iter_mut().enumerate() {
         item["rank"] = json!(index + 1);
     }
-    ok(
+    let mut warnings = Vec::new();
+    if total > limit {
+        warnings.push(format!("showing {limit} of {total} matching entries"));
+    }
+    if total == 0 {
+        warnings.push(format!(
+            "no entries matched in this exact directory; {excluded_by_kind} excluded by kind and {excluded_by_extension} files excluded by extension"
+        ));
+    }
+    let mut result = ok(
         "filesystem",
         "list_directory",
         "rust_std_filesystem",
         "high",
         entries,
-        (total > limit)
-            .then(|| format!("showing {limit} of {total} matching entries"))
-            .into_iter()
-            .collect(),
+        warnings,
         observed_at_ms,
-    )
+    );
+    result["resolved_path"] = json!(path.to_string_lossy());
+    result["requested_kind"] = json!(kind);
+    result["requested_extensions"] = json!(extensions);
+    result["total_entry_count"] = json!(total_entries);
+    result["matched_count"] = json!(total);
+    result["returned_count"] = json!(result["items"].as_array().map_or(0, Vec::len));
+    result["excluded_by_kind"] = json!(excluded_by_kind);
+    result["excluded_by_extension"] = json!(excluded_by_extension);
+    result["content_coverage"] = json!({
+        "status": "metadata_only",
+        "listing_complete": total <= limit,
+        "returned_file_count": result["items"]
+            .as_array()
+            .map(|items| items.iter().filter(|item| item["kind"] == "file").count())
+            .unwrap_or(0),
+        "instruction": "For collection-wide content work, read each in-scope file; report unread, excluded, or omitted entries.",
+    });
+    result
 }
 
 fn resolve_path(raw: &str) -> Option<PathBuf> {
@@ -109,15 +146,16 @@ fn resolve_path(raw: &str) -> Option<PathBuf> {
         "videos" => dirs::video_dir(),
         _ => None,
     };
-    let path = known.unwrap_or_else(|| {
+    let path = known.or_else(|| {
         if let Some(rest) = value
             .strip_prefix("~/")
             .or_else(|| value.strip_prefix("~\\"))
         {
-            return dirs::home_dir().unwrap_or_default().join(rest);
+            return dirs::home_dir().map(|home| home.join(rest));
         }
-        PathBuf::from(value)
-    });
+        let path = PathBuf::from(value);
+        path.is_absolute().then_some(path)
+    })?;
     path.is_dir().then_some(path)
 }
 
@@ -152,10 +190,107 @@ fn text_field<'a>(value: &'a Value, field: &str) -> &'a str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            let path = std::env::temp_dir().join(format!(
+                "sgt-list-files-test-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            assert_eq!(self.0.parent(), Some(std::env::temp_dir().as_path()));
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
 
     #[test]
     fn missing_path_fails_without_mutation() {
         let result = list_directory(&json!({}), 1);
         assert_eq!(result.get("ok").and_then(Value::as_bool), Some(false));
+    }
+
+    #[test]
+    fn working_directory_relative_path_is_not_a_filesystem_scope() {
+        let result = list_directory(&json!({"path": "."}), 1);
+        assert_eq!(result["ok"], false);
+        assert!(result["items"].as_array().is_some_and(Vec::is_empty));
+    }
+
+    #[test]
+    fn extension_filter_keeps_directories_when_kind_allows_them() {
+        let root = TestDir::new();
+        std::fs::create_dir(root.0.join("nested")).unwrap();
+        std::fs::write(root.0.join("included.md"), "included").unwrap();
+        std::fs::write(root.0.join("excluded.txt"), "excluded").unwrap();
+
+        let result = list_directory(
+            &json!({
+                "path": root.0,
+                "kind": "any",
+                "extensions": ["md"],
+                "sort_by": "name",
+                "order": "ascending"
+            }),
+            1,
+        );
+
+        assert_eq!(result["ok"], true);
+        let names = result["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["included.md", "nested"]);
+        assert_eq!(result["excluded_by_kind"], 0);
+        assert_eq!(result["excluded_by_extension"], 1);
+        assert_eq!(result["content_coverage"]["status"], "metadata_only");
+        assert_eq!(result["content_coverage"]["listing_complete"], true);
+        assert_eq!(result["content_coverage"]["returned_file_count"], 1);
+        assert!(
+            result["content_coverage"]["instruction"]
+                .as_str()
+                .is_some_and(|instruction| instruction.contains("read each in-scope file"))
+        );
+        assert_eq!(result["matched_count"], 2);
+    }
+
+    #[test]
+    fn empty_listing_reports_exact_scope_and_exclusions() {
+        let root = TestDir::new();
+        std::fs::create_dir(root.0.join("nested")).unwrap();
+        std::fs::write(root.0.join("note.md"), "note").unwrap();
+
+        let result = list_directory(
+            &json!({"path": root.0, "kind": "file", "extensions": ["csv"]}),
+            1,
+        );
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["matched_count"], 0);
+        assert_eq!(result["total_entry_count"], 2);
+        assert_eq!(result["excluded_by_kind"], 1);
+        assert_eq!(result["excluded_by_extension"], 1);
+        assert!(
+            result["resolved_path"]
+                .as_str()
+                .is_some_and(|path| Path::new(path).is_absolute())
+        );
+        assert!(
+            result["warnings"][0]
+                .as_str()
+                .is_some_and(|warning| warning.contains("exact directory"))
+        );
     }
 }

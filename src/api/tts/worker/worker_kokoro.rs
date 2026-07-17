@@ -76,7 +76,7 @@ pub(super) fn handle_kokoro_tts(
 ) {
     let hwnd = request.req.hwnd;
 
-    if !dlls::is_sherpa_dlls_installed() {
+    if !dlls::is_sherpa_runtime_ready() {
         let stop = Arc::new(AtomicBool::new(false));
         if let Err(err) = dlls::download_sherpa_dlls_with_progress(stop, |progress| {
             crate::overlay::auto_copy_badge::show_progress_notification(

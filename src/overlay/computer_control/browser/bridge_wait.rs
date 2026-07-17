@@ -46,6 +46,7 @@ pub(super) fn prune_inactive(pending: &mut HashMap<u64, PendingReply>, now: Inst
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RequestWaitError {
     CancelledBeforeDispatch,
+    UnavailableBeforeDispatch,
     CancelledWhileWaiting,
     TimedOut,
     Closed,
@@ -55,6 +56,7 @@ impl fmt::Display for RequestWaitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::CancelledBeforeDispatch => "browser request cancelled before dispatch",
+            Self::UnavailableBeforeDispatch => "browser request unavailable before dispatch",
             Self::CancelledWhileWaiting => "browser request cancelled while awaiting its reply",
             Self::TimedOut => "browser request timed out",
             Self::Closed => "browser bridge closed",
@@ -68,12 +70,33 @@ pub(super) fn cancellation_effect(error: &anyhow::Error) -> Option<bool> {
     match error.downcast_ref::<RequestWaitError>()? {
         RequestWaitError::CancelledBeforeDispatch => Some(false),
         RequestWaitError::CancelledWhileWaiting => Some(true),
-        RequestWaitError::TimedOut | RequestWaitError::Closed => None,
+        RequestWaitError::UnavailableBeforeDispatch
+        | RequestWaitError::TimedOut
+        | RequestWaitError::Closed => None,
     }
+}
+
+pub(super) fn dispatch_effect(error: &anyhow::Error) -> Option<bool> {
+    Some(match error.downcast_ref::<RequestWaitError>()? {
+        RequestWaitError::CancelledBeforeDispatch | RequestWaitError::UnavailableBeforeDispatch => {
+            false
+        }
+        RequestWaitError::CancelledWhileWaiting
+        | RequestWaitError::TimedOut
+        | RequestWaitError::Closed => true,
+    })
 }
 
 pub(super) fn cancelled_before_dispatch() -> anyhow::Error {
     RequestWaitError::CancelledBeforeDispatch.into()
+}
+
+pub(super) fn unavailable_before_dispatch() -> anyhow::Error {
+    RequestWaitError::UnavailableBeforeDispatch.into()
+}
+
+pub(super) fn closed_after_dispatch() -> anyhow::Error {
+    RequestWaitError::Closed.into()
 }
 
 pub(super) fn ensure_dispatch_allowed(cancel: Option<&AtomicBool>) -> anyhow::Result<()> {
@@ -165,6 +188,8 @@ mod tests {
         );
         let during: anyhow::Error = RequestWaitError::CancelledWhileWaiting.into();
         assert_eq!(cancellation_effect(&during), Some(true));
+        assert_eq!(dispatch_effect(&cancelled_before_dispatch()), Some(false));
+        assert_eq!(dispatch_effect(&during), Some(true));
     }
 
     #[test]

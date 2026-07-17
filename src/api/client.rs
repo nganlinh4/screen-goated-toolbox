@@ -17,6 +17,18 @@ fn build_agent(timeout_global: Duration, http_status_as_error: bool) -> ureq::Ag
         .into()
 }
 
+/// Apply a tighter end-to-end budget to one request without changing the
+/// shared agent's defaults for unrelated long-running work.
+pub fn with_request_timeout<B>(
+    request: ureq::RequestBuilder<B>,
+    timeout: Option<Duration>,
+) -> ureq::RequestBuilder<B> {
+    match timeout {
+        Some(timeout) => request.config().timeout_global(Some(timeout)).build(),
+        None => request,
+    }
+}
+
 /// Agent for unary (non-streaming) requests — bounded end-to-end at 120s.
 pub static UREQ_AGENT: LazyLock<ureq::Agent> =
     LazyLock::new(|| build_agent(Duration::from_secs(120), true));
@@ -32,6 +44,11 @@ pub static UREQ_RESPONSE_AGENT: LazyLock<ureq::Agent> =
 /// use this longer cap (matching the help-assistant agent) instead.
 pub static UREQ_STREAM_AGENT: LazyLock<ureq::Agent> =
     LazyLock::new(|| build_agent(Duration::from_secs(900), true));
+
+/// Streaming agent that preserves HTTP error responses for bounded provider
+/// diagnostics while retaining the long-lived SSE timeout.
+pub static UREQ_STREAM_RESPONSE_AGENT: LazyLock<ureq::Agent> =
+    LazyLock::new(|| build_agent(Duration::from_secs(900), false));
 
 /// True when a ureq error is an HTTP 401/403 (authentication failure).
 ///

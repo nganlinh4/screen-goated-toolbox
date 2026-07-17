@@ -71,7 +71,6 @@ pub(in crate::overlay::computer_control::controller) fn action_failure(
     error: &anyhow::Error,
     verb: Verb,
     element: &IndexedElement,
-    elements: String,
 ) -> Value {
     if let Some(mut value) = typed_value(error) {
         value["target"] = serde_json::json!({
@@ -79,7 +78,6 @@ pub(in crate::overlay::computer_control::controller) fn action_failure(
             "role": element.role,
             "name": element.name,
         });
-        value["elements"] = serde_json::json!(elements);
         return value;
     }
     serde_json::json!({
@@ -87,8 +85,21 @@ pub(in crate::overlay::computer_control::controller) fn action_failure(
         "dispatch_ok": false,
         "effect_may_have_occurred": true,
         "error": format!("could not {} {:?}: {error}", verb.as_str(), element.name),
-        "elements": elements,
     })
+}
+
+pub(in crate::overlay::computer_control::controller) fn mark_resynced(value: &mut Value) {
+    if value.get("code").and_then(Value::as_str) != Some("ERR_BROWSER_STALE_TARGET") {
+        return;
+    }
+    value["error"] = serde_json::json!(
+        "the browser target changed before input; the controller already attached fresh indexed state"
+    );
+    value["fresh_observation_attached"] = serde_json::json!(true);
+    value["retryable"] = serde_json::json!(true);
+    value["instruction"] = serde_json::json!(
+        "Use the attached current @ids for at most one retry. If the target churns again, change to a non-indexed current-frame or direct-provider route."
+    );
 }
 
 pub(in crate::overlay::computer_control::controller) fn step_failure(

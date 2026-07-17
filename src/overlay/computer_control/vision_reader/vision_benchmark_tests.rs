@@ -120,6 +120,7 @@ fn live_coordinate_benchmark() {
                     use_json_format: false,
                     response_schema: Some(point_schema()),
                     cancel_token: None,
+                    request_timeout: None,
                 },
                 |_| {},
             );

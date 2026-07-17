@@ -1,13 +1,15 @@
 // --- GROQ TRANSLATE PROVIDERS ---
 // Groq compound and standard API translation handlers.
 
-use crate::api::client::{UREQ_AGENT, is_auth_error, record_groq_json_usage, record_usage_simple};
+use crate::api::client::{UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple};
 use crate::api::types::ChatCompletionResponse;
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
 use anyhow::Result;
 use std::io::BufReader;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::time::Duration;
+
+use super::TranslateTransportOptions;
 
 // --- GROQ COMPOUND MODEL ---
 pub(super) fn translate_groq_compound<F>(
@@ -16,6 +18,7 @@ pub(super) fn translate_groq_compound<F>(
     prompt: &str,
     search_label: Option<String>,
     ui_language: &str,
+    request_timeout: Option<Duration>,
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -54,17 +57,13 @@ where
     };
     on_chunk(&search_msg);
 
-    let resp = UREQ_AGENT
+    let request = UREQ_RESPONSE_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")
-        .header("Authorization", &format!("Bearer {}", groq_api_key))
+        .header("Authorization", &format!("Bearer {}", groq_api_key));
+    let resp = crate::api::client::with_request_timeout(request, request_timeout)
         .send_json(payload)
-        .map_err(|e| {
-            if is_auth_error(&e) {
-                anyhow::anyhow!("INVALID_API_KEY")
-            } else {
-                anyhow::anyhow!("{}", e)
-            }
-        })?;
+        .map_err(|error| anyhow::anyhow!("Groq transport error: {error}"))?;
+    let resp = require_success(resp)?;
 
     record_usage_simple(resp.headers(), model);
 
@@ -223,15 +222,14 @@ pub(super) fn translate_groq_standard<F>(
     groq_api_key: &str,
     model: &str,
     prompt: &str,
-    streaming_enabled: bool,
     use_json_format: bool,
-    cancel_token: Option<Arc<AtomicBool>>,
+    transport: TranslateTransportOptions<'_>,
     mut on_chunk: F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
-    let payload = if streaming_enabled {
+    let payload = if transport.streaming_enabled {
         serde_json::json!({
             "model": model,
             "messages": [
@@ -264,27 +262,23 @@ where
         payload_obj
     };
 
-    let resp = UREQ_AGENT
+    let request = UREQ_RESPONSE_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")
-        .header("Authorization", &format!("Bearer {}", groq_api_key))
+        .header("Authorization", &format!("Bearer {}", groq_api_key));
+    let resp = crate::api::client::with_request_timeout(request, transport.request_timeout)
         .send_json(payload)
-        .map_err(|e| {
-            if is_auth_error(&e) {
-                anyhow::anyhow!("INVALID_API_KEY")
-            } else {
-                anyhow::anyhow!("{}", e)
-            }
-        })?;
+        .map_err(|error| anyhow::anyhow!("Groq transport error: {error}"))?;
+    let resp = require_success(resp)?;
 
     record_usage_simple(resp.headers(), model);
 
     let mut full_content = String::new();
 
-    if streaming_enabled {
+    if transport.streaming_enabled {
         let reader = BufReader::new(resp.into_body().into_reader());
         full_content = crate::api::openai_compat::consume_content_stream(
             reader,
-            &cancel_token,
+            transport.cancel_token,
             &mut on_chunk,
         )?;
     } else {
@@ -319,4 +313,58 @@ where
     }
 
     Ok(full_content)
+}
+
+fn require_success(
+    response: ureq::http::Response<ureq::Body>,
+) -> Result<ureq::http::Response<ureq::Body>> {
+    let status = response.status().as_u16();
+    if response.status().is_success() {
+        return Ok(response);
+    }
+    if matches!(status, 401 | 403) {
+        return Err(anyhow::anyhow!("INVALID_API_KEY"));
+    }
+    let body = response.into_body().read_to_string().unwrap_or_default();
+    Err(anyhow::anyhow!(
+        "Groq API HTTP {status}: {}",
+        groq_error_message(status, &body)
+    ))
+}
+
+fn groq_error_message(status: u16, body: &str) -> String {
+    let message = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|root| {
+            root.pointer("/error/message")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| format!("request failed with status {status}"));
+    let compact = message.split_whitespace().collect::<Vec<_>>().join(" ");
+    compact.chars().take(500).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::groq_error_message;
+
+    #[test]
+    fn structured_error_keeps_bounded_provider_reason() {
+        let body = serde_json::json!({
+            "error": {"message": format!("payload too large: {}", "x".repeat(800))}
+        })
+        .to_string();
+        let message = groq_error_message(413, &body);
+        assert!(message.starts_with("payload too large:"));
+        assert_eq!(message.chars().count(), 500);
+    }
+
+    #[test]
+    fn malformed_error_body_reports_only_the_status() {
+        assert_eq!(
+            groq_error_message(429, "not-json"),
+            "request failed with status 429"
+        );
+    }
 }

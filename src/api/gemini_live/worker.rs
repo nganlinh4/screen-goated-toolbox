@@ -24,14 +24,17 @@ fn connect_and_setup(
     model: &str,
     instruction: Option<&str>,
     show_thinking: bool,
+    setup_timeout: Duration,
+    cancelled: impl FnMut() -> bool,
 ) -> anyhow::Result<ReadyLiveSession> {
     ConnectedLiveSocket::connect(api_key)?.activate_with(
         build_live_setup(model, instruction, show_thinking),
         OpenOptions {
+            setup_timeout,
             active_read_timeout: Duration::from_millis(250),
             ..OpenOptions::default()
         },
-        || false,
+        cancelled,
     )
 }
 
@@ -58,7 +61,8 @@ fn serve(
     let mut last_content_at: Option<Instant> = None;
 
     loop {
-        if !manager.is_generation_valid(request.generation)
+        if request.req.is_cancelled_or_expired()
+            || !manager.is_generation_valid(request.generation)
             || manager.shutdown.load(Ordering::SeqCst)
         {
             break;
@@ -194,14 +198,15 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
             continue;
         };
 
-        if !manager.is_generation_valid(request.generation) {
+        if !manager.is_generation_valid(request.generation) || request.req.is_cancelled_or_expired()
+        {
             let _ = request
                 .response_tx
                 .send(LiveEvent::Error("Request cancelled".to_string()));
             continue;
         }
 
-        let api_key = match APP.lock() {
+        let saved_api_key = match APP.lock() {
             Ok(app) => app.config.gemini_api_key.clone(),
             Err(_) => {
                 let _ = request
@@ -210,6 +215,7 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                 continue;
             }
         };
+        let api_key = crate::api::provider_credentials::resolve("GEMINI_API_KEY", &saved_api_key);
         if api_key.trim().is_empty() {
             let lang = APP
                 .lock()
@@ -226,6 +232,12 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         let model = request.req.model.clone();
         let instruction = request.req.instruction.clone();
         let instr_opt = (!instruction.trim().is_empty()).then_some(instruction.as_str());
+        let setup_timeout = request
+            .req
+            .remaining()
+            .unwrap_or(Duration::from_secs(15))
+            .min(Duration::from_secs(15))
+            .max(Duration::from_millis(1));
 
         // Reuse the pre-warmed socket if it matches this (model, instruction);
         // otherwise connect cold. On a stale warm socket, fall back to cold once.
@@ -234,7 +246,14 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
             warm.take().map(|(s, _, _)| s).unwrap()
         } else {
             warm = None; // wrong model/instruction — drop the warm one
-            match connect_and_setup(&api_key, &model, instr_opt, request.req.show_thinking) {
+            match connect_and_setup(
+                &api_key,
+                &model,
+                instr_opt,
+                request.req.show_thinking,
+                setup_timeout,
+                || request.req.is_cancelled_or_expired(),
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     let _ = request
@@ -248,7 +267,20 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         if serve(&mut session, &request, &manager).is_err() {
             // Warm socket was stale: reconnect cold and serve once more.
             let _ = session.close();
-            match connect_and_setup(&api_key, &model, instr_opt, request.req.show_thinking) {
+            let retry_setup_timeout = request
+                .req
+                .remaining()
+                .unwrap_or(Duration::from_secs(15))
+                .min(Duration::from_secs(15))
+                .max(Duration::from_millis(1));
+            match connect_and_setup(
+                &api_key,
+                &model,
+                instr_opt,
+                request.req.show_thinking,
+                retry_setup_timeout,
+                || request.req.is_cancelled_or_expired(),
+            ) {
                 Ok(mut fresh) => {
                     let _ = serve(&mut fresh, &request, &manager);
                     let _ = fresh.close();
@@ -267,10 +299,20 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         // for the stateless, instruction-less vision case (CC fires these in a
         // loop). Skip it for instruction-bearing uses (e.g. the help assistant) so
         // we don't leave idle sockets open or warm a one-off call.
-        if !manager.shutdown.load(Ordering::SeqCst) && instr_opt.is_none() {
-            warm = connect_and_setup(&api_key, &model, None, request.req.show_thinking)
-                .ok()
-                .map(|s| (s, model, instruction));
+        if !manager.shutdown.load(Ordering::SeqCst)
+            && !request.req.is_cancelled_or_expired()
+            && instr_opt.is_none()
+        {
+            warm = connect_and_setup(
+                &api_key,
+                &model,
+                None,
+                request.req.show_thinking,
+                Duration::from_secs(15),
+                || false,
+            )
+            .ok()
+            .map(|s| (s, model, instruction));
         } else {
             warm = None;
         }

@@ -9,9 +9,20 @@ pub(super) struct NativePerception {
     pub surface: Option<SurfaceIdentity>,
 }
 
+fn browser_document(identity: &SurfaceIdentity) -> Option<(i64, &str)> {
+    match identity {
+        SurfaceIdentity::Browser {
+            tab_id,
+            document_id,
+            ..
+        } => Some((*tab_id, document_id)),
+        SurfaceIdentity::Native { .. } => None,
+    }
+}
+
 pub(super) fn native_perception(target: Option<&str>) -> NativePerception {
     let before = uia::observe_native_identity(target).ok();
-    let elements = uia::enumerate(target);
+    let elements = uia::enumerate_best_effort(target);
     let after = before.and_then(|identity| {
         (uia::current_native_identity(target).ok() == Some(identity)).then_some(identity)
     });
@@ -55,23 +66,23 @@ impl super::Brain {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
         let identity = self.controller.observed_identity()?.clone();
-        if let SurfaceIdentity::Browser {
-            tab_id,
-            document_id,
-            ..
-        } = &identity
-        {
-            if self.controlled_tab_id.is_none() {
-                if !self.controller.adopt_observed_browser_target(&identity) {
-                    return None;
-                }
-                self.controlled_tab_id = Some(*tab_id);
-            }
-            if self.controlled_tab_id != Some(*tab_id) {
+        let Some((tab_id, document_id)) = browser_document(&identity) else {
+            // A pinned browser tab can temporarily lose foreground ownership.
+            // Controller::observe then correctly falls back to native UIA, but
+            // that native world must not be relabeled as browser semantics.
+            self.controller.invalidate();
+            return None;
+        };
+        if self.controlled_tab_id.is_none() {
+            if !self.controller.adopt_observed_browser_target(&identity) {
                 return None;
             }
-            self.controlled_document_id = Some(document_id.clone());
+            self.controlled_tab_id = Some(tab_id);
         }
+        if self.controlled_tab_id != Some(tab_id) {
+            return None;
+        }
+        self.controlled_document_id = Some(document_id.to_string());
         super::super::telemetry::human(
             "cc",
             format!(
@@ -86,5 +97,32 @@ impl super::Brain {
             url: url.to_string(),
             identity,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::controller::world::{BrowserWindowIdentity, SurfaceIdentity};
+    use super::browser_document;
+
+    #[test]
+    fn native_identity_is_not_browser_semantic_state() {
+        let native = SurfaceIdentity::Native {
+            hwnd: 1,
+            pid: 2,
+            generation: 3,
+        };
+        let browser = SurfaceIdentity::Browser {
+            tab_id: 4,
+            document_id: "doc".into(),
+            window: BrowserWindowIdentity {
+                browser_window_id: 5,
+                hwnd: 6,
+                pid: 7,
+                generation: 8,
+            },
+        };
+        assert_eq!(browser_document(&native), None);
+        assert_eq!(browser_document(&browser), Some((4, "doc")));
     }
 }

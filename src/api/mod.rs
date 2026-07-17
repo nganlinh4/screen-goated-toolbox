@@ -7,6 +7,7 @@ pub mod gemini_live;
 pub mod groq;
 pub mod ollama;
 pub mod openai_compat;
+pub(crate) mod provider_credentials;
 pub mod providers;
 pub mod realtime_audio;
 pub mod taalas;

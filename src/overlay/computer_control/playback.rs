@@ -11,9 +11,36 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 
 /// Gemini Live output audio is PCM16 mono at 24 kHz.
 const MODEL_RATE: u32 = 24_000;
+const STARTUP_BUFFER_MS: usize = 120;
+
+#[derive(Default)]
+struct StartupBuffer {
+    samples: VecDeque<f32>,
+    started: bool,
+}
+
+impl StartupBuffer {
+    fn accept(&mut self, output: VecDeque<f32>, threshold: usize) -> Option<VecDeque<f32>> {
+        if self.started {
+            return Some(output);
+        }
+        self.samples.extend(output);
+        if self.samples.len() < threshold {
+            return None;
+        }
+        self.started = true;
+        Some(self.samples.drain(..).collect())
+    }
+
+    fn finish(&mut self) -> VecDeque<f32> {
+        self.started = false;
+        self.samples.drain(..).collect()
+    }
+}
 
 pub(super) struct AudioSink {
     queue: Arc<Mutex<VecDeque<f32>>>,
+    startup: Mutex<StartupBuffer>,
     target_rate: u32,
     channels: usize,
     failed: Arc<AtomicBool>,
@@ -117,6 +144,7 @@ impl AudioSink {
 
         Some(Self {
             queue,
+            startup: Mutex::new(StartupBuffer::default()),
             target_rate,
             channels,
             failed,
@@ -138,28 +166,76 @@ impl AudioSink {
                 self.target_rate as f64 / MODEL_RATE as f64,
             )
         };
-        let mut queued = 0;
-        if let Ok(mut q) = self.queue.lock() {
-            for &s in &resampled {
-                let f = s as f32 / i16::MAX as f32;
-                for _ in 0..self.channels {
-                    q.push_back(f);
-                    queued += 1;
-                }
-            }
+        let output = expand_channels(&resampled, self.channels);
+        let threshold = self.target_rate as usize * self.channels * STARTUP_BUFFER_MS / 1000;
+        let Ok(mut startup) = self.startup.lock() else {
+            return 0;
+        };
+        startup
+            .accept(output, threshold)
+            .map(|ready| self.queue_output(ready))
+            .unwrap_or(0)
+    }
+
+    /// Queue a complete utterance that was retained while no output sink was
+    /// available, bypassing the streamed-audio startup buffer.
+    pub(super) fn push_complete_utterance(&self, pcm_24k: &[i16]) -> usize {
+        if pcm_24k.is_empty() {
+            return 0;
         }
-        queued
+        let resampled = if self.target_rate == MODEL_RATE {
+            pcm_24k.to_vec()
+        } else {
+            crate::api::audio::resample_linear_i16(
+                pcm_24k,
+                self.target_rate as f64 / MODEL_RATE as f64,
+            )
+        };
+        self.queue_output(expand_channels(&resampled, self.channels))
+    }
+
+    /// Flush a genuinely short streamed utterance and arm a fresh startup
+    /// buffer for the next generation.
+    pub(super) fn finish_utterance(&self) -> usize {
+        let Ok(mut startup) = self.startup.lock() else {
+            return 0;
+        };
+        let pending = startup.finish();
+        self.queue_output(pending)
+    }
+
+    fn queue_output(&self, output: VecDeque<f32>) -> usize {
+        let queued = output.len();
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.extend(output);
+            queued
+        } else {
+            0
+        }
     }
 
     /// Drop all queued audio (barge-in / interruption).
     pub(super) fn clear(&self) -> usize {
-        if let Ok(mut q) = self.queue.lock() {
-            let dropped = q.len();
-            q.clear();
-            dropped
-        } else {
-            0
-        }
+        let staged = self
+            .startup
+            .lock()
+            .map(|mut startup| {
+                startup.started = false;
+                let count = startup.samples.len();
+                startup.samples.clear();
+                count
+            })
+            .unwrap_or(0);
+        let queued = self
+            .queue
+            .lock()
+            .map(|mut queue| {
+                let count = queue.len();
+                queue.clear();
+                count
+            })
+            .unwrap_or(0);
+        staged + queued
     }
 
     /// True while there is still queued audio playing — used to gate the mic so
@@ -169,7 +245,13 @@ impl AudioSink {
     }
 
     pub(super) fn queued_samples(&self) -> usize {
-        self.queue.lock().map(|queue| queue.len()).unwrap_or(0)
+        let staged = self
+            .startup
+            .lock()
+            .map(|startup| startup.samples.len())
+            .unwrap_or(0);
+        let queued = self.queue.lock().map(|queue| queue.len()).unwrap_or(0);
+        queued + staged
     }
 
     pub(super) fn played_samples(&self) -> u64 {
@@ -178,5 +260,40 @@ impl AudioSink {
 
     pub(super) fn needs_rebuild(&self) -> bool {
         self.failed.load(Ordering::SeqCst)
+    }
+}
+
+fn expand_channels(samples: &[i16], channels: usize) -> VecDeque<f32> {
+    let mut output = VecDeque::with_capacity(samples.len() * channels);
+    for &sample in samples {
+        let value = sample as f32 / i16::MAX as f32;
+        for _ in 0..channels {
+            output.push_back(value);
+        }
+    }
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StartupBuffer;
+    use std::collections::VecDeque;
+
+    #[test]
+    fn startup_buffer_does_not_release_a_bootstrap_fragment_alone() {
+        let mut buffer = StartupBuffer::default();
+        assert!(buffer.accept(VecDeque::from(vec![0.1]), 4).is_none());
+        let ready = buffer
+            .accept(VecDeque::from(vec![0.2, 0.3, 0.4]), 4)
+            .expect("threshold reached");
+        assert_eq!(ready.len(), 4);
+    }
+
+    #[test]
+    fn completion_releases_a_genuinely_short_utterance_once() {
+        let mut buffer = StartupBuffer::default();
+        assert!(buffer.accept(VecDeque::from(vec![0.1, 0.2]), 4).is_none());
+        assert_eq!(buffer.finish().len(), 2);
+        assert!(buffer.finish().is_empty());
     }
 }

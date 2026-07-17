@@ -9,12 +9,14 @@ use std::sync::{OnceLock, RwLock};
 
 use serde_json::Value;
 
-pub(super) const CURRENT_PROTOCOL: u64 = 5;
+pub(super) const CURRENT_PROTOCOL: u64 = 7;
+const FIRST_PROTOCOL_REQUIRING_ADVERTISEMENT: u64 = 5;
 pub(super) const CDP: &str = "cdp.command";
 pub(super) const CDP_EXPLICIT_TAB: &str = "cdp.explicit_tab";
 pub(super) const CDP_SESSION: &str = "cdp.session";
 pub(super) const CDP_REQUIRE_ACTIVE: &str = "cdp.require_active";
 pub(super) const TABS_LIST: &str = "tabs.list";
+pub(super) const TABS_INVENTORY_WINDOW_IDENTITY: &str = "tabs.inventory.window_identity";
 pub(super) const TABS_ACTIVE: &str = "tabs.active";
 pub(super) const TABS_ACTIVE_FOCUSED_WINDOW: &str = "tabs.active.focused_window";
 pub(super) const TABS_ACTIVATE: &str = "tabs.activate";
@@ -22,6 +24,7 @@ pub(super) const TABS_NAVIGATE: &str = "tabs.navigate";
 pub(super) const TABS_CREATE_FOREGROUND: &str = "tabs.create.foreground";
 pub(super) const TABS_CREATE_BACKGROUND: &str = "tabs.create.background";
 pub(super) const TABS_REMOVE: &str = "tabs.remove";
+pub(super) const RUNTIME_RELOAD: &str = "runtime.reload";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Negotiated {
@@ -100,17 +103,19 @@ impl fmt::Display for UnsupportedCapability {
 impl std::error::Error for UnsupportedCapability {}
 
 fn negotiated(protocol: u64, advertised: Option<&Value>) -> Negotiated {
-    let names = if protocol >= CURRENT_PROTOCOL {
+    let names = if let Some(advertised) = advertised {
         advertised
-            .and_then(Value::as_array)
+            .as_array()
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
             .filter(|name| !name.is_empty())
             .map(str::to_string)
             .collect()
-    } else {
+    } else if protocol < FIRST_PROTOCOL_REQUIRING_ADVERTISEMENT {
         legacy_names(protocol)
+    } else {
+        BTreeSet::new()
     };
     Negotiated { protocol, names }
 }
@@ -190,6 +195,43 @@ mod tests {
         assert!(
             negotiated(CURRENT_PROTOCOL, None).names.is_empty(),
             "missing negotiation must fail closed"
+        );
+    }
+
+    #[test]
+    fn legacy_protocol_without_advertisement_never_infers_window_identity() {
+        let prior = negotiated(FIRST_PROTOCOL_REQUIRING_ADVERTISEMENT - 1, None);
+        assert!(prior.names.contains(TABS_LIST));
+        assert!(!prior.names.contains(TABS_INVENTORY_WINDOW_IDENTITY));
+    }
+
+    #[test]
+    fn explicit_advertisement_wins_even_on_a_legacy_protocol() {
+        let advertised = json!([
+            CDP,
+            TABS_INVENTORY_WINDOW_IDENTITY,
+            TABS_ACTIVE_FOCUSED_WINDOW,
+            TABS_NAVIGATE,
+        ]);
+        let prior = negotiated(4, Some(&advertised));
+        assert!(prior.names.contains(TABS_INVENTORY_WINDOW_IDENTITY));
+        assert!(prior.names.contains(TABS_ACTIVE_FOCUSED_WINDOW));
+        assert!(prior.names.contains(TABS_NAVIGATE));
+    }
+
+    #[test]
+    fn advertisement_era_protocols_fail_closed_without_a_valid_list() {
+        assert!(
+            negotiated(FIRST_PROTOCOL_REQUIRING_ADVERTISEMENT, None)
+                .names
+                .is_empty(),
+            "schema-era protocols must fail closed when advertisement is absent"
+        );
+        assert!(
+            negotiated(4, Some(&json!({"not": "a list"})))
+                .names
+                .is_empty(),
+            "a malformed explicit advertisement must not fall back to inferred features"
         );
     }
 

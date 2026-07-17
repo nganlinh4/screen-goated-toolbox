@@ -47,7 +47,7 @@ pub(super) fn verify_located(
     ctx: &str,
     cancel: &AtomicBool,
 ) -> Result<Located> {
-    if std::env::var("CC_VERIFY_LOCATE").as_deref() == Ok("0") {
+    if super::harness_options::skip_locate_verification_requested() {
         return Ok(loc);
     }
     let crop = crosshair_crop(fresh_jpeg, &loc)?;

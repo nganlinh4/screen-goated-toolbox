@@ -1,13 +1,13 @@
 //! On-demand download and installation of sherpa-onnx Windows DLLs.
 //!
 //! Downloads the official sherpa-onnx shared-lib release from GitHub and
-//! extracts the 4 required DLLs:
-//!   sherpa-onnx-c-api.dll, sherpa-onnx-cxx-api.dll,
-//!   onnxruntime.dll, onnxruntime_providers_shared.dll
+//! extracts the two Sherpa API DLLs. ONNX Runtime is owned by the app-wide AI
+//! runtime bundle so every local inference feature uses one verified module.
 
 use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use windows::Win32::Foundation::HWND;
 
 const SHERPA_ONNX_VERSION: &str = "1.13.2";
@@ -18,17 +18,48 @@ const SHERPA_DLLS_URL: &str = concat!(
     "sherpa-onnx-v1.13.2-win-x64-shared-MD-Release.tar.bz2"
 );
 
-const REQUIRED_DLLS: &[&str] = &[
-    "sherpa-onnx-c-api.dll",
-    "sherpa-onnx-cxx-api.dll",
-    "onnxruntime.dll",
-    "onnxruntime_providers_shared.dll",
-];
+const REQUIRED_DLLS: &[&str] = &["sherpa-onnx-c-api.dll", "sherpa-onnx-cxx-api.dll"];
+
+const RETIRED_PRIVATE_RUNTIME_DLLS: &[&str] =
+    &["onnxruntime.dll", "onnxruntime_providers_shared.dll"];
 
 const VERSION_MARKER: &str = "sherpa_onnx_version.txt";
+static SHERPA_PACKAGE_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_sherpa_package() -> MutexGuard<'static, ()> {
+    SHERPA_PACKAGE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 pub fn sherpa_bin_dir() -> std::path::PathBuf {
     crate::unpack_dlls::private_bin_dir().join("sherpa-onnx")
+}
+
+pub(crate) fn resolved_sherpa_dll_dir() -> std::path::PathBuf {
+    #[cfg(any(debug_assertions, test))]
+    if let Some(path) = std::env::var_os("SGT_SHERPA_RUNTIME_DIR").map(std::path::PathBuf::from)
+        && path.is_absolute()
+        && path.join("sherpa-onnx-c-api.dll").is_file()
+    {
+        return std::fs::canonicalize(&path).unwrap_or(path);
+    }
+
+    let private_bin = crate::unpack_dlls::private_bin_dir();
+    let candidates = [
+        sherpa_bin_dir(),
+        private_bin,
+        std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+            .unwrap_or_else(|| std::path::PathBuf::from(".")),
+        std::path::PathBuf::from("third_party/sherpa-onnx-win/lib"),
+    ];
+    candidates
+        .iter()
+        .find(|path| path.join("sherpa-onnx-c-api.dll").is_file())
+        .map(|path| std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
+        .unwrap_or_else(sherpa_bin_dir)
 }
 
 pub fn is_sherpa_dlls_installed() -> bool {
@@ -36,14 +67,50 @@ pub fn is_sherpa_dlls_installed() -> bool {
     required_dlls_present(&dir) && installed_version_matches(&dir)
 }
 
+/// Runtime readiness for any Sherpa-backed inference path.
+///
+/// Keep this distinct from package inventory: the Downloaded Tools UI may still
+/// report the Sherpa package itself as installed, while execution additionally
+/// requires the shared app-owned ONNX Runtime.
+pub fn is_sherpa_runtime_ready() -> bool {
+    runtime_dependencies_ready(
+        is_sherpa_dlls_installed(),
+        crate::unpack_dlls::is_ai_runtime_installed(),
+    )
+}
+
+fn runtime_dependencies_ready(sherpa_installed: bool, ai_runtime_installed: bool) -> bool {
+    sherpa_installed && ai_runtime_installed
+}
+
+fn require_sherpa_runtime_ready() -> Result<()> {
+    if !is_sherpa_dlls_installed() {
+        return Err(anyhow!(
+            "sherpa-onnx DLLs not found after extraction — archive layout may have changed"
+        ));
+    }
+    if !crate::unpack_dlls::is_ai_runtime_installed() {
+        return Err(anyhow!(
+            "shared ONNX Runtime became unavailable during sherpa-onnx installation"
+        ));
+    }
+    Ok(())
+}
+
 pub fn remove_sherpa_dlls() -> Result<()> {
+    let _package_guard = lock_sherpa_package();
     let dir = sherpa_bin_dir();
     if !dir.exists() {
         return Ok(());
     }
 
     let mut failures = Vec::new();
-    for name in REQUIRED_DLLS {
+    for name in REQUIRED_DLLS
+        .iter()
+        .chain(RETIRED_PRIVATE_RUNTIME_DLLS)
+        .copied()
+        .chain(std::iter::once(VERSION_MARKER))
+    {
         let path = dir.join(name);
         if !path.exists() {
             continue;
@@ -94,8 +161,14 @@ pub fn download_sherpa_dlls_with_progress(
     stop_signal: Arc<AtomicBool>,
     on_progress: impl Fn(f32),
 ) -> Result<()> {
+    let _package_guard = lock_sherpa_package();
+    crate::unpack_dlls::ensure_ai_runtime_installed(
+        stop_signal.clone(),
+        crate::unpack_dlls::AiRuntimeUi::None,
+    )?;
     cleanup_pending_delete_files(&sherpa_bin_dir());
-    if is_sherpa_dlls_installed() {
+    cleanup_retired_private_runtime(&sherpa_bin_dir());
+    if is_sherpa_runtime_ready() {
         return Ok(());
     }
 
@@ -152,24 +225,27 @@ pub fn download_sherpa_dlls_with_progress(
     }
 
     install_dlls_from_tree(&temp_dir, &bin_dir)?;
+    cleanup_retired_private_runtime(&bin_dir);
     write_version_marker(&bin_dir)?;
 
     let _ = std::fs::remove_dir_all(&temp_dir);
     let _ = std::fs::remove_file(&archive_path);
 
-    if !is_sherpa_dlls_installed() {
-        return Err(anyhow!(
-            "sherpa-onnx DLLs not found after extraction — archive layout may have changed"
-        ));
-    }
+    require_sherpa_runtime_ready()?;
 
     on_progress(1.0);
     Ok(())
 }
 
 pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) -> Result<()> {
+    let _package_guard = lock_sherpa_package();
+    crate::unpack_dlls::ensure_ai_runtime_installed(
+        stop_signal.clone(),
+        crate::unpack_dlls::AiRuntimeUi::RealtimeOverlay,
+    )?;
     cleanup_pending_delete_files(&sherpa_bin_dir());
-    if is_sherpa_dlls_installed() {
+    cleanup_retired_private_runtime(&sherpa_bin_dir());
+    if is_sherpa_runtime_ready() {
         return Ok(());
     }
     let locale = super::sherpa_locale();
@@ -272,16 +348,13 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
 
         // Find and stage DLLs from any subfolder before touching the live runtime dir.
         install_dlls_from_tree(&temp_dir, &bin_dir)?;
+        cleanup_retired_private_runtime(&bin_dir);
         write_version_marker(&bin_dir)?;
 
         let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::remove_file(&archive_path);
 
-        if !is_sherpa_dlls_installed() {
-            return Err(anyhow!(
-                "sherpa-onnx DLLs not found after extraction — archive layout may have changed"
-            ));
-        }
+        require_sherpa_runtime_ready()?;
 
         crate::log_info!("[Sherpa] DLLs installed to {:?}", bin_dir);
         Ok(())
@@ -357,6 +430,24 @@ fn cleanup_pending_delete_files(dir: &std::path::Path) {
     }
 }
 
+fn cleanup_retired_private_runtime(dir: &std::path::Path) {
+    for name in RETIRED_PRIVATE_RUNTIME_DLLS {
+        let path = dir.join(name);
+        if !path.exists() {
+            continue;
+        }
+        if let Err(remove_error) = std::fs::remove_file(&path) {
+            let pending = dir.join(format!("{name}.delete-pending"));
+            let _ = std::fs::remove_file(&pending);
+            if let Err(rename_error) = std::fs::rename(&path, &pending) {
+                crate::log_info!(
+                    "[Sherpa] Could not retire private {name}: remove failed ({remove_error}); rename failed ({rename_error})"
+                );
+            }
+        }
+    }
+}
+
 fn has_nonempty_file(path: &std::path::Path) -> bool {
     std::fs::metadata(path)
         .map(|metadata| metadata.is_file() && metadata.len() > 0)
@@ -381,4 +472,30 @@ fn copy_dlls_from_tree(src_root: &std::path::Path, dest: &std::path::Path) -> Re
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sherpa_package_does_not_own_an_onnx_runtime() {
+        assert!(
+            REQUIRED_DLLS
+                .iter()
+                .all(|name| !name.starts_with("onnxruntime"))
+        );
+        assert_eq!(
+            RETIRED_PRIVATE_RUNTIME_DLLS,
+            &["onnxruntime.dll", "onnxruntime_providers_shared.dll"]
+        );
+    }
+
+    #[test]
+    fn runtime_readiness_requires_both_packages() {
+        assert!(runtime_dependencies_ready(true, true));
+        assert!(!runtime_dependencies_ready(true, false));
+        assert!(!runtime_dependencies_ready(false, true));
+        assert!(!runtime_dependencies_ready(false, false));
+    }
 }

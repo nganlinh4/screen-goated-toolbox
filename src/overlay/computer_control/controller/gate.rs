@@ -65,6 +65,7 @@ mod tests {
             role: if required { "textbox" } else { "button" }.to_string(),
             name: name.to_string(),
             value: value.map(str::to_string),
+            editable: required,
             state: None,
             enabled: true,
             required,
@@ -98,6 +99,31 @@ mod tests {
         assert!(matches!(
             gate_action(&world, &submit, Verb::Activate, false),
             Gate::Block(_)
+        ));
+    }
+
+    #[test]
+    fn consequential_effect_requires_the_structural_confirmation_bit() {
+        let mut risky = element(1, "commit", None, false);
+        risky.risk = Some("commits an external effect".to_string());
+        let world = WorldState {
+            elements: vec![risky.clone()],
+            url: None,
+            title: None,
+            identity: SurfaceIdentity::Native {
+                hwnd: 1,
+                pid: 2,
+                generation: 1,
+            },
+        };
+
+        assert!(matches!(
+            gate_action(&world, &risky, Verb::Click, false),
+            Gate::Block(_)
+        ));
+        assert!(matches!(
+            gate_action(&world, &risky, Verb::Click, true),
+            Gate::Allow
         ));
     }
 }

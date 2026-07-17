@@ -16,14 +16,22 @@ struct Entry {
     installed_at: u64,
 }
 
-fn path() -> std::path::PathBuf {
+fn persisted_path() -> std::path::PathBuf {
     crate::paths::app_config_dir().join("cc_mcp_registry.json")
 }
 
+fn writable_path() -> std::path::PathBuf {
+    crate::paths::app_runtime_config_dir().join("cc_mcp_registry.json")
+}
+
 fn load() -> Registry {
-    std::fs::File::open(path())
-        .ok()
-        .and_then(|f| serde_json::from_reader(f).ok())
+    [writable_path(), persisted_path()]
+        .into_iter()
+        .find_map(|path| {
+            std::fs::File::open(path)
+                .ok()
+                .and_then(|file| serde_json::from_reader(file).ok())
+        })
         .unwrap_or_default()
 }
 
@@ -49,7 +57,7 @@ pub(super) fn mark_installed(id: &str) {
             id: id.to_string(),
             installed_at: now_secs(),
         });
-        let _ = crate::atomic_json::write_json_atomic(&path(), &r);
+        let _ = crate::atomic_json::write_json_atomic(&writable_path(), &r);
     }
 }
 
@@ -58,6 +66,6 @@ pub(super) fn remove(id: &str) {
     let before = r.installed.len();
     r.installed.retain(|e| e.id != id);
     if r.installed.len() != before {
-        let _ = crate::atomic_json::write_json_atomic(&path(), &r);
+        let _ = crate::atomic_json::write_json_atomic(&writable_path(), &r);
     }
 }

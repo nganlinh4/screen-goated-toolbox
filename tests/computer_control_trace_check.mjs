@@ -3,6 +3,15 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import {
+  checkSpeechRetirement,
+  checkTurnTabRetirement,
+} from "./computer_control_trace_media_checks.mjs";
+import { completionEvidenceFailures } from "./computer_control_trace_completion_checks.mjs";
+import { diagnosticCompletenessFailures } from "./computer_control_trace_diagnostic_checks.mjs";
+import { observationChurnFailures } from "./computer_control_trace_observation_checks.mjs";
+import { checkTerminalResponses } from "./computer_control_trace_terminal_checks.mjs";
+
 function fail(message) {
   process.stderr.write(`FAIL ${message}\n`);
   process.exitCode = 1;
@@ -47,7 +56,9 @@ function checkExactlyOnce(events) {
     }
     const callCount = calls.get(actionId)?.length ?? 0;
     if (callCount !== 1) {
-      fail(`action ${actionId} has ${callCount} tool calls; expected exactly one`);
+      fail(
+        `action ${actionId} has ${callCount} tool calls; expected exactly one`,
+      );
     }
   }
   return { steps: steps.size, outcomes: outcomes.size };
@@ -129,6 +140,44 @@ function checkLifecycle(events) {
   return { setups: setups.length, sessionId: [...sessions][0] };
 }
 
+function checkSnapshotEvidence(events) {
+  const metadata = events.filter((event) => event.event === "scripted_snapshot_metadata");
+  const evidence = events.filter((event) => event.event === "scripted_snapshot_evidence");
+  if (metadata.length === 0 && evidence.length === 0) return;
+  if (metadata.length !== evidence.length) {
+    fail(`snapshot metadata/evidence counts differ: ${metadata.length}/${evidence.length}`);
+  }
+  for (const event of evidence) {
+    const source = event.fields?.source_path;
+    if (typeof source !== "string" || !path.win32.isAbsolute(source)) {
+      fail("scripted snapshot evidence lacks an absolute canonical source path");
+    }
+    if (!/^[a-f0-9]{64}$/i.test(event.fields?.sha256 ?? "")) {
+      fail("scripted snapshot evidence lacks a full SHA-256");
+    }
+    if (typeof event.fields?.destination_relative !== "string") {
+      fail("scripted snapshot evidence lacks its relative destination");
+    }
+  }
+}
+
+function checkResearchTelemetry(events) {
+  for (const event of events.filter((item) => item.event === "research_complete")) {
+    const fields = event.fields ?? {};
+    if (fields.source_count === 0 && fields.coverage_complete === true) {
+      fail("zero-source research reported complete coverage");
+    }
+    if (fields.retrieval_status === "usable" &&
+        (!(fields.source_count > 0) || fields.coverage_complete !== true ||
+         fields.capture_complete !== true)) {
+      fail("usable research telemetry contradicts its source/coverage/capture facts");
+    }
+    if (fields.retrieval_status === "insufficient" && fields.source_count !== 0) {
+      fail("insufficient research telemetry reports readable sources");
+    }
+  }
+}
+
 function speechStats(events) {
   const utterances = new Map();
   for (const event of events) {
@@ -145,7 +194,12 @@ function speechStats(events) {
       item.playback = event.mono_ms;
     }
     if (event.event === "assistant_playback_completed") item.completed = event.mono_ms;
-    if (event.event === "assistant_speech_blocked") item.blocked = true;
+    if (
+      event.event === "assistant_speech_blocked" ||
+      event.event === "assistant_generation_audio_discarded"
+    ) {
+      item.blocked = true;
+    }
     utterances.set(id, item);
   }
   const audible = [...utterances.values()].filter((item) => item.playback != null);
@@ -167,6 +221,14 @@ function speechStats(events) {
 function checkTurnCompletionMapping(events, completions) {
   const transcriptTurns = new Map();
   const completionTurns = new Map();
+  const supersededTurns = new Set(
+    events
+      .filter(
+        (event) =>
+          event.event === "turn_summary" && event.fields?.outcome === "superseded",
+      )
+      .map((event) => event.turn_id),
+  );
 
   for (const { event, index } of events
     .map((event, index) => ({ event, index }))
@@ -200,6 +262,12 @@ function checkTurnCompletionMapping(events, completions) {
 
   for (const [turnId, transcript] of transcriptTurns) {
     const turnCompletions = completionTurns.get(turnId) ?? [];
+    if (supersededTurns.has(turnId)) {
+      if (turnCompletions.length !== 0) {
+        fail(`superseded user turn ${turnId} also has an accepted completion`);
+      }
+      continue;
+    }
     if (turnCompletions.length !== 1) {
       fail(
         `user turn ${turnId} has ${turnCompletions.length} accepted completions; expected exactly one`,
@@ -222,45 +290,13 @@ function checkTurnCompletionMapping(events, completions) {
   }
 }
 
-function stableSurfaceKey(surface) {
-  if (!surface || typeof surface !== "object") return "none";
-  if (surface.kind === "browser") {
-    return `browser:${surface.tab_id ?? "?"}:${JSON.stringify(surface.document_id ?? null)}`;
-  }
-  if (surface.kind === "native") {
-    return `native:${surface.hwnd ?? "?"}:${surface.pid ?? "?"}:${surface.generation ?? "?"}`;
-  }
-  return JSON.stringify(surface);
-}
-
 function checkObservationChurn(events) {
-  const maxRepeatedReads = 5;
-  let run = null;
-  for (const event of events.filter((item) => item.event === "action_outcome")) {
-    const observational =
-      event.fields?.execution_ok === true &&
-      event.fields?.postcondition?.effect === "observation_or_query";
-    if (!observational) {
-      run = null;
-      continue;
-    }
-    const key = `${event.fields?.effective_tool ?? "unknown"}|${stableSurfaceKey(event.fields?.post_surface)}`;
-    if (run?.key === key) {
-      run.count += 1;
-    } else {
-      run = { key, count: 1, firstAction: event.action_id };
-    }
-    if (run.count > maxRepeatedReads) {
-      fail(
-        `actions ${run.firstAction}-${event.action_id} repeat the same successful observation ` +
-          `${run.count} times on one unchanged surface; expected a route change or completion`,
-      );
-      run = null;
-    }
+  for (const message of observationChurnFailures(events)) {
+    fail(message);
   }
 }
 
-function checkStrict(events) {
+function checkStrict(events, allowPersistentTabs) {
   const errors = events.filter((event) => event.event === "typed_error");
   if (errors.length !== 0) {
     fail(`strict trace has ${errors.length} typed error(s)`);
@@ -283,6 +319,12 @@ function checkStrict(events) {
     }
   }
   checkObservationChurn(events);
+  for (const message of diagnosticCompletenessFailures(events)) {
+    fail(message);
+  }
+  for (const message of completionEvidenceFailures(events)) {
+    fail(message);
+  }
 
   const completions = events
     .map((event, index) => ({ event, index }))
@@ -292,125 +334,9 @@ function checkStrict(events) {
     );
   if (completions.length === 0) fail("strict trace has no accepted completion");
   checkTurnCompletionMapping(events, completions);
-  const terminalOutput = new Set(["assistant_audio_chunk", "assistant_transcript_delta"]);
-  const forbiddenEffects = new Set(["tool_call", "step_start"]);
-  for (const completion of completions) {
-    const nextUser = events.findIndex(
-      (event, index) => index > completion.index && event.event === "user_transcript",
-    );
-    const end = nextUser === -1 ? events.length : nextUser;
-    const acceptedTerminal = completion.event.fields?.outcome === "done";
-    const opens = events
-      .map((event, index) => ({ event, index }))
-      .filter(({ event, index }) =>
-        index > completion.index && index < end && event.event === "terminal_final_response_opened",
-      );
-    if (acceptedTerminal && opens.length !== 1) {
-      fail(`accepted completion has ${opens.length} terminal response opens; expected exactly one`);
-    }
-    if (acceptedTerminal && opens[0]?.event.fields?.accepted !== true) {
-      fail("accepted completion opened a non-accepted terminal response");
-    }
-    if (!acceptedTerminal && opens.length !== 0) {
-      fail(`non-terminal completion has ${opens.length} terminal response opens`);
-    }
-
-    let openIndex = -1;
-    let closeIndex = -1;
-    if (opens.length === 1) {
-      openIndex = opens[0].index;
-      const closes = events
-        .map((event, index) => ({ event, index }))
-        .filter(({ event, index }) =>
-          index > completion.index && index < end && event.event === "terminal_final_response_closed",
-        );
-      if (closes.length !== 1 || closes[0]?.index <= openIndex) {
-        fail(`accepted completion has ${closes.length} terminal response closes; expected exactly one`);
-      } else {
-        closeIndex = closes[0].index;
-      }
-      if (closes[0]?.event.fields?.accepted !== true) {
-        fail("accepted completion closed a non-accepted terminal response");
-      }
-      if (closes[0]?.event.fields?.reason !== "turn_complete") {
-        fail(
-          `accepted completion closed as ${closes[0]?.event.fields?.reason ?? "unknown"}; expected turn_complete`,
-        );
-      }
-      const starts = events
-        .map((event, index) => ({ event, index }))
-        .filter(
-          ({ event, index }) =>
-            index > completion.index &&
-            index < end &&
-            event.event === "terminal_final_response_started",
-        );
-      const startsInside = starts.filter(
-        ({ index }) => index > openIndex && index < closeIndex,
-      );
-      const output = events
-        .map((event, index) => ({ event, index }))
-        .filter(
-          ({ event, index }) =>
-            index > openIndex && index < closeIndex && terminalOutput.has(event.event),
-        );
-      const transcriptChars = output
-        .filter(({ event }) => event.event === "assistant_transcript_delta")
-        .reduce((sum, { event }) => sum + (event.fields?.char_count ?? 0), 0);
-      const audioSamples = output
-        .filter(({ event }) => event.event === "assistant_audio_chunk")
-        .reduce((sum, { event }) => sum + (event.fields?.received_samples_24k ?? 0), 0);
-      if (transcriptChars === 0 && audioSamples < 2400) {
-        fail("accepted completion produced no final assistant output");
-      }
-      if (starts.length !== 1 || startsInside.length !== starts.length) {
-        fail(
-          `terminal response has ${starts.length} stream starts for ${output.length} output event(s); expected exactly one`,
-        );
-      }
-      if (starts[0]?.event.fields?.accepted !== true) {
-        fail("terminal response started without accepted=true");
-      }
-      const firstMeaningfulOutput = output.find(
-        ({ event }) =>
-          (event.event === "assistant_transcript_delta" && (event.fields?.char_count ?? 0) > 0) ||
-          (event.event === "assistant_audio_chunk" && (event.fields?.received_samples_24k ?? 0) >= 2400),
-      );
-      if (firstMeaningfulOutput && starts[0]?.index >= firstMeaningfulOutput.index) {
-        fail("terminal response output did not occur after its accepted stream start");
-      }
-    } else if (
-      events.some(
-        (event, index) =>
-          index > completion.index &&
-          index < end &&
-          ["terminal_final_response_started", "terminal_final_response_closed"].includes(event.event),
-      )
-    ) {
-      fail("terminal response lifecycle appeared without exactly one open");
-    }
-
-    for (let index = completion.index + 1; index < end; index += 1) {
-      const name = events[index].event;
-      if (forbiddenEffects.has(name)) {
-        fail(`post-completion ${name} at event ${index + 1}`);
-      }
-      if (name === "immediate_tool_response_sent") {
-        fail(`post-completion tool rejection escaped at event ${index + 1}`);
-      }
-      if (
-        name === "terminal_event_dropped" &&
-        events[index].fields?.effectful === true
-      ) {
-        fail(
-          `post-completion ${events[index].fields?.kind ?? "effectful event"} was dropped at event ${index + 1}`,
-        );
-      }
-      if (terminalOutput.has(name) && !(index > openIndex && index < closeIndex)) {
-        fail(`assistant output ${name} escaped terminal response at event ${index + 1}`);
-      }
-    }
-  }
+  checkSpeechRetirement(events, fail);
+  checkTurnTabRetirement(events, allowPersistentTabs, fail);
+  checkTerminalResponses(events, completions, fail);
 
   const scripted = events.filter((event) => event.event === "scripted_turn_injected");
   if (scripted.length > 0) {
@@ -466,6 +392,7 @@ function checkStrict(events) {
 
 function main() {
   const strict = process.argv.includes("--strict");
+  const allowPersistentTabs = process.argv.includes("--allow-persistent-tabs");
   const input = process.argv.slice(2).find((arg) => !arg.startsWith("--"));
   if (!input) {
     process.stderr.write("Usage: node tests/computer_control_trace_check.mjs [--strict] <events.jsonl>\n");
@@ -476,9 +403,11 @@ function main() {
   const actions = checkExactlyOnce(events);
   const frames = checkFrames(events);
   checkDelivery(events);
+  checkSnapshotEvidence(events);
+  checkResearchTelemetry(events);
   const lifecycle = checkLifecycle(events);
   const speech = speechStats(events);
-  if (strict) checkStrict(events);
+  if (strict) checkStrict(events, allowPersistentTabs);
   const errors = events.filter((event) => event.event === "typed_error");
   if (!process.exitCode) {
     process.stdout.write(

@@ -5,6 +5,8 @@
 
 use serde_json::{Value, json};
 
+use super::super::effect_receipt::EffectStatus;
+
 const MAX_FINGERPRINT_CHARS: usize = 384;
 const MAX_OBJECT_FIELDS: usize = 12;
 const MAX_ARRAY_ITEMS: usize = 4;
@@ -57,24 +59,59 @@ impl GroundPostcondition {
         self,
         execution_ok: Option<bool>,
         mutating: bool,
-        effect_verified: bool,
+        effect_status: EffectStatus,
         advice: Option<String>,
     ) -> Value {
+        if effect_status.is_verified() {
+            let mut value = json!({
+                "ok": true,
+                "status": "confirmed",
+                "effect": "verified_by_receipt",
+            });
+            if let Some(reason) = self.no_effect {
+                value["heuristic_conflict"] = json!(reason.code());
+            }
+            return value;
+        }
         if execution_ok == Some(false) {
+            if effect_status.is_maybe() {
+                return json!({
+                    "ok": false,
+                    "status": "inconclusive",
+                    "confirmed": false,
+                    "effect": "may_have_occurred",
+                    "reason": "execution_failed_after_dispatch",
+                    "retryable": false,
+                });
+            }
+            if effect_status.is_proven_no_effect() {
+                return json!({
+                    "ok": false,
+                    "status": "not_run",
+                    "confirmed": true,
+                    "effect": "none",
+                    "reason": "execution_failed_before_effect",
+                    "retryable": true,
+                });
+            }
             return json!({
                 "ok": false,
-                "status": "not_run",
+                "status": "inconclusive",
+                "confirmed": false,
                 "effect": "unknown",
                 "reason": "execution_failed",
+                "retryable": false,
             });
         }
         if let Some(reason) = self.no_effect {
-            if effect_verified {
+            if effect_status.is_maybe() {
                 return json!({
-                    "ok": true,
-                    "status": "confirmed",
-                    "effect": "verified_by_receipt",
+                    "ok": false,
+                    "status": "inconclusive",
+                    "confirmed": false,
+                    "effect": "may_have_occurred",
                     "heuristic_conflict": reason.code(),
+                    "retryable": false,
                 });
             }
             let mut value = json!({
@@ -98,6 +135,23 @@ impl GroundPostcondition {
             return json!({
                 "status": "not_applicable",
                 "effect": "observation_or_query",
+            });
+        }
+        if effect_status.is_maybe() {
+            return json!({
+                "ok": null,
+                "status": "inconclusive",
+                "confirmed": false,
+                "effect": "may_have_occurred",
+                "retryable": false,
+            });
+        }
+        if effect_status.is_proven_no_effect() {
+            return json!({
+                "ok": false,
+                "status": "confirmed",
+                "confirmed": true,
+                "effect": "none",
             });
         }
         json!({
@@ -335,7 +389,7 @@ mod tests {
                 .response(
                     Some(true),
                     true,
-                    false,
+                    EffectStatus::Unknown,
                     Some("Use another visible control.".into()),
                 );
         assert_eq!(value["status"], "checked");
@@ -350,9 +404,40 @@ mod tests {
     fn verified_receipt_wins_over_unchanged_state_heuristic() {
         let value =
             GroundPostcondition::no_effect(NoEffectReason::RepeatedUnchangedState, true, false)
-                .response(Some(true), true, true, None);
+                .response(Some(true), true, EffectStatus::Verified, None);
         assert_eq!(value["ok"], true);
         assert_eq!(value["status"], "confirmed");
         assert_eq!(value["effect"], "verified_by_receipt");
+    }
+
+    #[test]
+    fn failed_readback_preserves_ambiguous_effect() {
+        let effect_status = EffectStatus::after_dispatch(
+            &json!({
+                "ok": false,
+                "dispatch_ok": true,
+                "effect_verified": false,
+                "effect_may_have_occurred": true,
+            }),
+            true,
+        );
+        let value = GroundPostcondition::default().response(Some(false), true, effect_status, None);
+        assert_eq!(value["status"], "inconclusive");
+        assert_eq!(value["effect"], "may_have_occurred");
+        assert_eq!(value["retryable"], false);
+    }
+
+    #[test]
+    fn pre_effect_failure_is_a_proven_no_op() {
+        let effect_status = EffectStatus::from_value(&json!({
+            "ok": false,
+            "dispatch_ok": false,
+            "effect_may_have_occurred": false,
+        }));
+        let value = GroundPostcondition::default().response(Some(false), true, effect_status, None);
+        assert_eq!(value["status"], "not_run");
+        assert_eq!(value["effect"], "none");
+        assert_eq!(value["confirmed"], true);
+        assert_eq!(value["retryable"], true);
     }
 }

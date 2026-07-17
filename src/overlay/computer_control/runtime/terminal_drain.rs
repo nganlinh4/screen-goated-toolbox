@@ -6,7 +6,10 @@ use super::super::protocol::ServerEvent;
 use super::super::telemetry::{self, Privacy};
 use super::reader::{Reader, flush_reply};
 
-const FINAL_RESPONSE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+mod expiry;
+#[cfg(test)]
+use expiry::FINAL_RESPONSE_IDLE_TIMEOUT;
+pub(super) use expiry::expire_after_socket_drained;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FinalResponseState {
@@ -40,6 +43,9 @@ pub(super) fn begin_final_response(state: &mut Reader, accepted: bool) {
     let now = std::time::Instant::now();
     flush_reply(state);
     super::reader_policy::begin_terminal_drain(state, accepted, false);
+    state.generation_output_seen = false;
+    state.terminal_final_response_delivered = false;
+    state.terminal_prior_turn_boundary_pending = false;
     // Sending the terminal tool response owns all following assistant output.
     // The function-call boundary may already have arrived, may still be queued,
     // or may be omitted before final output. Track that transport fact without
@@ -68,6 +74,34 @@ pub(super) fn begin_final_response(state: &mut Reader, accepted: bool) {
     );
 }
 
+/// A state-changing completion may speak its one final response immediately
+/// before `done`. Accepting the terminal receipt releases that buffered response
+/// and closes the turn without asking the model to answer again.
+pub(super) fn finish_pre_tool_response(state: &mut Reader) {
+    let prior_boundary_seen = std::mem::take(&mut state.pending_tool_boundary_seen);
+    finish_terminal_response(state, prior_boundary_seen, "pre_tool_response");
+}
+
+fn finish_terminal_response(state: &mut Reader, boundary_seen: bool, reason: &str) {
+    flush_reply(state);
+    super::reader_policy::begin_terminal_drain(state, true, boundary_seen);
+    state.terminal_final_response_delivered = true;
+    telemetry::event(
+        "terminal_final_response_closed",
+        "runtime",
+        Privacy::Safe,
+        serde_json::json!({
+            "accepted": true,
+            "reason": reason,
+            "generation_complete_seen": boundary_seen,
+            "turn_boundary_seen": boundary_seen,
+            "response_completed": true,
+            "dropped_events": 0,
+            "effectful_dropped_events": 0,
+        }),
+    );
+}
+
 pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut Reader) -> bool {
     if !state.terminal_drain {
         return false;
@@ -76,10 +110,16 @@ pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut 
         // A real user turn owns the session immediately. If the completed
         // generation never exposed a boundary, guard one boundary until the new
         // generation produces evidence of progress.
-        ServerEvent::InputTranscript(text) if !text.trim().is_empty() => {
+        ServerEvent::InputTranscript(text)
+            if !text.trim().is_empty()
+                && (state.input_transcript.has_fresh_epoch()
+                    || !state.input_transcript.is_open()) =>
+        {
             let dropped_events = state.terminal_dropped_events;
+            let effectful_dropped_events = state.terminal_effectful_dropped_events;
             let stale_boundary_guarded = super::reader_policy::retire_terminal_for_user_turn(state);
             state.terminal_dropped_events = 0;
+            state.terminal_effectful_dropped_events = 0;
             telemetry::event(
                 "closed_generation_latch_retired",
                 "runtime",
@@ -88,6 +128,22 @@ pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut 
                     "reason": "new_user_turn",
                     "stale_boundary_guarded": stale_boundary_guarded,
                     "dropped_events": dropped_events,
+                    "effectful_dropped_events": effectful_dropped_events,
+                }),
+            );
+            false
+        }
+        ServerEvent::InputTranscript(text) if !text.trim().is_empty() => {
+            // Input transcription can trail the model boundary and revise the
+            // utterance that already created this turn. Without a fresh speech
+            // epoch, let the assembler update that turn but never revive it.
+            telemetry::event(
+                "late_input_transcript_correlated",
+                "speech",
+                Privacy::Safe,
+                serde_json::json!({
+                    "char_count": text.chars().count(),
+                    "terminal_response_open": state.terminal_response.is_open(),
                 }),
             );
             false
@@ -108,16 +164,21 @@ pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut 
             mark_response_started(state);
             false
         }
+        ServerEvent::GenerationComplete => {
+            handle_generation_complete(state, sink);
+            true
+        }
         ServerEvent::TurnComplete => {
             handle_boundary(state, sink);
             true
         }
         ServerEvent::Interrupted => {
+            state.input_transcript.begin_epoch();
             super::speech_events::interrupted(state, sink);
             // Interrupted is progress metadata, not the old generation's final
             // boundary. A coalesced new transcript must still guard the late
             // TurnComplete that can follow this interruption.
-            close_final_response(state, sink, "interrupted", false);
+            close_final_response(state, "interrupted", false, false);
             true
         }
         ServerEvent::ToolCall { id, name, .. } => {
@@ -135,7 +196,7 @@ pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut 
                     }
                 }),
             ));
-            close_final_response(state, sink, "tool_call_rejected", false);
+            close_final_response(state, "tool_call_rejected", false, false);
             true
         }
         ServerEvent::Audio(_)
@@ -170,7 +231,68 @@ fn mark_response_started(state: &mut Reader) {
     }
 }
 
+fn handle_generation_complete(state: &mut Reader, sink: Option<&AudioSink>) {
+    super::speech_events::generation_complete(state, sink);
+    match state.terminal_response {
+        FinalResponseState::AwaitingPriorBoundary => {
+            let now = std::time::Instant::now();
+            state.terminal_response = FinalResponseState::AwaitingOutput;
+            state.terminal_prior_turn_boundary_pending = true;
+            state.think_start = Some(now);
+            state.terminal_activity_at = Some(now);
+            telemetry::event(
+                "terminal_prior_generation_complete",
+                "runtime",
+                Privacy::Safe,
+                serde_json::json!({"accepted": state.terminal_accepted}),
+            );
+        }
+        FinalResponseState::AwaitingOutput | FinalResponseState::Streaming => {
+            if state.terminal_response == FinalResponseState::Streaming {
+                state.terminal_prior_turn_boundary_pending = false;
+            }
+            state.terminal_generation_complete = true;
+            state.terminal_activity_at = Some(std::time::Instant::now());
+            state.terminal_final_response_delivered =
+                state.terminal_response == FinalResponseState::Streaming;
+            telemetry::event(
+                "terminal_final_generation_complete",
+                "runtime",
+                Privacy::Safe,
+                serde_json::json!({
+                    "accepted": state.terminal_accepted,
+                    "output_seen": state.terminal_final_response_delivered,
+                    "awaiting_turn_boundary": true,
+                }),
+            );
+        }
+        FinalResponseState::Closed => {
+            telemetry::event(
+                "closed_generation_complete_observed",
+                "runtime",
+                Privacy::Safe,
+                serde_json::json!({"dropped_events": state.terminal_dropped_events}),
+            );
+        }
+    }
+}
+
 fn handle_boundary(state: &mut Reader, sink: Option<&AudioSink>) {
+    super::speech_events::turn_complete(state, sink);
+    if std::mem::take(&mut state.terminal_prior_turn_boundary_pending) {
+        let now = std::time::Instant::now();
+        if state.terminal_response == FinalResponseState::AwaitingOutput {
+            state.think_start = Some(now);
+        }
+        state.terminal_activity_at = Some(now);
+        telemetry::event(
+            "terminal_prior_turn_boundary_observed",
+            "runtime",
+            Privacy::Safe,
+            serde_json::json!({"accepted": state.terminal_accepted}),
+        );
+        return;
+    }
     match state.terminal_response {
         FinalResponseState::AwaitingPriorBoundary => {
             let now = std::time::Instant::now();
@@ -184,76 +306,48 @@ fn handle_boundary(state: &mut Reader, sink: Option<&AudioSink>) {
                 serde_json::json!({"accepted": state.terminal_accepted}),
             );
         }
-        FinalResponseState::AwaitingOutput | FinalResponseState::Streaming => {
-            close_final_response(state, sink, "turn_complete", true);
+        FinalResponseState::AwaitingOutput => {
+            close_final_response(state, "turn_complete", true, false);
+        }
+        FinalResponseState::Streaming => {
+            close_final_response(state, "turn_complete", true, true);
         }
         FinalResponseState::Closed => {
             observe_boundary(state, "turn_complete");
-            overlay::set_status("ready - speak a command");
+            overlay::set_status(if state.terminal_accepted {
+                "ready - speak a command"
+            } else {
+                "blocked - speak a new command"
+            });
         }
     }
-}
-
-/// Call only after a nonblocking socket read reports that its inbound queue is
-/// empty. This ordering lets an already-queued final fragment refresh activity
-/// before the deadline can close and suppress it.
-pub(super) fn expire_after_socket_drained(state: &mut Reader, sink: Option<&AudioSink>) {
-    if !state.terminal_response.is_open()
-        || state
-            .terminal_activity_at
-            .is_none_or(|activity| activity.elapsed() < FINAL_RESPONSE_IDLE_TIMEOUT)
-    {
-        return;
-    }
-    let (code, message, reason) = match state.terminal_response {
-        FinalResponseState::Streaming => (
-            "ERR_TERMINAL_FINAL_BOUNDARY_MISSING",
-            "terminal final response stopped streaming without a closing boundary",
-            "stream_boundary_timeout",
-        ),
-        FinalResponseState::AwaitingPriorBoundary | FinalResponseState::AwaitingOutput => (
-            "ERR_TERMINAL_FINAL_OUTPUT_MISSING",
-            "accepted terminal generation produced no final output before timeout",
-            "empty_response_timeout",
-        ),
-        FinalResponseState::Closed => return,
-    };
-    telemetry::typed_error(
-        code,
-        "runtime",
-        message,
-        serde_json::json!({
-            "accepted": state.terminal_accepted,
-            "state": format!("{:?}", state.terminal_response),
-            "timeout_ms": FINAL_RESPONSE_IDLE_TIMEOUT.as_millis(),
-        }),
-    );
-    close_final_response(state, sink, reason, false);
 }
 
 fn close_final_response(
     state: &mut Reader,
-    sink: Option<&AudioSink>,
     reason: &str,
-    boundary_seen: bool,
+    turn_boundary_seen: bool,
+    response_completed: bool,
 ) {
     if !state.terminal_response.is_open() {
-        if boundary_seen {
+        if turn_boundary_seen {
             observe_boundary(state, reason);
         }
         return;
     }
-    super::speech_events::generation_complete(state, sink);
     state.terminal_response = FinalResponseState::Closed;
+    state.terminal_prior_turn_boundary_pending = false;
     state.active = false;
     state.awaiting = false;
     state.recovery_owed = false;
     state.think_start = None;
     state.terminal_activity_at = None;
+    state.terminal_playback_cursor = None;
     flush_reply(state);
-    if boundary_seen {
+    if turn_boundary_seen {
         state.terminal_boundary_seen = true;
     }
+    state.terminal_final_response_delivered = response_completed;
     telemetry::event(
         "terminal_final_response_closed",
         "runtime",
@@ -261,8 +355,11 @@ fn close_final_response(
         serde_json::json!({
             "accepted": state.terminal_accepted,
             "reason": reason,
-            "boundary_seen": boundary_seen,
+            "generation_complete_seen": state.terminal_generation_complete,
+            "turn_boundary_seen": turn_boundary_seen,
+            "response_completed": response_completed,
             "dropped_events": state.terminal_dropped_events,
+            "effectful_dropped_events": state.terminal_effectful_dropped_events,
         }),
     );
     overlay::set_status(if state.terminal_accepted {
@@ -285,6 +382,10 @@ fn dropped_event_class(event: &ServerEvent) -> (&'static str, bool) {
 
 fn count_drop(state: &mut Reader, kind: &str, effectful: bool) {
     state.terminal_dropped_events = state.terminal_dropped_events.saturating_add(1);
+    if effectful {
+        state.terminal_effectful_dropped_events =
+            state.terminal_effectful_dropped_events.saturating_add(1);
+    }
     telemetry::event(
         "terminal_event_dropped",
         "runtime",
@@ -293,6 +394,7 @@ fn count_drop(state: &mut Reader, kind: &str, effectful: bool) {
             "kind": kind,
             "effectful": effectful,
             "dropped_events": state.terminal_dropped_events,
+            "effectful_dropped_events": state.terminal_effectful_dropped_events,
         }),
     );
 }
@@ -318,202 +420,54 @@ pub(super) fn retire_for_connection_replacement(state: &mut Reader) -> bool {
     if !state.terminal_drain {
         return false;
     }
+    if state.terminal_accepted && state.terminal_final_response_delivered {
+        state.terminal_response = FinalResponseState::Closed;
+        state.terminal_prior_turn_boundary_pending = false;
+        state.active = false;
+        state.awaiting = false;
+        state.recovery_owed = false;
+        state.think_start = None;
+        state.terminal_activity_at = None;
+        state.terminal_playback_cursor = None;
+        telemetry::event(
+            "terminal_completion_preserved",
+            "runtime",
+            Privacy::Safe,
+            serde_json::json!({
+                "reason": "connection_replaced_after_final_delivery",
+                "accepted": true,
+            }),
+        );
+        return false;
+    }
     state.terminal_drain = false;
     state.terminal_accepted = false;
     state.terminal_boundary_seen = false;
     state.terminal_dropped_events = 0;
+    state.terminal_effectful_dropped_events = 0;
     state.terminal_response = FinalResponseState::Closed;
+    state.terminal_generation_complete = false;
+    state.terminal_prior_turn_boundary_pending = false;
     state.active = false;
     state.awaiting = false;
     state.recovery_owed = false;
     state.think_start = None;
     state.terminal_activity_at = None;
+    state.terminal_playback_cursor = None;
     true
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::overlay::computer_control::protocol::parse_server_message;
-    use serde_json::json;
-    use std::sync::mpsc;
-
-    #[test]
-    fn connection_replacement_retires_an_open_final_response_to_idle() {
-        let mut state = Reader::default();
-        begin_final_response(&mut state, true);
-        assert!(retire_for_connection_replacement(&mut state));
-        assert!(!state.terminal_drain);
-        assert!(!state.terminal_response.is_open());
-        assert!(!state.active);
-        assert!(!state.awaiting);
-        assert!(!retire_for_connection_replacement(&mut state));
-    }
-
-    #[test]
-    fn new_transcript_retires_latch_and_unseen_boundary_is_guarded() {
-        let mut state = Reader {
-            terminal_drain: true,
-            ..Reader::default()
-        };
-        assert!(!handle(
-            &ServerEvent::InputTranscript("new request".to_string()),
-            None,
-            &mut state
-        ));
-        assert!(!state.terminal_drain);
-        assert!(state.ignore_stale_boundary);
-    }
-
-    #[test]
-    fn empty_transcript_cannot_retire_a_closed_generation() {
-        let mut state = Reader {
-            terminal_drain: true,
-            terminal_accepted: true,
-            ..Reader::default()
-        };
-        assert!(handle(
-            &ServerEvent::InputTranscript("  ".to_string()),
-            None,
-            &mut state
-        ));
-        assert!(state.terminal_drain);
-        assert!(state.terminal_accepted);
-        assert!(!state.ignore_stale_boundary);
-    }
-
-    #[test]
-    fn ordinary_answer_boundary_latches_against_late_output_and_tools() {
-        let mut state = Reader {
-            active: true,
-            awaiting: true,
-            recovery_owed: true,
-            ..Reader::default()
-        };
-        let (exec_tx, exec_rx) = mpsc::channel();
-        super::super::reader::handle_event(ServerEvent::TurnComplete, None, &exec_tx, &mut state);
-        assert!(state.terminal_drain);
-        assert!(state.terminal_accepted);
-        super::super::reader::handle_event(
-            ServerEvent::OutputTranscript("late".to_string()),
-            None,
-            &exec_tx,
-            &mut state,
-        );
-        super::super::reader::handle_event(
-            ServerEvent::ToolCall {
-                id: "late-call".to_string(),
-                name: "future_tool".to_string(),
-                args: json!({}),
-            },
-            None,
-            &exec_tx,
-            &mut state,
-        );
-        assert!(state.reply.is_empty());
-        assert!(exec_rx.try_recv().is_err());
-        assert_eq!(state.immediate_tool_responses.len(), 1);
-    }
-
-    #[test]
-    fn unverified_action_boundary_is_closed_but_not_accepted() {
-        let mut state = Reader {
-            active: true,
-            awaiting: true,
-            turn_mode: crate::overlay::computer_control::turn_policy::TurnMode::Action,
-            ..Reader::default()
-        };
-        let (exec_tx, _exec_rx) = mpsc::channel();
-        super::super::reader::handle_event(ServerEvent::TurnComplete, None, &exec_tx, &mut state);
-        assert!(state.terminal_drain);
-        assert!(!state.terminal_accepted);
-    }
-
-    #[test]
-    fn model_rationale_cannot_replace_the_committed_user_goal() {
-        let mut state = Reader::default();
-        let (exec_tx, exec_rx) = mpsc::channel();
-        super::super::reader::handle_event(
-            ServerEvent::InputTranscript("committed user goal".to_string()),
-            None,
-            &exec_tx,
-            &mut state,
-        );
-        super::super::reader::handle_event(
-            ServerEvent::Thought("different model rationale".to_string()),
-            None,
-            &exec_tx,
-            &mut state,
-        );
-        super::super::reader::handle_event(
-            ServerEvent::ToolCall {
-                id: "call".to_string(),
-                name: "future_tool".to_string(),
-                args: json!({}),
-            },
-            None,
-            &exec_tx,
-            &mut state,
-        );
-        let job = exec_rx.try_recv().expect("tool job");
-        assert_eq!(job.task, "committed user goal");
-        assert_eq!(job.user_text, "committed user goal");
-        assert_eq!(state.last_cmd, "committed user goal");
-    }
-
-    #[test]
-    fn first_real_output_clears_only_recovery_debt() {
-        let mut state = Reader {
-            active: true,
-            awaiting: true,
-            recovery_owed: true,
-            ..Reader::default()
-        };
-        let (exec_tx, _exec_rx) = mpsc::channel();
-        super::super::reader::handle_event(
-            ServerEvent::OutputTranscript("answer".to_string()),
-            None,
-            &exec_tx,
-            &mut state,
-        );
-        assert!(state.active);
-        assert!(state.awaiting);
-        assert!(!state.recovery_owed);
-        assert!(!super::super::reader_policy::recovery_due(&state));
-    }
-
-    #[test]
-    fn done_with_coalesced_boundary_cannot_enable_late_tools() {
-        let mut state = Reader::default();
-        let (exec_tx, _exec_rx) = mpsc::channel();
-        let raw = r#"{"serverContent":{"turnComplete":true},"toolCall":{"functionCalls":[{"id":"done-call","name":"done","args":{"summary":"complete"}}]}}"#;
-        let events = parse_server_message(raw);
-        super::super::reader_policy::begin_terminal_drain(&mut state, true, false);
-        for event in events
-            .into_iter()
-            .filter(|event| matches!(event, ServerEvent::TurnComplete))
-        {
-            super::super::reader::handle_event(event, None, &exec_tx, &mut state);
-        }
-        assert!(state.terminal_drain);
-        super::super::reader::handle_event(
-            ServerEvent::ToolCall {
-                id: "late-call".to_string(),
-                name: "future_capability".to_string(),
-                args: json!({}),
-            },
-            None,
-            &exec_tx,
-            &mut state,
-        );
-        assert!(state.terminal_drain);
-        assert_eq!(state.immediate_tool_responses.len(), 1);
-    }
-}
+#[path = "terminal_drain/core_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "terminal_drain/boundary_tests.rs"]
 mod boundary_tests;
+
+#[cfg(test)]
+#[path = "terminal_drain/completion_tests.rs"]
+mod completion_tests;
 
 #[cfg(test)]
 #[path = "terminal_drain/transcript_tests.rs"]

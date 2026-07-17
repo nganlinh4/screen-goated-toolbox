@@ -14,6 +14,7 @@ use tungstenite::handshake::server::{Request, Response};
 use tungstenite::{Message, WebSocket, accept_hdr};
 
 use super::super::telemetry::{self, Privacy};
+pub(super) use super::bridge_cdp::{cdp, cdp_in, cdp_in_active_tab, cdp_in_tab, cdp_on_tab};
 pub(super) use super::bridge_rpc::rpc;
 use super::crypto;
 
@@ -31,10 +32,17 @@ struct Outbound {
     deadline: Instant,
 }
 
+#[derive(Clone)]
+struct ConnectionHandle {
+    epoch: u64,
+    sender: mpsc::Sender<Outbound>,
+}
+
 struct Bridge {
-    req_tx: Mutex<Option<mpsc::Sender<Outbound>>>,
+    connection: Mutex<Option<ConnectionHandle>>,
     connected: AtomicBool,
     next_id: AtomicU64,
+    next_connection_epoch: AtomicU64,
     /// The durable HMAC key. Handed to the extension ONCE (after it proves the
     /// bootstrap secret), then used for challenge-response on every reconnect.
     secret: String,
@@ -71,26 +79,41 @@ fn bootstrap_path() -> std::path::PathBuf {
     crate::paths::app_config_dir().join("cc_browser_bootstrap.txt")
 }
 
-/// Load a persisted hex secret from `p`, or mint + store one on first use.
-fn load_or_make(p: &std::path::Path) -> String {
-    if let Ok(s) = std::fs::read_to_string(p) {
+fn writable_secret_path(name: &str) -> std::path::PathBuf {
+    crate::paths::app_runtime_config_dir().join(name)
+}
+
+/// Load existing pairing material without touching it. A missing value is
+/// minted only into the active runtime's writable state root.
+fn load_or_make(read_path: &std::path::Path, write_path: &std::path::Path) -> String {
+    if let Ok(s) = std::fs::read_to_string(read_path) {
         let s = s.trim().to_string();
         if !s.is_empty() {
             return s;
         }
     }
     let s = crypto::random_hex(24);
-    let _ = std::fs::write(p, &s);
+    if let Some(parent) = write_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(write_path, &s);
     s
 }
 
 fn bridge() -> &'static Bridge {
     BRIDGE.get_or_init(|| Bridge {
-        req_tx: Mutex::new(None),
+        connection: Mutex::new(None),
         connected: AtomicBool::new(false),
         next_id: AtomicU64::new(1),
-        secret: load_or_make(&secret_path()),
-        bootstrap: load_or_make(&bootstrap_path()),
+        next_connection_epoch: AtomicU64::new(0),
+        secret: load_or_make(
+            &secret_path(),
+            &writable_secret_path("cc_browser_secret.txt"),
+        ),
+        bootstrap: load_or_make(
+            &bootstrap_path(),
+            &writable_secret_path("cc_browser_bootstrap.txt"),
+        ),
         events: Mutex::new(VecDeque::new()),
         pairing_until: Mutex::new(None),
         ext_id: Mutex::new(None),
@@ -162,7 +185,7 @@ fn listen_loop() {
             super::record_connection();
         }
         super::capabilities::reset();
-        *bridge().req_tx.lock().unwrap() = None;
+        *bridge().connection.lock().unwrap() = None;
     }
 }
 
@@ -206,6 +229,12 @@ fn handle_conn(stream: TcpStream) -> anyhow::Result<()> {
         let _ = ws.close(None);
         anyhow::bail!("pairing failed (bad code)");
     }
+    let (tx, rx) = mpsc::channel::<Outbound>();
+    let epoch = bridge()
+        .next_connection_epoch
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    *bridge().connection.lock().unwrap() = Some(ConnectionHandle { epoch, sender: tx });
     telemetry::human("cc-browser", "extension paired + connected");
     telemetry::event(
         "browser_extension_connected",
@@ -215,12 +244,11 @@ fn handle_conn(stream: TcpStream) -> anyhow::Result<()> {
             "port": port(),
             "protocol_version": super::capabilities::protocol_version(),
             "capabilities": super::capabilities::list(),
+            "connection_epoch": epoch,
         }),
     );
     bridge().connected.store(true, Ordering::SeqCst);
     super::record_connection(); // stamp the live moment - so a later nap reads as "reconnecting", not "set me up"
-    let (tx, rx) = mpsc::channel::<Outbound>();
-    *bridge().req_tx.lock().unwrap() = Some(tx);
     pump(&mut ws, rx)
 }
 
@@ -410,131 +438,94 @@ fn pump(ws: &mut WebSocket<TcpStream>, rx: mpsc::Receiver<Outbound>) -> anyhow::
 /// Send one envelope and block for its correlated reply.
 pub(super) fn request(json_msg: Value) -> anyhow::Result<Value> {
     let cancel = super::readiness::current_cancel();
-    request_with(json_msg, cancel, REQ_TIMEOUT)
+    let timeout = super::readiness::bounded_request_timeout(REQ_TIMEOUT);
+    if timeout.is_zero() {
+        anyhow::bail!("browser request deadline elapsed before dispatch");
+    }
+    request_with(json_msg, cancel, timeout, None)
 }
 
 /// Dispatch bounded compensating cleanup after an input edge. Cleanup must not
 /// inherit user cancellation: its only purpose is to release already-held input.
 pub(super) fn request_cleanup(json_msg: Value) -> anyhow::Result<Value> {
-    request_with(json_msg, None, CLEANUP_REQ_TIMEOUT)
+    request_with(json_msg, None, CLEANUP_REQ_TIMEOUT, None)
+}
+
+pub(super) fn request_on_epoch(json_msg: Value, epoch: u64) -> anyhow::Result<Value> {
+    let cancel = super::readiness::current_cancel();
+    let timeout = super::readiness::bounded_request_timeout(REQ_TIMEOUT);
+    request_with(json_msg, cancel, timeout, Some(epoch))
+}
+
+pub(super) fn request_cleanup_until(
+    json_msg: Value,
+    epoch: u64,
+    deadline: Instant,
+) -> anyhow::Result<Value> {
+    let timeout = deadline
+        .saturating_duration_since(Instant::now())
+        .min(CLEANUP_REQ_TIMEOUT);
+    request_with(json_msg, None, timeout, Some(epoch))
 }
 
 fn request_with(
     json_msg: Value,
     cancel: Option<Arc<AtomicBool>>,
     timeout: Duration,
+    expected_epoch: Option<u64>,
 ) -> anyhow::Result<Value> {
     super::bridge_wait::ensure_dispatch_allowed(cancel.as_deref())?;
-    let tx = bridge().req_tx.lock().unwrap().clone();
-    let Some(tx) = tx else {
-        anyhow::bail!("browser extension not connected");
+    if timeout.is_zero() {
+        return Err(super::bridge_wait::unavailable_before_dispatch());
+    }
+    let connection = bridge().connection.lock().unwrap().clone();
+    let Some(connection) = connection else {
+        return Err(super::bridge_wait::unavailable_before_dispatch());
     };
+    if !is_connected()
+        || expected_epoch.is_some_and(|epoch| epoch == 0 || epoch != connection.epoch)
+    {
+        return Err(super::bridge_wait::unavailable_before_dispatch());
+    }
     let (rtx, rrx) = mpsc::channel();
     let deadline = Instant::now() + timeout;
-    tx.send(Outbound {
-        json: json_msg,
-        reply: rtx,
-        cancel: cancel.clone(),
-        deadline,
-    })
-    .map_err(|_| anyhow::anyhow!("bridge closed"))?;
-    super::bridge_wait::receive(&rrx, deadline, cancel.as_deref())
+    connection
+        .sender
+        .send(Outbound {
+            json: json_msg,
+            reply: rtx,
+            cancel: cancel.clone(),
+            deadline,
+        })
+        .map_err(|_| super::bridge_wait::unavailable_before_dispatch())?;
+    let response = super::bridge_wait::receive(&rrx, deadline, cancel.as_deref())?;
+    if expected_epoch.is_some_and(|epoch| !connection_matches(epoch)) {
+        return Err(super::bridge_wait::closed_after_dispatch());
+    }
+    Ok(response)
+}
+
+fn connection_matches(epoch: u64) -> bool {
+    epoch != 0
+        && bridge()
+            .connection
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|connection| connection.epoch == epoch)
+}
+
+pub(super) fn connection_epoch() -> u64 {
+    bridge()
+        .connection
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map_or(0, |connection| connection.epoch)
 }
 
 pub(super) fn next_request_id() -> u64 {
     bridge().next_id.fetch_add(1, Ordering::SeqCst)
-}
-
-/// Run a raw CDP command in the active tab's TOP frame and return its `result`.
-pub(super) fn cdp(method: &str, params: Value) -> anyhow::Result<Value> {
-    cdp_in(method, params, None)
-}
-
-pub(super) fn cdp_on_tab(method: &str, params: Value, tab_id: i64) -> anyhow::Result<Value> {
-    cdp_in_tab_with_policy(method, params, None, tab_id, false)
-}
-
-pub(super) fn cdp_in_tab(
-    method: &str,
-    params: Value,
-    session_id: Option<&str>,
-    tab_id: i64,
-) -> anyhow::Result<Value> {
-    cdp_in_tab_with_policy(method, params, session_id, tab_id, false)
-}
-
-fn cdp_in_tab_with_policy(
-    method: &str,
-    params: Value,
-    session_id: Option<&str>,
-    tab_id: i64,
-    require_active: bool,
-) -> anyhow::Result<Value> {
-    super::capabilities::require(super::capabilities::CDP)?;
-    super::capabilities::require(super::capabilities::CDP_EXPLICIT_TAB)?;
-    if require_active {
-        super::capabilities::require(super::capabilities::CDP_REQUIRE_ACTIVE)?;
-    }
-    if session_id.is_some() {
-        super::capabilities::require(super::capabilities::CDP_SESSION)?;
-    }
-    let id = next_request_id();
-    let mut env = json!({
-        "id": id,
-        "type": "cdp",
-        "method": method,
-        "params": params,
-        "tabId": tab_id,
-        "requireActive": require_active,
-    });
-    if let Some(session_id) = session_id {
-        env["sessionId"] = json!(session_id);
-    }
-    let resp = request(env)?;
-    if resp.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(resp.get("result").cloned().unwrap_or_else(|| json!({})))
-    } else {
-        Err(response_error(&resp, "cdp error"))
-    }
-}
-
-/// Session-aware counterpart of `cdp_on_active_tab`. Child-frame sessions are
-/// still bound to their owning tab, and the extension rejects the call if that
-/// tab stopped being active before dispatch.
-pub(super) fn cdp_in_active_tab(
-    method: &str,
-    params: Value,
-    session_id: Option<&str>,
-    tab_id: i64,
-) -> anyhow::Result<Value> {
-    cdp_in_tab_with_policy(method, params, session_id, tab_id, true)
-}
-
-/// Run a raw CDP command, optionally inside a specific (cross-origin) FRAME's CDP
-/// session, and return its `result`. `None` = the active tab's top frame (== `cdp`).
-/// The extension reads `sessionId` and routes via `chrome.debugger.sendCommand`
-/// against that flat-attached child target - so out-of-process iframes (login /
-/// payment / embed widgets) are reachable without any extension change.
-pub(super) fn cdp_in(
-    method: &str,
-    params: Value,
-    session_id: Option<&str>,
-) -> anyhow::Result<Value> {
-    super::capabilities::require(super::capabilities::CDP)?;
-    if session_id.is_some() {
-        super::capabilities::require(super::capabilities::CDP_SESSION)?;
-    }
-    let id = next_request_id();
-    let mut env = json!({"id": id, "type": "cdp", "method": method, "params": params});
-    if let Some(sid) = session_id {
-        env["sessionId"] = json!(sid);
-    }
-    let resp = request(env)?;
-    if resp.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(resp.get("result").cloned().unwrap_or_else(|| json!({})))
-    } else {
-        Err(response_error(&resp, "cdp error"))
-    }
 }
 
 pub(super) fn response_error(response: &Value, fallback: &str) -> anyhow::Error {

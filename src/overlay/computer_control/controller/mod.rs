@@ -5,6 +5,8 @@ mod adoption;
 mod browser;
 mod gate;
 mod native;
+mod observation;
+mod sequence;
 mod transition;
 mod validation;
 mod verify;
@@ -90,16 +92,9 @@ trait Surface {
 #[derive(Default)]
 pub struct Controller {
     last: Option<WorldState>,
+    observations: observation::ObservationCache,
     browser_tab_id: Option<i64>,
     native_target: Option<String>,
-}
-
-struct PlannedStep {
-    requested_id: u32,
-    verb: Verb,
-    value: Option<String>,
-    confirm: bool,
-    target: IndexedElement,
 }
 
 impl Controller {
@@ -110,7 +105,9 @@ impl Controller {
         }
     }
 
-    /// Drop the cached world so a stale `@id` can never resolve after another tool.
+    /// Drop the actionable world so a stale `@id` can never resolve after another tool.
+    /// The last model-visible observation remains only as a payload-deduplication
+    /// reference; it can never authorize input.
     pub fn invalidate(&mut self) {
         self.last = None;
     }
@@ -122,8 +119,36 @@ impl Controller {
     /// Bind browser perception and indexed actions to one explicit tab for this
     /// user turn. `None` preserves the ordinary foreground-surface behavior.
     pub fn set_browser_tab_target(&mut self, tab_id: Option<i64>) {
+        if self.browser_tab_id == tab_id {
+            return;
+        }
         self.browser_tab_id = tab_id;
         self.invalidate();
+    }
+
+    /// Retire turn ownership without discarding the immutable observed world.
+    /// No action can run between turns, and the next job must bind this cache to
+    /// its exact captured surface before it becomes actionable again.
+    pub fn release_turn_target(&mut self) {
+        self.browser_tab_id = None;
+    }
+
+    /// Bind a new job to the exact model-visible source surface. Cached ids are
+    /// retained only when every surface identity field still matches.
+    pub fn bind_source_surface(&mut self, source: Option<&SurfaceIdentity>) -> bool {
+        let compatible = source.is_some_and(|identity| {
+            self.last
+                .as_ref()
+                .is_some_and(|world| &world.identity == identity)
+        });
+        self.browser_tab_id = source.and_then(|identity| match identity {
+            SurfaceIdentity::Browser { tab_id, .. } => Some(*tab_id),
+            SurfaceIdentity::Native { .. } => None,
+        });
+        if !compatible {
+            self.invalidate();
+        }
+        compatible
     }
 
     /// Seed the native controller from a fresh, identity-bracketed foreground
@@ -152,7 +177,7 @@ impl Controller {
         let mut s = self.surface();
         match s.observe() {
             Ok(ws) => {
-                let (text, n) = (ws.to_model_text(), ws.elements.len());
+                let n = ws.elements.len();
                 let title = ws.title.clone();
                 let url = ws.url.clone();
                 let target_tab_id = match &ws.identity {
@@ -160,17 +185,19 @@ impl Controller {
                     SurfaceIdentity::Native { .. } => None,
                 };
                 let surface = if url.is_some() { "browser" } else { "native" };
+                let published = self.observations.publish(&ws, true);
                 self.last = Some(ws);
-                json!({
+                let mut result = json!({
                     "ok": true,
                     "count": n,
-                    "elements": text,
                     "surface": surface,
                     "target_tab_id": target_tab_id,
                     "title": title,
                     "url": url,
                     "note": "Act by @id. click performs one ordinary click; activate performs the element's default action. Use fill/select/submit/toggle as named and re-observe after a view change."
-                })
+                });
+                published.attach(&mut result);
+                result
             }
             Err(e) => {
                 json!({"ok": false, "error": format!("could not read the current view: {e}")})
@@ -199,34 +226,70 @@ impl Controller {
         // from a stale list — re-sync and make it pick from the CURRENT one rather
         // than acting on the wrong element.
         let Some(ws) = self.last.take() else {
-            let elements = self.reobserve(&mut *s);
-            return json!({"ok": false,
+            let (current, published) = self.reobserve_for_delivery(&mut *s);
+            self.last = current;
+            let mut result = json!({"ok": false,
+                "code": "ERR_OBSERVATION_REQUIRED",
+                "dispatch_ok": false,
+                "effect_may_have_occurred": false,
                 "error": "the view changed since your last observe() (another tool ran, or the screen moved) — re-synced below; act on an @id from THIS list, not an earlier one",
-                "elements": elements});
+            });
+            if let Some(published) = published {
+                published.attach(&mut result);
+            }
+            return result;
         };
         if !s.identity().is_ok_and(|current| current == ws.identity) {
-            let elements = self.reobserve(&mut *s);
-            return json!({
+            let (current, published) = self.reobserve_for_delivery(&mut *s);
+            self.last = current;
+            let mut result = json!({
                 "ok": false,
+                "code": "ERR_STALE_SURFACE",
                 "stale": true,
+                "dispatch_ok": false,
+                "effect_may_have_occurred": false,
                 "error": "the active surface no longer matches the observation that produced this @id; re-synced below",
-                "elements": elements,
             });
+            if let Some(published) = published {
+                published.attach(&mut result);
+            }
+            return result;
         }
         let Some(el) = ws.get(id).cloned() else {
-            let elements = self.reobserve(&mut *s);
-            return json!({"ok": false,
+            let (current, published) = self.reobserve_for_delivery(&mut *s);
+            self.last = current;
+            let mut result = json!({"ok": false,
+                "code": "ERR_STALE_ELEMENT_ID",
+                "dispatch_ok": false,
+                "effect_may_have_occurred": false,
                 "error": format!("no element @{id} in the current view (it changed — act on an id from the latest list)"),
-                "elements": elements});
+            });
+            if let Some(published) = published {
+                published.attach(&mut result);
+            }
+            return result;
         };
         if let Err(reason) = s.validate(&el, verb, value) {
             self.last = Some(ws);
-            return json!({"ok": false, "invalid_action": true, "error": reason});
+            return json!({
+                "ok": false,
+                "invalid_action": true,
+                "dispatch_ok": false,
+                "effect_may_have_occurred": false,
+                "executed": false,
+                "error": reason,
+            });
         }
         // GATE — structural invariants (consequential confirmation / required submit).
         if let gate::Gate::Block(reason) = gate::gate_action(&ws, &el, verb, confirm) {
             self.last = Some(ws);
-            return json!({"ok": false, "blocked": reason});
+            return json!({
+                "ok": false,
+                "blocked": reason,
+                "dispatch_ok": false,
+                "effect_may_have_occurred": false,
+                "executed": false,
+            });
         }
         let before_surface = super::uia::input_target_snapshot();
         // EXECUTE through the existing primitives, preserving its real input
@@ -234,9 +297,14 @@ impl Controller {
         let execution = match s.execute(&el, verb, value, act, &ws.identity) {
             Ok(evidence) => evidence,
             Err(e) => {
-                let (elements, after_world) = self.reobserve_with_state(&mut *s);
+                let (after_world, published) = self.reobserve_for_delivery(&mut *s);
                 self.last = after_world;
-                return browser::action_failure(&e, verb, &el, elements);
+                let mut result = browser::action_failure(&e, verb, &el);
+                if let Some(published) = published {
+                    browser::mark_resynced(&mut result);
+                    published.attach(&mut result);
+                }
+                return result;
             }
         };
         // VERIFY (fill/select) by reading the value back.
@@ -262,6 +330,10 @@ impl Controller {
             _ if transition.context_changed => "context_changed",
             _ => "dispatch_only",
         };
+        let published = transition
+            .world
+            .as_ref()
+            .map(|world| self.observations.publish(world, false));
         self.last = transition.world;
         let mut r = json!({
             "ok": action_verified,
@@ -271,6 +343,7 @@ impl Controller {
                 Verb::Fill | Verb::Select => verify.as_ref().map(|item| item.is_ok()),
                 _ if context_required => Some(transition.context_changed),
                 Verb::Click if collection_item => Some(selected),
+                _ if transition.context_changed => Some(true),
                 _ => None,
             },
             "effect": effect,
@@ -284,8 +357,10 @@ impl Controller {
                 "structure_changed": transition.structure_changed,
                 "context_changed": transition.context_changed,
             },
-            "elements": transition.elements,
         });
+        if let Some(published) = published {
+            published.attach(&mut r);
+        }
         if !action_verified {
             r["error"] = json!(
                 "the action was dispatched, but its required context change was not observed; inspect fresh or external evidence and do not repeat it blindly"
@@ -300,214 +375,29 @@ impl Controller {
         r
     }
 
-    /// Run a short preflighted sequence. Every step is resolved again in a fresh
-    /// world, gated against current values, executed against the same surface
-    /// identity, and followed by another observation before the next step.
-    pub fn do_steps(&mut self, steps: &[Value], act: &ActCtx) -> Value {
-        let mut s = self.surface();
-        let mut result = self.do_steps_on(steps, act, &mut *s);
-        if let (Some(tab_id), Some(object)) = (self.browser_tab_id, result.as_object_mut()) {
-            object.insert("target_tab_id".to_string(), json!(tab_id));
-        }
-        result
-    }
-
-    fn do_steps_on(&mut self, steps: &[Value], act: &ActCtx, surface: &mut dyn Surface) -> Value {
-        let Some(planned_world) = self.last.take() else {
-            let elements = self.reobserve(surface);
-            return json!({"ok": false,
-                "error": "no current element list to plan against - observe() first, then do_steps with its @ids",
-                "elements": elements});
-        };
-        let plan = match plan_steps(steps, &planned_world) {
-            Ok(plan) => plan,
-            Err(error) => {
-                self.last = Some(planned_world);
-                return json!({"ok": false, "invalid_plan": true, "error": error});
-            }
-        };
-        let mut current = match surface.observe() {
-            Ok(world) if world.identity == planned_world.identity => world,
-            Ok(world) => {
-                let elements = world.to_model_text();
-                self.last = Some(world);
-                return json!({"ok": false, "stale": true,
-                    "error": "the active surface changed after this sequence was planned; re-plan from the fresh list",
-                    "elements": elements});
-            }
-            Err(error) => {
-                self.last = None;
-                return json!({"ok": false, "error": format!("could not refresh the planned surface: {error}")});
-            }
-        };
-        let mut log = Vec::new();
-        let mut receipts = Vec::new();
-        let mut stopped = None;
-        let mut cache_valid = true;
-        for (index, planned) in plan.iter().enumerate() {
-            let number = index + 1;
-            if act.cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                stopped = Some(format!("interrupted at step {number}"));
-                break;
-            }
-            if !surface
-                .identity()
-                .is_ok_and(|identity| identity == current.identity)
-            {
-                stopped = Some(format!(
-                    "step {number}: active surface changed before dispatch"
-                ));
-                cache_valid = false;
-                break;
-            }
-            let element = match refind_unique(&current, &planned.target) {
-                Ok(element) => element,
-                Err(error) => {
-                    stopped = Some(format!("step {number}: {error}"));
-                    break;
-                }
-            };
-            let value = planned.value.as_deref();
-            if let Err(error) = surface.validate(&element, planned.verb, value) {
-                stopped = Some(format!("step {number}: {error}"));
-                break;
-            }
-            if let gate::Gate::Block(reason) =
-                gate::gate_action(&current, &element, planned.verb, planned.confirm)
-            {
-                stopped = Some(format!("step {number} blocked: {reason}"));
-                break;
-            }
-            let before_surface = super::uia::input_target_snapshot();
-            let execution =
-                match surface.execute(&element, planned.verb, value, act, &current.identity) {
-                    Ok(execution) => execution,
-                    Err(error) => {
-                        receipts.push(browser::step_failure(
-                            &error,
-                            number,
-                            planned.requested_id,
-                            &element,
-                            planned.verb,
-                        ));
-                        stopped = Some(format!(
-                            "step {number} ({} @{} {:?}) failed: {error}",
-                            planned.verb.as_str(),
-                            element.id,
-                            element.name
-                        ));
-                        match surface.observe() {
-                            Ok(world) => current = world,
-                            Err(_) => cache_valid = false,
-                        }
-                        break;
-                    }
-                };
-            let verification = planned
-                .verb
-                .verifies()
-                .then(|| verify::verify_fill(value.unwrap_or(""), &surface.read_back(&element)));
-            let value_verified = verification.as_ref().is_none_or(|result| result.is_ok());
-            let transition = transition::observe_after_action(
-                surface,
-                &current,
-                &element,
-                planned.verb,
-                &before_surface,
-            );
-            let context_required =
-                transition::requires_context_change(planned.verb, &element, &current.identity);
-            let (activation_verified, effect_may_have_occurred) =
-                transition::dispatched_effect_status(context_required, transition.context_changed);
-            let verified = value_verified && activation_verified;
-            let mut receipt = json!({
-                "step": number,
-                "ok": verified,
-                "effect_may_have_occurred": effect_may_have_occurred,
-                "requested_id": planned.requested_id,
-                "resolved_id": element.id,
-                "verb": planned.verb.as_str(),
-                "target": {"role": element.role, "name": element.name},
-                "execution": execution,
-                "transition": {
-                    "foreground_changed": transition.foreground_changed,
-                    "title_changed": transition.title_changed,
-                    "structure_changed": transition.structure_changed,
-                    "context_changed": transition.context_changed,
-                },
-            });
-            if let Some(result) = verification {
-                receipt["verify"] = json!(result.describe());
-            }
-            if !activation_verified {
-                receipt["error"] = json!(
-                    "the action was dispatched, but its required context change was not observed; inspect fresh or external evidence and do not repeat it blindly"
-                );
-            }
-            let next_world = match transition.world {
-                Some(world) => world,
-                None => {
-                    cache_valid = false;
-                    stopped = Some(format!(
-                        "step {number}: effect dispatched but post-action observation failed: {}",
-                        transition
-                            .observation_error
-                            .unwrap_or_else(|| "unknown observation error".to_string())
-                    ));
-                    receipts.push(receipt);
-                    break;
-                }
-            };
-            receipts.push(receipt);
-            current = next_world;
-            if !verified {
-                stopped = Some(if !value_verified {
-                    format!("step {number}: read-back verification failed")
-                } else {
-                    format!("step {number}: activation verification failed")
-                });
-                break;
-            }
-            log.push(format!(
-                "{} @{} {:?} ✓",
-                planned.verb.as_str(),
-                element.id,
-                element.name
-            ));
-            if index + 1 < plan.len() && current.identity != planned_world.identity {
-                stopped = Some(format!(
-                    "step {number}: surface changed; remaining planned steps were not run"
-                ));
-                break;
-            }
-        }
-        let elements = if cache_valid {
-            current.to_model_text()
-        } else {
-            String::new()
-        };
-        if cache_valid {
-            self.last = Some(current);
-        } else {
-            self.last = None;
-        }
-        let mut result = json!({
-            "ok": stopped.is_none(),
-            "completed": format!("{}/{}", log.len(), plan.len()),
-            "did": log,
-            "receipts": receipts,
-            "elements": elements,
-        });
-        if let Some(reason) = stopped {
-            result["stopped"] = json!(reason);
-        }
-        result
-    }
-
     fn reobserve(&mut self, s: &mut dyn Surface) -> String {
         let (text, world) = self.reobserve_with_state(s);
+        if let Some(world) = world.as_ref() {
+            let _ = self.observations.publish(world, true);
+        }
         self.last = world;
         text
+    }
+
+    fn reobserve_for_delivery(
+        &mut self,
+        surface: &mut dyn Surface,
+    ) -> (
+        Option<WorldState>,
+        Option<observation::PublishedObservation>,
+    ) {
+        match surface.observe() {
+            Ok(world) => {
+                let published = self.observations.publish(&world, false);
+                (Some(world), Some(published))
+            }
+            Err(_) => (None, None),
+        }
     }
 
     fn reobserve_with_state(&mut self, s: &mut dyn Surface) -> (String, Option<WorldState>) {
@@ -521,75 +411,6 @@ impl Controller {
                 (String::new(), None)
             }
         }
-    }
-}
-
-fn plan_steps(steps: &[Value], world: &WorldState) -> Result<Vec<PlannedStep>, String> {
-    if steps.is_empty() {
-        return Err("do_steps requires at least one step".to_string());
-    }
-    steps
-        .iter()
-        .enumerate()
-        .map(|(index, step)| {
-            let number = index + 1;
-            let raw_id = step
-                .get("id")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| format!("step {number}: missing id"))?;
-            let requested_id = u32::try_from(raw_id)
-                .map_err(|_| format!("step {number}: id is outside the supported range"))?;
-            let verb = step
-                .get("verb")
-                .and_then(Value::as_str)
-                .and_then(Verb::parse)
-                .ok_or_else(|| format!("step {number}: missing/unknown verb"))?;
-            let value = step
-                .get("value")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let target = world
-                .get(requested_id)
-                .cloned()
-                .ok_or_else(|| format!("step {number}: no @{requested_id} in the planned view"))?;
-            validation::validate_shape(&target, verb, value.as_deref())
-                .map_err(|error| format!("step {number}: {error}"))?;
-            Ok(PlannedStep {
-                requested_id,
-                verb,
-                value,
-                confirm: step
-                    .get("confirm")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                target,
-            })
-        })
-        .collect()
-}
-
-fn refind_unique(world: &WorldState, planned: &IndexedElement) -> Result<IndexedElement, String> {
-    let candidates: Vec<_> = world
-        .elements
-        .iter()
-        .filter(|element| {
-            element.role == planned.role
-                && element.name == planned.name
-                && element.form == planned.form
-                && element.submit == planned.submit
-        })
-        .cloned()
-        .collect();
-    match candidates.as_slice() {
-        [element] => Ok(element.clone()),
-        [] => Err(format!(
-            "planned target {:?} is no longer present; re-observe and re-plan",
-            planned.name
-        )),
-        _ => Err(format!(
-            "planned target {:?} is now ambiguous; re-observe and use separate actions",
-            planned.name
-        )),
     }
 }
 

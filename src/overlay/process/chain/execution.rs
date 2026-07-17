@@ -292,6 +292,7 @@ fn execute_image_block(request: ExecuteImageBlockRequest<'_>) -> anyhow::Result<
                 use_json_format: use_json,
                 response_schema: None,
                 cancel_token: Some(api_cancel),
+                request_timeout: None,
             },
             move |chunk| {
                 if chain_token_cb.is_cancelled() {
@@ -365,6 +366,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
             search_label,
             ui_language: &config.ui_language,
             cancel_token: Some(api_cancel),
+            request_timeout: None,
             target_language,
         },
         move |chunk| {

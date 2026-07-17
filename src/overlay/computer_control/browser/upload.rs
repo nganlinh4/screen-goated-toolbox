@@ -1,6 +1,7 @@
 //! File-input mutation guarded by exact tab, document, and DOM-node identities.
 
 use serde_json::{Value, json};
+use std::path::Path;
 
 use super::controller_io::{DOCUMENT_ID_JS, MutationRoute};
 
@@ -78,6 +79,9 @@ fn upload_file_impl_on_document(
     pinned_tab_id: Option<i64>,
     source_document_id: Option<&str>,
 ) -> Value {
+    if let Some(error) = invalid_upload_path(path) {
+        return error;
+    }
     if let Some(mut result) = super::conn_guard() {
         if let (Some(tab_id), Some(object)) = (pinned_tab_id, result.as_object_mut()) {
             object.insert("target_tab_id".to_string(), json!(tab_id));
@@ -161,6 +165,27 @@ fn upload_file_impl_on_document(
         })),
         Err(error) => route.tag(super::err(error)),
     }
+}
+
+fn invalid_upload_path(path: &str) -> Option<Value> {
+    let path = Path::new(path);
+    if !path.is_absolute() {
+        return Some(json!({
+            "ok": false,
+            "code": "ERR_BROWSER_UPLOAD_PATH_NOT_ABSOLUTE",
+            "error": "upload path must be absolute",
+            "effect_may_have_occurred": false,
+        }));
+    }
+    if !path.is_file() {
+        return Some(json!({
+            "ok": false,
+            "code": "ERR_BROWSER_UPLOAD_FILE_UNAVAILABLE",
+            "error": "upload path must name an existing file",
+            "effect_may_have_occurred": false,
+        }));
+    }
+    None
 }
 
 fn stale_source_document(
@@ -255,7 +280,8 @@ fn stale_upload(
 
 #[cfg(test)]
 mod tests {
-    use super::UploadTarget;
+    use super::{UploadTarget, invalid_upload_path};
+    use std::fs;
 
     fn target(document: &str, backend_node_id: i64) -> UploadTarget {
         UploadTarget {
@@ -277,5 +303,20 @@ mod tests {
             Some("element_changed")
         );
         assert_eq!(expected.stale_reason(&target("document-a", 11)), None);
+    }
+
+    #[test]
+    fn upload_rejects_relative_and_non_file_paths_before_browser_dispatch() {
+        let relative = invalid_upload_path("fixture.txt").unwrap();
+        assert_eq!(relative["code"], "ERR_BROWSER_UPLOAD_PATH_NOT_ABSOLUTE");
+        assert_eq!(relative["effect_may_have_occurred"], false);
+
+        let directory =
+            std::env::temp_dir().join(format!("sgt-browser-upload-test-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let not_file = invalid_upload_path(directory.to_str().unwrap()).unwrap();
+        fs::remove_dir(&directory).unwrap();
+        assert_eq!(not_file["code"], "ERR_BROWSER_UPLOAD_FILE_UNAVAILABLE");
+        assert_eq!(not_file["effect_may_have_occurred"], false);
     }
 }

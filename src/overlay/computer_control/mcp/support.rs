@@ -59,15 +59,21 @@ pub(super) fn docs_tool(id: &str) -> Value {
     let Some(integ) = catalog::get(id) else {
         return json!({"ok": false, "error": format!("unknown integration '{id}'")});
     };
-    match fetch_docs(integ.source_url) {
+    match fetch_docs(integ.docs_url) {
         Ok(text) => json!({
             "ok": true,
             "id": integ.id,
             "source": integ.source_url,
+            "docs_url": integ.docs_url,
             "text": text,
             "instruction": "Use these curated-source docs to infer setup. Prefer scripting/CLI/config-file execution over GUI clicking. This is not permission to install anything outside the curated catalog."
         }),
-        Err(e) => json!({"ok": false, "source": integ.source_url, "error": e}),
+        Err(e) => json!({
+            "ok": false,
+            "source": integ.source_url,
+            "docs_url": integ.docs_url,
+            "error": e,
+        }),
     }
 }
 
@@ -259,9 +265,8 @@ fn tcp_ready(host: &str, port: u16) -> Readiness {
     }
 }
 
-fn fetch_docs(source_url: &str) -> Result<String, String> {
-    let readme = github_readme_url(source_url);
-    let url = readme.as_deref().unwrap_or(source_url);
+fn fetch_docs(docs_url: &str) -> Result<String, String> {
+    let url = validated_docs_url(docs_url)?;
     let response = ureq::get(url)
         .header(
             "User-Agent",
@@ -284,17 +289,12 @@ fn fetch_docs(source_url: &str) -> Result<String, String> {
     Ok(text)
 }
 
-/// Map ANY `github.com/owner/repo` source to its raw default-branch README (the `HEAD`
-/// ref resolves whether the repo uses main or master). Non-GitHub sources are fetched
-/// as-is. Derived generically from the catalog `source_url` — no per-app special-casing.
-fn github_readme_url(source_url: &str) -> Option<String> {
-    let rest = source_url.strip_prefix("https://github.com/")?;
-    let mut parts = rest.trim_end_matches('/').split('/');
-    let owner = parts.next().filter(|s| !s.is_empty())?;
-    let repo = parts.next().filter(|s| !s.is_empty())?;
-    Some(format!(
-        "https://raw.githubusercontent.com/{owner}/{repo}/HEAD/README.md"
-    ))
+fn validated_docs_url(docs_url: &str) -> Result<&str, String> {
+    let parsed = url::Url::parse(docs_url).map_err(|e| format!("invalid docs URL: {e}"))?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(docs_url),
+        scheme => Err(format!("unsupported docs URL scheme '{scheme}'")),
+    }
 }
 
 #[cfg(test)]
@@ -421,13 +421,19 @@ mod tests {
     }
 
     #[test]
-    fn github_readme_url_is_generic() {
+    fn explicit_docs_url_is_used_without_host_or_path_rewriting() {
+        let source = "https://docs.vendor.invalid/repos/widget?channel=stable#setup";
         assert_eq!(
-            github_readme_url("https://github.com/ahujasid/blender-mcp").as_deref(),
-            Some("https://raw.githubusercontent.com/ahujasid/blender-mcp/HEAD/README.md")
+            validated_docs_url(source).unwrap(),
+            source,
+            "catalog metadata is authoritative"
         );
-        // Works for any repo, not just the seeded ones — no special-casing.
-        assert!(github_readme_url("https://github.com/modelcontextprotocol/servers").is_some());
-        assert!(github_readme_url("https://example.invalid/anything").is_none());
+    }
+
+    #[test]
+    fn malformed_or_non_http_docs_metadata_fails_structurally() {
+        assert!(validated_docs_url("").is_err());
+        assert!(validated_docs_url("relative/docs").is_err());
+        assert!(validated_docs_url("file:///private/docs").is_err());
     }
 }

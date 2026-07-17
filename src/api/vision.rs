@@ -33,6 +33,7 @@ pub struct TranslateImageRequest<'a> {
     /// for other models / providers.
     pub response_schema: Option<serde_json::Value>,
     pub cancel_token: Option<Arc<AtomicBool>>,
+    pub request_timeout: Option<Duration>,
 }
 
 fn groq_vision_payload(
@@ -123,28 +124,31 @@ where
         use_json_format,
         response_schema,
         cancel_token,
+        request_timeout,
     } = request;
 
-    let openrouter_api_key = crate::APP
+    let (saved_openrouter_key, saved_cerebras_key) = crate::APP
         .lock()
         .ok()
-        .and_then(|app| {
-            let config = app.config.clone();
-            if config.openrouter_api_key.is_empty() {
-                None
-            } else {
-                Some(config.openrouter_api_key.clone())
-            }
+        .map(|app| {
+            (
+                app.config.openrouter_api_key.clone(),
+                app.config.cerebras_api_key.clone(),
+            )
         })
         .unwrap_or_default();
-    let cerebras_api_key = crate::APP
-        .lock()
-        .ok()
-        .map(|app| app.config.cerebras_api_key.clone())
-        .unwrap_or_default();
+    let openrouter_api_key =
+        super::provider_credentials::resolve("OPENROUTER_API_KEY", &saved_openrouter_key);
+    let cerebras_api_key =
+        super::provider_credentials::resolve("CEREBRAS_API_KEY", &saved_cerebras_key);
 
-    let prepared_image =
-        prepare_image_payload(provider.as_str(), image, original_bytes, prompt.len())?;
+    let prepared_image = prepare_image_payload(
+        provider.as_str(),
+        &model,
+        image,
+        original_bytes,
+        prompt.len(),
+    )?;
     let b64_image = prepared_image.b64_image;
     let image_data = prepared_image.image_data;
     let mime_type = prepared_image.mime_type;
@@ -192,6 +196,8 @@ where
                 audio_data: None,
                 streaming_enabled,
                 ui_language: &ui_language,
+                cancel_token,
+                request_timeout,
             },
             on_chunk,
         );
@@ -296,6 +302,7 @@ where
             &cancel_token,
             None,
             true,
+            request_timeout,
             response_schema.as_ref(),
             &mut on_chunk,
         )?;
@@ -327,6 +334,7 @@ where
                 error_label: "Cerebras Vision API Error",
                 response_format,
                 prediction: None,
+                request_timeout,
             },
             &mut on_chunk,
         )?;
@@ -362,6 +370,7 @@ where
             false,
             &ui_language,
             &cancel_token,
+            request_timeout,
             "OpenRouter API Error",
             true,
             |_| {},
@@ -401,10 +410,11 @@ where
         let mut empty_recovery_attempt = 0;
         let root = loop {
             let resp = loop {
-                let response = UREQ_RESPONSE_AGENT
+                let request = UREQ_RESPONSE_AGENT
                     .post("https://api.groq.com/openai/v1/chat/completions")
                     .header("Authorization", &format!("Bearer {}", groq_api_key))
-                    .header("Content-Type", "application/json")
+                    .header("Content-Type", "application/json");
+                let response = super::client::with_request_timeout(request, request_timeout)
                     .send(payload_bytes.as_slice())
                     .map_err(|error| anyhow::anyhow!("Groq vision transport error: {error}"))?;
                 let status = response.status().as_u16();

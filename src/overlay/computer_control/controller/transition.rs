@@ -10,7 +10,6 @@ const ACTIVATION_VERIFY_TIMEOUT: Duration = Duration::from_millis(300);
 const ACTIVATION_POLL_INTERVAL: Duration = Duration::from_millis(30);
 
 pub(super) struct Observation {
-    pub elements: String,
     pub world: Option<WorldState>,
     pub observation_error: Option<String>,
     pub foreground_changed: bool,
@@ -37,10 +36,7 @@ pub(super) fn dispatched_effect_status(
     context_required: bool,
     context_changed: bool,
 ) -> (bool, bool) {
-    (
-        !context_required || context_changed,
-        context_required && !context_changed,
-    )
+    (!context_required || context_changed, true)
 }
 
 /// Observe once for ordinary actions. Collection activation is the sole bounded
@@ -91,13 +87,8 @@ fn observe_after_action_with(
             || title_changed
             || structure_changed
             || identity_changed;
-        let elements = world
-            .as_ref()
-            .map(WorldState::to_model_text)
-            .unwrap_or_default();
         if !poll || context_changed || Instant::now() >= deadline {
             return Observation {
-                elements,
                 world,
                 observation_error,
                 foreground_changed,
@@ -158,6 +149,7 @@ mod tests {
             role: role.to_string(),
             name: name.to_string(),
             value: None,
+            editable: role == "textbox",
             state: None,
             enabled: true,
             required: false,
@@ -362,8 +354,8 @@ mod tests {
     #[test]
     fn unobserved_required_effect_is_not_verified_or_safe_to_repeat() {
         assert_eq!(dispatched_effect_status(true, false), (false, true));
-        assert_eq!(dispatched_effect_status(true, true), (true, false));
-        assert_eq!(dispatched_effect_status(false, false), (true, false));
+        assert_eq!(dispatched_effect_status(true, true), (true, true));
+        assert_eq!(dispatched_effect_status(false, false), (true, true));
     }
 
     #[test]

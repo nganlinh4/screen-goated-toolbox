@@ -10,6 +10,27 @@ use std::sync::mpsc;
 
 mod browser;
 pub(super) use browser::{browser_click, browser_drag, browser_vision_target};
+mod candidate_artifacts;
+mod frozen_read;
+
+pub(super) fn write_artifact(
+    kind: &str,
+    name: &str,
+    bytes: &[u8],
+    action: Option<super::super::telemetry::ActionTrace>,
+) -> bool {
+    frozen_read::write_artifact(kind, name, bytes, action)
+}
+
+pub(super) fn persist_candidates(
+    request_id: u64,
+    input_sha256: &str,
+    bundle_sha256: &str,
+    attempts: &[super::super::vision_reader::CandidateAttempt],
+    action: Option<super::super::telemetry::ActionTrace>,
+) -> (String, bool) {
+    frozen_read::persist_candidates(request_id, input_sha256, bundle_sha256, attempts, action)
+}
 
 /// Longest edge target for the view crop sent to the model (short edge actually).
 pub(super) const VIEW_SHORT: u32 = 1024;
@@ -29,8 +50,8 @@ pub(super) fn read_view(
     read_view_pref(view, question, ctx, cancel, &[])
 }
 
-/// [`read_view`] but trying `prefer` model ids first — the stall planner prefers
-/// the benchmark-winning 2.5 vision models before the standard chain.
+/// [`read_view`] but trying optional `prefer` model ids before the configured
+/// image-to-text chain.
 pub(super) fn read_view_pref(
     view: View,
     question: &str,
@@ -38,101 +59,14 @@ pub(super) fn read_view_pref(
     cancel: &AtomicBool,
     prefer: &[&str],
 ) -> Result<String> {
-    use super::super::telemetry::{self, Privacy};
-    let request_id = telemetry::next_artifact_id();
-    let started = Instant::now();
-    let cap = session::capture_virtual().inspect_err(|error| {
-        telemetry::typed_error(
-            "ERR_VISION_CAPTURE_FAILED",
-            "vision",
-            "failed to capture the exact input for an auxiliary vision request",
-            json!({"request_id": request_id, "error": error.to_string()}),
-        );
-    })?;
-    let (jpeg, shown) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)
-        .inspect_err(|error| {
-            telemetry::typed_error(
-                "ERR_VISION_ENCODE_FAILED",
-                "vision",
-                "failed to encode the auxiliary vision input",
-                json!({"request_id": request_id, "error": error.to_string()}),
-            );
-        })?;
-    let artifact_name = format!("vision-input-{request_id:06}.jpg");
-    let artifact_path = telemetry::trace_dir().join(&artifact_name);
-    let artifact_write_ok = match std::fs::write(&artifact_path, &jpeg) {
-        Ok(()) => true,
-        Err(error) => {
-            telemetry::artifact_write_failed("vision_input", &artifact_path, None, &error);
-            false
-        }
-    };
-    telemetry::event(
-        "vision_request",
-        "vision",
-        Privacy::UserText,
-        json!({
-            "request_id": request_id,
-            "question_preview": question.chars().take(200).collect::<String>(),
-            "context_preview": ctx.chars().take(200).collect::<String>(),
-            "preferred_models": prefer,
-            "byte_count": jpeg.len(),
-            "view": [shown.x, shown.y, shown.w, shown.h],
-            "artifact_path": artifact_name,
-            "artifact_write_ok": artifact_write_ok,
-        }),
-    );
-    let (q, c) = (question.to_string(), ctx.to_string());
-    let prefer: Vec<String> = prefer.iter().map(|s| s.to_string()).collect();
-    let result = run_cancellable(cancel, move || {
-        let p: Vec<&str> = prefer.iter().map(String::as_str).collect();
-        super::super::vision_reader::read_image_pref(&jpeg, &q, &c, &p)
-    });
-    telemetry::event(
-        "vision_result",
-        "vision",
-        Privacy::UserText,
-        json!({
-            "request_id": request_id,
-            "ok": result.is_ok(),
-            "duration_ms": started.elapsed().as_millis(),
-            "response_preview": result.as_ref().ok().map(|text| text.chars().take(300).collect::<String>()),
-            "error": result.as_ref().err().map(ToString::to_string),
-        }),
-    );
-    result
+    frozen_read::read_plain(view, question, ctx, cancel, prefer)
 }
 
-/// Bounded planner-grade preference before the normal vision fallback chain.
-/// This affects only auxiliary recovery advice; execution still requires fresh
-/// grounding and the ordinary structural action guards.
-const PLANNER_VISION_PREFER: &[&str] = &["gemini-flash-lite", "gemini-flash"];
-
 impl Brain {
-    /// Independent high-res vision check of a `done` claim. Returns (accepted,
-    /// typed verdict). Checker errors are unavailable and fail closed.
-    pub fn verify_done(&self, task: &str, cancel: &AtomicBool) -> DoneCheck {
-        let full = window_view(self.target.as_deref(), self.whole_screen);
-        let q = done_verifier_question(task);
-        classify_done_read(read_view(
-            full,
-            &q,
-            &self.done_verifier_context(task),
-            cancel,
-        ))
-    }
-
-    pub(super) fn done_verifier_context(&self, task: &str) -> String {
-        format!(
-            "task: {task}; bounded provenance-labelled evidence this turn:\n{}",
-            self.completion_evidence.context()
-        )
-    }
-
     /// Stall safety-net — the "merge" planner: ONE grounded vision call that SEES
     /// the screen and proposes the single best NEXT action when the agent is
-    /// looping (perception + plan in one shot). Prefers the fast/accurate 2.5
-    /// vision models. None on vision failure; the compact typed postcondition
+    /// looping (perception + plan in one shot). Uses the configured vision chain.
+    /// None on vision failure; the compact typed postcondition
     /// still reports the unchanged state. Cancellable, so barge-in is immediate.
     pub fn stuck_advice(&self, task: &str, cancel: &AtomicBool) -> Option<String> {
         let view = window_view(self.target.as_deref(), self.whole_screen);
@@ -149,89 +83,16 @@ Be concrete and grounded in what you SEE - name the exact on-screen element, whe
 (greyed-out, behind a dialog, off-screen, wrong tab, or the task is already done). \
 Answer in ONE or TWO sentences as a direct instruction to the agent. No preamble."
         );
-        let advice = read_view_pref(
-            view,
-            &q,
-            &format!("task: {task}"),
-            cancel,
-            PLANNER_VISION_PREFER,
-        )
-        .ok()?
-        .trim()
-        .to_string();
+        let advice = read_view_pref(view, &q, &format!("task: {task}"), cancel, &[])
+            .ok()?
+            .trim()
+            .to_string();
         (!advice.is_empty()).then_some(advice)
     }
 
     pub fn final_review(&self, task: &str, note: &str) {
         final_review(&self.dir, self.target.as_deref(), task, note);
     }
-}
-
-fn done_verifier_question(task: &str) -> String {
-    format!(
-        "Independently evaluate whether the current visible state and supplied receipts prove this requested outcome: {task:?}. \
-Do not trust the acting agent's claim or infer an effect from intent. Evidence provenance is strict: job_source proves only the exact surface where the job began; grounded_surface proves only its exact title, URL, and identity; capability_result proves only the fields that capability directly returned (an ok status proves execution, not a semantic premise); model_inference is advisory and cannot by itself establish a factual, ordinal, comparative, or relational premise; model_authored_computation proves only that supplied code ran, never that its output reflects provider state; model_mediated_effect proves execution metadata but its inferred target label is advisory. A click or navigation receipt proves the interaction, not that its target satisfied a requested selection rule. Build a complete evidence chain, preserve any source-identity constraint in the task, and return complete=false when a required premise is missing or contradicted. A communicative outcome may be proven by a direct read receipt even when there is no terminal visual state; a state-change outcome requires the requested postcondition. \
-Return one JSON object only: {{\"complete\":boolean,\"evidence\":\"specific supporting state or receipt\",\"contradiction\":\"specific missing or conflicting state, or empty\"}}."
-    )
-}
-
-/// A missing independent reading is an unknown outcome, never proof that an
-/// action task succeeded. This also keeps cancellation from becoming fail-open.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::overlay::computer_control) struct DoneCheck {
-    pub(in crate::overlay::computer_control) complete: bool,
-    pub(in crate::overlay::computer_control) unavailable: bool,
-    pub(in crate::overlay::computer_control) verdict: String,
-}
-
-fn classify_done_read(reading: Result<String>) -> DoneCheck {
-    match reading {
-        Ok(answer) => match parse_done_verdict(&answer) {
-            Some((complete, evidence, contradiction)) => {
-                let verdict = serde_json::json!({
-                    "complete": complete,
-                    "evidence": evidence,
-                    "contradiction": contradiction,
-                })
-                .to_string();
-                DoneCheck {
-                    complete,
-                    unavailable: false,
-                    verdict,
-                }
-            }
-            None => DoneCheck {
-                complete: false,
-                unavailable: true,
-                verdict: "independent vision check returned an invalid verdict schema".to_string(),
-            },
-        },
-        Err(error) => DoneCheck {
-            complete: false,
-            unavailable: true,
-            verdict: format!("independent vision check unavailable: {error}"),
-        },
-    }
-}
-
-fn parse_done_verdict(answer: &str) -> Option<(bool, String, String)> {
-    let start = answer.find('{')?;
-    let end = answer.rfind('}')?;
-    let value: Value = serde_json::from_str(&answer[start..=end]).ok()?;
-    let complete = value.get("complete")?.as_bool()?;
-    let evidence = value.get("evidence")?.as_str()?.trim().to_string();
-    let contradiction = value
-        .get("contradiction")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    if (complete && (evidence.is_empty() || !contradiction.is_empty()))
-        || (!complete && contradiction.is_empty())
-    {
-        return None;
-    }
-    Some((complete, evidence, contradiction))
 }
 
 /// Run a (slow, blocking) vision call on a worker thread while polling `cancel`
@@ -253,6 +114,46 @@ where
         }
         match rx.recv_timeout(Duration::from_millis(50)) {
             Ok(r) => return r,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("vision worker disconnected")
+            }
+        }
+    }
+}
+
+/// Run one blocking provider operation with both user cancellation and a hard
+/// wall-clock budget. The child flag is passed into transports that can abort
+/// cooperatively; callers still return on time if a transport is stuck before
+/// it can observe that flag.
+pub(super) fn run_cancellable_with_timeout<T, F>(
+    cancel: &AtomicBool,
+    timeout: Duration,
+    work: F,
+) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce(Arc<AtomicBool>) -> Result<T> + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel();
+    let child_cancel = Arc::new(AtomicBool::new(false));
+    let worker_cancel = Arc::clone(&child_cancel);
+    std::thread::spawn(move || {
+        let _ = tx.send(work(worker_cancel));
+    });
+    let started = Instant::now();
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            child_cancel.store(true, Ordering::SeqCst);
+            anyhow::bail!("cancelled by user");
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            child_cancel.store(true, Ordering::SeqCst);
+            anyhow::bail!("vision request timed out after {} ms", timeout.as_millis());
+        }
+        match rx.recv_timeout(remaining.min(Duration::from_millis(50))) {
+            Ok(result) => return result,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 anyhow::bail!("vision worker disconnected")
@@ -448,64 +349,31 @@ pub(super) fn append_click(dir: &str, action: super::super::telemetry::ActionTra
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{classify_done_read, done_verifier_question};
+mod cancellation_tests {
+    use super::*;
 
     #[test]
-    fn completion_check_errors_fail_closed() {
-        let result = classify_done_read(Err(anyhow::anyhow!("cancelled")));
-        assert!(!result.complete);
-        assert!(result.unavailable);
-    }
-
-    #[test]
-    fn completion_check_uses_typed_verdict_not_language_phrases() {
-        assert!(
-            classify_done_read(Ok(
-                r#"{"complete":true,"evidence":"opaque-evidence-17","contradiction":""}"#.into()
-            ))
-            .complete
-        );
-        let prose = classify_done_read(Ok("YES - visible".into()));
-        assert!(!prose.complete);
-        assert!(prose.unavailable);
-        assert!(!classify_done_read(Ok(
-            r#"{"complete":false,"evidence":"opaque-observation-2","contradiction":"opaque-contradiction-9"}"#
-                .into()
-        ))
-        .complete);
-        assert!(
-            !classify_done_read(Ok(
-                r#"{"complete":true,"evidence":"state","contradiction":"missing"}"#.into()
-            ))
-            .complete
-        );
-    }
-
-    #[test]
-    fn incomplete_typed_verdict_needs_only_a_contradiction() {
-        let result = classify_done_read(Ok(
-            r#"{"complete":false,"evidence":"","contradiction":"opaque-contradiction-11"}"#.into(),
-        ));
-        assert!(!result.complete);
-        assert!(!result.unavailable);
-        assert!(result.verdict.contains("opaque-contradiction-11"));
-
-        let invalid = classify_done_read(Ok(
-            r#"{"complete":false,"evidence":"opaque-observation-4","contradiction":""}"#.into(),
-        ));
-        assert!(!invalid.complete);
-        assert!(invalid.unavailable);
-    }
-
-    #[test]
-    fn verifier_contract_does_not_promote_inference_or_effect_receipts_to_proof() {
-        let question = done_verifier_question("opaque task");
-        assert!(question.contains("model_inference is advisory"));
-        assert!(question.contains("model_authored_computation proves only"));
-        assert!(question.contains("ordinal, comparative, or relational premise"));
-        assert!(question.contains("A click or navigation receipt proves the interaction"));
-        assert!(question.contains("source-identity constraint"));
-        assert!(question.contains("complete=false"));
+    fn deadline_returns_promptly_and_notifies_the_provider_worker() {
+        let outer = AtomicBool::new(false);
+        let child_seen = Arc::new(AtomicBool::new(false));
+        let worker_seen = Arc::clone(&child_seen);
+        let started = Instant::now();
+        let result =
+            run_cancellable_with_timeout(&outer, Duration::from_millis(30), move |child_cancel| {
+                while !child_cancel.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                worker_seen.store(true, Ordering::SeqCst);
+                Ok(())
+            });
+        assert!(result.unwrap_err().to_string().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_millis(250));
+        for _ in 0..50 {
+            if child_seen.load(Ordering::SeqCst) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        panic!("provider worker did not observe deadline cancellation");
     }
 }

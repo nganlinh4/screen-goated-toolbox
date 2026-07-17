@@ -14,13 +14,13 @@ impl Brain {
         ctx: &str,
         cancel: &Arc<AtomicBool>,
         trace: Option<super::super::telemetry::ActionTrace>,
+        authorize_repair_process: bool,
     ) -> Value {
         self.step += 1;
         let step = self.step;
         let action = trace.unwrap_or_else(|| super::super::telemetry::claim_action(name));
         self.active_action = Some(action);
         let t0 = Instant::now();
-        let capability = EvidenceProvenance::CapabilityResult;
         if action_invalidates_anchors(name) {
             self.clear_anchors(&format!("before_{name}"));
         }
@@ -36,12 +36,14 @@ impl Brain {
             &enriched_ctx
         };
         if let Some(blocked) = self.setup_guard.before_action(name) {
-            return self.finish_dispatch(action, name, args, blocked, capability, t0);
+            return self.finish_dispatch(action, name, args, blocked, t0);
         }
-        if let Some((result, provenance)) = self.dispatch_browser_tool(name, args, cancel) {
-            return self.finish_dispatch(action, name, args, result, provenance, t0);
+        if let Some(blocked) = self.exact_edit_guard.before_action(name, args) {
+            return self.finish_dispatch(action, name, args, blocked, t0);
         }
-        let mut evidence_provenance = EvidenceProvenance::for_dispatch(name);
+        if let Some(result) = self.dispatch_browser_tool(name, args, cancel) {
+            return self.finish_dispatch(action, name, args, result, t0);
+        }
         let result = match name {
             // Deterministic controller (Stage 1): the model reads the indexed world
             // and acts by @id; the controller resolves/executes/verifies/gates.
@@ -83,7 +85,7 @@ impl Brain {
                     cell,
                     self.target.as_deref(),
                 ) {
-                    return self.finish_dispatch(action, name, args, blocked, capability, t0);
+                    return self.finish_dispatch(action, name, args, blocked, t0);
                 }
                 match self.grid.center_norm(cell) {
                     Some((mx, my)) => {
@@ -152,7 +154,6 @@ impl Brain {
                 json!({"ok": true, "view": "the whole screen"})
             }
             "look" => {
-                evidence_provenance = EvidenceProvenance::ModelInference;
                 let q = args
                     .get("question")
                     .and_then(Value::as_str)
@@ -166,7 +167,6 @@ impl Brain {
                 }
             }
             "click_target" => {
-                evidence_provenance = EvidenceProvenance::ModelMediatedEffect;
                 let desc = args
                     .get("description")
                     .and_then(Value::as_str)
@@ -189,7 +189,6 @@ impl Brain {
                             name,
                             args,
                             json!({"ok": false, "code": "ERR_STALE_FRAME_SURFACE", "error": error.to_string()}),
-                            EvidenceProvenance::CapabilityResult,
                             t0,
                         );
                     }
@@ -243,7 +242,6 @@ impl Brain {
                 }
             }
             "drag_target" => {
-                evidence_provenance = EvidenceProvenance::ModelMediatedEffect;
                 // Precise drag: vision-locate BOTH endpoints and drag between them -
                 // for canvas drag-and-drop (place a card on a slot, move a slider).
                 let from = args.get("from").and_then(Value::as_str).unwrap_or("");
@@ -261,7 +259,6 @@ impl Brain {
                             name,
                             args,
                             json!({"ok": false, "code": "ERR_STALE_FRAME_SURFACE", "error": error.to_string()}),
-                            EvidenceProvenance::CapabilityResult,
                             t0,
                         );
                     }
@@ -312,7 +309,6 @@ impl Brain {
                 }
             }
             "point_at" => {
-                evidence_provenance = EvidenceProvenance::ModelMediatedEffect;
                 // Same vision-locate as click_target, but MOVE the cursor onto the
                 // target and stop - no click. For "point at / show me X" or to hover
                 // and reveal a tooltip / hover-menu (dwell_seconds lets it surface).
@@ -366,7 +362,6 @@ impl Brain {
                 }
             }
             "map_targets" | "click_mark" => {
-                evidence_provenance = EvidenceProvenance::ModelMediatedEffect;
                 self.dispatch_anchor_action(name, args, ctx, cancel, action, step)
             }
             "wait" => {
@@ -382,25 +377,34 @@ impl Brain {
                 if self.dry {
                     json!({"ok": true, "note": "dry"})
                 } else {
-                    match guarded_input_args(
+                    match guarded_direct_input_args(
+                        name,
                         args.clone(),
                         self.target.as_deref(),
                         self.source_frame.as_ref(),
+                        self.keyboard_target_gate.refocus_required(),
                     ) {
                         Ok(guarded) => executor::execute_ex(name, &guarded, &self.profile, cancel),
-                        Err(error) => json!({"ok": false, "error": error.to_string()}),
+                        Err(error) => dispatch_telemetry::pre_dispatch_failure(error),
                     }
                 }
             }
-            "open_url" | "launch_app" | "run_command" => {
+            "open_url" | "launch_app" => {
                 if self.dry {
                     json!({"ok": true, "note": "dry"})
                 } else {
                     executor::execute_ex(name, args, &self.profile, cancel)
                 }
             }
+            "run_command" => {
+                self.dispatch_exact_process(args, cancel, action, authorize_repair_process)
+            }
+            "edit_text_file" => self.dispatch_text_edit(args, cancel, action),
+            "edit_text_file_structure" => self.dispatch_structural_edit(args, cancel, action),
+            "save_artifact" => self.dispatch_artifact_save(args, cancel, action),
             "system_query" => super::super::system_query::query(args),
             "list_files" => super::super::system_query::list_files(args),
+            "read_text_file" => executor::execute_ex(name, args, &self.profile, cancel),
             "scroll" => {
                 // Real mouse-wheel scroll. Resolve where to scroll: a given grid
                 // cell, else the centre of the current view (the wheel acts on the
@@ -426,7 +430,7 @@ impl Brain {
                         Ok(guarded) => {
                             executor::execute_ex("scroll", &guarded, &self.profile, cancel)
                         }
-                        Err(error) => json!({"ok": false, "error": error.to_string()}),
+                        Err(error) => dispatch_telemetry::pre_dispatch_failure(error),
                     }
                 }
             }
@@ -461,9 +465,7 @@ impl Brain {
                                 Ok(guarded) => {
                                     executor::execute_ex("drag", &guarded, &self.profile, cancel)
                                 }
-                                Err(error) => {
-                                    json!({"ok": false, "error": error.to_string()})
-                                }
+                                Err(error) => dispatch_telemetry::pre_dispatch_failure(error),
                             }
                         }
                     }
@@ -472,9 +474,11 @@ impl Brain {
             }
             "focus_window" => {
                 let title = args.get("title").and_then(Value::as_str).unwrap_or("");
-                match super::super::uia::raise_window(title) {
+                self.keyboard_target_gate.begin_focus_attempt();
+                match super::super::uia::raise_window_with_target(title) {
                     Err(error) => window_error(error),
-                    Ok(raised) => {
+                    Ok((raised, target)) => {
+                        self.keyboard_target_gate.record_focus_result(raised);
                         std::thread::sleep(Duration::from_millis(200));
                         if raised {
                             // Re-frame on the newly focused window and discard stale anchors.
@@ -485,7 +489,11 @@ impl Brain {
                         let now = super::super::uia::pointer_context().0;
                         json!({
                             "ok": raised,
+                            "target": target,
                             "foreground_now": now,
+                            "effect_verified": raised,
+                            "effect_may_have_occurred": true,
+                            "executed": raised.then_some(true),
                             "note": if raised { "switched" } else { "BLOCKED: the resolved window did not become foreground. Do not repeat the same focus attempt blindly; use a non-foreground provider when one exposes the needed state, otherwise report the blocker." }
                         })
                     }
@@ -563,17 +571,6 @@ impl Brain {
             "remove_app_integration" => {
                 super::super::mcp::remove_tool(args.get("id").and_then(Value::as_str).unwrap_or(""))
             }
-            "integration_tool_search" => super::super::mcp::search_tools(
-                args.get("query").and_then(Value::as_str).unwrap_or(""),
-                args.get("integration_id").and_then(Value::as_str),
-            ),
-            "integration_tool_call" => super::super::mcp::call_tool(
-                args.get("integration_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or(""),
-                args.get("tool").and_then(Value::as_str).unwrap_or(""),
-                args.get("arguments").unwrap_or(&Value::Null),
-            ),
             // Local artifact tools and installed MCP tools are dynamic-ish surfaces.
             _ => {
                 super::super::artifacts::dispatch_tool(name, args, &self.profile, cancel, self.dry)
@@ -581,7 +578,7 @@ impl Brain {
                     .unwrap_or_else(|| json!({"ok": false, "error": "unknown action"}))
             }
         };
-        self.finish_dispatch(action, name, args, result, evidence_provenance, t0)
+        self.finish_dispatch(action, name, args, result, t0)
     }
 }
 

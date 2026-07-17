@@ -15,13 +15,14 @@
 try { importScripts("bootstrap.js"); } catch (_) { /* no bootstrap file present */ }
 
 const DEFAULT_PORT = 47800;
-const BRIDGE_PROTOCOL = 5;
+const BRIDGE_PROTOCOL = 7;
 const BRIDGE_CAPABILITIES = Object.freeze([
   "cdp.command",
   "cdp.explicit_tab",
   "cdp.session",
   "cdp.require_active",
   "tabs.list",
+  "tabs.inventory.window_identity",
   "tabs.active",
   "tabs.active.focused_window",
   "tabs.activate",
@@ -29,6 +30,7 @@ const BRIDGE_CAPABILITIES = Object.freeze([
   "tabs.create.foreground",
   "tabs.create.background",
   "tabs.remove",
+  "runtime.reload",
 ]);
 let ws = null;          // the current active socket (for unsolicited events)
 let connecting = false; // guard against overlapping connect() calls
@@ -135,10 +137,22 @@ async function onMessage(raw, reply) {
     case "tabs":
       await handleTabs(msg, reply);
       break;
+    case "runtime":
+      await handleRuntime(msg, reply);
+      break;
     default:
       if (msg.id) reply({ id: msg.id, ok: false, code: "ERR_BROWSER_CAPABILITY_UNSUPPORTED", capability: `rpc.${msg.type}`, error: "unsupported bridge command" });
       break;
   }
+}
+
+async function handleRuntime(msg, reply) {
+  if (msg.action !== "reload") {
+    reply({ id: msg.id, ok: false, code: "ERR_BROWSER_CAPABILITY_UNSUPPORTED", capability: `runtime.${msg.action || "unknown"}`, error: "unsupported runtime action" });
+    return;
+  }
+  reply({ id: msg.id, ok: true, result: { reloading: true } });
+  setTimeout(() => chrome.runtime.reload(), 50);
 }
 
 // Resolve the target tab, ensure a debugger session with flat child-target
@@ -167,7 +181,14 @@ async function handleTabs(msg, reply) {
   try {
     if (msg.action === "list") {
       const tabs = await chrome.tabs.query({});
-      reply({ id: msg.id, ok: true, result: tabs.map((t) => ({ id: t.id, title: t.title, url: t.url, active: t.active })) });
+      reply({ id: msg.id, ok: true, result: tabs.map((t) => ({
+        id: t.id,
+        title: t.title,
+        url: t.url || null,
+        pendingUrl: t.pendingUrl || null,
+        active: t.active,
+        windowId: t.windowId,
+      })) });
     } else if (msg.action === "active") {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       if (!tab || !tab.id) throw new Error("no active tab");
@@ -178,10 +199,11 @@ async function handleTabs(msg, reply) {
         windowFocused: true,
       } });
     } else if (msg.action === "activate") {
+      if (!Number.isInteger(msg.tabId) || msg.tabId <= 0) throw new Error("activate requires a positive tab id");
       await chrome.tabs.update(msg.tabId, { active: true });
       reply({ id: msg.id, ok: true, result: {} });
     } else if (msg.action === "navigate") {
-      if (!Number.isInteger(msg.tabId)) throw new Error("navigate requires an exact tab id");
+      if (!Number.isInteger(msg.tabId) || msg.tabId <= 0) throw new Error("navigate requires a positive exact tab id");
       if (typeof msg.url !== "string" || !msg.url) throw new Error("navigate requires a non-empty URL");
       const before = await chrome.tabs.get(msg.tabId);
       const tab = await chrome.tabs.update(msg.tabId, { url: msg.url });
@@ -193,8 +215,15 @@ async function handleTabs(msg, reply) {
         pendingUrl: tab.pendingUrl || "",
       } });
     } else if (msg.action === "create") {
+      if (typeof msg.url !== "string" || !msg.url.trim()) throw new Error("create requires a non-empty URL");
       const tab = await chrome.tabs.create({ url: msg.url, active: msg.active !== false });
-      reply({ id: msg.id, ok: true, result: { id: tab.id, url: tab.url } });
+      if (!tab || !Number.isInteger(tab.id) || tab.id <= 0) throw new Error("created tab omitted its id");
+      reply({ id: msg.id, ok: true, result: {
+        id: tab.id,
+        url: tab.url || null,
+        pendingUrl: tab.pendingUrl || null,
+        requestedUrl: msg.url,
+      } });
     } else if (msg.action === "remove") {
       await chrome.tabs.remove(msg.tabId);
       reply({ id: msg.id, ok: true, result: {} });

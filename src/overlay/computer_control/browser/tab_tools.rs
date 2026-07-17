@@ -7,6 +7,7 @@ use std::time::Duration;
 use super::bridge;
 
 mod navigation;
+mod navigation_history;
 mod navigation_state;
 #[cfg(test)]
 mod tests;
@@ -65,7 +66,14 @@ pub(in crate::overlay::computer_control) fn eval_js_on_document(
     let result = match eval(Some(tab_id), &expression) {
         Ok(value) if value.get("guard").and_then(Value::as_str) == Some("ok") => {
             match value.get("result") {
-                Some(result) => json!({"ok": true, "result": result}),
+                Some(result) => json!({
+                    "ok": true,
+                    "result": result,
+                    "structured_receipt": {
+                        "operation_complete": true,
+                        "desktop_grounding": "not_applicable",
+                    },
+                }),
                 None => json!({
                     "ok": false,
                     "code": "ERR_BROWSER_TOOL_FAILED",
@@ -92,7 +100,14 @@ fn eval_js_impl(code: &str, tab_id: Option<i64>) -> Value {
         return tag_target(result, tab_id);
     }
     let result = match eval(tab_id, code) {
-        Ok(value) => json!({"ok": true, "result": value}),
+        Ok(value) => json!({
+            "ok": true,
+            "result": value,
+            "structured_receipt": {
+                "operation_complete": true,
+                "desktop_grounding": "not_applicable",
+            },
+        }),
         Err(error) => super::err(error),
     };
     tag_target(result, tab_id)
@@ -148,6 +163,17 @@ pub(in crate::overlay::computer_control) fn navigate(url: &str) -> Value {
 
 pub(in crate::overlay::computer_control) fn navigate_on_tab(url: &str, tab_id: i64) -> Value {
     navigation::navigate_impl(url, Some(tab_id))
+}
+
+pub(in crate::overlay::computer_control) fn traverse_history(direction: &str) -> Value {
+    navigation_history::history_impl(direction, None)
+}
+
+pub(in crate::overlay::computer_control) fn traverse_history_on_tab(
+    direction: &str,
+    tab_id: i64,
+) -> Value {
+    navigation_history::history_impl(direction, Some(tab_id))
 }
 
 fn with_effect_verified(mut result: Value, verified: bool) -> Value {
