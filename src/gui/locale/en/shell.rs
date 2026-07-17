@@ -34,5 +34,13 @@ pub(super) fn get() -> ShellLocaleText {
         help_assistant_btn: "How to use",
         help_assistant_title: "Ask about SGT",
         prompt_dj_btn: "Be a DJ",
+        computer_control_btn: "Computer Control",
+        computer_control_title: "Computer Control",
+        computer_control_intro: "Talk naturally while SGT sees your screen and operates apps or the browser.",
+        computer_control_note: "Uses your Gemini API key. Press the hotkey again to stop.",
+        computer_control_start: "Start",
+        computer_control_stop: "Stop",
+        computer_control_hotkey_label: "Hotkeys",
+        computer_control_hotkey_unset: "Not set",
     }
 }

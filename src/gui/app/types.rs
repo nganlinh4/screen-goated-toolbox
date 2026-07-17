@@ -68,6 +68,8 @@ pub struct SettingsApp {
     pub(crate) recording_hotkey_for_preset: Option<usize>,
     pub(crate) hotkey_conflict_msg: Option<String>,
     pub(crate) recording_sr_hotkey: bool,
+    pub(crate) recording_computer_control_hotkey: bool,
+    pub(crate) computer_control_hotkey_conflict_msg: Option<String>,
     pub(crate) splash: Option<crate::gui::splash::SplashScreen>,
     pub(crate) fade_in_start: Option<f64>,
 
@@ -125,6 +127,7 @@ pub struct SettingsApp {
     pub(crate) pointer_gallery: crate::gui::settings_ui::pointer_gallery::PointerGallery,
     pub(crate) show_translation_gummy: bool,
     pub(crate) show_tts_playground: bool,
+    pub(crate) show_computer_control_dialog: bool,
 
     // --- ARGUMENT HANDLING ---
     pub(crate) pending_file_path: Option<std::path::PathBuf>,

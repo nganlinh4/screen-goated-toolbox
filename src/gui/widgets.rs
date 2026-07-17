@@ -119,6 +119,34 @@ pub fn filled_button_sized(
     .inner
 }
 
+/// A compact filled chip with a trailing close icon. Clicking anywhere on the
+/// chip requests removal; callers own the collection mutation.
+pub fn removable_chip(
+    ui: &mut egui::Ui,
+    label: &str,
+    fill: Color32,
+    text: Color32,
+    corner_radius: u8,
+) -> egui::Response {
+    let icon_px = crate::gui::icons::ICON_SM;
+    let response = filled_button(ui, &format!("{label}      "), fill, text, corner_radius)
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(
+            response.rect.right() - icon_px * 0.5 - 8.0,
+            response.rect.center().y,
+        ),
+        egui::vec2(icon_px, icon_px),
+    );
+    crate::gui::icons::paint_icon(
+        ui.painter(),
+        icon_rect,
+        crate::gui::icons::Icon::Close,
+        text,
+    );
+    response
+}
+
 /// A Material-style filled button with a leading icon and a label.
 ///
 /// Lays out a ~16px-square `icon` followed by a small gap and the `label`,

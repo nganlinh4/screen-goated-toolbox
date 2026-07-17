@@ -27,6 +27,7 @@ pub const MOD_WIN: u32 = 0x0008;
 pub const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
 pub const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
 pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
+pub const COMPUTER_CONTROL_HOTKEY_ID: i32 = 9700;
 pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 
 /// Global handle for the listener window (for the mouse hook to post messages to).
@@ -72,6 +73,20 @@ pub fn register_all_hotkeys(hwnd: HWND) {
     }
     app.registered_hotkey_ids = registered_ids;
 
+    for (idx, hotkey) in app.config.computer_control_hotkeys.iter().enumerate() {
+        if idx >= 100 || [0x04, 0x05, 0x06].contains(&hotkey.code) {
+            continue;
+        }
+        unsafe {
+            let _ = RegisterHotKey(
+                Some(hwnd),
+                COMPUTER_CONTROL_HOTKEY_ID + idx as i32,
+                HOT_KEY_MODIFIERS(hotkey.modifiers),
+                hotkey.code,
+            );
+        }
+    }
+
     // Register Global Screen Record Hotkeys (IDs: 9900-9999)
     for (idx, sr_hotkey) in app.config.screen_record_hotkeys.iter().enumerate() {
         if idx >= 100 {
@@ -109,6 +124,11 @@ pub fn unregister_all_hotkeys(hwnd: HWND) {
     for &id in &app.registered_hotkey_ids {
         unsafe {
             let _ = UnregisterHotKey(Some(hwnd), id);
+        }
+    }
+    for idx in 0..100 {
+        unsafe {
+            let _ = UnregisterHotKey(Some(hwnd), COMPUTER_CONTROL_HOTKEY_ID + idx);
         }
     }
     // Unregister Global SR Hotkeys
@@ -187,7 +207,22 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                         }
                     }
 
-                    // Check Global Screen Record Hotkeys
+                    // Check global app hotkeys.
+                    if found_id.is_none() {
+                        for (idx, hk) in app
+                            .config
+                            .computer_control_hotkeys
+                            .iter()
+                            .take(100)
+                            .enumerate()
+                        {
+                            if hk.code == vk && hk.modifiers == mods {
+                                found_id = Some(COMPUTER_CONTROL_HOTKEY_ID + idx as i32);
+                                break;
+                            }
+                        }
+                    }
+
                     if found_id.is_none() {
                         for (idx, sr_hk) in app.config.screen_record_hotkeys.iter().enumerate() {
                             if sr_hk.code == vk && sr_hk.modifiers == mods {

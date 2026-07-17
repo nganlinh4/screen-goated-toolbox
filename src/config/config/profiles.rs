@@ -137,6 +137,15 @@ impl Config {
             }
         }
 
+        for h in &self.computer_control_hotkeys {
+            if h.code == vk && h.modifiers == mods {
+                return Some(format!(
+                    "Conflict with global hotkey '{}' (Computer Control)",
+                    h.name
+                ));
+            }
+        }
+
         for (idx, preset) in self.presets.iter().enumerate() {
             if Some(idx) == exclude_preset_idx {
                 continue;
@@ -151,5 +160,41 @@ impl Config {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+    use crate::config::{Hotkey, Preset};
+
+    #[test]
+    fn computer_control_hotkeys_participate_in_global_conflict_checks() {
+        let global_key = Hotkey::new(0x75, "F6", 0);
+        let preset_key = Hotkey::new(0x41, "Ctrl + A", crate::hotkey::MOD_CONTROL);
+        let config = Config {
+            computer_control_hotkeys: vec![global_key.clone()],
+            presets: vec![Preset {
+                hotkeys: vec![preset_key.clone()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        assert!(
+            config
+                .check_hotkey_conflict(global_key.code, global_key.modifiers, None)
+                .is_some()
+        );
+        assert!(
+            config
+                .check_hotkey_conflict(global_key.code, global_key.modifiers, Some(0))
+                .is_some()
+        );
+        assert!(
+            config
+                .check_hotkey_conflict(preset_key.code, preset_key.modifiers, None)
+                .is_some()
+        );
     }
 }

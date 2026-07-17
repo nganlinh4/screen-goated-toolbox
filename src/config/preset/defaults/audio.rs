@@ -171,13 +171,6 @@ pub fn create_audio_presets() -> Vec<Preset> {
             ])
             .build(),
 
-        // Computer Control - Gemini Live screen+voice agent that drives Windows
-        PresetBuilder::new("preset_computer_control", "Computer Control")
-            .audio_device()
-            .realtime()
-            .blocks(vec![BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID).build()])
-            .build(),
-
         // Thu âm máy - Input Adapter Only
         PresetBuilder::new("preset_record_device", "Record Device")
             .audio_device()

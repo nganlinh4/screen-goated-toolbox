@@ -31,4 +31,12 @@ pub struct ShellLocaleText {
     pub help_assistant_btn: &'static str,
     pub help_assistant_title: &'static str,
     pub prompt_dj_btn: &'static str,
+    pub computer_control_btn: &'static str,
+    pub computer_control_title: &'static str,
+    pub computer_control_intro: &'static str,
+    pub computer_control_note: &'static str,
+    pub computer_control_start: &'static str,
+    pub computer_control_stop: &'static str,
+    pub computer_control_hotkey_label: &'static str,
+    pub computer_control_hotkey_unset: &'static str,
 }

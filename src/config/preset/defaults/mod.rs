@@ -97,6 +97,5 @@ pub fn get_default_presets() -> Vec<Preset> {
         find(&audio, "preset_transcribe_english_offline"),
         find(&masters, "preset_audio_device_master"),
         find(&audio, "preset_realtime_audio_translate"),
-        find(&audio, "preset_computer_control"),
     ]
 }

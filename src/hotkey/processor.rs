@@ -44,6 +44,17 @@ pub unsafe extern "system" fn hotkey_proc(
 
 /// Handle a hotkey message.
 fn handle_hotkey(id: i32) {
+    if (crate::hotkey::COMPUTER_CONTROL_HOTKEY_ID..crate::hotkey::TRANSLATION_GUMMY_HOTKEY_ID)
+        .contains(&id)
+    {
+        if overlay::computer_control::is_active() {
+            overlay::computer_control::stop_overlay();
+        } else {
+            overlay::computer_control::show_overlay();
+        }
+        return;
+    }
+
     if (9800..9900).contains(&id) {
         overlay::translation_gummy::toggle_translation_gummy();
         return;
@@ -230,21 +241,6 @@ fn get_preset_context(id: i32, preset_idx: usize) -> (String, String, bool, Stri
 
 /// Handle audio preset hotkey.
 fn handle_audio_preset(preset_idx: usize) {
-    // Computer Control is a special realtime preset: toggle its own session/overlay.
-    let preset_id = APP
-        .lock()
-        .ok()
-        .and_then(|app| app.config.presets.get(preset_idx).map(|p| p.id.clone()))
-        .unwrap_or_default();
-    if preset_id == "preset_computer_control" {
-        if overlay::computer_control::is_active() {
-            overlay::computer_control::stop_overlay();
-        } else {
-            overlay::computer_control::show_overlay();
-        }
-        return;
-    }
-
     let is_realtime = {
         if let Ok(app) = APP.lock() {
             if preset_idx < app.config.presets.len() {

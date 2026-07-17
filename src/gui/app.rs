@@ -72,6 +72,7 @@ impl eframe::App for SettingsApp {
 
         // Hotkey Recording
         self.update_hotkey_recording(ctx);
+        self.update_computer_control_hotkey_recording(ctx);
 
         // Event Handling
         self.handle_events(ctx);

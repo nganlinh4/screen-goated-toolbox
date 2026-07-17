@@ -399,6 +399,10 @@ pub struct Config {
     #[serde(default = "default_screen_record_hotkeys")]
     pub screen_record_hotkeys: Vec<Hotkey>,
 
+    /// Global hotkeys for toggling the Computer Control assistant.
+    #[serde(default)]
+    pub computer_control_hotkeys: Vec<Hotkey>,
+
     /// Last normal (restored) window size for Screen Record UI
     #[serde(default = "default_screen_record_window_size")]
     pub screen_record_window_size: (i32, i32),
@@ -507,6 +511,7 @@ impl Default for Config {
 
             // Screen Record
             screen_record_hotkeys: default_screen_record_hotkeys(),
+            computer_control_hotkeys: Vec::new(),
             screen_record_window_size: default_screen_record_window_size(),
             translation_gummy: default_translation_gummy_settings(),
         }

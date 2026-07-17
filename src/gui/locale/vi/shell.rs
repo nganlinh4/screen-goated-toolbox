@@ -34,5 +34,13 @@ pub(super) fn get() -> ShellLocaleText {
         help_assistant_btn: "Hỏi cách dùng",
         help_assistant_title: "Hỏi về SGT",
         prompt_dj_btn: "Làm DJ",
+        computer_control_btn: "Điều khiển máy tính",
+        computer_control_title: "Điều khiển máy tính",
+        computer_control_intro: "Trò chuyện tự nhiên trong khi SGT nhìn màn hình và thao tác ứng dụng hoặc trình duyệt.",
+        computer_control_note: "Tính năng dùng mã API Gemini của bạn. Nhấn lại phím tắt để dừng.",
+        computer_control_start: "Bắt đầu",
+        computer_control_stop: "Dừng",
+        computer_control_hotkey_label: "Phím tắt",
+        computer_control_hotkey_unset: "Chưa đặt",
     }
 }

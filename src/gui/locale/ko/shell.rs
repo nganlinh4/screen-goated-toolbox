@@ -34,5 +34,13 @@ pub(super) fn get() -> ShellLocaleText {
         help_assistant_btn: "사용법 문의",
         help_assistant_title: "SGT에 대해 물어보기",
         prompt_dj_btn: "DJ 되기",
+        computer_control_btn: "컴퓨터 제어",
+        computer_control_title: "컴퓨터 제어",
+        computer_control_intro: "SGT가 화면을 보면서 앱이나 브라우저를 조작하도록 자연스럽게 말해 보세요.",
+        computer_control_note: "Gemini API 키를 사용합니다. 단축키를 다시 누르면 중지됩니다.",
+        computer_control_start: "시작",
+        computer_control_stop: "중지",
+        computer_control_hotkey_label: "단축키",
+        computer_control_hotkey_unset: "설정 안 됨",
     }
 }

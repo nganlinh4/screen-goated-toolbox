@@ -300,6 +300,81 @@ fn migrate_config_creates_default_profile_for_legacy_presets() {
 }
 
 #[test]
+fn migrate_config_moves_computer_control_out_of_every_profile() {
+    let normal = |id: &str| Preset {
+        id: id.to_string(),
+        name: id.to_string(),
+        ..Default::default()
+    };
+    let legacy = |hotkeys: Vec<Hotkey>| Preset {
+        id: "preset_computer_control".to_string(),
+        name: "Computer Control".to_string(),
+        hotkeys,
+        ..Default::default()
+    };
+
+    let profile_key = Hotkey::new(0x70, "F1", 0);
+    let second_profile_key = Hotkey::new(0x71, "F2", 0);
+    let mirror_only = Hotkey::new(0x72, "F3", 0);
+    let existing = Hotkey::new(0x73, "F4", 0);
+    let first = PresetProfile::new_default(
+        vec![
+            normal("before"),
+            legacy(vec![profile_key.clone()]),
+            normal("after"),
+        ],
+        2,
+    );
+    let second = PresetProfile::new_default(
+        vec![
+            legacy(vec![profile_key.clone(), second_profile_key.clone()]),
+            normal("other"),
+        ],
+        0,
+    );
+    let mut active_mirror = first.presets.clone();
+    active_mirror[1].hotkeys.push(mirror_only.clone());
+    let mut config = Config {
+        presets: active_mirror,
+        active_preset_idx: first.active_preset_idx,
+        preset_profiles: vec![first, second],
+        computer_control_hotkeys: vec![existing.clone()],
+        ..Default::default()
+    };
+
+    migrate_config(&mut config);
+
+    assert!(
+        config
+            .presets
+            .iter()
+            .all(|preset| preset.id != "preset_computer_control")
+    );
+    assert!(config.preset_profiles.iter().all(|profile| {
+        profile
+            .presets
+            .iter()
+            .all(|preset| preset.id != "preset_computer_control")
+    }));
+    assert_eq!(config.active_preset_idx, 1);
+    assert_eq!(config.preset_profiles[0].active_preset_idx, 1);
+    assert_eq!(config.preset_profiles[1].active_preset_idx, 0);
+    assert_eq!(
+        config.computer_control_hotkeys,
+        vec![existing, profile_key, mirror_only, second_profile_key]
+    );
+}
+
+#[test]
+fn default_presets_do_not_include_computer_control() {
+    assert!(
+        crate::config::preset::get_default_presets()
+            .iter()
+            .all(|preset| preset.id != "preset_computer_control")
+    );
+}
+
+#[test]
 fn add_preset_profile_clones_active_preset_config() {
     let mut preset = Preset {
         id: "profile_source_preset".to_string(),

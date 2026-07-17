@@ -15,6 +15,7 @@ pub fn render_footer(
 ) {
     let FooterToggles {
         show_modal,
+        show_computer_control,
         show_pointer_gallery,
         show_translation_gummy,
         show_tts_playground,
@@ -31,6 +32,20 @@ pub fn render_footer(
             egui::Color32::WHITE
         };
         ui.spacing_mut().item_spacing.x = 6.0;
+
+        // Computer Control — screen-aware voice agent
+        if filled_icon_button(
+            ui,
+            Icon::SmartToy,
+            text.shell.computer_control_btn,
+            theme.launch_computer_control(),
+            btn_text,
+            6,
+        )
+        .clicked()
+        {
+            *show_computer_control = true;
+        }
 
         // Pointer Gallery — green
         if filled_icon_button(
@@ -174,6 +189,7 @@ pub fn render_footer(
 
 pub struct FooterToggles<'a> {
     pub show_modal: &'a mut bool,
+    pub show_computer_control: &'a mut bool,
     pub show_pointer_gallery: &'a mut bool,
     pub show_translation_gummy: &'a mut bool,
     pub show_tts_playground: &'a mut bool,

@@ -1,6 +1,7 @@
 // --- RENDERING MODULE ---
 // Main application rendering: layout, title bar, footer, and overlays.
 
+mod computer_control;
 mod footer;
 mod overlays;
 mod title_bar;
