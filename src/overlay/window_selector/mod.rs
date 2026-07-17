@@ -127,6 +127,9 @@ mod tests {
 
         assert!(generated.contains("class=\"notice-layer\""));
         assert!(generated.contains("role=\"dialog\" aria-modal=\"true\""));
+        assert!(!generated.contains("class=\"notice-rail\""));
+        assert!(generated.contains("--notice-action: #2f6fca;"));
+        assert!(generated.contains("background:var(--notice-action)"));
         assert!(generated.contains("if(entry.selectionNotice) openNotice(entry,card);"));
         assert!(generated.contains("\"actionLabel\":\"Back to window list\""));
     }
