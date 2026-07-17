@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.ui.i18n
 
+import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 
 /** Vietnamese locale text. Dispatched from [MobileLocaleText.forLanguage]. */
@@ -24,6 +25,8 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
             shellLiveTitle = "Dịch Cabin",
             shellLiveDescription = "Runtime ưu tiên overlay với state model parity cùng bản Windows.",
             appVideoDownloaderTitle = "Tải video",
+            appFeatureUnsupportedTitle = "Không hỗ trợ",
+            appFeatureUnsupportedMessage = "Tính năng này không được hỗ trợ trong phiên bản này.",
             appDjTitle = "Làm DJ",
             appTranslationGummyTitle = "Bánh mỳ chuyển ngữ",
             toolsCategoryImage = "Ảnh",
@@ -144,7 +147,7 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
             usageStatsSettingsAction = "Xem",
             usageTipsTitle = "Mẹo sử dụng",
             usageTipsClickHint = "Chạm để xem toàn bộ danh sách mẹo",
-            usageTipsList = listOf(
+            usageTipsList = listOfNotNull(
                 "Khi đang chọn trên **màn hình tối**, hãy chạm **Hủy** hoặc dùng thao tác quay lại của hệ thống để dừng.",
                 "Bạn không thể đổi tên preset mặc định nhưng **preset tùy chỉnh** thì đổi tên được bình thường.",
                 "**Thư viện lịch sử** sẽ tự dọn các mục cũ khi vượt quá giới hạn.",
@@ -158,7 +161,8 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 "Các model có **biểu tượng kính lúp** có thể truy cập internet để tìm dẫn chứng và thông tin mới nhất.",
                 "Khi **Tự động copy** kích hoạt, một thông báo nhỏ màu xanh sẽ hiện ra để báo nội dung đã vào clipboard.",
                 "Căng thẳng quá thì ghé **'Làm DJ'** để tạo nhạc nền thư giãn trong lúc làm việc.",
-                "Cần tải video? **'Tải video'** tích hợp sẵn hỗ trợ YouTube, Facebook, 4K, phụ đề và nhiều nguồn khác!",
+                "Cần tải video? **'Tải video'** tích hợp sẵn hỗ trợ YouTube, Facebook, 4K, phụ đề và nhiều nguồn khác!"
+                    .takeIf { BuildConfig.DOWNLOADER_SUPPORTED },
                 "**Giữ chặt** preset trong bong bóng để vào **Chế độ Liên tục**, giúp xử lý nhiều mục liên tiếp."
             ),
             resetDefaultsButton = "Khôi phục",

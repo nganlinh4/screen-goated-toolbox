@@ -18,15 +18,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Matrix
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
-import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.screengoated.toolbox.mobile.SgtMobileApplication
-import dev.screengoated.toolbox.mobile.downloader.DownloaderViewModel
-import dev.screengoated.toolbox.mobile.downloader.ui.DownloaderScreen
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileUiLanguageOption
@@ -250,13 +245,3 @@ private fun lerpColor(a: Color, b: Color, t: Float): Color = Color(
     blue = a.blue + (b.blue - a.blue) * t,
     alpha = 1f,
 )
-
-@Composable
-internal fun DownloaderScreenWrapper(locale: MobileLocaleText, onBack: () -> Unit) {
-    val context = LocalContext.current
-    val app = context.applicationContext as SgtMobileApplication
-    val vm: DownloaderViewModel = viewModel(
-        factory = DownloaderViewModel.factory(app.appContainer.downloaderRepository),
-    )
-    DownloaderScreen(viewModel = vm, locale = locale, onBack = onBack)
-}

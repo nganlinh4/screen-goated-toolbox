@@ -22,7 +22,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
-// Tool/deps (yt-dlp + ffmpeg native binaries) management extracted from DownloaderRepository.
+// Tool/deps (yt-dlp + ffmpeg native binaries) management for standalone distributions.
 private const val GH_RELEASE =
     "https://github.com/nganlinh4/youtubedl-android/releases/download/v0.18.1-sgt"
 private val NATIVE_ZIP_FILES = listOf(
@@ -155,6 +155,10 @@ internal fun DownloaderRepository.cleanupNativeZips() {
         }
     }
 }
+
+internal fun DownloaderRepository.removeNativePayload() = Unit
+
+internal fun DownloaderRepository.nativePayloadSizeMb(): Double = dirSizeMb(nativeZipDir)
 
 internal fun DownloaderRepository.calculateYtdlpSize(): String {
     // yt-dlp + Python extracted content (excludes FFmpeg subdir to avoid double-counting)

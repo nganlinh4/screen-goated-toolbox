@@ -72,14 +72,13 @@ class AppUpdateSupportTest {
             currentVersion = "4.8.2",
             latestVersion = latest.getValue("tag_name").jsonPrimitive.content.removePrefix("v"),
             releaseNotes = latest.getValue("body").jsonPrimitive.content,
-            releaseUrl = latest.getValue("html_url").jsonPrimitive.content,
-            assetUrl = selectAndroidAssetUrl(assets),
+            actionUrl = selectAndroidAssetUrl(assets)
+                ?: latest.getValue("html_url").jsonPrimitive.content,
         )
 
         val assetSelection = fixture.getValue("asset_selection").jsonObject
         assertEquals(".apk", assetSelection.getValue("preferred_extension").jsonPrimitive.content)
         assertEquals("release_html_url", assetSelection.getValue("fallback_when_missing").jsonPrimitive.content)
-        assertEquals(null, state.assetUrl)
         assertEquals(latest.getValue("html_url").jsonPrimitive.content, state.actionUrl)
     }
 
@@ -111,7 +110,7 @@ class AppUpdateSupportTest {
     private companion object {
         private const val FIXTURE_PATH = "parity-fixtures/app-update/latest-release.json"
         private const val APP_UPDATE_REPOSITORY_SOURCE =
-            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/updater/AppUpdateRepository.kt"
+            "mobile/androidApp/src/full/java/dev/screengoated/toolbox/mobile/updater/AppUpdateRepository.kt"
         private const val MAIN_VIEW_MODEL_SOURCE =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/MainViewModel.kt"
     }

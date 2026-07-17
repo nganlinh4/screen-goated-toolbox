@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.ui.i18n
 
+import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 
 /** English locale text. Dispatched from [MobileLocaleText.forLanguage]. */
@@ -24,6 +25,8 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
             shellLiveTitle = "Live Translate",
             shellLiveDescription = "Overlay-first runtime with the same Windows parity state model.",
             appVideoDownloaderTitle = "Download Video",
+            appFeatureUnsupportedTitle = "Not supported",
+            appFeatureUnsupportedMessage = "This feature is not supported in this version.",
             appDjTitle = "Be a DJ",
             appTranslationGummyTitle = "Translation Gummy",
             toolsCategoryImage = "Image",
@@ -144,7 +147,7 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
             usageStatsSettingsAction = "View",
             usageTipsTitle = "Usage Tips",
             usageTipsClickHint = "Tap to view the full tip list",
-            usageTipsList = listOf(
+            usageTipsList = listOfNotNull(
                 "While selecting on the **dimmed screen**, tap **Cancel** or use the system back gesture to stop.",
                 "You cannot rename default presets, but **custom presets** can be renamed freely!",
                 "The **History library** automatically cleans up old items when the limit is reached.",
@@ -158,7 +161,8 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 "Models with a **magnifying glass icon** can access the internet to find citations and the latest information.",
                 "When **Auto-copy** is activated, a small green notification will appear to confirm your content reached the clipboard.",
                 "Feeling stressed? Visit **'Be a DJ'** to create relaxing background music while you work.",
-                "Need to download video? The built-in **'Download Video'** supports YouTube, Facebook, 4K, subtitles, and more!",
+                "Need to download video? The built-in **'Download Video'** supports YouTube, Facebook, 4K, subtitles, and more!"
+                    .takeIf { BuildConfig.DOWNLOADER_SUPPORTED },
                 "**Hold down** a preset in the bubble to enter **Continuous Mode**, so you can process multiple items in succession."
             ),
             resetDefaultsButton = "Reset",

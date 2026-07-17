@@ -32,4 +32,8 @@
     <string name="dj_notification_text">Playing music</string>
     <string name="accessibility_service_description">Screen Goated Toolbox uses accessibility to read selected text from any app and paste AI results back. Required for text-selection presets.</string>
     <string name="preset_image_selection_overlay_label">%1$s • %2$s</string>
+    <string name="feature_asr_ort_name">Moonshine runtime</string>
+    <string name="feature_asr_moonshine_name">Moonshine engine</string>
+    <string name="feature_asr_sherpa_name">Zipformer engine</string>
+    <string name="feature_native_cpp_name">Native compatibility runtime</string>
 </resources>

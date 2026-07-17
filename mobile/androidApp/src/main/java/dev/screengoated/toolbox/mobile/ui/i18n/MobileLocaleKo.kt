@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.ui.i18n
 
+import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 
 /** Korean locale text. Dispatched from [MobileLocaleText.forLanguage]. */
@@ -24,6 +25,8 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
             shellLiveTitle = "라이브 번역",
             shellLiveDescription = "Windows parity 상태 모델을 유지하는 오버레이 중심 런타임입니다.",
             appVideoDownloaderTitle = "비디오 다운로드",
+            appFeatureUnsupportedTitle = "지원되지 않음",
+            appFeatureUnsupportedMessage = "이 버전에서는 지원되지 않는 기능입니다.",
             appDjTitle = "DJ 되기",
             appTranslationGummyTitle = "통역 곤약",
             toolsCategoryImage = "이미지",
@@ -144,7 +147,7 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
             usageStatsSettingsAction = "보기",
             usageTipsTitle = "사용 팁",
             usageTipsClickHint = "탭해서 전체 팁 목록 보기",
-            usageTipsList = listOf(
+            usageTipsList = listOfNotNull(
                 "**어두워진 화면**에서 영역을 선택하는 중에는 **취소**를 누르거나 시스템 뒤로 가기 제스처로 중단할 수 있습니다.",
                 "기본 프리셋은 이름을 바꿀 수 없지만 **사용자 프리셋**은 자유롭게 이름을 바꿀 수 있습니다.",
                 "**기록 라이브러리**는 한도에 도달하면 오래된 항목을 자동으로 정리합니다.",
@@ -158,7 +161,8 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 "**돋보기 아이콘**이 있는 모델은 인터넷에 접근해 최신 정보와 출처를 찾을 수 있습니다.",
                 "**Auto-copy**가 실행되면 작은 초록색 알림이 나타나 클립보드 복사를 확인해 줍니다.",
                 "스트레스가 쌓이면 **'DJ 되기'**로 들어가 일하면서 편안한 배경 음악을 만들어 보세요.",
-                "비디오가 필요하신가요? 기본 제공 **'비디오 다운로드'**는 YouTube, Facebook, 4K, 자막 등을 지원합니다!",
+                "비디오가 필요하신가요? 기본 제공 **'비디오 다운로드'**는 YouTube, Facebook, 4K, 자막 등을 지원합니다!"
+                    .takeIf { BuildConfig.DOWNLOADER_SUPPORTED },
                 "버블에서 프리셋을 **길게 누르면** **연속 모드**로 들어가 여러 항목을 연달아 처리할 수 있습니다."
             ),
             resetDefaultsButton = "기본값 복원",

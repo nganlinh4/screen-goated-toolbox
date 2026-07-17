@@ -212,7 +212,18 @@ class MainActivity : ComponentActivity() {
         val pendingResolvedPreset = pendingAudioPreset?.let { appContainer.presetRepository.getResolvedPreset(it.presetId) }
         viewModel.refreshPermissions()
         val state = viewModel.sessionState.value
-        val requiresGeminiApiKey = pendingAudioPreset?.kind == AudioPresetLaunchKind.REALTIME || pendingAudioPreset == null
+        // Only Gemini-backed transcription needs a key: the on-device engines never call
+        // out, and translation always falls back to the keyless GTX provider.
+        val transcriptionModelId = when {
+            pendingAudioPreset == null -> state.config.transcriptionProvider.id
+            pendingAudioPreset.kind == AudioPresetLaunchKind.REALTIME ->
+                pendingResolvedPreset?.preset?.toRealtimeSessionConfig(state.config)
+                    ?.transcriptionProvider?.id
+                    ?: state.config.transcriptionProvider.id
+            else -> null
+        }
+        val requiresGeminiApiKey = transcriptionModelId != null &&
+            !RealtimeModelIds.isOfflineTranscriptionModelId(transcriptionModelId)
         if (requiresGeminiApiKey && !viewModel.hasApiKey()) {
             pendingStart = false
             apiKeyErrorToastText("NO_API_KEY:google", appContainer.repository.currentUiPreferences().uiLanguage)

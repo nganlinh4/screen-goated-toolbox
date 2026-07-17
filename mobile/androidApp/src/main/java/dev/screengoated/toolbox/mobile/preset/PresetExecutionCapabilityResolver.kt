@@ -233,11 +233,12 @@ internal class PresetExecutionCapabilityResolver {
         if (descriptor.modelType != PresetModelType.AUDIO) {
             return false
         }
+        // Must mirror the providers AudioApiClient.executeStreaming can actually
+        // dispatch; anything else would pass preflight and then throw at runtime.
         return descriptor.provider in setOf(
             PresetModelProvider.GOOGLE,
             PresetModelProvider.GROQ,
             PresetModelProvider.GEMINI_LIVE,
-            PresetModelProvider.MOONSHINE,
         )
     }
 

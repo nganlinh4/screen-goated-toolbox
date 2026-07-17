@@ -26,4 +26,7 @@ includeBuild("../../youtubedl-android") {
 
 include(":androidApp")
 include(":shared")
-
+include(":feature_asr_ort")
+include(":feature_asr_moonshine")
+include(":feature_asr_sherpa")
+include(":feature_native_cpp")

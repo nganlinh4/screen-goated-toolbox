@@ -1,4 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.InputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 
 plugins {
     alias(libs.plugins.android.application)
@@ -267,6 +270,12 @@ val generatePresetModelCatalog by tasks.registering {
 
 android {
     namespace = "dev.screengoated.toolbox.mobile"
+    dynamicFeatures += setOf(
+        ":feature_asr_ort",
+        ":feature_asr_moonshine",
+        ":feature_asr_sherpa",
+        ":feature_native_cpp",
+    )
     compileSdk = 36
 
     defaultConfig {
@@ -297,10 +306,15 @@ android {
         create("full") {
             dimension = "distribution"
             versionNameSuffix = "-full"
+            buildConfigField("boolean", "DOWNLOADER_SUPPORTED", "true")
         }
         create("play") {
             dimension = "distribution"
             versionNameSuffix = "-play"
+            // yt-dlp only stays usable by updating itself from the network, which Play's
+            // Device and Network Abuse policy forbids, so the downloader ships disabled
+            // here. The card stays visible and explains itself when tapped.
+            buildConfigField("boolean", "DOWNLOADER_SUPPORTED", "false")
         }
     }
 
@@ -352,6 +366,10 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // Only the multi-MB zip payloads are fetched at runtime. The tiny python/ffmpeg
+            // wrapper binaries must stay in the APK: from Android 10 exec() is only allowed
+            // out of the real nativeLibraryDir, never app-writable storage. (Sideload only —
+            // the `play` flavor has no youtubedl dependency, so it has none of these.)
             excludes += "**/libpython.zip.so"
             excludes += "**/libffmpeg.zip.so"
             // All native ASR libs downloaded on demand via NativeLibManager.
@@ -430,10 +448,14 @@ dependencies {
     implementation(libs.commonmark.ext.gfm.tables)
     implementation(libs.commonmark.ext.gfm.strikethrough)
     implementation(libs.commonmark.ext.task.list.items)
-    implementation(libs.youtubedl.android.library)
-    implementation(libs.youtubedl.android.ffmpeg)
+    // Sideload only. Keeping these off the `play` flavor is what leaves the bundled yt-dlp
+    // resource and the Python/FFmpeg payloads out of the Play artifact entirely.
+    "fullImplementation"(libs.youtubedl.android.library)
+    "fullImplementation"(libs.youtubedl.android.ffmpeg)
     // Google Play In-App Updates (used by the `play` flavor; no-ops on sideload installs).
     implementation(libs.play.app.update.ktx)
+    implementation(libs.play.feature.delivery)
+    implementation(libs.play.feature.delivery.ktx)
 
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
@@ -447,4 +469,99 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.uiautomator)
+}
+
+tasks.register("verifyPlayReleaseCompliance") {
+    group = "verification"
+    description = "Verifies that the Play AAB keeps executable payloads out of its base module."
+    dependsOn("bundlePlayRelease")
+
+    doLast {
+        val bundle = layout.buildDirectory
+            .file("outputs/bundle/playRelease/androidApp-play-release.aab")
+            .get()
+            .asFile
+        require(bundle.isFile) { "Missing Play bundle: ${bundle.absolutePath}" }
+
+        val forbiddenBaseNativeNames = listOf(
+            "libc++_shared.so",
+            "libonnxruntime.so",
+            "libonnxruntime_real.so",
+            "libmoonshine.so",
+            "libmoonshine-jni.so",
+            "libsherpa-onnx-jni.so",
+            "libpython.so",
+            "libpython.zip.so",
+            "libffmpeg.so",
+            "libffmpeg.zip.so",
+            "libffprobe.so",
+        )
+        val forbiddenDexStrings = listOf(
+            "api.github.com/repos/nganlinh4/screen-goated-toolbox",
+            "api.github.com/repos/yt-dlp",
+            "youtubedl-android/releases/download",
+            "raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/mobile/androidApp/libs",
+            "browser_download_url",
+            "YoutubeDLUpdater",
+            "updateYoutubeDL",
+        )
+
+        // Only these modules may ship in the Play bundle. The video downloader is absent by
+        // construction: an allowlist fails closed when a new module appears.
+        val allowedFeatureModules = setOf(
+            "feature_asr_ort",
+            "feature_asr_moonshine",
+            "feature_asr_sherpa",
+            "feature_native_cpp",
+        )
+        // Resources that must never reach Play, regardless of how they are delivered.
+        val forbiddenBaseResources = listOf("base/res/raw/ytdlp")
+
+        ZipFile(bundle).use { zip ->
+            val entries = zip.entries().asSequence().toList()
+            val baseNative = entries.filter { entry: ZipEntry -> entry.name.startsWith("base/lib/") }
+            require(baseNative.none { entry: ZipEntry ->
+                forbiddenBaseNativeNames.any { name -> entry.name.endsWith(name) }
+            }) { "Play base contains an on-demand native payload" }
+
+            val retainedResources = forbiddenBaseResources.filter { name ->
+                zip.getEntry(name) != null
+            }
+            require(retainedResources.isEmpty()) {
+                "Play base retains forbidden resources: $retainedResources"
+            }
+
+            val featureModules = entries
+                .map { entry: ZipEntry -> entry.name.substringBefore('/') }
+                .filter { name -> name.startsWith("feature") }
+                .toSet()
+            val unexpectedModules = featureModules - allowedFeatureModules
+            require(unexpectedModules.isEmpty()) {
+                "Play bundle ships unexpected feature modules: $unexpectedModules"
+            }
+
+            val featureNative = entries.filter { entry: ZipEntry ->
+                entry.name.contains("/lib/") && !entry.name.startsWith("base/")
+            }
+            require(featureNative.isNotEmpty()) { "Play bundle has no native feature payloads" }
+            require(featureNative.all { entry: ZipEntry -> entry.name.contains("/lib/arm64-v8a/") }) {
+                "Play bundle contains an unsupported native ABI"
+            }
+
+            // Scan every base dex: R8 spills into classes2.dex and beyond as the app grows.
+            val baseDexEntries = entries.filter { entry: ZipEntry ->
+                entry.name.matches(Regex("base/dex/classes\\d*\\.dex"))
+            }
+            require(baseDexEntries.isNotEmpty()) { "Play bundle is missing base dex" }
+            for (dexEntry in baseDexEntries) {
+                val dexText = zip.getInputStream(dexEntry).use { input: InputStream ->
+                    input.readBytes().toString(Charsets.ISO_8859_1)
+                }
+                val retained = forbiddenDexStrings.filter { signature -> dexText.contains(signature) }
+                require(retained.isEmpty()) {
+                    "Play base dex ${dexEntry.name} retains forbidden signatures: $retained"
+                }
+            }
+        }
+    }
 }

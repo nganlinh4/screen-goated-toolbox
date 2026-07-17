@@ -6,6 +6,12 @@
     "minimum_encoded_image_bytes": 262144,
     "jpeg_qualities": [90, 82, 74, 66, 58],
     "resize_dimensions": [2048, 1792, 1536, 1280, 1024, 768],
+    "qwen_portable_tpm": {
+      "limit": 8000,
+      "completion_token_reserve": 2048,
+      "image_and_envelope_token_reserve": 3072,
+      "estimated_prompt_bytes_per_token": 3
+    },
     "rules": [
       "keep_png_when_within_budget",
       "otherwise_encode_jpeg_until_within_budget",
@@ -13,6 +19,7 @@
       "qwen_max_completion_tokens_2048",
       "other_groq_models_omit_max_completion_tokens",
       "qwen_reasoning_format_hidden",
+      "reject_qwen_requests_locally_when_the_prompt_cannot_fit_the_portable_tpm_budget",
       "retry_qwen_once_without_reasoning_when_final_content_is_empty",
       "retry_one_token_rate_limit_when_retry_after_is_at_most_30_seconds",
       "cool_down_a_rate_limited_vision_model_for_300_seconds",

@@ -58,8 +58,7 @@ class AppUpdateRepository(
                                 status = AppUpdateStatus.UPDATE_AVAILABLE,
                                 latestVersion = release.version,
                                 releaseNotes = release.body,
-                                releaseUrl = release.releaseUrl,
-                                assetUrl = release.assetUrl,
+                                actionUrl = release.assetUrl ?: release.releaseUrl,
                                 errorMessage = null,
                                 notificationSerial = it.notificationSerial + 1,
                             )
@@ -70,8 +69,7 @@ class AppUpdateRepository(
                                 status = AppUpdateStatus.UP_TO_DATE,
                                 latestVersion = currentVersion,
                                 releaseNotes = "",
-                                releaseUrl = release.releaseUrl,
-                                assetUrl = release.assetUrl,
+                                actionUrl = release.assetUrl ?: release.releaseUrl,
                                 errorMessage = null,
                             )
                         }

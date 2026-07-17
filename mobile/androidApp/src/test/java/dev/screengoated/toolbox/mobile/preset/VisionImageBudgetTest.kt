@@ -36,6 +36,11 @@ class VisionImageBudgetTest {
         assertEquals(16_384, groq.getInt("json_reserve_bytes"))
         assertEquals(2_500_000, groq.getInt("maximum_encoded_image_bytes"))
         assertEquals(262_144, groq.getInt("minimum_encoded_image_bytes"))
+        val qwen = groq.getJSONObject("qwen_portable_tpm")
+        assertEquals(8_000, qwen.getInt("limit"))
+        assertEquals(2_048, qwen.getInt("completion_token_reserve"))
+        assertEquals(3_072, qwen.getInt("image_and_envelope_token_reserve"))
+        assertEquals(3, qwen.getInt("estimated_prompt_bytes_per_token"))
     }
 
     @Test
@@ -53,6 +58,14 @@ class VisionImageBudgetTest {
         assertThrows(IOException::class.java) {
             groqImageByteBudget(3_800_000)
         }
+    }
+
+    @Test
+    fun qwenTpmOversizeFailsBeforeImageEncodingOrNetworkRequest() {
+        assertThrows(IOException::class.java) {
+            ensureQwenPromptFitsPortableTpm(60_000)
+        }
+        ensureQwenPromptFitsPortableTpm(1_000)
     }
 
     @Test

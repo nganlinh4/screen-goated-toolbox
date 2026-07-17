@@ -84,6 +84,19 @@ Copied outputs:
 - `target/release/ScreenGoatedToolbox_v<VERSION>.apk`
 - `target/release/ScreenGoatedToolbox_v<VERSION>.aab` when `-IncludeAab` is used.
 
+## Play on-demand native delivery
+
+The `play` bundle keeps executable native payloads out of the base module. Google Play delivers
+the ASR engines, downloader tools, and their shared C++ runtime through the on-demand dynamic
+features under `feature_*`. The `full` flavor keeps its existing direct-download implementation;
+feature modules are not fused into its standalone APK.
+
+After building the Play release bundle, verify its native ownership and updater strings with:
+
+```powershell
+.\gradlew.bat :androidApp:verifyPlayReleaseCompliance --console=plain
+```
+
 For a same-version Play re-upload, Gradle supports `-PversionCodeOverride=<INT>`; invoke the relevant Gradle bundle task directly.
 
 ## Parity workflow

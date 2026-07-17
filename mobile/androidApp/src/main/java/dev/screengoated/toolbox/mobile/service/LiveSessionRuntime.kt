@@ -101,7 +101,13 @@ class LiveSessionRuntime(
         translationIntervalMs = TRANSLATION_INTERVAL_MS
         val config = repository.currentConfig()
         val apiKey = repository.currentApiKey()
-        if (apiKey.isBlank()) {
+        val modelId = config.transcriptionProvider.id
+        val useGeminiS2s = RealtimeModelIds.isGeminiS2sModelId(modelId)
+        val useMoonshine = RealtimeModelIds.isOfflineTranscriptionModelId(modelId)
+
+        // Only the Gemini-backed transcription paths need a key: the offline engines
+        // never call out, and translation always has the keyless GTX fallback.
+        if (!useMoonshine && apiKey.isBlank()) {
             apiKeyErrorToastText("NO_API_KEY:google", repository.currentUiPreferences().uiLanguage)
                 ?.let(toastBus::show)
             repository.fail("Add your Gemini API key before starting live translate.")
@@ -117,15 +123,11 @@ class LiveSessionRuntime(
             repository.fail("Parakeet is visible for Windows parity but is not available on Android yet.")
             return
         }
-        val modelId = repository.currentConfig().transcriptionProvider.id
-        val useGeminiS2s = RealtimeModelIds.isGeminiS2sModelId(modelId)
-        val useMoonshine = modelId.startsWith("moonshine-") || modelId == "zipformer"
-            || modelId == RealtimeModelIds.TRANSCRIPTION_MOONSHINE
         Log.i(
             SESSION_TAG,
-            "launch model_id=$modelId api_model=${repository.currentConfig().transcriptionProvider.model} " +
-                "s2s=$useGeminiS2s moonshine=$useMoonshine source=${repository.currentConfig().sourceMode} " +
-                "target=${repository.currentConfig().targetLanguage}",
+            "launch model_id=$modelId api_model=${config.transcriptionProvider.model} " +
+                "s2s=$useGeminiS2s moonshine=$useMoonshine source=${config.sourceMode} " +
+                "target=${config.targetLanguage}",
         )
 
         sessionJob = scope.launch {
