@@ -57,6 +57,7 @@ export function useSegmentInitializer({
           { time: duration, speed: 1 },
         ],
         deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
+        deviceAudioOffsetSec: 0,
         micAudioPoints: buildFlatMicAudioPoints(duration),
         micAudioOffsetSec: 0,
         webcamVisibilitySegments: currentWebcamVideo

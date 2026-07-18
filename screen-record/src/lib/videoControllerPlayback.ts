@@ -16,7 +16,6 @@ import type { RenderOptions, VideoState } from "./videoControllerTypes";
 import {
   syncAudioElementPlaybackRate,
   syncTimedMediaPlayback,
-  playAudioElement,
   pauseAudioElement,
 } from "./videoControllerMediaSync";
 import {
@@ -65,6 +64,7 @@ export interface ControllerInternals {
   hasValidDeviceAudio: boolean;
   hasExternalAudio: boolean;
   getWebcamOffsetSec(): number;
+  getDeviceAudioOffsetSec(): number;
   getMicAudioOffsetSec(): number;
   getSpeed(time: number): number;
   getEffectiveDuration(fallback: number): number;
@@ -99,7 +99,13 @@ export function doHandlePlay(c: ControllerInternals): void {
     c.video.currentTime,
     c.getWebcamOffsetSec(),
   );
-  c.deviceAudioPlayPromise = playAudioElement(c.deviceAudio);
+  c.deviceAudioPlayPromise = syncTimedMediaPlayback(
+    c.deviceAudio,
+    c.hasValidDeviceAudio,
+    c.deviceAudioPlayPromise,
+    c.video.currentTime,
+    c.getDeviceAudioOffsetSec(),
+  );
   c.micAudioPlayPromise = syncTimedMediaPlayback(
     c.micAudio,
     c.hasValidMicAudio,
@@ -199,6 +205,13 @@ export function doHandleTimeUpdate(c: ControllerInternals): void {
       c.video.currentTime,
       c.getWebcamOffsetSec(),
     );
+    c.deviceAudioPlayPromise = syncTimedMediaPlayback(
+      c.deviceAudio,
+      c.hasValidDeviceAudio,
+      c.deviceAudioPlayPromise,
+      c.video.currentTime,
+      c.getDeviceAudioOffsetSec(),
+    );
     c.micAudioPlayPromise = syncTimedMediaPlayback(
       c.micAudio,
       c.hasValidMicAudio,
@@ -237,8 +250,9 @@ function correctMediaDrift(c: ControllerInternals, speed: number): void {
     }
   }
   if (c.deviceAudio && c.hasValidDeviceAudio) {
-    if (Math.abs(vt - c.deviceAudio.currentTime) > driftThreshold) {
-      c.deviceAudio.currentTime = vt;
+    const deviceTarget = Math.max(0, vt - c.getDeviceAudioOffsetSec());
+    if (Math.abs(deviceTarget - c.deviceAudio.currentTime) > driftThreshold) {
+      c.deviceAudio.currentTime = deviceTarget;
     }
   }
   if (c.micAudio && c.hasValidMicAudio) {

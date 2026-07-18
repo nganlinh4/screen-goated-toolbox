@@ -61,6 +61,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
       colorVariable="--timeline-device-audio-color"
       hoveredRingClass="ring-2 ring-[var(--timeline-device-audio-color)]/40"
       getVolumeAtTime={getDeviceAudioVolumeAtTime}
+      offsetSec={segment.deviceAudioOffsetSec ?? 0}
       beginBatch={beginBatch}
       commitBatch={commitBatch}
     />

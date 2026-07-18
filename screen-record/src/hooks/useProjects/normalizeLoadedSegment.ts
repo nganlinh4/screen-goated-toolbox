@@ -82,6 +82,9 @@ export function normalizeLoadedSegment({
     videoDuration,
     project.backgroundConfig.volume,
   );
+  correctedSegment.deviceAudioOffsetSec = normalizeTrackDelaySec(
+    correctedSegment.deviceAudioOffsetSec,
+  );
   correctedSegment.micAudioPoints = normalizeMicAudioPoints(
     correctedSegment.micAudioPoints,
     videoDuration,

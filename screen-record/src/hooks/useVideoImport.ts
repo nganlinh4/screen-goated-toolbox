@@ -46,6 +46,7 @@ export function useVideoImport(opts: {
         { time: duration, speed: 1 },
       ],
       deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
+      deviceAudioOffsetSec: 0,
       deviceAudioAvailable: hasAudio,
       micAudioAvailable: false,
       webcamAvailable: false,

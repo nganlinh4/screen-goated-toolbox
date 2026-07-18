@@ -186,6 +186,8 @@ pub struct ZoomBlock {
     pub position_y: f64,
     #[serde(default)]
     pub follow_cursor: bool,
+    #[serde(default)]
+    pub direct_transition_to_next: bool,
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
@@ -360,6 +362,8 @@ pub struct VideoSegment {
     pub speed_points: Vec<SpeedPoint>,
     #[serde(default)]
     pub device_audio_points: Vec<DeviceAudioPoint>,
+    #[serde(default)]
+    pub device_audio_offset_sec: f64,
     #[serde(default)]
     pub mic_audio_points: Vec<DeviceAudioPoint>,
     #[serde(default)]

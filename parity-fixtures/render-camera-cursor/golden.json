@@ -175,6 +175,7 @@
               "positionX": 0.2,
               "positionY": 0.3,
               "followCursor": false,
+              "directTransitionToNext": false,
               "enabled": true
             }
           ],
@@ -204,9 +205,9 @@
           },
           {
             "t": 2.5,
-            "zoom": 1.7320508075688772,
-            "posX": 0.38169872981077807,
-            "posY": 0.4211324865405187
+            "zoom": 1.7229328416211327,
+            "posX": 0.3978605277344459,
+            "posY": 0.43190701848963053
           },
           {
             "t": 4,
@@ -216,9 +217,9 @@
           },
           {
             "t": 5.5,
-            "zoom": 1.7320508075688772,
-            "posX": 0.38169872981077807,
-            "posY": 0.4211324865405187
+            "zoom": 1.7229328416211327,
+            "posX": 0.3978605277344459,
+            "posY": 0.43190701848963053
           },
           {
             "t": 6.1,
@@ -249,6 +250,7 @@
               "positionX": 0.2,
               "positionY": 0.2,
               "followCursor": false,
+              "directTransitionToNext": false,
               "enabled": true
             },
             {
@@ -260,6 +262,7 @@
               "positionX": 0.8,
               "positionY": 0.8,
               "followCursor": false,
+              "directTransitionToNext": false,
               "enabled": true
             }
           ],
@@ -295,7 +298,7 @@
           },
           {
             "t": 7,
-            "zoom": 1.8,
+            "zoom": 1.7999999999999998,
             "posX": 0.7999999999999999,
             "posY": 0.7999999999999999
           }
@@ -322,6 +325,7 @@
               "positionX": 0.7,
               "positionY": 0.4,
               "followCursor": false,
+              "directTransitionToNext": false,
               "enabled": true
             }
           ],
@@ -338,15 +342,15 @@
           },
           {
             "t": 2.5,
-            "zoom": 1.0743883937339496,
-            "posX": 0.6495071750949223,
-            "posY": 0.42524641245253886
+            "zoom": 1.073055642335246,
+            "posX": 0.7611679191925894,
+            "posY": 0.3694160404037061
           },
           {
             "t": 3,
-            "zoom": 1.4142135623730951,
-            "posX": 0.6707106781186548,
-            "posY": 0.4146446609406726
+            "zoom": 1.4103014841668058,
+            "posX": 0.7291488151337766,
+            "posY": 0.38542559243311114
           },
           {
             "t": 4,
@@ -362,9 +366,9 @@
           },
           {
             "t": 7.5,
-            "zoom": 1.0743883937339496,
-            "posX": 0.6495071750949223,
-            "posY": 0.42524641245253886
+            "zoom": 1.073055642335246,
+            "posX": 0.7611679191925894,
+            "posY": 0.3694160404037061
           },
           {
             "t": 8,
@@ -395,6 +399,7 @@
               "positionX": 0.5,
               "positionY": 0.5,
               "followCursor": true,
+              "directTransitionToNext": false,
               "enabled": true
             }
           ],
@@ -433,6 +438,93 @@
             "zoom": 2.2,
             "posX": 0.7600000000000001,
             "posY": 0.24
+          }
+        ]
+      },
+      {
+        "name": "linked_manual_hyperbolic_travel",
+        "view": 1000,
+        "segment": {
+          "crop": null,
+          "trimSegments": [
+            {
+              "startTime": 0,
+              "endTime": 10
+            }
+          ],
+          "zoomBlocks": [
+            {
+              "startTime": 1,
+              "endTime": 3,
+              "easeIn": 0.4,
+              "easeOut": 0.4,
+              "zoomFactor": 1.5,
+              "positionX": 0.2,
+              "positionY": 0.2,
+              "followCursor": false,
+              "directTransitionToNext": true,
+              "enabled": true
+            },
+            {
+              "startTime": 6,
+              "endTime": 8,
+              "easeIn": 0.4,
+              "easeOut": 0.4,
+              "zoomFactor": 1.8,
+              "positionX": 0.8,
+              "positionY": 0.8,
+              "followCursor": false,
+              "directTransitionToNext": false,
+              "enabled": true
+            }
+          ],
+          "zoomInfluencePoints": [],
+          "smoothMotionPath": [
+            {
+              "time": 0,
+              "x": 500,
+              "y": 500,
+              "zoom": 2
+            },
+            {
+              "time": 10,
+              "x": 500,
+              "y": 500,
+              "zoom": 2
+            }
+          ],
+          "cursorVisibilitySegments": null
+        },
+        "samples": [
+          {
+            "t": 2.6,
+            "zoom": 1.5,
+            "posX": 0.2000000000000001,
+            "posY": 0.2000000000000001
+          },
+          {
+            "t": 3.5,
+            "zoom": 1.5066048683246551,
+            "posX": 0.2735313542157377,
+            "posY": 0.2735313542157377
+          },
+          {
+            "t": 4.5,
+            "zoom": 1.5863673574231099,
+            "posX": 0.5737840600191167,
+            "posY": 0.5737840600191167
+          },
+          {
+            "t": 5.5,
+            "zoom": 1.7514638345741667,
+            "posX": 0.7709199408944726,
+            "posY": 0.7709199408944726
+          },
+          {
+            "t": 6.4,
+            "zoom": 1.7999999999999998,
+            "posX": 0.7999999999999999,
+            "posY": 0.7999999999999999
           }
         ]
       }

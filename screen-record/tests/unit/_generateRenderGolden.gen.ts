@@ -252,6 +252,40 @@ describe("generate render-camera-cursor golden", () => {
       });
     }
 
+    // 7. Linked manual blocks: hyperbolic direct travel bypasses the auto path.
+    {
+      const seg = autoSegment({
+        zoomBlocks: [
+          blk({
+            startTime: 1,
+            endTime: 3,
+            easeIn: 0.4,
+            easeOut: 0.4,
+            zoomFactor: 1.5,
+            positionX: 0.2,
+            positionY: 0.2,
+            directTransitionToNext: true,
+          }),
+          blk({
+            startTime: 6,
+            endTime: 8,
+            easeIn: 0.4,
+            easeOut: 0.4,
+            zoomFactor: 1.8,
+            positionX: 0.8,
+            positionY: 0.8,
+          }),
+        ],
+      });
+      const times = [2.6, 3.5, 4.5, 5.5, 6.4];
+      cameraCases.push({
+        name: "linked_manual_hyperbolic_travel",
+        view: VIEW,
+        segment: cameraSegmentJson(seg),
+        samples: times.map((t) => ({ t, ...sampleCameraState(t, seg, VIEW) })),
+      });
+    }
+
     // Raw zoomBlockEnvelope sampling (pure helper) for an extra fine-grained lock.
     const envBlock = blk({ startTime: 2, endTime: 8, easeIn: 1.5, easeOut: 1 });
     const envSamples = [1.9, 2.0, 2.75, 3.5, 5, 7, 7.5, 8.0, 8.1].map((t) => ({
@@ -387,6 +421,7 @@ function cameraSegmentJson(seg: VideoSegment): Record<string, unknown> {
       positionX: b.positionX,
       positionY: b.positionY,
       followCursor: !!b.followCursor,
+      directTransitionToNext: !!b.directTransitionToNext,
       enabled: b.enabled !== false,
     })),
     zoomInfluencePoints: s.zoomInfluencePoints ?? [],

@@ -170,6 +170,7 @@ function fixtureSegmentToTs(seg: any): VideoSegment {
       positionX: b.positionX,
       positionY: b.positionY,
       followCursor: !!b.followCursor,
+      directTransitionToNext: !!b.directTransitionToNext,
       enabled: b.enabled !== false,
     })),
     zoomInfluencePoints: seg.zoomInfluencePoints ?? [],

@@ -338,7 +338,6 @@ export function SoftAudioSegmentBlock<TPoint extends SoftAudioPoint>({
     >
       {ranges.map((range) => {
         const rangeDuration = Math.max(AUDIO_SEGMENT_MIN_SEC, range.endTime - range.startTime);
-        const fadePct = `${Math.max(0, Math.min(50, (AUDIO_SEGMENT_FADE_SEC / rangeDuration) * 100))}%`;
         return (
           <div
             key={range.id}
@@ -354,20 +353,6 @@ export function SoftAudioSegmentBlock<TPoint extends SoftAudioPoint>({
               className={`${classNamePrefix}-soft-segment-fill absolute inset-0`}
               style={{
                 background: `color-mix(in srgb, var(${colorVariable}) 22%, var(--ui-surface-3))`,
-              }}
-            />
-            <div
-              className={`${classNamePrefix}-soft-segment-fade-in absolute inset-y-0 left-0`}
-              style={{
-                width: fadePct,
-                background: `linear-gradient(to right, transparent, color-mix(in srgb, var(${colorVariable}) 16%, transparent))`,
-              }}
-            />
-            <div
-              className={`${classNamePrefix}-soft-segment-fade-out absolute inset-y-0 right-0`}
-              style={{
-                width: fadePct,
-                background: `linear-gradient(to left, transparent, color-mix(in srgb, var(${colorVariable}) 16%, transparent))`,
               }}
             />
             <div
