@@ -146,7 +146,7 @@ fn build_clip_sources(
                     sources.push(ExportAudioSource {
                         path: path.to_string(),
                         volume_points: points,
-                        start_offset_sec: 0.0,
+                        start_offset_sec: clip.segment.device_audio_offset_sec,
                         source_in_sec: None,
                         source_out_sec: None,
                         playback_rate: 1.0,
@@ -408,4 +408,39 @@ pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value
     }
     let _ = fs::remove_dir_all(&temp_root);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_audio_download_uses_track_delay() {
+        let config = parse_json_with_path::<AudioDownloadConfig>(json!({
+            "trackKind": "device",
+            "clips": [{
+                "clipId": "clip-1",
+                "clipName": "Clip 1",
+                "sourceVideoPath": "video.mp4",
+                "deviceAudioPath": "device.wav",
+                "trimStart": 0.0,
+                "duration": 5.0,
+                "segment": {
+                    "crop": null,
+                    "cursorVisibilitySegments": null,
+                    "deviceAudioPoints": [
+                        { "time": 0.0, "volume": 1.0 },
+                        { "time": 5.0, "volume": 1.0 }
+                    ],
+                    "deviceAudioOffsetSec": 0.75
+                }
+            }]
+        }))
+        .expect("valid audio download config");
+
+        let sources = build_clip_sources(&config, &config.clips[0], 0.0);
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].start_offset_sec, 0.75);
+    }
 }

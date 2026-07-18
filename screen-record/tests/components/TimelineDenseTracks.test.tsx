@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { SubtitleTrack } from "@/components/timeline/SubtitleTrack";
 import { ImportedAudioTrack } from "@/components/timeline/ImportedAudioTrack";
 import { NarrationTrack } from "@/components/timeline/NarrationTrack";
+import { DeviceAudioTrack } from "@/components/timeline/DeviceAudioTrack";
+import { MicTrack } from "@/components/timeline/MicTrack";
 import { TextTrack } from "@/components/timeline/TextTrack";
 import { defaultSubtitleStyle } from "@/lib/subtitleDefaults";
 import type { ImportedAudioSegment, NarrationSegment, SubtitleSegment, TextSegment, VideoSegment } from "@/types/video";
@@ -113,6 +115,69 @@ describe("dense timeline tracks", () => {
     expect(document.querySelectorAll(".audio-track-segment").length).toBeLessThanOrEqual(1);
     expect(document.querySelectorAll(".narration-track-segment").length).toBeLessThanOrEqual(1);
     expect(screen.getAllByText("Audio 900")).toHaveLength(2);
+  });
+
+  it("keeps imported audio segments above volume-envelope hit targets", () => {
+    const noop = vi.fn();
+    render(
+      <>
+        <ImportedAudioTrack
+          segments={audioSegments(1)}
+          duration={10}
+          viewMode="volume"
+          volumePoints={[{ time: 0, volume: 1 }, { time: 10, volume: 1 }]}
+          onUpdateVolumePoints={noop}
+          onUpdateSegment={noop}
+        />
+      </>,
+    );
+
+    const audioSegment = document.querySelector(".audio-track-segment") as HTMLElement;
+    expect(audioSegment.style.zIndex).toBe("4");
+    expect(document.querySelectorAll(".track-volume-curve")).toHaveLength(1);
+  });
+
+  it("keeps compact gain regions in project time when audio tracks have delays", () => {
+    const shared = {
+      trimStart: 0,
+      trimEnd: 10,
+      zoomKeyframes: [],
+      textSegments: [],
+      subtitleSegments: [],
+      deviceAudioPoints: [{ time: 0, volume: 1 }, { time: 10, volume: 1 }],
+      deviceAudioOffsetSec: 1,
+      micAudioPoints: [{ time: 0, volume: 1 }, { time: 10, volume: 1 }],
+      micAudioOffsetSec: -1,
+    } satisfies VideoSegment;
+    const noop = vi.fn();
+
+    render(
+      <>
+        <DeviceAudioTrack
+          segment={shared}
+          duration={10}
+          isAvailable
+          viewMode="compact"
+          onUpdateDeviceAudioPoints={noop}
+          beginBatch={noop}
+          commitBatch={noop}
+        />
+        <MicTrack
+          segment={shared}
+          duration={10}
+          isAvailable
+          viewMode="compact"
+          onUpdateMicAudioPoints={noop}
+          beginBatch={noop}
+          commitBatch={noop}
+        />
+      </>,
+    );
+
+    const deviceBlock = document.querySelector(".device-audio-soft-segment") as HTMLElement;
+    const micBlock = document.querySelector(".mic-audio-soft-segment") as HTMLElement;
+    expect(deviceBlock.style.left).toBe("0%");
+    expect(micBlock.style.left).toBe("0%");
   });
 
   it("clips segment labels and brings clicked text segments to the front", () => {

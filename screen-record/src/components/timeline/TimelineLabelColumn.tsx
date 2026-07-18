@@ -9,6 +9,10 @@ import type {
 import type { Translations } from "@/i18n";
 import { Slider } from "@/components/ui/Slider";
 import { Switch } from "@/components/ui/Switch";
+import {
+  normalizeTrackDelaySec,
+  TRACK_DELAY_LIMIT_SEC,
+} from "@/hooks/videoStatePreferences";
 
 interface TimelineLabelColumnProps {
   t: Translations;
@@ -77,8 +81,6 @@ export function TimelineLabelColumn({
   beginBatch,
   commitBatch,
 }: TimelineLabelColumnProps) {
-  const clampTrackDelay = (value: number) => Math.max(-2, Math.min(2, value));
-
   const renderDownloadButton = (
     trackKind: AudioDownloadTrackKind,
     label: string,
@@ -127,39 +129,50 @@ export function TimelineLabelColumn({
     isAvailable: boolean;
     heightClassName: string;
     action?: ReactNode;
-  }) => (
-    <div
-      className={`${className} ${heightClassName} relative flex items-center ${
-        isAvailable ? "" : "timeline-label-unavailable"
-      } ${groupClassName}`}
-    >
-      <div className="timeline-label-hover-bridge absolute left-full inset-y-0 w-3" />
-      <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-        {label}
-      </span>
-      {action}
-      <div className="playback-keystroke-delay-popover absolute left-[calc(100%+8px)] top-1/2 z-30 -translate-y-1/2 w-[218px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-x-1 transition-all duration-150 group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto">
-        <div className="flex items-center gap-3">
-          <div className="flex-1 rounded-full px-1 py-[3px]">
-            <Slider
-              min={-2}
-              max={2}
-              step={0.01}
-              value={value}
-              disabled={!isAvailable || !segment}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
-              onChange={(nextValue) => onChange(clampTrackDelay(nextValue))}
-              className="playback-keystroke-delay-slider block w-full"
-            />
+  }) => {
+    const delayOffsetPx = action ? 28 : 8;
+    return (
+      <div
+        className={`${className} ${heightClassName} relative flex items-center ${
+          isAvailable ? "" : "timeline-label-unavailable"
+        } ${groupClassName}`}
+      >
+        <div
+          aria-hidden="true"
+          className="timeline-label-track-delay-hover-bridge absolute left-full top-1/2 z-10 h-14 -translate-y-1/2 bg-transparent pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+          style={{ width: `${delayOffsetPx + 12}px` }}
+        />
+        <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+          {label}
+        </span>
+        {action}
+        <div
+          className={`${className}-delay-popover timeline-label-track-delay-popover playback-keystroke-delay-popover absolute left-full top-1/2 z-30 -translate-y-1/2 w-[218px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-x-1 transition-all duration-150 group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto`}
+          style={{ marginLeft: `${delayOffsetPx}px` }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex-1 rounded-full px-1 py-[3px]">
+              <Slider
+                min={-TRACK_DELAY_LIMIT_SEC}
+                max={TRACK_DELAY_LIMIT_SEC}
+                step={0.01}
+                value={value}
+                disabled={!isAvailable || !segment}
+                onPointerDown={beginBatch}
+                onPointerUp={commitBatch}
+                onPointerCancel={commitBatch}
+                onChange={(nextValue) => onChange(normalizeTrackDelaySec(nextValue))}
+                className={`${className}-delay-slider timeline-label-track-delay-slider playback-keystroke-delay-slider block w-full`}
+              />
+            </div>
+            <span className="text-[10px] tabular-nums text-[var(--overlay-panel-fg)]/86 w-12 text-right">
+              {value.toFixed(2)}s
+            </span>
           </div>
-          <span className="text-[10px] tabular-nums text-[var(--overlay-panel-fg)]/86 w-12 text-right">
-            {value.toFixed(2)}s
-          </span>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="timeline-side-column w-[4rem] shrink-0">
@@ -234,14 +247,19 @@ export function TimelineLabelColumn({
             )}
           </div>
         )}
-        {showDeviceAudio && (
-          <div className="timeline-label-device-audio group/device-audio-label relative h-7 flex items-center">
-            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-              {t.trackDeviceAudio}
-            </span>
-            {renderDownloadButton("device", t.trackDeviceAudio, "device-audio-label", !segment || segment.deviceAudioAvailable === false)}
-          </div>
-        )}
+        {showDeviceAudio && renderTrackDelayLabel({
+          className: "timeline-label-device-audio",
+          groupClassName: "group group/device-audio-label",
+          label: t.trackDeviceAudio,
+          value: segment?.deviceAudioOffsetSec ?? 0,
+          onChange: (value) => {
+            if (!segment || segment.deviceAudioAvailable === false) return;
+            setSegment({ ...segment, deviceAudioOffsetSec: value });
+          },
+          isAvailable: Boolean(segment && segment.deviceAudioAvailable !== false),
+          heightClassName: "h-7",
+          action: renderDownloadButton("device", t.trackDeviceAudio, "device-audio-label", !segment || segment.deviceAudioAvailable === false),
+        })}
         {showMicAudio && renderTrackDelayLabel({
           className: "timeline-label-mic-audio",
           groupClassName: "group group/mic-audio-label",
@@ -251,7 +269,7 @@ export function TimelineLabelColumn({
             if (!segment || !isMicAudioAvailable) return;
             setSegment({ ...segment, micAudioOffsetSec: value });
           },
-          isAvailable: true,
+          isAvailable: Boolean(segment && isMicAudioAvailable),
           heightClassName: "h-7",
           action: renderDownloadButton("mic", t.trackMicAudio, "mic-audio-label", !segment || !currentRawMicAudioPath.trim()),
         })}
@@ -264,7 +282,7 @@ export function TimelineLabelColumn({
             if (!segment || !isWebcamAvailable) return;
             setSegment({ ...segment, webcamOffsetSec: value });
           },
-          isAvailable: true,
+          isAvailable: Boolean(segment && isWebcamAvailable),
           heightClassName: "h-7",
         })}
         {showNarration && (

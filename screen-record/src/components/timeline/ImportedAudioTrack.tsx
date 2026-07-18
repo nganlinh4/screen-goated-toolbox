@@ -263,7 +263,10 @@ export const ImportedAudioTrack: React.FC<ImportedAudioTrackProps> = ({
             style={{
               left: `${leftPct}%`,
               width: `${widthPct}%`,
-              zIndex: isFront ? 5 : isSelected ? 4 : 3,
+              // Real media clips must win hit-testing over the track-global
+              // volume curve (z-3), otherwise edge/body drags edit the
+              // envelope instead of trimming or moving the clip.
+              zIndex: isFront ? 6 : isSelected ? 5 : 4,
               background:
                 hasCoveredSegmentUnderneath
                   ? "color-mix(in srgb, var(--primary-color) 34%, transparent)"

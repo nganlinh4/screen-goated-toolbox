@@ -66,6 +66,7 @@ export function buildSegmentContentStamp(segment: VideoSegment): string {
       positionX: Math.round(block.positionX * 10000) / 10000,
       positionY: Math.round(block.positionY * 10000) / 10000,
       followCursor: Boolean(block.followCursor),
+      directTransitionToNext: Boolean(block.directTransitionToNext),
       enabled: block.enabled !== false,
     })),
     speedPoints: (segment.speedPoints ?? []).map((point) => ({
@@ -76,6 +77,7 @@ export function buildSegmentContentStamp(segment: VideoSegment): string {
       time: Math.round(point.time * 1000) / 1000,
       volume: Math.round(point.volume * 10000) / 10000,
     })),
+    deviceAudioOffsetSec: Math.round((segment.deviceAudioOffsetSec ?? 0) * 10000) / 10000,
     micAudioPoints: (segment.micAudioPoints ?? []).map((point) => ({
       time: Math.round(point.time * 1000) / 1000,
       volume: Math.round(point.volume * 10000) / 10000,

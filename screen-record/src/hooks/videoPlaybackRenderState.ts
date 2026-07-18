@@ -20,6 +20,7 @@ export function buildPlaybackStructureSignature(nextSegment: VideoSegment) {
       block.positionX,
       block.positionY,
       block.followCursor ? 1 : 0,
+      block.directTransitionToNext ? 1 : 0,
       block.enabled === false ? 0 : 1,
     ]),
     speedPoints: (nextSegment.speedPoints ?? []).map((point) => [
@@ -52,6 +53,7 @@ export function buildPlaybackStructureSignature(nextSegment: VideoSegment) {
     keystrokeOverlay: nextSegment.keystrokeOverlay ?? null,
     cursorVisibilitySegments: nextSegment.cursorVisibilitySegments ?? [],
     useCustomCursor: nextSegment.useCustomCursor,
+    deviceAudioOffsetSec: nextSegment.deviceAudioOffsetSec,
     micAudioOffsetSec: nextSegment.micAudioOffsetSec,
     webcamOffsetSec: nextSegment.webcamOffsetSec,
   });

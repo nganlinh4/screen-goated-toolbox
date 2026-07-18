@@ -295,6 +295,7 @@ export function useRecording(props: UseRecordingProps) {
             { time: timelineDuration, speed: 1 },
           ],
           deviceAudioPoints: buildFlatDeviceAudioPoints(timelineDuration),
+          deviceAudioOffsetSec: 0,
           micAudioPoints: buildFlatMicAudioPoints(
             timelineDuration,
             micDefaultVolume,

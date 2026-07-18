@@ -40,7 +40,65 @@ export function fromViewportCenter(zoom: number, cx: number, cy: number) {
   };
 }
 
-// Blend two zoom states with log-space zoom + viewport-center-space position
+type HyperboloidPoint = [number, number, number, number];
+
+function cameraToHyperboloid(cx: number, cy: number, altitude: number): HyperboloidPoint {
+  const v = Math.max(altitude, 1e-6);
+  const radiusSq = cx * cx + cy * cy;
+  return [
+    (radiusSq + v * v + 1) / (2 * v),
+    cx / v,
+    cy / v,
+    (radiusSq + v * v - 1) / (2 * v),
+  ];
+}
+
+function hyperboloidToCamera(point: HyperboloidPoint) {
+  const altitude = 1 / Math.max(point[0] - point[3], 1e-9);
+  return {
+    cx: point[1] * altitude,
+    cy: point[2] * altitude,
+    altitude,
+  };
+}
+
+/**
+ * Perceptually efficient camera travel on the Poincare upper-half-space model.
+ * The camera center is the horizontal footprint and 1/zoom is its altitude.
+ * A hyperbolic geodesic naturally introduces a small zoom-out arc for long
+ * pans, reducing screen-space optical flow without special-case heuristics.
+ */
+function interpolateCameraGeodesic(
+  from: { cx: number; cy: number; altitude: number },
+  to: { cx: number; cy: number; altitude: number },
+  progress: number,
+) {
+  const t = Math.max(0, Math.min(1, progress));
+  if (t === 0) return from;
+  if (t === 1) return to;
+  const a = cameraToHyperboloid(from.cx, from.cy, from.altitude);
+  const b = cameraToHyperboloid(to.cx, to.cy, to.altitude);
+  const lorentzDot = -a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+  const distance = Math.acosh(Math.max(1, -lorentzDot));
+  if (distance < 1e-7) {
+    return {
+      cx: from.cx + (to.cx - from.cx) * t,
+      cy: from.cy + (to.cy - from.cy) * t,
+      altitude: from.altitude * Math.pow(to.altitude / from.altitude, t),
+    };
+  }
+  const denominator = Math.sinh(distance);
+  const weightA = Math.sinh((1 - t) * distance) / denominator;
+  const weightB = Math.sinh(t * distance) / denominator;
+  return hyperboloidToCamera([
+    weightA * a[0] + weightB * b[0],
+    weightA * a[1] + weightB * b[1],
+    weightA * a[2] + weightB * b[2],
+    weightA * a[3] + weightB * b[3],
+  ]);
+}
+
+// Blend two views along the perceptually shortest coupled pan/zoom path.
 export function blendZoomStates(
   stateA: ZoomKeyframe,
   stateB: ZoomKeyframe,
@@ -48,14 +106,15 @@ export function blendZoomStates(
 ): { zoom: number; posX: number; posY: number } {
   const zA = Math.max(0.1, stateA.zoomFactor);
   const zB = Math.max(0.1, stateB.zoomFactor);
-  // Log-space zoom for perceptually uniform scaling
-  const zoom = zA * Math.pow(zB / zA, t);
-  // Viewport-center-space position for drift-free motion
   const cA = toViewportCenter(zA, stateA.positionX, stateA.positionY);
   const cB = toViewportCenter(zB, stateB.positionX, stateB.positionY);
-  const cx = cA.cx + (cB.cx - cA.cx) * t;
-  const cy = cA.cy + (cB.cy - cA.cy) * t;
-  const { posX, posY } = fromViewportCenter(zoom, cx, cy);
+  const camera = interpolateCameraGeodesic(
+    { ...cA, altitude: 1 / zA },
+    { ...cB, altitude: 1 / zB },
+    t,
+  );
+  const zoom = 1 / Math.max(camera.altitude, 1e-6);
+  const { posX, posY } = fromViewportCenter(zoom, camera.cx, camera.cy);
   return { zoom, posX, posY };
 }
 
@@ -192,26 +251,66 @@ export function calculateCurrentZoomStateInternal(
 
   const blocks = segment.zoomBlocks;
   if (blocks && blocks.length > 0) {
+    const enabledBlocks = blocks
+      .filter((block) => block.enabled !== false)
+      .sort((a, b) => a.startTime - b.startTime);
+    for (let index = 0; index < enabledBlocks.length - 1; index += 1) {
+      const from = enabledBlocks[index];
+      const to = enabledBlocks[index + 1];
+      if (!from.directTransitionToNext) continue;
+      const transitionStart = from.endTime - Math.max(0, from.easeOut);
+      const transitionEnd = to.startTime + Math.max(0, to.easeIn);
+      if (
+        transitionEnd <= transitionStart + 1e-6 ||
+        currentTime < transitionStart ||
+        currentTime > transitionEnd
+      ) continue;
+      const progress = easeCameraMove(
+        (currentTime - transitionStart) / (transitionEnd - transitionStart),
+      );
+      const fromState: ZoomKeyframe = {
+        time: currentTime, duration: 0, zoomFactor: from.zoomFactor,
+        positionX: from.followCursor && autoState ? autoState.positionX : from.positionX,
+        positionY: from.followCursor && autoState ? autoState.positionY : from.positionY,
+        easingType: 'linear',
+      };
+      const toState: ZoomKeyframe = {
+        time: currentTime, duration: 0, zoomFactor: to.zoomFactor,
+        positionX: to.followCursor && autoState ? autoState.positionX : to.positionX,
+        positionY: to.followCursor && autoState ? autoState.positionY : to.positionY,
+        easingType: 'linear',
+      };
+      const direct = blendZoomStates(fromState, toState, progress);
+      manualState = {
+        time: currentTime, duration: 0, zoomFactor: direct.zoom,
+        positionX: direct.posX, positionY: direct.posY, easingType: 'linear',
+      };
+      manualInfluence = 1;
+      break;
+    }
+
     // Pick the block with the strongest envelope at currentTime.  This handles
     // gaps (all envelopes 0 → auto) and any accidental overlap deterministically.
-    let bestBlock: ZoomBlock | null = null;
-    let bestEnv = 0;
-    for (const b of blocks) {
-      if (b.enabled === false) continue;
-      const env = zoomBlockEnvelope(b, currentTime);
-      if (env > bestEnv) { bestEnv = env; bestBlock = b; }
-    }
-    if (bestBlock && bestEnv > 0) {
-      manualInfluence = bestEnv;
-      const followsCursor = bestBlock.followCursor === true && autoState !== null;
-      manualState = {
-        time: currentTime,
-        duration: 0,
-        zoomFactor: bestBlock.zoomFactor,
-        positionX: followsCursor ? autoState!.positionX : bestBlock.positionX,
-        positionY: followsCursor ? autoState!.positionY : bestBlock.positionY,
-        easingType: 'easeOut',
-      };
+    if (!manualState) {
+      let bestBlock: ZoomBlock | null = null;
+      let bestEnv = 0;
+      for (const b of blocks) {
+        if (b.enabled === false) continue;
+        const env = zoomBlockEnvelope(b, currentTime);
+        if (env > bestEnv) { bestEnv = env; bestBlock = b; }
+      }
+      if (bestBlock && bestEnv > 0) {
+        manualInfluence = bestEnv;
+        const followsCursor = bestBlock.followCursor === true && autoState !== null;
+        manualState = {
+          time: currentTime,
+          duration: 0,
+          zoomFactor: bestBlock.zoomFactor,
+          positionX: followsCursor ? autoState!.positionX : bestBlock.positionX,
+          positionY: followsCursor ? autoState!.positionY : bestBlock.positionY,
+          easingType: 'easeOut',
+        };
+      }
     }
   }
 

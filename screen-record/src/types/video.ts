@@ -42,6 +42,7 @@ export interface ZoomBlock {
   positionX: number; // 0..1 anchor
   positionY: number; // 0..1 anchor
   followCursor?: boolean; // when true, anchor follows the auto path inside the block
+  directTransitionToNext?: boolean; // bypass auto/default between this block and its next neighbour
   enabled: boolean; // disable without deleting
 }
 
@@ -413,6 +414,7 @@ export interface VideoSegment {
   keystrokeOverlay?: KeystrokeOverlayConfig;
   speedPoints?: SpeedPoint[];
   deviceAudioPoints?: DeviceAudioPoint[];
+  deviceAudioOffsetSec?: number;
   micAudioPoints?: MicAudioPoint[];
   micAudioOffsetSec?: number;
   webcamVisibilitySegments?: CursorVisibilitySegment[];

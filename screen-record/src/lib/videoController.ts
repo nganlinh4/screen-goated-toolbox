@@ -29,7 +29,6 @@ import { SEEK_SAFETY_TIMEOUT_MS } from "./videoControllerTypes";
 import {
   hasValidMediaElement,
   syncTimedMediaElementTime,
-  syncAudioElementTime,
   clearMediaElementSource,
 } from "./videoControllerMediaSync";
 
@@ -152,6 +151,7 @@ export class VideoController {
       hasValidDeviceAudio: this.hasValidDeviceAudio,
       hasExternalAudio: this.hasExternalAudio,
       getWebcamOffsetSec: () => this.getWebcamOffsetSec(),
+      getDeviceAudioOffsetSec: () => this.getDeviceAudioOffsetSec(),
       getMicAudioOffsetSec: () => this.getMicAudioOffsetSec(),
       getSpeed: (t) => this.getSpeed(t),
       getEffectiveDuration: (f) => this.getEffectiveDuration(f),
@@ -231,6 +231,11 @@ export class VideoController {
     return Number.isFinite(offset) ? offset : 0;
   }
 
+  private getDeviceAudioOffsetSec(): number {
+    const offset = this.renderOptions?.segment?.deviceAudioOffsetSec ?? 0;
+    return Number.isFinite(offset) ? offset : 0;
+  }
+
   private getWebcamOffsetSec(): number {
     const offset = this.renderOptions?.segment?.webcamOffsetSec ?? 0;
     return Number.isFinite(offset) ? offset : 0;
@@ -238,7 +243,7 @@ export class VideoController {
 
   private syncAllMediaToTime(time: number) {
     syncTimedMediaElementTime(this.webcamVideo, time, this.getWebcamOffsetSec());
-    syncAudioElementTime(this.deviceAudio, time);
+    syncTimedMediaElementTime(this.deviceAudio, time, this.getDeviceAudioOffsetSec());
     syncTimedMediaElementTime(this.micAudio, time, this.getMicAudioOffsetSec());
   }
 
@@ -573,6 +578,7 @@ export class VideoController {
       zoomKeyframes: [], textSegments: [], ...createSubtitleTrackStateFromSegments([]),
       speedPoints: [{ time: 0, speed: 1 }, { time: dur, speed: 1 }],
       deviceAudioPoints: buildFlatDeviceAudioPoints(dur),
+      deviceAudioOffsetSec: 0,
       micAudioPoints: buildFlatMicAudioPoints(dur),
       deviceAudioAvailable: true, micAudioAvailable: false,
     };

@@ -2,6 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { ZoomBlock } from '@/types/video';
 import { type AdjustableLineDragVisualMode } from './adjustableLineUtils';
+import { Link2 } from '@/components/ui/MaterialIcon';
 
 interface ZoomBlockLayerProps {
   blocks: ZoomBlock[];
@@ -16,6 +17,7 @@ interface ZoomBlockLayerProps {
   onHoverBlock: (index: number | null) => void;
   startResizeBlock: (index: number, edge: 'start' | 'end', rect: DOMRect) => void;
   startResizeTransition: (index: number, side: 'in' | 'out', rect: DOMRect) => void;
+  onToggleDirectTransition: (index: number) => void;
 }
 
 export function ZoomBlockLayer({
@@ -31,9 +33,54 @@ export function ZoomBlockLayer({
   onHoverBlock,
   startResizeBlock,
   startResizeTransition,
+  onToggleDirectTransition,
 }: ZoomBlockLayerProps) {
+  const orderedEnabledBlocks = blocks
+    .map((block, index) => ({ block, index }))
+    .filter(({ block }) => block.enabled !== false)
+    .sort((a, b) => a.block.startTime - b.block.startTime);
+
   return (
     <div className="zoom-blocks-layer absolute inset-0 z-40 pointer-events-none">
+      {orderedEnabledBlocks.slice(0, -1).map(({ block, index }, pairIndex) => {
+        const next = orderedEnabledBlocks[pairIndex + 1]?.block;
+        if (!next || duration <= 0 || next.startTime <= block.endTime) return null;
+        const leftPct = (block.endTime / duration) * 100;
+        const widthPct = ((next.startTime - block.endTime) / duration) * 100;
+        const linked = block.directTransitionToNext === true;
+        return (
+          <div
+            key={`transition-${block.id}-${next.id}`}
+            className="zoom-direct-transition group/zoom-link absolute inset-y-0 z-50 pointer-events-auto"
+            data-linked={linked ? "true" : "false"}
+            style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+          >
+            <div
+              className={`zoom-direct-transition-line pointer-events-none absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t ${
+                linked
+                  ? "border-solid border-[var(--timeline-zoom-color)] opacity-90"
+                  : "border-dashed border-[var(--timeline-zoom-color)]/55 opacity-35 group-hover/zoom-link:opacity-80"
+              }`}
+            />
+            <button
+              type="button"
+              className={`zoom-direct-transition-toggle ui-icon-button absolute left-1/2 top-1/2 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--timeline-zoom-color)] bg-[var(--surface)] text-[var(--timeline-zoom-color)] shadow-sm transition-opacity ${
+                linked ? "opacity-90" : "opacity-0 group-hover/zoom-link:opacity-100 focus-visible:opacity-100"
+              }`}
+              title={linked ? "Use auto zoom between blocks" : "Transition directly to next zoom"}
+              aria-label={linked ? "Unlink manual zoom transition" : "Link manual zoom transition"}
+              aria-pressed={linked}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleDirectTransition(index);
+              }}
+            >
+              <Link2 className="h-3 w-3" />
+            </button>
+          </div>
+        );
+      })}
       {blocks.map((block, index) => {
         if (duration <= 0) return null;
         const active = editingKeyframeId === index;

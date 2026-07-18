@@ -40,15 +40,67 @@ fn from_viewport_center(zoom: f64, cx: f64, cy: f64) -> (f64, f64) {
     ((cx - 0.5 / zoom) / s, (cy - 0.5 / zoom) / s)
 }
 
-// Blend two zoom states: log-space zoom + viewport-center-space position.
+type HyperboloidPoint = [f64; 4];
+
+fn camera_to_hyperboloid(cx: f64, cy: f64, altitude: f64) -> HyperboloidPoint {
+    let v = altitude.max(1e-6);
+    let radius_sq = cx * cx + cy * cy;
+    [
+        (radius_sq + v * v + 1.0) / (2.0 * v),
+        cx / v,
+        cy / v,
+        (radius_sq + v * v - 1.0) / (2.0 * v),
+    ]
+}
+
+fn hyperboloid_to_camera(point: HyperboloidPoint) -> (f64, f64, f64) {
+    let altitude = 1.0 / (point[0] - point[3]).max(1e-9);
+    (point[1] * altitude, point[2] * altitude, altitude)
+}
+
+fn interpolate_camera_geodesic(
+    from: (f64, f64, f64),
+    to: (f64, f64, f64),
+    progress: f64,
+) -> (f64, f64, f64) {
+    let t = progress.clamp(0.0, 1.0);
+    if t == 0.0 {
+        return from;
+    }
+    if t == 1.0 {
+        return to;
+    }
+    let a = camera_to_hyperboloid(from.0, from.1, from.2);
+    let b = camera_to_hyperboloid(to.0, to.1, to.2);
+    let lorentz_dot = -a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    let distance = (-lorentz_dot).max(1.0).acosh();
+    if distance < 1e-7 {
+        return (
+            from.0 + (to.0 - from.0) * t,
+            from.1 + (to.1 - from.1) * t,
+            from.2 * (to.2 / from.2).powf(t),
+        );
+    }
+    let denominator = distance.sinh();
+    let weight_a = ((1.0 - t) * distance).sinh() / denominator;
+    let weight_b = (t * distance).sinh() / denominator;
+    hyperboloid_to_camera([
+        weight_a * a[0] + weight_b * b[0],
+        weight_a * a[1] + weight_b * b[1],
+        weight_a * a[2] + weight_b * b[2],
+        weight_a * a[3] + weight_b * b[3],
+    ])
+}
+
+// Blend two views along the perceptually shortest coupled pan/zoom path.
 fn blend_zoom(a: &ZoomState, b: &ZoomState, t: f64) -> ZoomState {
     let za = a.zoom_factor.max(0.1);
     let zb = b.zoom_factor.max(0.1);
-    let zoom = za * (zb / za).powf(t);
     let (cax, cay) = to_viewport_center(za, a.position_x, a.position_y);
     let (cbx, cby) = to_viewport_center(zb, b.position_x, b.position_y);
-    let cx = cax + (cbx - cax) * t;
-    let cy = cay + (cby - cay) * t;
+    let (cx, cy, altitude) =
+        interpolate_camera_geodesic((cax, cay, 1.0 / za), (cbx, cby, 1.0 / zb), t);
+    let zoom = 1.0 / altitude.max(1e-6);
     let (pos_x, pos_y) = from_viewport_center(zoom, cx, cy);
     ZoomState {
         zoom_factor: zoom,
@@ -181,38 +233,81 @@ fn calculate_zoom_state(
     // Pick the enabled block with the strongest envelope at current_time. Gaps
     // between blocks yield 0 → the auto path / default shows through.
     let (manual_state, manual_influence): (Option<ZoomState>, f64) = {
-        let mut best_env = 0.0_f64;
-        let mut best: Option<&ZoomBlock> = None;
-        for b in &segment.zoom_blocks {
-            if !b.enabled {
+        let mut enabled: Vec<&ZoomBlock> =
+            segment.zoom_blocks.iter().filter(|b| b.enabled).collect();
+        enabled.sort_by(|a, b| a.start_time.total_cmp(&b.start_time));
+        let mut direct_state: Option<ZoomState> = None;
+        for pair in enabled.windows(2) {
+            let from = pair[0];
+            let to = pair[1];
+            if !from.direct_transition_to_next {
                 continue;
             }
-            let env = zoom_block_envelope(b, current_time);
-            if env > best_env {
-                best_env = env;
-                best = Some(b);
+            let transition_start = from.end_time - from.ease_out.max(0.0);
+            let transition_end = to.start_time + to.ease_in.max(0.0);
+            if transition_end <= transition_start + 1e-6
+                || current_time < transition_start
+                || current_time > transition_end
+            {
+                continue;
             }
-        }
-        match best {
-            Some(b) if best_env > 0.0 => {
-                let (px, py) = if b.follow_cursor {
-                    match &auto_state {
-                        Some(a) => (a.position_x, a.position_y),
-                        None => (b.position_x, b.position_y),
-                    }
+            let progress = ease_camera_move(
+                (current_time - transition_start) / (transition_end - transition_start),
+            );
+            let block_state = |block: &ZoomBlock| {
+                let (position_x, position_y) = if block.follow_cursor {
+                    auto_state
+                        .as_ref()
+                        .map(|state| (state.position_x, state.position_y))
+                        .unwrap_or((block.position_x, block.position_y))
                 } else {
-                    (b.position_x, b.position_y)
+                    (block.position_x, block.position_y)
                 };
-                (
-                    Some(ZoomState {
-                        zoom_factor: b.zoom_factor,
-                        position_x: px,
-                        position_y: py,
-                    }),
-                    best_env,
-                )
+                ZoomState {
+                    zoom_factor: block.zoom_factor,
+                    position_x,
+                    position_y,
+                }
+            };
+            direct_state = Some(blend_zoom(&block_state(from), &block_state(to), progress));
+            break;
+        }
+        if let Some(direct) = direct_state {
+            (Some(direct), 1.0)
+        } else {
+            let mut best_env = 0.0_f64;
+            let mut best: Option<&ZoomBlock> = None;
+            for b in &segment.zoom_blocks {
+                if !b.enabled {
+                    continue;
+                }
+                let env = zoom_block_envelope(b, current_time);
+                if env > best_env {
+                    best_env = env;
+                    best = Some(b);
+                }
             }
-            _ => (None, 0.0),
+            match best {
+                Some(b) if best_env > 0.0 => {
+                    let (px, py) = if b.follow_cursor {
+                        match &auto_state {
+                            Some(a) => (a.position_x, a.position_y),
+                            None => (b.position_x, b.position_y),
+                        }
+                    } else {
+                        (b.position_x, b.position_y)
+                    };
+                    (
+                        Some(ZoomState {
+                            zoom_factor: b.zoom_factor,
+                            position_x: px,
+                            position_y: py,
+                        }),
+                        best_env,
+                    )
+                }
+                _ => (None, 0.0),
+            }
         }
     };
 
@@ -377,6 +472,37 @@ mod tests {
     }
 
     #[test]
+    fn linked_manual_blocks_bypass_auto_zoom_in_gap() {
+        let segment: VideoSegment = serde_json::from_value(serde_json::json!({
+            "zoomBlocks": [
+                {
+                    "startTime": 1.0, "endTime": 3.0,
+                    "easeIn": 0.4, "easeOut": 0.4,
+                    "zoomFactor": 1.5, "positionX": 0.2, "positionY": 0.2,
+                    "directTransitionToNext": true, "enabled": true
+                },
+                {
+                    "startTime": 6.0, "endTime": 8.0,
+                    "easeIn": 0.4, "easeOut": 0.4,
+                    "zoomFactor": 1.8, "positionX": 0.8, "positionY": 0.8,
+                    "enabled": true
+                }
+            ],
+            "smoothMotionPath": [
+                { "time": 0.0, "x": 500.0, "y": 500.0, "zoom": 2.0 },
+                { "time": 10.0, "x": 500.0, "y": 500.0, "zoom": 2.0 }
+            ]
+        }))
+        .expect("linked zoom segment parses");
+
+        let state = calculate_zoom_state(4.5, &segment, 1000.0, 1000.0);
+        assert!(state.zoom_factor < (1.5_f64 * 1.8).sqrt());
+        assert!(state.zoom_factor > 1.0);
+        assert!((state.zoom_factor - 2.0).abs() > 0.1);
+        assert!(state.position_x > 0.2 && state.position_x < 0.8);
+    }
+
+    #[test]
     fn zoom_block_envelope_edges() {
         let b = ZoomBlock {
             start_time: 2.0,
@@ -387,6 +513,7 @@ mod tests {
             position_x: 0.5,
             position_y: 0.5,
             follow_cursor: false,
+            direct_transition_to_next: false,
             enabled: true,
         };
         assert_eq!(zoom_block_envelope(&b, 1.9), 0.0); // before

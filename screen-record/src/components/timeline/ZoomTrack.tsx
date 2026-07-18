@@ -325,6 +325,17 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
         onKeyframeDragStart={onKeyframeDragStart}
         startResizeBlock={startResizeBlock}
         startResizeTransition={startResizeTransition}
+        onToggleDirectTransition={(index) => {
+          const block = blocks[index];
+          if (!block) return;
+          beginBatch();
+          onUpdateBlocks(blocks.map((entry, entryIndex) => (
+            entryIndex === index
+              ? { ...entry, directTransitionToNext: !entry.directTransitionToNext }
+              : entry
+          )));
+          commitBatch();
+        }}
         trackRef={trackRef}
         trackWidth={trackWidth}
       />

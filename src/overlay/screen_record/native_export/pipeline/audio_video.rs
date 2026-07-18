@@ -166,7 +166,7 @@ fn build_mixed_audio(ctx: MixedAudioBuild<'_>) -> Result<Option<PathBuf>, String
         sources.push(ExportAudioSource {
             path: config.device_audio_path.clone(),
             volume_points: ctx.device_audio_points.to_vec(),
-            start_offset_sec: 0.0,
+            start_offset_sec: config.segment.device_audio_offset_sec,
             source_in_sec: None,
             source_out_sec: None,
             playback_rate: 1.0,

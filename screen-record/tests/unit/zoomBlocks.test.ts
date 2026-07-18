@@ -65,6 +65,29 @@ describe("zoom block resolver", () => {
     expect(inB.positionX).toBeCloseTo(0.8, 3);
   });
 
+  it("bypasses auto zoom across a linked direct transition", () => {
+    const segment = makeSegment({
+      zoomBlocks: [
+        block({
+          startTime: 1, endTime: 3, easeOut: 0.4,
+          zoomFactor: 1.5, positionX: 0.2, positionY: 0.2,
+          directTransitionToNext: true,
+        }),
+        block({
+          startTime: 6, endTime: 8, easeIn: 0.4,
+          zoomFactor: 1.8, positionX: 0.8, positionY: 0.8,
+        }),
+      ],
+    });
+
+    const inLinkedGap = calculateCurrentZoomStateInternal(4.5, segment, VIEW, VIEW);
+    expect(inLinkedGap.zoomFactor).toBeLessThan(Math.sqrt(1.5 * 1.8));
+    expect(inLinkedGap.zoomFactor).toBeGreaterThan(1);
+    expect(inLinkedGap.zoomFactor).not.toBeCloseTo(2, 2);
+    expect(inLinkedGap.positionX).toBeGreaterThan(0.2);
+    expect(inLinkedGap.positionX).toBeLessThan(0.8);
+  });
+
   it("returns the auto path before the first block and after the last", () => {
     const segment = makeSegment({
       zoomBlocks: [block({ startTime: 4, endTime: 6, zoomFactor: 1.5 })],
