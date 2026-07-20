@@ -1,4 +1,5 @@
 mod auxiliary;
+mod badge;
 mod desktop_settings;
 mod download;
 mod global_settings;
@@ -19,6 +20,7 @@ mod tts_settings;
 mod workspace;
 
 pub use auxiliary::AuxiliaryLocaleText;
+pub use badge::BadgeLocaleText;
 pub use desktop_settings::DesktopSettingsLocaleText;
 pub use download::DownloadLocaleText;
 pub use global_settings::GlobalSettingsLocaleText;

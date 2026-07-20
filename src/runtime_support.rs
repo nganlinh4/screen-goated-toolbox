@@ -106,21 +106,23 @@ pub fn environment_info() -> EnvironmentInfo {
 
 pub fn supports_qwen3_local_runtime() -> FeatureCapability {
     let env = environment_info();
+    let badge = crate::overlay::auto_copy_badge::locale_text();
+    let unavailable = crate::overlay::auto_copy_badge::format_locale(
+        badge.feature_unavailable_fmt,
+        &[("name", "Qwen3-ASR CUDA Runtime")],
+    );
     if env.process_arch != RuntimeArch::X64 {
         return FeatureCapability {
             status: CapabilityStatus::UnsupportedPlatform,
-            title: "Qwen3-ASR CUDA Runtime is unavailable".to_string(),
-            details: "The current Qwen3 local runtime is only shipped for x64 Windows builds."
-                .to_string(),
+            title: unavailable,
+            details: badge.qwen_x64_only.to_string(),
         };
     }
     if env.native_arch == RuntimeArch::Arm64 {
         return FeatureCapability {
             status: CapabilityStatus::UnsupportedHardware,
-            title: "Qwen3-ASR CUDA Runtime is unavailable".to_string(),
-            details:
-                "Qwen3 local runtime currently requires an NVIDIA CUDA GPU and is not supported on Windows-on-Arm virtual machines."
-                    .to_string(),
+            title: unavailable,
+            details: badge.qwen_arm_unsupported.to_string(),
         };
     }
 
@@ -131,12 +133,24 @@ pub fn require_webview2(feature_name: &str) -> FeatureCapability {
     if webview2_runtime_installed() {
         FeatureCapability::supported()
     } else {
+        let badge = crate::overlay::auto_copy_badge::locale_text();
+        let feature_name = match feature_name {
+            "Window selector" => badge.feature_window_selector,
+            "Realtime overlay" => badge.feature_realtime_overlay,
+            "Preset wheel" => badge.feature_preset_wheel,
+            "TTS Playground" => badge.feature_tts_playground,
+            "Text input overlay" => badge.feature_text_input,
+            "Screen record" => badge.feature_screen_record,
+            "Markdown view" => badge.feature_markdown_view,
+            name => name,
+        };
         FeatureCapability {
             status: CapabilityStatus::MissingDependency,
-            title: format!("{feature_name} needs WebView2 Runtime"),
-            details:
-                "Open Downloaded Tools and install Microsoft Edge WebView2 Runtime, then try again."
-                    .to_string(),
+            title: crate::overlay::auto_copy_badge::format_locale(
+                badge.feature_needs_webview2_fmt,
+                &[("name", feature_name)],
+            ),
+            details: badge.install_webview2_hint.to_string(),
         }
     }
 }
@@ -185,15 +199,16 @@ pub fn show_startup_compatibility_notice_if_needed() {
         return;
     }
 
-    let arch = environment_info().native_arch;
-    let title = format!(
-        "{} not supported on this {} device",
-        unsupported.join(", "),
-        arch
+    let arch = environment_info().native_arch.to_string();
+    let unsupported = unsupported.join(", ");
+    let badge = crate::overlay::auto_copy_badge::locale_text();
+    let title = crate::overlay::auto_copy_badge::format_locale(
+        badge.unsupported_features_fmt,
+        &[("name", &unsupported), ("arch", &arch)],
     );
     crate::overlay::auto_copy_badge::show_timed_detailed_notification(
         &title,
-        "Some local or hardware-specific features are unavailable here.",
+        badge.unavailable_features_here,
         crate::overlay::auto_copy_badge::NotificationType::Info,
         2500,
     );
@@ -315,9 +330,10 @@ fn install_webview2_runtime() -> Result<()> {
         let mut status = WEBVIEW2_STATUS.lock().unwrap();
         *status = WebView2InstallStatus::Installing;
     }
+    let badge = crate::overlay::auto_copy_badge::locale_text();
     crate::overlay::auto_copy_badge::show_progress_notification(
-        "Installing WebView2 Runtime",
-        "Downloading Microsoft Edge WebView2 bootstrapper...",
+        badge.installing_webview2,
+        badge.downloading_webview2_installer,
         5.0,
     );
 
@@ -333,8 +349,8 @@ fn install_webview2_runtime() -> Result<()> {
         .map_err(|err| anyhow!("Failed to write '{}': {err}", installer_path.display()))?;
 
     crate::overlay::auto_copy_badge::show_progress_notification(
-        "Installing WebView2 Runtime",
-        "Running WebView2 installer...",
+        badge.installing_webview2,
+        badge.running_webview2_installer,
         55.0,
     );
 
@@ -347,7 +363,7 @@ fn install_webview2_runtime() -> Result<()> {
         let message = format!("WebView2 installer exited with status {status}");
         *WEBVIEW2_STATUS.lock().unwrap() = WebView2InstallStatus::Error(message.clone());
         crate::overlay::auto_copy_badge::hide_progress_notification();
-        crate::overlay::auto_copy_badge::show_error_notification("WebView2 install failed");
+        crate::overlay::auto_copy_badge::show_error_notification(badge.webview2_install_failed);
         return Err(anyhow!(message));
     }
 
@@ -355,8 +371,8 @@ fn install_webview2_runtime() -> Result<()> {
     *WEBVIEW2_STATUS.lock().unwrap() = WebView2InstallStatus::Installed;
     crate::overlay::auto_copy_badge::hide_progress_notification();
     crate::overlay::auto_copy_badge::show_detailed_notification(
-        "WebView2 Runtime ready",
-        "Microsoft Edge WebView2 Runtime installed. Restarting the app...",
+        badge.webview2_ready,
+        badge.webview2_installed_restarting,
         crate::overlay::auto_copy_badge::NotificationType::Success,
     );
 

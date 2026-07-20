@@ -205,17 +205,25 @@ fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) 
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
 
     let loc = locale();
+    let download_title = crate::overlay::auto_copy_badge::format_locale(
+        loc.badge.downloading_runtime_fmt,
+        &[("name", "Step Audio")],
+    );
+    let preparing = crate::overlay::auto_copy_badge::format_locale(
+        loc.badge.preparing_runtime_fmt,
+        &[("name", "Step Audio")],
+    );
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = "Downloading Step Audio runtime".to_string();
-        state.download_message = "Fetching runtime manifest...".to_string();
+        state.download_title = download_title.clone();
+        state.download_message = loc.badge.fetching_runtime_manifest.to_string();
         state.download_progress = 0.0;
     }
     post_download_state();
     if use_badge {
         crate::overlay::auto_copy_badge::show_progress_notification(
-            "Downloading Step Audio runtime",
-            "Fetching runtime manifest...",
+            &download_title,
+            loc.badge.fetching_runtime_manifest,
             0.0,
         );
     }
@@ -237,8 +245,12 @@ fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) 
                 return Err(anyhow!("Download cancelled"));
             }
             let chunk_path = stage.join(&chunk.filename);
+            let downloading_file = crate::overlay::auto_copy_badge::format_locale(
+                loc.badge.downloading_file_fmt,
+                &[("name", &chunk.filename)],
+            );
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = format!("Downloading {}...", chunk.filename);
+                state.download_message = downloading_file.clone();
             }
             post_download_state();
             download_verified_chunk(chunk, &chunk_path, stop_signal, |downloaded| {
@@ -252,8 +264,8 @@ fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) 
                 }
                 if use_badge {
                     crate::overlay::auto_copy_badge::show_progress_notification(
-                        "Downloading Step Audio runtime",
-                        &format!("Downloading {}...", chunk.filename),
+                        &download_title,
+                        &downloading_file,
                         progress,
                     );
                 }
@@ -264,7 +276,7 @@ fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) 
         }
 
         if let Ok(mut state) = REALTIME_STATE.lock() {
-            state.download_message = "Preparing Step Audio runtime...".to_string();
+            state.download_message = preparing.clone();
             state.download_progress = 80.0;
         }
         post_download_state();

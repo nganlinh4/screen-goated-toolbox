@@ -11,6 +11,7 @@ mod mcp;
 mod model_card;
 mod model_sections;
 mod pointer_packs;
+mod three_d_generator;
 mod tts_models;
 mod utils;
 mod video_downloader;
@@ -24,6 +25,7 @@ use self::{
         render_kokoro_card, render_parakeet_card, render_qwen3_card, render_supertonic_card,
     },
     pointer_packs::render_pointer_pack_downloads_section,
+    three_d_generator::render_three_d_generator_card,
     tts_models::{render_magpie_card, render_step_audio_card, render_vieneu_card},
     utils::clear_downloaded_tools_caches,
     video_downloader::render_video_downloader_card,
@@ -149,6 +151,10 @@ pub fn render_downloaded_tools_modal(
                                     render_computer_control_card(ui, text)
                                 });
                                 ui.add_space(8.0);
+                                time_downloaded_tools_section("three-d-generator", || {
+                                    render_three_d_generator_card(ui, text)
+                                });
+                                ui.add_space(8.0);
                                 time_downloaded_tools_section("mcp-integrations", || {
                                     render_mcp_card(ui, text)
                                 });
@@ -219,6 +225,7 @@ fn clean_all_downloaded_tools(download_manager: &mut DownloadManager) {
     let _ = crate::api::realtime_audio::supertonic_assets::remove_supertonic_model();
     let _ = crate::api::realtime_audio::vieneu_runtime::remove_vieneu_runtime();
     let _ = crate::overlay::computer_control::remove_detector_model();
+    let _ = crate::overlay::three_d_generator::remove_depth_model();
     crate::overlay::computer_control::ui_remove_all(); // uninstall + forget MCP integrations
     let _ =
         std::fs::remove_dir_all(crate::api::realtime_audio::sherpa_onnx::dlls::sherpa_bin_dir());

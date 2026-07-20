@@ -120,6 +120,7 @@ impl SettingsApp {
         crate::overlay::prompt_dj::update_settings();
         crate::overlay::translation_gummy::update_settings();
         crate::overlay::screen_record::update_settings();
+        crate::overlay::three_d_generator::update_settings();
 
         unsafe {
             let class = w!("HotkeyListenerClass");

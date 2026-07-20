@@ -100,13 +100,19 @@ fn install_package_with_ranged_fetch(
 ) -> Result<()> {
     let arch = runtime_arch();
     let entries = package_entries(package);
+    let badge = crate::overlay::auto_copy_badge::locale_text();
+    let name = package_name(package);
+    let arch_text = arch.to_string();
     update_progress(
         ui,
-        &format!("Preparing {} {} payload", package_name(package), arch),
+        &crate::overlay::auto_copy_badge::format_locale(
+            badge.preparing_payload_fmt,
+            &[("name", name), ("arch", &arch_text)],
+        ),
         package.progress_start,
     );
 
-    let label = package_name(package);
+    let label = name;
     super::super::remote_zip::download_entries_to_dir(
         package.url,
         entries,
@@ -116,12 +122,16 @@ fn install_package_with_ranged_fetch(
             let fraction = downloaded as f32 / total.max(1) as f32;
             let progress =
                 package.progress_start + (package.progress_end - package.progress_start) * fraction;
-            let detail = format!(
-                "Downloading {} {} payload ({:.1} MB / {:.1} MB)",
-                label,
-                arch,
-                downloaded as f64 / 1024.0 / 1024.0,
-                total as f64 / 1024.0 / 1024.0
+            let downloaded = format!("{:.1}", downloaded as f64 / 1024.0 / 1024.0);
+            let total = format!("{:.1}", total as f64 / 1024.0 / 1024.0);
+            let detail = crate::overlay::auto_copy_badge::format_locale(
+                badge.downloading_payload_fmt,
+                &[
+                    ("name", label),
+                    ("arch", &arch_text),
+                    ("downloaded", &downloaded),
+                    ("total", &total),
+                ],
             );
             update_progress(ui, &detail, progress);
         },
@@ -129,7 +139,10 @@ fn install_package_with_ranged_fetch(
 
     update_progress(
         ui,
-        &format!("Installing {} {} payload", label, arch),
+        &crate::overlay::auto_copy_badge::format_locale(
+            badge.installing_payload_fmt,
+            &[("name", label), ("arch", &arch_text)],
+        ),
         package.progress_end,
     );
     Ok(())
@@ -149,7 +162,11 @@ fn extract_package(
         .with_context(|| format!("Failed to read archive '{}'", archive_path.display()))?;
 
     let extraction_progress = package.progress_end + 2.0;
-    let extract_label = format!("Extracting {}", package_name(package));
+    let badge = crate::overlay::auto_copy_badge::locale_text();
+    let extract_label = crate::overlay::auto_copy_badge::format_locale(
+        badge.extracting_package_fmt,
+        &[("name", package_name(package))],
+    );
     update_progress(ui, &extract_label, extraction_progress);
 
     for entry in entries {
@@ -211,7 +228,8 @@ pub(super) fn install_runtime(stop_signal: &AtomicBool, ui: AiRuntimeUi) -> Resu
         }
     }
 
-    update_progress(ui, "Finalizing local AI runtime", 100.0);
+    let badge = crate::overlay::auto_copy_badge::locale_text();
+    update_progress(ui, badge.finalizing_local_ai_runtime, 100.0);
     fs::write(
         runtime_marker_path(&bin_dir),
         expected_runtime_marker_contents(),
