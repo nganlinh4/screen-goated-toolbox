@@ -14,6 +14,7 @@ pub mod screen_record;
 pub mod selection; // Made public for extract_crop_from_hbitmap_public
 pub mod text_input; // NEW MODULE
 pub mod text_selection;
+pub mod three_d_generator;
 pub mod translation_gummy;
 pub mod tts_playground; // WRY mini-app TTS Playground
 

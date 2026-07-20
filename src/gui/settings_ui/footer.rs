@@ -86,6 +86,19 @@ pub fn render_footer(
         {
             *show_tts_playground = true;
         }
+        // 3D Generator — mint
+        if filled_icon_button(
+            ui,
+            Icon::AutoAwesome,
+            text.shell.three_d_generator_btn,
+            theme.accent_three_d_generator(),
+            btn_text,
+            6,
+        )
+        .clicked()
+        {
+            crate::overlay::three_d_generator::show_three_d_generator();
+        }
         // PromptDJ — violet
         if filled_icon_button(
             ui,

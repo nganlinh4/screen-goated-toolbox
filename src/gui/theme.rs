@@ -104,6 +104,14 @@ impl AppTheme {
         )
     }
 
+    /// 3D Generator launcher accent — mint, tied to mesh/tooling state.
+    pub fn accent_three_d_generator(&self) -> Color32 {
+        self.pick(
+            Color32::from_rgb(35, 185, 159),
+            Color32::from_rgb(20, 150, 128),
+        )
+    }
+
     /// Help Assistant launcher accent — teal (distinct from PromptDJ's violet).
     pub fn accent_help(&self) -> Color32 {
         self.pick(

@@ -142,9 +142,10 @@ pub fn ensure_ai_runtime_installed(stop_signal: Arc<AtomicBool>, ui: AiRuntimeUi
                 bytes: current_ai_runtime_usage_bytes(),
             });
             if ui == AiRuntimeUi::Badge {
+                let badge = crate::overlay::auto_copy_badge::locale_text();
                 crate::overlay::auto_copy_badge::show_detailed_notification(
-                    "Local AI runtime ready",
-                    "DirectML + ONNX Runtime installed",
+                    badge.local_ai_runtime_ready,
+                    badge.directml_onnx_installed,
                     crate::overlay::auto_copy_badge::NotificationType::Success,
                 );
             }
@@ -157,8 +158,9 @@ pub fn ensure_ai_runtime_installed(stop_signal: Arc<AtomicBool>, ui: AiRuntimeUi
                 set_last_action_error(err.to_string());
                 set_status(AiRuntimeStatus::Error(err.to_string()));
                 if ui != AiRuntimeUi::None {
+                    let badge = crate::overlay::auto_copy_badge::locale_text();
                     crate::overlay::auto_copy_badge::show_error_notification(
-                        "Failed to install local AI runtime",
+                        badge.local_ai_runtime_install_failed,
                     );
                 }
             }

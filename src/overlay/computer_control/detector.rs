@@ -148,6 +148,15 @@ pub(crate) fn download_detector_model(
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
 
     static DOWNLOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let badge = crate::overlay::auto_copy_badge::locale_text();
+    let badge_title = crate::overlay::auto_copy_badge::format_locale(
+        badge.downloading_model_fmt,
+        &[("name", badge.ui_detector_name)],
+    );
+    let badge_preparing = crate::overlay::auto_copy_badge::format_locale(
+        badge.preparing_model_fmt,
+        &[("name", badge.ui_detector_name)],
+    );
     let _download_guard = DOWNLOAD_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
@@ -176,7 +185,7 @@ pub(crate) fn download_detector_model(
         s.download_progress = 0.0;
     }
     if use_badge {
-        show_progress_notification(DOWNLOAD_TITLE, msg, 0.0);
+        show_progress_notification(&badge_title, &badge_preparing, 0.0);
     }
 
     let result = crate::api::realtime_audio::model_loader::download_file_with_progress(
@@ -193,11 +202,7 @@ pub(crate) fn download_detector_model(
                 s.download_progress = progress;
             }
             if use_badge {
-                show_progress_notification(
-                    DOWNLOAD_TITLE,
-                    "Downloading UI element detector...",
-                    progress,
-                );
+                show_progress_notification(&badge_title, &badge_title, progress);
             }
         },
     )

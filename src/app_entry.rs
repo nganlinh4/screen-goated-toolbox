@@ -90,8 +90,9 @@ pub(crate) fn run() -> eframe::Result<()> {
     if startup_args.has("--restarted") {
         std::thread::spawn(|| {
             std::thread::sleep(std::time::Duration::from_millis(2500));
+            let badge = crate::overlay::auto_copy_badge::locale_text();
             crate::overlay::auto_copy_badge::show_update_notification(
-                "Đã khởi động lại app để khôi phục hoàn toàn",
+                badge.app_restarted_after_recovery,
             );
         });
     }

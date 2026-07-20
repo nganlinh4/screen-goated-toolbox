@@ -116,12 +116,21 @@ fn extract_tar_bz2_flat(archive: &Path, dest_dir: &Path) -> Result<()> {
 pub fn download_supertonic_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
     let dir = get_supertonic_model_dir();
     fs::create_dir_all(&dir)?;
+    let badge = crate::overlay::auto_copy_badge::locale_text();
+    let download_title = crate::overlay::auto_copy_badge::format_locale(
+        badge.downloading_model_fmt,
+        &[("name", "Supertonic 3")],
+    );
+    let preparing = crate::overlay::auto_copy_badge::format_locale(
+        badge.preparing_model_fmt,
+        &[("name", "Supertonic 3")],
+    );
 
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = "Downloading Supertonic 3".to_string();
-        state.download_message = "Preparing Supertonic 3 model download...".to_string();
+        state.download_title = download_title;
+        state.download_message = preparing;
         state.download_progress = 0.0;
     }
     clear_supertonic_action_error();
@@ -132,7 +141,10 @@ pub fn download_supertonic_model(stop_signal: Arc<AtomicBool>, use_badge: bool) 
             return Err(anyhow!("Download cancelled"));
         }
         if let Ok(mut state) = REALTIME_STATE.lock() {
-            state.download_message = format!("Downloading {ARCHIVE_FILENAME}");
+            state.download_message = crate::overlay::auto_copy_badge::format_locale(
+                badge.downloading_file_fmt,
+                &[("name", ARCHIVE_FILENAME)],
+            );
         }
         post_download_state();
 

@@ -490,8 +490,9 @@ pub(super) fn handle_export_result(
             }
 
             println!("[Export][Summary] status=error error={}", e);
+            let badge = crate::overlay::auto_copy_badge::locale_text();
             crate::overlay::auto_copy_badge::show_timed_detailed_notification(
-                "Export failed",
+                badge.export_failed,
                 &e,
                 crate::overlay::auto_copy_badge::NotificationType::Error,
                 5200,

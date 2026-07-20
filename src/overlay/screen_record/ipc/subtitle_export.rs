@@ -9,10 +9,11 @@ pub fn handle_save_subtitle_srt(args: &serde_json::Value) -> Result<serde_json::
         .as_str()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("subtitles.srt");
+    let badge = crate::overlay::auto_copy_badge::locale_text();
     let notification_title = args["notificationTitle"]
         .as_str()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or("SRT saved");
+        .unwrap_or(badge.subtitles_saved);
 
     let saved_path = save_subtitle_srt_file(srt_content, default_file_name, notification_title)?;
     Ok(serde_json::json!({ "savedPath": saved_path }))

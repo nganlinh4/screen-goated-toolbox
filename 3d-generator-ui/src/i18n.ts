@@ -1,0 +1,177 @@
+export type Locale = "en" | "ko" | "vi";
+
+const en = {
+  appTitle: "3D Generator",
+  minimize: "Minimize",
+  close: "Close",
+  gettingReady: "Getting ready",
+  ready: "Ready",
+  preparing: "Preparing",
+  working: "Working",
+  unavailable: "Unavailable",
+  readyTooltip: "A prepared workspace is available for the next model.",
+  queue: "Queue",
+  addImages: "Add images",
+  queueEmpty: "No images yet",
+  queueEmptyDetail: "Add one or several images",
+  queued: "Queued",
+  draft: "Draft",
+  creating: "Creating",
+  complete: "Complete",
+  failed: "Failed",
+  remove: "Remove",
+  jobsCount: "{count} jobs",
+  batchLabel: "Batch {number} · {count} images",
+  sharedSettings: "Shared settings for {count} images",
+  image: "Image",
+  chooseImages: "Choose images",
+  formats: "PNG, JPG or WebP",
+  topology: "Topology",
+  light: "Light (game/web)",
+  detailed: "Detailed (render/print)",
+  saveTo: "Save to",
+  defaultFolder: "Downloads",
+  separateParts: "Separate parts",
+  autoSeparateParts: "Automatically separate parts",
+  colorReadyPieces: "Color-ready pieces",
+  generateModel: "Generate model",
+  generateQueue: "Generate queue",
+  addToQueue: "Add to queue",
+  generateAgain: "Generate again",
+  cancel: "Cancel",
+  modelReady: "Model ready",
+  partsReady: "Parts ready",
+  savedAutomatically: "Saved automatically",
+  emptyTitle: "Turn images into models",
+  emptyDetail: "Add images to start a production queue",
+  chooseToBegin: "Choose an image to begin",
+  adjustThenGenerate: "Adjust topology, then generate",
+  preparingWorkspace: "Preparing workspace",
+  finishingPreparation: "Finishing background preparation",
+  gettingEverythingReady: "Getting everything ready",
+  separatingParts: "Separating parts",
+  findingPieces: "Finding clean model pieces",
+  finishingModel: "Finishing model",
+  preparingGeometry: "Preparing the final geometry",
+  creatingModel: "Creating model",
+  readingDepth: "Reading depth and form",
+  preparingImage: "Preparing image and topology",
+  shapingGeometry: "Shaping depth into geometry",
+  couldNotCreate: "Couldn't create model",
+  cancelled: "Cancelled",
+  cancelledDetail: "Generate again when you're ready",
+  queuedTitle: "Waiting in queue",
+  queuedDetail: "Another model is being created",
+  dragInspect: "Drag to inspect the result",
+  dragInspectParts: "Drag to inspect each colored piece",
+  almostThere: "Almost there",
+  lessMinute: "Less than a minute",
+  aboutMinutes: "About {count} min left",
+  takingLonger: "Taking a little longer",
+  serviceBusy: "The service is busy. Try again in a few minutes.",
+  engineMissing: "The 3D engine is not installed.",
+  timedOut: "Creation took too long. Try this image again.",
+  separationFailed: "The model was created, but its parts could not be separated.",
+  interrupted: "Something interrupted creation. Try again.",
+  showInFolder: "Show in folder",
+  originalMaterials: "Original materials",
+  toonOutline: "Toon shading and outline",
+  partColors: "Part colors",
+  toggleOutline: "Toggle outline",
+  toggleRotation: "Toggle rotation",
+  toggleGrid: "Toggle grid",
+  toggleWireframe: "Toggle wireframe",
+  resetView: "Reset view",
+  preview: "3D model preview",
+  modelStats: "{vertices} vertices · {faces} faces",
+} as const;
+
+type Messages = { [K in keyof typeof en]: string };
+
+const ko: Messages = {
+  appTitle: "3D 생성기", minimize: "최소화", close: "닫기", gettingReady: "준비 중", ready: "준비됨",
+  preparing: "준비 중", working: "작업 중", unavailable: "사용 불가",
+  readyTooltip: "다음 모델을 위한 작업 공간이 준비되었습니다.", queue: "대기열", addImages: "이미지 추가",
+  queueEmpty: "이미지가 없습니다", queueEmptyDetail: "하나 이상의 이미지를 추가하세요", queued: "대기 중", draft: "초안",
+  creating: "생성 중", complete: "완료", failed: "실패", remove: "제거", jobsCount: "작업 {count}개",
+  batchLabel: "배치 {number} · 이미지 {count}개", sharedSettings: "이미지 {count}개에 공통 설정",
+  image: "이미지", chooseImages: "이미지 선택", formats: "PNG, JPG 또는 WebP", topology: "토폴로지",
+  light: "가벼움 (게임/웹)", detailed: "고정밀 (렌더/출력)", saveTo: "저장 위치", defaultFolder: "기본 출력 폴더",
+  separateParts: "파트 분리", autoSeparateParts: "자동 파트 분리", colorReadyPieces: "색상 편집 가능한 파트", generateModel: "모델 생성",
+  generateQueue: "대기열 생성", addToQueue: "대기열에 추가", generateAgain: "다시 생성", cancel: "취소", modelReady: "모델 준비 완료",
+  partsReady: "파트 준비 완료", savedAutomatically: "자동 저장됨", emptyTitle: "이미지를 3D 모델로",
+  emptyDetail: "이미지를 추가해 생성 대기열을 시작하세요", chooseToBegin: "시작할 이미지를 선택하세요",
+  adjustThenGenerate: "토폴로지를 조정한 뒤 생성하세요", preparingWorkspace: "작업 공간 준비 중",
+  finishingPreparation: "백그라운드 준비를 마치는 중", gettingEverythingReady: "필요한 항목을 준비하는 중",
+  separatingParts: "파트 분리 중", findingPieces: "깔끔한 모델 파트를 찾는 중", finishingModel: "모델 마무리 중",
+  preparingGeometry: "최종 지오메트리를 준비하는 중", creatingModel: "모델 생성 중",
+  readingDepth: "깊이와 형태를 분석하는 중", preparingImage: "이미지와 토폴로지를 준비하는 중",
+  shapingGeometry: "깊이를 지오메트리로 만드는 중", couldNotCreate: "모델을 생성하지 못했습니다",
+  cancelled: "취소됨", cancelledDetail: "준비되면 다시 생성하세요", queuedTitle: "대기열에서 기다리는 중",
+  queuedDetail: "다른 모델을 생성하고 있습니다", dragInspect: "드래그하여 결과를 확인하세요",
+  dragInspectParts: "드래그하여 색상별 파트를 확인하세요", almostThere: "거의 완료되었습니다",
+  lessMinute: "1분 이내", aboutMinutes: "약 {count}분 남음", takingLonger: "예상보다 조금 더 걸리고 있습니다",
+  serviceBusy: "서비스가 혼잡합니다. 몇 분 후 다시 시도하세요.", engineMissing: "3D 엔진이 설치되지 않았습니다.",
+  timedOut: "생성 시간이 너무 길어졌습니다. 이 이미지를 다시 시도하세요.",
+  separationFailed: "모델은 생성되었지만 파트를 분리하지 못했습니다.",
+  interrupted: "생성이 중단되었습니다. 다시 시도하세요.", showInFolder: "폴더에서 보기",
+  originalMaterials: "원본 재질", toonOutline: "툰 셰이딩 및 윤곽선", partColors: "파트 색상",
+  toggleOutline: "윤곽선 전환", toggleRotation: "회전 전환", toggleGrid: "그리드 전환",
+  toggleWireframe: "와이어프레임 전환", resetView: "보기 초기화", preview: "3D 모델 미리보기",
+  modelStats: "정점 {vertices}개 · 면 {faces}개",
+};
+
+const vi: Messages = {
+  appTitle: "Trình tạo 3D", minimize: "Thu nhỏ", close: "Đóng", gettingReady: "Đang chuẩn bị", ready: "Sẵn sàng",
+  preparing: "Đang chuẩn bị", working: "Đang xử lý", unavailable: "Không khả dụng",
+  readyTooltip: "Không gian làm việc đã sẵn sàng cho mô hình tiếp theo.", queue: "Hàng đợi", addImages: "Thêm ảnh",
+  queueEmpty: "Chưa có ảnh", queueEmptyDetail: "Thêm một hoặc nhiều ảnh", queued: "Đang chờ", draft: "Bản nháp",
+  creating: "Đang tạo", complete: "Hoàn tất", failed: "Lỗi", remove: "Xóa", jobsCount: "{count} tác vụ",
+  batchLabel: "Lô {number} · {count} ảnh", sharedSettings: "Cài đặt chung cho {count} ảnh",
+  image: "Hình ảnh", chooseImages: "Chọn ảnh", formats: "PNG, JPG hoặc WebP", topology: "Topology",
+  light: "Nhẹ (cho game/web)", detailed: "Chi tiết (render/in 3D)", saveTo: "Lưu vào", defaultFolder: "Thư mục đầu ra mặc định",
+  separateParts: "Tách bộ phận", autoSeparateParts: "Tự động tách bộ phận", colorReadyPieces: "Các phần sẵn sàng tô màu", generateModel: "Tạo mô hình",
+  generateQueue: "Tạo cả hàng đợi", addToQueue: "Thêm vào hàng đợi", generateAgain: "Tạo lại", cancel: "Hủy", modelReady: "Mô hình đã xong",
+  partsReady: "Các phần đã xong", savedAutomatically: "Đã tự động lưu", emptyTitle: "Biến ảnh thành mô hình",
+  emptyDetail: "Thêm ảnh để bắt đầu hàng đợi sản xuất", chooseToBegin: "Chọn một ảnh để bắt đầu",
+  adjustThenGenerate: "Điều chỉnh topology rồi tạo", preparingWorkspace: "Đang chuẩn bị không gian làm việc",
+  finishingPreparation: "Đang hoàn tất chuẩn bị nền", gettingEverythingReady: "Đang chuẩn bị mọi thứ",
+  separatingParts: "Đang tách các phần", findingPieces: "Đang tìm các phần mô hình sạch", finishingModel: "Đang hoàn thiện mô hình",
+  preparingGeometry: "Đang chuẩn bị hình học cuối", creatingModel: "Đang tạo mô hình",
+  readingDepth: "Đang đọc chiều sâu và hình khối", preparingImage: "Đang chuẩn bị ảnh và topology",
+  shapingGeometry: "Đang biến chiều sâu thành hình học", couldNotCreate: "Không thể tạo mô hình",
+  cancelled: "Đã hủy", cancelledDetail: "Tạo lại khi bạn sẵn sàng", queuedTitle: "Đang chờ trong hàng đợi",
+  queuedDetail: "Một mô hình khác đang được tạo", dragInspect: "Kéo để xem kết quả",
+  dragInspectParts: "Kéo để xem từng phần theo màu", almostThere: "Sắp xong", lessMinute: "Còn dưới một phút",
+  aboutMinutes: "Còn khoảng {count} phút", takingLonger: "Đang mất thêm một chút thời gian",
+  serviceBusy: "Dịch vụ đang bận. Hãy thử lại sau vài phút.", engineMissing: "Công cụ 3D chưa được cài đặt.",
+  timedOut: "Quá trình tạo mất quá lâu. Hãy thử lại ảnh này.",
+  separationFailed: "Mô hình đã được tạo nhưng không thể tách các phần.",
+  interrupted: "Quá trình tạo bị gián đoạn. Hãy thử lại.", showInFolder: "Hiện trong thư mục",
+  originalMaterials: "Vật liệu gốc", toonOutline: "Tô bóng toon và đường viền", partColors: "Màu từng phần",
+  toggleOutline: "Bật/tắt đường viền", toggleRotation: "Bật/tắt xoay", toggleGrid: "Bật/tắt lưới",
+  toggleWireframe: "Bật/tắt khung dây", resetView: "Đặt lại góc nhìn", preview: "Xem trước mô hình 3D",
+  modelStats: "{vertices} đỉnh · {faces} mặt",
+};
+
+const dictionaries: Record<Locale, Messages> = { en, ko, vi };
+let activeLocale: Locale = "en";
+
+export function setLocale(value: string | undefined) {
+  activeLocale = value === "ko" || value === "vi" ? value : "en";
+  document.documentElement.lang = activeLocale;
+}
+
+export function locale() {
+  return activeLocale;
+}
+
+export function t(key: keyof Messages, replacements: Record<string, string | number> = {}) {
+  let value = dictionaries[activeLocale][key] || en[key];
+  for (const [name, replacement] of Object.entries(replacements)) {
+    value = value.split(`{${name}}`).join(String(replacement));
+  }
+  return value;
+}
+
+export type MessageKey = keyof Messages;

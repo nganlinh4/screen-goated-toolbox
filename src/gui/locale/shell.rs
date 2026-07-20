@@ -39,4 +39,6 @@ pub struct ShellLocaleText {
     pub computer_control_stop: &'static str,
     pub computer_control_hotkey_label: &'static str,
     pub computer_control_hotkey_unset: &'static str,
+    pub three_d_generator_btn: &'static str,
+    pub three_d_generator_title: &'static str,
 }

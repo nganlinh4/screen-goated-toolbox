@@ -44,6 +44,8 @@ node_modules/
 dist/
 !src/overlay/tts_playground/dist/
 !src/overlay/tts_playground/dist/**
+!src/overlay/three_d_generator/dist/
+!src/overlay/three_d_generator/dist/**
 !native/qwen3_reference_sidecar/
 !native/qwen3_reference_sidecar/README.md
 !native/qwen3_reference_sidecar/dist/
@@ -98,6 +100,10 @@ third_party/sherpa-onnx-win/
 docs/index.bleve/
 __pycache__/
 /mobile/.kotlin/
+
+# Local-only 3D Generator runtime blueprint and compiled sidecar bundles.
+native/sgt_3d_generator_runtime/
+local-runtime-bundles/
 
 # Computer-control debug traces (CC_TRACE_DIR) + scratch design docs
 /cc-*/

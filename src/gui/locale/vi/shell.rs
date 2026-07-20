@@ -42,5 +42,7 @@ pub(super) fn get() -> ShellLocaleText {
         computer_control_stop: "Dừng",
         computer_control_hotkey_label: "Phím tắt",
         computer_control_hotkey_unset: "Chưa đặt",
+        three_d_generator_btn: "Tạo 3D",
+        three_d_generator_title: "Tạo mô hình 3D",
     }
 }

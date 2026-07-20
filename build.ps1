@@ -122,6 +122,43 @@ else {
     exit 1
 }
 
+# --- Build 3D Generator Frontend ---
+Write-Host "Building 3D Generator Frontend..." -ForegroundColor Cyan
+$gen3dDir = Join-Path $PSScriptRoot "3d-generator-ui"
+$gen3dDist = Join-Path $gen3dDir "dist"
+$gen3dTargetDist = Join-Path $PSScriptRoot "src\overlay\three_d_generator\dist"
+
+Push-Location $gen3dDir
+try {
+    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\\.bin\\vite.cmd")) {
+        npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAILED: 3D Generator npm install failed." -ForegroundColor Red
+            exit 1
+        }
+    }
+    npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: 3D Generator build failed." -ForegroundColor Red
+        exit 1
+    }
+}
+finally {
+    Pop-Location
+}
+
+if (Test-Path $gen3dDist) {
+    if (-not (Test-Path $gen3dTargetDist)) {
+        New-Item -ItemType Directory -Path $gen3dTargetDist -Force | Out-Null
+    }
+    Copy-Item -Path "$gen3dDist\*" -Destination $gen3dTargetDist -Recurse -Force
+    Write-Host "3D Generator assets synchronized." -ForegroundColor Green
+}
+else {
+    Write-Host "FAILED: 3D Generator build did not produce dist folder." -ForegroundColor Red
+    exit 1
+}
+
 # --- Build TTS Playground Frontend ---
 Write-Host "Building TTS Playground Frontend..." -ForegroundColor Cyan
 $ttsDir = Join-Path $PSScriptRoot "tts-playground-ui"

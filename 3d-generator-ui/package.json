@@ -1,0 +1,25 @@
+{
+  "name": "3d-generator-ui",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "postinstall": "node ../scripts/ensure-rollup-native.mjs",
+    "prebuild": "node ../scripts/ensure-rollup-native.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/three": "^0.183.1",
+    "typescript": "^5.8.3",
+    "vite": "^5.4.19"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.60.1",
+    "@rollup/rollup-win32-x64-msvc": "^4.60.1"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  }
+}

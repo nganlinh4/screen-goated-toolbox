@@ -1,5 +1,5 @@
 use super::{
-    AuxiliaryLocaleText, DesktopSettingsLocaleText, GlobalSettingsLocaleText,
+    AuxiliaryLocaleText, BadgeLocaleText, DesktopSettingsLocaleText, GlobalSettingsLocaleText,
     ModelCatalogLocaleText, OverlayLocaleText, PresetBasicsLocaleText, PresetEditorLocaleText,
     RealtimeLocaleText, ShellLocaleText, ToolRuntimeLocaleText, TranslationGummyLocaleText,
     TtsAdvancedLocaleText, TtsPlaygroundLocaleText, TtsSettingsLocaleText, WorkspaceLocaleText,
@@ -7,6 +7,7 @@ use super::{
 
 pub struct LocaleText {
     pub locale_code: &'static str,
+    pub badge: BadgeLocaleText,
     pub workspace: WorkspaceLocaleText,
     pub preset_basics: PresetBasicsLocaleText,
     pub desktop_settings: DesktopSettingsLocaleText,

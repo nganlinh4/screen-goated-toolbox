@@ -1,7 +1,5 @@
 use super::{AiRuntimeStatus, AiRuntimeUi, set_status};
 
-const INSTALL_TITLE: &str = "Installing local AI runtime";
-
 fn post_realtime_download_state(active: bool, title: &str, message: &str, progress: f32) {
     use crate::api::realtime_audio::WM_DOWNLOAD_PROGRESS;
     use crate::overlay::realtime_webview::state::{REALTIME_HWND, REALTIME_STATE};
@@ -28,6 +26,7 @@ fn post_realtime_download_state(active: bool, title: &str, message: &str, progre
 }
 
 pub(super) fn update_progress(ui: AiRuntimeUi, label: &str, progress: f32) {
+    let badge = crate::overlay::auto_copy_badge::locale_text();
     set_status(AiRuntimeStatus::Installing {
         label: label.to_string(),
         progress,
@@ -36,11 +35,11 @@ pub(super) fn update_progress(ui: AiRuntimeUi, label: &str, progress: f32) {
     match ui {
         AiRuntimeUi::None => {}
         AiRuntimeUi::RealtimeOverlay => {
-            post_realtime_download_state(true, INSTALL_TITLE, label, progress);
+            post_realtime_download_state(true, badge.installing_local_ai_runtime, label, progress);
         }
         AiRuntimeUi::Badge => {
             crate::overlay::auto_copy_badge::show_progress_notification(
-                INSTALL_TITLE,
+                badge.installing_local_ai_runtime,
                 label,
                 progress,
             );

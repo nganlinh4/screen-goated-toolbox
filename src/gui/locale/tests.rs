@@ -73,9 +73,10 @@ fn public_field_names(source: &str) -> Vec<&str> {
 }
 
 #[test]
-fn locale_root_contains_only_the_fifteen_typed_sections() {
+fn locale_root_contains_only_the_sixteen_typed_sections() {
     let LocaleText {
         locale_code: _,
+        badge: _,
         workspace: _,
         preset_basics: _,
         desktop_settings: _,
@@ -97,6 +98,7 @@ fn locale_root_contains_only_the_fifteen_typed_sections() {
         public_field_names(include_str!("text.rs")),
         [
             "locale_code",
+            "badge",
             "workspace",
             "preset_basics",
             "desktop_settings",
@@ -119,6 +121,7 @@ fn locale_root_contains_only_the_fifteen_typed_sections() {
 #[test]
 fn locale_leaf_fields_have_one_section_owner() {
     let sections = [
+        ("badge", include_str!("badge.rs"), 44),
         ("workspace", include_str!("workspace.rs"), 23),
         ("preset_basics", include_str!("preset_basics.rs"), 36),
         ("desktop_settings", include_str!("desktop_settings.rs"), 29),
@@ -129,7 +132,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         ("tts_settings", include_str!("tts_settings.rs"), 29),
         ("tts_advanced", include_str!("tts_advanced.rs"), 35),
         ("realtime", include_str!("realtime.rs"), 32),
-        ("shell", include_str!("shell.rs"), 40),
+        ("shell", include_str!("shell.rs"), 42),
         (
             "translation_gummy",
             include_str!("translation_gummy.rs"),
@@ -152,7 +155,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 447);
+    assert_eq!(owners.len(), 493);
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
     assert_eq!(owners["download"], "auxiliary");

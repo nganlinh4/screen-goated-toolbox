@@ -1,6 +1,7 @@
 use super::LocaleText;
 
 mod auxiliary;
+mod badge;
 mod desktop_settings;
 mod download;
 mod global_settings;
@@ -21,6 +22,7 @@ mod workspace;
 pub fn get() -> LocaleText {
     LocaleText {
         locale_code: "vi",
+        badge: badge::get(),
         workspace: workspace::get(),
         preset_basics: preset_basics::get(),
         desktop_settings: desktop_settings::get(),

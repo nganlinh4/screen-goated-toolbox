@@ -65,6 +65,22 @@ thread_local! {
 pub(super) const BADGE_WIDTH: i32 = 1200; // Super wide
 pub(super) const BADGE_HEIGHT: i32 = 400; // Taller for stacking
 
+pub fn locale_text() -> crate::gui::locale::BadgeLocaleText {
+    let ui_language = APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    crate::gui::locale::LocaleText::get(&ui_language).badge
+}
+
+pub fn format_locale(template: &str, replacements: &[(&str, &str)]) -> String {
+    replacements
+        .iter()
+        .fold(template.to_string(), |text, (name, value)| {
+            text.replace(&format!("{{{name}}}"), value)
+        })
+}
+
 pub fn enqueue_notification_with_duration(
     title: String,
     snippet: String,

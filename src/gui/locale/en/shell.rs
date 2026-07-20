@@ -42,5 +42,7 @@ pub(super) fn get() -> ShellLocaleText {
         computer_control_stop: "Stop",
         computer_control_hotkey_label: "Hotkeys",
         computer_control_hotkey_unset: "Not set",
+        three_d_generator_btn: "3D Generator",
+        three_d_generator_title: "3D Generator",
     }
 }

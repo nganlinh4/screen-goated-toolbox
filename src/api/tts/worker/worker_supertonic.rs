@@ -55,10 +55,15 @@ pub(super) fn handle_supertonic_tts(
 
     if !dlls::is_sherpa_runtime_ready() {
         let stop = Arc::new(AtomicBool::new(false));
+        let badge = crate::overlay::auto_copy_badge::locale_text();
+        let required = crate::overlay::auto_copy_badge::format_locale(
+            badge.required_for_offline_tts_fmt,
+            &[("name", "Supertonic 3")],
+        );
         if let Err(err) = dlls::download_sherpa_dlls_with_progress(stop, |progress| {
             crate::overlay::auto_copy_badge::show_progress_notification(
-                "Downloading sherpa-onnx runtime",
-                "Required for Supertonic 3 offline TTS",
+                badge.downloading_sherpa_runtime,
+                &required,
                 progress * 100.0,
             );
         }) {
