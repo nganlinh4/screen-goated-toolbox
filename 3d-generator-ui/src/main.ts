@@ -220,7 +220,7 @@ const MAX_PARALLEL_JOBS = 2;
 const state = {
   items: [] as QueueItem[], selectedId: "", runningIds: new Set<string>(), outputDir: "", queueActive: false, cancelRequested: false,
   backendStatus: { stage: "idle", progressText: "", runtimeStatus: "checking" } as JobStatus,
-  preparationStatus: "preparing", preparationTimer: 0, displayToken: 0,
+  preparationStatus: "preparing", preparationTimer: 0, preparationPollToken: 0, displayToken: 0,
   outline: true, rotate: false, grid: false, wire: false,
 };
 
@@ -604,10 +604,13 @@ async function segmentSelected() {
 
 function startPreparationPolling() {
   window.clearTimeout(state.preparationTimer);
+  const token = ++state.preparationPollToken;
   const check = async () => {
     try { state.preparationStatus = await invoke<string>("runtime_preparation_status"); } catch { state.preparationStatus = "not_ready"; }
+    if (token !== state.preparationPollToken) return;
     updateUi();
-    if (state.preparationStatus !== "ready" && state.preparationStatus !== "missing") state.preparationTimer = window.setTimeout(check, 1000);
+    const delayMs = state.preparationStatus === "preparing" || state.preparationStatus === "not_ready" ? 1000 : 15_000;
+    state.preparationTimer = window.setTimeout(check, delayMs);
   };
   void check();
 }

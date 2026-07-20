@@ -9,7 +9,7 @@ const en = {
   preparing: "Preparing",
   working: "Working",
   unavailable: "Unavailable",
-  readyTooltip: "A prepared workspace is available for the next model.",
+  readyTooltip: "Model workspaces are kept ready in the background.",
   queue: "Queue",
   addImages: "Add images",
   queueEmpty: "No images yet",
@@ -91,7 +91,7 @@ type Messages = { [K in keyof typeof en]: string };
 const ko: Messages = {
   appTitle: "3D 생성기", minimize: "최소화", close: "닫기", gettingReady: "준비 중", ready: "준비됨",
   preparing: "준비 중", working: "작업 중", unavailable: "사용 불가",
-  readyTooltip: "다음 모델을 위한 작업 공간이 준비되었습니다.", queue: "대기열", addImages: "이미지 추가",
+  readyTooltip: "모델 작업 공간을 백그라운드에서 준비해 둡니다.", queue: "대기열", addImages: "이미지 추가",
   queueEmpty: "이미지가 없습니다", queueEmptyDetail: "하나 이상의 이미지를 추가하세요", queued: "대기 중", draft: "초안",
   creating: "생성 중", complete: "완료", failed: "실패", remove: "제거", jobsCount: "작업 {count}개",
   batchLabel: "배치 {number} · 이미지 {count}개", sharedSettings: "이미지 {count}개에 공통 설정",
@@ -124,7 +124,7 @@ const ko: Messages = {
 const vi: Messages = {
   appTitle: "Trình tạo 3D", minimize: "Thu nhỏ", close: "Đóng", gettingReady: "Đang chuẩn bị", ready: "Sẵn sàng",
   preparing: "Đang chuẩn bị", working: "Đang xử lý", unavailable: "Không khả dụng",
-  readyTooltip: "Không gian làm việc đã sẵn sàng cho mô hình tiếp theo.", queue: "Hàng đợi", addImages: "Thêm ảnh",
+  readyTooltip: "Các phiên tạo mô hình luôn được chuẩn bị trong nền.", queue: "Hàng đợi", addImages: "Thêm ảnh",
   queueEmpty: "Chưa có ảnh", queueEmptyDetail: "Thêm một hoặc nhiều ảnh", queued: "Đang chờ", draft: "Bản nháp",
   creating: "Đang tạo", complete: "Hoàn tất", failed: "Lỗi", remove: "Xóa", jobsCount: "{count} tác vụ",
   batchLabel: "Lô {number} · {count} ảnh", sharedSettings: "Cài đặt chung cho {count} ảnh",

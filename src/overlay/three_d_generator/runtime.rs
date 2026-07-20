@@ -1,29 +1,21 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod preparation;
 mod process;
 
 use process::{CommandNoWindowExt as _, run_runtime_operation};
 
 pub(super) const RUNTIME_EXE_NAME: &str = "sgt_3d_generator_runtime.exe";
 const MAX_ASSET_BYTES: u64 = 100 * 1024 * 1024;
-const PREPARED_SESSION_TTL_MS: u64 = 2 * 60 * 60 * 1000;
 const MAX_PARALLEL_JOBS: usize = 2;
-const PREPARED_SESSION_TARGET: usize = 2;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PreparedSessionMarker {
-    profile_dir: String,
-    created_at: u64,
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,11 +119,22 @@ impl RuntimeOperation {
 }
 
 static STATE: LazyLock<Mutex<RuntimeState>> = LazyLock::new(|| Mutex::new(RuntimeState::default()));
-static WARM_RUNNING: AtomicBool = AtomicBool::new(false);
 static JOB_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn runtime_exe_path() -> PathBuf {
     super::runtime_bundle::runtime_exe_path()
+}
+
+pub(super) fn prepare_runtime() -> String {
+    preparation::prepare_runtime()
+}
+
+pub(super) fn runtime_preparation_status() -> String {
+    preparation::runtime_preparation_status()
+}
+
+pub(super) fn start_preparation_maintainer(install_if_missing: bool) {
+    preparation::start_preparation_maintainer(install_if_missing);
 }
 
 fn dev_runtime_exe_path() -> Option<PathBuf> {
@@ -139,13 +142,17 @@ fn dev_runtime_exe_path() -> Option<PathBuf> {
         .join("native")
         .join("sgt_3d_generator_runtime")
         .join("target");
-    ["release", "debug"]
+    ["debug", "release"]
         .into_iter()
         .map(|profile| root.join(profile).join(RUNTIME_EXE_NAME))
         .find(|path| path.is_file())
 }
 
 fn runtime_command() -> Option<Command> {
+    #[cfg(debug_assertions)]
+    if let Some(path) = dev_runtime_exe_path() {
+        return Some(Command::new(path));
+    }
     if super::runtime_bundle::is_runtime_installed() {
         Some(Command::new(runtime_exe_path()))
     } else {
@@ -161,81 +168,6 @@ fn runtime_status_label() -> String {
     } else {
         "missing".to_string()
     }
-}
-
-fn prepared_sessions_dir() -> PathBuf {
-    crate::paths::app_local_data_dir()
-        .join("3d-generator-runtime")
-        .join("prepared-sessions")
-}
-
-fn prepared_ready_paths() -> Vec<PathBuf> {
-    let dir = prepared_sessions_dir();
-    let mut paths = vec![dir.join("ready.json")];
-    paths.extend((0..PREPARED_SESSION_TARGET).map(|slot| dir.join(format!("ready-{slot}.json"))));
-    paths
-}
-
-fn prepared_lock_paths() -> Vec<PathBuf> {
-    let dir = prepared_sessions_dir();
-    let mut paths = vec![dir.join("warming.lock")];
-    paths.extend((0..PREPARED_SESSION_TARGET).map(|slot| dir.join(format!("warming-{slot}.lock"))));
-    paths
-}
-
-pub(super) fn runtime_preparation_status() -> String {
-    if prepared_session_count() >= PREPARED_SESSION_TARGET {
-        "ready".to_string()
-    } else if WARM_RUNNING.load(Ordering::SeqCst) || prepared_lock_is_active() {
-        "preparing".to_string()
-    } else if runtime_command().is_none() {
-        "missing".to_string()
-    } else {
-        "not_ready".to_string()
-    }
-}
-
-fn prepared_lock_is_active() -> bool {
-    prepared_lock_paths().into_iter().any(|lock_path| {
-        let age = std::fs::metadata(&lock_path)
-            .ok()
-            .and_then(|metadata| metadata.modified().ok())
-            .and_then(|modified| modified.elapsed().ok());
-        if age.is_some_and(|value| value <= std::time::Duration::from_secs(3 * 60)) {
-            return true;
-        }
-        if lock_path.exists() {
-            let _ = std::fs::remove_file(lock_path);
-        }
-        false
-    })
-}
-
-fn prepared_marker_is_valid(ready_path: &Path) -> bool {
-    let marker = std::fs::read_to_string(ready_path)
-        .ok()
-        .and_then(|contents| serde_json::from_str::<PreparedSessionMarker>(&contents).ok());
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let valid = marker.is_some_and(|marker| {
-        !marker.profile_dir.trim().is_empty()
-            && Path::new(&marker.profile_dir).is_dir()
-            && marker.created_at <= now_ms
-            && now_ms.saturating_sub(marker.created_at) <= PREPARED_SESSION_TTL_MS
-    });
-    if !valid && ready_path.exists() {
-        let _ = std::fs::remove_file(ready_path);
-    }
-    valid
-}
-
-fn prepared_session_count() -> usize {
-    prepared_ready_paths()
-        .into_iter()
-        .filter(|path| prepared_marker_is_valid(path))
-        .count()
 }
 
 pub(super) fn default_output_dir() -> PathBuf {
@@ -297,50 +229,6 @@ pub(super) fn job_statuses() -> Vec<JobStatus> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-pub(super) fn prepare_runtime() -> String {
-    let prepared_count = prepared_session_count();
-    if prepared_count >= PREPARED_SESSION_TARGET {
-        return "ready".to_string();
-    }
-    if WARM_RUNNING
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return "preparing".to_string();
-    }
-
-    std::thread::spawn(|| {
-        if runtime_command().is_none() {
-            let stop = std::sync::Arc::new(AtomicBool::new(false));
-            if let Err(error) = super::runtime_bundle::download_runtime(stop, true) {
-                crate::log_info!("[3D Generator] Native engine install failed: {error}");
-                WARM_RUNNING.store(false, Ordering::SeqCst);
-                return;
-            }
-        }
-        let missing = PREPARED_SESSION_TARGET.saturating_sub(prepared_session_count());
-        let mut warmers = Vec::with_capacity(missing);
-        for _ in 0..missing {
-            warmers.push(std::thread::spawn(|| {
-                if let Some(mut command) = runtime_command() {
-                    command
-                        .arg("--warm-headless")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .stdin(Stdio::null())
-                        .creation_flags_windows();
-                    let _ = command.status();
-                }
-            }));
-        }
-        for warmer in warmers {
-            let _ = warmer.join();
-        }
-        WARM_RUNNING.store(false, Ordering::SeqCst);
-    });
-    "preparing".to_string()
 }
 
 pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, String> {

@@ -8,10 +8,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::{Result, anyhow, bail};
 use sha2::{Digest, Sha256};
 
-const RUNTIME_ASSET: &str = "sgt-3d-generator-runtime-0.3.0-windows-x64.exe";
-const RUNTIME_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-3d-generator-runtime-0.3.0-windows-x64.exe";
-const RUNTIME_BYTES: u64 = 1_108_992;
-const RUNTIME_SHA256: &str = "16c7d45cb05d3917d4ab5eb164e7dc92eb471d8b6984bc80b002620232116dab";
+const RUNTIME_ASSET: &str = "sgt-3d-generator-runtime-windows-x64.exe";
+const RUNTIME_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-3d-generator-runtime-windows-x64.exe";
+const RUNTIME_BYTES: u64 = 1_112_576;
+const RUNTIME_SHA256: &str = "365837102d8120773706b5d062a0116b350611648178a53ddabc5c0204ee3d11";
 
 pub(crate) const DOWNLOAD_TITLE: &str = "Downloading 3D Generator engine";
 

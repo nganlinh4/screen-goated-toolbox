@@ -53,6 +53,10 @@ pub fn show_three_d_generator() {
     window::show();
 }
 
+pub fn start_background_preparation() {
+    runtime::start_preparation_maintainer(false);
+}
+
 pub(super) fn current_ui_language() -> String {
     crate::APP
         .lock()

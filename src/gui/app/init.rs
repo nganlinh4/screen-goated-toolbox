@@ -197,6 +197,10 @@ impl SettingsApp {
             }
         });
 
+        // An already-installed 3D runtime keeps its prepared workspace pool warm
+        // throughout the app session without downloading anything at startup.
+        crate::overlay::three_d_generator::start_background_preparation();
+
         // Detect initial system theme
         let system_dark = crate::gui::utils::is_system_in_dark_mode();
 
