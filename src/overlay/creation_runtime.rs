@@ -10,8 +10,8 @@ use sha2::{Digest, Sha256};
 
 const RUNTIME_ASSET: &str = "sgt-creation-runtime-windows-x64.exe";
 const RUNTIME_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64.exe";
-const RUNTIME_BYTES: u64 = 1_158_656;
-const RUNTIME_SHA256: &str = "6faece06186fef2e8b298009a18baff45594d29e1eba8654388167db24005fe2";
+const RUNTIME_BYTES: u64 = 1_161_216;
+const RUNTIME_SHA256: &str = "aeaab2dac88573a27cae541c6b3fd8c8d4b7b8665f53f5f9bd5bed704763b2b4";
 
 pub(crate) const DOWNLOAD_TITLE: &str = "Downloading creation engine";
 
