@@ -16,6 +16,8 @@ import dev.screengoated.toolbox.mobile.preset.TextApiClient
 import dev.screengoated.toolbox.mobile.preset.VisionApiClient
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.PermissionSnapshotEvaluator
+import dev.screengoated.toolbox.mobile.phonecontrol.memory.PhoneControlMemoryRepository
+import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlMemoryStartup
 import dev.screengoated.toolbox.mobile.service.GeminiS2sClient
 import dev.screengoated.toolbox.mobile.service.GeminiLiveSocketClient
 import dev.screengoated.toolbox.mobile.service.RealtimeTranslationClient
@@ -62,6 +64,12 @@ class AppContainer(
     private val edgeVoiceCatalogService = EdgeVoiceCatalogService(httpClient, settingsStore, json)
     private val historyPersistence = HistoryPersistence(appContext, json)
     val historyRepository = HistoryRepository(historyPersistence)
+    internal val phoneControlMemoryRepository = PhoneControlMemoryRepository(appContext)
+    private val phoneControlMemoryStartup = PhoneControlMemoryStartup(phoneControlMemoryRepository)
+
+    init {
+        phoneControlMemoryStartup.recoverOnce()
+    }
 
     val repository = AndroidLiveSessionRepository(
         context = appContext,

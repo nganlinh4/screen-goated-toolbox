@@ -12,14 +12,12 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
-import java.util.zip.ZipInputStream
 
 /**
  * Per-engine native library download and loading.
  *
- * Each ASR engine has its own runtime zip on GitHub.
- * ORT is shared across Moonshine and loaded from app storage.
+ * Full-delivery native libraries. ORT is an immutable bundled asset; the other
+ * runtimes are downloaded only when their exact checked-in archive identity is met.
  */
 class NativeLibManager(private val context: Context) {
 
@@ -30,7 +28,13 @@ class NativeLibManager(private val context: Context) {
         /** ONNX Runtime — needed by Moonshine. */
         ORT(
             zipName = "ort-runtime.zip",
-            libs = listOf("libc++_shared.so", "libonnxruntime.so"),
+            // Readiness and cleanup cover the complete runtime payload. Loading uses
+            // the real runtime directly; the API-table proxy remains for compatibility.
+            libs = listOf(
+                "libc++_shared.so",
+                "libonnxruntime_real.so",
+                "libonnxruntime.so",
+            ),
         ),
         /** Moonshine Voice — English streaming ASR. */
         MOONSHINE(
@@ -69,8 +73,9 @@ class NativeLibManager(private val context: Context) {
     fun status(engine: Engine): StateFlow<Status> =
         _statuses.getOrPut(engine) { MutableStateFlow(computeStatus(engine)) }
 
-    fun isInstalled(engine: Engine): Boolean =
-        engine.libs.all { File(libDir, it).exists() }
+    fun isInstalled(engine: Engine): Boolean = runCatching {
+        VerifiedNativeArchive.isInstalled(libDir, archiveContract(engine))
+    }.getOrDefault(false)
 
     fun startDownload(engine: Engine) {
         val flow = _statuses[engine] ?: return
@@ -111,8 +116,6 @@ class NativeLibManager(private val context: Context) {
         for (lib in engine.libs) {
             val f = File(libDir, lib)
             if (f.exists()) f.delete()
-            val temp = File(libDir, "$lib.part")
-            if (temp.exists()) temp.delete()
         }
         _statuses[engine]?.value = Status.Missing
     }
@@ -127,26 +130,19 @@ class NativeLibManager(private val context: Context) {
         for (engine in engines) {
             if (!isInstalled(engine)) return false
         }
-        val ordered = listOf(
-            "libc++_shared.so",
-            "libonnxruntime.so",
-            "libmoonshine.so",
-            "libmoonshine-jni.so",
-            "libsherpa-onnx-jni.so",
-        )
         // Inject our download dir into the classloader's native lib search path.
         // This makes System.loadLibrary() and dlopen DT_NEEDED resolution find
         // our downloaded .so files by name (not just by absolute path).
         injectNativeLibDir()
 
-        val needed = engines.flatMap { it.libs }.toSet()
+        val needed = engines.flatMap { it.libs }
+        val ordered = NativeLibraryLoadContract.orderedDependencies(needed)
         android.util.Log.i("NativeLibManager", "loadEngines: needed=$needed, dir=${libDir.absolutePath}")
         for (lib in ordered) {
-            if (lib !in needed) continue
             val f = File(libDir, lib)
             if (!f.exists()) {
                 android.util.Log.w("NativeLibManager", "File missing: $lib")
-                continue
+                return false
             }
             try {
                 val name = lib.removePrefix("lib").removeSuffix(".so")
@@ -167,7 +163,7 @@ class NativeLibManager(private val context: Context) {
 
     private fun computeStatus(engine: Engine): Status {
         return if (isInstalled(engine)) {
-            val bytes = engine.libs.sumOf { File(libDir, it).length() }
+            val bytes = archiveContract(engine).entries.sumOf { it.byteCount }
             Status.Installed(bytes)
         } else {
             Status.Missing
@@ -175,62 +171,51 @@ class NativeLibManager(private val context: Context) {
     }
 
     private fun downloadAndExtract(engine: Engine, flow: MutableStateFlow<Status>) {
-        val url = "$BASE_URL/${engine.zipName}"
-        val zipFile = File(context.cacheDir, engine.zipName)
+        val contract = archiveContract(engine)
+        val zipFile = File(context.cacheDir, contract.fileName)
         try {
-            val request = Request.Builder().url(url).build()
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-                val contentLength = response.body.contentLength()
-                var downloaded = 0L
-                response.body.byteStream().use { input ->
-                    FileOutputStream(zipFile).use { output ->
-                        val buf = ByteArray(65536)
-                        while (true) {
-                            val n = input.read(buf)
-                            if (n == -1) break
-                            output.write(buf, 0, n)
-                            downloaded += n
-                            if (contentLength > 0) {
-                                flow.value = Status.Downloading(
-                                    (downloaded.toFloat() / contentLength) * 0.9f
-                                )
-                            }
-                        }
+            if (contract.fullDelivery == "bundled_asset") {
+                require(engine == Engine.ORT) { "Only ORT has a bundled Full runtime" }
+                context.assets.open(NativeRuntimeContract.FULL_ORT_ASSET_PATH).use { source ->
+                    VerifiedNativeArchive.materialize(source, zipFile, contract) { progress ->
+                        flow.value = Status.Downloading(progress * 0.9f)
                     }
                 }
+            } else {
+                require(contract.fullDelivery == "verified_download") {
+                    "Unsupported Full native delivery: ${contract.fullDelivery}"
+                }
+                val request = Request.Builder().url("$BASE_URL/${contract.fileName}").build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                    val contentLength = response.body.contentLength()
+                    require(contentLength < 0L || contentLength == contract.byteCount) {
+                        "${contract.fileName} HTTP byte count differs: $contentLength"
+                    }
+                    VerifiedNativeArchive.materialize(
+                        response.body.byteStream(),
+                        zipFile,
+                        contract,
+                    ) { progress -> flow.value = Status.Downloading(progress * 0.9f) }
+                }
             }
-
             flow.value = Status.Downloading(0.95f)
-            ZipInputStream(zipFile.inputStream()).use { zis ->
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    if (!entry.isDirectory && entry.name.endsWith(".so")) {
-                        val target = File(libDir, entry.name)
-                        val tempTarget = File(libDir, "${entry.name}.part")
-                        tempTarget.delete()
-                        try {
-                            FileOutputStream(tempTarget).use { fos ->
-                                zis.copyTo(fos)
-                            }
-                        } catch (e: Exception) {
-                            tempTarget.delete()
-                            throw e
-                        }
-                        if (!tempTarget.renameTo(target)) {
-                            tempTarget.delete()
-                            target.delete()
-                            throw Exception("Failed to finalize ${entry.name}")
-                        }
-                    }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
-                }
-            }
+            VerifiedNativeArchive.install(zipFile, libDir, contract)
             flow.value = Status.Downloading(1.0f)
         } finally {
             zipFile.delete()
         }
+    }
+
+    private fun archiveContract(engine: Engine): NativeRuntimeArchive {
+        val archive = NativeRuntimeContract.load(context).archive(engine.name.lowercase())
+        require(archive.fileName == engine.zipName) {
+            "Native runtime archive differs for ${engine.name}"
+        }
+        require(archive.entries.map { it.fileName }.toSet() == engine.libs.toSet()) {
+            "Native runtime members differ for ${engine.name}"
+        }
+        return archive
     }
 
     // dirInjected lives in the companion so it persists across instances
@@ -302,8 +287,19 @@ class NativeLibManager(private val context: Context) {
         @Volatile
         private var sherpaLoaded = false
 
+        @Volatile
+        private var ortLoaded = false
+
         private const val BASE_URL =
             "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/mobile/androidApp/libs"
+
+        @Synchronized
+        fun ensureOrtLoaded(context: Context): Boolean {
+            if (ortLoaded) return true
+            if (!NativeLibManager(context).loadEngines(Engine.ORT)) return false
+            ortLoaded = loadJavaOrtBridge()
+            return ortLoaded
+        }
 
         /** Ensure Moonshine libs are loaded. */
         fun ensureMoonshineLoaded(context: Context): Boolean {
@@ -325,6 +321,18 @@ class NativeLibManager(private val context: Context) {
                 return true
             }
             return false
+        }
+
+        private fun loadJavaOrtBridge(): Boolean = try {
+            System.loadLibrary("onnxruntime4j_jni")
+            true
+        } catch (error: UnsatisfiedLinkError) {
+            if (error.message?.contains("already loaded") == true) {
+                true
+            } else {
+                android.util.Log.e("NativeLibManager", "Failed to load ONNX Java bridge", error)
+                false
+            }
         }
     }
 }

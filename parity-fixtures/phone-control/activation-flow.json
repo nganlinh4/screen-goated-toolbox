@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "feature": "phone-control-activation",
+  "requiredOrder": [
+    "gemini_api",
+    "runtime_permissions",
+    "accessibility",
+    "overlay",
+    "start"
+  ],
+  "invariants": {
+    "launcherSurface": "apps_card",
+    "launcherPlacement": "adjacent_to_live_translate",
+    "innerSetupScreen": false,
+    "apiKeySurface": "existing_settings_section_with_toast",
+    "opensGeneralSettingsForApiKey": true,
+    "oneExternalUserStepAtATime": true,
+    "reprobeAfterReturn": true,
+    "settingsNavigation": {
+      "targetIdentity": "runtime_app_label_on_resolved_settings_package",
+      "mayScroll": true,
+      "mayOpenAppRow": true,
+      "mayTogglePermission": false,
+      "returnAfterGrant": "back_only_while_resolved_settings_is_foreground",
+      "ambiguousTarget": "stop_without_effect"
+    },
+    "diagnosticMilestones": [
+      "coordinator_open",
+      "step_selected",
+      "user_step_opened",
+      "user_step_returned",
+      "settings_app_row_opened",
+      "settings_grant_observed",
+      "settings_returned",
+      "service_start_accepted",
+      "runtime_terminal"
+    ],
+    "userFacingSelfTest": false,
+    "optionalPowerPromptOwner": "orb",
+    "optionalPowerChoices": ["standard", "shizuku", "root"]
+  },
+  "cases": [
+    {
+      "name": "api key is first missing requirement",
+      "snapshot": {
+        "apiKey": false,
+        "microphone": false,
+        "notifications": false,
+        "notificationPrompted": false,
+        "accessibilityEnabled": false,
+        "overlay": false
+      },
+      "expect": "gemini_api"
+    },
+    {
+      "name": "runtime permissions are requested together",
+      "snapshot": {
+        "apiKey": true,
+        "microphone": false,
+        "notifications": false,
+        "notificationPrompted": false,
+        "accessibilityEnabled": false,
+        "overlay": false
+      },
+      "expect": "runtime_permissions"
+    },
+    {
+      "name": "notification denial does not hide baseline control",
+      "snapshot": {
+        "apiKey": true,
+        "microphone": true,
+        "notifications": false,
+        "notificationPrompted": true,
+        "accessibilityEnabled": false,
+        "overlay": false
+      },
+      "expect": "accessibility"
+    },
+    {
+      "name": "accessibility precedes overlay",
+      "snapshot": {
+        "apiKey": true,
+        "microphone": true,
+        "notifications": true,
+        "notificationPrompted": true,
+        "accessibilityEnabled": false,
+        "overlay": false
+      },
+      "expect": "accessibility"
+    },
+    {
+      "name": "orb permission is acquired before service start",
+      "snapshot": {
+        "apiKey": true,
+        "microphone": true,
+        "notifications": true,
+        "notificationPrompted": true,
+        "accessibilityEnabled": true,
+        "overlay": false
+      },
+      "expect": "overlay"
+    },
+    {
+      "name": "ready evidence starts without optional authority",
+      "snapshot": {
+        "apiKey": true,
+        "microphone": true,
+        "notifications": true,
+        "notificationPrompted": true,
+        "accessibilityEnabled": true,
+        "overlay": true
+      },
+      "expect": "start"
+    }
+  ]
+}

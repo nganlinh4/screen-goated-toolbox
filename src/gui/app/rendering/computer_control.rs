@@ -140,9 +140,9 @@ impl SettingsApp {
                     });
                 }
 
-                if let Some(message) = &self.computer_control_hotkey_conflict_msg {
+                if let Some(conflict) = &self.computer_control_hotkey_conflict_msg {
                     ui.add_space(6.0);
-                    ui.colored_label(theme.danger_text(), message);
+                    ui.colored_label(theme.danger_text(), text.hotkey_conflict_message(conflict));
                 }
             });
 

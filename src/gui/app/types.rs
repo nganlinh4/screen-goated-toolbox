@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, HotkeyConflict};
 use crate::gui::settings_ui::ViewMode;
 use crate::gui::settings_ui::node_graph::ChainNode;
 use crate::updater::{UpdateStatus, Updater};
@@ -66,10 +66,10 @@ pub struct SettingsApp {
     pub(crate) detail_panes: Vec<DetailPane>,
     pub(crate) current_preset_idx: Option<usize>,
     pub(crate) recording_hotkey_for_preset: Option<usize>,
-    pub(crate) hotkey_conflict_msg: Option<String>,
+    pub(crate) hotkey_conflict_msg: Option<HotkeyConflict>,
     pub(crate) recording_sr_hotkey: bool,
     pub(crate) recording_computer_control_hotkey: bool,
-    pub(crate) computer_control_hotkey_conflict_msg: Option<String>,
+    pub(crate) computer_control_hotkey_conflict_msg: Option<HotkeyConflict>,
     pub(crate) splash: Option<crate::gui::splash::SplashScreen>,
     pub(crate) fade_in_start: Option<f64>,
 

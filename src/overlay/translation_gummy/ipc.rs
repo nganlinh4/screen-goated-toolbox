@@ -159,11 +159,12 @@ fn handle_add_hotkey(args: Value) -> Result<Value, String> {
     // Check conflicts
     {
         let app = crate::APP.lock().unwrap();
-        if let Some(msg) = app
-            .config
-            .check_hotkey_conflict(hotkey.code, hotkey.modifiers, None)
+        if let Some(conflict) =
+            app.config
+                .check_hotkey_conflict(hotkey.code, hotkey.modifiers, None)
         {
-            return Err(msg);
+            let text = crate::gui::locale::LocaleText::get(&app.config.ui_language);
+            return Err(text.hotkey_conflict_message(&conflict));
         }
     }
 

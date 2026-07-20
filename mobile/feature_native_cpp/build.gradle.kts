@@ -5,6 +5,7 @@ plugins {
 
 val generatedJni = layout.buildDirectory.dir("generated/jniLibs")
 val prepareNativePayload by tasks.registering(Sync::class) {
+    dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
     from(zipTree(project(":androidApp").projectDir.resolve("libs/ort-runtime.zip"))) {
         include("libc++_shared.so")
     }
@@ -25,7 +26,10 @@ android {
     packaging {
         // libc++_shared is linked by the exec'd Python/FFmpeg binaries, so extract
         // it to the exec-allowed native lib dir rather than leaving it compressed.
-        jniLibs.useLegacyPackaging = true
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols += "**/libc++_shared.so"
+        }
     }
 }
 

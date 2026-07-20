@@ -1,6 +1,25 @@
 use super::Config;
 use crate::config::types::PresetProfile;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GlobalHotkeyOwner {
+    ScreenRecord,
+    TranslationGummy,
+    ComputerControl,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HotkeyConflict {
+    Global {
+        owner: GlobalHotkeyOwner,
+        hotkey_name: String,
+    },
+    Preset {
+        hotkey_name: String,
+        preset_name: String,
+    },
+}
+
 impl Config {
     pub fn ensure_preset_profiles(&mut self) {
         if self.preset_profiles.is_empty() {
@@ -112,37 +131,37 @@ impl Config {
     }
 
     /// Checks if a hotkey combination conflicts with any existing hotkeys.
-    /// Returns the name of the conflicting item if found.
+    /// Returns structured ownership so each UI can localize the message.
     pub fn check_hotkey_conflict(
         &self,
         vk: u32,
         mods: u32,
         exclude_preset_idx: Option<usize>,
-    ) -> Option<String> {
+    ) -> Option<HotkeyConflict> {
         for h in &self.screen_record_hotkeys {
             if h.code == vk && h.modifiers == mods {
-                return Some(format!(
-                    "Conflict with global hotkey '{}' (Screen Record)",
-                    h.name
-                ));
+                return Some(HotkeyConflict::Global {
+                    owner: GlobalHotkeyOwner::ScreenRecord,
+                    hotkey_name: h.name.clone(),
+                });
             }
         }
 
         for h in &self.translation_gummy.hotkeys {
             if h.code == vk && h.modifiers == mods {
-                return Some(format!(
-                    "Conflict with global hotkey '{}' (Translation Gummy)",
-                    h.name
-                ));
+                return Some(HotkeyConflict::Global {
+                    owner: GlobalHotkeyOwner::TranslationGummy,
+                    hotkey_name: h.name.clone(),
+                });
             }
         }
 
         for h in &self.computer_control_hotkeys {
             if h.code == vk && h.modifiers == mods {
-                return Some(format!(
-                    "Conflict with global hotkey '{}' (Computer Control)",
-                    h.name
-                ));
+                return Some(HotkeyConflict::Global {
+                    owner: GlobalHotkeyOwner::ComputerControl,
+                    hotkey_name: h.name.clone(),
+                });
             }
         }
 
@@ -152,10 +171,10 @@ impl Config {
             }
             for h in &preset.hotkeys {
                 if h.code == vk && h.modifiers == mods {
-                    return Some(format!(
-                        "Conflict with '{}' in preset '{}'",
-                        h.name, preset.name
-                    ));
+                    return Some(HotkeyConflict::Preset {
+                        hotkey_name: h.name.clone(),
+                        preset_name: preset.name.clone(),
+                    });
                 }
             }
         }
@@ -165,7 +184,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::Config;
+    use super::{Config, GlobalHotkeyOwner, HotkeyConflict};
     use crate::config::{Hotkey, Preset};
 
     #[test]
@@ -175,6 +194,7 @@ mod tests {
         let config = Config {
             computer_control_hotkeys: vec![global_key.clone()],
             presets: vec![Preset {
+                name: "Editing".to_string(),
                 hotkeys: vec![preset_key.clone()],
                 ..Default::default()
             }],
@@ -195,6 +215,21 @@ mod tests {
             config
                 .check_hotkey_conflict(preset_key.code, preset_key.modifiers, None)
                 .is_some()
+        );
+
+        assert_eq!(
+            config.check_hotkey_conflict(global_key.code, global_key.modifiers, None),
+            Some(HotkeyConflict::Global {
+                owner: GlobalHotkeyOwner::ComputerControl,
+                hotkey_name: "F6".to_string(),
+            })
+        );
+        assert_eq!(
+            config.check_hotkey_conflict(preset_key.code, preset_key.modifiers, None),
+            Some(HotkeyConflict::Preset {
+                hotkey_name: "Ctrl + A".to_string(),
+                preset_name: "Editing".to_string(),
+            })
         );
     }
 }

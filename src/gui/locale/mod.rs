@@ -52,4 +52,32 @@ impl LocaleText {
             _ => en::get(),
         }
     }
+
+    pub fn hotkey_conflict_message(&self, conflict: &crate::config::HotkeyConflict) -> String {
+        use crate::config::{GlobalHotkeyOwner, HotkeyConflict};
+
+        match conflict {
+            HotkeyConflict::Global { owner, hotkey_name } => {
+                let owner_name = match owner {
+                    GlobalHotkeyOwner::ScreenRecord => self.tool_runtime.screen_record_btn,
+                    GlobalHotkeyOwner::TranslationGummy => {
+                        self.translation_gummy.translation_gummy_title
+                    }
+                    GlobalHotkeyOwner::ComputerControl => self.shell.computer_control_title,
+                };
+                self.preset_basics
+                    .hotkey_conflict_global_fmt
+                    .replace("{hotkey}", hotkey_name)
+                    .replace("{owner}", owner_name)
+            }
+            HotkeyConflict::Preset {
+                hotkey_name,
+                preset_name,
+            } => self
+                .preset_basics
+                .hotkey_conflict_preset_fmt
+                .replace("{hotkey}", hotkey_name)
+                .replace("{preset}", preset_name),
+        }
+    }
 }

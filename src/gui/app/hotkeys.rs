@@ -26,8 +26,8 @@ impl SettingsApp {
                 self.hotkey_conflict_msg = None;
             } else if let Some((vk, mods, key_name)) = key_recorded {
                 self.sync_global_hotkeys();
-                if let Some(msg) = self.check_hotkey_conflict(vk, mods, preset_idx) {
-                    self.hotkey_conflict_msg = Some(msg);
+                if let Some(conflict) = self.check_hotkey_conflict(vk, mods, preset_idx) {
+                    self.hotkey_conflict_msg = Some(conflict);
                 } else {
                     let new_hotkey = Hotkey {
                         code: vk,
@@ -78,8 +78,8 @@ impl SettingsApp {
                 };
 
                 self.sync_global_hotkeys();
-                if let Some(msg) = self.config.check_hotkey_conflict(vk, mods, None) {
-                    crate::log_info!("Hotkey conflict: {}", msg);
+                if let Some(conflict) = self.config.check_hotkey_conflict(vk, mods, None) {
+                    crate::log_info!("[Hotkey] configuration conflict: {:?}", conflict);
                 } else {
                     self.config.screen_record_hotkeys.push(new_hotkey);
                     self.save_and_sync();
@@ -119,8 +119,8 @@ impl SettingsApp {
         };
 
         self.sync_global_hotkeys();
-        if let Some(msg) = self.config.check_hotkey_conflict(vk, mods, None) {
-            self.computer_control_hotkey_conflict_msg = Some(msg);
+        if let Some(conflict) = self.config.check_hotkey_conflict(vk, mods, None) {
+            self.computer_control_hotkey_conflict_msg = Some(conflict);
             return;
         }
 

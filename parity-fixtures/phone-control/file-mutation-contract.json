@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "feature": "phone-control-file-mutation",
+  "invariants": {
+    "sameCanonicalPathSerializedWithinProcess": true,
+    "createWithoutOverwriteIsAtomic": true,
+    "exactReplaceRevalidatesExpectedHashAtCommit": true
+  },
+  "cases": [
+    {
+      "name": "concurrent create preserves one complete winner",
+      "operation": "save_artifact",
+      "overwrite": false,
+      "expect": {
+        "successes": 1,
+        "rejectedCode": "path_exists",
+        "winnerBytesComplete": true
+      }
+    },
+    {
+      "name": "concurrent modifier is preserved before exact commit",
+      "operation": "exact_replace",
+      "expect": {
+        "resultCode": "hash_mismatch",
+        "effectMayHaveOccurred": false,
+        "competingBytesOverwritten": false
+      }
+    }
+  ]
+}

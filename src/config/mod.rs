@@ -40,8 +40,8 @@ pub mod types;
 // RE-EXPORTS - Primary API
 // ============================================================================
 
-// Config struct
-pub use config::Config;
+// Config struct and structured hotkey conflict ownership
+pub use config::{Config, GlobalHotkeyOwner, HotkeyConflict};
 
 // Preset and ProcessingBlock
 pub use preset::{Preset, ProcessingBlock};

@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "abi": "arm64-v8a",
+  "archives": [
+    {
+      "engine": "ort",
+      "fileName": "ort-runtime.zip",
+      "byteCount": 10535076,
+      "sha256": "481f8f44fbcb5f9607af3c7a95c8666061d8441af33e5df1e3e3c7a2a8501900",
+      "fullDelivery": "bundled_asset",
+      "entries": [
+        {
+          "fileName": "libc++_shared.so",
+          "byteCount": 1794776,
+          "sha256": "46b51d661454b9cfaf42c1dc90893b5ad601b7a7ffc2e09d44bb3cc9d20e7ae2"
+        },
+        {
+          "fileName": "libonnxruntime_real.so",
+          "byteCount": 25770888,
+          "sha256": "42f83b3c2370300821942d1f61099689d37bb5e05126fb75849d4cc9dbe356a2"
+        },
+        {
+          "fileName": "libonnxruntime.so",
+          "byteCount": 612416,
+          "sha256": "9efa5e878cc7dda35a3f7cca6d766e7bedc738402c929793d26671e9f9d53f3a"
+        }
+      ]
+    },
+    {
+      "engine": "moonshine",
+      "fileName": "moonshine-runtime.zip",
+      "byteCount": 18675064,
+      "sha256": "ab6e297bf42f53db95dfc6f9ffc6fb48bbd7b60acf738b2d1f97f70f489c4e80",
+      "fullDelivery": "verified_download",
+      "entries": [
+        {
+          "fileName": "libmoonshine.so",
+          "byteCount": 21237896,
+          "sha256": "da75b2d513c57b8f5be7eaf32b423c6d3655baa49f78b5ad0ce2f4fbb4bec76d"
+        },
+        {
+          "fileName": "libmoonshine-jni.so",
+          "byteCount": 51232,
+          "sha256": "6d79e53b4559a04ef94f9783d83b8ddeaa4f39bbe887ed62a40844d73637a951"
+        }
+      ]
+    },
+    {
+      "engine": "sherpa",
+      "fileName": "sherpa-runtime.zip",
+      "byteCount": 8057968,
+      "sha256": "2a66f857b62e53c12527fb154aca160b590a729a8f3fc2e3eb5435893cc55bea",
+      "fullDelivery": "verified_download",
+      "entries": [
+        {
+          "fileName": "libsherpa-onnx-jni.so",
+          "byteCount": 22161112,
+          "sha256": "350b91b239601b1b27a48d287217f810dec5ac6acc3aa5cdc536f4c16b60f9ab"
+        }
+      ]
+    }
+  ]
+}

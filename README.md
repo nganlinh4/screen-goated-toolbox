@@ -17,9 +17,12 @@ Screen Goated Toolbox (SGT) is a Windows-first AI productivity app with an Andro
 ### Android companion
 
 - Live capture, transcription, translation, and TTS.
-- Native Compose UI plus optional overlay support in the full flavor.
+- Native Compose UI plus optional user-granted overlays in both Android distributions.
+- Phone Control with the same entry point, stable tool catalog, runtime, Accessibility
+  backend, and Shizuku/root authority in both `full` and `play`.
 - Shared Windows-derived preset/runtime contracts where parity applies.
-- Play flavor for Google Play distribution.
+- `full` and `play` artifacts whose packaging and update delivery may differ without
+  changing Phone Control capability.
 
 Exact models and provider defaults change often. Canonical model data lives in [`catalog/model_catalog.json`](catalog/model_catalog.json), not this README.
 

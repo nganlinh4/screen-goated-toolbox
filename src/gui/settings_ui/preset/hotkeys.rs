@@ -1,4 +1,4 @@
-use crate::config::Hotkey;
+use crate::config::{Hotkey, HotkeyConflict};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use crate::gui::widgets::{filled_button, removable_chip};
@@ -9,7 +9,7 @@ pub(super) fn render_hotkeys(
     preset_idx: usize,
     hotkeys: &mut Vec<Hotkey>,
     recording_hotkey_for_preset: &mut Option<usize>,
-    hotkey_conflict_msg: &Option<String>,
+    hotkey_conflict_msg: &Option<HotkeyConflict>,
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
@@ -83,11 +83,11 @@ pub(super) fn render_hotkeys(
         }
     });
 
-    if let Some(msg) = hotkey_conflict_msg
+    if let Some(conflict) = hotkey_conflict_msg
         && *recording_hotkey_for_preset == Some(preset_idx)
     {
         let theme = AppTheme::from_ui(ui);
-        ui.colored_label(theme.danger_text(), msg);
+        ui.colored_label(theme.danger_text(), text.hotkey_conflict_message(conflict));
     }
 
     changed

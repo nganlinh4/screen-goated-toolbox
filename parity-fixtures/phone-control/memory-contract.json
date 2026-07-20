@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "feature": "phone-control-memory",
+  "distributionBehavior": "play_full_identical",
+  "storage": {
+    "scope": "app_private_no_backup",
+    "sourceOfTruth": "versioned_session_sidecars",
+    "index": "derived_and_rebuildable",
+    "atomicReplace": true,
+    "recoverCompleteTempWrites": true,
+    "discardPartialTempWrites": true,
+    "corruptionIsolation": "per_sidecar",
+    "maxFinalizedSessions": 20
+  },
+  "records": {
+    "roles": ["USER", "ASSISTANT"],
+    "turnAndRoleAreStructural": true,
+    "oneRecordPerTurnRole": true,
+    "completeTurnPairAtomic": true,
+    "lateUserRevision": "atomic_replace_existing_user_in_same_draft_pair",
+    "inferRoleFromText": false,
+    "screenshotsPersisted": false,
+    "unicodePreserved": true
+  },
+  "visibility": {
+    "draftsAreDurable": true,
+    "processStartRecovery": "drop_incomplete_tail_finalize_complete_pairs_delete_empty",
+    "draftsAreListVisible": false,
+    "draftsAreGetVisible": false,
+    "draftsAreSearchVisible": false,
+    "finalizedSessionsAreVisible": true
+  },
+  "retrieval": {
+    "searchTool": "search_memory",
+    "openTool": "open_memory",
+    "searchScope": "finalized_sessions_only",
+    "normalization": "unicode_nfkc_locale_root",
+    "ranking": "phrase_and_term_relevance_then_recency_tie_break",
+    "emptyQuery": "newest_first",
+    "offlineLexicalFallbackRequired": true,
+    "openIdentity": "exact_returned_session_id",
+    "openFormat": "full_structurally_labeled_transcript"
+  }
+}

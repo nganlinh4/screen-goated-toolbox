@@ -5,8 +5,9 @@ plugins {
 
 val generatedJni = layout.buildDirectory.dir("generated/jniLibs")
 val prepareNativePayload by tasks.registering(Sync::class) {
+    dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
     from(zipTree(project(":androidApp").projectDir.resolve("libs/sherpa-runtime.zip"))) {
-        include("*.so")
+        include("libsherpa-onnx-jni.so")
     }
     into(generatedJni.map { it.dir("arm64-v8a") })
     outputs.upToDateWhen { false }
@@ -22,6 +23,7 @@ android {
         create("play") { dimension = "distribution" }
     }
     sourceSets.named("main") { jniLibs.srcDir(generatedJni) }
+    packaging.jniLibs.keepDebugSymbols += "**/libsherpa-onnx-jni.so"
 }
 
 tasks.named("preBuild").configure { dependsOn(prepareNativePayload) }

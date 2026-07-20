@@ -2,7 +2,7 @@ use super::get_localized_preset_name;
 use super::node_graph::{
     ChainNode, blocks_to_snarl, render_node_graph, request_node_graph_view_reset,
 };
-use crate::config::Config;
+use crate::config::{Config, HotkeyConflict};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 use egui_snarl::Snarl;
@@ -24,7 +24,7 @@ pub fn render_preset_editor(
     config: &mut Config,
     preset_idx: usize,
     recording_hotkey_for_preset: &mut Option<usize>,
-    hotkey_conflict_msg: &Option<String>,
+    hotkey_conflict_msg: &Option<HotkeyConflict>,
     text: &LocaleText,
     snarl: &mut Snarl<ChainNode>,
     content_bottom: f32,

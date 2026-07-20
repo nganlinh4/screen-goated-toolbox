@@ -24,6 +24,8 @@ pub(super) fn get() -> PresetBasicsLocaleText {
         add_hotkey_button: "+ 키 추가",
         press_keys: "조합 키 누르기...",
         cancel_label: "취소",
+        hotkey_conflict_global_fmt: "'{hotkey}' 단축키가 {owner} 단축키와 충돌합니다.",
+        hotkey_conflict_preset_fmt: "'{hotkey}' 단축키가 '{preset}' 프리셋과 충돌합니다.",
         reset_defaults_btn: "기본값으로 재설정",
         preset_type_label: "유형:",
         preset_type_image: "이미지 이해",

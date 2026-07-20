@@ -62,19 +62,21 @@ class GeminiS2sProtocolTest {
         val segmentsSource = loadSourceFile(SEGMENTS_SOURCE_PATH).readText()
         val liveTranslateSource = loadSourceFile(LIVE_TRANSLATE_SOURCE_PATH).readText()
         val lifecycleAdapterSource = loadSourceFile(LIVE_LIFECYCLE_ADAPTER_SOURCE_PATH).readText()
+        val sharedLifecycleAdapterSource = loadSourceFile(SHARED_LIVE_LIFECYCLE_ADAPTER_SOURCE_PATH).readText()
         val playbackSource = loadSourceFile(PLAYBACK_SOURCE_PATH).readText()
-        val socketSources = "$segmentsSource\n$liveTranslateSource\n$lifecycleAdapterSource"
+        val socketSources =
+            "$segmentsSource\n$liveTranslateSource\n$lifecycleAdapterSource\n$sharedLifecycleAdapterSource"
 
         assertTrue(segmentsSource.contains("openGeminiLiveReadySession(httpClient, apiKey, setupPayload)"))
         assertTrue(liveTranslateSource.contains("openGeminiLiveConnectedSession(httpClient, apiKey)"))
         assertFalse(liveTranslateSource.contains("openGeminiLiveReadySession("))
         assertTrue(
-            lifecycleAdapterSource.contains(
+            sharedLifecycleAdapterSource.contains(
                 "is GeminiLiveLifecycleEffect.SendSetup -> activate(effect.generation)",
             ),
         )
         assertTrue(
-            lifecycleAdapterSource.contains(
+            sharedLifecycleAdapterSource.contains(
                 "pending.session.activate(setupPayload(), policy.setupTimeoutMs)",
             ),
         )
@@ -193,6 +195,8 @@ class GeminiS2sProtocolTest {
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sLiveTranslate.kt"
         private const val LIVE_LIFECYCLE_ADAPTER_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sLiveLifecycleAdapter.kt"
+        private const val SHARED_LIVE_LIFECYCLE_ADAPTER_SOURCE_PATH =
+            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/shared/live/GeminiLiveLifecycleAdapter.kt"
         private const val SEGMENTS_SOURCE_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/GeminiS2sSegments.kt"
         private const val PLAYBACK_SOURCE_PATH =

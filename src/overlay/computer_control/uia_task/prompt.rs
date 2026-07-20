@@ -2,6 +2,8 @@
 //! addendum — split out of `uia_task.rs` for the file-size limit. The compact
 //! core system contract stays in the parent (referenced here as `super::SYS`).
 
+use std::sync::OnceLock;
+
 use serde_json::{Value, json};
 
 use crate::api::gemini_live::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
@@ -12,6 +14,53 @@ use super::super::{executor, protocol};
 /// declaration in the system prompt. It ranks evidence by fidelity without
 /// encoding task phrases or application-specific workflows.
 const CONTROLLER_RULES: &str = "ROUTING: highest-fidelity evidence. Accessible: observe, then act on current @id. Pixel-only: vision targets/marks. Prefer direct browser/system/file/integration providers. Raw input needs known focus/effect. Change route after typed failure.";
+
+const PHONE_CONTROL_CATALOG: &str = include_str!("../phone_control_catalog.json");
+const NORMAL_TOOL_DECLARATION_COUNT: usize = 62;
+const PLATFORM_DEVICE_TOKEN: &str = "{{PLATFORM_DEVICE}}";
+
+fn normal_tool_declarations() -> &'static [Value] {
+    static DECLARATIONS: OnceLock<Vec<Value>> = OnceLock::new();
+
+    DECLARATIONS
+        .get_or_init(|| {
+            let catalog: Value = serde_json::from_str(PHONE_CONTROL_CATALOG)
+                .expect("phone_control_catalog.json must contain valid JSON");
+            assert_eq!(
+                catalog.get("schemaVersion").and_then(Value::as_u64),
+                Some(1),
+                "unsupported Phone Control catalog schema"
+            );
+            let declarations = catalog
+                .get("functionDeclarations")
+                .and_then(Value::as_array)
+                .expect("Phone Control catalog must contain functionDeclarations")
+                .clone();
+            assert_eq!(
+                declarations.len(),
+                NORMAL_TOOL_DECLARATION_COUNT,
+                "Phone Control catalog declaration count drifted"
+            );
+            declarations
+        })
+        .as_slice()
+}
+
+fn normal_tools() -> Value {
+    json!([
+        {"googleSearch": {}},
+        {"functionDeclarations": normal_tool_declarations()}
+    ])
+}
+
+fn windows_prompt_core() -> String {
+    assert_eq!(
+        super::SYS.matches(PLATFORM_DEVICE_TOKEN).count(),
+        1,
+        "prompt_core.txt must contain one platform-device token"
+    );
+    super::SYS.replace(PLATFORM_DEVICE_TOKEN, "Windows computer")
+}
 
 pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Value {
     build_setup_with_context(resume, voice, search, None)
@@ -58,168 +107,11 @@ fn build_setup_with_declarations(
     } else {
         "PRIVILEGE: you are running as a STANDARD user (not elevated). run_command still does most things; but admin-only tasks (stop a service, kill another user's or a protected process, system-wide settings) fail with Access Denied - for THOSE, relaunch just that command via run_command with Start-Process -Verb RunAs (the user approves one UAC prompt), then verify."
     };
-    let tools = json!([{"googleSearch": {}}, {"functionDeclarations": [
-        {"name": "observe", "description": "Read the current accessible surface as @id elements with role, label, value, and flags. Re-run after changes.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "act", "description": "Act on a current @id with structural gates and an effect receipt; returns fresh elements.",
-         "parameters": {"type": "object", "properties": {
-             "id": {"type": "integer", "description": "The @id of the target element from observe()."},
-             "verb": {"type": "string", "enum": ["click", "activate", "fill", "select", "submit", "toggle"], "description": "click for one ordinary click (selection/simple control); activate for a default enter/open action; fill a text field; select an option; submit a form; toggle a checkbox."},
-             "value": {"type": "string", "description": "The text to fill, or the option to select. Omit for click/submit/toggle."},
-             "confirm": {"type": "boolean", "description": "True only after the user explicitly approved this exact consequential action."}
-         }, "required": ["id", "verb"]}},
-        {"name": "do_steps", "description": "Run short ordered current-@id actions on one stable surface; stop on first failure and return fresh state.",
-         "parameters": {"type": "object", "properties": {
-             "steps": {"type": "array", "description": "The ordered steps, each shaped like an act() call.", "items": {"type": "object", "properties": {
-                 "id": {"type": "integer"}, "verb": {"type": "string", "enum": ["click", "activate", "fill", "select", "submit", "toggle"]},
-                 "value": {"type": "string"}, "confirm": {"type": "boolean"}
-             }, "required": ["id", "verb"]}}
-         }, "required": ["steps"]}},
-        {"name": "click_at", "description": "Click the CENTER of a numbered grid cell. Only for UIA-blind canvas/image space; native elements in the cell are blocked. Never use to choose among collection items.",
-         "parameters": {"type": "object", "properties": {"cell": {"type": "integer", "description": "The grid number printed over the target."}}, "required": ["cell"]}},
-        {"name": "zoom", "description": "Magnify the numbered GRID CELL so small targets become large and a fresh finer grid is drawn over it. Pass the cell's printed number.",
-         "parameters": {"type": "object", "properties": {"cell": {"type": "integer", "description": "The grid number to magnify."}}, "required": ["cell"]}},
-        {"name": "reset_view", "description": "Return the view to the ACTIVE window (the default; undoes zoom and see_whole_screen).",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "see_whole_screen", "description": "Switch perception to the entire desktop for cross-window awareness. Return to an active-window view before precise input.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "look", "description": "Get a precise high-resolution reading of visible content that structured providers cannot expose. Ask one specific spatial or visual question; the result comes from a clean capture of the current view.",
-         "parameters": {"type": "object", "properties": {"question": {"type": "string", "description": "A precise question about the visible content and its spatial state."}}, "required": ["question"]}},
-        {"name": "click_target", "description": "Vision-click only when no usable structured element exists; a fresh marked crop verifies the point. Prefer act. button=right opens a context menu.",
-         "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "A visible, unambiguous target description."}, "button": {"type": "string", "enum": ["left", "right"], "description": "left (default) or right for a context menu."}}, "required": ["description"]}},
-        {"name": "map_targets", "description": "Map numbered vision anchors for one structured-blind region; mutations invalidate them and click_mark re-verifies before input.",
-         "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "The visible target set to map."}}, "required": ["description"]}},
-        {"name": "click_mark", "description": "Click a numbered anchor shown on the current grounded frame. Stale marks fail closed. Set button='right' for a context menu.",
-         "parameters": {"type": "object", "properties": {"mark": {"type": "integer", "description": "The anchor number from map_targets."}, "button": {"type": "string", "enum": ["left", "right"]}}, "required": ["mark"]}},
-        {"name": "wait", "description": "Pause for N seconds only when an asynchronous operation is known to be pending. Then re-observe.",
-         "parameters": {"type": "object", "properties": {"seconds": {"type": "number", "description": "Seconds to wait (max 30)."}}, "required": ["seconds"]}},
-        {"name": "type_text", "description": "Type literal text into the exact model-visible window. target must be its stable @hwnd identity shown in context/list_windows; mismatches fail. press_enter is a separate requested Enter.",
-         "parameters": {"type": "object", "properties": {"target": {"type": "string", "description": "Stable @hwnd:<handle>:<pid> target."}, "text": {"type": "string"}, "press_enter": {"type": "boolean", "description": "Press Enter after typing."}, "slow": {"type": "boolean", "description": "Paced input; default false."}}, "required": ["target", "text"]}},
-        {"name": "scroll", "description": "Inject a mouse-wheel scroll in the requested direction. Optionally target a current grid cell; otherwise scroll at view center.",
-         "parameters": {"type": "object", "properties": {"direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "number"}, "cell": {"type": "integer"}}, "required": ["direction"]}},
-        {"name": "drag", "description": "Press at one current grid cell, move to another, and release. Zoom first when either endpoint needs finer localization.",
-         "parameters": {"type": "object", "properties": {"from_cell": {"type": "integer", "description": "Grid cell to press at."}, "to_cell": {"type": "integer", "description": "Grid cell to release at."}}, "required": ["from_cell", "to_cell"]}},
-        {"name": "drag_target", "description": "Precisely drag between two visually described endpoints when grid cells are too coarse. A vision model locates both current pixels before input.",
-         "parameters": {"type": "object", "properties": {"from": {"type": "string", "description": "The visible object or handle to grab."}, "to": {"type": "string", "description": "The visible destination or final handle position."}}, "required": ["from", "to"]}},
-        {"name": "click_here", "description": "Click exactly at the user's current cursor without moving it. Use only when the requested target is explicitly cursor-relative.",
-         "parameters": {"type": "object", "properties": {"button": {"type": "string", "enum": ["left", "right", "middle"]}}}},
-        {"name": "point_at", "description": "Move the cursor onto a visually described target without clicking. Optional dwell_seconds keeps the pointer there for hover state.",
-         "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "A visible, unambiguous target description."}, "dwell_seconds": {"type": "number", "description": "Optional hover duration, 0-10 seconds."}}, "required": ["description"]}},
-        {"name": "key_combination", "description": "Press a key/chord in the exact model-visible window. target must be its stable @hwnd identity; mismatches fail. hold_seconds is only for duration-sensitive input.",
-         "parameters": {"type": "object", "properties": {"target": {"type": "string", "description": "Stable @hwnd:<handle>:<pid> target."}, "keys": {"type": "string"}, "hold_seconds": {"type": "number", "description": "Hold duration, 0-10 seconds."}}, "required": ["target", "keys"]}},
-        {"name": "open_url", "description": "Open an http(s) URL in a persistent user-visible tab; otherwise use the OS shell. Use research_web for disposable browsing.",
-         "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-        {"name": "launch_app", "description": "Launch or focus a Windows application or open a file through the OS shell. Put the executable/path in name and keep optional command-line arguments separate in args.",
-         "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "string", "description": "Optional command-line arguments / file to open."}}, "required": ["name"]}},
-        {"name": "system_query", "description": "Read trusted OS facts without mutation; capabilities.list describes domains.",
-         "parameters": {"type": "object", "properties": {
-             "domain": {"type": "string", "enum": ["capabilities", "audio", "clipboard", "process", "storage", "window"]},
-             "query": {"type": "string", "description": "The query inside the domain, e.g. 'active_sessions', 'list_basic', 'volumes', 'list', or 'text'."},
-             "args": {"type": "object", "description": "Optional query filters."}
-         }, "required": ["domain", "query"]}},
-        {"name": "list_files", "description": "List one directory's names/metadata, exact scope, and exclusions. Collection-wide content work must read each in-scope file.",
-         "parameters": {"type": "object", "properties": {
-             "path": {"type": "string", "description": "Absolute path or standard folder name."},
-             "kind": {"type": "string", "enum": ["any", "file", "directory"]},
-             "extensions": {"type": "array", "items": {"type": "string"}},
-             "sort_by": {"type": "string", "enum": ["modified", "created", "name", "size"]},
-             "order": {"type": "string", "enum": ["descending", "ascending"]},
-             "limit": {"type": "integer"}
-         }, "required": ["path"]}},
-        {"name": "read_text_file", "description": "Read bounded UTF-8 text at an absolute path with hash and truncation metadata.",
-         "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "expected_sha256": {"type": "string", "description": "Optional exact hash."}, "max_chars": {"type": "integer", "description": "Content limit, max 64000."}}, "required": ["path"]}},
-        {"name": "edit_text_file", "description": "Exact-replace bounded UTF-8 text by current hash/count with an atomic verified result. Use for normal content/data edits; CSV/TSV record shape and formula bytes are immutable and auto-preserved.",
-         "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "expected_sha256": {"type": "string", "description": "Exact sha256 from a current read_text_file call."}, "replacements": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"old_text": {"type": "string"}, "new_text": {"type": "string"}, "expected_count": {"type": "integer"}}, "required": ["old_text", "new_text", "expected_count"]}}}, "required": ["path", "expected_sha256", "replacements"]}},
-        {"name": "edit_text_file_structure", "description": "Exact CSV/TSV row, column, or formula edit. First call only preflights and returns a proposal token; an identical retry commits only if an independent check finds that the user requested that structural effect. Never use for ordinary data.",
-         "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "expected_sha256": {"type": "string", "description": "Exact sha256 from a current read_text_file call."}, "structural_change_token": {"type": "string", "description": "Preflight proposal token; identifies bytes, not permission."}, "replacements": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"old_text": {"type": "string"}, "new_text": {"type": "string"}, "expected_count": {"type": "integer"}}, "required": ["old_text", "new_text", "expected_count"]}}}, "required": ["path", "expected_sha256", "replacements"]}},
-        {"name": "run_command", "description": "Non-interactive diagnostics. Prefer program with literal args and cwd; inline interpreter commands are rejected. Results prove only that invocation. command is a PowerShell fallback with output withheld. Dedicated tools win. Supply exactly one of program or command.",
-         "parameters": {"type": "object", "properties": {
-             "program": {"type": "string", "description": "Exact executable name/path."},
-             "args": {"type": "array", "maxItems": 16, "items": {"type": "string"}, "description": "Literal argv."},
-             "cwd": {"type": "string", "description": "Existing absolute working directory; omit for managed scratch."},
-             "command": {"type": "string", "description": "PowerShell fallback; mutually exclusive with program."}
-         }}},
-        {"name": "focus_window", "description": "Focus one exact top-level window and return its stable target. Duplicate title/executable matches fail with stable choices.",
-         "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "Exact title/executable, or @hwnd:<handle>:<pid> from list_windows."}}, "required": ["title"]}},
-        {"name": "list_windows", "description": "List open top-level windows as title, executable, and stable identity so another window tool can target an unambiguous match.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "minimize_window", "description": "Minimize an exact or stable top-level window target and return the resulting foreground identity.",
-         "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "Exact title/executable, or stable target from list_windows."}}, "required": ["title"]}},
-        {"name": "resize_window", "description": "Resize an exact or stable top-level window target to width x height in screen pixels, restoring it first if necessary.",
-         "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "width": {"type": "integer"}, "height": {"type": "integer"}}, "required": ["title", "width", "height"]}},
-        {"name": "move_window", "description": "Move an exact or stable top-level window target so its top-left corner is at screen pixel (x, y). Keeps its current size.",
-         "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["title", "x", "y"]}},
-        {"name": "read_clipboard", "description": "Read current Windows clipboard text without mutation.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "artifact_info", "description": "Inspect local artifact metadata, counts, hash, path, and bounded preview without returning full content.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Artifact id, or an absolute artifact file path."}}, "required": ["id"]}},
-        {"name": "extract_artifact", "description": "Create an exact subrange artifact before pasting/saving a subset. Anchors are literal; ambiguity fails.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string"}, "start_text": {"type": "string", "minLength": 1, "maxLength": 2000}, "end_text": {"type": "string", "minLength": 1, "maxLength": 2000}, "start_occurrence": {"type": "integer", "minimum": 1}, "end_occurrence": {"type": "integer", "minimum": 1}, "include_start": {"type": "boolean", "default": true}, "include_end": {"type": "boolean", "default": true}}, "required": ["id"]}},
-        {"name": "save_artifact", "description": "Save or copy a local text artifact without routing its full content through the model.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string"}, "path": {"type": "string", "description": "Optional absolute output path."}, "overwrite": {"type": "boolean", "description": "Default false; true to overwrite an existing file."}}, "required": ["id"]}},
-        {"name": "paste_artifact", "description": "Paste a local text artifact into the focused destination without routing its full contents through the model. Use for large or exact transfers.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Artifact id returned by browser_extract_page/browser_read_page, or an artifact file path."}}, "required": ["id"]}},
-        {"name": "done", "description": "After verified state-changing work, speak one brief final result and immediately call done with the same summary. Emit nothing after its response. Read-only turns answer without done.",
-         "parameters": {"type": "object", "properties": {"summary": {"type": "string", "maxLength": 320}}, "required": ["summary"]}},
-        {"name": "search_memory", "description": "Search saved prior-conversation records when the current request depends on earlier context. Returns matching ids and bounded snippets.",
-         "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "The prior context to retrieve."}}, "required": ["query"]}},
-        {"name": "open_memory", "description": "Read the FULL transcript of one past conversation returned by search_memory. Pass its id.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "The conversation id from a search_memory result."}}, "required": ["id"]}},
-        {"name": "browser_setup", "description": "Repair disconnected or staged browser control. Follow its bounded setup once, then check browser_status.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "browser_status", "description": "Check browser-bridge connection, negotiated capabilities, compatibility, staged-update state, and pairing state.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "browser_reset", "description": "Reset browser-control pairing state and reopen its pairing window. Use only when the connection state requires repair.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "browser_read_page", "description": "Read the controlled page's title, URL, and whole visible DOM text. Its artifact represents the whole capture; derive a subset with extract_artifact before paste/save when the user requests only part of the page.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "research_web", "description": "Read unique sources. Coverage proves identity, not facts. Restrict owner hosts with domain_restricted; narrow missing facts or pass known source_urls.",
-         "parameters": {"type": "object", "properties": {
-             "query": {"type": "string", "description": "Concise search query."},
-             "purpose": {"type": "string", "description": "Public subjects, fields, units, and qualifiers."},
-             "source_policy": {"type": "string", "enum": ["best_available", "broad", "domain_restricted"], "description": "Diversify, preserve order, or restrict hosts."},
-             "allowed_domains": {"type": "array", "items": {"type": "string"}, "description": "1-5 hosts for domain_restricted."},
-             "source_urls": {"type": "array", "items": {"type": "string"}, "description": "Known public source URLs."},
-             "max_sources": {"type": "integer", "description": "1-5; default 5."}
-         }, "required": ["query", "purpose"]}},
-        {"name": "browser_extract_page", "description": "Extract full visible DOM text into a local artifact and return only metadata, counts, and preview.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "browser_wait_for", "description": "Wait until an element matching a CSS selector appears (or timeout). Use after a click/navigation that loads content.",
-         "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "timeout_ms": {"type": "integer"}}, "required": ["selector"]}},
-        {"name": "browser_eval", "description": "Run nonblocking JavaScript in the page and return a JSON-compatible result. Modal dialogs and blocking or unbounded loops are forbidden.",
-         "parameters": {"type": "object", "properties": {"code": {"type": "string", "description": "A JS expression; its value is returned. An IIFE containing statements must explicitly return a JSON-compatible value. Must NOT block (no alert/confirm/prompt, no while(true))."}}, "required": ["code"]}},
-        {"name": "browser_navigate", "description": "Navigate a URL. turn isolates work in an auto-closing tab; persistent replaces and leaves the exact controlled/current tab.",
-         "parameters": {"type": "object", "properties": {"url": {"type": "string"}, "lifetime": {"type": "string", "enum": ["turn", "persistent"]}}, "required": ["url", "lifetime"]}},
-        {"name": "browser_history", "description": "Verified back/forward navigation in the exact controlled tab.",
-         "parameters": {"type": "object", "properties": {"direction": {"type": "string", "enum": ["back", "forward"]}}, "required": ["direction"]}},
-        {"name": "browser_open_tab", "description": "Open and bind a tab. Defaults to persistent; turn auto-closes it.",
-         "parameters": {"type": "object", "properties": {"url": {"type": "string"}, "lifetime": {"type": "string", "enum": ["turn", "persistent"], "description": "Default: persistent."}}, "required": ["url"]}},
-        {"name": "browser_upload", "description": "Set the file for a file <input> matching a CSS selector (real upload via DevTools). Pass an absolute file path.",
-         "parameters": {"type": "object", "properties": {"selector": {"type": "string"}, "path": {"type": "string"}}, "required": ["selector", "path"]}},
-        {"name": "browser_tabs", "description": "List the open browser tabs (id, title, url, active).",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "browser_switch_tab", "description": "Select a browser tab by id (from browser_tabs). Page tools keep targeting that exact tab for the rest of the current user turn even if focus moves.",
-         "parameters": {"type": "object", "properties": {"tab_id": {"type": "integer"}}, "required": ["tab_id"]}},
-        {"name": "browser_close_tab", "description": "Close exactly one browser tab by its id (from browser_tabs).",
-         "parameters": {"type": "object", "properties": {"tab_id": {"type": "integer"}}, "required": ["tab_id"]}},
-        {"name": "browser_network", "description": "Read bounded recent network events from the controlled page, enabling capture first if needed.",
-         "parameters": {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring of the CDP event name, e.g. 'responseReceived'."}}}},
-        {"name": "browser_console", "description": "Read bounded page console and browser-log events, enabling capture first if needed.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "list_app_integrations", "description": "List precise-control providers and readiness; use only when relevant.",
-         "parameters": {"type": "object", "properties": {}}},
-        {"name": "setup_app_integration", "description": "Install/activate a provider. Third-party execution requires confirmed:true after explicit user approval.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id from list_app_integrations."}, "confirmed": {"type": "boolean", "description": "Pass true ONLY after the user agreed to install it."}}, "required": ["id"]}},
-        {"name": "app_integration_status", "description": "Read provider connection, app probe, and tool activation.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}},
-        {"name": "read_app_integration_docs", "description": "Read catalog-linked provider setup docs; arbitrary URLs are rejected.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}},
-        {"name": "remove_app_integration", "description": "Uninstall and disconnect a provider by id.",
-         "parameters": {"type": "object", "properties": {"id": {"type": "string", "description": "Integration id."}}, "required": ["id"]}}
-    ]}]);
+    let tools = normal_tools();
+    let prompt_core = windows_prompt_core();
     let mut system_instruction = format!(
         "{}\n{}\n{}\n{privilege}",
-        super::SYS,
+        prompt_core,
         CONTROLLER_RULES,
         protocol::session_rules()
     );
@@ -345,6 +237,40 @@ mod tests {
             setup.to_string().len() <= 42_000,
             "base Live setup exceeded its reviewed prompt budget"
         );
+    }
+
+    #[test]
+    fn canonical_catalog_exactly_drives_static_setup_declarations() {
+        let setup = super::build_setup_with_declarations(None, false, true, None, Vec::new());
+        let catalog: Value =
+            serde_json::from_str(super::PHONE_CONTROL_CATALOG).expect("canonical catalog");
+        let tools = setup["setup"]["tools"].as_array().expect("setup tools");
+
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0], serde_json::json!({"googleSearch": {}}));
+        assert_eq!(
+            declarations(&setup),
+            catalog["functionDeclarations"]
+                .as_array()
+                .expect("canonical declarations")
+        );
+    }
+
+    #[test]
+    fn canonical_prompt_core_is_platform_parameterized_once() {
+        assert_eq!(
+            super::super::SYS
+                .matches(super::PLATFORM_DEVICE_TOKEN)
+                .count(),
+            1
+        );
+        let setup = super::build_setup(None, false, false);
+        let instruction = setup["setup"]["systemInstruction"]["parts"][0]["text"]
+            .as_str()
+            .expect("system instruction");
+
+        assert!(instruction.starts_with("Operate the user's Windows computer."));
+        assert!(!instruction.contains(super::PLATFORM_DEVICE_TOKEN));
     }
 
     #[test]

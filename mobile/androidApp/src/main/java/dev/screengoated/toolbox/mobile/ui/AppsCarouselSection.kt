@@ -21,34 +21,40 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
+import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
+import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 
 private fun appCardTag(index: Int): String = when (index) {
     0 -> "app-card-live-translate"
-    1 -> "app-card-translation-gummy"
-    2 -> "app-card-video-downloader"
-    3 -> "app-card-dj"
+    1 -> "app-card-phone-control"
+    2 -> "app-card-translation-gummy"
+    3 -> "app-card-video-downloader"
+    4 -> "app-card-dj"
     else -> "app-card-placeholder-$index"
 }
 
 internal val appSlots = listOf(
     AppSlot(MaterialShapes.Sunny,        { it.appSlotTeal }),   // Live Translate — teal
-    AppSlot(MaterialShapes.SemiCircle,   { it.appSlotCoral }),  // placeholder — coral
-    AppSlot(MaterialShapes.Heart,        { it.appSlotPurple }), // placeholder — purple
-    AppSlot(MaterialShapes.Cookie4Sided, { it.appSlotAmber }),  // placeholder — amber
-    AppSlot(MaterialShapes.Clover4Leaf,  { it.appSlotBlue }),   // placeholder — blue
+    AppSlot(MaterialShapes.Clover4Leaf,  { it.appSlotBlue }),   // Phone Control — blue
+    AppSlot(MaterialShapes.SemiCircle,   { it.appSlotCoral }),  // Translation Gummy — coral
+    AppSlot(MaterialShapes.Heart,        { it.appSlotPurple }), // Video Downloader — purple
+    AppSlot(MaterialShapes.Cookie4Sided, { it.appSlotAmber }),  // Be a DJ — amber
 )
 
 @Composable
@@ -107,14 +113,15 @@ private fun AppsItemContent(
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
+    val context = LocalContext.current
     Box(
         modifier = Modifier
             .fillMaxSize()
             .testTag(appCardTag(index))
             .then(
                 when (index) {
-                    1 -> Modifier.clickable(onClick = onTranslationGummyClick)
-                    2 -> {
+                    2 -> Modifier.clickable(onClick = onTranslationGummyClick)
+                    3 -> {
                         val sharedMod = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                             with(sharedTransitionScope) {
                                 Modifier.sharedBounds(
@@ -126,16 +133,36 @@ private fun AppsItemContent(
                         } else Modifier
                         sharedMod.then(Modifier.clickable(onClick = onDownloaderClick))
                     }
-                    3 -> Modifier.clickable(onClick = onDjClick)
+                    4 -> Modifier.clickable(onClick = onDjClick)
                     else -> Modifier
                 },
             ),
     ) {
         when (index) {
             0 -> LiveTranslateCarouselTile(state = state, locale = locale, onSessionToggle = onSessionToggle, canToggle = canToggle)
-            1 -> AppTile(slot = appSlots[1], title = locale.appTranslationGummyTitle, drawableRes = dev.screengoated.toolbox.mobile.R.drawable.ms_breakfast_dining)
-            2 -> AppTile(slot = appSlots[2], title = locale.appVideoDownloaderTitle, drawableRes = R.drawable.ms_movie)
-            3 -> AppTile(slot = appSlots[3], title = locale.appDjTitle, drawableRes = R.drawable.ms_album)
+            1 -> {
+                val isRunning = PhoneControlService.state.value.running
+                SessionAppCarouselTile(
+                    slot = appSlots[1],
+                    title = stringResource(R.string.phone_control_title),
+                    drawableRes = R.drawable.ms_smart_toy,
+                    isRunning = isRunning,
+                    onSessionToggle = {
+                        if (isRunning) {
+                            PhoneControlService.stop(context)
+                        } else {
+                            context.startActivity(PhoneControlActivity.activationIntent(context))
+                        }
+                    },
+                    canToggle = true,
+                    turnOnLabel = locale.turnOn,
+                    turnOffLabel = locale.turnOff,
+                    toggleTag = "phone-control-toggle",
+                )
+            }
+            2 -> AppTile(slot = appSlots[2], title = locale.appTranslationGummyTitle, drawableRes = dev.screengoated.toolbox.mobile.R.drawable.ms_breakfast_dining)
+            3 -> AppTile(slot = appSlots[3], title = locale.appVideoDownloaderTitle, drawableRes = R.drawable.ms_movie)
+            4 -> AppTile(slot = appSlots[4], title = locale.appDjTitle, drawableRes = R.drawable.ms_album)
             else -> EmptyAppTile(slot = appSlots[index])
         }
     }

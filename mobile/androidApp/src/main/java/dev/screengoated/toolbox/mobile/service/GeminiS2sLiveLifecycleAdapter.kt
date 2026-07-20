@@ -1,238 +1,63 @@
 package dev.screengoated.toolbox.mobile.service
 
-import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveClassifiedError
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveConnectedSession
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleAdapter
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleConnection
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleEffect
-import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleEvent
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleFrame
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecyclePolicy
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleState
-import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReadySession
-import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionException
-import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionFailure
-import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionLifecycle
-import kotlinx.coroutines.CancellationException
 
-internal data class GeminiS2sLiveConnection(
-    val generation: Long,
-    val session: GeminiLiveReadySession,
-)
+internal typealias GeminiS2sLiveConnection = GeminiLiveLifecycleConnection
 
-private data class GeminiS2sPendingConnection(
-    val generation: Long,
-    val session: GeminiLiveConnectedSession,
-)
-
-/**
- * Thin executor for the shared lifecycle reducer.
- *
- * Socket open and setup activation execute the reducer's distinct [OpenSocket] and [SendSetup]
- * effects. A ready session is published only after the structural setup acknowledgement.
- */
+/** Continuous-stream compatibility wrapper over the shared lifecycle adapter. */
 internal class GeminiS2sLiveLifecycleAdapter(
-    private val clockMs: () -> Long,
-    private val openConnectedSession: suspend () -> GeminiLiveConnectedSession,
-    private val setupPayload: () -> String,
-    private val onEffect: (GeminiLiveLifecycleEffect) -> Unit = {},
+    clockMs: () -> Long,
+    openConnectedSession: suspend () -> GeminiLiveConnectedSession,
+    setupPayload: () -> String,
+    onEffect: (GeminiLiveLifecycleEffect) -> Unit = {},
 ) {
-    private val policy = GeminiLiveLifecyclePolicy.continuous()
-    private val lifecycle = GeminiLiveSessionLifecycle(policy = policy)
-    private var pendingConnection: GeminiS2sPendingConnection? = null
-    private var connection: GeminiS2sLiveConnection? = null
+    private val delegate = GeminiLiveLifecycleAdapter(
+        policy = GeminiLiveLifecyclePolicy.continuous(),
+        clockMs = clockMs,
+        openConnectedSession = openConnectedSession,
+        setupPayload = setupPayload,
+        onEffect = onEffect,
+    )
 
     val state: GeminiLiveLifecycleState
-        get() = lifecycle.state
+        get() = delegate.state
 
     val activeConnection: GeminiS2sLiveConnection?
-        get() = connection
+        get() = delegate.activeConnection
 
-    suspend fun ensureReady(): GeminiS2sLiveConnection? {
-        val event = when (state.phase) {
-            dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecyclePhase.IDLE -> {
-                GeminiLiveLifecycleEvent.Start
-            }
-            else -> GeminiLiveLifecycleEvent.Tick
-        }
-        applyEffects(lifecycle.reduce(clockMs(), event))
-        return connection
-    }
+    suspend fun ensureReady(): GeminiS2sLiveConnection? = delegate.ensureReady()
 
-    fun inputSent(chunks: Long = 1) {
-        lifecycle.reduce(clockMs(), GeminiLiveLifecycleEvent.InputSent(chunks))
-    }
+    fun inputSent(chunks: Long = 1) = delegate.inputSent(chunks)
 
-    fun inputActivity() {
-        lifecycle.reduce(clockMs(), GeminiLiveLifecycleEvent.InputActivity)
-    }
+    fun inputActivity() = delegate.inputActivity()
 
     fun updateWorkState(
         pendingWorkCount: Long,
         bufferedInputCount: Long,
         userSpeaking: Boolean,
-    ) {
-        lifecycle.reduce(
-            clockMs(),
-            GeminiLiveLifecycleEvent.WorkState(
-                pendingWorkCount = pendingWorkCount,
-                bufferedInputCount = bufferedInputCount,
-                userSpeaking = userSpeaking,
-            ),
-        )
-    }
+    ) = delegate.updateWorkState(pendingWorkCount, bufferedInputCount, userSpeaking)
 
-    suspend fun observeFrame(
-        frame: GeminiLiveLifecycleFrame,
-    ): List<GeminiLiveLifecycleEffect> {
-        return applyEffects(lifecycle.reduce(clockMs(), GeminiLiveLifecycleEvent.Frame(frame)))
-    }
+    suspend fun observeFrame(frame: GeminiLiveLifecycleFrame): List<GeminiLiveLifecycleEffect> =
+        delegate.observeFrame(frame)
 
-    suspend fun transportFailed(generation: Long): List<GeminiLiveLifecycleEffect> {
-        return applyEffects(
-            lifecycle.reduce(
-                clockMs(),
-                GeminiLiveLifecycleEvent.TransportFailure(
-                    generation = generation,
-                    retryable = true,
-                ),
-            ),
-        )
-    }
+    suspend fun transportFailed(generation: Long): List<GeminiLiveLifecycleEffect> =
+        delegate.transportFailed(generation)
 
     suspend fun serverError(
         generation: Long,
         retryable: Boolean,
         kind: String = "server",
-    ): List<GeminiLiveLifecycleEffect> {
-        return observeFrame(
-            GeminiLiveLifecycleFrame(
-                generation = generation,
-                error = GeminiLiveClassifiedError(kind = kind, retryable = retryable),
-            ),
-        )
-    }
+    ): List<GeminiLiveLifecycleEffect> = delegate.serverError(generation, retryable, kind)
 
-    suspend fun tick(): List<GeminiLiveLifecycleEffect> {
-        return applyEffects(lifecycle.reduce(clockMs(), GeminiLiveLifecycleEvent.Tick))
-    }
+    suspend fun tick(): List<GeminiLiveLifecycleEffect> = delegate.tick()
 
-    suspend fun cancel() {
-        applyEffects(lifecycle.reduce(clockMs(), GeminiLiveLifecycleEvent.Cancel))
-    }
-
-    private suspend fun applyEffects(
-        effects: List<GeminiLiveLifecycleEffect>,
-    ): List<GeminiLiveLifecycleEffect> {
-        val featureEffects = mutableListOf<GeminiLiveLifecycleEffect>()
-        for (effect in effects) {
-            onEffect(effect)
-            when (effect) {
-                is GeminiLiveLifecycleEffect.OpenSocket -> open(effect.generation)
-                is GeminiLiveLifecycleEffect.SendSetup -> activate(effect.generation)
-                is GeminiLiveLifecycleEffect.CloseSocket -> close(effect.generation)
-                is GeminiLiveLifecycleEffect.ScheduleReconnect,
-                is GeminiLiveLifecycleEffect.ReportFailure,
-                GeminiLiveLifecycleEffect.CancelSession,
-                -> Unit
-                else -> featureEffects += effect
-            }
-        }
-        return featureEffects
-    }
-
-    private suspend fun open(generation: Long) {
-        val opened = try {
-            openConnectedSession()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: GeminiLiveSessionException) {
-            val server = error.failure as? GeminiLiveSessionFailure.Server
-            if (server != null) {
-                serverError(generation, retryable = server.retryable)
-                if (!server.retryable) throw error
-                return
-            }
-            transportFailed(generation)
-            return
-        } catch (_: Throwable) {
-            transportFailed(generation)
-            return
-        }
-
-        val setupEffects = lifecycle.reduce(
-            clockMs(),
-            GeminiLiveLifecycleEvent.SocketOpened(generation),
-        )
-        check(setupEffects == listOf(GeminiLiveLifecycleEffect.SendSetup(generation))) {
-            opened.close()
-            "connected Gemini Live session did not enter setup lifecycle"
-        }
-        pendingConnection = GeminiS2sPendingConnection(generation, opened)
-        applyEffects(setupEffects)
-    }
-
-    private suspend fun activate(generation: Long) {
-        val pending = pendingConnection
-        if (pending == null || pending.generation != generation) return
-        val ready = try {
-            pending.session.activate(setupPayload(), policy.setupTimeoutMs)
-        } catch (cancelled: CancellationException) {
-            pending.session.close()
-            if (pendingConnection === pending) pendingConnection = null
-            throw cancelled
-        } catch (error: GeminiLiveSessionException) {
-            when (error.failure) {
-                GeminiLiveSessionFailure.SetupTimedOut -> {
-                    val timeoutAt = maxOf(
-                        clockMs(),
-                        requireNotNull(state.setupDeadlineMs) {
-                            "setup timeout arrived without a reducer deadline"
-                        },
-                    )
-                    applyEffects(lifecycle.reduce(timeoutAt, GeminiLiveLifecycleEvent.Tick))
-                }
-                is GeminiLiveSessionFailure.Server -> {
-                    serverError(generation, retryable = error.failure.retryable)
-                    if (!error.failure.retryable) throw error
-                }
-                else -> transportFailed(generation)
-            }
-            return
-        } catch (_: Throwable) {
-            transportFailed(generation)
-            return
-        }
-
-        if (
-            state.generation != generation ||
-            state.phase != dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecyclePhase.AWAITING_SETUP
-        ) {
-            ready.close()
-            if (pendingConnection === pending) pendingConnection = null
-            return
-        }
-        pendingConnection = null
-        connection = GeminiS2sLiveConnection(generation, ready)
-        applyEffects(
-            lifecycle.reduce(
-                clockMs(),
-                GeminiLiveLifecycleEvent.Frame(
-                    GeminiLiveLifecycleFrame(generation = generation, setupComplete = true),
-                ),
-            ),
-        )
-    }
-
-    private fun close(generation: Long) {
-        val pending = pendingConnection
-        if (pending?.generation == generation) {
-            pending.session.close()
-            pendingConnection = null
-        }
-        val current = connection ?: return
-        if (current.generation != generation) return
-        current.session.close()
-        connection = null
-    }
+    suspend fun cancel() = delegate.cancel()
 }
 
 internal class LiveTranslatePendingAudio(
