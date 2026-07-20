@@ -90,6 +90,21 @@ impl RuntimeState {
             .rev()
             .find_map(|job_id| self.jobs.get(job_id).cloned())
     }
+
+    fn invalidate_profile_continuations(&mut self, profile_dir: &str) {
+        let continuation_ids = self
+            .continuations
+            .iter()
+            .filter(|(_, continuation)| continuation.profile_dir == profile_dir)
+            .map(|(job_id, _)| job_id.clone())
+            .collect::<Vec<_>>();
+        for job_id in continuation_ids {
+            self.continuations.remove(&job_id);
+            if let Some(status) = self.jobs.get_mut(&job_id) {
+                status.can_segment = false;
+            }
+        }
+    }
 }
 
 fn status_is_busy(stage: &str) -> bool {
@@ -313,6 +328,10 @@ pub(super) fn start_segmentation(continuation_id: &str) -> Result<JobStatus, Str
             .continuations
             .remove(continuation_id)
             .ok_or_else(|| "This model can no longer be separated into parts.".to_string())?;
+        if let Some(status) = state.jobs.get_mut(continuation_id) {
+            status.can_segment = false;
+        }
+        state.invalidate_profile_continuations(&continuation.profile_dir);
         let preview_path = continuation.preview_path.clone();
         (continuation, preview_path, runtime_status_label())
     };
@@ -341,7 +360,7 @@ pub(super) fn start_segmentation(continuation_id: &str) -> Result<JobStatus, Str
         preview_path,
         source_image_path: Some(continuation.image_path.clone()),
         is_segmented: false,
-        can_segment: true,
+        can_segment: false,
         error: None,
         runtime_status,
     };
@@ -448,4 +467,46 @@ pub(super) fn open_output(kind: &str, requested_path: Option<&str>) -> Result<()
         path
     };
     open::that(&target).map_err(|err| format!("Could not open {}: {err}", target.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn continuation(profile_dir: &str) -> Continuation {
+        Continuation {
+            task_id: "task".to_string(),
+            profile_dir: profile_dir.to_string(),
+            image_path: "image.png".to_string(),
+            output_dir: PathBuf::from("output"),
+            previous_output_path: PathBuf::from("model.glb"),
+            preview_path: None,
+        }
+    }
+
+    #[test]
+    fn consuming_separation_invalidates_every_model_on_the_profile() {
+        let mut state = RuntimeState::default();
+        for (job_id, profile_dir) in [
+            ("first", "shared"),
+            ("second", "shared"),
+            ("other", "other"),
+        ] {
+            let mut status = idle_status();
+            status.can_segment = true;
+            state.jobs.insert(job_id.to_string(), status);
+            state
+                .continuations
+                .insert(job_id.to_string(), continuation(profile_dir));
+        }
+
+        state.invalidate_profile_continuations("shared");
+
+        assert!(!state.continuations.contains_key("first"));
+        assert!(!state.continuations.contains_key("second"));
+        assert!(state.continuations.contains_key("other"));
+        assert!(!state.jobs["first"].can_segment);
+        assert!(!state.jobs["second"].can_segment);
+        assert!(state.jobs["other"].can_segment);
+    }
 }

@@ -324,6 +324,12 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                     .get("isSegmented")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                if is_segmented
+                    && let Some(profile_dir) = result.get("profileDir").and_then(Value::as_str)
+                    && let Ok(mut state) = STATE.lock()
+                {
+                    state.invalidate_profile_continuations(profile_dir);
+                }
                 let can_segment = result
                     .get("canSegment")
                     .and_then(Value::as_bool)
