@@ -159,6 +159,43 @@ else {
     exit 1
 }
 
+# --- Build Image to SVG Frontend ---
+Write-Host "Building Image to SVG Frontend..." -ForegroundColor Cyan
+$svgDir = Join-Path $PSScriptRoot "image-to-svg-ui"
+$svgDist = Join-Path $svgDir "dist"
+$svgTargetDist = Join-Path $PSScriptRoot "src\overlay\image_to_svg\dist"
+
+Push-Location $svgDir
+try {
+    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\.bin\vite.cmd")) {
+        npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAILED: Image to SVG npm install failed." -ForegroundColor Red
+            exit 1
+        }
+    }
+    npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: Image to SVG build failed." -ForegroundColor Red
+        exit 1
+    }
+}
+finally {
+    Pop-Location
+}
+
+if (Test-Path $svgDist) {
+    if (-not (Test-Path $svgTargetDist)) {
+        New-Item -ItemType Directory -Path $svgTargetDist -Force | Out-Null
+    }
+    Copy-Item -Path "$svgDist\*" -Destination $svgTargetDist -Recurse -Force
+    Write-Host "Image to SVG assets synchronized." -ForegroundColor Green
+}
+else {
+    Write-Host "FAILED: Image to SVG build did not produce dist folder." -ForegroundColor Red
+    exit 1
+}
+
 # --- Build TTS Playground Frontend ---
 Write-Host "Building TTS Playground Frontend..." -ForegroundColor Cyan
 $ttsDir = Join-Path $PSScriptRoot "tts-playground-ui"

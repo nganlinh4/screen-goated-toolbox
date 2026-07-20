@@ -99,6 +99,19 @@ pub fn render_footer(
         {
             crate::overlay::three_d_generator::show_three_d_generator();
         }
+        // Image to SVG - cobalt
+        if filled_icon_button(
+            ui,
+            Icon::Image,
+            text.shell.image_to_svg_btn,
+            theme.accent_image_to_svg(),
+            btn_text,
+            6,
+        )
+        .clicked()
+        {
+            crate::overlay::image_to_svg::show_image_to_svg();
+        }
         // PromptDJ — violet
         if filled_icon_button(
             ui,
