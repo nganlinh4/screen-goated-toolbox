@@ -120,7 +120,7 @@ fn locale_root_contains_only_the_fifteen_typed_sections() {
 fn locale_leaf_fields_have_one_section_owner() {
     let sections = [
         ("workspace", include_str!("workspace.rs"), 23),
-        ("preset_basics", include_str!("preset_basics.rs"), 34),
+        ("preset_basics", include_str!("preset_basics.rs"), 36),
         ("desktop_settings", include_str!("desktop_settings.rs"), 29),
         ("preset_editor", include_str!("preset_editor.rs"), 40),
         ("global_settings", include_str!("global_settings.rs"), 12),
@@ -152,10 +152,37 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 445);
+    assert_eq!(owners.len(), 447);
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
     assert_eq!(owners["download"], "auxiliary");
     assert_eq!(owners["managed_tools"], "auxiliary");
     assert_eq!(owners["realtime_app_loading"], "realtime");
+}
+
+#[test]
+fn hotkey_conflicts_are_localized_from_structured_owners() {
+    use crate::config::{GlobalHotkeyOwner, HotkeyConflict};
+
+    let global = HotkeyConflict::Global {
+        owner: GlobalHotkeyOwner::ComputerControl,
+        hotkey_name: "Ctrl + F6".to_string(),
+    };
+    let preset = HotkeyConflict::Preset {
+        hotkey_name: "Ctrl + F7".to_string(),
+        preset_name: "Work".to_string(),
+    };
+
+    assert_eq!(
+        LocaleText::get("en").hotkey_conflict_message(&global),
+        "Hotkey 'Ctrl + F6' conflicts with Computer Control."
+    );
+    assert_eq!(
+        LocaleText::get("ko").hotkey_conflict_message(&global),
+        "'Ctrl + F6' 단축키가 컴퓨터 제어 단축키와 충돌합니다."
+    );
+    assert_eq!(
+        LocaleText::get("vi").hotkey_conflict_message(&preset),
+        "Phím 'Ctrl + F7' xung đột với cấu hình 'Work'."
+    );
 }

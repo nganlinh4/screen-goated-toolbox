@@ -120,8 +120,9 @@ pub(super) fn handle_set_hotkey(args: &serde_json::Value) -> Result<serde_json::
 
     {
         let app = APP.lock().unwrap();
-        if let Some(msg) = app.config.check_hotkey_conflict(vk_code, modifiers, None) {
-            return Err(msg);
+        if let Some(conflict) = app.config.check_hotkey_conflict(vk_code, modifiers, None) {
+            let text = crate::gui::locale::LocaleText::get(&app.config.ui_language);
+            return Err(text.hotkey_conflict_message(&conflict));
         }
     }
 

@@ -13,8 +13,10 @@ import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.collect
 import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantPendingLaunchStore
@@ -31,6 +33,8 @@ import dev.screengoated.toolbox.mobile.service.BubbleService
 import dev.screengoated.toolbox.mobile.service.helpassistant.HelpAssistantOverlayService
 import dev.screengoated.toolbox.mobile.ui.HistoryUiBundle
 import dev.screengoated.toolbox.mobile.ui.ProviderKeysState
+import dev.screengoated.toolbox.mobile.ui.MobileShellSection
+import dev.screengoated.toolbox.mobile.ui.ShellSectionRequest
 import dev.screengoated.toolbox.mobile.ui.SgtMobileApp
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
@@ -44,6 +48,8 @@ class MainActivity : ComponentActivity() {
     private var pendingStart = false
     private var autoStartOnResume = false
     private var resumePendingAudioPreset = false
+    private var shellSectionRequest by mutableStateOf<ShellSectionRequest?>(null)
+    private var shellSectionRequestSerial = 0L
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -164,6 +170,7 @@ class MainActivity : ComponentActivity() {
                         onClearItems = viewModel::clearHistoryItems,
                     ),
                     appUpdateState = appUpdateState,
+                    shellSectionRequest = shellSectionRequest,
                     onPresetRuntimeSettingsChanged = viewModel::onPresetRuntimeSettingsChanged,
                     onCustomModelsChanged = viewModel::onCustomModelsChanged,
                     onUiLanguageSelected = viewModel::onUiLanguageSelected,
@@ -329,6 +336,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        intent?.getStringExtra(EXTRA_SHELL_SECTION)?.let { rawSection ->
+            val section = runCatching { MobileShellSection.valueOf(rawSection) }.getOrNull()
+            if (section != null) {
+                shellSectionRequest = ShellSectionRequest(
+                    section = section,
+                    serial = ++shellSectionRequestSerial,
+                )
+            }
+            intent.removeExtra(EXTRA_SHELL_SECTION)
+        }
         if (intent?.getBooleanExtra(EXTRA_AUTO_START, false) == true) {
             autoStartOnResume = true
             intent.removeExtra(EXTRA_AUTO_START)
@@ -358,6 +375,16 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_AUTO_START = "dev.screengoated.toolbox.mobile.extra.AUTO_START"
         const val EXTRA_RESUME_PENDING_AUDIO_PRESET =
             "dev.screengoated.toolbox.mobile.extra.RESUME_PENDING_AUDIO_PRESET"
+        private const val EXTRA_SHELL_SECTION =
+            "dev.screengoated.toolbox.mobile.extra.SHELL_SECTION"
+
+        internal fun settingsIntent(context: android.content.Context): Intent = Intent(
+            context,
+            MainActivity::class.java,
+        ).putExtra(
+            EXTRA_SHELL_SECTION,
+            MobileShellSection.SETTINGS.name,
+        ).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
 }
 

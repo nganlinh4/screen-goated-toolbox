@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "feature": "phone-control-orb",
+  "canonicalAsset": "src/overlay/computer_control/orb/orb.html",
+  "androidAsset": "phone_control/orb.html",
+  "invariants": {
+    "sameCanonicalRenderer": true,
+    "sameStateLabels": true,
+    "sameEmbeddedIconPaths": true,
+    "samePalettesAndMotion": true,
+    "sameCaptionRenderer": true,
+    "sameIncrementalCaptionMotion": true,
+    "captionFont": "Google Sans Flex",
+    "captionBackground": "transparent",
+    "captionPlacement": "above_orb_growing_toward_screen_center",
+    "androidVisualHost": "trusted_accessibility_overlay_with_non_obscuring_fallback",
+    "visualOverlayDoesNotConsumeUnderlyingTouches": true,
+    "captureDoesNotMutateVisibleOverlayWhenWindowCaptureIsAvailable": true,
+    "freshReceiptPostconditionDoesNotPublishTransientWarning": true
+  },
+  "stateLabels": [
+    "idle",
+    "thinking",
+    "look",
+    "click",
+    "type",
+    "drag",
+    "scroll",
+    "point",
+    "navigate",
+    "launch",
+    "run",
+    "responding",
+    "done",
+    "error",
+    "observe",
+    "act",
+    "do_steps",
+    "wait",
+    "memory",
+    "console"
+  ],
+  "toolStateGroups": {
+    "observe": ["observe"],
+    "look": [
+      "look",
+      "map_targets",
+      "see_whole_screen",
+      "browser_read_page",
+      "browser_extract_page",
+      "artifact_info",
+      "extract_artifact",
+      "read_text_file",
+      "save_artifact",
+      "list_windows",
+      "read_clipboard",
+      "system_query",
+      "browser_network",
+      "browser_status",
+      "browser_tabs"
+    ],
+    "memory": ["search_memory", "open_memory"],
+    "console": ["browser_console"],
+    "act": ["act"],
+    "click": ["click", "click_at", "click_target", "click_mark", "click_here"],
+    "do_steps": ["do_steps"],
+    "drag": ["drag", "drag_target"],
+    "scroll": ["scroll"],
+    "point": ["point", "point_at"],
+    "type": [
+      "type_text",
+      "key_combination",
+      "browser_eval",
+      "paste_artifact",
+      "edit_text_file",
+      "edit_text_file_structure"
+    ],
+    "navigate": [
+      "open_url",
+      "browser_navigate",
+      "browser_open_tab",
+      "browser_switch_tab",
+      "focus_window"
+    ],
+    "launch": ["launch_app", "browser_setup"],
+    "run": ["run_command"],
+    "wait": ["wait"],
+    "done": ["done"]
+  },
+  "defaultToolState": "thinking",
+  "scrollDirectionIcons": {
+    "up": "keyboard_double_arrow_up",
+    "down": "keyboard_double_arrow_down",
+    "left": "keyboard_double_arrow_left",
+    "right": "keyboard_double_arrow_right"
+  },
+  "captureRoutes": {
+    "activeWindowApi34Plus": "window_scoped_without_overlay_mutation",
+    "wholeDisplayOrLegacy": "display_scoped_with_bounded_overlay_suppression"
+  }
+}

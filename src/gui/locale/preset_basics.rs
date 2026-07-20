@@ -21,6 +21,8 @@ pub struct PresetBasicsLocaleText {
     pub add_hotkey_button: &'static str,
     pub press_keys: &'static str,
     pub cancel_label: &'static str,
+    pub hotkey_conflict_global_fmt: &'static str,
+    pub hotkey_conflict_preset_fmt: &'static str,
     pub reset_defaults_btn: &'static str,
     pub preset_type_label: &'static str,
     pub preset_type_image: &'static str,

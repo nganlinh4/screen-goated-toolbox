@@ -5,6 +5,10 @@ Cargo.lock
 *.swp
 *.swo
 tools/
+!mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/phonecontrol/tools/
+!mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/phonecontrol/tools/**
+!mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/phonecontrol/tools/
+!mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/phonecontrol/tools/**
 nul
 
 # Scratch / temporary release notes drafts
@@ -93,9 +97,11 @@ third_party/moonshine-voice/
 third_party/sherpa-onnx-win/
 docs/index.bleve/
 __pycache__/
+/mobile/.kotlin/
 
 # Computer-control debug traces (CC_TRACE_DIR) + scratch design docs
 /cc-*/
-/temp-*.md
 /temp-cc-live-traces*/
 /target-cc-*/
+/temp-*.md
+/cc-golden-runs/

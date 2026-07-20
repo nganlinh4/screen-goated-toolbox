@@ -6,18 +6,14 @@ import android.os.Bundle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Bitmap
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
-import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import java.io.File
-import java.util.concurrent.Executors
 
 /**
  * Accessibility service for reading selected text from any app
@@ -46,14 +42,18 @@ class SgtAccessibilityService : AccessibilityService() {
                 AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
             notificationTimeout = 100
         }
+        distributionAccessibilityServiceConnected(this)
         Log.d(TAG, "Accessibility service connected")
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        distributionAccessibilityEvent(this, event)
+    }
 
     override fun onInterrupt() {}
 
     override fun onDestroy() {
+        distributionAccessibilityServiceDestroyed(this)
         super.onDestroy()
         if (instance === this) instance = null
         Log.d(TAG, "Accessibility service destroyed")
@@ -140,7 +140,11 @@ class SgtAccessibilityService : AccessibilityService() {
                     val clip = cm?.primaryClip
                     if (clip != null && clip.itemCount > 0) {
                         text = clip.getItemAt(0)?.text?.toString()
-                        Log.d(TAG, "readClipboardAsync via overlay: '${text?.take(50)}'")
+                        Log.d(
+                            TAG,
+                            "readClipboardAsync via overlay: items=${clip.itemCount} " +
+                                "text_present=${!text.isNullOrBlank()}",
+                        )
                     }
                 } catch (e: Exception) {
                     Log.d(TAG, "readClipboardAsync failed: ${e.message}")
@@ -401,133 +405,17 @@ class SgtAccessibilityService : AccessibilityService() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
-    // ── Screenshot capture ─────────────────────────────────────────────────
+    private val screenshotCapture by lazy { SgtAccessibilityScreenshotCapture(this) }
 
-    private val screenshotExecutor by lazy { Executors.newSingleThreadExecutor() }
+    internal fun captureScreenshot(callback: (ScreenshotCaptureResult) -> Unit) =
+        screenshotCapture.captureDisplay(callback)
 
-    /**
-     * Capture a screenshot via AccessibilityService.takeScreenshot() (API 30+).
-     * Returns an ARGB_8888 bitmap via callback on the main thread.
-     */
-    internal fun captureScreenshot(callback: (ScreenshotCaptureResult) -> Unit) {
-        val support = screenshotSupport()
-        if (!support.available) {
-            Log.d(TAG, "captureScreenshot unavailable: ${support.failureReason}")
-            postScreenshotResult(
-                callback,
-                ScreenshotCaptureResult.Failure(
-                    support.failureReason ?: ScreenshotCaptureFailureReason.REQUEST_FAILED,
-                ),
-            )
-            return
-        }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            postScreenshotResult(
-                callback,
-                ScreenshotCaptureResult.Failure(ScreenshotCaptureFailureReason.API_TOO_OLD),
-            )
-            return
-        }
-        captureScreenshotApi30(callback)
-    }
-
-    @RequiresApi(Build.VERSION_CODES.R)
-    private fun captureScreenshotApi30(callback: (ScreenshotCaptureResult) -> Unit) {
-        try {
-            takeScreenshot(
-                Display.DEFAULT_DISPLAY,
-                screenshotExecutor,
-                object : TakeScreenshotCallback {
-                    override fun onSuccess(result: ScreenshotResult) {
-                        val callbackStartedAt = SystemClock.elapsedRealtime()
-                        Log.d(TAG, "captureScreenshot callback received")
-                        var capturedBitmap: Bitmap? = null
-                        try {
-                            val bitmap = Bitmap.wrapHardwareBuffer(
-                                result.hardwareBuffer,
-                                result.colorSpace,
-                            )
-                            if (bitmap != null) {
-                                val softBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                                bitmap.recycle()
-                                capturedBitmap = softBitmap
-                                Log.d(
-                                    TAG,
-                                    "captureScreenshot bitmap ready ${softBitmap.width}x${softBitmap.height} in ${SystemClock.elapsedRealtime() - callbackStartedAt}ms",
-                                )
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "captureScreenshot bitmap conversion failed", e)
-                        } finally {
-                            result.hardwareBuffer.close()
-                        }
-                        postScreenshotResult(
-                            callback,
-                            capturedBitmap?.let(ScreenshotCaptureResult::Success)
-                                ?: ScreenshotCaptureResult.Failure(ScreenshotCaptureFailureReason.REQUEST_FAILED),
-                        )
-                    }
-
-                    override fun onFailure(errorCode: Int) {
-                        Log.d(TAG, "captureScreenshot failed: errorCode=$errorCode")
-                        postScreenshotResult(
-                            callback,
-                            ScreenshotCaptureResult.Failure(mapScreenshotFailure(errorCode)),
-                        )
-                    }
-                },
-            )
-        } catch (e: SecurityException) {
-            Log.e(TAG, "captureScreenshot security failure", e)
-            postScreenshotResult(
-                callback,
-                ScreenshotCaptureResult.Failure(ScreenshotCaptureFailureReason.SECURITY_EXCEPTION),
-            )
-        }
-    }
-
-    internal fun screenshotSupport(): ScreenshotCaptureSupport {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return ScreenshotCaptureSupport(
-                available = false,
-                failureReason = ScreenshotCaptureFailureReason.API_TOO_OLD,
-            )
-        }
-        val capabilities = serviceInfo?.capabilities ?: 0
-        return if (capabilities and AccessibilityServiceInfo.CAPABILITY_CAN_TAKE_SCREENSHOT != 0) {
-            ScreenshotCaptureSupport(available = true, failureReason = null)
-        } else {
-            ScreenshotCaptureSupport(
-                available = false,
-                failureReason = ScreenshotCaptureFailureReason.CAPABILITY_MISSING,
-            )
-        }
-    }
-
-    private fun postScreenshotResult(
+    internal fun captureWindowScreenshot(
+        accessibilityWindowId: Int,
         callback: (ScreenshotCaptureResult) -> Unit,
-        result: ScreenshotCaptureResult,
-    ) {
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            callback(result)
-        }
-    }
+    ) = screenshotCapture.captureWindow(accessibilityWindowId, callback)
 
-    private fun mapScreenshotFailure(errorCode: Int): ScreenshotCaptureFailureReason {
-        return when (errorCode) {
-            ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT -> ScreenshotCaptureFailureReason.RATE_LIMITED
-            ERROR_TAKE_SCREENSHOT_INVALID_DISPLAY,
-            ERROR_TAKE_SCREENSHOT_INVALID_WINDOW,
-            -> ScreenshotCaptureFailureReason.INVALID_TARGET
-
-            ERROR_TAKE_SCREENSHOT_NO_ACCESSIBILITY_ACCESS ->
-                ScreenshotCaptureFailureReason.NO_ACCESSIBILITY_ACCESS
-
-            ERROR_TAKE_SCREENSHOT_SECURE_WINDOW -> ScreenshotCaptureFailureReason.SECURE_WINDOW
-            ERROR_TAKE_SCREENSHOT_INTERNAL_ERROR -> ScreenshotCaptureFailureReason.REQUEST_FAILED
-            else -> ScreenshotCaptureFailureReason.REQUEST_FAILED
-        }
-    }
+    internal fun screenshotSupport(): ScreenshotCaptureSupport = screenshotCapture.support()
 
     companion object {
         private const val TAG = "SgtAccessibility"
@@ -582,6 +470,6 @@ internal enum class ScreenshotCaptureFailureReason {
 }
 
 internal sealed interface ScreenshotCaptureResult {
-    data class Success(val bitmap: Bitmap) : ScreenshotCaptureResult
+    data class Success(val bitmap: android.graphics.Bitmap) : ScreenshotCaptureResult
     data class Failure(val reason: ScreenshotCaptureFailureReason) : ScreenshotCaptureResult
 }

@@ -3,6 +3,12 @@ package dev.screengoated.toolbox.mobile.ui
 import androidx.compose.runtime.Immutable
 import dev.screengoated.toolbox.mobile.history.HistoryUiState
 
+@Immutable
+internal data class ShellSectionRequest(
+    val section: MobileShellSection,
+    val serial: Long,
+)
+
 /**
  * Cohesive UI-state/handler holders for the mobile shell.
  *

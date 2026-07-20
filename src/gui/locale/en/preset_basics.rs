@@ -24,6 +24,8 @@ pub(super) fn get() -> PresetBasicsLocaleText {
         add_hotkey_button: "+ Add Key",
         press_keys: "Press combination...",
         cancel_label: "Cancel",
+        hotkey_conflict_global_fmt: "Hotkey '{hotkey}' conflicts with {owner}.",
+        hotkey_conflict_preset_fmt: "Hotkey '{hotkey}' conflicts with preset '{preset}'.",
         reset_defaults_btn: "Reset to Defaults",
         preset_type_label: "Type:",
         preset_type_image: "Image Understanding",

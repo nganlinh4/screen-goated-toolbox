@@ -80,6 +80,7 @@ internal fun MobileShellSurface(
     presetRuntimeSettings: PresetRuntimeSettings,
     historyBundle: HistoryUiBundle,
     appUpdateState: AppUpdateUiState,
+    shellSectionRequest: ShellSectionRequest? = null,
     locale: MobileLocaleText,
     settingsActions: SettingsActions,
     navActions: ShellNavActions,
@@ -111,7 +112,9 @@ internal fun MobileShellSurface(
     val prefs = remember { context.getSharedPreferences("sgt_shell", android.content.Context.MODE_PRIVATE) }
     var selectedSection by rememberSaveable {
         val saved = prefs.getString("last_tab", null)
-        val initial = runCatching { MobileShellSection.valueOf(saved ?: "") }.getOrDefault(MobileShellSection.APPS)
+        val initial = shellSectionRequest?.section
+            ?: runCatching { MobileShellSection.valueOf(saved ?: "") }
+                .getOrDefault(MobileShellSection.APPS)
         mutableStateOf(initial)
     }
     LaunchedEffect(selectedSection) {
@@ -212,6 +215,12 @@ internal fun MobileShellSurface(
                                 }
                                 navigating = false
                             }
+                        }
+                    }
+
+                    LaunchedEffect(shellSectionRequest?.serial) {
+                        shellSectionRequest?.let { request ->
+                            onSectionRequested(request.section)
                         }
                     }
 

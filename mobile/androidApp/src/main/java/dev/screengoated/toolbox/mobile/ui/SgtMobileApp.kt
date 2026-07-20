@@ -77,7 +77,7 @@ import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 
 @Composable
-fun SgtMobileApp(
+internal fun SgtMobileApp(
     state: LiveSessionState,
     providerKeys: ProviderKeysState,
     globalTtsSettings: MobileGlobalTtsSettings,
@@ -87,6 +87,7 @@ fun SgtMobileApp(
     locale: MobileLocaleText,
     historyBundle: HistoryUiBundle,
     appUpdateState: AppUpdateUiState,
+    shellSectionRequest: ShellSectionRequest? = null,
     edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onPresetRuntimeSettingsChanged: (PresetRuntimeSettings) -> Unit,
     onCustomModelsChanged: (List<CustomPresetModelDefinition>) -> Unit,
@@ -274,6 +275,7 @@ fun SgtMobileApp(
                     locale = locale,
                     historyBundle = historyBundle,
                     appUpdateState = appUpdateState,
+                    shellSectionRequest = shellSectionRequest,
                     settingsActions = SettingsActions(
                         onPresetRuntimeSettingsClick = { showPresetRuntimeSettings = true },
                         onCustomModelsClick = { showCustomModels = true },

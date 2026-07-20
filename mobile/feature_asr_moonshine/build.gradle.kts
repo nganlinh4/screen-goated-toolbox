@@ -5,8 +5,9 @@ plugins {
 
 val generatedJni = layout.buildDirectory.dir("generated/jniLibs")
 val prepareNativePayload by tasks.registering(Sync::class) {
+    dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
     from(zipTree(project(":androidApp").projectDir.resolve("libs/moonshine-runtime.zip"))) {
-        include("*.so")
+        include("libmoonshine.so", "libmoonshine-jni.so")
     }
     into(generatedJni.map { it.dir("arm64-v8a") })
     outputs.upToDateWhen { false }
@@ -22,6 +23,10 @@ android {
         create("play") { dimension = "distribution" }
     }
     sourceSets.named("main") { jniLibs.srcDir(generatedJni) }
+    packaging.jniLibs.keepDebugSymbols += setOf(
+        "**/libmoonshine.so",
+        "**/libmoonshine-jni.so",
+    )
 }
 
 tasks.named("preBuild").configure { dependsOn(prepareNativePayload) }

@@ -8,8 +8,10 @@ param(
 )
 
 # Builds:
-#   - Full flavor APK  (direct distribution, with overlay support)
-#   - Optional Play flavor AAB  (Google Play Store upload)
+#   - Full flavor APK  (direct distribution)
+#   - Optional Play flavor AAB  (store-distribution artifact)
+# Phone Control and its user-granted overlay capability are identical in both artifacts;
+# this script changes packaging and delivery, not the feature's catalog or authority.
 
 $ErrorActionPreference = "Stop"
 

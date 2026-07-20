@@ -52,9 +52,33 @@ internal fun LiveTranslateCarouselTile(
     val isRunning = state.phase in setOf(
         SessionPhase.STARTING, SessionPhase.LISTENING, SessionPhase.TRANSLATING,
     )
+    SessionAppCarouselTile(
+        slot = appSlots[0],
+        title = locale.shellLiveTitle,
+        drawableRes = LiveTranslateVisuals.icon,
+        isRunning = isRunning,
+        onSessionToggle = onSessionToggle,
+        canToggle = canToggle,
+        turnOnLabel = locale.turnOn,
+        turnOffLabel = locale.turnOff,
+        toggleTag = "live-translate-toggle",
+    )
+}
+
+@Composable
+internal fun SessionAppCarouselTile(
+    slot: AppSlot,
+    title: String,
+    @DrawableRes drawableRes: Int,
+    isRunning: Boolean,
+    onSessionToggle: () -> Unit,
+    canToggle: Boolean,
+    turnOnLabel: String,
+    turnOffLabel: String,
+    toggleTag: String,
+) {
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    val slot = appSlots[0]
     val slotColor = slot.colorToken(MaterialTheme.sgtColors)
     Box(
         modifier = Modifier
@@ -91,13 +115,13 @@ internal fun LiveTranslateCarouselTile(
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Icon(
-                        painterResource(LiveTranslateVisuals.icon),
+                        painterResource(drawableRes),
                         contentDescription = null,
                         tint = slotColor,
                         modifier = Modifier.size(AppCardLandscapeIconSize),
                     )
                     Text(
-                        text = locale.shellLiveTitle,
+                        text = title,
                         fontFamily = stretchedFamily,
                         fontWeight = FontWeight.Black,
                         fontSize = 22.sp,
@@ -117,7 +141,7 @@ internal fun LiveTranslateCarouselTile(
                     },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .testTag("live-translate-toggle"),
+                        .testTag(toggleTag),
                 ) {
                     Icon(
                         painterResource(if (isRunning) R.drawable.ms_stop else R.drawable.ms_play_arrow),
@@ -125,7 +149,7 @@ internal fun LiveTranslateCarouselTile(
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                    Text(if (isRunning) locale.turnOff else locale.turnOn)
+                    Text(if (isRunning) turnOffLabel else turnOnLabel)
                 }
             }
         } else {
@@ -136,14 +160,14 @@ internal fun LiveTranslateCarouselTile(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    painterResource(LiveTranslateVisuals.icon),
+                    painterResource(drawableRes),
                     contentDescription = null,
                     tint = slotColor,
                     modifier = Modifier.size(AppCardPortraitIconSize),
                 )
                 Spacer(Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    val words = locale.shellLiveTitle.split(" ", limit = 2)
+                    val words = title.split(" ", limit = 2)
                     if (words.isNotEmpty()) {
                         Text(
                             text = words[0],
@@ -177,7 +201,7 @@ internal fun LiveTranslateCarouselTile(
                         } else {
                             ButtonDefaults.buttonColors()
                         },
-                        modifier = Modifier.testTag("live-translate-toggle"),
+                        modifier = Modifier.testTag(toggleTag),
                     ) {
                         Icon(
                             painterResource(if (isRunning) R.drawable.ms_stop else R.drawable.ms_play_arrow),
@@ -185,7 +209,7 @@ internal fun LiveTranslateCarouselTile(
                             modifier = Modifier.size(16.dp),
                         )
                         Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                        Text(if (isRunning) locale.turnOff else locale.turnOn)
+                        Text(if (isRunning) turnOffLabel else turnOnLabel)
                     }
                 }
             }

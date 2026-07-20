@@ -50,7 +50,7 @@ class ClipboardReaderActivity : Activity() {
             if (text.isNullOrBlank()) return false
             lastReadText = text
             lastReadTimestamp = System.currentTimeMillis()
-            Log.d("ClipboardReader", "Read: '${text.take(60)}'")
+            Log.d("ClipboardReader", "Read clipboard text: text_present=true")
             onClipboardRead?.invoke(text)
             onClipboardRead = null
             return true

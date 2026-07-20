@@ -157,7 +157,7 @@ impl SettingsApp {
         vk: u32,
         mods: u32,
         current_preset_idx: usize,
-    ) -> Option<String> {
+    ) -> Option<crate::config::HotkeyConflict> {
         self.config
             .check_hotkey_conflict(vk, mods, Some(current_preset_idx))
     }

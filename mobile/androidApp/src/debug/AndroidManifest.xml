@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver
+            android:name="dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlDebugProbeReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="dev.screengoated.toolbox.mobile.debug.PHONE_CONTROL_PROBE" />
+                <action android:name="dev.screengoated.toolbox.mobile.debug.PHONE_CONTROL_PROBE_CANCEL" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlDebugProbeCleanupReceiver"
+            android:exported="false" />
+        <activity
+            android:name="dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlAccessibilityFixtureActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+</manifest>

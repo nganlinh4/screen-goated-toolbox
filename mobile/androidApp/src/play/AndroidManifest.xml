@@ -1,3 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest />
-
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".service.nativelibs.PlaySplitInstallConfirmationActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    </application>
+</manifest>

@@ -24,6 +24,8 @@ pub(super) fn get() -> PresetBasicsLocaleText {
         add_hotkey_button: "+ Thêm Phím",
         press_keys: "Ấn tổ hợp phím...",
         cancel_label: "Hủy",
+        hotkey_conflict_global_fmt: "Phím '{hotkey}' xung đột với phím tắt {owner}.",
+        hotkey_conflict_preset_fmt: "Phím '{hotkey}' xung đột với cấu hình '{preset}'.",
         reset_defaults_btn: "Khôi phục mặc định",
         preset_type_label: "Loại hình:",
         preset_type_image: "Hiểu hình ảnh",

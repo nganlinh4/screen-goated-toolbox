@@ -1,0 +1,608 @@
+{
+  "schemaVersion": 11,
+  "feature": "phone-control",
+  "canonicalFeature": "computer-control",
+  "distribution": {
+    "agentFlavors": [
+      "play",
+      "full"
+    ],
+    "behavior": "identical",
+    "catalogAndRuntimeMustMatch": true,
+    "largeOfflineAssetDeliveryMayDiffer": true,
+    "largeOfflineAssetIdentityMustMatch": true,
+    "playDetectorModule": "feature_asr_ort",
+    "playDetectorNetworkFallback": false
+  },
+  "catalog": {
+    "normalTurnPolicy": "stable_full_catalog",
+    "dynamicHiding": false,
+    "phraseOrLanguageGates": false,
+    "silentToolReroutes": false,
+    "unavailableResultCode": "capability_unavailable"
+  },
+  "effectCancellation": {
+    "operationIdentityFields": ["turn_id", "response_generation", "job_id"],
+    "maximumOwnedJobs": 1,
+    "provisionalCancellationReleasesSlot": false,
+    "cancellationHandlerExecution": "owned_io",
+    "cancellationRequestWaitsForHandler": false,
+    "terminalAcknowledgementWaitsForHandlerSettlement": true,
+    "handlerFailureCountsAsSettledAttempt": true,
+    "terminalAcknowledgementRequired": true,
+    "boundaryObservedWithoutAcceptance": "proven_no_effect",
+    "mutatingCancellationWithoutOwnedBoundary": "unknown",
+    "acceptedEffectBeforeProviderTerminal": "effect_may_have_occurred",
+    "newMutationAllowedWhileAcceptedEffectRetiring": false,
+    "rootCancellationScope": "exact_operation_root_and_owned_descendants",
+    "shizukuCancellationScope": "exact_remote_operation",
+    "shizukuGlobalServiceDestructionAllowed": false,
+    "platformDispatchRunsUnderOwnerMonitor": false,
+    "inFlightPlatformDispatchCancellationCertainty": "effect_may_have_occurred"
+  },
+  "targetEffectAuthority": {
+    "states": [
+      "routine",
+      "consequential",
+      "os_owned_user_step"
+    ],
+    "derivation": "platform_structure_only",
+    "labelsOrUserPhrasesMayAssignAuthority": false,
+    "enforcementBoundary": "before_every_platform_dispatch",
+    "coveredDispatches": [
+      "semantic_node",
+      "coordinate_click",
+      "detector_mark",
+      "long_press",
+      "drag",
+      "scroll",
+      "text_edit",
+      "key_sequence",
+      "global_action",
+      "command_execution"
+    ],
+    "mutationLeaseFields": [
+      "snapshot_generation",
+      "display_id",
+      "window_id",
+      "package_or_surface",
+      "window_layer",
+      "bounds",
+      "authority"
+    ],
+    "alternateToolMayWeakenAuthority": false,
+    "commandTextMayAssignOrClearAuthority": false,
+    "preinstalledAppStatusMayAssignAuthority": false,
+    "productionConsequentialSignals": [
+      "accessibility_action_dismiss"
+    ],
+    "platformPendingConfirmationUsesOpaqueSession": true,
+    "activeOsOwnedStepBlocksElevatedCommandDispatch": true,
+    "consequentialRequiresConfirm": true,
+    "osOwnedConfirmationIsAlwaysUserStep": true,
+    "refusalEffect": "proven_no_effect",
+    "refusalMutating": false,
+    "refusalInvalidatesSnapshot": false
+  },
+  "debugProbeHarness": {
+    "buildScope": "debug_only",
+    "callerPermission": "android.permission.DUMP",
+    "physicalDeviceRequiresExplicitOptIn": true,
+    "maximumConcurrentDispatches": 1,
+    "usesProductionCancellableExecutor": true,
+    "cancelBeforeToolJobAttachDeliveredAfterAttach": true,
+    "admissionReleasedOnlyAfterTerminalCompletion": true,
+    "concurrentRequestResult": "ProbeBusy_proven_no_effect",
+    "mutationClassification": "exact_registry_handler_mutating_flag",
+    "mutationRequiresSeparateAcknowledgement": true,
+    "cancelDeletesReceipt": true,
+    "postCancelReceiptResurrectionAllowed": false,
+    "deviceSideReceiptExpiryRequired": true,
+    "preexistingPackagesMustBePreserved": true,
+    "cleanupOnlyRemovesRunOwnedPackages": true,
+    "hostRecoveryStateMustBeDurableUntilVerifiedRestore": true,
+    "releasePackageMustRemainUntouched": true
+  },
+  "setupSelfTest": {
+    "flavors": ["play", "full"],
+    "dispatchBoundary": "non_catalog_local_accessibility_seam",
+    "allowedMutation": "accessibility_focus_then_clear",
+    "targetSelection": "current_controller_owned_active_focused_application_by_structure",
+    "labelsOrCoordinatesMaySelectTarget": false,
+    "agentTargetingEnabled": false,
+    "productionControllerTargetingRemainsBlocked": true,
+    "exactObservationLeaseRequired": true,
+    "osOwnedStepRemainsBlocked": true,
+    "successRequiresVerifiedTransitionAndRestore": true
+  },
+  "capabilityStates": [
+    "ready",
+    "degraded",
+    "needs_user_step",
+    "revoked",
+    "unsupported",
+    "unavailable"
+  ],
+  "providerSelection": {
+    "rule": "narrowest_ready_provider_with_full_requested_semantics",
+    "dispatchPlan": "exact_tool_provider_subset_of_exact_capability_route",
+    "registrySnapshotPreGate": false,
+    "liveSelectionOwner": "provider_specific_handler",
+    "successfulOrEffectfulReceiptMustMatchPlan": true,
+    "successfulReceiptState": "ready",
+    "effectfulFailurePreservesReportedProviderState": true,
+    "toolContractBypassRequiresProvenNoEffectNonmutatingFailure": true,
+    "primaryReceiptProviderOnly": true,
+    "dependencyProviderFieldsAreEvidenceNotRouteSelection": true,
+    "dependencyFailureMustBeDeclaredPerTool": true,
+    "dependencyReceiptRoleField": "provider_role",
+    "providerContractFailureCode": "provider_contract_failure",
+    "providerContractFailureClass": "internal",
+    "noEffectDependencyFailureMayReportAttemptedProvider": true,
+    "unattributedProviderFailureMustNotGuessProvider": true,
+    "mustReportProvider": true,
+    "strongerAuthorityDoesNotOverrideBetterEvidence": true
+  },
+  "browserSelection": {
+    "credentialContinuityOrder": [
+      "attached_existing_browser_tab",
+      "custom_tabs_shared_browser_state",
+      "app_private_webview_session"
+    ],
+    "controlOrder": [
+      "direct_app_integration",
+      "browser_cdp",
+      "accessibility",
+      "current_frame_grounding"
+    ],
+    "credentialContinuityAndControlAuthorityAreIndependent": true,
+    "customTabCdpAttachment": "current_target_probe_required",
+    "browserSecretsMayMoveBetweenProviders": false
+  },
+  "providers": [
+    {
+      "id": "android_app_api",
+      "authority": "app",
+      "optional": false,
+      "survivesReboot": true
+    },
+    {
+      "id": "accessibility",
+      "authority": "accessibility",
+      "optional": false,
+      "requiresUserGrant": true,
+      "survivesReboot": "probe_required"
+    },
+    {
+      "id": "accessibility_input_method",
+      "authority": "accessibility",
+      "optional": true,
+      "minimumApi": 33,
+      "requiresFlag": "FLAG_INPUT_METHOD_EDITOR"
+    },
+    {
+      "id": "media_projection",
+      "authority": "user_consent_session",
+      "optional": true,
+      "consentPerSession": true
+    },
+    {
+      "id": "notification_listener",
+      "authority": "special_access",
+      "optional": true,
+      "requiresUserGrant": true
+    },
+    {
+      "id": "custom_tabs_session",
+      "authority": "user_browser_session",
+      "optional": true,
+      "role": "credential_continuity_and_authenticated_navigation",
+      "mode": "standard_non_ephemeral",
+      "sharesPreferredBrowserState": true,
+      "genericDomAuthority": false
+    },
+    {
+      "id": "owned_webview_bridge",
+      "authority": "app",
+      "optional": true,
+      "surfaceScope": "sgt_owned_webview",
+      "credentialContext": "app_private_webview",
+      "inheritsPreferredBrowserState": false
+    },
+    {
+      "id": "browser_cdp",
+      "authority": "debug_bridge",
+      "optional": true,
+      "readiness": "real_device_proof_required",
+      "credentialContext": "attached_browser_tab",
+      "pageControl": true,
+      "browserChromeControl": false
+    },
+    {
+      "id": "local_ui_detector",
+      "authority": "app",
+      "optional": true,
+      "readiness": "implemented_mobile_benchmark_required",
+      "role": "blind_surface_clickable_region_marks"
+    },
+    {
+      "id": "shizuku_shell",
+      "authority": "shell",
+      "optional": true,
+      "requiresUserGrant": true,
+      "survivesReboot": false
+    },
+    {
+      "id": "root_bridge",
+      "authority": "root",
+      "optional": true,
+      "requiresUserGrant": true,
+      "survivesReboot": "probe_required"
+    },
+    {
+      "id": "device_owner",
+      "authority": "device_owner",
+      "optional": true,
+      "requiresProvisioning": true
+    },
+    {
+      "id": "privileged_system",
+      "authority": "privileged_system",
+      "optional": true,
+      "requiresSeparateDeployment": true
+    }
+  ],
+  "browserContract": {
+    "ownedWebViewInheritsPreferredBrowserState": false,
+    "customTabsSharePreferredBrowserState": true,
+    "customTabsGenericDomAuthority": false,
+    "cdpControlsBoundPageTargets": true,
+    "cdpControlsAndroidBrowserChrome": false,
+    "customTabCdpTargetDiscoverability": "real_device_probe_required",
+    "accessibilityControlsBrowserChrome": true,
+    "secretTransferAllowed": false,
+    "visibleUrlOrTitleProvesTargetOwnership": false
+  },
+  "privacyBoundary": {
+    "accessibilityPasswordSignal": "node_isPassword",
+    "protectedNodeTextOrValueMayLeaveProvider": false,
+    "protectedNodeSecretDerivedHashAllowed": false,
+    "protectedNodeDroppedFields": [
+      "text",
+      "value",
+      "content_description",
+      "hint",
+      "state_description"
+    ],
+    "protectedNodeRetainedFields": [
+      "role",
+      "view_id",
+      "actions",
+      "bounds"
+    ],
+    "protectedNodeMarker": "privacy=protected",
+    "browserExtractPageInlinePreview": false,
+    "browserArtifactUsesProtectedSafeCapture": true
+  },
+  "routes": [
+    {
+      "capability": "ui.semantic_observe",
+      "providers": ["owned_webview_bridge", "browser_cdp", "accessibility"]
+    },
+    {
+      "capability": "ui.visual_observe",
+      "providers": ["accessibility", "media_projection"]
+    },
+    {
+      "capability": "ui.pointer_action",
+      "providers": ["owned_webview_bridge", "browser_cdp", "accessibility", "local_ui_detector", "shizuku_shell", "root_bridge"]
+    },
+    {
+      "capability": "ui.text_edit",
+      "providers": ["owned_webview_bridge", "browser_cdp", "accessibility", "accessibility_input_method", "shizuku_shell", "root_bridge"]
+    },
+    {
+      "capability": "ui.key_action",
+      "providers": ["accessibility", "accessibility_input_method", "shizuku_shell", "root_bridge"]
+    },
+    {
+      "capability": "app_and_task_control",
+      "providers": ["android_app_api", "accessibility", "shizuku_shell", "root_bridge", "device_owner", "privileged_system"]
+    },
+    {
+      "capability": "system_query",
+      "providers": ["android_app_api", "accessibility", "notification_listener", "shizuku_shell", "root_bridge", "device_owner", "privileged_system"]
+    },
+    {
+      "capability": "file_resource_access",
+      "providers": ["android_app_api", "shizuku_shell", "root_bridge", "privileged_system"]
+    },
+    {
+      "capability": "command_execution",
+      "providers": ["shizuku_shell", "root_bridge", "privileged_system"]
+    },
+    {
+      "capability": "browser_semantic",
+      "providers": ["browser_cdp", "owned_webview_bridge", "accessibility"]
+    },
+    {
+      "capability": "browser_authenticated_navigation",
+      "providers": ["android_app_api", "custom_tabs_session", "browser_cdp", "accessibility"]
+    },
+    {
+      "capability": "browser_chrome_ui",
+      "providers": ["accessibility", "local_ui_detector"]
+    },
+    {
+      "capability": "blind_surface_grounding",
+      "providers": ["local_ui_detector", "accessibility", "media_projection"]
+    },
+    {
+      "capability": "browser_devtools",
+      "providers": ["browser_cdp", "owned_webview_bridge"]
+    },
+    {
+      "capability": "notification_observe_and_action",
+      "providers": ["notification_listener", "accessibility"]
+    },
+    {
+      "capability": "local_completion_and_cleanup",
+      "providers": ["android_app_api"]
+    }
+  ],
+  "targetIdentity": {
+    "minimumFields": [
+      "snapshot_generation",
+      "display_id",
+      "window_id",
+      "package_or_surface",
+      "node_or_document_identity",
+      "bounds",
+      "observation_timestamp"
+    ],
+    "invalidatedBy": [
+      "mutation",
+      "navigation",
+      "rotation",
+      "window_change",
+      "provider_revocation",
+      "uncertain_interruption"
+    ],
+    "browserMinimumFields": [
+      "browser_package",
+      "credential_context_kind",
+      "surface_identity",
+      "observation_generation"
+    ],
+    "browserDeepTargetFields": [
+      "browser_profile_scope",
+      "tab_or_target_id",
+      "document_id",
+      "loader_or_navigation_generation"
+    ],
+    "surfaceTokenFields": [
+      "snapshot_generation",
+      "display_id",
+      "window_id",
+      "package"
+    ]
+  },
+  "surfaceSemantics": {
+    "listWindowsScope": "current_interactive_surfaces_only",
+    "observation": {
+      "api30Plus": "accessibility_windows_on_all_displays",
+      "api29": "accessibility_windows_default_display_only",
+      "includeWindowWithoutAccessibleRoot": true,
+      "inaccessibleContentState": "content_accessible_false",
+      "excludes": [
+        "installed_apps_without_current_surface",
+        "background_tasks_without_current_surface",
+        "historical_surfaces"
+      ]
+    },
+    "ownership": {
+      "controllerOwnedScope": "accessibility_overlay_or_same_package_non_application_window",
+      "samePackageApplicationWindow": "ordinary_targetable_surface",
+      "ordinaryToolsBlockControllerOverlay": true
+    },
+    "token": {
+      "format": "@android-window:v1:<snapshot_generation>:<display_id>:<window_id>:<package>",
+      "lifetime": "current_observation_generation",
+      "exactResolutionRequired": true,
+      "staleResult": "stale_target",
+      "staleEffect": "proven_no_effect",
+      "staleRequiresFreshObservation": true
+    },
+    "staleRecovery": {
+      "preservesFailClosedDispatch": true,
+      "automaticTargetRebinding": false,
+      "provenNoEffectReceiptAttachesFreshObservation": true,
+      "attachedObservationContainsCurrentElementIds": true,
+      "attachedObservationContainsCurrentSurfaceTargets": true,
+      "attachedObservationReconcilesState": true,
+      "retryUsesOnlyAttachedGeneration": true
+    },
+    "observationInvalidation": {
+      "backgroundVisualCaptureMayReplaceActionLeases": false,
+      "windowTopologyAndUserMutationEventsInvalidateImmediately": true,
+      "semanticOnlyAccessibilityChurnInvalidatesImmediately": false,
+      "windowContentChangedRetiresSemanticLeases": false,
+      "windowContentChangedAdvancesVisualRevision": true,
+      "semanticLeaseSafetyAfterContentChurn": "live_node_path_and_fingerprint_revalidation",
+      "everyMutationRevalidatesLiveTargetFingerprint": true,
+      "hardEventDuringCaptureResult": "stale_frame",
+      "staleVisualCaptureRetriesAreBounded": true
+    },
+    "nameResolution": {
+      "acceptedInputs": [
+        "current_surface_token",
+        "exact_package",
+        "exact_title"
+      ],
+      "zeroMatches": "target_not_found",
+      "oneMatch": "resolved",
+      "multipleMatches": "ambiguous_target",
+      "ambiguousChoicesUseFreshTokens": true,
+      "firstMatchFallback": false
+    },
+    "focusWindow": {
+      "dispatch": "launcher_intent_for_resolved_package",
+      "successPostcondition": "fresh_observation_proves_requested_package_active_and_focused",
+      "alreadyFocused": "verified_no_effect",
+      "dispatchedButUnverified": "effect_may_have_occurred",
+      "missingLaunchablePackage": "unsupported_on_surface"
+    },
+    "gestureDispatch": {
+      "rejectedBeforePlatformAcceptance": "proven_no_effect",
+      "acceptedThenCompleted": "effect_may_have_occurred",
+      "acceptedThenCallbackCancelled": "effect_may_have_occurred",
+      "acceptedThenCoroutineCancelled": "effect_may_have_occurred",
+      "acceptedGestureInvalidatesSnapshot": true,
+      "acceptedEffectOwnsJobUntilPlatformTerminal": true,
+      "terminalCancellationSignal": "gesture_result_callback"
+    },
+    "accessibilityMutationCancellation": {
+      "coveredEffects": [
+        "node_action",
+        "global_action",
+        "gesture",
+        "text_edit",
+        "key_sequence",
+        "batch_step"
+      ],
+      "synchronousPlatformCallTerminal": "bounded_settle_and_postcondition_complete",
+      "gestureTerminal": "gesture_result_callback",
+      "coroutineCancellationMayReleaseAcceptedEffect": false
+    },
+    "textTargeting": {
+      "tools": [
+        "type_text",
+        "key_combination"
+      ],
+      "target": "current_surface_token",
+      "editorResolution": "one_focused_editable_node_inside_exact_live_window",
+      "nodeIdMayReplaceSurfaceToken": false
+    },
+    "systemNavigationKeys": {
+      "tool": "key_combination",
+      "target": "current_surface_token",
+      "baselineProvider": "accessibility",
+      "elevatedProviderIsOptionalUpgrade": true,
+      "focusedEditorRequired": false,
+      "exactForegroundSurfaceLeaseRequired": true,
+      "foregroundSurfaceScope": "current_non_controller_platform_window",
+      "retiredContentGenerationContinuation": "exact_display_window_package_still_current_foreground",
+      "continuationUsesFreshSurfaceLease": true,
+      "continuationScope": "global_system_navigation_only",
+      "elementOrGeometryRebinding": false,
+      "pointerGeometryRequired": false,
+      "inactiveHigherWindowBlocksDispatch": false,
+      "activeOsOwnedUserStepBlocksDispatch": true,
+      "singleKeyOnly": true,
+      "keys": [
+        "back",
+        "home",
+        "recents",
+        "notifications",
+        "quick_settings"
+      ],
+      "acceptedDispatchInvalidatesSnapshot": true,
+      "otherKeysRequireFocusedEditor": true
+    },
+    "pasteArtifactTargeting": {
+      "target": "fresh_unique_focused_editor",
+      "surfaceTokenParameter": false,
+      "ambiguousResult": "focused_editor_ambiguous",
+      "artifactBodyStaysLocal": true
+    },
+    "minimizeWindow": {
+      "supportedScope": "sole_active_fullscreen_app",
+      "dispatch": "accessibility_global_home",
+      "successPostcondition": "fresh_observation_proves_target_not_foreground",
+      "unsupportedScopes": [
+        "split_screen",
+        "picture_in_picture",
+        "system_surface",
+        "overlay_surface",
+        "ambiguous_surface"
+      ],
+      "unsupportedResult": "unsupported_on_surface"
+    },
+    "moveWindow": {
+      "arbitraryAndroidGeometry": "unsupported_on_surface"
+    },
+    "resizeWindow": {
+      "arbitraryAndroidGeometry": "unsupported_on_surface"
+    },
+    "visualObservation": {
+      "provider": "accessibility",
+      "normalFrame": "current_view_with_numbered_6x5_grid",
+      "activeView": "active_default_display_application_surface",
+      "wholeScreenView": "complete_default_display_capture",
+      "zoom": "current_generation_grid_cell_plus_quarter_cell_context",
+      "resetView": "fresh_active_surface_view",
+      "look": "clean_current_view_frame_for_same_live_model",
+      "frameIdentityFields": [
+        "observation_generation",
+        "display_id",
+        "window_id",
+        "package_or_surface",
+        "screen_crop_bounds",
+        "visual_revision",
+        "rotation",
+        "density_dpi",
+        "captured_at_ms"
+      ],
+      "staleResult": "stale_frame",
+      "coordinateDispatchRequiresCurrentVisualRevision": true,
+      "streamCaptureMayCompleteDuringContentChurn": true,
+      "unsupportedDisplayResult": "unsupported_display",
+      "secureCaptureResult": "screenshot_secure_window",
+      "rateLimitedResult": "screenshot_rate_limited",
+      "overlayPolicy": "window_capture_excludes_controller_overlay_without_visible_mutation_when_available",
+      "pointAt": "unavailable_without_universal_pointer_state",
+      "dragTarget": "same_tool_dual_semantic_selection_one_frame_detector_refresh_dual_crosshair_verification_exact_surface_lease"
+    }
+  },
+  "typedResult": {
+    "requiredFields": [
+      "code",
+      "capability",
+      "requested_tool",
+      "turn_id",
+      "job_id",
+      "provider",
+      "provider_state",
+      "observation_generation",
+      "effect_may_have_occurred",
+      "effect_verified",
+      "snapshot_invalidated",
+      "retryable"
+    ],
+    "conditionalFields": [
+      "required_user_step",
+      "fresh_observation_required",
+      "scope"
+    ]
+  },
+  "hardWalls": [
+    "lock_or_credential_surface",
+    "biometric_or_hardware_authentication",
+    "secure_or_drm_capture",
+    "os_owned_confirmation",
+    "selinux_or_permission_denial",
+    "unavailable_oem_semantics",
+    "unprovisioned_device_owner",
+    "non_debuggable_third_party_webview"
+  ],
+  "platformDeviations": [
+    {
+      "windowsCapability": "desktop_window_geometry",
+      "androidBehavior": "move_and_resize_unsupported_minimize_only_sole_active_fullscreen_app_with_verified_home_postcondition"
+    },
+    {
+      "windowsCapability": "browser_extension_bridge",
+      "androidBehavior": "not_required_use_direct_integration_credentialed_cdp_custom_tabs_accessibility_owned_webview_ladder"
+    }
+  ]
+}

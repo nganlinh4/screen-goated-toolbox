@@ -1,0 +1,299 @@
+{
+  "schemaVersion": 7,
+  "feature": "phone-control",
+  "sharedSocketFixture": "parity-fixtures/gemini-live-session/lifecycle.json",
+  "states": ["idle", "listening", "working", "finalizing"],
+  "invariants": {
+    "maximumFinalResponsesPerUserTurn": 1,
+    "doneIsTerminal": true,
+    "cleanupProducesOutput": false,
+    "catalogStableWithinNormalTurns": true,
+    "currentGenerationAudioBlockedByTools": false,
+    "lateRetiredEventsAreAbsorbed": true,
+    "unknownMutationRequiresReconciliation": true,
+    "completionRequiresNoPendingJobs": true,
+    "reconciliationBlocksMutationAndCompletion": true,
+    "maximumAdmittedToolJobs": 1,
+    "maximumHeldToolRejections": 32,
+    "rejectionOverflowAbandonsSession": true,
+    "maximumSessionControlPayloads": 34,
+    "maximumSessionControlUtf8Bytes": 50331648,
+    "maximumSessionPayloadUtf8Bytes": 33554432,
+    "maximumToolCallsPerFrame": 33,
+    "maximumToolCallIdUtf8Bytes": 1024,
+    "maximumToolNameUtf8Bytes": 1024,
+    "maximumToolArgumentsUtf8Bytes": 1048576,
+    "maximumToolFrameUtf8Bytes": 2097152,
+    "completionQueueCapacity": 1,
+    "nonresumableReconnectAbandonsOutbound": true,
+    "browserCredentialsNeverCopiedBetweenProviders": true,
+    "cancellationRequestIsNotTerminalAcknowledgement": true,
+    "acceptedEffectRetainsSingleFlightSlotUntilProviderTerminal": true,
+    "onlyTransmittedFreshScreenClearsReconciliation": true,
+    "reconciledScreenDoesNotCompleteActiveGeneration": true,
+    "toolReceiptPrecedesToolOwnedScreenEvidence": true,
+    "ambientScreenBlockedWhileToolResponseOutstanding": true,
+    "microphoneAudioBlockedByTools": false,
+    "transportFailureTailContainsPayloadContent": false
+  },
+  "cases": [
+    {
+      "name": "one tool job owns the session slot",
+      "start": "working",
+      "events": [
+        {"type": "toolCall", "generation": 6, "jobId": "owner-job"},
+        {"type": "toolCall", "generation": 6, "jobId": "later-job"},
+        {"type": "toolReceipt", "generation": 6, "jobId": "owner-job", "effectVerified": true}
+      ],
+      "expect": {
+        "firstToolCall": "accepted",
+        "secondToolCall": "tool_call_in_flight",
+        "maximumPendingJobsObserved": 1,
+        "ownerReceiptDelivered": true,
+        "laterToolDispatched": false
+      }
+    },
+    {
+      "name": "rejection overflow abandons only after owner terminal",
+      "start": "working",
+      "events": [
+        {"type": "toolCall", "generation": 61, "jobId": "overflow-owner"},
+        {"type": "rejectionFlood", "generation": 61, "rejectedCount": 33, "ownerTool": "done"},
+        {"type": "toolReceipt", "generation": 61, "jobId": "overflow-owner", "effectVerified": true},
+        {"type": "bargeIn", "newTurn": 62},
+        {"type": "toolCall", "generation": 62, "jobId": "fresh-owner"}
+      ],
+      "expect": {
+        "heldRejectionPeak": 32,
+        "protocolAbortAfterOwnerTerminal": true,
+        "terminalDoneSuppressed": true,
+        "overflowResponsesReplayed": false,
+        "freshToolDispatched": true
+      }
+    },
+    {
+      "name": "oversized frame and nonresumable reconnect cannot leak output",
+      "start": "working",
+      "events": [
+        {"type": "toolFrameOverflow", "callCount": 34},
+        {"type": "queuedControlPayload", "payloadId": "retired-response"},
+        {"type": "sessionReconnect", "resumptionHandle": ""},
+        {"type": "freshProtocolSession"}
+      ],
+      "expect": {
+        "toolCallsDispatchedBeforeAbort": 0,
+        "protocolAbortBeforeResponse": true,
+        "oldPayloadReplayed": false,
+        "freshSessionAccepted": true
+      }
+    },
+    {
+      "name": "done closes the turn and absorbs late work",
+      "start": "working",
+      "events": [
+        {"type": "toolReceipt", "effectVerified": true},
+        {"type": "done", "generation": 7},
+        {"type": "toolCall", "generation": 7},
+        {"type": "audioChunk", "generation": 7},
+        {"type": "cleanupComplete", "generation": 7}
+      ],
+      "expect": {
+        "state": "idle",
+        "finalResponses": 1,
+        "lateToolDispatched": false,
+        "lateAudioPlayed": false,
+        "cleanupOutput": false
+      }
+    },
+    {
+      "name": "generation end without done returns idle once",
+      "start": "working",
+      "events": [
+        {"type": "assistantContent", "generation": 8},
+        {"type": "generationComplete", "generation": 8}
+      ],
+      "expect": {
+        "state": "idle",
+        "finalResponses": 1,
+        "syntheticContinuation": false
+      }
+    },
+    {
+      "name": "silent done opens at most one final generation",
+      "start": "working",
+      "events": [
+        {"type": "done", "generation": 9, "assistantContentSeen": false},
+        {"type": "assistantContent", "generation": 10},
+        {"type": "generationComplete", "generation": 10}
+      ],
+      "expect": {
+        "state": "idle",
+        "finalResponses": 1,
+        "finalGenerationCount": 1
+      }
+    },
+    {
+      "name": "barge in retires only owned work",
+      "start": "working",
+      "events": [
+        {"type": "toolCall", "generation": 11, "jobId": "old-job"},
+        {"type": "bargeIn", "newTurn": 12},
+        {"type": "toolReceipt", "generation": 11, "jobId": "old-job", "effectMayHaveOccurred": true, "effectVerified": false},
+        {"type": "audioChunk", "generation": 11},
+        {"type": "assistantContent", "generation": 12}
+      ],
+      "expect": {
+        "oldJobCancelled": true,
+        "oldReceiptCanAct": false,
+        "oldAudioPlayed": false,
+        "reconciliationRequired": true,
+        "newTurnRemainsActive": true
+      }
+    },
+    {
+      "name": "interrupted unknown mutation blocks mutation and completion",
+      "start": "working",
+      "events": [
+        {"type": "mutationInterrupted", "effectMayHaveOccurred": true, "effectVerified": false},
+        {"type": "mutationRequested"},
+        {"type": "done"},
+        {"type": "freshObservation", "stateReconciled": true},
+        {"type": "done"}
+      ],
+      "expect": {
+        "secondMutationBeforeObservation": "blocked_reconciliation_required",
+        "firstDone": "blocked_reconciliation_required",
+        "secondDone": "accepted",
+        "state": "idle"
+      }
+    },
+    {
+      "name": "stale target fails without effect",
+      "start": "working",
+      "events": [
+        {"type": "observe", "snapshotGeneration": 31, "targetId": "target-a"},
+        {"type": "surfaceChanged", "snapshotGeneration": 32},
+        {"type": "actionRequested", "targetId": "target-a", "snapshotGeneration": 31}
+      ],
+      "expect": {
+        "resultCode": "stale_target",
+        "effectMayHaveOccurred": false,
+        "freshObservationRequired": true
+      }
+    },
+    {
+      "name": "unavailable provider does not change the catalog",
+      "start": "working",
+      "events": [
+        {"type": "toolRequested", "tool": "run_command"},
+        {"type": "providerState", "provider": "shizuku_shell", "state": "needs_user_step"}
+      ],
+      "expect": {
+        "resultCode": "capability_unavailable",
+        "toolStillDeclaredNextNormalTurn": true,
+        "silentAlternateTool": false,
+        "requiredUserStepPresent": true
+      }
+    },
+    {
+      "name": "current generation speech is independent of tool latency",
+      "start": "working",
+      "events": [
+        {"type": "toolCall", "generation": 41, "jobId": "slow-job"},
+        {"type": "audioChunk", "generation": 41, "sequence": 1},
+        {"type": "captionChunk", "generation": 41, "sequence": 1},
+        {"type": "toolReceipt", "generation": 41, "jobId": "slow-job"}
+      ],
+      "expect": {
+        "audioStartedBeforeToolReceipt": true,
+        "captionAndAudioGenerationMatch": true,
+        "delayedReplay": false
+      }
+    },
+    {
+      "name": "tool response owns the synchronous protocol boundary",
+      "start": "working",
+      "events": [
+        {"type": "toolCall", "generation": 45, "jobId": "screen-owner"},
+        {"type": "ambientScreenFrame", "generation": 45},
+        {"type": "microphoneAudio", "generation": 45},
+        {"type": "toolReceipt", "generation": 45, "jobId": "screen-owner", "screenEvidence": true}
+      ],
+      "expect": {
+        "ambientScreenSentBeforeReceipt": false,
+        "microphoneAudioSentBeforeReceipt": true,
+        "toolResponseBeforeScreenEvidence": true,
+        "screenEvidenceBeforeAmbientScreen": true
+      }
+    },
+    {
+      "name": "reconnect cannot revive retired generation",
+      "start": "working",
+      "events": [
+        {"type": "transportFailure", "generation": 51},
+        {"type": "bargeIn", "newTurn": 52},
+        {"type": "socketOpened", "generation": 51},
+        {"type": "toolCall", "generation": 51},
+        {"type": "socketOpened", "generation": 52}
+      ],
+      "expect": {
+        "retiredSocketAccepted": false,
+        "retiredToolDispatched": false,
+        "activeGeneration": 52
+      }
+    },
+    {
+      "name": "authenticated browser state and page authority route independently",
+      "start": "working",
+      "events": [
+        {"type": "browserNavigationRequested", "requestedTool": "browser_navigate", "credentialContext": "preferred_browser"},
+        {"type": "customTabOpened", "sharesPreferredBrowserState": true},
+        {"type": "semanticActionRequested", "requestedTool": "act"},
+        {"type": "cdpTargetProbe", "matchingTargetFound": false},
+        {"type": "providerRoute", "capability": "browser_semantic", "provider": "accessibility"}
+      ],
+      "expect": {
+        "authenticatedSessionPreserved": true,
+        "credentialsCopied": false,
+        "genericDomAuthorityClaimed": false,
+        "requestedToolChanged": false,
+        "provider": "accessibility",
+        "providerReported": true
+      }
+    },
+    {
+      "name": "cancel before owned platform dispatch is terminal no effect",
+      "start": "working",
+      "events": [
+        {"type": "toolCall", "generation": 71, "jobId": "pre-dispatch-owner"},
+        {"type": "ownedEffectBoundary", "generation": 71, "jobId": "pre-dispatch-owner"},
+        {"type": "bargeIn", "newTurn": 72},
+        {"type": "platformDispatchAttempt", "generation": 71, "jobId": "pre-dispatch-owner"}
+      ],
+      "expect": {
+        "platformDispatchPerformed": false,
+        "terminalCancellationAcknowledged": true,
+        "effectMayHaveOccurred": false,
+        "reconciliationRequired": false
+      }
+    },
+    {
+      "name": "accepted effect blocks new work until provider terminal callback",
+      "start": "working",
+      "events": [
+        {"type": "toolCall", "generation": 81, "jobId": "accepted-owner"},
+        {"type": "platformEffectAccepted", "generation": 81, "jobId": "accepted-owner"},
+        {"type": "bargeIn", "newTurn": 82},
+        {"type": "toolCall", "generation": 82, "jobId": "new-mutation"},
+        {"type": "providerTerminalCallback", "generation": 81, "jobId": "accepted-owner"},
+        {"type": "freshObservation", "generation": 82, "stateReconciled": true}
+      ],
+      "expect": {
+        "newMutationDispatchedBeforeProviderTerminal": false,
+        "terminalCancellationAcknowledgedAfterProviderTerminal": true,
+        "reconciliationRequired": true,
+        "freshObservationRequiredBeforeNewMutation": true
+      }
+    }
+  ]
+}

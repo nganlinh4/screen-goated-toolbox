@@ -2,6 +2,8 @@
 
 mod profiles;
 
+pub use profiles::{GlobalHotkeyOwner, HotkeyConflict};
+
 use serde::{Deserialize, Serialize};
 
 use crate::config::preset::{Preset, get_default_presets};

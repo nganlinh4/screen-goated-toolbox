@@ -6,6 +6,7 @@ mod processor;
 pub use processor::hotkey_proc;
 
 use crate::APP;
+use crate::config::Hotkey;
 use crate::win_types::{SendHhook, SendHwnd};
 use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::*;
@@ -30,6 +31,87 @@ pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
 pub const COMPUTER_CONTROL_HOTKEY_ID: i32 = 9700;
 pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HotkeyRegistrationGroup {
+    Preset(usize),
+    ComputerControl,
+    ScreenRecord,
+    TranslationGummy,
+}
+
+impl HotkeyRegistrationGroup {
+    fn log_name(self) -> String {
+        match self {
+            Self::Preset(index) => format!("preset[{index}]"),
+            Self::ComputerControl => "computer_control".to_string(),
+            Self::ScreenRecord => "screen_record".to_string(),
+            Self::TranslationGummy => "translation_gummy".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HotkeyRegistrationFailure {
+    group: HotkeyRegistrationGroup,
+    registration_id: i32,
+    hotkey_name: String,
+    os_error: u32,
+}
+
+fn registration_outcome(
+    group: HotkeyRegistrationGroup,
+    registration_id: i32,
+    hotkey: &Hotkey,
+    os_error: Option<u32>,
+) -> std::result::Result<i32, HotkeyRegistrationFailure> {
+    match os_error {
+        None => Ok(registration_id),
+        Some(os_error) => Err(HotkeyRegistrationFailure {
+            group,
+            registration_id,
+            hotkey_name: hotkey.name.clone(),
+            os_error,
+        }),
+    }
+}
+
+fn register_configured_hotkey(
+    hwnd: HWND,
+    group: HotkeyRegistrationGroup,
+    registration_id: i32,
+    hotkey: &Hotkey,
+) -> std::result::Result<i32, HotkeyRegistrationFailure> {
+    let result = unsafe {
+        RegisterHotKey(
+            Some(hwnd),
+            registration_id,
+            HOT_KEY_MODIFIERS(hotkey.modifiers),
+            hotkey.code,
+        )
+    };
+    let os_error = result.err().map(|_| unsafe { GetLastError().0 });
+    registration_outcome(group, registration_id, hotkey, os_error)
+}
+
+fn register_and_track(
+    hwnd: HWND,
+    group: HotkeyRegistrationGroup,
+    registration_id: i32,
+    hotkey: &Hotkey,
+    registered_ids: &mut Vec<i32>,
+) {
+    match register_configured_hotkey(hwnd, group, registration_id, hotkey) {
+        Ok(id) => registered_ids.push(id),
+        Err(failure) => crate::log_info!(
+            "[Hotkey] registration failed: group={} id={} key='{}' os_error={}",
+            failure.group.log_name(),
+            failure.registration_id,
+            failure.hotkey_name,
+            failure.os_error
+        ),
+    }
+}
+
 /// Global handle for the listener window (for the mouse hook to post messages to).
 static LISTENER_HWND: LazyLock<Mutex<SendHwnd>> = LazyLock::new(|| Mutex::new(SendHwnd::default()));
 /// Global handle for the mouse hook.
@@ -49,42 +131,27 @@ pub fn register_all_hotkeys(hwnd: HWND) {
             }
 
             let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
-            unsafe {
-                let res = RegisterHotKey(
-                    Some(hwnd),
-                    id,
-                    HOT_KEY_MODIFIERS(hotkey.modifiers),
-                    hotkey.code,
-                );
-                if res.is_err() {
-                    let err_code = GetLastError().0;
-                    crate::log_info!(
-                        "[Hotkey] COLLISION: Failed to register hotkey '{}' for preset {}, ID {}. Error Code: {}",
-                        hotkey.name,
-                        p_idx,
-                        id,
-                        err_code
-                    );
-                } else {
-                    registered_ids.push(id);
-                }
-            }
+            register_and_track(
+                hwnd,
+                HotkeyRegistrationGroup::Preset(p_idx),
+                id,
+                hotkey,
+                &mut registered_ids,
+            );
         }
     }
-    app.registered_hotkey_ids = registered_ids;
 
     for (idx, hotkey) in app.config.computer_control_hotkeys.iter().enumerate() {
         if idx >= 100 || [0x04, 0x05, 0x06].contains(&hotkey.code) {
             continue;
         }
-        unsafe {
-            let _ = RegisterHotKey(
-                Some(hwnd),
-                COMPUTER_CONTROL_HOTKEY_ID + idx as i32,
-                HOT_KEY_MODIFIERS(hotkey.modifiers),
-                hotkey.code,
-            );
-        }
+        register_and_track(
+            hwnd,
+            HotkeyRegistrationGroup::ComputerControl,
+            COMPUTER_CONTROL_HOTKEY_ID + idx as i32,
+            hotkey,
+            &mut registered_ids,
+        );
     }
 
     // Register Global Screen Record Hotkeys (IDs: 9900-9999)
@@ -93,54 +160,43 @@ pub fn register_all_hotkeys(hwnd: HWND) {
             break;
         }
         let id = 9900 + idx as i32;
-        unsafe {
-            let _ = RegisterHotKey(
-                Some(hwnd),
-                id,
-                HOT_KEY_MODIFIERS(sr_hotkey.modifiers),
-                sr_hotkey.code,
-            );
+        if [0x04, 0x05, 0x06].contains(&sr_hotkey.code) {
+            continue;
         }
+        register_and_track(
+            hwnd,
+            HotkeyRegistrationGroup::ScreenRecord,
+            id,
+            sr_hotkey,
+            &mut registered_ids,
+        );
     }
 
     for (idx, hotkey) in app.config.translation_gummy.hotkeys.iter().enumerate() {
         if idx >= 100 || [0x04, 0x05, 0x06].contains(&hotkey.code) {
             continue;
         }
-        unsafe {
-            let _ = RegisterHotKey(
-                Some(hwnd),
-                TRANSLATION_GUMMY_HOTKEY_ID + idx as i32,
-                HOT_KEY_MODIFIERS(hotkey.modifiers),
-                hotkey.code,
-            );
-        }
+        register_and_track(
+            hwnd,
+            HotkeyRegistrationGroup::TranslationGummy,
+            TRANSLATION_GUMMY_HOTKEY_ID + idx as i32,
+            hotkey,
+            &mut registered_ids,
+        );
     }
+
+    app.registered_hotkey_ids = registered_ids;
 }
 
 /// Unregister all hotkeys.
 pub fn unregister_all_hotkeys(hwnd: HWND) {
-    let app = APP.lock().unwrap();
-    for &id in &app.registered_hotkey_ids {
+    let registered_ids = {
+        let mut app = APP.lock().unwrap();
+        std::mem::take(&mut app.registered_hotkey_ids)
+    };
+    for id in registered_ids {
         unsafe {
             let _ = UnregisterHotKey(Some(hwnd), id);
-        }
-    }
-    for idx in 0..100 {
-        unsafe {
-            let _ = UnregisterHotKey(Some(hwnd), COMPUTER_CONTROL_HOTKEY_ID + idx);
-        }
-    }
-    // Unregister Global SR Hotkeys
-    for idx in 0..100 {
-        unsafe {
-            let _ = UnregisterHotKey(Some(hwnd), 9900 + idx);
-        }
-    }
-    // Unregister Translation Gummy Hotkeys
-    for idx in 0..100 {
-        unsafe {
-            let _ = UnregisterHotKey(Some(hwnd), TRANSLATION_GUMMY_HOTKEY_ID + idx);
         }
     }
 }
@@ -344,6 +400,60 @@ pub fn run_hotkey_listener() {
                     DispatchMessageW(&msg);
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        HotkeyRegistrationFailure, HotkeyRegistrationGroup, MOD_CONTROL, registration_outcome,
+    };
+    use crate::config::Hotkey;
+
+    #[test]
+    fn registration_outcome_tracks_success_and_structured_failure() {
+        let hotkey = Hotkey::new(0x75, "Ctrl + F6", MOD_CONTROL);
+
+        assert_eq!(
+            registration_outcome(
+                HotkeyRegistrationGroup::ComputerControl,
+                9700,
+                &hotkey,
+                None,
+            ),
+            Ok(9700)
+        );
+        assert_eq!(
+            registration_outcome(
+                HotkeyRegistrationGroup::ComputerControl,
+                9700,
+                &hotkey,
+                Some(1409),
+            ),
+            Err(HotkeyRegistrationFailure {
+                group: HotkeyRegistrationGroup::ComputerControl,
+                registration_id: 9700,
+                hotkey_name: "Ctrl + F6".to_string(),
+                os_error: 1409,
+            })
+        );
+    }
+
+    #[test]
+    fn every_registration_group_has_a_stable_log_name() {
+        let cases = [
+            (HotkeyRegistrationGroup::Preset(3), "preset[3]"),
+            (HotkeyRegistrationGroup::ComputerControl, "computer_control"),
+            (HotkeyRegistrationGroup::ScreenRecord, "screen_record"),
+            (
+                HotkeyRegistrationGroup::TranslationGummy,
+                "translation_gummy",
+            ),
+        ];
+
+        for (group, expected) in cases {
+            assert_eq!(group.log_name(), expected);
         }
     }
 }
