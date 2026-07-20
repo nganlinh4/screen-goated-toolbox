@@ -1,4 +1,4 @@
-//! Managed native sidecar used by the 3D Generator mini app.
+//! Managed native sidecar shared by creation mini apps.
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::{Result, anyhow, bail};
 use sha2::{Digest, Sha256};
 
-const RUNTIME_ASSET: &str = "sgt-3d-generator-runtime-windows-x64.exe";
-const RUNTIME_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-3d-generator-runtime-windows-x64.exe";
-const RUNTIME_BYTES: u64 = 1_112_576;
-const RUNTIME_SHA256: &str = "365837102d8120773706b5d062a0116b350611648178a53ddabc5c0204ee3d11";
+const RUNTIME_ASSET: &str = "sgt-creation-runtime-windows-x64.exe";
+const RUNTIME_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64.exe";
+const RUNTIME_BYTES: u64 = 1_135_616;
+const RUNTIME_SHA256: &str = "ed2e00120655278f0874b4b84de06bce6c084dc815f0e3bcbae4254835632b43";
 
-pub(crate) const DOWNLOAD_TITLE: &str = "Downloading 3D Generator engine";
+pub(crate) const DOWNLOAD_TITLE: &str = "Downloading creation engine";
 
 pub(crate) fn runtime_bundle_dir() -> PathBuf {
     crate::paths::app_local_data_dir()
@@ -22,15 +22,15 @@ pub(crate) fn runtime_bundle_dir() -> PathBuf {
 }
 
 pub(crate) fn runtime_exe_path() -> PathBuf {
-    runtime_bundle_dir().join(super::runtime::RUNTIME_EXE_NAME)
+    runtime_bundle_dir().join("sgt_creation_runtime.exe")
 }
 
 fn validate_runtime(path: &Path) -> Result<()> {
-    let metadata = std::fs::metadata(path)
-        .map_err(|error| anyhow!("3D Generator engine unavailable: {error}"))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|error| anyhow!("Creation engine unavailable: {error}"))?;
     if !metadata.is_file() || metadata.len() != RUNTIME_BYTES {
         bail!(
-            "3D Generator engine size {} does not match expected {RUNTIME_BYTES}",
+            "Creation engine size {} does not match expected {RUNTIME_BYTES}",
             metadata.len()
         );
     }
@@ -50,7 +50,7 @@ fn validate_runtime(path: &Path) -> Result<()> {
         return if valid {
             Ok(())
         } else {
-            bail!("3D Generator engine checksum mismatch")
+            bail!("Creation engine checksum mismatch")
         };
     }
 
@@ -68,7 +68,7 @@ fn validate_runtime(path: &Path) -> Result<()> {
     *cache.lock().unwrap_or_else(|value| value.into_inner()) =
         Some((metadata.len(), modified_ms, valid));
     if !valid {
-        bail!("3D Generator engine checksum mismatch");
+        bail!("Creation engine checksum mismatch");
     }
     Ok(())
 }
@@ -114,11 +114,11 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
     let badge = crate::overlay::auto_copy_badge::locale_text();
     let title = crate::overlay::auto_copy_badge::format_locale(
         badge.downloading_runtime_fmt,
-        &[("name", "3D Generator")],
+        &[("name", "Creation tools")],
     );
     let preparing = crate::overlay::auto_copy_badge::format_locale(
         badge.preparing_runtime_fmt,
-        &[("name", "3D Generator")],
+        &[("name", "Creation tools")],
     );
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
@@ -152,7 +152,7 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
     .and_then(|()| validate_runtime(&partial))
     .and_then(|()| {
         std::fs::rename(&partial, &path)
-            .map_err(|error| anyhow!("Could not install 3D Generator engine: {error}"))
+            .map_err(|error| anyhow!("Could not install creation engine: {error}"))
     })
     .and_then(|()| validate_runtime(&path));
 
@@ -168,17 +168,17 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
         if result.is_ok() {
             let ready = crate::overlay::auto_copy_badge::format_locale(
                 badge.model_ready_fmt,
-                &[("name", "3D Generator")],
+                &[("name", "Creation tools")],
             );
             let installed = crate::overlay::auto_copy_badge::format_locale(
                 badge.model_installed_fmt,
-                &[("name", "3D Generator engine")],
+                &[("name", "Creation engine")],
             );
             show_detailed_notification(&ready, &installed, NotificationType::Success);
         } else {
             let failed = crate::overlay::auto_copy_badge::format_locale(
                 badge.model_download_failed_fmt,
-                &[("name", "3D Generator engine")],
+                &[("name", "Creation engine")],
             );
             show_error_notification(&failed);
         }

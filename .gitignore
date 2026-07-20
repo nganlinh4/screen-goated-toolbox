@@ -46,6 +46,8 @@ dist/
 !src/overlay/tts_playground/dist/**
 !src/overlay/three_d_generator/dist/
 !src/overlay/three_d_generator/dist/**
+!src/overlay/image_to_svg/dist/
+!src/overlay/image_to_svg/dist/**
 !native/qwen3_reference_sidecar/
 !native/qwen3_reference_sidecar/README.md
 !native/qwen3_reference_sidecar/dist/
@@ -109,5 +111,6 @@ local-runtime-bundles/
 /cc-*/
 /temp-cc-live-traces*/
 /target-cc-*/
+/target-codex-verify/
 /temp-*.md
 /cc-golden-runs/

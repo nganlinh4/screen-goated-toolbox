@@ -112,6 +112,14 @@ impl AppTheme {
         )
     }
 
+    /// Image to SVG launcher accent - cobalt, tied to vector control points.
+    pub fn accent_image_to_svg(&self) -> Color32 {
+        self.pick(
+            Color32::from_rgb(95, 137, 255),
+            Color32::from_rgb(49, 95, 206),
+        )
+    }
+
     /// Help Assistant launcher accent — teal (distinct from PromptDJ's violet).
     pub fn accent_help(&self) -> Color32 {
         self.pick(

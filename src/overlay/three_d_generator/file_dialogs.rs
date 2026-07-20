@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-pub(super) fn pick_image_dialog() -> Result<Option<PathBuf>, String> {
+pub(crate) fn pick_image_dialog() -> Result<Option<PathBuf>, String> {
     #[cfg(windows)]
     {
         pick_image_dialog_windows()
@@ -11,7 +11,7 @@ pub(super) fn pick_image_dialog() -> Result<Option<PathBuf>, String> {
     }
 }
 
-pub(super) fn pick_images_dialog() -> Result<Vec<PathBuf>, String> {
+pub(crate) fn pick_images_dialog() -> Result<Vec<PathBuf>, String> {
     #[cfg(windows)]
     {
         pick_images_dialog_windows()
@@ -22,7 +22,7 @@ pub(super) fn pick_images_dialog() -> Result<Vec<PathBuf>, String> {
     }
 }
 
-pub(super) fn pick_output_dir_dialog() -> Result<Option<PathBuf>, String> {
+pub(crate) fn pick_output_dir_dialog() -> Result<Option<PathBuf>, String> {
     #[cfg(windows)]
     {
         pick_output_dir_dialog_windows()

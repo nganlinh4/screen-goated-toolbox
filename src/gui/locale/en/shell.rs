@@ -44,5 +44,7 @@ pub(super) fn get() -> ShellLocaleText {
         computer_control_hotkey_unset: "Not set",
         three_d_generator_btn: "3D Generator",
         three_d_generator_title: "3D Generator",
+        image_to_svg_btn: "Image to SVG",
+        image_to_svg_title: "Image to SVG",
     }
 }

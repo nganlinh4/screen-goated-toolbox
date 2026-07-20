@@ -207,7 +207,7 @@ fn preparation_maintainer() {
             }
             WARM_RUNNING.store(true, Ordering::SeqCst);
             let stop = std::sync::Arc::new(AtomicBool::new(false));
-            let installed = super::super::runtime_bundle::download_runtime(stop, true);
+            let installed = crate::overlay::creation_runtime::download_runtime(stop, true);
             WARM_RUNNING.store(false, Ordering::SeqCst);
             if let Err(error) = installed {
                 failure_streak = failure_streak.saturating_add(1);

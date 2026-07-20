@@ -83,6 +83,8 @@ try {
         Sync-Frontend "PromptDJ" "promptdj-midi" "src\overlay\prompt_dj\dist"
         Sync-Frontend "Translation Gummy" "translation-gummy-ui" "src\overlay\translation_gummy\dist"
         Sync-Frontend "Screen Record" "screen-record" "src\overlay\screen_record\dist"
+        Sync-Frontend "3D Generator" "3d-generator-ui" "src\overlay\three_d_generator\dist"
+        Sync-Frontend "Image to SVG" "image-to-svg-ui" "src\overlay\image_to_svg\dist"
         Sync-Frontend "TTS Playground" "tts-playground-ui" "src\overlay\tts_playground\dist"
     }
 

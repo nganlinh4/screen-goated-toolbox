@@ -13,7 +13,7 @@ mod process;
 
 use process::{CommandNoWindowExt as _, run_runtime_operation};
 
-pub(super) const RUNTIME_EXE_NAME: &str = "sgt_3d_generator_runtime.exe";
+pub(super) const RUNTIME_EXE_NAME: &str = "sgt_creation_runtime.exe";
 const MAX_ASSET_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_PARALLEL_JOBS: usize = 2;
 
@@ -122,7 +122,7 @@ static STATE: LazyLock<Mutex<RuntimeState>> = LazyLock::new(|| Mutex::new(Runtim
 static JOB_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn runtime_exe_path() -> PathBuf {
-    super::runtime_bundle::runtime_exe_path()
+    crate::overlay::creation_runtime::runtime_exe_path()
 }
 
 pub(super) fn prepare_runtime() -> String {
@@ -153,7 +153,7 @@ fn runtime_command() -> Option<Command> {
     if let Some(path) = dev_runtime_exe_path() {
         return Some(Command::new(path));
     }
-    if super::runtime_bundle::is_runtime_installed() {
+    if crate::overlay::creation_runtime::is_runtime_installed() {
         Some(Command::new(runtime_exe_path()))
     } else {
         dev_runtime_exe_path().map(Command::new)
@@ -161,7 +161,7 @@ fn runtime_command() -> Option<Command> {
 }
 
 fn runtime_status_label() -> String {
-    if super::runtime_bundle::is_runtime_installed() {
+    if crate::overlay::creation_runtime::is_runtime_installed() {
         "installed".to_string()
     } else if dev_runtime_exe_path().is_some() {
         "dev-native".to_string()

@@ -1,4 +1,4 @@
-//! Downloaded Tools card for the 3D Generator's removable local components.
+//! Downloaded Tools card for creation mini-app components.
 
 use crate::gui::locale::LocaleText;
 use eframe::egui;
@@ -15,14 +15,14 @@ fn no_notice() -> Option<String> {
 
 pub(super) fn render_three_d_generator_card(ui: &mut egui::Ui, text: &LocaleText) {
     tool_card(ui, |ui| {
-        ui.heading("3D Generator");
+        ui.heading("Creation tools");
         ui.add_space(4.0);
         render_model_row(
             ui,
             text,
             &ModelRowSpec {
                 model_probe: PROBE_3D_GENERATOR_RUNTIME,
-                model_title: "Native 3D engine",
+                model_title: "Native creation engine",
                 model_download_title: crate::overlay::three_d_generator::RUNTIME_DOWNLOAD_TITLE,
                 model_notice: no_notice,
                 is_model_downloaded: crate::overlay::three_d_generator::is_runtime_installed,
@@ -30,7 +30,7 @@ pub(super) fn render_three_d_generator_card(ui: &mut egui::Ui, text: &LocaleText
                 download_model: crate::overlay::three_d_generator::download_runtime,
                 remove_model: crate::overlay::three_d_generator::remove_runtime,
                 description: Some(
-                    "Small native worker for background model creation, part separation, and GLB conversion. Auto-downloads on first use.",
+                    "Shared native worker for 3D models and SVG vectors. Auto-downloads on first use.",
                 ),
                 space_before_notice: true,
             },

@@ -6,11 +6,12 @@ use std::sync::atomic::AtomicBool;
 
 use serde_json::Value;
 
-use super::super::{depth_model, runtime_bundle};
+use super::super::depth_model;
 use super::{
     Continuation, JobStatus, RuntimeOperation, STATE, job_status, prepare_runtime, runtime_command,
     runtime_status_label,
 };
+use crate::overlay::creation_runtime;
 
 fn command_for_operation(operation: &RuntimeOperation) -> Option<Command> {
     let mut command = runtime_command()?;
@@ -129,7 +130,7 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
             "installing",
         );
         let stop = std::sync::Arc::new(AtomicBool::new(false));
-        if let Err(error) = runtime_bundle::download_runtime(stop, true) {
+        if let Err(error) = creation_runtime::download_runtime(stop, true) {
             finish_job(
                 &job_id,
                 JobStatus {
