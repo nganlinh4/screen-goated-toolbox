@@ -40,6 +40,10 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
             donateNote = "",
             donateVietnamese = true,
         ),
+        creationApps = MobileCreationAppsLocale(
+            appImageTo3dTitle = "Ảnh sang 3D",
+            appImageToSvgTitle = "Ảnh sang SVG",
+        ),
         history = MobileHistoryLocale(
             historyTitle = "Lịch sử",
             historyMaxItemsLabel = "Số mục tối đa:",

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "tool": "image-to-svg",
+  "states": [
+    "draft",
+    "queued",
+    "preparing",
+    "generating",
+    "finalizing",
+    "done",
+    "failed",
+    "cancelled"
+  ],
+  "models": {
+    "simple": {
+      "remoteModel": "Classic",
+      "creditCost": 2
+    },
+    "detail": {
+      "remoteModel": "Ultra",
+      "creditCost": 4
+    }
+  },
+  "limits": {
+    "maximumParallelJobs": 2,
+    "maximumConcurrentPreparations": 1,
+    "minimumPreparationIntervalSeconds": 60,
+    "preparedWorkspaces": 2,
+    "minimumReusableCredits": 4
+  },
+  "viewer": {
+    "preserveIntrinsicRatio": true,
+    "animateAllPaths": true,
+    "adaptiveOverlappingAnimation": true,
+    "editableShapes": ["path", "rect", "circle", "ellipse", "polygon", "polyline", "line"]
+  },
+  "history": {
+    "requireExistingOutput": true,
+    "renameMutatesOutput": true,
+    "deleteMutatesOutput": true
+  },
+  "distribution": {
+    "fullSupported": true,
+    "playSupported": true,
+    "downloadExecutableCode": false
+  }
+}

@@ -1,0 +1,39 @@
+html, body, #app { min-width: 0 !important; min-height: 0 !important; }
+.titlebar { cursor: default !important; padding-top: env(safe-area-inset-top) !important; }
+.window-actions { display: none !important; }
+
+@media (max-width: 700px) {
+  .shell { min-height: 100%; height: auto !important; overflow: auto; }
+  .workspace {
+    min-height: calc(100vh - 40px);
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: 88px minmax(360px, 58vh) auto !important;
+    overflow: visible !important;
+  }
+  .queue-rail {
+    grid-template-rows: 34px minmax(0, 1fr) !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--border, var(--line)) !important;
+  }
+  .queue-list {
+    display: flex !important;
+    gap: 6px;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding: 3px 8px 8px !important;
+  }
+  .queue-item { flex: 0 0 148px; min-height: 44px !important; margin: 0 !important; }
+  .queue-item-main { min-height: 42px !important; }
+  .queue-empty { min-width: 100%; min-height: 42px !important; padding: 8px !important; }
+  .stage { min-height: 360px; padding: 8px !important; }
+  .stage-status, .status-strip { width: calc(100% - 24px) !important; min-width: 0 !important; }
+  .control-rail, .controls {
+    max-height: none !important;
+    overflow: visible !important;
+    border-left: 0 !important;
+    border-top: 1px solid var(--border, var(--line)) !important;
+  }
+  .control-section { padding-inline: 14px !important; }
+  .artboard { width: 96% !important; min-height: 300px !important; }
+  .edit-toolbar { overflow-x: auto; justify-content: flex-start; }
+}

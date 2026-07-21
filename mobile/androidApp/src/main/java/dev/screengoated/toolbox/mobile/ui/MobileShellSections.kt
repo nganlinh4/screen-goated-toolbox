@@ -250,6 +250,8 @@ internal fun SectionDetail(
                 onDownloaderClick = navActions.onDownloaderClick,
                 onDjClick = navActions.onDjClick,
                 onTranslationGummyClick = navActions.onTranslationGummyClick,
+                onImageTo3dClick = navActions.onImageTo3dClick,
+                onImageToSvgClick = navActions.onImageToSvgClick,
                 onPagerSwipeLockChanged = onPagerSwipeLockChanged,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,

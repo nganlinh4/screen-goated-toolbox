@@ -40,6 +40,11 @@ data class MobileShellLocale(
     override val donateVietnamese: Boolean,
 ) : MobileShellText
 
+data class MobileCreationAppsLocale(
+    override val appImageTo3dTitle: String,
+    override val appImageToSvgTitle: String,
+) : MobileCreationAppsText
+
 data class MobileHistoryLocale(
     override val historyTitle: String,
     override val historyMaxItemsLabel: String,

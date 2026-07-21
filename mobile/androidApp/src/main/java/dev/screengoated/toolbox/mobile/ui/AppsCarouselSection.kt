@@ -46,6 +46,8 @@ private fun appCardTag(index: Int): String = when (index) {
     2 -> "app-card-translation-gummy"
     3 -> "app-card-video-downloader"
     4 -> "app-card-dj"
+    5 -> "app-card-image-to-3d"
+    6 -> "app-card-image-to-svg"
     else -> "app-card-placeholder-$index"
 }
 
@@ -55,6 +57,8 @@ internal val appSlots = listOf(
     AppSlot(MaterialShapes.SemiCircle,   { it.appSlotCoral }),  // Translation Gummy — coral
     AppSlot(MaterialShapes.Heart,        { it.appSlotPurple }), // Video Downloader — purple
     AppSlot(MaterialShapes.Cookie4Sided, { it.appSlotAmber }),  // Be a DJ — amber
+    AppSlot(MaterialShapes.Cookie4Sided, { it.appSlotTeal }),   // Image to 3D — mint
+    AppSlot(MaterialShapes.Clover4Leaf,  { it.appSlotBlue }),   // Image to SVG — cobalt
 )
 
 @Composable
@@ -66,6 +70,8 @@ internal fun AppsCarouselSection(
     onDownloaderClick: () -> Unit = {},
     onDjClick: () -> Unit = {},
     onTranslationGummyClick: () -> Unit = {},
+    onImageTo3dClick: () -> Unit = {},
+    onImageToSvgClick: () -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
@@ -81,6 +87,8 @@ internal fun AppsCarouselSection(
             onDownloaderClick,
             onDjClick,
             onTranslationGummyClick,
+            onImageTo3dClick,
+            onImageToSvgClick,
             onPagerSwipeLockChanged,
             sharedTransitionScope,
             animatedVisibilityScope,
@@ -94,6 +102,8 @@ internal fun AppsCarouselSection(
             onDownloaderClick,
             onDjClick,
             onTranslationGummyClick,
+            onImageTo3dClick,
+            onImageToSvgClick,
             sharedTransitionScope,
             animatedVisibilityScope,
         )
@@ -110,6 +120,8 @@ private fun AppsItemContent(
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
     onTranslationGummyClick: () -> Unit,
+    onImageTo3dClick: () -> Unit,
+    onImageToSvgClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -134,6 +146,8 @@ private fun AppsItemContent(
                         sharedMod.then(Modifier.clickable(onClick = onDownloaderClick))
                     }
                     4 -> Modifier.clickable(onClick = onDjClick)
+                    5 -> Modifier.clickable(onClick = onImageTo3dClick)
+                    6 -> Modifier.clickable(onClick = onImageToSvgClick)
                     else -> Modifier
                 },
             ),
@@ -163,6 +177,8 @@ private fun AppsItemContent(
             2 -> AppTile(slot = appSlots[2], title = locale.appTranslationGummyTitle, drawableRes = dev.screengoated.toolbox.mobile.R.drawable.ms_breakfast_dining)
             3 -> AppTile(slot = appSlots[3], title = locale.appVideoDownloaderTitle, drawableRes = R.drawable.ms_movie)
             4 -> AppTile(slot = appSlots[4], title = locale.appDjTitle, drawableRes = R.drawable.ms_album)
+            5 -> AppTile(slot = appSlots[5], title = locale.appImageTo3dTitle, drawableRes = R.drawable.ms_image_search)
+            6 -> AppTile(slot = appSlots[6], title = locale.appImageToSvgTitle, drawableRes = R.drawable.ms_edit)
             else -> EmptyAppTile(slot = appSlots[index])
         }
     }
@@ -177,6 +193,8 @@ private fun AppsVerticalCarousel(
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
     onTranslationGummyClick: () -> Unit,
+    onImageTo3dClick: () -> Unit,
+    onImageToSvgClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -207,6 +225,8 @@ private fun AppsVerticalCarousel(
                     onDownloaderClick,
                     onDjClick,
                     onTranslationGummyClick,
+                    onImageTo3dClick,
+                    onImageToSvgClick,
                     sharedTransitionScope,
                     animatedVisibilityScope,
                 )
@@ -226,6 +246,8 @@ private fun AppsHorizontalCarousel(
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
     onTranslationGummyClick: () -> Unit,
+    onImageTo3dClick: () -> Unit,
+    onImageToSvgClick: () -> Unit,
     onPagerSwipeLockChanged: (Boolean) -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
@@ -268,6 +290,8 @@ private fun AppsHorizontalCarousel(
                     onDownloaderClick,
                     onDjClick,
                     onTranslationGummyClick,
+                    onImageTo3dClick,
+                    onImageToSvgClick,
                     sharedTransitionScope,
                     animatedVisibilityScope,
                 )

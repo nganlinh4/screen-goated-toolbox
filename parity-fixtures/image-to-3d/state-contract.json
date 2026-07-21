@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "tool": "image-to-3d",
+  "names": {
+    "en": "Image to 3D",
+    "ko": "이미지를 3D로",
+    "vi": "Ảnh sang 3D"
+  },
+  "states": [
+    "idle",
+    "runtime_missing",
+    "preparing",
+    "visualizing",
+    "generating",
+    "segmenting",
+    "finalizing",
+    "done",
+    "failed",
+    "cancelled"
+  ],
+  "defaults": {
+    "polycount": 5000,
+    "autoSegment": false,
+    "segmentationMode": "none",
+    "topologyMode": "topology_mesh",
+    "outputFormat": "glb_plain"
+  },
+  "limits": {
+    "minimumPolycount": 500,
+    "maximumPolycount": 20000,
+    "maximumParallelJobs": 2,
+    "maximumConcurrentPreparations": 1,
+    "minimumPreparationIntervalSeconds": 60,
+    "preparedWorkspaces": 4,
+    "reuseWindowHours": 24
+  },
+  "segmentation": {
+    "selection": "detailed_15_plus",
+    "retireWorkspaceAfterUse": true,
+    "allowContinuationAfterGeneration": true
+  },
+  "history": {
+    "requireExistingOutput": true,
+    "renameMutatesOutput": true,
+    "deleteMutatesOutput": true
+  },
+  "distribution": {
+    "fullSupported": true,
+    "playSupported": true,
+    "downloadExecutableCode": false
+  }
+}

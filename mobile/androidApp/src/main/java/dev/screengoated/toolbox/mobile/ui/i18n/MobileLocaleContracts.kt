@@ -40,6 +40,11 @@ interface MobileShellText {
     val donateVietnamese: Boolean
 }
 
+interface MobileCreationAppsText {
+    val appImageTo3dTitle: String
+    val appImageToSvgTitle: String
+}
+
 interface MobileHistoryText {
     val historyTitle: String
     val historyMaxItemsLabel: String
