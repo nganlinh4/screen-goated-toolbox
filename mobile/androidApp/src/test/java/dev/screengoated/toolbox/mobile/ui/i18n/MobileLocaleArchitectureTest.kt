@@ -60,6 +60,7 @@ class MobileLocaleArchitectureTest {
         val EXPECTED_ROOT_PROPERTIES = setOf(
             "localeCode",
             "shell",
+            "creationApps",
             "history",
             "help",
             "translationGummy",

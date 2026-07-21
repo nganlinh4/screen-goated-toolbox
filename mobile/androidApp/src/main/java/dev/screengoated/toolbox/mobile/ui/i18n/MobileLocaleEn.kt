@@ -40,6 +40,10 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
             donateNote = "Bank transfer is available to Vietnamese donors only.",
             donateVietnamese = false,
         ),
+        creationApps = MobileCreationAppsLocale(
+            appImageTo3dTitle = "Image to 3D",
+            appImageToSvgTitle = "Image to SVG",
+        ),
         history = MobileHistoryLocale(
             historyTitle = "History",
             historyMaxItemsLabel = "Max items:",

@@ -40,6 +40,10 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
             donateNote = "은행 송금은 베트남 후원자만 이용할 수 있습니다.",
             donateVietnamese = false,
         ),
+        creationApps = MobileCreationAppsLocale(
+            appImageTo3dTitle = "이미지를 3D로",
+            appImageToSvgTitle = "이미지를 SVG로",
+        ),
         history = MobileHistoryLocale(
             historyTitle = "기록",
             historyMaxItemsLabel = "최대 항목:",

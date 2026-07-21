@@ -85,6 +85,13 @@
         </activity>
 
         <activity
+            android:name=".creation.CreationMiniAppActivity"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:theme="@style/Theme.SGTMobile"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".phonecontrol.ui.PhoneControlActivity"
             android:excludeFromRecents="true"
             android:exported="false"
@@ -183,6 +190,31 @@
             android:name=".service.helpassistant.HelpAssistantOverlayService"
             android:enabled="true"
             android:exported="false" />
+
+        <service
+            android:name=".creation.worker.ImageTo3dWorker0Service"
+            android:exported="false"
+            android:process=":sgt_creation_3d_0" />
+        <service
+            android:name=".creation.worker.ImageTo3dWorker1Service"
+            android:exported="false"
+            android:process=":sgt_creation_3d_1" />
+        <service
+            android:name=".creation.worker.ImageTo3dWorker2Service"
+            android:exported="false"
+            android:process=":sgt_creation_3d_2" />
+        <service
+            android:name=".creation.worker.ImageTo3dWorker3Service"
+            android:exported="false"
+            android:process=":sgt_creation_3d_3" />
+        <service
+            android:name=".creation.worker.ImageToSvgWorker0Service"
+            android:exported="false"
+            android:process=":sgt_creation_svg_0" />
+        <service
+            android:name=".creation.worker.ImageToSvgWorker1Service"
+            android:exported="false"
+            android:process=":sgt_creation_svg_1" />
 
     </application>
 

@@ -13,6 +13,7 @@ import kotlin.random.Random
 data class MobileLocaleText(
     val localeCode: String,
     val shell: MobileShellLocale,
+    val creationApps: MobileCreationAppsLocale,
     val history: MobileHistoryLocale,
     val help: MobileHelpLocale,
     val translationGummy: MobileTranslationGummyLocale,
@@ -27,6 +28,7 @@ data class MobileLocaleText(
     val downloadOptions: MobileDownloadOptionsLocale,
     val downloader: MobileDownloaderLocale,
 ) : MobileShellText by shell,
+    MobileCreationAppsText by creationApps,
     MobileHistoryText by history,
     MobileHelpText by help,
     MobileTranslationGummyText by translationGummy,
