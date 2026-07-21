@@ -10,8 +10,8 @@ use sha2::{Digest, Sha256};
 
 const RUNTIME_ASSET: &str = "sgt-creation-runtime-windows-x64.exe";
 const RUNTIME_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64.exe";
-const RUNTIME_BYTES: u64 = 1_162_752;
-const RUNTIME_SHA256: &str = "9a6bcaa4634302a1f9f4e26b79d8d98e255e8bdbb9b7d9948aac8ecc0543604b";
+const RUNTIME_BYTES: u64 = 1_173_504;
+const RUNTIME_SHA256: &str = "95054cf811f4ff87f0911d342ab689c1d4f33bae80593764d4739a6c72b2c5dd";
 
 pub(crate) const DOWNLOAD_TITLE: &str = "Downloading creation engine";
 
@@ -41,13 +41,17 @@ fn validate_runtime(path: &Path) -> Result<()> {
         .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|value| value.as_millis())
         .unwrap_or(0);
-    static CACHE: OnceLock<Mutex<Option<(u64, u128, bool)>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<Option<(PathBuf, u64, u128, bool)>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(None));
-    if let Some((bytes, modified, valid)) = *cache.lock().unwrap_or_else(|value| value.into_inner())
-        && bytes == metadata.len()
-        && modified == modified_ms
+    if let Some((cached_path, bytes, modified, valid)) = cache
+        .lock()
+        .unwrap_or_else(|value| value.into_inner())
+        .as_ref()
+        && cached_path == path
+        && *bytes == metadata.len()
+        && *modified == modified_ms
     {
-        return if valid {
+        return if *valid {
             Ok(())
         } else {
             bail!("Creation engine checksum mismatch")
@@ -66,7 +70,7 @@ fn validate_runtime(path: &Path) -> Result<()> {
     }
     let valid = format!("{:x}", hasher.finalize()) == RUNTIME_SHA256;
     *cache.lock().unwrap_or_else(|value| value.into_inner()) =
-        Some((metadata.len(), modified_ms, valid));
+        Some((path.to_path_buf(), metadata.len(), modified_ms, valid));
     if !valid {
         bail!("Creation engine checksum mismatch");
     }
@@ -83,6 +87,20 @@ pub(crate) fn remove_runtime() -> Result<()> {
         std::fs::remove_dir_all(dir)?;
     }
     Ok(())
+}
+
+pub(crate) fn update_installed_runtime_in_background() {
+    let path = runtime_exe_path();
+    if !path.is_file() || is_runtime_installed() {
+        return;
+    }
+
+    std::thread::spawn(|| {
+        let stop = Arc::new(AtomicBool::new(false));
+        if let Err(error) = download_runtime(stop, true) {
+            crate::log_info!("[Creation runtime] Background update failed: {error}");
+        }
+    });
 }
 
 pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result<()> {

@@ -37,6 +37,10 @@ type StartJobRequest = {
 
 type AssetPayload = { dataUrl: string; sizeBytes: number };
 type HostContext = { theme?: "light" | "dark"; language?: string };
+type HistoryEntry = {
+  id: string; tool: "3d"; sourcePath: string; outputPath: string; outputName: string;
+  createdAtMs: number; metadata?: { isSegmented?: boolean };
+};
 
 type QueueItem = {
   id: string;
@@ -55,6 +59,8 @@ type QueueItem = {
   estimatedTotalMs?: number;
   displayedProgress?: number;
   modelStats?: ModelStats;
+  historyId?: string;
+  createdAtMs?: number;
 };
 
 declare global {
@@ -64,6 +70,8 @@ declare global {
     __SGT_CONTEXT__?: HostContext;
     __SGT_PARALLEL_TEST__?: { starts: string[]; active: number; maxActive: number; completed: number };
     applyHostContext?: (context: HostContext) => void;
+    handleNativeFileDrop?: (paths: string[]) => void;
+    handleNativeFileDrag?: (active: boolean) => void;
   }
 }
 
@@ -99,6 +107,8 @@ const ICONS = {
   grid: icon("M120-120v-720h720v720H120Zm80-480h160v-160H200v160Zm240 0h160v-160H440v160Zm240 0h80v-160h-80v160ZM200-360h160v-160H200v160Zm240 0h160v-160H440v160Zm240 0h80v-160h-80v160ZM200-200h160v-80H200v80Zm240 0h160v-80H440v80Zm240 0h80v-80h-80v80Z"),
   wire: icon("M160-120q-17 0-28.5-11.5T120-160v-640q0-17 11.5-28.5T160-840h640q17 0 28.5 11.5T840-800v640q0 17-11.5 28.5T800-120H160Zm40-80h240v-240H200v240Zm320 0h240v-240H520v240ZM200-520h240v-240H200v240Zm320 0h240v-240H520v240Z"),
   fit: icon("M200-120q-33 0-56.5-23.5T120-200v-160q0-17 11.5-28.5T160-400q17 0 28.5 11.5T200-360v160h160q17 0 28.5 11.5T400-160q0 17-11.5 28.5T360-120H200Zm560 0H600q-17 0-28.5-11.5T560-160q0-17 11.5-28.5T600-200h160v-160q0-17 11.5-28.5T800-400q17 0 28.5 11.5T840-360v160q0 33-23.5 56.5T760-120ZM160-560q-17 0-28.5-11.5T120-600v-160q0-33 23.5-56.5T200-840h160q17 0 28.5 11.5T400-800q0 17-11.5 28.5T360-760H200v160q0 17-11.5 28.5T160-560Zm640 0q-17 0-28.5-11.5T760-600v-160H600q-17 0-28.5-11.5T560-800q0-17 11.5-28.5T600-840h160q33 0 56.5 23.5T840-760v160q0 17-11.5 28.5T800-560Z"),
+  rename: icon("M200-120q-33 0-56.5-23.5T120-200v-113q0-16 6-30.5t17-25.5l407-407q23-23 57.5-23t57.5 23l56 57q23 23 23 57t-23 57L369-143q-11 11-25.5 17t-30.5 6H200Zm400-600L200-320v120h120l400-400-120-120Z"),
+  trash: icon("M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm80-160h80v-360h-80v360Zm160 0h80v-360h-80v360Z"),
 };
 
 const app = document.querySelector<HTMLElement>("#app");
@@ -106,6 +116,7 @@ if (!app) throw new Error("App root not found");
 
 app.innerHTML = `
   <section class="app-shell">
+    <div class="drop-overlay">${ICONS.image}<strong data-i18n="dropImages"></strong></div>
     <header class="titlebar" id="dragRegion">
       <div class="identity">
         <span class="app-icon">${ICONS.model}</span>
@@ -221,7 +232,7 @@ const state = {
   items: [] as QueueItem[], selectedId: "", runningIds: new Set<string>(), outputDir: "", queueActive: false, cancelRequested: false,
   backendStatus: { stage: "idle", progressText: "", runtimeStatus: "checking" } as JobStatus,
   preparationStatus: "preparing", preparationTimer: 0, preparationPollToken: 0, displayToken: 0,
-  outline: true, rotate: false, grid: false, wire: false,
+  outline: true, rotate: false, grid: false, wire: false, renamingId: "", historyRefreshing: false,
 };
 
 function pathLeaf(path: string) { return path.split(/[\\/]/).filter(Boolean).pop() || path; }
@@ -245,6 +256,7 @@ function queueStateLabel(value: QueueState) {
 }
 
 function itemQueueLabel(item: QueueItem) {
+  if (item.historyId && item.state === "done") return t("savedResult");
   return item.state === "queued" && !item.submitted ? t("draft") : queueStateLabel(item.state);
 }
 
@@ -256,11 +268,12 @@ function renderQueue() {
     empty.innerHTML = `<span>${ICONS.image}</span><strong>${t("queueEmpty")}</strong><small>${t("queueEmptyDetail")}</small>`;
     nodes.queueList.append(empty);
   }
-  const batchIds = [...new Set(state.items.map((item) => item.batchId))];
-  const showBatchLabels = batchIds.length > 1 || state.items.some((item) => batchItems(item.batchId).length > 1);
+  const currentItems = state.items.filter((item) => !item.historyId);
+  const batchIds = [...new Set(currentItems.map((item) => item.batchId))];
+  const showBatchLabels = batchIds.length > 1 || currentItems.some((item) => batchItems(item.batchId).length > 1);
   let previousBatchId = "";
   for (const item of state.items) {
-    if (showBatchLabels && item.batchId !== previousBatchId) {
+    if (!item.historyId && showBatchLabels && item.batchId !== previousBatchId) {
       const batchHeader = document.createElement("div");
       batchHeader.className = "batch-label";
       batchHeader.textContent = t("batchLabel", {
@@ -273,34 +286,140 @@ function renderQueue() {
     const row = document.createElement("div");
     row.className = `queue-item ${item.id === state.selectedId ? "selected" : ""}`;
     row.dataset.state = item.state;
-    const button = document.createElement("button");
-    button.type = "button";
+    const button = document.createElement("div");
+    button.tabIndex = 0; button.setAttribute("role", "button");
     button.className = "queue-item-main";
     const thumb = document.createElement("span");
     thumb.className = "queue-thumb";
     thumb.innerHTML = item.assetUrl ? `<img alt="" src="${item.assetUrl}">` : ICONS.image;
     const copy = document.createElement("span");
     copy.className = "queue-copy";
-    const strong = document.createElement("strong"); strong.textContent = stripExtension(item.name);
+    const strong = document.createElement("strong"); strong.textContent = stripExtension(item.result?.outputName || item.name);
     const small = document.createElement("small"); small.textContent = itemQueueLabel(item);
-    copy.append(strong, small); button.append(thumb, copy);
+    if (state.renamingId === item.id && item.historyId) {
+      const input = document.createElement("input");
+      input.className = "queue-rename-input"; input.value = stripExtension(item.result?.outputName || item.name);
+      input.setAttribute("aria-label", t("renameResult"));
+      input.addEventListener("click", (event) => event.stopPropagation());
+      input.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") void renameHistoryItem(item, input.value);
+        else if (event.key === "Escape") { state.renamingId = ""; renderQueue(); }
+      });
+      input.addEventListener("blur", () => window.setTimeout(() => {
+        if (state.renamingId === item.id) { state.renamingId = ""; renderQueue(); }
+      }, 80));
+      copy.append(input, small);
+      window.setTimeout(() => { input.focus(); input.select(); });
+    } else copy.append(strong, small);
+    button.append(thumb, copy);
     button.addEventListener("click", () => void selectItem(item.id));
-    const remove = document.createElement("button");
-    remove.type = "button"; remove.className = "queue-remove"; remove.innerHTML = ICONS.close;
-    remove.title = t("remove"); remove.setAttribute("aria-label", t("remove")); remove.disabled = item.state === "running";
-    remove.addEventListener("click", () => removeItem(item.id));
-    row.append(button, remove); nodes.queueList.append(row);
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void selectItem(item.id); }
+    });
+    const actions = document.createElement("span"); actions.className = "queue-actions";
+    if (item.historyId && item.state === "done") {
+      const rename = document.createElement("button"); rename.type = "button"; rename.innerHTML = ICONS.rename;
+      rename.title = t("renameResult"); rename.setAttribute("aria-label", t("renameResult"));
+      rename.addEventListener("click", () => { state.renamingId = item.id; renderQueue(); });
+      const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.innerHTML = ICONS.trash;
+      remove.title = t("deleteResult"); remove.setAttribute("aria-label", t("deleteResult"));
+      remove.addEventListener("click", () => void deleteHistoryItem(item));
+      actions.append(rename, remove);
+    } else {
+      const remove = document.createElement("button"); remove.type = "button"; remove.innerHTML = ICONS.close;
+      remove.title = t("remove"); remove.setAttribute("aria-label", t("remove"));
+      remove.disabled = item.state === "running" || item.state === "done";
+      remove.addEventListener("click", () => removeItem(item.id)); actions.append(remove);
+    }
+    row.append(button, actions); nodes.queueList.append(row);
   }
   nodes.queueFooter.textContent = state.items.length ? t("jobsCount", { count: state.items.length }) : "";
 }
 
+async function renameHistoryItem(item: QueueItem, newName: string) {
+  if (!item.historyId) return;
+  try {
+    const entry = await invoke<HistoryEntry>("rename_history_result", { id: item.historyId, newName });
+    if (item.result) { item.result.outputPath = entry.outputPath; item.result.outputName = entry.outputName; }
+    state.renamingId = ""; updateUi();
+  } catch (error) {
+    window.alert(`${t("renameFailed")}: ${String(error)}`);
+    state.renamingId = ""; renderQueue();
+  }
+}
+
+async function deleteHistoryItem(item: QueueItem) {
+  if (!item.historyId || !window.confirm(t("deleteResultConfirm"))) return;
+  try {
+    await invoke("delete_history_result", { id: item.historyId });
+    removeItem(item.id);
+  } catch (error) {
+    window.alert(`${t("deleteFailed")}: ${String(error)}`);
+  }
+}
+
 async function readAsset(path: string) { return invoke<AssetPayload>("read_asset", { path }); }
 
-async function addImages() {
-  const paths = await invoke<string[]>("pick_images");
+function comparablePath(path?: string | null) { return (path || "").toLowerCase(); }
+
+async function refreshHistory() {
+  if (state.historyRefreshing || !window.invoke) return;
+  state.historyRefreshing = true;
+  try {
+    const entries = await invoke<HistoryEntry[]>("history_results");
+    const validIds = new Set(entries.map((entry) => entry.id));
+    const validPaths = new Set(entries.map((entry) => comparablePath(entry.outputPath)));
+    for (const entry of entries) {
+      let item = state.items.find((candidate) => candidate.historyId === entry.id)
+        || state.items.find((candidate) => comparablePath(candidate.result?.outputPath) === comparablePath(entry.outputPath));
+      if (item) {
+        item.historyId = entry.id; item.createdAtMs = entry.createdAtMs;
+        if (item.result) {
+          item.result.outputPath = entry.outputPath; item.result.outputName = entry.outputName;
+          item.result.isSegmented = Boolean(entry.metadata?.isSegmented);
+        }
+        continue;
+      }
+      const sourcePath = entry.sourcePath;
+      let assetUrl = "";
+      try { if (sourcePath) assetUrl = (await readAsset(sourcePath)).dataUrl; } catch { /* Source thumbnails are optional. */ }
+      const name = pathLeaf(sourcePath || entry.outputName);
+      item = {
+        id: `history_${entry.id}`, batchId: `history_${entry.id}`, path: sourcePath, name,
+        extension: name.split(".").pop()?.toUpperCase() || t("image"), assetUrl, polycount: 5000,
+        autoSegment: Boolean(entry.metadata?.isSegmented), submitted: true, state: "done", historyId: entry.id,
+        createdAtMs: entry.createdAtMs,
+        result: {
+          stage: "done", progressText: "", outputPath: entry.outputPath, outputName: entry.outputName,
+          sourceImagePath: sourcePath, isSegmented: Boolean(entry.metadata?.isSegmented), canSegment: false,
+        },
+      };
+      state.items.push(item);
+    }
+    const selectedBefore = state.selectedId;
+    state.items = state.items.filter((item) => {
+      if (item.historyId) return validIds.has(item.historyId);
+      return item.state !== "done" || !item.result?.outputPath || validPaths.has(comparablePath(item.result.outputPath));
+    });
+    if (!state.items.some((item) => item.id === state.selectedId)) state.selectedId = state.items[0]?.id || "";
+    updateUi();
+    if (state.selectedId && state.selectedId !== selectedBefore) {
+      const item = selectedItem(); if (item) await displayItem(item);
+    }
+  } catch { /* Keep the active queue usable if history storage is unavailable. */ }
+  finally { state.historyRefreshing = false; }
+}
+
+async function addImagePaths(paths: string[]) {
   if (!paths.length) return;
   const existing = new Set(state.items.map((item) => item.path.toLowerCase()));
-  const unique = paths.filter((path) => !existing.has(path.toLowerCase()));
+  const unique = paths.filter((path) => {
+    const key = path.toLowerCase();
+    if (existing.has(key)) return false;
+    existing.add(key);
+    return true;
+  });
   if (!unique.length) return;
   const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const items = await Promise.all(unique.map(async (path): Promise<QueueItem> => {
@@ -317,6 +436,10 @@ async function addImages() {
   state.selectedId = items[0].id;
   renderQueue(); updateUi();
   await displayItem(items[0]);
+}
+
+async function addImages() {
+  await addImagePaths(await invoke<string[]>("pick_images"));
 }
 
 function removeItem(id: string) {
@@ -487,7 +610,8 @@ function updateUi() {
   nodes.modelStats.classList.toggle("visible", showModelStats);
   nodes.showFolderButton.classList.toggle("visible", Boolean(item?.state === "done" && item.result?.outputPath));
   nodes.emptyCopy.classList.toggle("hidden", Boolean(item));
-  renderQueue(); syncViewerControls(); updateProgressUi();
+  if (!state.renamingId) renderQueue();
+  syncViewerControls(); updateProgressUi();
 }
 
 function applyBackendStatus(item: QueueItem, status: JobStatus) {
@@ -530,6 +654,7 @@ async function runItem(item: QueueItem) {
     if (final.stage === "done") {
       item.state = "done";
       if (state.selectedId === item.id) await displayItem(item);
+      await refreshHistory();
     } else if (final.stage === "cancelled") item.state = "cancelled";
     else item.state = "failed";
   } catch (error) {
@@ -578,6 +703,8 @@ function submitSelectedBatch() {
   } else if (item.state === "done" || item.state === "failed" || item.state === "cancelled") {
     item.state = "queued";
     item.submitted = true;
+    item.historyId = undefined;
+    item.createdAtMs = undefined;
     item.result = undefined;
     item.modelStats = undefined;
   }
@@ -593,7 +720,7 @@ async function segmentSelected() {
   try {
     const final = await waitForJob(item, await invoke<JobStatus>("segment_model", { continuationId }));
     item.result = final; item.state = final.stage === "done" ? "done" : "failed";
-    if (item.state === "done") await displayItem(item);
+    if (item.state === "done") { await displayItem(item); await refreshHistory(); }
   } catch (error) {
     item.state = "failed"; item.result = { stage: "failed", progressText: String(error), error: String(error) };
   } finally {
@@ -620,7 +747,7 @@ async function restoreCurrentJobs() {
     const statuses = await invoke<JobStatus[]>("job_statuses");
     const recoverable = new Map<string, JobStatus>();
     for (const status of statuses) {
-      if (status.sourceImagePath && (BUSY_STAGES.has(status.stage) || status.stage === "done")) {
+      if (status.sourceImagePath && (BUSY_STAGES.has(status.stage) || status.stage === "done" && status.outputPath)) {
         recoverable.set(status.sourceImagePath, status);
       }
     }
@@ -698,7 +825,16 @@ function loadDevBatchPreview() {
     makeItem("batch_2_b", "batch_2", "character-side.png", "queued", false),
     makeItem("batch_2_c", "batch_2", "character-back.png", "queued", false),
   );
-  state.selectedId = "batch_2_a";
+  if (devParams?.get("history") === "1") {
+    state.items.push({
+      ...makeItem("history_a", "history_a", "clinic-reception.png", "done", true), historyId: "history_a", createdAtMs: Date.now() - 60_000,
+      result: { stage: "done", progressText: "", outputPath: "C:\\Models\\clinic-reception.glb", outputName: "clinic-reception.glb", isSegmented: true, canSegment: false },
+    }, {
+      ...makeItem("history_b", "history_b", "lobby-chair.png", "done", true), historyId: "history_b", createdAtMs: Date.now() - 120_000,
+      result: { stage: "done", progressText: "", outputPath: "C:\\Models\\lobby-chair.glb", outputName: "lobby-chair.glb", isSegmented: false, canSegment: false },
+    });
+  }
+  state.selectedId = devParams?.get("history") === "1" ? "history_a" : "batch_2_a";
   state.runningIds.add("batch_1_a");
   state.runningIds.add("batch_1_b");
   state.queueActive = true;
@@ -763,6 +899,12 @@ window.applyHostContext = (context) => {
   applyTranslations(); updateUi();
 };
 
+window.handleNativeFileDrag = (active) => document.body.classList.toggle("file-dragging", active);
+window.handleNativeFileDrop = (paths) => {
+  document.body.classList.remove("file-dragging");
+  void addImagePaths(paths);
+};
+
 nodes.dragRegion.addEventListener("pointerdown", (event) => {
   if ((event.target as HTMLElement).closest("button, input, label")) return;
   void invoke("start_drag");
@@ -820,7 +962,12 @@ if (devParams?.get("parallel") === "1") {
 } else if (devModelUrl) {
   void loadDevModelPreview(devModelUrl);
 } else if (window.invoke) {
-  void loadDefaultOutputDir();
   void invoke("prepare_runtime").catch(() => undefined).finally(startPreparationPolling);
-  void restoreCurrentJobs();
+  void (async () => {
+    await loadDefaultOutputDir();
+    await restoreCurrentJobs();
+    await refreshHistory();
+    window.setInterval(() => void refreshHistory(), 5000);
+  })();
 }
+window.addEventListener("focus", () => void refreshHistory());

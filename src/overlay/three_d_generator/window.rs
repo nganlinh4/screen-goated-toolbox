@@ -10,7 +10,7 @@ use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{HSTRING, PCWSTR, w};
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::{DragDropEvent, Rect, WebContext, WebViewBuilder};
 
 const MIN_WINDOW_WIDTH: i32 = 840;
 const MIN_WINDOW_HEIGHT: i32 = 540;
@@ -20,6 +20,57 @@ const MIN_WINDOW_HEIGHT: i32 = 540;
 struct SavedWindowSize {
     width: i32,
     height: i32,
+}
+
+fn is_supported_image(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "webp"
+            )
+        })
+}
+
+fn set_file_drag_active(active: bool) {
+    super::WEBVIEW.with(|slot| {
+        if let Some(webview) = slot.borrow().as_ref() {
+            let _ = webview.evaluate_script(&format!(
+                "window.handleNativeFileDrag?.({});",
+                if active { "true" } else { "false" }
+            ));
+        }
+    });
+}
+
+fn handle_file_drop(event: DragDropEvent) -> bool {
+    match event {
+        DragDropEvent::Enter { paths, .. } => {
+            set_file_drag_active(paths.iter().any(|path| is_supported_image(path)));
+        }
+        DragDropEvent::Drop { paths, .. } => {
+            set_file_drag_active(false);
+            let paths = paths
+                .into_iter()
+                .filter(|path| is_supported_image(path))
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            if !paths.is_empty()
+                && let Ok(payload) = serde_json::to_string(&paths)
+            {
+                super::WEBVIEW.with(|slot| {
+                    if let Some(webview) = slot.borrow().as_ref() {
+                        let _ = webview
+                            .evaluate_script(&format!("window.handleNativeFileDrop?.({payload});"));
+                    }
+                });
+            }
+        }
+        DragDropEvent::Leave => set_file_drag_active(false),
+        _ => {}
+    }
+    true
 }
 
 pub(super) fn show() {
@@ -255,6 +306,7 @@ unsafe fn internal_create_loop() {
                 .with_ipc_handler(move |request: wry::http::Request<String>| {
                     super::ipc::handle_ipc(hwnd, request.body());
                 })
+                .with_drag_drop_handler(handle_file_drop)
                 .with_url(url);
             builder = crate::overlay::html_components::font_manager::configure_webview(builder);
             builder.build_as_child(&wrapper)

@@ -15,8 +15,8 @@ pub(crate) use crate::overlay::creation_runtime::{
     remove_runtime, runtime_bundle_dir,
 };
 pub(crate) use depth_model::{
-    DOWNLOAD_TITLE as DEPTH_DOWNLOAD_TITLE, depth_model_dir, download_depth_model,
-    is_depth_model_downloaded, remove_depth_model,
+    DOWNLOAD_TITLE as DEPTH_DOWNLOAD_TITLE, create_depth_preview, depth_model_dir,
+    download_depth_model, is_depth_model_downloaded, remove_depth_model,
 };
 
 use std::sync::Once;

@@ -75,6 +75,38 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
         "job_statuses" => {
             serde_json::to_value(super::runtime::job_statuses()).map_err(|err| err.to_string())
         }
+        "history_results" => serde_json::to_value(crate::overlay::generation_history::list("3d")?)
+            .map_err(|err| err.to_string()),
+        "rename_history_result" => {
+            let id = args
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "id is required".to_string())?;
+            let new_name = args
+                .get("newName")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "newName is required".to_string())?;
+            let previous = crate::overlay::generation_history::list("3d")?
+                .into_iter()
+                .find(|entry| entry.id == id)
+                .ok_or_else(|| "Result is no longer in history.".to_string())?;
+            let updated = crate::overlay::generation_history::rename("3d", id, new_name)?;
+            super::runtime::remap_result_path(&previous.output_path, &updated.output_path);
+            serde_json::to_value(updated).map_err(|err| err.to_string())
+        }
+        "delete_history_result" => {
+            let id = args
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "id is required".to_string())?;
+            let previous = crate::overlay::generation_history::list("3d")?
+                .into_iter()
+                .find(|entry| entry.id == id)
+                .ok_or_else(|| "Result is no longer in history.".to_string())?;
+            crate::overlay::generation_history::delete("3d", id)?;
+            super::runtime::forget_result_path(&previous.output_path);
+            Ok(Value::Null)
+        }
         "read_asset" => {
             let path = args
                 .get("path")

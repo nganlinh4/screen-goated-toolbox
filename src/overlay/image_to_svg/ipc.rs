@@ -64,12 +64,55 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
         "job_statuses" => {
             serde_json::to_value(super::runtime::job_statuses()).map_err(|error| error.to_string())
         }
+        "history_results" => serde_json::to_value(crate::overlay::generation_history::list("svg")?)
+            .map_err(|error| error.to_string()),
+        "rename_history_result" => {
+            let id = args
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "id is required".to_string())?;
+            let new_name = args
+                .get("newName")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "newName is required".to_string())?;
+            let previous = crate::overlay::generation_history::list("svg")?
+                .into_iter()
+                .find(|entry| entry.id == id)
+                .ok_or_else(|| "Result is no longer in history.".to_string())?;
+            let updated = crate::overlay::generation_history::rename("svg", id, new_name)?;
+            super::runtime::remap_result_path(&previous.output_path, &updated.output_path);
+            serde_json::to_value(updated).map_err(|error| error.to_string())
+        }
+        "delete_history_result" => {
+            let id = args
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "id is required".to_string())?;
+            let previous = crate::overlay::generation_history::list("svg")?
+                .into_iter()
+                .find(|entry| entry.id == id)
+                .ok_or_else(|| "Result is no longer in history.".to_string())?;
+            crate::overlay::generation_history::delete("svg", id)?;
+            super::runtime::forget_result_path(&previous.output_path);
+            Ok(Value::Null)
+        }
         "read_asset" => {
             let path = args
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "path is required".to_string())?;
             super::runtime::read_asset(path)
+        }
+        "save_svg_edits" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "path is required".to_string())?;
+            let svg = args
+                .get("svg")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "svg is required".to_string())?;
+            super::runtime::save_svg_edits(path, svg)
         }
         "open_output" => {
             let path = args.get("path").and_then(Value::as_str);

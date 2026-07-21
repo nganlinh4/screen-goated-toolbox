@@ -246,6 +246,55 @@ pub(super) fn job_statuses() -> Vec<JobStatus> {
         .unwrap_or_default()
 }
 
+pub(super) fn remap_result_path(previous: &str, current: &str) {
+    let current_name = PathBuf::from(current)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string());
+    if let Ok(mut state) = STATE.lock() {
+        for status in state.jobs.values_mut() {
+            if status
+                .output_path
+                .as_deref()
+                .is_some_and(|path| path.eq_ignore_ascii_case(previous))
+            {
+                status.output_path = Some(current.to_string());
+                status.output_name = current_name.clone();
+            }
+        }
+        for continuation in state.continuations.values_mut() {
+            if continuation
+                .previous_output_path
+                .to_string_lossy()
+                .eq_ignore_ascii_case(previous)
+            {
+                continuation.previous_output_path = PathBuf::from(current);
+            }
+        }
+    }
+}
+
+pub(super) fn forget_result_path(path: &str) {
+    if let Ok(mut state) = STATE.lock() {
+        for status in state.jobs.values_mut() {
+            if status
+                .output_path
+                .as_deref()
+                .is_some_and(|value| value.eq_ignore_ascii_case(path))
+            {
+                status.output_path = None;
+                status.output_name = None;
+                status.can_segment = false;
+            }
+        }
+        state.continuations.retain(|_, continuation| {
+            !continuation
+                .previous_output_path
+                .to_string_lossy()
+                .eq_ignore_ascii_case(path)
+        });
+    }
+}
+
 pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, String> {
     request.polycount = request.polycount.clamp(500, 20_000);
     if request.image_path.trim().is_empty() {

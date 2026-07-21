@@ -101,6 +101,7 @@ fn update_preview(job_id: &str, preview_path: String) {
 }
 
 fn finish_job(job_id: &str, status: JobStatus, continuation: Option<Continuation>) {
+    let completed = (status.stage == "done").then(|| status.clone());
     if let Ok(mut state) = STATE.lock() {
         if state
             .jobs
@@ -115,6 +116,20 @@ fn finish_job(job_id: &str, status: JobStatus, continuation: Option<Continuation
             state.continuations.insert(job_id.to_string(), continuation);
         }
         state.pids.remove(job_id);
+    }
+    if let Some(status) = completed
+        && let (Some(source_path), Some(output_path)) = (
+            status.source_image_path.as_deref(),
+            status.output_path.as_deref(),
+        )
+        && let Err(error) = crate::overlay::generation_history::record(
+            "3d",
+            source_path,
+            output_path,
+            serde_json::json!({ "isSegmented": status.is_segmented }),
+        )
+    {
+        crate::log_info!("[3D Generator] Could not record result history: {error}");
     }
 }
 

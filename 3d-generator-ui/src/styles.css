@@ -98,6 +98,29 @@ svg {
   background: var(--bg);
 }
 
+.drop-overlay {
+  position: fixed;
+  inset: 12px;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  border: 2px dashed var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--stage) 88%, transparent);
+  color: var(--text);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 150ms ease, visibility 150ms ease;
+  backdrop-filter: blur(10px);
+}
+
+.drop-overlay svg { width: 34px; height: 34px; color: var(--accent); }
+.drop-overlay strong { font-size: 14px; font-variation-settings: "wght" 720; }
+body.file-dragging .drop-overlay { opacity: 1; visibility: visible; }
+
 .titlebar {
   display: flex;
   align-items: center;
@@ -279,7 +302,7 @@ svg {
   position: relative;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 22px;
+  grid-template-columns: minmax(0, 1fr) 44px;
   align-items: center;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -382,17 +405,14 @@ svg {
   font-size: 9px;
 }
 
-.queue-remove {
-  width: 20px;
-  height: 20px;
-  margin-right: 2px;
-  font-size: 12px;
-  opacity: 0;
-}
-
-.queue-item:hover .queue-remove,
-.queue-item.selected .queue-remove { opacity: 1; }
-.queue-remove:disabled { opacity: 0; }
+.queue-actions { display: flex; justify-content: flex-end; gap: 1px; padding-right: 2px; opacity: 0; }
+.queue-actions button { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 4px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+.queue-actions button:hover { background: var(--control); color: var(--text); }
+.queue-actions button.danger:hover { color: var(--danger); }
+.queue-item:hover .queue-actions,
+.queue-item.selected .queue-actions { opacity: 1; }
+.queue-actions button:disabled { opacity: 0; cursor: default; }
+.queue-rename-input { width: 100%; min-width: 0; height: 21px; padding: 2px 4px; border: 1px solid var(--accent); border-radius: 4px; background: var(--surface); color: var(--text); font: inherit; outline: none; }
 
 .queue-footer {
   display: flex;
@@ -701,7 +721,7 @@ html[data-theme="light"] .primary-action { color: white; }
 
 @media (max-width: 1050px) {
   .workspace { grid-template-columns: 122px minmax(0, 1fr) 254px; }
-  .queue-item { grid-template-columns: minmax(0, 1fr) 18px; }
+  .queue-item { grid-template-columns: minmax(0, 1fr) 44px; }
   .queue-item-main { grid-template-columns: 34px minmax(0, 1fr); gap: 6px; }
   .queue-thumb { width: 34px; height: 34px; }
 }
@@ -717,7 +737,7 @@ html[data-theme="light"] .primary-action { color: white; }
   .queue-item { display: block; }
   .queue-item-main { display: grid; grid-template-columns: 1fr; justify-items: center; padding: 5px; }
   .queue-thumb { width: 48px; height: 48px; }
-  .queue-remove { position: absolute; top: 2px; right: 1px; background: var(--surface); }
+  .queue-actions { position: absolute; top: 2px; right: 1px; padding: 0; background: var(--surface); }
   .queue-empty strong,
   .queue-empty small { display: none; }
   .queue-empty { min-height: 90px; padding: 8px; }

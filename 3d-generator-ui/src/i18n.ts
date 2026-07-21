@@ -1,7 +1,7 @@
 export type Locale = "en" | "ko" | "vi";
 
 const en = {
-  appTitle: "3D Generator",
+  appTitle: "Image to 3D",
   minimize: "Minimize",
   close: "Close",
   gettingReady: "Getting ready",
@@ -10,8 +10,9 @@ const en = {
   working: "Working",
   unavailable: "Unavailable",
   readyTooltip: "Model workspaces are kept ready in the background.",
-  queue: "Queue",
+  queue: "Recent",
   addImages: "Add images",
+  dropImages: "Drop images to add them",
   queueEmpty: "No images yet",
   queueEmptyDetail: "Add one or several images",
   queued: "Queued",
@@ -20,6 +21,12 @@ const en = {
   complete: "Complete",
   failed: "Failed",
   remove: "Remove",
+  savedResult: "Saved result",
+  renameResult: "Rename result",
+  deleteResult: "Delete result",
+  deleteResultConfirm: "Delete this result file from disk?",
+  renameFailed: "Could not rename the result",
+  deleteFailed: "Could not delete the result",
   jobsCount: "{count} jobs",
   batchLabel: "Batch {number} · {count} images",
   sharedSettings: "Shared settings for {count} images",
@@ -89,11 +96,13 @@ const en = {
 type Messages = { [K in keyof typeof en]: string };
 
 const ko: Messages = {
-  appTitle: "3D 생성기", minimize: "최소화", close: "닫기", gettingReady: "준비 중", ready: "준비됨",
+  appTitle: "이미지를 3D로", minimize: "최소화", close: "닫기", gettingReady: "준비 중", ready: "준비됨",
   preparing: "준비 중", working: "작업 중", unavailable: "사용 불가",
-  readyTooltip: "모델 작업 공간을 백그라운드에서 준비해 둡니다.", queue: "대기열", addImages: "이미지 추가",
+  readyTooltip: "모델 작업 공간을 백그라운드에서 준비해 둡니다.", queue: "최근 항목", addImages: "이미지 추가", dropImages: "이미지를 놓아 추가하세요",
   queueEmpty: "이미지가 없습니다", queueEmptyDetail: "하나 이상의 이미지를 추가하세요", queued: "대기 중", draft: "초안",
-  creating: "생성 중", complete: "완료", failed: "실패", remove: "제거", jobsCount: "작업 {count}개",
+  creating: "생성 중", complete: "완료", failed: "실패", remove: "제거", savedResult: "저장된 결과", renameResult: "결과 이름 변경",
+  deleteResult: "결과 삭제", deleteResultConfirm: "이 결과 파일을 디스크에서 삭제할까요?", renameFailed: "결과 이름을 변경하지 못했습니다",
+  deleteFailed: "결과를 삭제하지 못했습니다", jobsCount: "작업 {count}개",
   batchLabel: "배치 {number} · 이미지 {count}개", sharedSettings: "이미지 {count}개에 공통 설정",
   image: "이미지", chooseImages: "이미지 선택", formats: "PNG, JPG 또는 WebP", topology: "토폴로지",
   light: "가벼움 (게임/웹)", detailed: "고정밀 (렌더/출력)", saveTo: "저장 위치", defaultFolder: "기본 출력 폴더",
@@ -122,11 +131,13 @@ const ko: Messages = {
 };
 
 const vi: Messages = {
-  appTitle: "Trình tạo 3D", minimize: "Thu nhỏ", close: "Đóng", gettingReady: "Đang chuẩn bị", ready: "Sẵn sàng",
+  appTitle: "Ảnh sang 3D", minimize: "Thu nhỏ", close: "Đóng", gettingReady: "Đang chuẩn bị", ready: "Sẵn sàng",
   preparing: "Đang chuẩn bị", working: "Đang xử lý", unavailable: "Không khả dụng",
-  readyTooltip: "Các phiên tạo mô hình luôn được chuẩn bị trong nền.", queue: "Hàng đợi", addImages: "Thêm ảnh",
+  readyTooltip: "Các phiên tạo mô hình luôn được chuẩn bị trong nền.", queue: "Gần đây", addImages: "Thêm ảnh", dropImages: "Thả ảnh để thêm vào",
   queueEmpty: "Chưa có ảnh", queueEmptyDetail: "Thêm một hoặc nhiều ảnh", queued: "Đang chờ", draft: "Bản nháp",
-  creating: "Đang tạo", complete: "Hoàn tất", failed: "Lỗi", remove: "Xóa", jobsCount: "{count} tác vụ",
+  creating: "Đang tạo", complete: "Hoàn tất", failed: "Lỗi", remove: "Xóa", savedResult: "Kết quả đã lưu", renameResult: "Đổi tên kết quả",
+  deleteResult: "Xóa kết quả", deleteResultConfirm: "Xóa tệp kết quả này khỏi ổ đĩa?", renameFailed: "Không thể đổi tên kết quả",
+  deleteFailed: "Không thể xóa kết quả", jobsCount: "{count} tác vụ",
   batchLabel: "Lô {number} · {count} ảnh", sharedSettings: "Cài đặt chung cho {count} ảnh",
   image: "Hình ảnh", chooseImages: "Chọn ảnh", formats: "PNG, JPG hoặc WebP", topology: "Topology",
   light: "Nhẹ (cho game/web)", detailed: "Chi tiết (render/in 3D)", saveTo: "Lưu vào", defaultFolder: "Thư mục đầu ra mặc định",

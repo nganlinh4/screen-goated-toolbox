@@ -29,11 +29,14 @@ pub(super) struct JobStatus {
     pub job_id: String,
     pub stage: String,
     pub progress_text: String,
+    pub progress_key: Option<String>,
+    pub phase: Option<String>,
     pub elapsed_ms: Option<u64>,
     pub estimated_total_ms: Option<u64>,
     pub progress_ratio: Option<f64>,
     pub output_path: Option<String>,
     pub output_name: Option<String>,
+    pub preview_path: Option<String>,
     pub source_image_path: String,
     pub model: String,
     pub credits_remaining: Option<u64>,
@@ -136,11 +139,14 @@ pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, Strin
         job_id: job_id.clone(),
         stage: "preparing".to_string(),
         progress_text: "Preparing vector workspace".to_string(),
+        progress_key: Some("svg.preparingWorkspace".to_string()),
+        phase: Some("preparing".to_string()),
         elapsed_ms: Some(0),
         estimated_total_ms: None,
         progress_ratio: Some(0.0),
         output_path: None,
         output_name: None,
+        preview_path: None,
         source_image_path: request.image_path.clone(),
         model: request.model.clone(),
         credits_remaining: None,
@@ -150,6 +156,22 @@ pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, Strin
     state.jobs.insert(job_id.clone(), status.clone());
     drop(state);
 
+    let preview_job_id = job_id.clone();
+    let preview_source = request.image_path.clone();
+    std::thread::spawn(move || {
+        let stop = Arc::new(AtomicBool::new(false));
+        let result =
+            crate::overlay::three_d_generator::download_depth_model(stop, true).and_then(|()| {
+                crate::overlay::three_d_generator::create_depth_preview(&preview_source)
+            });
+        match result {
+            Ok(path) => update_preview(&preview_job_id, path.to_string_lossy().to_string()),
+            Err(error) => crate::log_info!(
+                "[Image to SVG] Optional depth preview failed for {}: {error}",
+                preview_source
+            ),
+        }
+    });
     std::thread::spawn(move || run_job(job_id, request, output_dir));
     Ok(status)
 }
@@ -165,6 +187,39 @@ pub(super) fn job_statuses() -> Vec<JobStatus> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+pub(super) fn remap_result_path(previous: &str, current: &str) {
+    let current_name = PathBuf::from(current)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string());
+    if let Ok(mut state) = STATE.lock() {
+        for job in state.jobs.values_mut() {
+            if job
+                .output_path
+                .as_deref()
+                .is_some_and(|path| path.eq_ignore_ascii_case(previous))
+            {
+                job.output_path = Some(current.to_string());
+                job.output_name = current_name.clone();
+            }
+        }
+    }
+}
+
+pub(super) fn forget_result_path(path: &str) {
+    if let Ok(mut state) = STATE.lock() {
+        for job in state.jobs.values_mut() {
+            if job
+                .output_path
+                .as_deref()
+                .is_some_and(|value| value.eq_ignore_ascii_case(path))
+            {
+                job.output_path = None;
+                job.output_name = None;
+            }
+        }
+    }
 }
 
 fn update_progress(job_id: &str, value: &Value) {
@@ -183,6 +238,12 @@ fn update_progress(job_id: &str, value: &Value) {
     if let Some(text) = value.get("progressText").and_then(Value::as_str) {
         job.progress_text = text.to_string();
     }
+    if let Some(key) = value.get("progressKey").and_then(Value::as_str) {
+        job.progress_key = Some(key.to_string());
+    }
+    if let Some(phase) = value.get("phase").and_then(Value::as_str) {
+        job.phase = Some(phase.to_string());
+    }
     job.elapsed_ms = value
         .get("elapsedMs")
         .and_then(Value::as_u64)
@@ -197,7 +258,17 @@ fn update_progress(job_id: &str, value: &Value) {
         .or(job.progress_ratio);
 }
 
+fn update_preview(job_id: &str, preview_path: String) {
+    if let Ok(mut state) = STATE.lock()
+        && let Some(job) = state.jobs.get_mut(job_id)
+        && job.stage != "cancelled"
+    {
+        job.preview_path = Some(preview_path);
+    }
+}
+
 fn finish(job_id: &str, result: Result<Value, String>) {
+    let mut completed = None;
     if let Ok(mut state) = STATE.lock() {
         state.pids.remove(job_id);
         if let Some(job) = state.jobs.get_mut(job_id)
@@ -207,6 +278,8 @@ fn finish(job_id: &str, result: Result<Value, String>) {
                 Ok(value) => {
                     job.stage = "done".to_string();
                     job.progress_text = "Vector ready".to_string();
+                    job.progress_key = Some("svg.vectorReady".to_string());
+                    job.phase = Some("complete".to_string());
                     job.progress_ratio = Some(1.0);
                     job.output_path = value
                         .get("outputPath")
@@ -217,14 +290,28 @@ fn finish(job_id: &str, result: Result<Value, String>) {
                         .and_then(Value::as_str)
                         .map(str::to_string);
                     job.credits_remaining = value.get("creditsRemaining").and_then(Value::as_u64);
+                    completed = Some(job.clone());
                 }
                 Err(error) => {
                     job.stage = "failed".to_string();
                     job.progress_text = "Could not create vector".to_string();
+                    job.progress_key = Some("svg.failed".to_string());
+                    job.phase = Some("failed".to_string());
                     job.error = Some(error);
                 }
             }
         }
+    }
+    if let Some(job) = completed
+        && let Some(output_path) = job.output_path.as_deref()
+        && let Err(error) = crate::overlay::generation_history::record(
+            "svg",
+            &job.source_image_path,
+            output_path,
+            json!({ "model": job.model }),
+        )
+    {
+        crate::log_info!("[Image to SVG] Could not record result history: {error}");
     }
     start_preparation();
 }
@@ -485,6 +572,36 @@ pub(super) fn read_asset(path: &str) -> Result<Value, String> {
     }))
 }
 
+pub(super) fn save_svg_edits(path: &str, svg: &str) -> Result<Value, String> {
+    let path = PathBuf::from(path);
+    let metadata = std::fs::metadata(&path)
+        .map_err(|error| format!("Could not open {}: {error}", path.display()))?;
+    let is_svg = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("svg"));
+    if !metadata.is_file() || !is_svg {
+        return Err("Only an existing SVG result can be edited.".to_string());
+    }
+    if svg.is_empty() || svg.len() as u64 > MAX_ASSET_BYTES {
+        return Err("Edited SVG is empty or too large.".to_string());
+    }
+    let normalized = svg.to_ascii_lowercase();
+    if !normalized.contains("<svg")
+        || !normalized.contains("</svg>")
+        || normalized.contains("<script")
+        || normalized.contains("<foreignobject")
+        || normalized.contains("javascript:")
+        || normalized.contains(" onload=")
+        || normalized.contains(" onerror=")
+    {
+        return Err("Edited SVG contains unsupported active content.".to_string());
+    }
+    std::fs::write(&path, svg.as_bytes())
+        .map_err(|error| format!("Could not save {}: {error}", path.display()))?;
+    Ok(json!({ "sizeBytes": svg.len() }))
+}
+
 pub(super) fn open_output(requested_path: Option<&str>) -> Result<(), String> {
     let path = requested_path
         .filter(|value| !value.trim().is_empty())
@@ -512,6 +629,21 @@ fn hide_command_window(_command: &mut Command) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saves_valid_svg_edits_and_rejects_active_content() {
+        let path = std::env::temp_dir().join(format!(
+            "sgt-svg-edit-{}-{}.svg",
+            std::process::id(),
+            JOB_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>").unwrap();
+        let edited = "<svg xmlns=\"http://www.w3.org/2000/svg\"><path fill=\"#123456\" d=\"M0 0h1v1z\"/></svg>";
+        assert!(save_svg_edits(path.to_str().unwrap(), edited).is_ok());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
+        assert!(save_svg_edits(path.to_str().unwrap(), "<svg><script/></svg>").is_err());
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn supports_two_parallel_jobs() {
