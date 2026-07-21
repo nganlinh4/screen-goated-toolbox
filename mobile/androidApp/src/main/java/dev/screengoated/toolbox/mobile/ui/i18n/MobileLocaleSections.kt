@@ -43,7 +43,70 @@ data class MobileShellLocale(
 data class MobileCreationAppsLocale(
     override val appImageTo3dTitle: String,
     override val appImageToSvgTitle: String,
+    val common: CreationCommonLocale,
+    val model3d: Creation3dLocale,
+    val svg: CreationSvgLocale,
 ) : MobileCreationAppsText
+
+data class CreationCommonLocale(
+    val jobs: String,
+    val results: String,
+    val addImages: String,
+    val noImages: String,
+    val chooseImages: String,
+    val create: String,
+    val addToQueue: String,
+    val cancel: String,
+    val retry: String,
+    val ready: String,
+    val preparing: String,
+    val queued: String,
+    val working: String,
+    val done: String,
+    val failed: String,
+    val saveTo: String,
+    val changeFolder: String,
+    val open: String,
+    val rename: String,
+    val delete: String,
+    val deleteConfirm: String,
+    val dismiss: String,
+    val noResults: String,
+    val selectedImages: String,
+    val interrupted: String,
+)
+
+data class Creation3dLocale(
+    val polycount: String,
+    val light: String,
+    val detailed: String,
+    val autoSeparate: String,
+    val generate: String,
+    val separate: String,
+    val modelReady: String,
+    val partsReady: String,
+    val geometryStats: String,
+    val grid: String,
+    val autoRotate: String,
+)
+
+data class CreationSvgLocale(
+    val model: String,
+    val simple: String,
+    val simpleDescription: String,
+    val detail: String,
+    val detailDescription: String,
+    val generate: String,
+    val vectorReady: String,
+    val fill: String,
+    val stroke: String,
+    val fit: String,
+    val zoomIn: String,
+    val zoomOut: String,
+    val undo: String,
+    val redo: String,
+    val saveEdits: String,
+)
 
 data class MobileHistoryLocale(
     override val historyTitle: String,
