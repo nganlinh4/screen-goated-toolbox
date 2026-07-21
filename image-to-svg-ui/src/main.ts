@@ -59,7 +59,6 @@ app.innerHTML = `
     <aside class="queue-rail">
       <div class="rail-heading"><span>${t("queue")}</span><button class="icon-button add" id="addImages" title="${t("addImages")}">${I.add}</button></div>
       <div class="queue-list" id="queueList"></div>
-      <button class="new-batch" id="newBatch">${I.add}<span>${t("newBatch")}</span></button>
     </aside>
     <section class="stage">
       <div class="artboard-wrap">
@@ -258,7 +257,6 @@ async function poll() {
 }
 
 q("#addImages").addEventListener("click", () => void addImages());
-q("#newBatch").addEventListener("click", () => void addImages());
 q("#chooseImages").addEventListener("click", () => void addImages());
 q("#chooseFolder").addEventListener("click", async () => {
   const chosen = await invoke<string | null>("pick_output_dir");
