@@ -20,7 +20,6 @@ import kotlinx.serialization.json.put
 internal class CreationJobManager private constructor(context: Context) {
     val files = CreationFileStore(context)
     val history = CreationHistoryStore(context, files)
-    val assets = CreationAssetRegistry(context, files)
     private val workers = CreationWorkerPool.get(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
@@ -239,6 +238,8 @@ internal class CreationJobManager private constructor(context: Context) {
                     isSegmented = segmented,
                     canSegment = request.tool == "3d" && !segmented && event.canSegment != false,
                     creditsRemaining = event.creditsRemaining,
+                    faces = event.faces,
+                    vertices = event.vertices,
                     error = null,
                 )
                 jobs[jobId] = updated
@@ -255,8 +256,13 @@ internal class CreationJobManager private constructor(context: Context) {
             }
             val tool = CreationTool.fromWireName(request.tool) ?: error("Unknown creation tool")
             val metadata = buildJsonObject {
-                if (tool == CreationTool.IMAGE_TO_3D) put("isSegmented", segmented)
-                else put("model", request.model)
+                if (tool == CreationTool.IMAGE_TO_3D) {
+                    put("isSegmented", segmented)
+                    event.faces?.let { put("faces", it) }
+                    event.vertices?.let { put("vertices", it) }
+                } else {
+                    put("model", request.model)
+                }
             }
             history.record(tool, request.imagePath, published, request.outputName, metadata)
             status

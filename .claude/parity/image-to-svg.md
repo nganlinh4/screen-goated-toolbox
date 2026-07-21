@@ -23,9 +23,9 @@
   undo, redo, shape deletion, and saving edits back to the real SVG.
 - Result history persists across sessions, lists only results whose output still exists, and can
   rename or delete the real output file.
-- Android stages the canonical Windows web surface and changes only window, picker, storage, and
-  runtime bridge behavior. Full and Play expose the same app and state machine; no executable code
-  is downloaded by either flavor.
+- Android presents the canonical job, settings, viewer, history, and editing states through an
+  adaptive native Kotlin Compose Material 3 Expressive surface. Full and Play expose the same app
+  and state machine; no executable code is downloaded by either flavor.
 
 ## Failure And Recovery
 
@@ -48,6 +48,11 @@
 
 - Windows writes directly to a filesystem folder. Android publishes output through MediaStore or
   a persisted Storage Access Framework directory and represents it by a content URI.
-- Android uses isolated WebView worker processes in place of the Windows native browser sidecar.
+- Android uses isolated WebView worker processes for background site automation in place of the
+  Windows native browser sidecar; those workers never render app UI.
+- SVG documents render in a network-blocked, document-only canvas so standards-complete paths,
+  gradients, and masks remain accurate; every visible app control is native Compose M3E.
+- Android's native M3E presentation intentionally differs from the Windows desktop layout while
+  preserving the same fixture-backed behavior contract.
 - Android currently uses the canonical in-app progress scene without the optional Depth Anything 3
   depth-bin preview pass; generated SVG rendering and editing are unchanged.

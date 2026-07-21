@@ -39,6 +39,11 @@
     "renameMutatesOutput": true,
     "deleteMutatesOutput": true
   },
+  "androidSurface": {
+    "shell": "native_compose_m3e",
+    "resultRenderer": "sandboxed_svg_document",
+    "backgroundAutomationVisible": false
+  },
   "distribution": {
     "fullSupported": true,
     "playSupported": true,

@@ -152,6 +152,28 @@ internal class CreationFileStore(private val context: Context) {
         File(path),
     )
 
+    fun materializePreview(path: String, extension: String): File {
+        val uri = path.toContentUri() ?: return File(path)
+        val directory = File(context.cacheDir, "creation/previews").apply { mkdirs() }
+        val safeExtension = extension.lowercase().filter(Char::isLetterOrDigit).ifBlank { "bin" }
+        val target = File(directory, "${path.hashCode().toUInt().toString(16)}.$safeExtension")
+        val expectedSize = size(path)
+        if (target.isFile && target.length() > 0L &&
+            (expectedSize < 0L || target.length() == expectedSize)
+        ) {
+            return target
+        }
+        val temporary = File(directory, "${target.name}.tmp")
+        requireNotNull(resolver.openInputStream(uri)) { "Preview is unavailable" }.use { input ->
+            FileOutputStream(temporary).use(input::copyTo)
+        }
+        if (!temporary.renameTo(target)) {
+            temporary.copyTo(target, overwrite = true)
+            temporary.delete()
+        }
+        return target
+    }
+
     private fun outputTree(): Uri? = preferences.getString(KEY_OUTPUT_TREE, null)
         ?.let(Uri::parse)
         ?.takeIf { uri -> resolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission } }

@@ -44,6 +44,11 @@
     "renameMutatesOutput": true,
     "deleteMutatesOutput": true
   },
+  "androidSurface": {
+    "shell": "native_compose_m3e",
+    "resultRenderer": "sceneview_filament",
+    "backgroundAutomationVisible": false
+  },
   "distribution": {
     "fullSupported": true,
     "playSupported": true,

@@ -85,7 +85,6 @@ fun semverToVersionCode(version: String): Int {
 val canonicalVersionCode = semverToVersionCode(canonicalAppVersion)
 
 val generatedPresetOverlayAssets = layout.buildDirectory.dir("generated/presetOverlayAssets")
-val generatedCreationMiniAppAssets = layout.buildDirectory.dir("generated/creationMiniAppAssets")
 val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/presetModelCatalog")
 val generatedPhoneControlContract = layout.buildDirectory.dir("generated/phoneControlContract")
 val generatedNativeRuntimeContractAssets =
@@ -95,45 +94,6 @@ val generatedFullNativeRuntimeAssets =
 val nativeRuntimeContractSource = rootProject.projectDir.parentFile
     .resolve("parity-fixtures/phone-control/native-runtime-contract.json")
 val checkedInOrtRuntime = projectDir.resolve("libs/ort-runtime.zip")
-
-val stageCreationMiniAppAssets by tasks.registering {
-    val repoRoot = rootProject.projectDir.parentFile
-    val imageTo3dSource = repoRoot.resolve("src/overlay/three_d_generator/dist")
-    val imageToSvgSource = repoRoot.resolve("src/overlay/image_to_svg/dist")
-    val mobileSupport = projectDir.resolve("src/main/assets/creation_mobile")
-    inputs.files(imageTo3dSource, imageToSvgSource, mobileSupport)
-    outputs.dir(generatedCreationMiniAppAssets)
-
-    doLast {
-        val root = generatedCreationMiniAppAssets.get().asFile.resolve("creation")
-        root.deleteRecursively()
-        root.mkdirs()
-
-        fun stage(name: String, source: File) {
-            require(source.resolve("index.html").isFile) {
-                "Missing built creation mini app: ${source.absolutePath}"
-            }
-            val destination = root.resolve(name)
-            source.copyRecursively(destination, overwrite = true)
-            val index = destination.resolve("index.html")
-            index.writeText(
-                index.readText()
-                    .replace("src=\"/assets/", "src=\"assets/")
-                    .replace("href=\"/assets/", "href=\"assets/")
-                    .replace(
-                        "</head>",
-                        "  <script src=\"../bridge.js\"></script>\n" +
-                            "    <link rel=\"stylesheet\" href=\"../mobile.css\">\n  </head>",
-                    ),
-            )
-        }
-
-        stage("image-to-3d", imageTo3dSource)
-        stage("image-to-svg", imageToSvgSource)
-        mobileSupport.resolve("bridge.js").copyTo(root.resolve("bridge.js"), overwrite = true)
-        mobileSupport.resolve("mobile.css").copyTo(root.resolve("mobile.css"), overwrite = true)
-    }
-}
 
 val stageNativeRuntimeContract by tasks.registering(Sync::class) {
     dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
@@ -498,7 +458,6 @@ android {
 
     sourceSets.named("main") {
         assets.srcDir(generatedPresetOverlayAssets)
-        assets.srcDir(generatedCreationMiniAppAssets)
         java.srcDir(generatedPresetModelCatalogSources)
         assets.srcDir(generatedPhoneControlContract.map { it.dir("assets") })
         java.srcDir(generatedPhoneControlContract.map { it.dir("kotlin") })
@@ -511,11 +470,9 @@ android {
 
 tasks.matching {
     it.name != generatePresetOverlayAssets.name &&
-        it.name != stageCreationMiniAppAssets.name &&
         it.name.contains("Assets", ignoreCase = false)
 }.configureEach {
     dependsOn(generatePresetOverlayAssets)
-    dependsOn(stageCreationMiniAppAssets)
     dependsOn(stageNativeRuntimeContract)
 }
 
@@ -571,6 +528,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.security.crypto.ktx)
+    implementation(libs.sceneview)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)

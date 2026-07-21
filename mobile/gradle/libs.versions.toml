@@ -38,6 +38,7 @@ youtubedl-android = "0.18.1"
 play-app-update = "2.1.0"
 play-feature-delivery = "2.1.0"
 shizuku = "13.1.5"
+sceneview = "4.24.0"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -68,6 +69,7 @@ androidx-lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-s
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
 androidx-security-crypto-ktx = { group = "androidx.security", name = "security-crypto-ktx", version.ref = "security-crypto" }
+sceneview = { group = "io.github.sceneview", name = "sceneview", version.ref = "sceneview" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }

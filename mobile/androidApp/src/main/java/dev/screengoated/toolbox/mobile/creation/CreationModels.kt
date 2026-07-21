@@ -5,10 +5,9 @@ import kotlinx.serialization.json.JsonObject
 
 internal enum class CreationTool(
     val wireName: String,
-    val assetDirectory: String,
 ) {
-    IMAGE_TO_3D("3d", "image-to-3d"),
-    IMAGE_TO_SVG("svg", "image-to-svg");
+    IMAGE_TO_3D("3d"),
+    IMAGE_TO_SVG("svg");
 
     companion object {
         fun fromWireName(value: String?): CreationTool? = entries.firstOrNull {
@@ -38,6 +37,8 @@ internal data class CreationJobStatus(
     val runtimeStatus: String = "installed",
     val model: String? = null,
     val creditsRemaining: Long? = null,
+    val faces: Long? = null,
+    val vertices: Long? = null,
 )
 
 @Serializable
