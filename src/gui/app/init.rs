@@ -197,8 +197,11 @@ impl SettingsApp {
             }
         });
 
-        // An already-installed 3D runtime keeps its prepared workspace pool warm
-        // throughout the app session without downloading anything at startup.
+        // App releases pin the compatible creation runtime. Refresh an existing
+        // install in the background, while preserving first-use installation.
+        crate::overlay::creation_runtime::update_installed_runtime_in_background();
+
+        // A compatible 3D runtime keeps its prepared workspace pool warm.
         crate::overlay::three_d_generator::start_background_preparation();
 
         // Detect initial system theme
