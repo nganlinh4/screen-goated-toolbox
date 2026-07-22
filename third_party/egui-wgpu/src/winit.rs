@@ -122,10 +122,7 @@ impl ManagedTextureCache {
 
 fn is_device_loss_followup(detail: &str) -> bool {
     detail.contains("label is invalid")
-        && (detail.contains("egui_texid_")
-            || detail.contains("egui_depth_texture")
-            || detail.contains("egui_msaa_texture")
-            || detail.contains("'encoder'"))
+        && (detail.contains("'egui") || detail.contains("'encoder'"))
 }
 
 struct SurfaceState {
@@ -1182,8 +1179,17 @@ mod device_recovery_tests {
         assert!(is_device_loss_followup(
             "CommandEncoder with 'encoder' label is invalid"
         ));
+        assert!(is_device_loss_followup(
+            "Buffer with 'egui_uniform_buffer' label is invalid"
+        ));
+        assert!(is_device_loss_followup(
+            "RenderPipeline with 'egui_pipeline' label is invalid"
+        ));
         assert!(!is_device_loss_followup(
             "Texture with 'application_texture' label is invalid"
+        ));
+        assert!(!is_device_loss_followup(
+            "RenderPipeline with 'application_pipeline' label is invalid"
         ));
     }
 
