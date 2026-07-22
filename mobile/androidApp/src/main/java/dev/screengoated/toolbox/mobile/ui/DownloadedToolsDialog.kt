@@ -37,6 +37,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.creation.DepthPreviewModelManager
+import dev.screengoated.toolbox.mobile.creation.DepthPreviewModelStatus
 import dev.screengoated.toolbox.mobile.service.moonshine.MoonshineLanguage
 import dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager
 import dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
@@ -54,6 +56,8 @@ internal fun DownloadedToolsDialog(
     val moonshineManager = remember { MoonshineModelManager(context) }
     val moonshineStatuses by moonshineManager.moonshineStatuses.collectAsState()
     val zipformerStatuses by moonshineManager.zipformerStatuses.collectAsState()
+    val depthPreviewManager = remember { DepthPreviewModelManager.get(context) }
+    val depthPreviewStatus by depthPreviewManager.status.collectAsState()
 
     // Per-engine native runtimes
     val nativeLibManager = remember { NativeLibManager(context) }
@@ -239,6 +243,52 @@ internal fun DownloadedToolsDialog(
                         },
                     )
                 }
+            }
+
+            ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.tertiary) {
+                Text(
+                    text = locale.creationApps.common.previewTools,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                DownloadedToolRow(
+                    name = locale.creationApps.common.depthPreviewModel,
+                    icon = R.drawable.ms_layers,
+                    statusText = when (val status = depthPreviewStatus) {
+                        DepthPreviewModelStatus.Missing -> locale.dlDepsNotInstalled
+                        is DepthPreviewModelStatus.Downloading ->
+                            downloadingStatus(locale, status.progress)
+                        is DepthPreviewModelStatus.Ready ->
+                            installedStatus(locale, status.sizeBytes)
+                        is DepthPreviewModelStatus.Failed -> status.message
+                    },
+                    statusColor = when (depthPreviewStatus) {
+                        is DepthPreviewModelStatus.Ready -> MaterialTheme.colorScheme.tertiary
+                        is DepthPreviewModelStatus.Failed -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    accent = MaterialTheme.colorScheme.tertiary,
+                    onHelpClick = {
+                        helpDialog = locale.creationApps.common.depthPreviewModel to
+                            locale.creationApps.common.depthPreviewDescription
+                    },
+                    progressFraction = (depthPreviewStatus as? DepthPreviewModelStatus.Downloading)
+                        ?.progress,
+                    action = when (depthPreviewStatus) {
+                        DepthPreviewModelStatus.Missing,
+                        is DepthPreviewModelStatus.Failed -> ToolAction(
+                            text = locale.dlDepsInstall,
+                            role = ToolActionRole.TONAL,
+                            onClick = depthPreviewManager::startInstall,
+                        )
+                        is DepthPreviewModelStatus.Ready -> ToolAction(
+                            text = locale.downloader.toolDelete,
+                            role = ToolActionRole.DESTRUCTIVE,
+                            onClick = depthPreviewManager::delete,
+                        )
+                        is DepthPreviewModelStatus.Downloading -> null
+                    },
+                )
             }
 
             // Video downloader tools — sideload-only; stubbed out on the Play flavor.

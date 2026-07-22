@@ -69,6 +69,10 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 noResults = "No saved results",
                 selectedImages = "{} images",
                 interrupted = "Creation could not finish.",
+                previewTools = "Creation previews",
+                depthPreviewModel = "Depth Anything 3 Small",
+                depthPreviewDescription =
+                    "Adds animated depth previews while 3D and SVG results are being created.",
             ),
             model3d = Creation3dLocale(
                 polycount = "Polycount",
@@ -82,6 +86,11 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 geometryStats = "{} vertices · {} faces",
                 grid = "Grid",
                 autoRotate = "Auto-rotate",
+                fit = "Fit view",
+                originalMaterials = "Original materials",
+                toonOutline = "Toon shading",
+                partColors = "Part colors",
+                previewUnavailable = "This model could not be displayed.",
             ),
             svg = CreationSvgLocale(
                 model = "Model",

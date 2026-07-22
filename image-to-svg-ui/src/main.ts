@@ -50,7 +50,7 @@ function icon(path: string) {
   return `<svg aria-hidden="true" viewBox="0 -960 960 960"><path d="${path}"/></svg>`;
 }
 const I = {
-  vector: icon("M240-120q-50 0-85-35t-35-85q0-50 35-85t85-35h80v-240h-80q-50 0-85-35t-35-85q0-50 35-85t85-35q50 0 85 35t35 85v80h240v-80q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35h-80v240h80q50 0 85 35t35 85q0 50-35 85t-85 35q-50 0-85-35t-35-85v-80H360v80q0 50-35 85t-85 35Zm0-80q17 0 28.5-11.5T280-240q0-17-11.5-28.5T240-280q-17 0-28.5 11.5T200-240q0 17 11.5 28.5T240-200Zm0-480q17 0 28.5-11.5T280-720q0-17-11.5-28.5T240-760q-17 0-28.5 11.5T200-720q0 17 11.5 28.5T240-680Zm480 480q17 0 28.5-11.5T760-240q0-17-11.5-28.5T720-280q-17 0-28.5 11.5T680-240q0 17 11.5 28.5T720-200Zm0-480q17 0 28.5-11.5T760-720q0-17-11.5-28.5T720-760q-17 0-28.5 11.5T680-720q0 17 11.5 28.5T720-680ZM360-360h240v-240H360v240Z"),
+  vector: icon("M603-160h56v-83l102-24q21-5 43.5-11.5T827-299q0-8-8-14.5T792-326q-38-11-58-34t-18-49q2-21 19.5-37.5T785-474q28-10 41.5-22.5T840-526q0-20-17-30.5t-37-3.5q-6 2-12.5 3t-12.5 1q-26 0-43.5-20T700-625q0-26 13.5-47.5T727-720q0-17-14.5-28.5T677-760q-29 0-40.5 12.5T625-700q0 17 1.5 33t1.5 33q0 45-16 66t-50 21q-11 0-23-3t-23-3q-6 0-9.5 2.5T503-543q0 10 12 20t23 19q26 23 38 44t12 42q0 27-19.5 46T521-353q-11 0-21-2t-21-3q-28-2-43 5t-15 21q0 14 13 23t38 13l131 21v115Zm-486 24q-15-7-21-23t1-31l167-367q7-15 22-21t30 1q15 7 21 23t-1 31L169-156q-7 15-22 21t-30-1Zm446 56q-17 0-28.5-11.5T523-120v-88l-57-8q-55-8-89.5-39.5T342-329q0-48 39.5-80.5T476-439q5 0 8.5.5t7.5 1.5q-8-8-15-14.5T464-465q-20-22-29-40.5t-9-37.5q0-38 21.5-62.5T504-630q7 0 19 .5t26 2.5q2-20 0-41t-2-41q0-63 34-97t97-34q56 0 93.5 32t36.5 78q0 23-8 45t-18 43q5-1 10.5-1.5t10.5-.5q48 0 82.5 34.5T920-525q0 43-30.5 77.5T818-402q7 2 13 4t12 5q29 14 47 39.5t18 55.5q0 38-33.5 66.5T779-188l-40 10v58q0 17-11.5 28.5T699-80H563ZM167-566q-12 12-29.5 11T111-570q-16-24-23.5-52T80-679q0-84 58-142.5T280-880q29 0 57 8.5t53 24.5q14 9 15 25.5T394-793q-12 12-29 12.5t-33-7.5q-12-6-25-9t-27-3q-50 0-85 35t-35 85q0 14 3 27t8 25q8 16 8 33t-12 29Zm464 157Z"),
   image: icon("M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm80-160h400q12 0 18-11t-2-21L586-459q-6-8-16-8t-16 8L450-320l-74-99q-6-8-16-8t-16 8l-80 107q-8 10-2 21t18 11Z"),
   add: icon("M440-440H240q-17 0-28.5-11.5T200-480q0-17 11.5-28.5T240-520h200v-200q0-17 11.5-28.5T480-760q17 0 28.5 11.5T520-720v200h200q17 0 28.5 11.5T760-480q0 17-11.5 28.5T720-440H520v200q0 17-11.5 28.5T480-200q-17 0-28.5-11.5T440-240v-200Z"),
   folder: icon("M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h207q16 0 30.5 6t25.5 17l57 57h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Z"),
@@ -97,7 +97,14 @@ app.innerHTML = `
       <section><span class="label">${t("saveTo")}</span><button class="folder-row" id="chooseFolder">${I.folder}<span id="folderPath"></span></button></section>
       <div class="action-area"><button class="primary" id="generate">${I.sparkle}<span>${t("generate")}</span></button><button class="secondary" id="cancel">${t("cancel")}</button><button class="secondary" id="openFolder">${I.folder}<span>${t("openFolder")}</span></button></div>
     </aside>
-  </main>
+</main>
+<div class="app-dialog" id="confirmDialog" role="dialog" aria-modal="true" hidden>
+  <div class="dialog-surface">
+    <strong id="confirmMessage"></strong>
+    <div class="dialog-actions"><button class="secondary" id="confirmCancel">${t("cancel")}</button><button class="danger-action" id="confirmAccept">${t("deleteResult")}</button></div>
+  </div>
+</div>
+<div class="app-toast" id="appToast" role="status" aria-live="polite"></div>
 </section>`;
 
 const q = <T extends Element>(selector: string) => document.querySelector<T>(selector)!;
@@ -126,6 +133,11 @@ const undoEdit = q<HTMLButtonElement>("#undoEdit");
 const redoEdit = q<HTMLButtonElement>("#redoEdit");
 const deleteShape = q<HTMLButtonElement>("#deleteShape");
 const saveEdits = q<HTMLButtonElement>("#saveEdits");
+const confirmDialog = q<HTMLElement>("#confirmDialog");
+const confirmMessage = q<HTMLElement>("#confirmMessage");
+const confirmCancel = q<HTMLButtonElement>("#confirmCancel");
+const confirmAccept = q<HTMLButtonElement>("#confirmAccept");
+const appToast = q<HTMLElement>("#appToast");
 
 let items: Item[] = [];
 let selectedId = "";
@@ -151,6 +163,30 @@ let panStart: { x: number; y: number; viewX: number; viewY: number } | undefined
 let panMoved = false;
 let renamingId = "";
 let historyRefreshing = false;
+let confirmResolver: ((accepted: boolean) => void) | undefined;
+let toastTimer = 0;
+
+function confirmInApp(message: string) {
+  confirmResolver?.(false);
+  confirmMessage.textContent = message;
+  confirmDialog.hidden = false;
+  confirmAccept.focus();
+  return new Promise<boolean>((resolve) => { confirmResolver = resolve; });
+}
+
+function closeConfirmation(accepted: boolean) {
+  confirmDialog.hidden = true;
+  const resolve = confirmResolver;
+  confirmResolver = undefined;
+  resolve?.(accepted);
+}
+
+function showToast(message: string) {
+  window.clearTimeout(toastTimer);
+  appToast.textContent = message;
+  appToast.classList.add("visible");
+  toastTimer = window.setTimeout(() => appToast.classList.remove("visible"), 4200);
+}
 
 function basename(path: string) { return path.split(/[\\/]/).pop() || path; }
 function selected() { return items.find((item) => item.id === selectedId); }
@@ -727,13 +763,13 @@ async function renameHistoryItem(item: Item, newName: string) {
     if (item.id === selectedId) renderedOutput = entry.outputPath;
     renamingId = ""; render();
   } catch (error) {
-    window.alert(`${t("renameFailed")}: ${String(error)}`);
+    showToast(`${t("renameFailed")}: ${String(error)}`);
     renamingId = ""; render();
   }
 }
 
 async function deleteHistoryItem(item: Item) {
-  if (!item.historyId || !window.confirm(t("deleteResultConfirm"))) return;
+  if (!item.historyId || !await confirmInApp(t("deleteResultConfirm"))) return;
   try {
     await invoke("delete_history_result", { id: item.historyId });
     const index = items.indexOf(item); items.splice(index, 1);
@@ -743,7 +779,7 @@ async function deleteHistoryItem(item: Item) {
     }
     render(); if (selected()) await showItem(selected());
   } catch (error) {
-    window.alert(`${t("deleteFailed")}: ${String(error)}`);
+    showToast(`${t("deleteFailed")}: ${String(error)}`);
   }
 }
 
@@ -807,7 +843,9 @@ async function restoreCurrentJobs() {
 
 async function addImagePaths(paths: string[]) {
   if (!paths.length) return;
-  const existing = new Set(items.map((item) => item.path.toLowerCase()));
+  const existing = new Set(items
+    .filter((item) => item.stage === "draft" || item.stage === "queued" || busy(item))
+    .map((item) => item.path.toLowerCase()));
   paths = paths.filter((path) => {
     const key = path.toLowerCase();
     if (existing.has(key)) return false;
@@ -1003,6 +1041,9 @@ window.addEventListener("keydown", (event) => {
 q("#minimize").addEventListener("click", () => void invoke("minimize_window"));
 q("#close").addEventListener("click", () => void invoke("close_window"));
 q("#dragRegion").addEventListener("mousedown", (event) => { if (!(event.target as Element).closest("button")) void invoke("start_drag"); });
+confirmCancel.addEventListener("click", () => closeConfirmation(false));
+confirmAccept.addEventListener("click", () => closeConfirmation(true));
+confirmDialog.addEventListener("click", (event) => { if (event.target === confirmDialog) closeConfirmation(false); });
 
 window.handleNativeFileDrag = (active) => document.body.classList.toggle("file-dragging", active);
 window.handleNativeFileDrop = (paths) => {

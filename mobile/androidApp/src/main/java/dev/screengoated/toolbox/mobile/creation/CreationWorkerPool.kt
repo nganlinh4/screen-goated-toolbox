@@ -21,6 +21,11 @@ import kotlinx.serialization.json.Json
 
 internal class CreationWorkerPool private constructor(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
+    private val diagnostics = CreationDiagnostics(context, "pool")
+    private val preparationPreferences = context.getSharedPreferences(
+        PREPARATION_PREFERENCES,
+        Context.MODE_PRIVATE,
+    )
     private val workers = listOf(
         Worker("3d-0", CreationTool.IMAGE_TO_3D, ImageTo3dWorker0Service::class.java),
         Worker("3d-1", CreationTool.IMAGE_TO_3D, ImageTo3dWorker1Service::class.java),
@@ -31,8 +36,12 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     )
     private val handler = Handler(context.mainLooper)
     private val jobWorkers = ConcurrentHashMap<String, String>()
+    private val pendingBindings = mutableMapOf<String, Runnable>()
     @Volatile private var preferredPreparationTool: CreationTool? = null
-    @Volatile private var preparationCooldownUntilMs = 0L
+    @Volatile private var preparationCooldownUntilMs = maxOf(
+        preparationPreferences.getLong(PREPARATION_COOLDOWN_KEY, 0L),
+        CreationPreparationCooldown.read(context),
+    ).also { CreationPreparationCooldown.recordUntil(context, it) }
     @Volatile private var nextPreparationStartAtMs = 0L
 
     init {
@@ -41,15 +50,32 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     }
 
     fun startPreparation(priority: CreationTool? = null) {
-        if (priority != null) preferredPreparationTool = priority
+        if (priority != null) {
+            preferredPreparationTool = priority
+            val unrelated = pendingBindings.keys.filter { key ->
+                workers.firstOrNull { it.key == key }?.tool != priority
+            }
+            unrelated.forEach { key ->
+                pendingBindings.remove(key)?.let(handler::removeCallbacks)
+            }
+        }
         val ordered = if (priority == null) {
-            workers
+            CreationTool.entries.mapNotNull { tool -> workers.firstOrNull { it.tool == tool } }
         } else {
-            workers.filter { it.tool == priority } + workers.filter { it.tool != priority }
+            workers.filter { it.tool == priority }
         }
         ordered.forEachIndexed { index, worker ->
+            if (worker.binder != null || worker.binding || pendingBindings.containsKey(worker.key)) {
+                return@forEachIndexed
+            }
+            lateinit var action: Runnable
+            action = Runnable {
+                pendingBindings.remove(worker.key, action)
+                bind(worker)
+            }
+            pendingBindings[worker.key] = action
             handler.postDelayed(
-                { bind(worker) },
+                action,
                 if (priority != null && index == 0) 0L else STARTUP_GRACE_MS + index * PREPARATION_STAGGER_MS,
             )
         }
@@ -103,6 +129,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     private fun bind(worker: Worker) {
         if (worker.binding || worker.binder != null) return
         Log.i(TAG, "Binding creation worker ${worker.key}")
+        diagnostics.event("worker_binding", worker.tool.wireName, stage = worker.key)
         worker.binding = true
         val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -115,6 +142,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                         worker.busy = false
                         worker.activeJobId?.let(jobWorkers::remove)
                         worker.activeJobId = null
+                        diagnostics.event("worker_died", worker.tool.wireName, stage = worker.key)
                         bind(worker)
                     },
                     0,
@@ -164,9 +192,17 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         val binder = worker.binder ?: return
         val waitMs = synchronized(workers) {
             val now = System.currentTimeMillis()
-            val preparationNotBefore = maxOf(preparationCooldownUntilMs, nextPreparationStartAtMs)
+            preparationCooldownUntilMs = maxOf(
+                preparationCooldownUntilMs,
+                CreationPreparationCooldown.read(context),
+            )
+            val preparationNotBefore = maxOf(
+                if (worker.mailboxBlocked) preparationCooldownUntilMs else 0L,
+                nextPreparationStartAtMs,
+            )
             when {
                 worker.preparing || worker.busy || worker.ready -> null
+                workers.any { it.busy } -> PREPARATION_QUEUE_POLL_MS
                 workers.any { it !== worker && it.preparing } -> PREPARATION_QUEUE_POLL_MS
                 preparationNotBefore > now -> preparationNotBefore - now
                 else -> {
@@ -192,22 +228,32 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                                 worker.ready = event.ready != false
                                 worker.preparing = false
                                 worker.preparationFailures = 0
+                                worker.mailboxBlocked = false
+                                CreationPreparationCooldown.recordPreparationSucceeded(context)
                             }
                             Log.i(TAG, "Creation worker ${worker.key} is ready")
+                            diagnostics.event("worker_ready", worker.tool.wireName, stage = worker.key)
                             requestNextPreparation(PREPARATION_HANDOFF_GAP_MS)
                         } else if (event.event == "failure") {
+                            val error = event.error.orEmpty()
                             synchronized(workers) {
                                 worker.ready = false
                                 worker.preparing = false
                                 worker.preparationFailures += 1
-                                if (event.error.orEmpty().contains("rate limited", ignoreCase = true)) {
-                                    preparationCooldownUntilMs = maxOf(
-                                        preparationCooldownUntilMs,
-                                        System.currentTimeMillis() + SHARED_RATE_LIMIT_BACKOFF_MS,
-                                    )
+                                val mailboxFailure = isMailboxFailure(error)
+                                worker.mailboxBlocked = mailboxFailure
+                                if (mailboxFailure && !isExistingMailboxCooldown(error)) {
+                                    recordMailboxFailureCooldown()
                                 }
                             }
-                            Log.w(TAG, "Creation worker ${worker.key} preparation failed: ${event.error}")
+                            val category = CreationDiagnostics.failureCategory(error)
+                            Log.w(TAG, "Creation worker ${worker.key} preparation failed: $category")
+                            diagnostics.event(
+                                "worker_prepare_failed",
+                                worker.tool.wireName,
+                                stage = worker.key,
+                                failureMessage = error,
+                            )
                             schedulePrepare(worker)
                             requestNextPreparation(PREPARATION_HANDOFF_GAP_MS)
                         }
@@ -269,9 +315,33 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         val delay = RETRY_DELAYS_MS[
             worker.preparationFailures.coerceIn(0, RETRY_DELAYS_MS.lastIndex)
         ]
-        val cooldown = (preparationCooldownUntilMs - System.currentTimeMillis()).coerceAtLeast(0L)
+        preparationCooldownUntilMs = maxOf(
+            preparationCooldownUntilMs,
+            CreationPreparationCooldown.read(context),
+        )
+        val cooldown = if (worker.mailboxBlocked) {
+            (preparationCooldownUntilMs - System.currentTimeMillis()).coerceAtLeast(0L)
+        } else {
+            0L
+        }
         requestPrepare(worker, maxOf(delay, cooldown))
     }
+
+    private fun recordMailboxFailureCooldown() {
+        preparationCooldownUntilMs = CreationPreparationCooldown.recordMailboxFailure(context)
+        preparationPreferences.edit()
+            .putLong(PREPARATION_COOLDOWN_KEY, preparationCooldownUntilMs)
+            .apply()
+    }
+
+    private fun isMailboxFailure(message: String): Boolean {
+        return message.contains("mailbox", ignoreCase = true) ||
+            message.contains("waiting for verification code", ignoreCase = true) ||
+            message.contains("waiting for account confirmation", ignoreCase = true)
+    }
+
+    private fun isExistingMailboxCooldown(message: String): Boolean =
+        message.contains("mailbox preparation is cooling down", ignoreCase = true)
 
     private data class Worker(
         val key: String,
@@ -286,15 +356,17 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         @Volatile var busy: Boolean = false,
         @Volatile var activeJobId: String? = null,
         @Volatile var preparationFailures: Int = 0,
+        @Volatile var mailboxBlocked: Boolean = false,
     )
 
     companion object {
         private const val TAG = "CreationWorkerPool"
+        private const val PREPARATION_PREFERENCES = "creation_worker_pool"
+        private const val PREPARATION_COOLDOWN_KEY = "mailbox_cooldown_until_ms"
         private const val STARTUP_GRACE_MS = 8_000L
         private const val PREPARATION_STAGGER_MS = 25_000L
         private const val PREPARATION_QUEUE_POLL_MS = 10_000L
         private const val PREPARATION_HANDOFF_GAP_MS = 8_000L
-        private const val SHARED_RATE_LIMIT_BACKOFF_MS = 5 * 60_000L
         private const val MINIMUM_PREPARATION_INTERVAL_MS =
             CreationContract.MINIMUM_PREPARATION_INTERVAL_SECONDS * 1_000L
         private val RETRY_DELAYS_MS = longArrayOf(15_000L, 30_000L, 60_000L, 120_000L, 300_000L)

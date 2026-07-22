@@ -47,6 +47,12 @@
   "androidSurface": {
     "shell": "native_compose_m3e",
     "resultRenderer": "sceneview_filament",
+    "progressPreview": "depth_anything_3_relief",
+    "previewInputSide": 518,
+    "previewBlocksGeneration": false,
+    "previewSetupVisible": false,
+    "preparationProgressMaximumPercent": 18,
+    "diagnostics": "bounded_privacy_safe_journal",
     "backgroundAutomationVisible": false
   },
   "distribution": {

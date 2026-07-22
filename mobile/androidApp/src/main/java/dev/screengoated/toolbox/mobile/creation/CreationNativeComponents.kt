@@ -301,12 +301,16 @@ internal fun CreationImageThumbnail(path: String, modifier: Modifier = Modifier)
 internal fun CreationWorkbench(
     modifier: Modifier = Modifier,
     accent: Color,
+    fillAvailable: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val workbenchModifier = if (fillAvailable) {
+        modifier.fillMaxSize()
+    } else {
+        modifier.fillMaxWidth().aspectRatio(1.12f)
+    }
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .aspectRatio(1.12f),
+        modifier = workbenchModifier,
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 1.dp,
@@ -353,11 +357,20 @@ internal fun CreationEmptyWorkbench(
 }
 
 @Composable
-internal fun CreationSourceWorkbench(item: CreationNativeItem) {
-    CreationImageThumbnail(
-        path = item.sourcePath,
-        modifier = Modifier.fillMaxSize(),
-    )
+internal fun CreationSourceWorkbench(tool: CreationTool, item: CreationNativeItem) {
+    val depthPath = item.depthPreviewPath
+    if (depthPath != null && item.stage in setOf(
+            CreationNativeStage.QUEUED,
+            CreationNativeStage.RUNNING,
+        )
+    ) {
+        CreationDepthPreview(tool, item.sourcePath, depthPath)
+    } else {
+        CreationImageThumbnail(
+            path = item.sourcePath,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
 }
 
 @Composable
@@ -365,13 +378,16 @@ internal fun CreationProgressOverlay(
     status: CreationJobStatus?,
     common: CreationCommonLocale,
     accent: Color,
+    hasDepthPreview: Boolean,
 ) {
     val stage = status?.toNativeStage() ?: CreationNativeStage.QUEUED
     val progress = estimatedProgress(status)
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.42f)),
+            .background(
+                MaterialTheme.colorScheme.scrim.copy(alpha = if (hasDepthPreview) 0.18f else 0.42f),
+            ),
         contentAlignment = Alignment.BottomCenter,
     ) {
         Column(
@@ -434,5 +450,9 @@ private fun estimatedProgress(status: CreationJobStatus?): Float {
     val curve = (0.9 * (1.0 - kotlin.math.exp(-3.0 * elapsed / estimate.toDouble())))
         .toFloat()
         .coerceAtMost(0.94f)
+    if (status.stage == "preparing") {
+        val preparationCurve = (0.04f + curve * 0.16f).coerceAtMost(0.18f)
+        return maxOf(0.04f, observed.coerceAtMost(0.18f), preparationCurve)
+    }
     return maxOf(0.04f, observed, curve)
 }

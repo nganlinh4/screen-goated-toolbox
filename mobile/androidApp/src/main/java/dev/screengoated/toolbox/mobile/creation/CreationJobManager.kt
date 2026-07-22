@@ -20,6 +20,7 @@ import kotlinx.serialization.json.put
 internal class CreationJobManager private constructor(context: Context) {
     val files = CreationFileStore(context)
     val history = CreationHistoryStore(context, files)
+    private val diagnostics = CreationDiagnostics(context, "manager")
     private val workers = CreationWorkerPool.get(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
@@ -70,6 +71,7 @@ internal class CreationJobManager private constructor(context: Context) {
             requests[jobId] = request
             startedAt[jobId] = System.currentTimeMillis()
         }
+        diagnostics.event("job_queued", tool.wireName, jobId = jobId, stage = "preparing")
         dispatchWhenAvailable(request)
         return status
     }
@@ -114,6 +116,12 @@ internal class CreationJobManager private constructor(context: Context) {
             requests[jobId] = request
             startedAt[jobId] = System.currentTimeMillis()
         }
+        diagnostics.event(
+            "job_queued",
+            CreationTool.IMAGE_TO_3D.wireName,
+            jobId = jobId,
+            stage = "segmenting",
+        )
         dispatchWhenAvailable(request, continuation.workerKey)
         return status
     }
@@ -179,16 +187,31 @@ internal class CreationJobManager private constructor(context: Context) {
 
     private fun dispatchWhenAvailable(request: CreationWorkerRequest, preferred: String? = null) {
         scope.launch {
-            repeat(DISPATCH_WAIT_SECONDS) {
+            var waitingSeconds = 0
+            while (true) {
                 if (synchronized(lock) { jobs[request.jobId]?.stage == "cancelled" }) return@launch
                 val worker = workers.dispatch(request, preferred, ::handleWorkerEvent)
                 if (worker != null) {
                     synchronized(lock) { workerKeys[request.jobId] = worker }
+                    diagnostics.event(
+                        "job_dispatched",
+                        request.tool,
+                        jobId = request.jobId,
+                        stage = "preparing",
+                    )
                     return@launch
+                }
+                waitingSeconds += 1
+                if (waitingSeconds % DISPATCH_WAIT_LOG_SECONDS == 0) {
+                    diagnostics.event(
+                        "job_waiting_for_workspace",
+                        request.tool,
+                        jobId = request.jobId,
+                        stage = "preparing",
+                    )
                 }
                 delay(1_000)
             }
-            fail(request.jobId, "No creation workspace became ready")
         }
     }
 
@@ -202,16 +225,27 @@ internal class CreationJobManager private constructor(context: Context) {
         }
     }
 
-    private fun updateProgress(jobId: String, event: CreationWorkerEvent) = synchronized(lock) {
-        val current = jobs[jobId] ?: return@synchronized
-        if (current.stage == "cancelled") return@synchronized
-        jobs[jobId] = current.copy(
-            stage = event.stage ?: current.stage,
-            progressText = event.progressText ?: current.progressText,
-            phase = event.phase ?: current.phase,
-            progressRatio = event.progressRatio ?: current.progressRatio,
-            estimatedTotalMs = event.estimatedTotalMs ?: current.estimatedTotalMs,
-        )
+    private fun updateProgress(jobId: String, event: CreationWorkerEvent) {
+        var changedStage: String? = null
+        val tool = synchronized(lock) {
+            val current = jobs[jobId] ?: return@synchronized null
+            if (current.stage == "cancelled") return@synchronized null
+            val nextStage = event.stage ?: current.stage
+            if (nextStage != current.stage || event.progressKey != null) {
+                changedStage = event.progressKey ?: nextStage
+            }
+            jobs[jobId] = current.copy(
+                stage = nextStage,
+                progressText = event.progressText ?: current.progressText,
+                phase = event.phase ?: current.phase,
+                progressRatio = event.progressRatio ?: current.progressRatio,
+                estimatedTotalMs = event.estimatedTotalMs ?: current.estimatedTotalMs,
+            )
+            requests[jobId]?.tool
+        }
+        changedStage?.let { stage ->
+            diagnostics.event("job_progress", tool, jobId = jobId, stage = stage)
+        }
     }
 
     private fun finish(workerKey: String, jobId: String, event: CreationWorkerEvent) {
@@ -265,19 +299,30 @@ internal class CreationJobManager private constructor(context: Context) {
                 }
             }
             history.record(tool, request.imagePath, published, request.outputName, metadata)
+            diagnostics.event("job_succeeded", request.tool, jobId = jobId, stage = "done")
             status
         }.onFailure { fail(jobId, it.message ?: "Could not save creation result") }
     }
 
-    private fun fail(jobId: String, message: String) = synchronized(lock) {
-        val current = jobs[jobId] ?: return@synchronized
-        if (current.stage == "cancelled") return@synchronized
-        requests[jobId]?.outputPath?.let(::File)?.delete()
-        jobs[jobId] = current.copy(
+    private fun fail(jobId: String, message: String) {
+        val tool = synchronized(lock) {
+            val current = jobs[jobId] ?: return@synchronized null
+            if (current.stage == "cancelled") return@synchronized null
+            requests[jobId]?.outputPath?.let(::File)?.delete()
+            jobs[jobId] = current.copy(
+                stage = "failed",
+                progressText = "Could not create result.",
+                phase = "failed",
+                error = message,
+            )
+            requests[jobId]?.tool
+        }
+        diagnostics.event(
+            "job_failed",
+            tool,
+            jobId = jobId,
             stage = "failed",
-            progressText = "Could not create result.",
-            phase = "failed",
-            error = message,
+            failureMessage = message,
         )
     }
 
@@ -332,7 +377,7 @@ internal class CreationJobManager private constructor(context: Context) {
     )
 
     companion object {
-        private const val DISPATCH_WAIT_SECONDS = 10 * 60
+        private const val DISPATCH_WAIT_LOG_SECONDS = 60
         private val sequence = AtomicLong()
         @Volatile private var instance: CreationJobManager? = null
 

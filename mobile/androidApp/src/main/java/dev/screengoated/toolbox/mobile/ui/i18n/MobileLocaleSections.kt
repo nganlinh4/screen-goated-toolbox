@@ -74,6 +74,9 @@ data class CreationCommonLocale(
     val noResults: String,
     val selectedImages: String,
     val interrupted: String,
+    val previewTools: String,
+    val depthPreviewModel: String,
+    val depthPreviewDescription: String,
 )
 
 data class Creation3dLocale(
@@ -88,6 +91,11 @@ data class Creation3dLocale(
     val geometryStats: String,
     val grid: String,
     val autoRotate: String,
+    val fit: String,
+    val originalMaterials: String,
+    val toonOutline: String,
+    val partColors: String,
+    val previewUnavailable: String,
 )
 
 data class CreationSvgLocale(

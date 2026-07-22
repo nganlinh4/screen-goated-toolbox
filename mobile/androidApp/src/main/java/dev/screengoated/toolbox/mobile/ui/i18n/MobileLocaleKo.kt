@@ -69,6 +69,10 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 noResults = "저장된 결과가 없습니다",
                 selectedImages = "이미지 {}개",
                 interrupted = "생성을 완료하지 못했습니다.",
+                previewTools = "생성 미리보기",
+                depthPreviewModel = "Depth Anything 3 Small",
+                depthPreviewDescription =
+                    "3D와 SVG 결과를 생성하는 동안 움직이는 깊이 미리보기를 표시합니다.",
             ),
             model3d = Creation3dLocale(
                 polycount = "폴리곤 수",
@@ -82,6 +86,11 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 geometryStats = "정점 {}개 · 면 {}개",
                 grid = "그리드",
                 autoRotate = "자동 회전",
+                fit = "화면에 맞춤",
+                originalMaterials = "원본 재질",
+                toonOutline = "툰 셰이딩",
+                partColors = "파트 색상",
+                previewUnavailable = "이 모델을 표시할 수 없습니다.",
             ),
             svg = CreationSvgLocale(
                 model = "모델",

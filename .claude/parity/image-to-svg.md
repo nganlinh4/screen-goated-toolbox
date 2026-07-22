@@ -17,6 +17,10 @@
   an account is reusable while at least four credits remain.
 - Progress preserves draft, queued, preparing, generating, finalizing, done, failed, and cancelled
   states and uses measured timing estimates when available.
+- While a job runs, the source separates into six animated depth bins when the shared,
+  on-demand Depth Anything 3 model and ONNX Runtime are ready. First-use setup and inference run
+  independently of remote generation, are serialized across creation jobs, stay visually silent
+  until a preview is ready, and never turn preview failure into job failure.
 - Completion renders the real SVG at its intrinsic ratio and animates every path with adaptive,
   overlapping timing rather than rasterizing or truncating the path set.
 - Viewer controls include fit, zoom, pan, background switching, path selection, fill/stroke edits,
@@ -35,6 +39,8 @@
   substitute a previous image's result.
 - Cancellation targets one job. Closing the UI does not corrupt active jobs or persisted history.
 - Preparation reuses eligible accounts and is staggered to avoid unnecessary mailbox churn.
+- Preparation progress remains below generation progress and failed preparation is captured in a
+  bounded, privacy-safe local diagnostic journal.
 - Fresh-account preparation is serialized across creation tools, and a mailbox rate limit pauses
   all new preparation attempts for five minutes without blocking already-ready workspaces. Remote
   preparation starts are always at least one minute apart, including after fast failures.
@@ -54,5 +60,6 @@
   gradients, and masks remain accurate; every visible app control is native Compose M3E.
 - Android's native M3E presentation intentionally differs from the Windows desktop layout while
   preserving the same fixture-backed behavior contract.
-- Android currently uses the canonical in-app progress scene without the optional Depth Anything 3
-  depth-bin preview pass; generated SVG rendering and editing are unchanged.
+- Android downloads the checksum-verified Depth Anything 3 Small model as removable data and uses
+  the shared flavor-specific ONNX Runtime delivery. It keeps the 518-pixel inference map in the
+  app cache rather than expanding it to the source image's full resolution.

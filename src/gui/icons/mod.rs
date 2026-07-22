@@ -70,6 +70,8 @@ pub enum Icon {
     Download,        // Downloaded tools  (Android: ms_download)
     SettingsVoice,   // TTS / voice settings  (Android: ms_settings_voice)
     BreakfastDining, // Translation gummy ("bánh mỳ")  (Android: ms_breakfast_dining)
+    DeployedCode,    // Image to 3D  (Android: ms_deployed_code)
+    DrawCollage,     // Image to SVG (Android: ms_draw_collage)
 
     // Providers (aligned with the Android settings dialog)
     ElectricBolt, // groq        (Android: ms_electric_bolt)
@@ -147,6 +149,8 @@ fn icon_svg_bytes(icon: Icon) -> &'static [u8] {
         Icon::Download => include_bytes!("svg/download.svg"),
         Icon::SettingsVoice => include_bytes!("svg/settings_voice.svg"),
         Icon::BreakfastDining => include_bytes!("svg/breakfast_dining.svg"),
+        Icon::DeployedCode => include_bytes!("svg/deployed_code.svg"),
+        Icon::DrawCollage => include_bytes!("svg/draw_collage.svg"),
         Icon::ElectricBolt => include_bytes!("svg/electric_bolt.svg"),
         Icon::Whatshot => include_bytes!("svg/whatshot.svg"),
         Icon::AutoAwesome => include_bytes!("svg/auto_awesome.svg"),

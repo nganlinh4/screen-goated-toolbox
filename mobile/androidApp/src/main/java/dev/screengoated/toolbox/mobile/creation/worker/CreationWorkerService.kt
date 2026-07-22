@@ -2,7 +2,10 @@ package dev.screengoated.toolbox.mobile.creation.worker
 
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.os.IBinder
+import android.util.Log
+import dev.screengoated.toolbox.mobile.creation.CreationDiagnostics
 import dev.screengoated.toolbox.mobile.creation.CreationTool
 import dev.screengoated.toolbox.mobile.creation.CreationWorkerEvent
 import dev.screengoated.toolbox.mobile.creation.CreationWorkerRequest
@@ -12,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -22,13 +26,39 @@ internal abstract class CreationWorkerService : Service() {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val jobs = ConcurrentHashMap<String, Job>()
-    private val engine by lazy { CreationAutomationEngine(this, workerTool, workerSlot) }
+    private var engine: CreationAutomationEngine? = null
+    private val diagnostics by lazy {
+        CreationDiagnostics(this, "worker-${workerTool.wireName}-$workerSlot")
+    }
 
     private val binder = object : ICreationWorker.Stub() {
         override fun prepare(callback: ICreationWorkerCallback) {
             scope.launch {
-                runCatching { engine.prepare { callback.emit(it) } }
+                val activeEngine = engine()
+                diagnostics.event("prepare_started", workerTool.wireName, workerSlot)
+                runCatching {
+                    activeEngine.prepare { event ->
+                        diagnostics.event(
+                            name = if (event.event == "ready") "prepare_ready" else "prepare_progress",
+                            tool = workerTool.wireName,
+                            slot = workerSlot,
+                            stage = event.progressKey ?: event.stage,
+                        )
+                        callback.emit(event)
+                    }
+                }
                     .onFailure {
+                        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                            Log.e(DEBUG_TAG, "Preparation failed for ${workerTool.wireName}-$workerSlot", it)
+                        }
+                        activeEngine.destroy()
+                        if (engine === activeEngine) engine = null
+                        diagnostics.event(
+                            "prepare_failed",
+                            workerTool.wireName,
+                            workerSlot,
+                            failure = it,
+                        )
                         callback.emit(
                             CreationWorkerEvent(
                                 event = "failure",
@@ -59,11 +89,69 @@ internal abstract class CreationWorkerService : Service() {
             }
             jobs.remove(request.jobId)?.cancel()
             jobs[request.jobId] = scope.launch {
+                val activeEngine = engine()
+                diagnostics.event(
+                    "job_started",
+                    workerTool.wireName,
+                    workerSlot,
+                    request.jobId,
+                    request.operation,
+                )
+                var lastStage: String? = null
                 try {
-                    engine.run(request) { callback.emit(it) }
+                    activeEngine.run(request) { event ->
+                        val stage = event.progressKey ?: event.stage ?: event.event
+                        if (stage != lastStage) {
+                            lastStage = stage
+                            diagnostics.event(
+                                "job_progress",
+                                workerTool.wireName,
+                                workerSlot,
+                                request.jobId,
+                                stage,
+                            )
+                        }
+                        callback.emit(event)
+                    }
+                } catch (error: TimeoutCancellationException) {
+                    if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                        Log.e(DEBUG_TAG, "Job timed out for ${workerTool.wireName}-$workerSlot", error)
+                    }
+                    diagnostics.event(
+                        "job_failed",
+                        workerTool.wireName,
+                        workerSlot,
+                        request.jobId,
+                        lastStage,
+                        error,
+                    )
+                    callback.emit(
+                        CreationWorkerEvent(
+                            jobId = request.jobId,
+                            event = "failure",
+                            error = error.message ?: "Creation timed out",
+                        ),
+                    )
                 } catch (_: CancellationException) {
+                    diagnostics.event(
+                        "job_cancelled",
+                        workerTool.wireName,
+                        workerSlot,
+                        request.jobId,
+                    )
                     callback.emit(CreationWorkerEvent(jobId = request.jobId, event = "cancelled"))
                 } catch (error: Throwable) {
+                    if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                        Log.e(DEBUG_TAG, "Job failed for ${workerTool.wireName}-$workerSlot", error)
+                    }
+                    diagnostics.event(
+                        "job_failed",
+                        workerTool.wireName,
+                        workerSlot,
+                        request.jobId,
+                        lastStage,
+                        error,
+                    )
                     callback.emit(
                         CreationWorkerEvent(
                             jobId = request.jobId,
@@ -85,13 +173,21 @@ internal abstract class CreationWorkerService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
-        engine.destroy()
+        engine?.destroy()
+        engine = null
         scope.cancel()
         super.onDestroy()
     }
 
+    private fun engine(): CreationAutomationEngine = engine
+        ?: CreationAutomationEngine(this, workerTool, workerSlot).also { engine = it }
+
     private fun ICreationWorkerCallback.emit(event: CreationWorkerEvent) {
         runCatching { onEvent(json.encodeToString(CreationWorkerEvent.serializer(), event)) }
+    }
+
+    private companion object {
+        const val DEBUG_TAG = "CreationRuntimeDebug"
     }
 }
 

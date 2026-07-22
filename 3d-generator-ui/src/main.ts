@@ -55,6 +55,9 @@ type QueueItem = {
   state: QueueState;
   result?: JobStatus;
   loadedDepthPath?: string;
+  loadedModelPath?: string;
+  modelAssetPath?: string;
+  modelAssetPromise?: Promise<AssetPayload>;
   operationStartedAt?: number;
   estimatedTotalMs?: number;
   displayedProgress?: number;
@@ -91,7 +94,7 @@ function icon(path: string, viewBox = "0 -960 960 960") {
 }
 
 const ICONS = {
-  model: icon("M480-80 120-280v-400l360-200 360 200v400L480-80Zm0-92 280-155v-286L480-458 200-613v286l280 155Zm0-378 274-152-274-152-274 152 274 152Z"),
+  model: icon("M440-183v-274L200-596v274l240 139Zm80 0 240-139v-274L520-457v274Zm-40-343 237-137-237-137-237 137 237 137ZM160-252q-19-11-29.5-29T120-321v-318q0-22 10.5-40t29.5-29l280-161q19-11 40-11t40 11l280 161q19 11 29.5 29t10.5 40v318q0 22-10.5 40T800-252L520-91q-19 11-40 11t-40-11L160-252Zm320-228Z"),
   image: icon("M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm80-160h400q12 0 18-11t-2-21L586-459q-6-8-16-8t-16 8L450-320l-74-99q-6-8-16-8t-16 8l-80 107q-8 10-2 21t18 11Z"),
   folder: icon("M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h207q16 0 30.5 6t25.5 17l57 57h360q17 0 28.5 11.5T880-680q0 17-11.5 28.5T840-640H314q-62 0-108 39t-46 99v262l79-263q8-26 29.5-41.5T316-560h516q41 0 64.5 32.5T909-457l-72 240q-8 26-29.5 41.5T760-160H160Z"),
   sparkle: icon("M706-706l-70-32q-11-5-11-18t11-18l70-32 32-70q5-12 18-12t18 12l32 70 70 32q12 5 12 18t-12 18l-70 32-32 70q-5 11-18 11t-18-11l-32-70ZM260-380l-160-73q-17-8-17-27t17-27l160-73 73-160q8-17 27-17t27 17l73 160 160 73q17 8 17 27t-17 27l-160 73-73 160q-8 17-27 17t-27-17l-73-160Zm450 230-70-32q-12-5-12-18t12-18l70-32 32-70q5-12 18-12t18 12l32 70 70 32q12 5 12 18t-12 18l-70 32-32 70q-5 12-18 12t-18-12l-32-70Z"),
@@ -200,9 +203,19 @@ app.innerHTML = `
         </div>
         <button class="secondary-action" id="segmentButton" type="button" data-i18n="separateParts"></button>
         <button class="primary-action" id="generateButton" type="button" disabled><span>${ICONS.sparkle}</span><span id="generateLabel"></span></button>
-        <button class="cancel-action" id="cancelButton" type="button"><span>${ICONS.stop}</span><span data-i18n="cancel"></span></button>
+        <button class="cancel-action" id="cancelButton" type="button"><span>${ICONS.stop}</span><span id="cancelLabel" data-i18n="cancel"></span></button>
       </aside>
     </main>
+    <div class="app-dialog" id="confirmDialog" role="dialog" aria-modal="true" hidden>
+      <div class="dialog-surface">
+        <strong id="confirmMessage"></strong>
+        <div class="dialog-actions">
+          <button class="secondary-action" id="confirmCancel" type="button" data-i18n="cancel"></button>
+          <button class="danger-action" id="confirmAccept" type="button" data-i18n="deleteResult"></button>
+        </div>
+      </div>
+    </div>
+    <div class="app-toast" id="appToast" role="status" aria-live="polite"></div>
   </section>
 `;
 
@@ -214,7 +227,7 @@ const nodes = {
   showFolderButton: query<HTMLButtonElement>("#showFolderButton"), sourceThumb: query<HTMLElement>("#sourceThumb"), sourceName: query<HTMLElement>("#sourceName"),
   sourceMeta: query<HTMLElement>("#sourceMeta"), folderName: query<HTMLElement>("#folderName"), polycountRange: query<HTMLInputElement>("#polycountRange"),
   polycountValue: query<HTMLOutputElement>("#polycountValue"), autoSegmentInput: query<HTMLInputElement>("#autoSegmentInput"),
-  generateButton: query<HTMLButtonElement>("#generateButton"), generateLabel: query<HTMLElement>("#generateLabel"), cancelButton: query<HTMLButtonElement>("#cancelButton"),
+  generateButton: query<HTMLButtonElement>("#generateButton"), generateLabel: query<HTMLElement>("#generateLabel"), cancelButton: query<HTMLButtonElement>("#cancelButton"), cancelLabel: query<HTMLElement>("#cancelLabel"),
   segmentButton: query<HTMLButtonElement>("#segmentButton"), statusTitle: query<HTMLElement>("#statusTitle"), statusDetail: query<HTMLElement>("#statusDetail"),
   statusEta: query<HTMLElement>("#statusEta"), progressTrack: query<HTMLElement>("#progressTrack"), progressFill: query<HTMLElement>("#progressFill"),
   statusMark: query<HTMLElement>("#statusMark"), stageStatus: query<HTMLElement>("#stageStatus"), readiness: query<HTMLElement>("#readiness"),
@@ -224,6 +237,8 @@ const nodes = {
   stage: query<HTMLElement>("#modelStage"), viewerToolbar: query<HTMLElement>("#viewerToolbar"), outlineButton: query<HTMLButtonElement>("#outlineButton"),
   rotateButton: query<HTMLButtonElement>("#rotateButton"), gridButton: query<HTMLButtonElement>("#gridButton"), wireButton: query<HTMLButtonElement>("#wireButton"),
   fitButton: query<HTMLButtonElement>("#fitButton"), shadingButtons: [...document.querySelectorAll<HTMLButtonElement>(".shading-tool")],
+  confirmDialog: query<HTMLElement>("#confirmDialog"), confirmMessage: query<HTMLElement>("#confirmMessage"),
+  confirmCancel: query<HTMLButtonElement>("#confirmCancel"), confirmAccept: query<HTMLButtonElement>("#confirmAccept"), appToast: query<HTMLElement>("#appToast"),
 };
 
 const viewer = new ModelViewer(nodes.canvas, nodes.stage);
@@ -231,7 +246,7 @@ const MAX_PARALLEL_JOBS = 2;
 const state = {
   items: [] as QueueItem[], selectedId: "", runningIds: new Set<string>(), outputDir: "", queueActive: false, cancelRequested: false,
   backendStatus: { stage: "idle", progressText: "", runtimeStatus: "checking" } as JobStatus,
-  preparationStatus: "preparing", preparationTimer: 0, preparationPollToken: 0, displayToken: 0,
+  preparationStatus: "preparing", preparationTimer: 0, preparationPollToken: 0, displayToken: 0, displayedItemId: "", displayedModelPath: "",
   outline: true, rotate: false, grid: false, wire: false, renamingId: "", historyRefreshing: false,
 };
 
@@ -242,6 +257,33 @@ function pendingItems() { return state.items.filter((item) => item.state === "qu
 function batchItems(batchId: string) { return state.items.filter((item) => item.batchId === batchId); }
 function activeJobCount() { return state.runningIds.size; }
 function delay(ms: number) { return new Promise((resolve) => window.setTimeout(resolve, ms)); }
+function isDraft(item?: QueueItem) { return Boolean(item?.state === "queued" && !item.submitted); }
+function isRerunnable(item?: QueueItem) { return Boolean(item && ["done", "failed", "cancelled"].includes(item.state)); }
+function isConfigurable(item?: QueueItem) { return isDraft(item) || isRerunnable(item); }
+
+let confirmResolver: ((accepted: boolean) => void) | undefined;
+function confirmInApp(message: string) {
+  confirmResolver?.(false);
+  nodes.confirmMessage.textContent = message;
+  nodes.confirmDialog.hidden = false;
+  nodes.confirmAccept.focus();
+  return new Promise<boolean>((resolve) => { confirmResolver = resolve; });
+}
+
+function closeConfirmation(accepted: boolean) {
+  nodes.confirmDialog.hidden = true;
+  const resolve = confirmResolver;
+  confirmResolver = undefined;
+  resolve?.(accepted);
+}
+
+let toastTimer = 0;
+function showToast(message: string) {
+  window.clearTimeout(toastTimer);
+  nodes.appToast.textContent = message;
+  nodes.appToast.classList.add("visible");
+  toastTimer = window.setTimeout(() => nodes.appToast.classList.remove("visible"), 4200);
+}
 
 function applyTranslations() {
   document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n as MessageKey); });
@@ -344,22 +386,38 @@ async function renameHistoryItem(item: QueueItem, newName: string) {
     if (item.result) { item.result.outputPath = entry.outputPath; item.result.outputName = entry.outputName; }
     state.renamingId = ""; updateUi();
   } catch (error) {
-    window.alert(`${t("renameFailed")}: ${String(error)}`);
+    showToast(`${t("renameFailed")}: ${String(error)}`);
     state.renamingId = ""; renderQueue();
   }
 }
 
 async function deleteHistoryItem(item: QueueItem) {
-  if (!item.historyId || !window.confirm(t("deleteResultConfirm"))) return;
+  if (!item.historyId || !await confirmInApp(t("deleteResultConfirm"))) return;
   try {
     await invoke("delete_history_result", { id: item.historyId });
     removeItem(item.id);
   } catch (error) {
-    window.alert(`${t("deleteFailed")}: ${String(error)}`);
+    showToast(`${t("deleteFailed")}: ${String(error)}`);
   }
 }
 
 async function readAsset(path: string) { return invoke<AssetPayload>("read_asset", { path }); }
+
+function readModelAsset(item: QueueItem, path: string) {
+  if (item.modelAssetPath !== path || !item.modelAssetPromise) {
+    item.modelAssetPath = path;
+    const promise = readAsset(path);
+    item.modelAssetPromise = promise;
+    const clear = () => {
+      if (item.modelAssetPromise === promise) {
+        item.modelAssetPromise = undefined;
+        item.modelAssetPath = undefined;
+      }
+    };
+    void promise.then(clear, clear);
+  }
+  return item.modelAssetPromise!;
+}
 
 function comparablePath(path?: string | null) { return (path || "").toLowerCase(); }
 
@@ -413,7 +471,9 @@ async function refreshHistory() {
 
 async function addImagePaths(paths: string[]) {
   if (!paths.length) return;
-  const existing = new Set(state.items.map((item) => item.path.toLowerCase()));
+  const existing = new Set(state.items
+    .filter((item) => item.state === "queued" || item.state === "running")
+    .map((item) => item.path.toLowerCase()));
   const unique = paths.filter((path) => {
     const key = path.toLowerCase();
     if (existing.has(key)) return false;
@@ -461,18 +521,37 @@ async function selectItem(id: string) {
 
 async function displayItem(item: QueueItem) {
   const token = ++state.displayToken;
+  const modelPath = item.result?.outputPath &&
+    (item.state === "done" || item.result.stage === "segmenting" || item.state === "failed" || item.state === "cancelled")
+    ? item.result.outputPath
+    : undefined;
+  if (modelPath && state.displayedItemId === item.id && state.displayedModelPath === modelPath && item.loadedModelPath === modelPath) {
+    syncViewerControls();
+    return;
+  }
   try {
-    if (item.state === "done" && item.result?.outputPath) {
-      const asset = await readAsset(item.result.outputPath);
+    if (modelPath) {
+      const asset = await readModelAsset(item, modelPath);
       if (token !== state.displayToken || state.selectedId !== item.id) return;
-      item.modelStats = await viewer.setModel(asset.dataUrl, Boolean(item.result.isSegmented));
+      const stats = await viewer.setModel(asset.dataUrl, Boolean(item.result?.isSegmented));
+      if (!stats) return;
+      item.modelStats = stats;
+      item.loadedModelPath = modelPath;
       if (token !== state.displayToken || state.selectedId !== item.id) return;
+      state.displayedItemId = item.id;
+      state.displayedModelPath = modelPath;
       updateUi();
       return;
     }
     if (!item.assetUrl) item.assetUrl = (await readAsset(item.path)).dataUrl;
     if (token !== state.displayToken || state.selectedId !== item.id) return;
     await viewer.setSource(item.assetUrl);
+    if (token !== state.displayToken || state.selectedId !== item.id) return;
+    state.displayedItemId = item.id;
+    state.displayedModelPath = "";
+    item.loadedModelPath = "";
+    item.loadedDepthPath = "";
+    if (item.result?.previewPath) await loadDepthFor(item, item.result.previewPath);
   } catch { /* The status surface remains usable even if preview loading fails. */ }
   syncViewerControls();
 }
@@ -549,8 +628,8 @@ function updateProgressUi() {
 }
 
 function syncViewerControls() {
-  const done = selectedItem()?.state === "done";
-  nodes.viewerToolbar.classList.toggle("visible", Boolean(done));
+  const hasModel = Boolean(selectedItem()?.loadedModelPath);
+  nodes.viewerToolbar.classList.toggle("visible", hasModel);
   nodes.shadingButtons.forEach((button) => {
     const mode = button.dataset.shading as ShadingMode;
     button.classList.toggle("active", viewer.getShading() === mode);
@@ -583,9 +662,9 @@ function updateUi() {
   const polycount = item?.polycount ?? 5000;
   nodes.polycountValue.value = new Intl.NumberFormat(locale()).format(polycount); nodes.polycountRange.value = String(polycount);
   nodes.autoSegmentInput.checked = Boolean(item?.autoSegment);
-  const locked = !item || item.state !== "queued" || item.submitted;
+  const locked = !isConfigurable(item);
   nodes.polycountRange.disabled = locked; nodes.autoSegmentInput.disabled = locked;
-  const selectedDraft = Boolean(item?.state === "queued" && !item.submitted);
+  const selectedDraft = isDraft(item);
   nodes.generateButton.disabled = !item || missing || item.state === "running";
   nodes.generateButton.classList.toggle("is-busy", busy);
   const rerun = item ? item.state === "done" || item.state === "failed" || item.state === "cancelled" : false;
@@ -600,15 +679,17 @@ function updateUi() {
           ? t("generateAgain")
           : t("generateModel");
   nodes.cancelButton.classList.toggle("visible", busy || state.queueActive);
+  nodes.cancelLabel.textContent = item?.result?.stage === "segmenting" ? t("cancelSegmentation") : t("cancel");
   const canSegment = item?.state === "done" && item.result?.canSegment && item.result?.jobId && !item.result?.isSegmented && activeJobCount() < MAX_PARALLEL_JOBS;
   nodes.segmentButton.classList.toggle("visible", Boolean(canSegment));
-  nodes.resultSummary.classList.toggle("visible", item?.state === "done");
+  const hasModel = Boolean(item?.result?.outputPath && item.loadedModelPath);
+  nodes.resultSummary.classList.toggle("visible", hasModel);
   nodes.resultName.textContent = item?.result?.isSegmented ? t("partsReady") : t("modelReady");
   nodes.resultMeta.textContent = item?.result?.outputName || t("savedAutomatically");
-  const showModelStats = item?.state === "done" && Boolean(item.modelStats);
+  const showModelStats = hasModel && Boolean(item?.modelStats);
   nodes.modelStats.textContent = item?.modelStats ? formatModelStats(item.modelStats) : "";
   nodes.modelStats.classList.toggle("visible", showModelStats);
-  nodes.showFolderButton.classList.toggle("visible", Boolean(item?.state === "done" && item.result?.outputPath));
+  nodes.showFolderButton.classList.toggle("visible", Boolean(item?.result?.outputPath));
   nodes.emptyCopy.classList.toggle("hidden", Boolean(item));
   if (!state.renamingId) renderQueue();
   syncViewerControls(); updateProgressUi();
@@ -625,6 +706,7 @@ function applyBackendStatus(item: QueueItem, status: JobStatus) {
   if (state.selectedId === item.id) state.backendStatus = status;
   item.result = status;
   if (status.previewPath) void loadDepthFor(item, status.previewPath);
+  if (status.outputPath && state.selectedId === item.id) void displayItem(item);
   updateUi();
 }
 
@@ -643,7 +725,7 @@ async function waitForJob(item: QueueItem, initial: JobStatus) {
 async function runItem(item: QueueItem) {
   state.runningIds.add(item.id); item.state = "running";
   beginProgress(item, item.autoSegment ? 360_000 : 240_000);
-  if (state.selectedId === item.id && item.assetUrl) await viewer.setSource(item.assetUrl);
+  if (state.selectedId === item.id) await displayItem(item);
   const request: StartJobRequest = {
     imagePath: item.path, outputDir: state.outputDir || null, polycount: Math.min(20000, Math.max(500, Math.round(item.polycount))),
     mode: "topology_mesh", outputFormat: "glb_plain", autoSegment: item.autoSegment, segmentationMode: item.autoSegment ? "parts" : "none",
@@ -799,7 +881,10 @@ async function loadDevModelPreview(modelUrl: string) {
       result: { stage: "done", progressText: "", outputPath: modelUrl, outputName: name, isSegmented: devParams?.get("segmented") === "1", canSegment: false },
     };
     state.items.push(item); state.selectedId = item.id;
-    item.modelStats = await viewer.setModel(objectUrl, Boolean(item.result?.isSegmented));
+    const stats = await viewer.setModel(objectUrl, Boolean(item.result?.isSegmented));
+    if (stats) item.modelStats = stats;
+    state.displayedItemId = item.id;
+    state.displayedModelPath = modelUrl;
     updateUi();
   } catch (error) {
     state.backendStatus = { stage: "failed", progressText: String(error), error: String(error) };
@@ -917,19 +1002,33 @@ nodes.chooseFolderButton.addEventListener("click", async () => { const path = aw
 nodes.showFolderButton.addEventListener("click", () => void invoke("open_output", { kind: "folder", path: selectedItem()?.result?.outputPath || null }));
 nodes.generateButton.addEventListener("click", submitSelectedBatch);
 nodes.segmentButton.addEventListener("click", () => void segmentSelected());
-nodes.cancelButton.addEventListener("click", async () => { state.cancelRequested = true; await invoke("cancel_job"); });
+nodes.cancelButton.addEventListener("click", async () => {
+  const item = selectedItem();
+  if (item?.result?.stage === "segmenting" && item.result.jobId) {
+    const status = await invoke<JobStatus>("cancel_job", { jobId: item.result.jobId });
+    item.result = status; item.state = "cancelled"; state.runningIds.delete(item.id); updateUi();
+    return;
+  }
+  state.cancelRequested = true;
+  await invoke("cancel_job");
+});
+nodes.confirmCancel.addEventListener("click", () => closeConfirmation(false));
+nodes.confirmAccept.addEventListener("click", () => closeConfirmation(true));
+nodes.confirmDialog.addEventListener("click", (event) => { if (event.target === nodes.confirmDialog) closeConfirmation(false); });
 nodes.polycountRange.addEventListener("input", () => {
   const item = selectedItem();
-  if (item?.state === "queued" && !item.submitted) {
+  if (item && isConfigurable(item)) {
     const value = Number(nodes.polycountRange.value);
-    batchItems(item.batchId).forEach((member) => { if (member.state === "queued" && !member.submitted) member.polycount = value; });
+    if (isRerunnable(item)) item.polycount = value;
+    else batchItems(item.batchId).forEach((member) => { if (member.state === "queued" && !member.submitted) member.polycount = value; });
     updateUi();
   }
 });
 nodes.autoSegmentInput.addEventListener("change", () => {
   const item = selectedItem();
-  if (item?.state === "queued" && !item.submitted) {
-    batchItems(item.batchId).forEach((member) => { if (member.state === "queued" && !member.submitted) member.autoSegment = nodes.autoSegmentInput.checked; });
+  if (item && isConfigurable(item)) {
+    if (isRerunnable(item)) item.autoSegment = nodes.autoSegmentInput.checked;
+    else batchItems(item.batchId).forEach((member) => { if (member.state === "queued" && !member.submitted) member.autoSegment = nodes.autoSegmentInput.checked; });
     updateUi();
   }
 });

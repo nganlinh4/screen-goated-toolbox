@@ -28,8 +28,10 @@ internal class CreationNativeViewModel(
     val tool: CreationTool,
 ) : AndroidViewModel(application) {
     private val manager = CreationJobManager.get(application)
+    private val depthPreviewManager = DepthPreviewModelManager.get(application)
     private val schedulerMutex = Mutex()
     private val monitors = ConcurrentHashMap<String, Job>()
+    private val depthPreviewJobs = ConcurrentHashMap<String, Job>()
     private val mutableState = MutableStateFlow(
         CreationNativeUiState(outputDirectory = manager.files.defaultOutputDirectoryLabel()),
     )
@@ -104,6 +106,7 @@ internal class CreationNativeViewModel(
     }
 
     fun removeDraft(id: String) {
+        depthPreviewJobs.remove(id)?.cancel()
         mutableState.update { current ->
             val item = current.items.firstOrNull { it.id == id }
             if (item?.stage == CreationNativeStage.RUNNING) return@update current
@@ -148,6 +151,7 @@ internal class CreationNativeViewModel(
                             submitted = true,
                             stage = CreationNativeStage.QUEUED,
                             status = null,
+                            depthPreviewPath = null,
                         )
                     } else item
                 },
@@ -159,6 +163,7 @@ internal class CreationNativeViewModel(
 
     fun cancelSelected() {
         val selected = mutableState.value.selectedItem ?: return
+        depthPreviewJobs.remove(selected.id)?.cancel()
         val jobId = selected.status?.jobId
         if (selected.stage == CreationNativeStage.RUNNING && jobId != null) {
             manager.cancel(tool, jobId)
@@ -299,6 +304,7 @@ internal class CreationNativeViewModel(
                     updateItem(next.id) {
                         it.copy(stage = CreationNativeStage.RUNNING, status = status)
                     }
+                    startDepthPreview(next.id)
                     monitor(next.id, status)
                 }
             }
@@ -316,6 +322,7 @@ internal class CreationNativeViewModel(
                 updateItem(itemId) { it.copy(stage = status.toNativeStage(), status = status) }
             }
             monitors.remove(jobId)
+            depthPreviewJobs.remove(itemId)?.cancel()
             refreshHistoryNow()
             schedule()
         }
@@ -350,7 +357,29 @@ internal class CreationNativeViewModel(
                 )
             }
             items.forEach { item -> item.status?.let { monitor(item.id, it) } }
+            items.forEach { startDepthPreview(it.id) }
         }
+    }
+
+    private fun startDepthPreview(itemId: String) {
+        val item = mutableState.value.items.firstOrNull { it.id == itemId } ?: return
+        depthPreviewJobs.remove(itemId)?.cancel()
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            val path = depthPreviewManager.createPreview(item.sourcePath)
+            if (path != null) {
+                updateItem(itemId) { current ->
+                    if (current.sourcePath == item.sourcePath &&
+                        current.stage in setOf(CreationNativeStage.QUEUED, CreationNativeStage.RUNNING)
+                    ) {
+                        current.copy(depthPreviewPath = path)
+                    } else {
+                        current
+                    }
+                }
+            }
+        }
+        depthPreviewJobs[itemId] = job
+        job.invokeOnCompletion { depthPreviewJobs.remove(itemId, job) }
     }
 
     private fun refreshHistory() {

@@ -88,6 +88,18 @@ fn update_progress(job_id: &str, value: &Value, runtime_status: &str) {
     if let Some(preview_path) = value.get("previewPath").and_then(Value::as_str) {
         current.preview_path = Some(preview_path.to_string());
     }
+    if let Some(output_path) = value.get("outputPath").and_then(Value::as_str) {
+        current.output_path = Some(output_path.to_string());
+    }
+    if let Some(output_name) = value.get("outputName").and_then(Value::as_str) {
+        current.output_name = Some(output_name.to_string());
+    }
+    if let Some(is_segmented) = value.get("isSegmented").and_then(Value::as_bool) {
+        current.is_segmented = is_segmented;
+    }
+    if let Some(can_segment) = value.get("canSegment").and_then(Value::as_bool) {
+        current.can_segment = can_segment;
+    }
     current.runtime_status = runtime_status.to_string();
 }
 
@@ -407,7 +419,7 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                     .and_then(Value::as_str)
                     .unwrap_or("Creation failed")
                     .to_string();
-                let preview_path = job_status(Some(&job_id)).preview_path;
+                let current = job_status(Some(&job_id));
                 finish_job(
                     &job_id,
                     JobStatus {
@@ -420,9 +432,9 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                         estimated_total_ms: None,
                         progress_ratio: None,
                         timing_sample_count: None,
-                        output_path: None,
-                        output_name: None,
-                        preview_path,
+                        output_path: current.output_path,
+                        output_name: current.output_name,
+                        preview_path: current.preview_path,
                         source_image_path: Some(source_image_path.clone()),
                         is_segmented: false,
                         can_segment: false,
@@ -448,7 +460,7 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
     } else {
         format!("3D engine exited unexpectedly: {process_status:?}. {stderr}")
     };
-    let preview_path = job_status(Some(&job_id)).preview_path;
+    let current = job_status(Some(&job_id));
     finish_job(
         &job_id,
         JobStatus {
@@ -461,9 +473,9 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
             estimated_total_ms: None,
             progress_ratio: None,
             timing_sample_count: None,
-            output_path: None,
-            output_name: None,
-            preview_path,
+            output_path: current.output_path,
+            output_name: current.output_name,
+            preview_path: current.preview_path,
             source_image_path: Some(source_image_path),
             is_segmented: false,
             can_segment: false,

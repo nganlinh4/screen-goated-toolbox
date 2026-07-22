@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.creation
 
+import dev.screengoated.toolbox.mobile.creation.worker.svgWorkspaceSignedIn
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -9,6 +10,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CreationStateContractTest {
@@ -28,6 +30,12 @@ class CreationStateContractTest {
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.intAt("maximumParallelJobs"))
         assertEquals("native_compose_m3e", surface.stringAt("shell"))
         assertEquals("sceneview_filament", surface.stringAt("resultRenderer"))
+        assertEquals("depth_anything_3_relief", surface.stringAt("progressPreview"))
+        assertEquals(DepthPreviewContract.INPUT_SIDE, surface.intAt("previewInputSide"))
+        assertFalse(surface.booleanAt("previewBlocksGeneration"))
+        assertFalse(surface.booleanAt("previewSetupVisible"))
+        assertEquals(18, surface.intAt("preparationProgressMaximumPercent"))
+        assertEquals("bounded_privacy_safe_journal", surface.stringAt("diagnostics"))
         assertFalse(surface.booleanAt("backgroundAutomationVisible"))
     }
 
@@ -43,16 +51,57 @@ class CreationStateContractTest {
         assertEquals(4, models.objectAt("detail").intAt("creditCost"))
         assertEquals("native_compose_m3e", surface.stringAt("shell"))
         assertEquals("sandboxed_svg_document", surface.stringAt("resultRenderer"))
+        assertEquals("depth_anything_3_six_bins", surface.stringAt("progressPreview"))
+        assertEquals(DepthPreviewContract.INPUT_SIDE, surface.intAt("previewInputSide"))
+        assertFalse(surface.booleanAt("previewBlocksGeneration"))
+        assertFalse(surface.booleanAt("previewSetupVisible"))
+        assertEquals(18, surface.intAt("preparationProgressMaximumPercent"))
+        assertEquals("bounded_privacy_safe_journal", surface.stringAt("diagnostics"))
         assertFalse(surface.booleanAt("backgroundAutomationVisible"))
     }
 
+    @Test
+    fun `android depth preview uses the canonical windows model`() {
+        val windowsSource = File(
+            repoRoot(),
+            "src/overlay/three_d_generator/depth_model.rs",
+        ).readText()
+
+        assertTrue(windowsSource.contains(DepthPreviewContract.MODEL_URL))
+        assertTrue(windowsSource.replace("_", "").contains(DepthPreviewContract.MODEL_BYTES.toString()))
+        assertTrue(windowsSource.contains(DepthPreviewContract.MODEL_SHA256))
+        assertTrue(windowsSource.contains("const SIDE: u32 = ${DepthPreviewContract.INPUT_SIDE};"))
+    }
+
+    @Test
+    fun `mailbox preparation uses patient capped retries`() {
+        assertEquals(4, CreationContract.IMAGE_TO_3D_WORKSPACES)
+        assertEquals(1, CreationContract.MAXIMUM_CONCURRENT_PREPARATIONS)
+        assertEquals(5 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(1))
+        assertEquals(10 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(2))
+        assertEquals(15 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(3))
+        assertEquals(15 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(20))
+    }
+
+    @Test
+    fun `svg workspace recovery does not treat an unknown page as authenticated`() {
+        assertEquals(true, svgWorkspaceSignedIn("https://www.svgai.org/dashboard", "New project"))
+        assertEquals(true, svgWorkspaceSignedIn("https://www.svgai.org/dashboard", "Start a new design."))
+        assertEquals(false, svgWorkspaceSignedIn("https://www.svgai.org/signup", ""))
+        assertEquals(false, svgWorkspaceSignedIn("https://www.svgai.org/", "SIGN IN"))
+        assertEquals(null, svgWorkspaceSignedIn("https://www.svgai.org/dashboard", "Loading"))
+    }
+
     private fun loadFixture(path: String): JsonObject {
+        return json.parseToJsonElement(File(repoRoot(), path).readText()).jsonObject
+    }
+
+    private fun repoRoot(): File {
         val workingDirectory = requireNotNull(System.getProperty("user.dir"))
-        val repoRoot = generateSequence(File(workingDirectory).absoluteFile) { current ->
+        return generateSequence(File(workingDirectory).absoluteFile) { current ->
             current.parentFile
-        }.firstOrNull { root -> File(root, path).isFile }
-            ?: error("Could not locate $path from $workingDirectory")
-        return json.parseToJsonElement(File(repoRoot, path).readText()).jsonObject
+        }.firstOrNull { root -> File(root, "parity-fixtures").isDirectory }
+            ?: error("Could not locate the repository from $workingDirectory")
     }
 
     private fun JsonObject.objectAt(key: String) = requireNotNull(this[key]).jsonObject

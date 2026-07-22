@@ -2,13 +2,19 @@
 
 package dev.screengoated.toolbox.mobile.creation
 
-import android.annotation.SuppressLint
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.Region
 import android.graphics.Color as AndroidColor
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
+import android.util.Xml
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.FlowRow
@@ -24,72 +30,124 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.PathParser
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.ui.i18n.CreationCommonLocale
 import dev.screengoated.toolbox.mobile.ui.i18n.CreationSvgLocale
-import java.util.Base64
-import kotlin.coroutines.resume
-import kotlinx.coroutines.suspendCancellableCoroutine
-import org.json.JSONTokener
-import org.json.JSONObject
+import java.io.StringReader
+import java.util.Locale
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.hypot
+import kotlin.math.min
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.xmlpull.v1.XmlPullParser
 
 internal class CreationSvgDocumentController {
-    private var webView: WebView? = null
+    internal var document by mutableStateOf<NativeSvgDocument?>(null)
+        private set
+    internal var revision by mutableIntStateOf(0)
+        private set
+    internal var zoom by mutableFloatStateOf(1f)
+        private set
+    internal var pan by mutableStateOf(Offset.Zero)
+        private set
+    internal var selectedIndex by mutableStateOf<Int?>(null)
+        private set
 
-    internal fun attach(view: WebView) {
-        webView = view
+    private val undo = ArrayDeque<SvgSnapshot>()
+    private val redo = ArrayDeque<SvgSnapshot>()
+
+    internal fun attach(value: NativeSvgDocument) {
+        if (document === value) return
+        document = value
+        selectedIndex = null
+        undo.clear()
+        redo.clear()
+        fit()
     }
+
+    internal fun transform(panChange: Offset, zoomChange: Float) {
+        zoom = (zoom * zoomChange).coerceIn(0.25f, 8f)
+        pan = if (zoom <= 1f) Offset.Zero else pan + panChange
+    }
+
+    internal fun select(index: Int?) {
+        selectedIndex = index
+        revision += 1
+    }
+
+    fun fit() {
+        zoom = 1f
+        pan = Offset.Zero
+    }
+
+    fun zoomIn() { zoom = (zoom * 1.2f).coerceAtMost(8f) }
+    fun zoomOut() {
+        zoom = (zoom / 1.2f).coerceAtLeast(0.25f)
+        if (zoom <= 1f) pan = Offset.Zero
+    }
+
+    fun undo() {
+        val value = document ?: return
+        val snapshot = undo.removeLastOrNull() ?: return
+        redo.addLast(value.snapshot(selectedIndex))
+        value.restore(snapshot)
+        selectedIndex = snapshot.selected
+        revision += 1
+    }
+
+    fun redo() {
+        val value = document ?: return
+        val snapshot = redo.removeLastOrNull() ?: return
+        undo.addLast(value.snapshot(selectedIndex))
+        value.restore(snapshot)
+        selectedIndex = snapshot.selected
+        revision += 1
+    }
+
+    fun deleteSelected() = mutate { shape -> shape.deleted = true }
+    fun setFill(value: String) = mutate { shape -> shape.fill = value }
+    fun setStroke(value: String) = mutate { shape -> shape.stroke = value }
+
+    suspend fun serialize(): String = document?.serialize().orEmpty()
 
     internal fun destroy() {
-        webView?.let { view ->
-            webView = null
-            view.removeJavascriptInterface("SgtSvg")
-            view.stopLoading()
-            view.destroy()
-        }
+        document = null
+        undo.clear()
+        redo.clear()
     }
 
-    fun fit() = evaluate("window.SGT?.fit()")
-    fun zoomIn() = evaluate("window.SGT?.zoom(1.2)")
-    fun zoomOut() = evaluate("window.SGT?.zoom(0.833333)")
-    fun undo() = evaluate("window.SGT?.undo()")
-    fun redo() = evaluate("window.SGT?.redo()")
-    fun deleteSelected() = evaluate("window.SGT?.deleteSelected()")
-    fun setFill(value: String) = evaluate("window.SGT?.setPaint('fill', ${JSONObject.quote(value)})")
-    fun setStroke(value: String) = evaluate("window.SGT?.setPaint('stroke', ${JSONObject.quote(value)})")
-
-    suspend fun serialize(): String = suspendCancellableCoroutine { continuation ->
-        val view = webView
-        if (view == null) {
-            continuation.resume("")
-            return@suspendCancellableCoroutine
-        }
-        view.evaluateJavascript("window.SGT?.serialize() || ''") { encoded ->
-            val value = runCatching { JSONTokener(encoded).nextValue() as? String }
-                .getOrNull()
-                .orEmpty()
-            if (continuation.isActive) continuation.resume(value)
-        }
-    }
-
-    private fun evaluate(script: String) {
-        webView?.evaluateJavascript(script, null)
+    private fun mutate(action: (NativeSvgShape) -> Unit) {
+        val value = document ?: return
+        val shape = selectedIndex?.let(value.shapes::getOrNull) ?: return
+        undo.addLast(value.snapshot(selectedIndex))
+        while (undo.size > 40) undo.removeFirst()
+        redo.clear()
+        action(shape)
+        revision += 1
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun CreationSvgDocument(
     outputPath: String,
@@ -97,47 +155,79 @@ internal fun CreationSvgDocument(
     controller: CreationSvgDocumentController,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val svg by produceState<String?>(null, outputPath) {
-        value = runCatching { viewModel.readSvg(outputPath) }.getOrNull()
+    val document by produceState<NativeSvgDocument?>(null, outputPath) {
+        value = runCatching {
+            val svg = viewModel.readSvg(outputPath)
+            withContext(Dispatchers.Default) { NativeSvgParser.parse(svg) }
+        }.getOrNull()
     }
-    val document = svg
-    if (document == null) {
+    val value = document
+    if (value == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             androidx.compose.material3.CircularProgressIndicator()
         }
         return
     }
-    val html = remember(document) { svgDocumentHtml(document) }
-    val bridge = remember { SvgSelectionBridge() }
-    key(outputPath) {
-        AndroidView(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surfaceContainerLowest),
-            factory = {
-                WebView(context).apply {
-                    setBackgroundColor(AndroidColor.TRANSPARENT)
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = false
-                    settings.allowFileAccess = false
-                    settings.allowContentAccess = false
-                    settings.blockNetworkLoads = true
-                    settings.setSupportZoom(false)
-                    addJavascriptInterface(bridge, "SgtSvg")
-                    controller.attach(this)
-                    loadDataWithBaseURL(
-                        "https://sgt.local/svg-document/",
-                        html,
-                        "text/html",
-                        "utf-8",
-                        null,
-                    )
+    LaunchedEffect(value) { controller.attach(value) }
+    val accent = MaterialTheme.colorScheme.primary
+    val revision = controller.revision
+    val zoom = controller.zoom
+    val pan = controller.pan
+    val selected = controller.selectedIndex
+    val checkerLight = MaterialTheme.colorScheme.surfaceContainerLowest
+    val checkerDark = MaterialTheme.colorScheme.surfaceContainerHigh
+
+    Canvas(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(value, zoom, pan) {
+                detectTapGestures { point ->
+                    val transform = value.viewportTransform(size.width.toFloat(), size.height.toFloat(), zoom, pan)
+                    controller.select(value.hitTest(transform.toDocument(point), transform.documentTolerance(8f)))
+                }
+            }
+            .pointerInput(value) {
+                detectTransformGestures { _, panChange, zoomChange, _ ->
+                    controller.transform(panChange, zoomChange)
                 }
             },
-        )
-        DisposableEffect(controller) {
-            onDispose { controller.destroy() }
+    ) {
+        @Suppress("UNUSED_VARIABLE") val redraw = revision
+        drawRect(checkerLight)
+        val checkerSize = 10.dp.toPx()
+        val columns = ceil(size.width / checkerSize).toInt()
+        val rows = ceil(size.height / checkerSize).toInt()
+        repeat(rows) { row ->
+            repeat(columns) { column ->
+                if ((row + column) % 2 == 0) {
+                    drawRect(
+                        color = checkerDark,
+                        topLeft = Offset(column * checkerSize, row * checkerSize),
+                        size = Size(checkerSize, checkerSize),
+                    )
+                }
+            }
+        }
+        val transform = value.viewportTransform(size.width, size.height, zoom, pan)
+        drawIntoCanvas { composeCanvas ->
+            val canvas = composeCanvas.nativeCanvas
+            canvas.save()
+            canvas.translate(transform.origin.x + pan.x, transform.origin.y + pan.y)
+            canvas.scale(transform.scale, transform.scale)
+            canvas.translate(-value.viewBox.left, -value.viewBox.top)
+            value.shapes.forEachIndexed { index, shape ->
+                if (shape.deleted) return@forEachIndexed
+                shape.draw(canvas)
+                if (selected == index) {
+                    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.STROKE
+                        color = accent.toArgb()
+                        strokeWidth = 2.2f / transform.scale
+                    }
+                    canvas.drawPath(shape.path, paint)
+                }
+            }
+            canvas.restore()
         }
     }
 }
@@ -175,11 +265,7 @@ internal fun CreationSvgEditorControls(
             ViewerIconButton(R.drawable.ms_arrow_forward, strings.redo, controller::redo)
             ViewerIconButton(R.drawable.ms_delete, common.delete, controller::deleteSelected)
             FilledTonalButton(onClick = onSave) {
-                Icon(
-                    painterResource(R.drawable.ms_check),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
+                Icon(painterResource(R.drawable.ms_check), null, Modifier.size(18.dp))
                 androidx.compose.foundation.layout.Spacer(Modifier.size(6.dp))
                 Text(strings.saveEdits)
             }
@@ -208,24 +294,14 @@ private fun PaintSwatches(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.size(width = 48.dp, height = 24.dp))
-        FlowRow(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.size(48.dp, 24.dp))
+        FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             swatches.forEach { (value, color) ->
                 Box(
-                    modifier = Modifier
+                    Modifier
                         .size(25.dp)
-                        .background(
-                            if (color == Color.Transparent) MaterialTheme.colorScheme.surface else color,
-                            CircleShape,
-                        )
-                        .border(
-                            1.dp,
-                            if (color == Color.Transparent) accent else MaterialTheme.colorScheme.outlineVariant,
-                            CircleShape,
-                        )
+                        .background(if (color == Color.Transparent) MaterialTheme.colorScheme.surface else color, CircleShape)
+                        .border(1.dp, if (color == Color.Transparent) accent else MaterialTheme.colorScheme.outlineVariant, CircleShape)
                         .clickable { onSelect(value) },
                 )
             }
@@ -233,74 +309,318 @@ private fun PaintSwatches(
     }
 }
 
-private class SvgSelectionBridge {
-    @JavascriptInterface
-    fun selected(index: String) = Unit
+internal data class NativeSvgDocument(
+    val viewBox: RectF,
+    val width: String?,
+    val height: String?,
+    val definitions: String,
+    val shapes: MutableList<NativeSvgShape>,
+) {
+    fun viewportTransform(width: Float, height: Float, zoom: Float, pan: Offset): SvgViewportTransform {
+        val base = min(width / viewBox.width().coerceAtLeast(1f), height / viewBox.height().coerceAtLeast(1f)) * 0.94f
+        val contentWidth = viewBox.width() * base
+        val contentHeight = viewBox.height() * base
+        return SvgViewportTransform(
+            scale = base * zoom,
+            origin = Offset((width - contentWidth * zoom) / 2f, (height - contentHeight * zoom) / 2f),
+            pan = pan,
+            documentOrigin = Offset(viewBox.left, viewBox.top),
+        )
+    }
+
+    fun hitTest(point: Offset, tolerance: Float): Int? = shapes.indices.reversed().firstOrNull { index ->
+        val shape = shapes[index]
+        !shape.deleted && shape.contains(point, tolerance)
+    }
+
+    fun snapshot(selected: Int?) = SvgSnapshot(
+        shapes.map { SvgShapeEdit(it.fill, it.stroke, it.deleted) },
+        selected,
+    )
+
+    fun restore(snapshot: SvgSnapshot) {
+        shapes.zip(snapshot.shapes).forEach { (shape, edit) ->
+            shape.fill = edit.fill
+            shape.stroke = edit.stroke
+            shape.deleted = edit.deleted
+        }
+    }
+
+    fun serialize(): String = buildString {
+        append("<svg xmlns=\"http://www.w3.org/2000/svg\"")
+        width?.let { append(" width=\"").append(xmlEscape(it)).append('"') }
+        height?.let { append(" height=\"").append(xmlEscape(it)).append('"') }
+        append(" viewBox=\"").append(viewBox.left).append(' ').append(viewBox.top).append(' ')
+            .append(viewBox.width()).append(' ').append(viewBox.height()).append("\">")
+        append(definitions)
+        shapes.filterNot { it.deleted }.forEach { append(it.serialize()) }
+        append("</svg>")
+    }
 }
 
-private fun svgDocumentHtml(svg: String): String {
-    val encoded = Base64.getEncoder().encodeToString(svg.toByteArray(Charsets.UTF_8))
-    return """
-        <!doctype html>
-        <html><head>
-          <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:">
-          <style>
-            *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:transparent}
-            #stage{width:100%;height:100%;display:flex;align-items:center;justify-content:center;touch-action:none;overflow:hidden}
-            #viewport{transform-origin:center center;will-change:transform;width:94%;height:94%}
-            #viewport svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%;overflow:visible}
-            #viewport [data-sgt-selected="true"]{filter:drop-shadow(0 0 2px #00a38c) drop-shadow(0 0 1px #00a38c)}
-          </style>
-        </head><body><div id="stage"><div id="viewport"></div></div>
-        <script>
-        (()=>{
-          const raw=new TextDecoder().decode(Uint8Array.from(atob('$encoded'),c=>c.charCodeAt(0)));
-          const doc=new DOMParser().parseFromString(raw,'image/svg+xml');
-          doc.querySelectorAll('script,foreignObject,iframe,object,embed').forEach(n=>n.remove());
-          doc.querySelectorAll('*').forEach(n=>[...n.attributes].forEach(a=>{
-            const k=a.name.toLowerCase(),v=a.value.toLowerCase();
-            if(k.startsWith('on')||v.includes('javascript:'))n.removeAttribute(a.name);
-          }));
-          const root=doc.documentElement,viewport=document.querySelector('#viewport');
-          root.setAttribute('preserveAspectRatio',root.getAttribute('preserveAspectRatio')||'xMidYMid meet');
-          viewport.append(document.importNode(root,true));
-          let scale=1,tx=0,ty=0,selected=null,undo=[],redo=[],drag=null;
-          const shapes='path,rect,circle,ellipse,polygon,polyline,line';
-          const transform=()=>viewport.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')';
-          const snapshot=()=>viewport.querySelector('svg').outerHTML;
-          const restore=s=>{viewport.innerHTML=s;selected=null;bind();};
-          const push=()=>{undo.push(snapshot());if(undo.length>40)undo.shift();redo=[];};
-          const bind=()=>viewport.querySelectorAll(shapes).forEach((n,i)=>{
-            n.dataset.sgtIndex=String(i);n.addEventListener('click',e=>{
-              e.stopPropagation();selected?.removeAttribute('data-sgt-selected');selected=n;
-              selected.dataset.sgtSelected='true';SgtSvg.selected(String(i));
-            });
-          });
-          bind();
-          const animated=[...viewport.querySelectorAll(shapes)],count=Math.max(1,animated.length);
-          const step=Math.max(.6,Math.min(45,1200/count));
-          animated.forEach((n,i)=>n.animate(
-            [{opacity:0,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}],
-            {duration:Math.max(320,Math.min(720,1600/count+360)),delay:i*step,easing:'cubic-bezier(.2,.8,.2,1)',fill:'both'}
-          ));
-          const stage=document.querySelector('#stage');
-          stage.addEventListener('click',()=>{
-            selected?.removeAttribute('data-sgt-selected');selected=null;
-          });
-          stage.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,tx,ty};stage.setPointerCapture(e.pointerId)});
-          stage.addEventListener('pointermove',e=>{if(!drag||scale<=1)return;tx=drag.tx+e.clientX-drag.x;ty=drag.ty+e.clientY-drag.y;transform()});
-          stage.addEventListener('pointerup',()=>drag=null);stage.addEventListener('pointercancel',()=>drag=null);
-          window.SGT={
-            fit(){scale=1;tx=0;ty=0;transform()},
-            zoom(f){scale=Math.max(.25,Math.min(8,scale*f));if(scale<=1){tx=0;ty=0}transform()},
-            setPaint(k,v){if(!selected)return;push();selected.setAttribute(k,v)},
-            deleteSelected(){if(!selected)return;push();selected.remove();selected=null},
-            undo(){if(!undo.length)return;redo.push(snapshot());restore(undo.pop())},
-            redo(){if(!redo.length)return;undo.push(snapshot());restore(redo.pop())},
-            serialize(){const clone=viewport.querySelector('svg').cloneNode(true);clone.querySelectorAll('[data-sgt-index],[data-sgt-selected]').forEach(n=>{n.removeAttribute('data-sgt-index');n.removeAttribute('data-sgt-selected')});return new XMLSerializer().serializeToString(clone)}
-          };
-        })();
-        </script></body></html>
-    """.trimIndent()
+internal data class NativeSvgShape(
+    val tag: String,
+    val geometry: Map<String, String>,
+    val matrix: Matrix,
+    val path: Path,
+    var fill: String,
+    var stroke: String,
+    val strokeWidth: Float,
+    val opacity: Float,
+    var deleted: Boolean = false,
+) {
+    fun draw(canvas: android.graphics.Canvas) {
+        svgColor(fill)?.let { color ->
+            canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                this.color = color
+                alpha = (AndroidColor.alpha(color) * opacity).toInt().coerceIn(0, 255)
+            })
+        }
+        svgColor(stroke)?.let { color ->
+            canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeJoin = Paint.Join.ROUND
+                strokeCap = Paint.Cap.ROUND
+                this.color = color
+                alpha = (AndroidColor.alpha(color) * opacity).toInt().coerceIn(0, 255)
+                this.strokeWidth = strokeWidth.coerceAtLeast(0.25f)
+            })
+        }
+    }
+
+    fun contains(point: Offset, tolerance: Float): Boolean {
+        val bounds = RectF()
+        path.computeBounds(bounds, true)
+        if (!bounds.apply { inset(-tolerance, -tolerance) }.contains(point.x, point.y)) return false
+        if (fill.equals("none", true)) return true
+        val clip = Region(
+            floor(bounds.left).toInt(),
+            floor(bounds.top).toInt(),
+            ceil(bounds.right).toInt(),
+            ceil(bounds.bottom).toInt(),
+        )
+        return Region().apply { setPath(path, clip) }.contains(point.x.toInt(), point.y.toInt())
+    }
+
+    fun serialize(): String = buildString {
+        append('<').append(tag)
+        geometry.forEach { (name, value) ->
+            append(' ').append(name).append("=\"").append(xmlEscape(value)).append('"')
+        }
+        val values = FloatArray(9).also(matrix::getValues)
+        if (!matrix.isIdentity) {
+            append(" transform=\"matrix(")
+                .append(values[Matrix.MSCALE_X]).append(' ')
+                .append(values[Matrix.MSKEW_Y]).append(' ')
+                .append(values[Matrix.MSKEW_X]).append(' ')
+                .append(values[Matrix.MSCALE_Y]).append(' ')
+                .append(values[Matrix.MTRANS_X]).append(' ')
+                .append(values[Matrix.MTRANS_Y]).append(")\"")
+        }
+        append(" fill=\"").append(xmlEscape(fill)).append('"')
+        append(" stroke=\"").append(xmlEscape(stroke)).append('"')
+        append(" stroke-width=\"").append(strokeWidth).append('"')
+        if (opacity < 1f) append(" opacity=\"").append(opacity).append('"')
+        append("/>")
+    }
 }
+
+internal data class SvgViewportTransform(
+    val scale: Float,
+    val origin: Offset,
+    val pan: Offset,
+    val documentOrigin: Offset,
+) {
+    fun toDocument(point: Offset) = Offset(
+        (point.x - origin.x - pan.x) / scale + documentOrigin.x,
+        (point.y - origin.y - pan.y) / scale + documentOrigin.y,
+    )
+    fun documentTolerance(screenPixels: Float) = screenPixels / scale.coerceAtLeast(0.001f)
+}
+
+internal data class SvgSnapshot(val shapes: List<SvgShapeEdit>, val selected: Int?)
+internal data class SvgShapeEdit(val fill: String, val stroke: String, val deleted: Boolean)
+
+private object NativeSvgParser {
+    private val shapeTags = setOf("path", "rect", "circle", "ellipse", "line", "polyline", "polygon")
+    private val transformPattern = Regex("([a-zA-Z]+)\\s*\\(([^)]*)\\)")
+    private val numberPattern = Regex("[-+]?(?:\\d*\\.)?\\d+(?:[eE][-+]?\\d+)?")
+
+    fun parse(svg: String): NativeSvgDocument {
+        val parser = Xml.newPullParser().apply {
+            setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+            setInput(StringReader(svg))
+        }
+        var viewBox = RectF(0f, 0f, 1f, 1f)
+        var width: String? = null
+        var height: String? = null
+        val matrices = ArrayDeque<Matrix>()
+        val styles = ArrayDeque<SvgStyle>()
+        val shapes = mutableListOf<NativeSvgShape>()
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                XmlPullParser.START_TAG -> {
+                    val tag = parser.name.substringAfter(':').lowercase(Locale.ROOT)
+                    if (tag == "svg") {
+                        width = parser.attribute("width")
+                        height = parser.attribute("height")
+                        viewBox = parseViewBox(parser.attribute("viewBox"), width, height)
+                    }
+                    val matrix = Matrix(matrices.lastOrNull() ?: Matrix()).apply {
+                        parser.attribute("transform")?.let { postConcat(parseTransform(it)) }
+                    }
+                    val style = (styles.lastOrNull() ?: SvgStyle()).merged(parser)
+                    matrices.addLast(matrix)
+                    styles.addLast(style)
+                    if (tag in shapeTags) createShape(tag, parser, matrix, style)?.let(shapes::add)
+                }
+                XmlPullParser.END_TAG -> {
+                    matrices.removeLastOrNull()
+                    styles.removeLastOrNull()
+                }
+            }
+            event = parser.next()
+        }
+        require(shapes.isNotEmpty()) { "SVG contains no supported vector paths" }
+        val definitions = Regex("<defs(?:\\s[^>]*)?>[\\s\\S]*?</defs>", RegexOption.IGNORE_CASE)
+            .find(svg)?.value.orEmpty()
+        return NativeSvgDocument(viewBox, width, height, definitions, shapes)
+    }
+
+    private fun createShape(tag: String, parser: XmlPullParser, matrix: Matrix, style: SvgStyle): NativeSvgShape? {
+        val geometryNames = when (tag) {
+            "path" -> listOf("d")
+            "rect" -> listOf("x", "y", "width", "height", "rx", "ry")
+            "circle" -> listOf("cx", "cy", "r")
+            "ellipse" -> listOf("cx", "cy", "rx", "ry")
+            "line" -> listOf("x1", "y1", "x2", "y2")
+            else -> listOf("points")
+        }
+        val geometry = geometryNames.mapNotNull { name -> parser.attribute(name)?.let { name to it } }.toMap()
+        val path = when (tag) {
+            "path" -> geometry["d"]?.let(PathParser::createPathFromPathData)
+            "rect" -> Path().apply {
+                val x = geometry.number("x")
+                val y = geometry.number("y")
+                val w = geometry.number("width")
+                val h = geometry.number("height")
+                val rx = geometry.number("rx")
+                val ry = geometry["ry"]?.toFloatOrNull() ?: rx
+                addRoundRect(RectF(x, y, x + w, y + h), rx, ry, Path.Direction.CW)
+            }
+            "circle" -> Path().apply { addCircle(geometry.number("cx"), geometry.number("cy"), geometry.number("r"), Path.Direction.CW) }
+            "ellipse" -> Path().apply {
+                val cx = geometry.number("cx")
+                val cy = geometry.number("cy")
+                val rx = geometry.number("rx")
+                val ry = geometry.number("ry")
+                addOval(RectF(cx - rx, cy - ry, cx + rx, cy + ry), Path.Direction.CW)
+            }
+            "line" -> Path().apply { moveTo(geometry.number("x1"), geometry.number("y1")); lineTo(geometry.number("x2"), geometry.number("y2")) }
+            "polyline", "polygon" -> pointsPath(geometry["points"].orEmpty(), tag == "polygon")
+            else -> null
+        } ?: return null
+        path.transform(matrix)
+        val values = FloatArray(9).also(matrix::getValues)
+        val lineScale = ((hypot(values[0].toDouble(), values[3].toDouble()) + hypot(values[1].toDouble(), values[4].toDouble())) / 2.0).toFloat()
+        return NativeSvgShape(
+            tag = tag,
+            geometry = geometry,
+            matrix = Matrix(matrix),
+            path = path,
+            fill = style.fill,
+            stroke = style.stroke,
+            strokeWidth = style.strokeWidth * lineScale.coerceAtLeast(0.01f),
+            opacity = style.opacity,
+        )
+    }
+
+    private fun pointsPath(value: String, close: Boolean): Path? {
+        val numbers = numberPattern.findAll(value).map { it.value.toFloat() }.toList()
+        if (numbers.size < 4) return null
+        return Path().apply {
+            moveTo(numbers[0], numbers[1])
+            var index = 2
+            while (index + 1 < numbers.size) { lineTo(numbers[index], numbers[index + 1]); index += 2 }
+            if (close) close()
+        }
+    }
+
+    private fun parseViewBox(value: String?, width: String?, height: String?): RectF {
+        val values = value?.let { numberPattern.findAll(it).map { match -> match.value.toFloat() }.toList() }.orEmpty()
+        if (values.size >= 4 && values[2] > 0f && values[3] > 0f) {
+            return RectF(values[0], values[1], values[0] + values[2], values[1] + values[3])
+        }
+        val w = width?.let(::svgLength) ?: 1024f
+        val h = height?.let(::svgLength) ?: 1024f
+        return RectF(0f, 0f, w.coerceAtLeast(1f), h.coerceAtLeast(1f))
+    }
+
+    private fun parseTransform(value: String): Matrix {
+        val result = Matrix()
+        transformPattern.findAll(value).forEach { match ->
+            val name = match.groupValues[1].lowercase(Locale.ROOT)
+            val values = numberPattern.findAll(match.groupValues[2]).map { it.value.toFloat() }.toList()
+            val next = Matrix()
+            when (name) {
+                "matrix" -> if (values.size >= 6) next.setValues(floatArrayOf(values[0], values[2], values[4], values[1], values[3], values[5], 0f, 0f, 1f))
+                "translate" -> next.setTranslate(values.getOrElse(0) { 0f }, values.getOrElse(1) { 0f })
+                "scale" -> next.setScale(values.getOrElse(0) { 1f }, values.getOrElse(1) { values.getOrElse(0) { 1f } })
+                "rotate" -> if (values.size >= 3) next.setRotate(values[0], values[1], values[2]) else next.setRotate(values.getOrElse(0) { 0f })
+                "skewx" -> next.setSkew(kotlin.math.tan(Math.toRadians(values.getOrElse(0) { 0f }.toDouble())).toFloat(), 0f)
+                "skewy" -> next.setSkew(0f, kotlin.math.tan(Math.toRadians(values.getOrElse(0) { 0f }.toDouble())).toFloat())
+            }
+            result.postConcat(next)
+        }
+        return result
+    }
+}
+
+private data class SvgStyle(
+    val fill: String = "#000000",
+    val stroke: String = "none",
+    val strokeWidth: Float = 1f,
+    val opacity: Float = 1f,
+) {
+    fun merged(parser: XmlPullParser): SvgStyle {
+        val declarations = parser.attribute("style")
+            ?.split(';')
+            ?.mapNotNull { item -> item.split(':', limit = 2).takeIf { it.size == 2 }?.let { it[0].trim() to it[1].trim() } }
+            ?.toMap()
+            .orEmpty()
+        fun value(name: String) = parser.attribute(name) ?: declarations[name]
+        return SvgStyle(
+            fill = value("fill") ?: fill,
+            stroke = value("stroke") ?: stroke,
+            strokeWidth = value("stroke-width")?.let(::svgLength) ?: strokeWidth,
+            opacity = (opacity * (value("opacity")?.toFloatOrNull() ?: 1f)).coerceIn(0f, 1f),
+        )
+    }
+}
+
+private fun XmlPullParser.attribute(name: String): String? =
+    (0 until attributeCount).firstOrNull { getAttributeName(it).substringAfter(':').equals(name, true) }
+        ?.let { getAttributeValue(it) }
+
+private fun Map<String, String>.number(name: String): Float = get(name)?.let(::svgLength) ?: 0f
+
+private fun svgLength(value: String): Float = Regex("[-+]?(?:\\d*\\.)?\\d+(?:[eE][-+]?\\d+)?")
+    .find(value)?.value?.toFloatOrNull() ?: 0f
+
+private fun svgColor(value: String): Int? {
+    val clean = value.trim()
+    if (clean.equals("none", true) || clean.startsWith("url(", true)) return null
+    if (clean.startsWith("rgb(", true)) {
+        val values = Regex("[\\d.]+").findAll(clean).map { it.value.toFloat() }.toList()
+        if (values.size >= 3) return AndroidColor.rgb(values[0].toInt(), values[1].toInt(), values[2].toInt())
+    }
+    return runCatching { AndroidColor.parseColor(clean) }.getOrNull()
+}
+
+private fun xmlEscape(value: String): String = value
+    .replace("&", "&amp;")
+    .replace("\"", "&quot;")
+    .replace("<", "&lt;")
+    .replace(">", "&gt;")

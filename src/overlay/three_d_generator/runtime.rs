@@ -154,15 +154,26 @@ pub(super) fn start_preparation_maintainer(install_if_missing: bool) {
 }
 
 #[cfg(debug_assertions)]
+fn newest_dev_runtime_candidate(
+    candidates: impl IntoIterator<Item = (PathBuf, std::time::SystemTime)>,
+) -> Option<PathBuf> {
+    candidates
+        .into_iter()
+        .max_by_key(|(_, modified)| *modified)
+        .map(|(path, _)| path)
+}
+
+#[cfg(debug_assertions)]
 fn dev_runtime_exe_path() -> Option<PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("native")
         .join("sgt_3d_generator_runtime")
         .join("target");
-    ["debug", "release"]
-        .into_iter()
-        .map(|profile| root.join(profile).join(RUNTIME_EXE_NAME))
-        .find(|path| path.is_file())
+    newest_dev_runtime_candidate(["debug", "release"].into_iter().filter_map(|profile| {
+        let path = root.join(profile).join(RUNTIME_EXE_NAME);
+        let modified = path.metadata().ok()?.modified().ok()?;
+        Some((path, modified))
+    }))
 }
 
 #[cfg(not(debug_assertions))]
@@ -538,6 +549,20 @@ mod tests {
             previous_output_path: PathBuf::from("model.glb"),
             preview_path: None,
         }
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_runtime_uses_the_newest_binary() {
+        let older = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        let newer = std::time::UNIX_EPOCH + std::time::Duration::from_secs(2);
+
+        let selected = newest_dev_runtime_candidate([
+            (PathBuf::from("debug.exe"), older),
+            (PathBuf::from("release.exe"), newer),
+        ]);
+
+        assert_eq!(selected, Some(PathBuf::from("release.exe")));
     }
 
     #[test]

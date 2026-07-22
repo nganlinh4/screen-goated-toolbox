@@ -22,6 +22,7 @@ internal data class CreationNativeItem(
     val submitted: Boolean = false,
     val stage: CreationNativeStage = CreationNativeStage.DRAFT,
     val status: CreationJobStatus? = null,
+    val depthPreviewPath: String? = null,
 )
 
 internal data class CreationNativeUiState(

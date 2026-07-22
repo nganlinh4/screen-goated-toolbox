@@ -757,3 +757,52 @@ html[data-theme="light"] .primary-action { color: white; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+.app-dialog[hidden] { display: none; }
+.app-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, #06110f 58%, transparent);
+  backdrop-filter: blur(5px);
+}
+.dialog-surface {
+  width: min(360px, 100%);
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .32);
+}
+.dialog-surface > strong { display: block; font-size: 14px; line-height: 1.45; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.dialog-actions button { width: auto; min-height: 36px; padding: 0 14px; }
+.danger-action {
+  border: 1px solid color-mix(in srgb, #dc5a67 72%, var(--border));
+  border-radius: 6px;
+  color: #fff;
+  background: #b83948;
+  font: inherit;
+  font-weight: 700;
+}
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  z-index: 90;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface-strong);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .28);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px);
+  transition: opacity .16s ease, transform .16s ease;
+}
+.app-toast.visible { opacity: 1; transform: translate(-50%, 0); }

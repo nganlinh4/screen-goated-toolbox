@@ -45,6 +45,18 @@ pub unsafe extern "system" fn result_wnd_proc(
 
             WM_MBUTTONUP => click_actions::handle_mbutton_up(hwnd),
 
+            WM_CAPTURECHANGED | WM_CANCELMODE => {
+                // ReleaseCapture inside a normal button-up sends WM_CAPTURECHANGED synchronously.
+                // Defer cleanup so the button-up handler can first decide click-versus-drag.
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    misc::WM_CANCEL_INTERACTION,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+
             WM_TIMER => timer_tasks::handle_timer(hwnd, wparam),
 
             WM_DESTROY => misc::handle_destroy(hwnd),
@@ -97,6 +109,7 @@ pub unsafe extern "system" fn result_wnd_proc(
             msg if msg == misc::WM_DOWNLOAD_CLICK => misc::handle_download_click(hwnd),
             msg if msg == misc::WM_BROOM_DRAG_START => misc::handle_broom_drag_start(hwnd),
             msg if msg == misc::WM_CLOSE_GROUP_CLICK => misc::handle_close_group_click(hwnd),
+            msg if msg == misc::WM_CANCEL_INTERACTION => misc::handle_cancel_interaction(hwnd),
 
             WM_WINDOWPOSCHANGED => {
                 // Update button canvas position when window moves/resizes
@@ -126,6 +139,7 @@ pub unsafe extern "system" fn result_wnd_proc(
                     hwnd,
                     crate::overlay::result::state::InteractionMode::None,
                 );
+                crate::overlay::result::button_canvas::set_drag_mode(false);
 
                 // Re-trigger markdown view fitting after native resize ends
                 let is_markdown = {

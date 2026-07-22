@@ -6,6 +6,7 @@
 package dev.screengoated.toolbox.mobile.creation
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -120,15 +121,6 @@ internal fun CreationNativeScreen(
         ) {
             val wide = maxWidth >= 840.dp
             Column(modifier = Modifier.fillMaxSize()) {
-                CreationTabs(state, common.jobs, common.results, accent, viewModel::showTab)
-                CreationItemRail(
-                    state = state,
-                    locale = locale,
-                    accent = accent,
-                    viewModel = viewModel,
-                    onPickImages = onPickImages,
-                )
-                HorizontalDivider()
                 if (wide) {
                     CreationWideBody(
                         tool = tool,
@@ -140,15 +132,26 @@ internal fun CreationNativeScreen(
                         onPickOutputDirectory = onPickOutputDirectory,
                     )
                 } else {
-                    CreationPhoneBody(
-                        tool = tool,
+                    CreationTabs(state, common.jobs, common.results, accent, viewModel::showTab)
+                    CreationItemRail(
                         state = state,
                         locale = locale,
                         accent = accent,
                         viewModel = viewModel,
                         onPickImages = onPickImages,
-                        onPickOutputDirectory = onPickOutputDirectory,
                     )
+                    HorizontalDivider()
+                    Box(modifier = Modifier.weight(1f)) {
+                        CreationPhoneBody(
+                            tool = tool,
+                            state = state,
+                            locale = locale,
+                            accent = accent,
+                            viewModel = viewModel,
+                            onPickImages = onPickImages,
+                            onPickOutputDirectory = onPickOutputDirectory,
+                        )
+                    }
                 }
             }
         }
@@ -162,6 +165,7 @@ private fun CreationTabs(
     results: String,
     accent: Color,
     onTab: (CreationNativeTab) -> Unit,
+    compact: Boolean = false,
 ) {
     PrimaryTabRow(
         selectedTabIndex = state.tab.ordinal,
@@ -178,13 +182,17 @@ private fun CreationTabs(
             selected = state.tab == CreationNativeTab.JOBS,
             onClick = { onTab(CreationNativeTab.JOBS) },
             text = { Text("$jobs (${state.items.size})") },
-            icon = { Icon(painterResource(R.drawable.ms_tune), contentDescription = null) },
+            icon = if (compact) null else {
+                { Icon(painterResource(R.drawable.ms_tune), contentDescription = null) }
+            },
         )
         Tab(
             selected = state.tab == CreationNativeTab.RESULTS,
             onClick = { onTab(CreationNativeTab.RESULTS) },
             text = { Text("$results (${state.history.size})") },
-            icon = { Icon(painterResource(R.drawable.ms_history), contentDescription = null) },
+            icon = if (compact) null else {
+                { Icon(painterResource(R.drawable.ms_history), contentDescription = null) }
+            },
         )
     }
 }
@@ -196,8 +204,11 @@ private fun CreationItemRail(
     accent: Color,
     viewModel: CreationNativeViewModel,
     onPickImages: () -> Unit,
+    compact: Boolean = false,
 ) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+    val horizontalPadding = if (compact) 0.dp else 16.dp
+    val verticalPadding = if (compact) 6.dp else 12.dp
+    Column(Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding)) {
         if (state.tab == CreationNativeTab.JOBS) {
             CreationQueueStrip(
                 items = state.items,
@@ -261,25 +272,58 @@ private fun CreationWideBody(
     onPickOutputDirectory: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        LazyColumn(
-            modifier = Modifier.weight(0.38f),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            item { CreationActiveSettings(tool, state, locale, accent, viewModel) }
-            item {
-                CreationOutputSettings(
-                    outputDirectory = state.outputDirectory,
-                    common = locale.creationApps.common,
-                    accent = accent,
-                    onChangeFolder = onPickOutputDirectory,
-                )
+        Column(modifier = Modifier.weight(0.38f).fillMaxSize()) {
+            CreationTabs(
+                state,
+                locale.creationApps.common.jobs,
+                locale.creationApps.common.results,
+                accent,
+                viewModel::showTab,
+                compact = true,
+            )
+            CreationItemRail(
+                state,
+                locale,
+                accent,
+                viewModel,
+                onPickImages,
+                compact = true,
+            )
+            HorizontalDivider()
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    top = 8.dp,
+                    bottom = 8.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                item { CreationActiveSettings(tool, state, locale, accent, viewModel) }
+                item {
+                    CreationOutputSettings(
+                        outputDirectory = state.outputDirectory,
+                        common = locale.creationApps.common,
+                        accent = accent,
+                        onChangeFolder = onPickOutputDirectory,
+                    )
+                }
             }
         }
-        Column(modifier = Modifier.weight(0.62f)) {
-            CreationActiveWorkbench(tool, state, locale, accent, viewModel, onPickImages)
+        Column(modifier = Modifier.weight(0.62f).fillMaxSize()) {
+            CreationActiveWorkbench(
+                tool,
+                state,
+                locale,
+                accent,
+                viewModel,
+                onPickImages,
+                fillAvailable = true,
+            )
         }
     }
 }
@@ -323,6 +367,7 @@ private fun CreationActiveWorkbench(
     accent: Color,
     viewModel: CreationNativeViewModel,
     onPickImages: () -> Unit,
+    fillAvailable: Boolean = false,
 ) {
     val item = state.selectedItem
     val history = state.selectedHistory
@@ -339,8 +384,15 @@ private fun CreationActiveWorkbench(
     val controller = remember(outputPath) { CreationSvgDocumentController() }
     val scope = rememberCoroutineScope()
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        CreationWorkbench(accent = accent) {
+    Column(
+        modifier = if (fillAvailable) Modifier.fillMaxSize() else Modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        CreationWorkbench(
+            modifier = if (fillAvailable) Modifier.weight(1f) else Modifier,
+            accent = accent,
+            fillAvailable = fillAvailable,
+        ) {
             when {
                 outputPath != null && tool == CreationTool.IMAGE_TO_3D -> {
                     CreationModelViewer(
@@ -354,9 +406,14 @@ private fun CreationActiveWorkbench(
                     CreationSvgDocument(outputPath, viewModel, controller)
                 }
                 item != null -> {
-                    CreationSourceWorkbench(item)
+                    CreationSourceWorkbench(tool, item)
                     if (item.stage in setOf(CreationNativeStage.QUEUED, CreationNativeStage.RUNNING)) {
-                        CreationProgressOverlay(item.status, locale.creationApps.common, accent)
+                        CreationProgressOverlay(
+                            status = item.status,
+                            common = locale.creationApps.common,
+                            accent = accent,
+                            hasDepthPreview = item.depthPreviewPath != null,
+                        )
                     }
                 }
                 else -> CreationEmptyWorkbench(locale.creationApps.common, accent, onPickImages)

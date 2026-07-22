@@ -94,6 +94,7 @@ export class ModelViewer {
   private shading: ShadingMode = "toon";
   private outline = true;
   private wireframe = false;
+  private contentRevision = 0;
   private theme: "light" | "dark" = "dark";
   private hemisphere = new THREE.HemisphereLight(0xe5fbf5, 0x1a2524, 2.15);
   private key = new THREE.DirectionalLight(0xf5fff9, 3.2);
@@ -201,7 +202,12 @@ export class ModelViewer {
   }
 
   async setSource(dataUrl: string) {
+    const revision = ++this.contentRevision;
     const texture = await new THREE.TextureLoader().loadAsync(dataUrl);
+    if (revision !== this.contentRevision) {
+      texture.dispose();
+      return;
+    }
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     const image = texture.image as { width?: number; height?: number };
@@ -230,10 +236,15 @@ export class ModelViewer {
   }
 
   async setDepth(dataUrl: string) {
-    if (!this.relief) return;
+    const relief = this.relief;
+    if (!relief) return;
     const texture = await new THREE.TextureLoader().loadAsync(dataUrl);
+    if (relief !== this.relief) {
+      texture.dispose();
+      return;
+    }
     texture.colorSpace = THREE.NoColorSpace;
-    const surface = this.relief.children.find((child) => child instanceof THREE.Mesh) as THREE.Mesh | undefined;
+    const surface = relief.children.find((child) => child instanceof THREE.Mesh) as THREE.Mesh | undefined;
     if (!surface) return;
     const material = surface.material as THREE.MeshStandardMaterial;
     material.displacementMap = texture;
@@ -244,9 +255,14 @@ export class ModelViewer {
     this.depthBlend = 0;
   }
 
-  async setModel(dataUrl: string, segmented: boolean): Promise<ModelStats> {
+  async setModel(dataUrl: string, segmented: boolean): Promise<ModelStats | null> {
+    const revision = ++this.contentRevision;
     const gltf = await new GLTFLoader().loadAsync(dataUrl);
     const object = gltf.scene;
+    if (revision !== this.contentRevision) {
+      this.disposeGroup(object);
+      return null;
+    }
     this.idleObject.visible = false;
     const box = new THREE.Box3().setFromObject(object);
     const center = box.getCenter(new THREE.Vector3());

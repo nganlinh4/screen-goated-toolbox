@@ -89,7 +89,7 @@ pub fn render_footer(
         // 3D Generator — mint
         if filled_icon_button(
             ui,
-            Icon::AutoAwesome,
+            Icon::DeployedCode,
             text.shell.three_d_generator_btn,
             theme.accent_three_d_generator(),
             btn_text,
@@ -102,7 +102,7 @@ pub fn render_footer(
         // Image to SVG - cobalt
         if filled_icon_button(
             ui,
-            Icon::Image,
+            Icon::DrawCollage,
             text.shell.image_to_svg_btn,
             theme.accent_image_to_svg(),
             btn_text,

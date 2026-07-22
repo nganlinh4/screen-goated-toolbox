@@ -20,10 +20,13 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonColors
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -118,6 +121,8 @@ internal fun CreationSvgSettings(
     enabled: Boolean,
     onModel: (String) -> Unit,
 ) {
+    val simpleSelected = item.model != "detail"
+    val detailSelected = !simpleSelected
     UtilityExpressiveCard(accent = accent) {
         UtilityHeaderRow(
             icon = R.drawable.ms_auto_awesome,
@@ -129,41 +134,70 @@ internal fun CreationSvgSettings(
             horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
         ) {
             ToggleButton(
-                checked = item.model != "detail",
+                checked = simpleSelected,
                 onCheckedChange = { if (it) onModel("simple") },
                 enabled = enabled,
                 shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                colors = modelToggleColors(simpleSelected, accent),
                 modifier = Modifier.weight(1f),
             ) {
                 Column(horizontalAlignment = Alignment.Start) {
-                    Text(strings.simple, style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        strings.simple,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = modelToggleTextColor(simpleSelected, accent),
+                    )
                     Text(
                         strings.simpleDescription,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = modelToggleTextColor(simpleSelected, accent).copy(alpha = 0.82f),
                         maxLines = 2,
                     )
                 }
             }
             ToggleButton(
-                checked = item.model == "detail",
+                checked = detailSelected,
                 onCheckedChange = { if (it) onModel("detail") },
                 enabled = enabled,
                 shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                colors = modelToggleColors(detailSelected, accent),
                 modifier = Modifier.weight(1f),
             ) {
                 Column(horizontalAlignment = Alignment.Start) {
-                    Text(strings.detail, style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        strings.detail,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = modelToggleTextColor(detailSelected, accent),
+                    )
                     Text(
                         strings.detailDescription,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = modelToggleTextColor(detailSelected, accent).copy(alpha = 0.82f),
                         maxLines = 2,
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun modelToggleColors(selected: Boolean, accent: Color): ToggleButtonColors {
+    if (!selected) return ToggleButtonDefaults.toggleButtonColors()
+    val content = modelToggleTextColor(true, accent)
+    return ToggleButtonDefaults.toggleButtonColors(
+        disabledContainerColor = accent,
+        disabledContentColor = content,
+        checkedContainerColor = accent,
+        checkedContentColor = content,
+    )
+}
+
+@Composable
+private fun modelToggleTextColor(selected: Boolean, accent: Color): Color = when {
+    !selected -> MaterialTheme.colorScheme.onSurfaceVariant
+    accent.luminance() > 0.42f -> Color.Black
+    else -> Color.White
 }
 
 @Composable

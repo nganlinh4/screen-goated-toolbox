@@ -32,6 +32,18 @@ fn preview_dir() -> PathBuf {
         .join("depth-previews")
 }
 
+fn decode_source_image(bytes: &[u8]) -> Result<image::RgbImage> {
+    image::load_from_memory(bytes)
+        .map_err(|error| anyhow!("Could not decode source image: {error}"))
+        .map(|image| image.to_rgb8())
+}
+
+fn load_source_image(path: &Path) -> Result<image::RgbImage> {
+    let bytes =
+        std::fs::read(path).map_err(|error| anyhow!("Could not read source image: {error}"))?;
+    decode_source_image(&bytes)
+}
+
 fn validate_model_file(path: &std::path::Path) -> Result<()> {
     let metadata =
         std::fs::metadata(path).map_err(|error| anyhow!("model unavailable: {error}"))?;
@@ -194,9 +206,9 @@ pub(crate) fn create_depth_preview(image_path: &str) -> Result<PathBuf> {
     crate::unpack_dlls::ensure_onnx_runtime_initialized()?;
     validate_model_file(&model_path())?;
 
-    let source = image::open(image_path)
-        .map_err(|error| anyhow!("Could not read source image: {error}"))?
-        .to_rgb8();
+    // Some image tools preserve a stale extension after re-encoding. Decode by
+    // the file signature so a JPEG named .png still gets a depth preview.
+    let source = load_source_image(Path::new(image_path))?;
     let (source_width, source_height) = source.dimensions();
     let resized =
         image::imageops::resize(&source, SIDE, SIDE, image::imageops::FilterType::Triangle);
@@ -298,4 +310,26 @@ pub(crate) fn create_depth_preview(image_path: &str) -> Result<PathBuf> {
         .save_with_format(&output, image::ImageFormat::Png)
         .map_err(|error| anyhow!("Could not save depth preview: {error}"))?;
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
+
+    use super::decode_source_image;
+
+    #[test]
+    fn decodes_source_images_from_content_signature() {
+        let source = RgbImage::from_pixel(3, 2, Rgb([42, 96, 180]));
+        let mut encoded = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(source)
+            .write_to(&mut encoded, ImageFormat::Jpeg)
+            .expect("encode JPEG fixture");
+
+        let decoded = decode_source_image(encoded.get_ref()).expect("decode JPEG bytes");
+
+        assert_eq!(decoded.dimensions(), (3, 2));
+    }
 }

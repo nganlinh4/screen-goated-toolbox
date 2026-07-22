@@ -10,8 +10,9 @@ use sha2::{Digest, Sha256};
 
 const RUNTIME_ASSET: &str = "sgt-creation-runtime-windows-x64.exe";
 const RUNTIME_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64.exe";
-const RUNTIME_BYTES: u64 = 1_173_504;
-const RUNTIME_SHA256: &str = "95054cf811f4ff87f0911d342ab689c1d4f33bae80593764d4739a6c72b2c5dd";
+const RUNTIME_BYTES: u64 = 1_175_040;
+const RUNTIME_SHA256: &str = "90d049b2fc5e9b27ed3c2f339805a9ea7ba474745f85fb3d3213ad6c495e68fa";
+type RuntimeValidationCache = (PathBuf, u64, u128, bool);
 
 pub(crate) const DOWNLOAD_TITLE: &str = "Downloading creation engine";
 
@@ -41,7 +42,7 @@ fn validate_runtime(path: &Path) -> Result<()> {
         .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|value| value.as_millis())
         .unwrap_or(0);
-    static CACHE: OnceLock<Mutex<Option<(PathBuf, u64, u128, bool)>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<Option<RuntimeValidationCache>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(None));
     if let Some((cached_path, bytes, modified, valid)) = cache
         .lock()
