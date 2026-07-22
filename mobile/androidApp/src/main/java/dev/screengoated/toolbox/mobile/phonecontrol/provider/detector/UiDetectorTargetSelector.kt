@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider.detector
 import android.content.Context
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
+import dev.screengoated.toolbox.mobile.preset.GeneratedPresetModelCatalogData
 import dev.screengoated.toolbox.mobile.preset.VisionApiClient
 import kotlinx.coroutines.CancellationException
 import org.json.JSONException
@@ -99,23 +100,33 @@ internal class AndroidUiDetectorTargetSelector(context: Context) : UiDetectorTar
             )
         }
         val prompt = targetSelectionPrompt(description, allowedMarks)
-        val response = client.executeStreaming(
-            modelId = LOCATOR_MODEL_ID,
-            prompt = prompt,
-            imageBytes = mapping.groundingImageBytes,
-            apiKeys = ApiKeys(geminiKey = apiKey),
-            uiLanguage = "en",
-            onChunk = {},
-            streamingEnabled = false,
-        ).getOrElse { error ->
-            if (error is CancellationException) throw error
-            return UiDetectorTargetSelection.Failure(
-                code = "vision_grounding_failed",
-                message = "The vision locator could not evaluate the current detector frame.",
-                retryable = true,
-            )
-        }
-        return parseUiDetectorTargetSelection(response, allowedMarks, LOCATOR_MODEL_ID)
+        return runLocatorModelChain(
+            execute = { modelId ->
+                client.executeStreaming(
+                    modelId = modelId,
+                    prompt = prompt,
+                    imageBytes = mapping.groundingImageBytes,
+                    apiKeys = ApiKeys(geminiKey = apiKey),
+                    uiLanguage = "en",
+                    onChunk = {},
+                    streamingEnabled = false,
+                )
+            },
+            parse = { response, modelId ->
+                parseUiDetectorTargetSelection(response, allowedMarks, modelId)
+            },
+            shouldAdvance = { result ->
+                result is UiDetectorTargetSelection.Failure &&
+                    result.code == "vision_grounding_invalid"
+            },
+            requestFailure = {
+                UiDetectorTargetSelection.Failure(
+                    code = "vision_grounding_failed",
+                    message = "The vision locator could not evaluate the current detector frame.",
+                    retryable = true,
+                )
+            },
+        )
     }
 
     override suspend fun verify(
@@ -132,24 +143,32 @@ internal class AndroidUiDetectorTargetSelector(context: Context) : UiDetectorTar
                 requiredUserStep = "configure_gemini_api_key",
             )
         }
-        val response = client.executeStreaming(
-            modelId = LOCATOR_MODEL_ID,
-            prompt = targetVerificationPrompt(description),
-            imageBytes = refreshed.verificationImageBytes,
-            apiKeys = ApiKeys(geminiKey = apiKey),
-            uiLanguage = "en",
-            onChunk = {},
-            streamingEnabled = false,
-        ).getOrElse { error ->
-            if (error is CancellationException) throw error
-            return UiDetectorTargetVerification.Failure(
-                code = "vision_verification_failed",
-                message = "The vision locator could not verify the refreshed target.",
-                retryable = true,
-                freshObservationRequired = true,
-            )
-        }
-        return parseUiDetectorTargetVerification(response, LOCATOR_MODEL_ID)
+        return runLocatorModelChain(
+            execute = { modelId ->
+                client.executeStreaming(
+                    modelId = modelId,
+                    prompt = targetVerificationPrompt(description),
+                    imageBytes = refreshed.verificationImageBytes,
+                    apiKeys = ApiKeys(geminiKey = apiKey),
+                    uiLanguage = "en",
+                    onChunk = {},
+                    streamingEnabled = false,
+                )
+            },
+            parse = ::parseUiDetectorTargetVerification,
+            shouldAdvance = { result ->
+                result is UiDetectorTargetVerification.Failure &&
+                    result.code == "vision_verification_invalid"
+            },
+            requestFailure = {
+                UiDetectorTargetVerification.Failure(
+                    code = "vision_verification_failed",
+                    message = "The vision locator could not verify the refreshed target.",
+                    retryable = true,
+                    freshObservationRequired = true,
+                )
+            },
+        )
     }
 
     override suspend fun selectDrag(
@@ -174,24 +193,58 @@ internal class AndroidUiDetectorTargetSelector(context: Context) : UiDetectorTar
                 retryable = false,
             )
         }
-        val response = client.executeStreaming(
-            modelId = LOCATOR_MODEL_ID,
-            prompt = dragSelectionPrompt(fromDescription, toDescription, allowedMarks),
-            imageBytes = mapping.groundingImageBytes,
-            apiKeys = ApiKeys(geminiKey = apiKey),
-            uiLanguage = "en",
-            onChunk = {},
-            streamingEnabled = false,
-        ).getOrElse { error ->
-            if (error is CancellationException) throw error
-            return UiDetectorDragSelection.Failure(
-                code = "vision_grounding_failed",
-                message = "The vision locator could not evaluate both drag endpoints.",
-                retryable = true,
-            )
-        }
-        return parseUiDetectorDragSelection(response, allowedMarks, LOCATOR_MODEL_ID)
+        return runLocatorModelChain(
+            execute = { modelId ->
+                client.executeStreaming(
+                    modelId = modelId,
+                    prompt = dragSelectionPrompt(fromDescription, toDescription, allowedMarks),
+                    imageBytes = mapping.groundingImageBytes,
+                    apiKeys = ApiKeys(geminiKey = apiKey),
+                    uiLanguage = "en",
+                    onChunk = {},
+                    streamingEnabled = false,
+                )
+            },
+            parse = { response, modelId ->
+                parseUiDetectorDragSelection(response, allowedMarks, modelId)
+            },
+            shouldAdvance = { result ->
+                result is UiDetectorDragSelection.Failure &&
+                    result.code == "vision_grounding_invalid"
+            },
+            requestFailure = {
+                UiDetectorDragSelection.Failure(
+                    code = "vision_grounding_failed",
+                    message = "The vision locator could not evaluate both drag endpoints.",
+                    retryable = true,
+                )
+            },
+        )
     }
+}
+
+internal suspend fun <T : Any> runLocatorModelChain(
+    modelIds: List<String> = LOCATOR_MODEL_IDS,
+    execute: suspend (String) -> Result<String>,
+    parse: (String, String) -> T,
+    shouldAdvance: (T) -> Boolean,
+    requestFailure: () -> T,
+): T {
+    var lastParsed: T? = null
+    for (modelId in modelIds) {
+        val attempt = execute(modelId)
+        val error = attempt.exceptionOrNull()
+        if (error != null) {
+            if (error is CancellationException) throw error
+            continue
+        }
+        val response = attempt.getOrThrow()
+        if (response.isBlank()) continue
+        val parsed = parse(response, modelId)
+        if (!shouldAdvance(parsed)) return parsed
+        lastParsed = parsed
+    }
+    return lastParsed ?: requestFailure()
 }
 
 internal fun parseUiDetectorTargetSelection(
@@ -370,6 +423,7 @@ private fun JSONObject.strictInt(name: String): Int? {
     return number.toInt()
 }
 
-private const val LOCATOR_MODEL_ID = "gemini-3.1-flash-lite"
+internal val LOCATOR_MODEL_IDS: List<String> =
+    GeneratedPresetModelCatalogData.computerControlGroundingModelChain
 private const val MAX_WHAT_CHARS = 160
 private const val MIN_VERIFICATION_CONFIDENCE = 70

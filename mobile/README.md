@@ -108,6 +108,11 @@ stage every non-base-master split in the declared directory, and finalize that
 directory as app-readable. The acceptance test proves the Play ORT runtime and
 bundled UI-DETR model by running inference on the current device frame.
 
+Pass `-IncludeExternalSetupTests` when the selected device may open Android-owned
+setup surfaces. The Shizuku probe then verifies the real install handoff when the
+package is absent; the harness still restores the original foreground app and
+device state afterward.
+
 Use `scripts/invoke-phone-control-probe.ps1` only against an installed debug
 package. Physical targets require `-AllowPhysicalDevice`; registry-classified
 mutating tools additionally require `-AllowMutation`. Probe receipts are

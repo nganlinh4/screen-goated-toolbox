@@ -135,6 +135,13 @@
     <string name="phone_control_power_standard">Standard</string>
     <string name="phone_control_power_shizuku">Shizuku</string>
     <string name="phone_control_power_root">Root</string>
+    <string name="phone_control_shizuku_ready">Shizuku is ready. Phone Control will use its added authority.</string>
+    <string name="phone_control_shizuku_request_permission">Shizuku is running. Allow SGT in the permission prompt.</string>
+    <string name="phone_control_shizuku_start_service">Opening Shizuku. Start it with wireless debugging; Android may ask you to pair. SGT will continue when you return.</string>
+    <string name="phone_control_shizuku_restore_permission">Opening Shizuku. Allow SGT in Authorized apps, then return.</string>
+    <string name="phone_control_shizuku_update">This Shizuku version is too old. Opening its official install route to update it.</string>
+    <string name="phone_control_shizuku_install">Shizuku is not installed. Opening its official install route now.</string>
+    <string name="phone_control_shizuku_still_needs_user_step">Shizuku is not ready yet. Finish the shown Shizuku or Android step, then choose Shizuku from the orb again.</string>
     <string name="preset_image_selection_overlay_label">%1$s • %2$s</string>
     <string name="feature_asr_ort_name">Moonshine runtime</string>
     <string name="feature_asr_moonshine_name">Moonshine engine</string>

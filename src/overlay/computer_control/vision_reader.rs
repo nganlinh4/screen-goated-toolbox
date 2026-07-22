@@ -51,12 +51,6 @@ fn key_for(provider: &str, config: &Config) -> Option<String> {
     (!v.is_empty()).then_some(v)
 }
 
-/// Computer-control's default vision model: a strong, accurate reader/locator,
-/// preferred over the user's OCR-tuned `image_to_text` stack (whose first entry
-/// can be too weak for fine board reading / pixel pointing). Overridable via
-/// `CC_VISION_MODEL`.
-const CC_DEFAULT_VISION_MODEL: &str = "gemini-3.1-flash-lite";
-
 #[derive(Clone, Copy)]
 enum VisionTask {
     General,
@@ -82,22 +76,32 @@ impl<OnAttempt, Accept> CandidateCallbacks<OnAttempt, Accept> {
 }
 
 /// General reading follows the user's image chain. Pixel grounding is isolated
-/// to its benchmarked locator model: a weak image-to-text fallback must fail
+/// to its catalog-owned locator chain: a weak image-to-text fallback must fail
 /// closed rather than silently becoming permission to click the wrong place.
 fn chain_ids(config: &Config, prefer: &[&str], task: VisionTask) -> Vec<String> {
-    let default_first = std::env::var("CC_VISION_MODEL")
+    let grounding_chain = std::env::var("CC_VISION_MODEL")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| CC_DEFAULT_VISION_MODEL.to_string());
+        .map(|model| vec![model])
+        .unwrap_or_else(|| {
+            crate::model_config::COMPUTER_CONTROL_GROUNDING_MODEL_CHAIN_IDS
+                .iter()
+                .map(|model| (*model).to_string())
+                .collect()
+        });
     let configured: Vec<String> = match task {
         VisionTask::General => config.model_priority_chains.image_to_text.clone(),
-        VisionTask::Grounding => vec![default_first],
+        VisionTask::Grounding => grounding_chain,
     };
-    let candidates = prefer
-        .iter()
-        .map(|p| p.trim().to_string())
-        .chain(configured);
+    let candidates = match task {
+        VisionTask::General => prefer
+            .iter()
+            .map(|model| model.trim().to_string())
+            .chain(configured)
+            .collect::<Vec<_>>(),
+        VisionTask::Grounding => configured,
+    };
     let mut ids: Vec<String> = Vec::new();
     for c in candidates {
         if !c.is_empty() && !ids.contains(&c) {
@@ -111,32 +115,30 @@ pub(super) fn configured_general_chain(prefer: &[&str]) -> Vec<String> {
     chain_ids(&crate::load_config(), prefer, VisionTask::General)
 }
 
-/// Run `prompt` over `jpeg` through the model chain (`prefer` ids tried first),
-/// returning the first non-empty answer.
-fn run_chain(
+/// Run a structured grounding prompt through the isolated locator chain.
+fn run_grounding_chain(
     jpeg: &[u8],
     prompt: &str,
-    prefer: &[&str],
     schema: Option<serde_json::Value>,
-    task: VisionTask,
+    accept: impl FnMut(&str) -> bool,
 ) -> Result<String> {
     run_chain_where(
         jpeg,
         prompt,
-        prefer,
+        &[],
         schema,
         ChainRun {
-            task,
+            task: VisionTask::Grounding,
             cancel_token: None,
             request_timeout: None,
             attempts: None,
         },
         |_| {},
-        |_| true,
+        accept,
     )
 }
 
-/// As [`run_chain`], but a non-empty answer is accepted only when `accept`
+/// Runs the selected chain, but accepts a non-empty answer only when `accept`
 /// validates its task-specific contract. Invalid structured output falls
 /// through to the next configured provider instead of disabling grounding.
 fn run_chain_where(
@@ -301,28 +303,6 @@ pub(super) fn read_image_pref_where(
 
 /// Ask the vision stack for the click point of `description` (+ what's there).
 pub(super) fn locate_point(jpeg: &[u8], description: &str, ctx: &str) -> Result<Located> {
-    locate_point_pref(jpeg, description, None, ctx)
-}
-
-/// Like [`locate_point`] but tries `model` first (the FINE pass on a zoomed crop
-/// is easy localization, so a faster stack model often suffices) — falling back
-/// to the accurate default if it fails. Stateless and per-call: never loses
-/// correctness, only speeds the common case.
-pub(super) fn locate_point_with(
-    jpeg: &[u8],
-    description: &str,
-    model: &str,
-    ctx: &str,
-) -> Result<Located> {
-    locate_point_pref(jpeg, description, Some(model), ctx)
-}
-
-fn locate_point_pref(
-    jpeg: &[u8],
-    description: &str,
-    prefer: Option<&str>,
-    ctx: &str,
-) -> Result<Located> {
     let prompt = format!(
         "{}Find this target in the image: {description}. Output ONLY JSON \
 {{\"x\": <int>, \"y\": <int>, \"what\": \"<2-4 words: what is AT that location, e.g. empty cell, an X, a button>\"}} \
@@ -330,14 +310,9 @@ fn locate_point_pref(
 visible, output {{\"error\": \"not visible\"}}.",
         ctx_prefix(ctx)
     );
-    let pref: Vec<&str> = prefer.into_iter().collect();
-    let answer = run_chain(
-        jpeg,
-        &prompt,
-        &pref,
-        Some(point_schema()),
-        VisionTask::Grounding,
-    )?;
+    let answer = run_grounding_chain(jpeg, &prompt, Some(point_schema()), |response| {
+        parse_point(response).is_some() || response_reports_not_visible(response)
+    })?;
     let (x, y) = parse_point(&answer)
         .ok_or_else(|| anyhow!("could not parse a point from vision answer: {answer}"))?;
     Ok(Located {
@@ -358,30 +333,21 @@ matches is true only if the CROSSHAIR CENTER is visibly inside the requested tar
 elsewhere in the crop is false.",
         ctx_prefix(ctx)
     );
-    let answer = run_chain(
-        jpeg,
-        &prompt,
-        &[],
-        Some(verification_schema()),
-        VisionTask::Grounding,
-    )?;
-    let start = answer
-        .find('{')
-        .ok_or_else(|| anyhow!("verification JSON missing: {answer}"))?;
-    let end = answer
-        .rfind('}')
-        .ok_or_else(|| anyhow!("verification JSON missing: {answer}"))?;
-    let value: serde_json::Value = serde_json::from_str(&answer[start..=end])
-        .map_err(|_| anyhow!("verification JSON invalid: {answer}"))?;
-    Ok(Verification {
-        matches: value
-            .get("matches")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
+    let answer = run_grounding_chain(jpeg, &prompt, Some(verification_schema()), |response| {
+        parse_verification(response).is_some()
+    })?;
+    parse_verification(&answer).ok_or_else(|| anyhow!("verification JSON invalid: {answer}"))
+}
+
+fn parse_verification(answer: &str) -> Option<Verification> {
+    let start = answer.find('{')?;
+    let end = answer.rfind('}')?;
+    let value: serde_json::Value = serde_json::from_str(&answer[start..=end]).ok()?;
+    Some(Verification {
+        matches: value.get("matches").and_then(serde_json::Value::as_bool)?,
         confidence: value
             .get("confidence")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
+            .and_then(serde_json::Value::as_u64)?
             .min(100),
         note: value
             .get("what")
@@ -400,13 +366,9 @@ pub(super) fn locate_box(jpeg: &[u8], description: &str, ctx: &str) -> Result<Lo
 visible, output {{\"error\": \"not visible\"}}.",
         ctx_prefix(ctx)
     );
-    let answer = run_chain(
-        jpeg,
-        &prompt,
-        &[],
-        Some(box_schema()),
-        VisionTask::Grounding,
-    )?;
+    let answer = run_grounding_chain(jpeg, &prompt, Some(box_schema()), |response| {
+        parse_box(response).is_some() || response_reports_not_visible(response)
+    })?;
     parse_box(&answer)
         // box_2d order is [ymin, xmin, ymax, xmax]; center = (x mid, y mid).
         .map(|[ymin, xmin, ymax, xmax]| Located {
@@ -427,13 +389,9 @@ order (top row left-to-right, then next row): [{{\"x\": <int>, \"y\": <int>, \"w
 - x,y are the CENTER on a 0-1000 grid (x 0 left..1000 right, y 0 top..1000 bottom). Output [] if none. Cap at 30.",
         ctx_prefix(ctx)
     );
-    let answer = run_chain(
-        jpeg,
-        &prompt,
-        &[],
-        Some(points_schema()),
-        VisionTask::Grounding,
-    )?;
+    let answer = run_grounding_chain(jpeg, &prompt, Some(points_schema()), |response| {
+        parse_points(response).is_some()
+    })?;
     parse_points(&answer)
         .ok_or_else(|| anyhow!("could not parse point array from vision answer: {answer}"))
 }
@@ -503,6 +461,16 @@ fn parse_str_field(s: &str, key: &str) -> Option<String> {
     let q2 = rest[q1 + 1..].find('"')?;
     let v = rest[q1 + 1..q1 + 1 + q2].trim();
     (!v.is_empty()).then(|| v.to_string())
+}
+
+fn response_reports_not_visible(response: &str) -> bool {
+    let (Some(start), Some(end)) = (response.find('{'), response.rfind('}')) else {
+        return false;
+    };
+    serde_json::from_str::<serde_json::Value>(&response[start..=end])
+        .ok()
+        .and_then(|value| value.get("error")?.as_str().map(str::to_string))
+        .is_some_and(|error| !error.trim().is_empty())
 }
 
 /// Parse a `box_2d` [ymin, xmin, ymax, xmax] from a vision answer. Reads numbers

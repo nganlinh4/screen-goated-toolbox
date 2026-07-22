@@ -24,9 +24,19 @@ import java.util.concurrent.atomic.AtomicLong
 
 internal data class ShizukuBridgeProbe(
     val state: CapabilityState,
+    val condition: ShizukuBridgeCondition,
     val authorityUid: Int? = null,
     val requiredUserStep: String? = null,
 )
+
+internal enum class ShizukuBridgeCondition(val wireName: String) {
+    READY("ready"),
+    PACKAGE_MISSING("package_missing"),
+    SERVICE_STOPPED("service_stopped"),
+    API_UNSUPPORTED("api_unsupported"),
+    PERMISSION_REQUESTABLE("permission_requestable"),
+    PERMISSION_REVOKED("permission_revoked"),
+}
 
 internal object ShizukuCommandBridge {
     private val lock = Any()
@@ -75,7 +85,8 @@ internal object ShizukuCommandBridge {
         }
         if (runCatching { Shizuku.isPreV11() }.getOrDefault(true)) {
             return ShizukuBridgeProbe(
-                CapabilityState.UNSUPPORTED,
+                state = CapabilityState.UNSUPPORTED,
+                condition = ShizukuBridgeCondition.API_UNSUPPORTED,
                 requiredUserStep = "Update Shizuku to API 11 or newer.",
             )
         }
@@ -83,6 +94,7 @@ internal object ShizukuCommandBridge {
         if (permission == PackageManager.PERMISSION_GRANTED) {
             return ShizukuBridgeProbe(
                 state = CapabilityState.READY,
+                condition = ShizukuBridgeCondition.READY,
                 authorityUid = runCatching { Shizuku.getUid() }.getOrNull(),
             )
         }
@@ -91,6 +103,11 @@ internal object ShizukuCommandBridge {
         }.getOrDefault(false)
         return ShizukuBridgeProbe(
             state = if (deniedPermanently) CapabilityState.REVOKED else CapabilityState.NEEDS_USER_STEP,
+            condition = if (deniedPermanently) {
+                ShizukuBridgeCondition.PERMISSION_REVOKED
+            } else {
+                ShizukuBridgeCondition.PERMISSION_REQUESTABLE
+            },
             requiredUserStep = if (deniedPermanently) {
                 "Allow SGT from Shizuku's authorized-apps screen."
             } else {
@@ -271,12 +288,14 @@ internal object ShizukuCommandBridge {
 internal fun shizukuBinderUnavailable(packageInstalled: Boolean): ShizukuBridgeProbe =
     if (packageInstalled) {
         ShizukuBridgeProbe(
-            CapabilityState.NEEDS_USER_STEP,
+            state = CapabilityState.NEEDS_USER_STEP,
+            condition = ShizukuBridgeCondition.SERVICE_STOPPED,
             requiredUserStep = "Start Shizuku or Sui.",
         )
     } else {
         ShizukuBridgeProbe(
-            CapabilityState.UNAVAILABLE,
+            state = CapabilityState.UNAVAILABLE,
+            condition = ShizukuBridgeCondition.PACKAGE_MISSING,
             requiredUserStep = "Install Shizuku to add shell authority.",
         )
     }

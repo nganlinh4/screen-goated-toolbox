@@ -11,8 +11,10 @@ class ShizukuCommandBridgeTest {
         val stopped = shizukuBinderUnavailable(packageInstalled = true)
 
         assertEquals(CapabilityState.UNAVAILABLE, missing.state)
+        assertEquals(ShizukuBridgeCondition.PACKAGE_MISSING, missing.condition)
         assertEquals("Install Shizuku to add shell authority.", missing.requiredUserStep)
         assertEquals(CapabilityState.NEEDS_USER_STEP, stopped.state)
+        assertEquals(ShizukuBridgeCondition.SERVICE_STOPPED, stopped.condition)
         assertEquals("Start Shizuku or Sui.", stopped.requiredUserStep)
     }
 }

@@ -51,6 +51,17 @@ def validate_manifest(manifest: dict) -> None:
     for old, replacement in manifest["model_id_migrations"].items():
         if old == replacement or replacement not in ids:
             raise ValueError(f"invalid model id migration: {old} -> {replacement}")
+    enabled_ids = {model["id"] for model in models if model["enabled"]}
+    feature_model_chains = manifest["feature_model_chains"]
+    for key in ("help_assistant", "computer_control_grounding"):
+        chain = feature_model_chains.get(key)
+        if not isinstance(chain, list) or len(chain) != 2:
+            raise ValueError(f"{key} must define primary and fallback models")
+        if len(set(chain)) != len(chain):
+            raise ValueError(f"{key} model chain must not contain duplicates")
+        unknown = [model_id for model_id in chain if model_id not in enabled_ids]
+        if unknown:
+            raise ValueError(f"{key} references disabled or unknown models: {unknown}")
     endpoints = manifest["endpoints"]
     allowed = {"stable", "preview", "experimental", "deprecated", "retired"}
     for endpoint, metadata in endpoints.items():
@@ -133,6 +144,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
     constants = manifest["constants"]
     provider_defaults = manifest["provider_defaults"]
     priority_chains = manifest["priority_chains"]
+    feature_model_chains = manifest["feature_model_chains"]
     non_llm_ids = set(manifest["non_llm_ids"])
     search_disabled_full_names = manifest["search_disabled_full_names"]
 
@@ -195,6 +207,14 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
             "        textToText = listOf(",
             *[f"            {kotlin_string(item)}," for item in priority_chains["text_to_text"]],
             "        ),",
+            "    )",
+            "",
+            "    val helpAssistantModelChain: List<String> = listOf(",
+            *[f"        {kotlin_string(item)}," for item in feature_model_chains["help_assistant"]],
+            "    )",
+            "",
+            "    val computerControlGroundingModelChain: List<String> = listOf(",
+            *[f"        {kotlin_string(item)}," for item in feature_model_chains["computer_control_grounding"]],
             "    )",
             "",
             "    fun normalizeModelId(modelId: String): String = when (modelId) {",

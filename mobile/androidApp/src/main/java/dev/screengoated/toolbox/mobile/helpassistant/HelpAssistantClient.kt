@@ -1,6 +1,9 @@
 package dev.screengoated.toolbox.mobile.helpassistant
 
+import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
+import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.invalidApiKeyMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -30,7 +33,8 @@ class HelpAssistantClient(
             // Try primary model, fall back on error
             try {
                 askGemini(apiKey, PRIMARY_MODEL, request.question.trim(), context)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 askGemini(apiKey, FALLBACK_MODEL, request.question.trim(), context)
             }
         }
@@ -65,6 +69,12 @@ class HelpAssistantClient(
         question: String,
         context: String,
     ): String {
+        val apiModel = requireNotNull(PresetModelCatalog.getById(modelId)) {
+            "Unknown Help Assistant model: $modelId"
+        }
+        require(apiModel.provider == PresetModelProvider.GOOGLE) {
+            "Help Assistant model $modelId is not a Gemini REST model"
+        }
         val userMessage = "$SYSTEM_PROMPT\n\n---\nSource Code Context:\n$context\n---\n\nUser Question: $question"
         val payload = JSONObject()
             .put(
@@ -84,7 +94,7 @@ class HelpAssistantClient(
                     .put("thinkingConfig", JSONObject().put("thinkingLevel", "MINIMAL")),
             )
 
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent"
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/${apiModel.fullName}:generateContent"
         val request = Request.Builder()
             .url(url)
             .header("x-goog-api-key", apiKey)

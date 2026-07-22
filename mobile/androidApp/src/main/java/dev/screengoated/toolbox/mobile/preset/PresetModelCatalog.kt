@@ -156,7 +156,10 @@ object PresetModelCatalog {
     }
 
     fun geminiThinkingConfig(fullName: String): Map<String, Any>? {
-        if (fullName.contains("gemini-3.1-flash-lite") || fullName.contains("gemma-4-")) {
+        if (fullName.contains("gemini-3.1-flash-lite") ||
+            fullName.contains("gemini-3.5-flash-lite") ||
+            fullName.contains("gemma-4-")
+        ) {
             return mapOf("thinkingLevel" to "MINIMAL")
         }
 

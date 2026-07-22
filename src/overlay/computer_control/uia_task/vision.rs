@@ -257,17 +257,12 @@ pub(super) fn refine_in_view(
     else {
         return Ok(coarse);
     };
-    // The fine pass is easy localization (target fills the zoomed crop), so an
-    // optional faster model (CC_VISION_FINE_MODEL) can do it — falling back to
-    // the accurate default if it fails. Stateless; never loses correctness.
+    // The fine pass keeps the same fail-closed grounding chain. A zoomed crop
+    // improves localization without granting a general image model click authority.
     let fine = {
         let (d, c) = (description.to_string(), ctx.to_string());
-        let fine_model = std::env::var("CC_VISION_FINE_MODEL")
-            .ok()
-            .filter(|m| !m.trim().is_empty());
-        run_cancellable(cancel, move || match fine_model {
-            Some(m) => super::super::vision_reader::locate_point_with(&fine_jpeg, &d, m.trim(), &c),
-            None => super::super::vision_reader::locate_point(&fine_jpeg, &d, &c),
+        run_cancellable(cancel, move || {
+            super::super::vision_reader::locate_point(&fine_jpeg, &d, &c)
         })
     };
     match fine {

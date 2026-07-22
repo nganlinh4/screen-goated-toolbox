@@ -135,6 +135,13 @@
     <string name="phone_control_power_standard">표준</string>
     <string name="phone_control_power_shizuku">Shizuku</string>
     <string name="phone_control_power_root">Root</string>
+    <string name="phone_control_shizuku_ready">Shizuku가 준비되었습니다. 휴대폰 제어가 추가 권한을 사용합니다.</string>
+    <string name="phone_control_shizuku_request_permission">Shizuku가 실행 중입니다. 권한 요청에서 SGT를 허용하세요.</string>
+    <string name="phone_control_shizuku_start_service">Shizuku를 엽니다. 무선 디버깅으로 시작하세요. Android에서 페어링을 요청할 수 있으며, 돌아오면 SGT가 계속합니다.</string>
+    <string name="phone_control_shizuku_restore_permission">Shizuku를 엽니다. 승인된 앱에서 SGT를 허용한 후 돌아오세요.</string>
+    <string name="phone_control_shizuku_update">Shizuku 버전이 너무 오래되었습니다. 업데이트를 위해 공식 설치 경로를 엽니다.</string>
+    <string name="phone_control_shizuku_install">Shizuku가 설치되어 있지 않습니다. 공식 설치 경로를 엽니다.</string>
+    <string name="phone_control_shizuku_still_needs_user_step">Shizuku가 아직 준비되지 않았습니다. 표시된 Shizuku 또는 Android 단계를 완료한 후 오브에서 Shizuku를 다시 선택하세요.</string>
     <string name="preset_image_selection_overlay_label">%1$s • %2$s</string>
     <string name="feature_asr_ort_name">Moonshine 런타임</string>
     <string name="feature_asr_moonshine_name">Moonshine 엔진</string>

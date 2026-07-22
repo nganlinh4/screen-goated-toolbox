@@ -1,4 +1,7 @@
-use super::{VisionTask, chain_ids, parse_box, parse_point, parse_points};
+use super::{
+    VisionTask, chain_ids, parse_box, parse_point, parse_points, parse_verification,
+    response_reports_not_visible,
+};
 use crate::config::Config;
 
 #[test]
@@ -6,7 +9,7 @@ fn grounding_chain_never_inherits_general_vision_models() {
     let mut config = Config::default();
     config.model_priority_chains.image_to_text = vec!["scout".into(), "gemini-flash".into()];
     let grounding = chain_ids(&config, &[], VisionTask::Grounding);
-    assert_eq!(grounding.len(), 1);
+    assert!(!grounding.is_empty());
     assert!(
         !grounding
             .iter()
@@ -16,6 +19,37 @@ fn grounding_chain_never_inherits_general_vision_models() {
         chain_ids(&config, &[], VisionTask::General),
         ["scout", "gemini-flash"]
     );
+    assert_eq!(
+        grounding,
+        chain_ids(&config, &["scout"], VisionTask::Grounding),
+        "a preferred general model must not enter the grounding chain"
+    );
+}
+
+#[test]
+fn grounding_chain_matches_phone_control_fixture() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/phone-control/model-chain.json"
+    )))
+    .expect("Phone Control model-chain fixture parses");
+    let expected = fixture["grounding"]["models"]
+        .as_array()
+        .expect("grounding models must be an array")
+        .iter()
+        .map(|model| model.as_str().expect("model id must be a string"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        crate::model_config::COMPUTER_CONTROL_GROUNDING_MODEL_CHAIN_IDS,
+        expected
+    );
+}
+
+#[test]
+fn structured_grounding_results_distinguish_terminal_from_malformed() {
+    assert!(response_reports_not_visible(r#"{"error":"not visible"}"#));
+    assert!(parse_verification(r#"{"matches":false,"confidence":82}"#).is_some());
+    assert!(parse_verification("not json").is_none());
 }
 
 #[test]

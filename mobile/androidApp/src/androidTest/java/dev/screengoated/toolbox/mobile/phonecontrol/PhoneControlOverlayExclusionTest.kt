@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol
 
 import android.app.UiAutomation
 import android.content.Intent
+import android.graphics.Rect
 import android.os.ParcelFileDescriptor
 import android.provider.Settings
 import android.view.View
@@ -9,11 +10,16 @@ import android.view.WindowManager
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayController
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayExclusion
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntimeCode
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntimePhase
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
+import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerChoice
+import dev.screengoated.toolbox.mobile.service.DismissAction
+import dev.screengoated.toolbox.mobile.service.DismissBubbleController
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -28,6 +34,71 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PhoneControlOverlayExclusionTest {
     @Test
+    fun draggingOrbIntoSharedDismissBubbleCommitsOneServiceStop() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val targetContext = instrumentation.targetContext
+        val packageName = targetContext.packageName
+        val originalMode = readOverlayMode(packageName)
+        val originalPowerChoice = PhoneControlPowerPreferences.current(targetContext)
+        val dismissed = AtomicBoolean(false)
+        PhoneControlPowerPreferences.save(targetContext, PhoneControlPowerChoice.STANDARD)
+        val controller = PhoneControlOverlayController(targetContext) {
+            assertTrue("Dismiss callback must run once", dismissed.compareAndSet(false, true))
+        }
+
+        try {
+            setOverlayMode(packageName, "allow")
+            awaitCondition("Overlay permission did not become ready") {
+                Settings.canDrawOverlays(targetContext)
+            }
+            val intent = Intent(
+                targetContext,
+                PhoneControlAccessibilityFixtureActivity::class.java,
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ActivityScenario.launch<PhoneControlAccessibilityFixtureActivity>(intent).use {
+                controller.onState(
+                    PhoneControlServiceState(
+                        running = true,
+                        phase = PhoneControlRuntimePhase.WORKING,
+                        code = PhoneControlRuntimeCode.READY,
+                        userMessage = "Working",
+                    ),
+                )
+                awaitCondition("Phone Control orb never became visible") {
+                    controller.orbBounds() != null
+                }
+                instrumentation.waitForIdleSync()
+
+                val device = UiDevice.getInstance(instrumentation)
+                val orb = requireNotNull(controller.orbBounds())
+                val screen = Rect(0, 0, device.displayWidth, device.displayHeight)
+                val target = requireNotNull(
+                    dismissController(controller).targetCenterPx(DismissAction.SINGLE, screen),
+                )
+                assertTrue(
+                    "UiAutomator could not inject the orb dismiss drag",
+                    device.swipe(
+                        (orb.left + orb.right) / 2,
+                        (orb.top + orb.bottom) / 2,
+                        target.first.toInt(),
+                        target.second.toInt(),
+                        DISMISS_SWIPE_STEPS,
+                    ),
+                )
+                awaitCondition("Orb dismiss did not request service stop") { dismissed.get() }
+            }
+        } finally {
+            withContext(Dispatchers.Main) { controller.destroy() }
+            setOverlayMode(packageName, originalMode)
+            if (originalPowerChoice == null) {
+                PhoneControlPowerPreferences.clear(targetContext)
+            } else {
+                PhoneControlPowerPreferences.save(targetContext, originalPowerChoice)
+            }
+        }
+    }
+
+    @Test
     fun captureLeaseHidesAndRestoresTheRenderedOverlay() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val targetContext = instrumentation.targetContext
@@ -35,7 +106,7 @@ class PhoneControlOverlayExclusionTest {
         val originalMode = readOverlayMode(packageName)
         val originalPowerChoice = PhoneControlPowerPreferences.current(targetContext)
         PhoneControlPowerPreferences.clear(targetContext)
-        val controller = PhoneControlOverlayController(targetContext)
+        val controller = PhoneControlOverlayController(targetContext, onDismiss = {})
         PhoneControlOverlayExclusion.register(controller)
 
         try {
@@ -165,6 +236,14 @@ class PhoneControlOverlayExclusionTest {
         return field.get(controller) as WindowManager.LayoutParams
     }
 
+    private fun dismissController(
+        controller: PhoneControlOverlayController,
+    ): DismissBubbleController {
+        val field = PhoneControlOverlayController::class.java.getDeclaredField("dismissBubble")
+        field.isAccessible = true
+        return field.get(controller) as DismissBubbleController
+    }
+
     private fun readOverlayMode(packageName: String): String {
         val output = shell("appops get $packageName SYSTEM_ALERT_WINDOW")
         return APP_OP_MODE.find(output)?.groupValues?.get(1) ?: "default"
@@ -188,5 +267,6 @@ class PhoneControlOverlayExclusionTest {
         const val POLL_INTERVAL_MS = 100L
         const val CONDITION_ATTEMPTS = 50
         const val RENDER_SETTLE_MS = 250L
+        const val DISMISS_SWIPE_STEPS = 30
     }
 }
