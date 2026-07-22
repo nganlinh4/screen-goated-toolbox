@@ -69,6 +69,10 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 noResults = "Chưa có kết quả đã lưu",
                 selectedImages = "{} ảnh",
                 interrupted = "Không thể hoàn tất việc tạo.",
+                previewTools = "Xem trước khi tạo",
+                depthPreviewModel = "Depth Anything 3 Small",
+                depthPreviewDescription =
+                    "Hiện hiệu ứng chiều sâu động trong lúc tạo kết quả 3D và SVG.",
             ),
             model3d = Creation3dLocale(
                 polycount = "Số đa giác",
@@ -82,6 +86,11 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 geometryStats = "{} đỉnh · {} mặt",
                 grid = "Lưới",
                 autoRotate = "Tự động xoay",
+                fit = "Vừa khung",
+                originalMaterials = "Vật liệu gốc",
+                toonOutline = "Tô bóng toon",
+                partColors = "Màu từng phần",
+                previewUnavailable = "Không thể hiển thị mô hình này.",
             ),
             svg = CreationSvgLocale(
                 model = "Chế độ",

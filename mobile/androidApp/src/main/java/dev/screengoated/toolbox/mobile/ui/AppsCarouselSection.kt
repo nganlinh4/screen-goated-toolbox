@@ -177,8 +177,8 @@ private fun AppsItemContent(
             2 -> AppTile(slot = appSlots[2], title = locale.appTranslationGummyTitle, drawableRes = dev.screengoated.toolbox.mobile.R.drawable.ms_breakfast_dining)
             3 -> AppTile(slot = appSlots[3], title = locale.appVideoDownloaderTitle, drawableRes = R.drawable.ms_movie)
             4 -> AppTile(slot = appSlots[4], title = locale.appDjTitle, drawableRes = R.drawable.ms_album)
-            5 -> AppTile(slot = appSlots[5], title = locale.appImageTo3dTitle, drawableRes = R.drawable.ms_image_search)
-            6 -> AppTile(slot = appSlots[6], title = locale.appImageToSvgTitle, drawableRes = R.drawable.ms_edit)
+            5 -> AppTile(slot = appSlots[5], title = locale.appImageTo3dTitle, drawableRes = R.drawable.ms_deployed_code)
+            6 -> AppTile(slot = appSlots[6], title = locale.appImageToSvgTitle, drawableRes = R.drawable.ms_draw_collage)
             else -> EmptyAppTile(slot = appSlots[index])
         }
     }

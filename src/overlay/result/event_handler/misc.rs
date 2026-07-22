@@ -5,7 +5,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::overlay::result::button_canvas;
 use crate::overlay::result::markdown_view;
 use crate::overlay::result::paint;
-use crate::overlay::result::state::WINDOW_STATES;
+use crate::overlay::result::state::{InteractionMode, ResizeEdge, WINDOW_STATES};
 
 pub const WM_CREATE_WEBVIEW: u32 = WM_USER + 200;
 pub const WM_SHOW_MARKDOWN: u32 = WM_USER + 201;
@@ -21,6 +21,7 @@ pub const WM_SPEAKER_CLICK: u32 = WM_USER + 216;
 pub const WM_DOWNLOAD_CLICK: u32 = WM_USER + 217;
 pub const WM_BROOM_DRAG_START: u32 = WM_USER + 218;
 pub const WM_CLOSE_GROUP_CLICK: u32 = WM_USER + 219;
+pub const WM_CANCEL_INTERACTION: u32 = WM_USER + 220;
 
 pub unsafe fn handle_erase_bkgnd(_hwnd: HWND, _wparam: WPARAM) -> LRESULT {
     LRESULT(1)
@@ -72,6 +73,34 @@ pub unsafe fn handle_paint(hwnd: HWND) -> LRESULT {
 }
 
 pub unsafe fn handle_keydown() -> LRESULT {
+    LRESULT(0)
+}
+
+pub unsafe fn handle_cancel_interaction(hwnd: HWND) -> LRESULT {
+    let should_save = {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        states.get_mut(&(hwnd.0 as isize)).is_some_and(|state| {
+            let was_interacting = matches!(
+                state.interaction_mode,
+                InteractionMode::Resizing(_)
+                    | InteractionMode::ResizingGroup(_, _)
+                    | InteractionMode::DraggingWindow
+                    | InteractionMode::DraggingGroup(_)
+            );
+            let should_save = was_interacting && state.has_moved_significantly;
+            if was_interacting {
+                state.interaction_mode = InteractionMode::None;
+                state.current_resize_edge = ResizeEdge::None;
+            }
+            should_save
+        })
+    };
+
+    button_canvas::set_drag_mode(false);
+    button_canvas::update_window_position(hwnd);
+    if should_save {
+        super::save_window_geometry(hwnd, "CAPTURE_CANCELLED");
+    }
     LRESULT(0)
 }
 

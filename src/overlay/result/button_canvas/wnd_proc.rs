@@ -2,13 +2,16 @@
 
 use super::{
     ACTIVE_DRAG_SNAPSHOT, ACTIVE_DRAG_TARGET, CANVAS_WEBVIEW, CURSOR_POLL_TIMER_ID, DRAG_IS_GROUP,
-    LAST_DRAG_POS, LAST_THEME_IS_DARK, MARKDOWN_WINDOWS, PENDING_REFINE_UPDATES, START_DRAG_POS,
-    WM_APP_HIDE_CANVAS, WM_APP_SEND_REFINE_TEXT, WM_APP_SHOW_CANVAS, WM_APP_UPDATE_WINDOWS,
-    get_dpi_scale, theme::get_canvas_theme_css,
+    IS_DRAGGING_EXTERNAL, LAST_DRAG_POS, LAST_THEME_IS_DARK, MARKDOWN_WINDOWS,
+    PENDING_REFINE_UPDATES, START_DRAG_POS, WM_APP_HIDE_CANVAS, WM_APP_SEND_REFINE_TEXT,
+    WM_APP_SHOW_CANVAS, WM_APP_UPDATE_WINDOWS, get_dpi_scale, theme::get_canvas_theme_css,
 };
 use crate::overlay::result::state::WINDOW_STATES;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, GetCapture, ReleaseCapture, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::Rect;
 
@@ -67,8 +70,13 @@ pub unsafe extern "system" fn canvas_wnd_proc(
             }
 
             WM_TIMER => {
-                handle_timer(wparam);
+                handle_timer(hwnd, wparam);
                 LRESULT(0)
+            }
+
+            WM_CAPTURECHANGED | WM_CANCELMODE => {
+                cancel_active_canvas_drag("capture was lost or cancelled");
+                DefWindowProcW(hwnd, msg, wparam, lparam)
             }
 
             WM_DISPLAYCHANGE => {
@@ -82,6 +90,8 @@ pub unsafe extern "system" fn canvas_wnd_proc(
             }
 
             WM_DESTROY => {
+                cancel_active_canvas_drag("canvas window was destroyed");
+                IS_DRAGGING_EXTERNAL.store(false, Ordering::SeqCst);
                 PostQuitMessage(0);
                 LRESULT(0)
             }
@@ -225,8 +235,6 @@ unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
     unsafe {
         let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
         if target_val != 0 {
-            use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-
             ACTIVE_DRAG_TARGET.store(0, Ordering::SeqCst);
             let is_group = DRAG_IS_GROUP.swap(false, Ordering::SeqCst);
             let _ = ReleaseCapture();
@@ -248,6 +256,8 @@ unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     "CANVAS_DRAG_SINGLE",
                 );
             }
+
+            ACTIVE_DRAG_SNAPSHOT.lock().unwrap().clear();
 
             // Click vs Drag Check
             let mut pt = POINT::default();
@@ -296,9 +306,78 @@ unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
     }
 }
 
-unsafe fn handle_timer(wparam: WPARAM) {
+fn any_drag_button_down() -> bool {
     unsafe {
-        if wparam.0 == CURSOR_POLL_TIMER_ID && ACTIVE_DRAG_TARGET.load(Ordering::SeqCst) == 0 {
+        GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0
+            || GetAsyncKeyState(VK_RBUTTON.0 as i32) < 0
+            || GetAsyncKeyState(VK_MBUTTON.0 as i32) < 0
+    }
+}
+
+fn canvas_drag_is_stale(
+    active_target: isize,
+    target_is_valid: bool,
+    canvas_has_capture: bool,
+    mouse_button_is_down: bool,
+) -> bool {
+    active_target != 0 && (!target_is_valid || !canvas_has_capture || !mouse_button_is_down)
+}
+
+unsafe fn cancel_active_canvas_drag(reason: &str) {
+    unsafe {
+        let target_val = ACTIVE_DRAG_TARGET.swap(0, Ordering::SeqCst);
+        if target_val == 0 {
+            return;
+        }
+
+        DRAG_IS_GROUP.store(false, Ordering::SeqCst);
+        ACTIVE_DRAG_SNAPSHOT.lock().unwrap().clear();
+        let _ = ReleaseCapture();
+
+        CANVAS_WEBVIEW.with(|cell| {
+            if let Some(webview) = cell.borrow().as_ref() {
+                let _ = webview.evaluate_script("window.setBroomDraggingCursor(false);");
+            }
+        });
+        crate::log_info!(
+            "[ButtonCanvas] Recovered stale drag target HWND(0x{:x}): {}",
+            target_val,
+            reason
+        );
+        super::window::send_windows_update();
+    }
+}
+
+unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) {
+    unsafe {
+        if wparam.0 != CURSOR_POLL_TIMER_ID {
+            return;
+        }
+
+        let mouse_button_is_down = any_drag_button_down();
+        let active_target = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
+        if active_target != 0 {
+            let target = HWND(active_target as *mut std::ffi::c_void);
+            let target_is_valid = IsWindow(Some(target)).as_bool();
+            let canvas_has_capture = GetCapture() == hwnd;
+            if canvas_drag_is_stale(
+                active_target,
+                target_is_valid,
+                canvas_has_capture,
+                mouse_button_is_down,
+            ) {
+                cancel_active_canvas_drag("drag watchdog detected a missing release");
+            } else {
+                return;
+            }
+        }
+
+        if IS_DRAGGING_EXTERNAL.load(Ordering::SeqCst) && !mouse_button_is_down {
+            crate::log_info!("[ButtonCanvas] Recovered stale external drag mode");
+            super::set_drag_mode(false);
+        }
+
+        if ACTIVE_DRAG_TARGET.load(Ordering::SeqCst) == 0 {
             let mut pt = POINT::default();
             if GetCursorPos(&mut pt).is_ok() {
                 let scale = get_dpi_scale();
@@ -448,4 +527,18 @@ pub fn send_windows_update() {
             let _ = webview.evaluate_script(&script);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canvas_drag_is_stale;
+
+    #[test]
+    fn canvas_drag_watchdog_only_cancels_broken_active_drags() {
+        assert!(!canvas_drag_is_stale(0, false, false, false));
+        assert!(!canvas_drag_is_stale(42, true, true, true));
+        assert!(canvas_drag_is_stale(42, false, true, true));
+        assert!(canvas_drag_is_stale(42, true, false, true));
+        assert!(canvas_drag_is_stale(42, true, true, false));
+    }
 }
