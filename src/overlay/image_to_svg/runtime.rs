@@ -9,6 +9,7 @@ use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+#[cfg(debug_assertions)]
 const RUNTIME_EXE_NAME: &str = "sgt_creation_runtime.exe";
 const MAX_ASSET_BYTES: u64 = 40 * 1024 * 1024;
 const MAX_PARALLEL_JOBS: usize = 2;
@@ -68,6 +69,7 @@ static STATE: LazyLock<Mutex<RuntimeState>> = LazyLock::new(|| Mutex::new(Runtim
 static JOB_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static WARM_RUNNING: AtomicBool = AtomicBool::new(false);
 
+#[cfg(debug_assertions)]
 fn dev_runtime_exe_path() -> Option<PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("native")
@@ -77,6 +79,11 @@ fn dev_runtime_exe_path() -> Option<PathBuf> {
         .into_iter()
         .map(|profile| root.join(profile).join(RUNTIME_EXE_NAME))
         .find(|path| path.is_file())
+}
+
+#[cfg(not(debug_assertions))]
+fn dev_runtime_exe_path() -> Option<PathBuf> {
+    None
 }
 
 fn runtime_command() -> Option<Command> {

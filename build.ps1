@@ -252,6 +252,61 @@ $targetMap = @{
 $selectedArchs = if ($Arch -eq "all") { @("x64", "arm64") } else { @($Arch) }
 $builtArtifacts = @()
 
+# Keep build-machine paths out of panic locations and release debug metadata. The encoded form
+# preserves Windows paths containing spaces and replaces the target rustflags from .cargo/config,
+# so the static CRT flag is repeated here intentionally.
+$rustFlagSeparator = [char]0x1f
+$workspaceRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\')
+$releaseRustFlags = @(
+    "-C",
+    "target-feature=+crt-static",
+    "--remap-path-prefix=$workspaceRoot=/sgt"
+)
+$cargoHome = if ($env:CARGO_HOME) {
+    [IO.Path]::GetFullPath($env:CARGO_HOME).TrimEnd('\')
+}
+else {
+    [IO.Path]::GetFullPath((Join-Path $HOME ".cargo")).TrimEnd('\')
+}
+$releaseRustFlags += "--remap-path-prefix=$cargoHome=/cargo"
+
+$userProfile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+$privateBuildPaths = @($workspaceRoot, $cargoHome)
+if (-not [string]::IsNullOrWhiteSpace($userProfile)) {
+    $userProfile = [IO.Path]::GetFullPath($userProfile).TrimEnd('\')
+    $releaseRustFlags += "--remap-path-prefix=$userProfile=/build-user"
+    $privateBuildPaths += $userProfile
+}
+
+$previousEncodedRustFlags = [Environment]::GetEnvironmentVariable(
+    "CARGO_ENCODED_RUSTFLAGS",
+    [EnvironmentVariableTarget]::Process
+)
+if (-not [string]::IsNullOrEmpty($previousEncodedRustFlags)) {
+    $releaseRustFlags += $previousEncodedRustFlags.Split($rustFlagSeparator)
+}
+$encodedReleaseRustFlags = $releaseRustFlags -join $rustFlagSeparator
+
+function Assert-ReleaseBinaryPrivacy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BinaryPath,
+        [Parameter(Mandatory = $true)]
+        [string[]]$PrivatePrefixes
+    )
+
+    # Rust source locations are UTF-8 in the executable. Decode as ASCII so arbitrary binary
+    # bytes cannot prevent a literal private path from being found.
+    $binaryText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($BinaryPath))
+    foreach ($prefix in $PrivatePrefixes) {
+        foreach ($candidate in @($prefix, $prefix.Replace('\', '/'))) {
+            if ($binaryText.IndexOf($candidate, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                throw "Release artifact contains a private build path: $candidate"
+            }
+        }
+    }
+}
+
 # =============================================================================
 # Build Release version (LTO optimized + stripped)
 # =============================================================================
@@ -274,7 +329,25 @@ foreach ($archName in $selectedArchs) {
     Write-Host ""
     Write-Host "=== Building ScreenGoatedToolbox v$version ($archName) ===" -ForegroundColor Cyan
     Write-Host "Using 'release' profile (LTO + stripped)..." -ForegroundColor Gray
-    cargo build --release --target $targetTriple
+    Write-Host "Remapping private build paths in release metadata..." -ForegroundColor Gray
+    $env:CARGO_ENCODED_RUSTFLAGS = $encodedReleaseRustFlags
+    $cargoExitCode = 0
+    try {
+        cargo build --release --target $targetTriple
+        $cargoExitCode = $LASTEXITCODE
+    }
+    finally {
+        if ($null -eq $previousEncodedRustFlags) {
+            Remove-Item Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:CARGO_ENCODED_RUSTFLAGS = $previousEncodedRustFlags
+        }
+    }
+    if ($cargoExitCode -ne 0) {
+        Write-Host "  -> FAILED: cargo build exited with code $cargoExitCode" -ForegroundColor Red
+        exit $cargoExitCode
+    }
 
     if (Test-Path $exePathRelease) {
         if ($legacyX64Path -and (Test-Path $legacyX64Path)) {
@@ -284,6 +357,7 @@ foreach ($archName in $selectedArchs) {
             Remove-Item $outputPath
         }
         Copy-Item $exePathRelease $outputPath
+        Assert-ReleaseBinaryPrivacy -BinaryPath $outputPath -PrivatePrefixes $privateBuildPaths
         $size = (Get-Item $outputPath).Length / 1MB
         $builtArtifacts += [PSCustomObject]@{
             Name = $outputExeName

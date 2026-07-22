@@ -169,7 +169,11 @@ pub(crate) fn setup_crash_handler(mode: CrashReportMode) {
     std::panic::set_hook(Box::new(move |panic_info| {
         // 1. Format the error message
         let location = if let Some(location) = panic_info.location() {
-            format!("File: {}\nLine: {}", location.file(), location.line())
+            format!(
+                "File: {}\nLine: {}",
+                sanitize_panic_source_path(location.file()),
+                location.line()
+            )
         } else {
             "Unknown location".to_string()
         };
@@ -215,6 +219,65 @@ pub(crate) fn setup_crash_handler(mode: CrashReportMode) {
             );
         }
     }));
+}
+
+fn sanitize_panic_source_path(source_path: &str) -> String {
+    let normalized = source_path.replace('\\', "/");
+
+    if let Some(registry_path) = normalized
+        .split_once("/registry/src/")
+        .map(|(_, remainder)| remainder)
+    {
+        // Cargo registry paths contain a machine-specific registry directory before the package.
+        return registry_path
+            .split_once('/')
+            .map_or(registry_path, |(_, package_path)| package_path)
+            .to_owned();
+    }
+
+    if let Some(checkout_path) = normalized
+        .split_once("/git/checkouts/")
+        .map(|(_, remainder)| remainder)
+    {
+        let mut parts = checkout_path.split('/');
+        let package = parts.next();
+        let _checkout_revision = parts.next();
+        if let Some(package) = package {
+            return std::iter::once(package)
+                .chain(parts)
+                .collect::<Vec<_>>()
+                .join("/");
+        }
+    }
+
+    if let Some(standard_library_path) = normalized
+        .split_once("/library/")
+        .map(|(_, remainder)| remainder)
+    {
+        return format!("library/{standard_library_path}");
+    }
+
+    for source_root in ["src", "libs", "third_party", "native", "build.rs"] {
+        let marker = format!("/{source_root}");
+        if let Some(index) = normalized.rfind(&marker) {
+            return normalized[index + 1..].to_owned();
+        }
+    }
+
+    let is_absolute = normalized.starts_with('/')
+        || normalized
+            .as_bytes()
+            .get(1)
+            .is_some_and(|separator| *separator == b':');
+    if is_absolute {
+        return normalized
+            .rsplit('/')
+            .next()
+            .unwrap_or("unknown source")
+            .to_owned();
+    }
+
+    normalized
 }
 
 fn remove_persisted_crash_diagnostics() {
@@ -352,7 +415,7 @@ pub fn spawn_warmup_thread() {
 
 #[cfg(test)]
 mod crash_report_tests {
-    use super::CrashReportMode;
+    use super::{CrashReportMode, sanitize_panic_source_path};
 
     #[test]
     fn only_interactive_startup_may_touch_host_diagnostics_or_open_a_modal() {
@@ -360,5 +423,23 @@ mod crash_report_tests {
         assert!(!CrashReportMode::NonInteractive.shows_modal_dialog());
         assert!(CrashReportMode::Interactive.cleans_persisted_diagnostics());
         assert!(!CrashReportMode::NonInteractive.cleans_persisted_diagnostics());
+    }
+
+    #[test]
+    fn crash_locations_do_not_expose_build_machine_paths() {
+        assert_eq!(
+            sanitize_panic_source_path(
+                r"C:\Users\builder\.cargo\registry\src\index.crates.io-deadbeef\eframe-0.34.3\src\native\wgpu_integration.rs"
+            ),
+            "eframe-0.34.3/src/native/wgpu_integration.rs"
+        );
+        assert_eq!(
+            sanitize_panic_source_path(r"C:\WORK\screen-goated-toolbox\src\initialization.rs"),
+            "src/initialization.rs"
+        );
+        assert_eq!(
+            sanitize_panic_source_path(r"D:\private-agent\generated\module.rs"),
+            "module.rs"
+        );
     }
 }

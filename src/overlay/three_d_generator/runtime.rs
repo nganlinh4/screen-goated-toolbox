@@ -13,6 +13,7 @@ mod process;
 
 use process::{CommandNoWindowExt as _, run_runtime_operation};
 
+#[cfg(debug_assertions)]
 pub(super) const RUNTIME_EXE_NAME: &str = "sgt_creation_runtime.exe";
 const MAX_ASSET_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_PARALLEL_JOBS: usize = 2;
@@ -152,6 +153,7 @@ pub(super) fn start_preparation_maintainer(install_if_missing: bool) {
     preparation::start_preparation_maintainer(install_if_missing);
 }
 
+#[cfg(debug_assertions)]
 fn dev_runtime_exe_path() -> Option<PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("native")
@@ -161,6 +163,11 @@ fn dev_runtime_exe_path() -> Option<PathBuf> {
         .into_iter()
         .map(|profile| root.join(profile).join(RUNTIME_EXE_NAME))
         .find(|path| path.is_file())
+}
+
+#[cfg(not(debug_assertions))]
+fn dev_runtime_exe_path() -> Option<PathBuf> {
+    None
 }
 
 fn runtime_command() -> Option<Command> {
