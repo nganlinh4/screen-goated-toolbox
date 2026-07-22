@@ -149,6 +149,7 @@ panic = "unwind"
 debug = "line-tables-only"
 
 [patch.crates-io]
+egui-wgpu = { path = "third_party/egui-wgpu" }
 windows-capture = { path = "third_party/windows-capture" }
 
 [target.'cfg(all(target_os = "windows", target_env = "msvc"))'.dependencies]
