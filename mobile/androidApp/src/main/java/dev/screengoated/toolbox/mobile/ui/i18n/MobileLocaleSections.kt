@@ -75,6 +75,8 @@ data class CreationCommonLocale(
     val selectedImages: String,
     val interrupted: String,
     val previewTools: String,
+    val creationRuntime: String,
+    val creationRuntimeDescription: String,
     val depthPreviewModel: String,
     val depthPreviewDescription: String,
 )

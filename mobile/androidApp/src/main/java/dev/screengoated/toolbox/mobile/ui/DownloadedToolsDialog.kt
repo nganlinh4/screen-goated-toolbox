@@ -39,6 +39,9 @@ import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.creation.DepthPreviewModelManager
 import dev.screengoated.toolbox.mobile.creation.DepthPreviewModelStatus
+import dev.screengoated.toolbox.mobile.creation.CreationJobManager
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeManager
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeStatus
 import dev.screengoated.toolbox.mobile.service.moonshine.MoonshineLanguage
 import dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager
 import dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
@@ -58,6 +61,8 @@ internal fun DownloadedToolsDialog(
     val zipformerStatuses by moonshineManager.zipformerStatuses.collectAsState()
     val depthPreviewManager = remember { DepthPreviewModelManager.get(context) }
     val depthPreviewStatus by depthPreviewManager.status.collectAsState()
+    val creationRuntimeManager = remember { CreationRuntimeManager.get(context) }
+    val creationRuntimeStatus by creationRuntimeManager.status.collectAsState()
 
     // Per-engine native runtimes
     val nativeLibManager = remember { NativeLibManager(context) }
@@ -250,6 +255,44 @@ internal fun DownloadedToolsDialog(
                     text = locale.creationApps.common.previewTools,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
+                )
+                DownloadedToolRow(
+                    name = locale.creationApps.common.creationRuntime,
+                    icon = R.drawable.ms_deployed_code,
+                    statusText = when (val status = creationRuntimeStatus) {
+                        CreationRuntimeStatus.Missing -> locale.dlDepsNotInstalled
+                        is CreationRuntimeStatus.Downloading ->
+                            downloadingStatus(locale, status.progress)
+                        is CreationRuntimeStatus.Ready ->
+                            installedStatus(locale, status.sizeBytes)
+                        is CreationRuntimeStatus.Failed -> status.message
+                    },
+                    statusColor = when (creationRuntimeStatus) {
+                        is CreationRuntimeStatus.Ready -> MaterialTheme.colorScheme.tertiary
+                        is CreationRuntimeStatus.Failed -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    accent = MaterialTheme.colorScheme.tertiary,
+                    onHelpClick = {
+                        helpDialog = locale.creationApps.common.creationRuntime to
+                            locale.creationApps.common.creationRuntimeDescription
+                    },
+                    progressFraction = (creationRuntimeStatus as? CreationRuntimeStatus.Downloading)
+                        ?.progress,
+                    action = when (creationRuntimeStatus) {
+                        CreationRuntimeStatus.Missing,
+                        is CreationRuntimeStatus.Failed -> ToolAction(
+                            text = locale.dlDepsInstall,
+                            role = ToolActionRole.TONAL,
+                            onClick = creationRuntimeManager::startInstall,
+                        )
+                        is CreationRuntimeStatus.Ready -> ToolAction(
+                            text = locale.downloader.toolDelete,
+                            role = ToolActionRole.DESTRUCTIVE,
+                            onClick = { CreationJobManager.get(context).removeRuntime() },
+                        )
+                        is CreationRuntimeStatus.Downloading -> null
+                    },
                 )
                 DownloadedToolRow(
                     name = locale.creationApps.common.depthPreviewModel,

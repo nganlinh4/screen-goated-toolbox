@@ -70,6 +70,9 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 selectedImages = "이미지 {}개",
                 interrupted = "생성을 완료하지 못했습니다.",
                 previewTools = "생성 미리보기",
+                creationRuntime = "제작 도구 런타임",
+                creationRuntimeDescription =
+                    "이미지를 3D 및 SVG로 변환하는 작업을 백그라운드에서 실행합니다.",
                 depthPreviewModel = "Depth Anything 3 Small",
                 depthPreviewDescription =
                     "3D와 SVG 결과를 생성하는 동안 움직이는 깊이 미리보기를 표시합니다.",

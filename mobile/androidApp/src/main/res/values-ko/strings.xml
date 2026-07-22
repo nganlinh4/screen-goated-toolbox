@@ -147,4 +147,5 @@
     <string name="feature_asr_moonshine_name">Moonshine 엔진</string>
     <string name="feature_asr_sherpa_name">Zipformer 엔진</string>
     <string name="feature_native_cpp_name">네이티브 호환성 런타임</string>
+    <string name="feature_creation_runtime_name">제작 도구 런타임</string>
 </resources>

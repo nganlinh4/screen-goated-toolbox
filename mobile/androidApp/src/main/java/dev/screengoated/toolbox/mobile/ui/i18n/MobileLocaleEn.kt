@@ -70,6 +70,9 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 selectedImages = "{} images",
                 interrupted = "Creation could not finish.",
                 previewTools = "Creation previews",
+                creationRuntime = "Creation tools runtime",
+                creationRuntimeDescription =
+                    "Runs Image to 3D and Image to SVG jobs in the background.",
                 depthPreviewModel = "Depth Anything 3 Small",
                 depthPreviewDescription =
                     "Adds animated depth previews while 3D and SVG results are being created.",

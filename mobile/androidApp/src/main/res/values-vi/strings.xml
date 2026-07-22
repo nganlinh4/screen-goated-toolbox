@@ -147,4 +147,5 @@
     <string name="feature_asr_moonshine_name">Bộ máy Moonshine</string>
     <string name="feature_asr_sherpa_name">Bộ máy Zipformer</string>
     <string name="feature_native_cpp_name">Thời gian chạy tương thích gốc</string>
+    <string name="feature_creation_runtime_name">Bộ chạy công cụ sáng tạo</string>
 </resources>
