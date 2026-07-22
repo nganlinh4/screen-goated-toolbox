@@ -18,6 +18,10 @@ fn native_options_for_wgpu(viewport: eframe::egui::ViewportBuilder) -> eframe::N
         create_new.instance_descriptor.backends = eframe::wgpu::Backends::PRIMARY;
     }
 
+    options.wgpu_options.on_device_recovery = std::sync::Arc::new(|message| {
+        crate::debug_log::log_debug(&format!("[WGPU recovery] {message}"));
+    });
+
     options
 }
 

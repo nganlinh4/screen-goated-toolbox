@@ -187,6 +187,10 @@ pub(crate) fn setup_crash_handler(mode: CrashReportMode) {
             payload, location
         );
 
+        // Release builds have no visible stderr. Persist the panic before showing
+        // the modal so the next diagnostic pass has the actual failure text.
+        crate::debug_log::log_debug(&format!("[Crash] {}", error_msg.replace('\n', " | ")));
+
         // Headless runners must always receive a report through their inherited
         // stderr without waiting for a desktop interaction.
         use std::io::Write;
