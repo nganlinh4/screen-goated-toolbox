@@ -37,7 +37,26 @@
     ],
     "userFacingSelfTest": false,
     "optionalPowerPromptOwner": "orb",
-    "optionalPowerChoices": ["standard", "shizuku", "root"]
+    "optionalPowerChoices": ["standard", "shizuku", "root"],
+    "shizukuSetup": {
+      "feedbackBeforeExternalStep": true,
+      "plannerInput": "structural_probe_state",
+      "ready": "complete",
+      "binderReadyPermissionMissing": "request_permission",
+      "installedServiceStoppedOrGrantRevoked": "open_manager",
+      "packageMissingOrApiUnsupported": "open_store_with_official_download_fallback",
+      "reprobe": "on_external_return_or_binder_event",
+      "unchangedExternalState": "stop_without_reopening",
+      "androidOwnedPairingAndTrust": "user_step",
+      "cases": [
+        {"condition": "ready", "expect": "complete"},
+        {"condition": "permission_requestable", "expect": "request_permission"},
+        {"condition": "service_stopped", "expect": "open_manager"},
+        {"condition": "permission_revoked", "expect": "open_manager"},
+        {"condition": "api_unsupported", "expect": "open_store"},
+        {"condition": "package_missing", "expect": "open_store"}
+      ]
+    }
   },
   "cases": [
     {

@@ -6,27 +6,14 @@
 use crate::api::client::UREQ_AGENT;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
-use std::sync::OnceLock;
 
-/// The model id confirmed working at runtime, cached after the first success so
-/// we don't keep probing alternates.
-static RESOLVED_MODEL: OnceLock<String> = OnceLock::new();
-
-/// Candidate Gemini Embedding 2 model ids to try, in order. `CC_EMBED_MODEL`
-/// forces one; otherwise we auto-discover whether the endpoint wants the preview
-/// or GA name (it has shifted over the model's lifecycle) and cache the winner.
-/// Unlike `gemini-embedding-001`, Embedding 2 takes NO `taskType`.
+/// `CC_EMBED_MODEL` can override the catalog model for diagnostics.
+/// Unlike `gemini-embedding-001`, Embedding 2 takes no `taskType`.
 fn model_candidates() -> Vec<String> {
     if let Ok(m) = std::env::var("CC_EMBED_MODEL") {
         return vec![m];
     }
-    if let Some(m) = RESOLVED_MODEL.get() {
-        return vec![m.clone()];
-    }
-    vec![
-        "gemini-embedding-2-preview".to_string(),
-        "gemini-embedding-2".to_string(),
-    ]
+    vec![crate::model_config::GEMINI_EMBEDDING_API_MODEL.to_string()]
 }
 
 /// Output vector size (override with `CC_EMBED_DIM`). 768 is the recommended
@@ -72,7 +59,6 @@ pub fn embed(parts: &[EmbedPart], api_key: &str) -> Result<Vec<f32>> {
         for attempt in 0..2u64 {
             match try_embed(&url, api_key, &payload) {
                 Ok(v) if !v.is_empty() => {
-                    let _ = RESOLVED_MODEL.set(model.clone());
                     return Ok(v);
                 }
                 Ok(_) => last_err = Some(anyhow::anyhow!("empty embedding")),

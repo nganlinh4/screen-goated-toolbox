@@ -15,6 +15,7 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
         ("DEFAULT_IMAGE_MODEL_ID", "default_image_model_id"),
         ("DEFAULT_TEXT_MODEL_ID", "default_text_model_id"),
         ("DEFAULT_TEXT_API_MODEL", "default_text_api_model"),
+        ("GEMINI_EMBEDDING_API_MODEL", "gemini_embedding_api_model"),
         ("GEMINI_LIVE_API_MODEL_2_5", "gemini_live_api_model_2_5"),
         ("GEMINI_LIVE_API_MODEL_3_1", "gemini_live_api_model_3_1"),
         (
@@ -171,6 +172,20 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
     lines.push("];".to_string());
     lines.push(String::new());
 
+    let feature_model_chains = manifest_object(&manifest, "feature_model_chains");
+    lines.push("pub const HELP_ASSISTANT_MODEL_CHAIN_IDS: &[&str] = &[".to_string());
+    for value in manifest_array_from_object(feature_model_chains, "help_assistant") {
+        lines.push(format!("    {},", rust_string(value.as_str().unwrap())));
+    }
+    lines.push("];".to_string());
+    lines.push(String::new());
+    lines.push("pub const COMPUTER_CONTROL_GROUNDING_MODEL_CHAIN_IDS: &[&str] = &[".to_string());
+    for value in manifest_array_from_object(feature_model_chains, "computer_control_grounding") {
+        lines.push(format!("    {},", rust_string(value.as_str().unwrap())));
+    }
+    lines.push("];".to_string());
+    lines.push(String::new());
+
     lines.push("pub const GENERATED_TTS_GEMINI_MODELS: &[(&str, &str)] = &[".to_string());
     for value in manifest_array(&manifest, "tts_gemini_models") {
         let item = value
@@ -298,6 +313,35 @@ fn validate(manifest: &serde_json::Value) {
             ids.contains(replacement.as_str().unwrap()),
             "migration target is not a model id: {replacement}"
         );
+    }
+    let enabled_ids: HashSet<&str> = models
+        .iter()
+        .filter_map(serde_json::Value::as_object)
+        .filter(|model| model.get("enabled").and_then(serde_json::Value::as_bool) == Some(true))
+        .map(|model| manifest_string(model, "id"))
+        .collect();
+    let feature_model_chains = manifest_object(manifest, "feature_model_chains");
+    for key in ["help_assistant", "computer_control_grounding"] {
+        let chain = manifest_array_from_object(feature_model_chains, key);
+        assert_eq!(
+            chain.len(),
+            2,
+            "{key} must define primary and fallback models"
+        );
+        let mut chain_ids = HashSet::new();
+        for value in chain {
+            let id = value
+                .as_str()
+                .unwrap_or_else(|| panic!("{key} model ids must be strings"));
+            assert!(
+                enabled_ids.contains(id),
+                "{key} references disabled or unknown model {id:?}"
+            );
+            assert!(
+                chain_ids.insert(id),
+                "{key} contains duplicate model {id:?}"
+            );
+        }
     }
     let endpoints = manifest_object(manifest, "endpoints");
     for (endpoint, value) in endpoints {

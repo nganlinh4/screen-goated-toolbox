@@ -3,6 +3,7 @@ param(
     [string]$Flavor = "Both",
     [string]$Serial = "emulator-5554",
     [switch]$AllowPhysicalDevice,
+    [switch]$IncludeExternalSetupTests,
     [switch]$RetainDebugForProbes,
     [switch]$PrepareDebugForProbes,
     [switch]$RestoreOnly
@@ -54,6 +55,7 @@ function Invoke-OptionalTargetAdb {
 
 . (Join-Path $PSScriptRoot "phone-control-device-state.ps1")
 . (Join-Path $PSScriptRoot "phone-control-package-install.ps1")
+. (Join-Path $PSScriptRoot "phone-control-external-setup.ps1")
 
 function Remove-PhoneControlProbeReceipts {
     Assert-TargetAndroidUser
@@ -263,15 +265,26 @@ function Run-FlavorTests {
     $runState["overlay"]["captured"] = $true
     $runState["overlay"]["mode"] = $originalOverlayMode
     Write-RecoveryState
+    $expectShizukuRoute = $IncludeExternalSetupTests -and
+        -not (Test-PackageInstalledForUser "moe.shizuku.privileged.api" $targetUserId)
+    $shizukuRouteStamp = if ($expectShizukuRoute) {
+        Read-ShizukuInstallRouteTaskStamp
+    } else {
+        0L
+    }
 
     try {
         # Target instrumentation can force-stop a target-hosted AccessibilityService.
         # Keep the bind oracle in the host process; settings alone do not prove readiness.
         $classes = @(
-            "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlSetupSmokeTest",
+            "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLauncherSmokeTest",
             "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlPackageCapabilityTest",
             "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlOverlayExclusionTest"
         )
+        if ($IncludeExternalSetupTests) {
+            $classes +=
+                "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlShizukuSetupDeviceTest"
+        }
         if ($VariantFlavor -eq "play") {
             $classes +=
                 "dev.screengoated.toolbox.mobile.phonecontrol.PlayPhoneControlDetectorDeliveryTest"
@@ -299,6 +312,9 @@ function Run-FlavorTests {
         if ($joined -match "FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed" -or
             $joined -notmatch "OK \([1-9][0-9]* tests?\)") {
             throw "Phone Control $displayFlavor instrumentation did not complete successfully."
+        }
+        if ($expectShizukuRoute) {
+            Assert-NewShizukuInstallRouteTask $shizukuRouteStamp
         }
     } finally {
         Remove-PhoneControlProbeReceipts

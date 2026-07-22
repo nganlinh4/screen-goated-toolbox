@@ -29,7 +29,10 @@ pub const WIPE_SIGNAL: &str = "\x00WIPE\x00";
 
 /// Returns an explicit Gemini thinking configuration when the model needs one.
 pub fn gemini_thinking_config(model: &str) -> Option<serde_json::Value> {
-    if model.contains("gemini-3.1-flash-lite") || model.contains("gemma-4-") {
+    if model.contains("gemini-3.1-flash-lite")
+        || model.contains("gemini-3.5-flash-lite")
+        || model.contains("gemma-4-")
+    {
         return Some(serde_json::json!({
             "thinkingLevel": "MINIMAL"
         }));
@@ -51,15 +54,17 @@ mod tests {
     use super::gemini_thinking_config;
 
     #[test]
-    fn disables_thinking_for_gemini_3_1_flash_lite() {
-        let config = gemini_thinking_config("gemini-3.1-flash-lite")
-            .expect("3.1 flash lite should get explicit thinking config");
+    fn minimizes_thinking_for_flash_lite_models() {
+        for model in ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite"] {
+            let config = gemini_thinking_config(model)
+                .expect("Flash-Lite should get explicit thinking config");
 
-        assert_eq!(
-            config.get("thinkingLevel").and_then(|v| v.as_str()),
-            Some("MINIMAL")
-        );
-        assert!(config.get("includeThoughts").is_none());
+            assert_eq!(
+                config.get("thinkingLevel").and_then(|v| v.as_str()),
+                Some("MINIMAL")
+            );
+            assert!(config.get("includeThoughts").is_none());
+        }
     }
 
     #[test]

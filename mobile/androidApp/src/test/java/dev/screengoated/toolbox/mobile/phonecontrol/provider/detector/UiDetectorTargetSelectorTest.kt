@@ -1,10 +1,87 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider.detector
 
+import dev.screengoated.toolbox.mobile.preset.GeneratedPresetModelCatalogData
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
 
 class UiDetectorTargetSelectorTest {
+    @Test
+    fun generatedGroundingChainMatchesSharedFixture() {
+        val fixture = Json.parseToJsonElement(
+            Files.readAllBytes(fixturePath()).decodeToString(),
+        ).jsonObject
+        val expected = fixture.getValue("grounding").jsonObject
+            .getValue("models").jsonArray
+            .map { it.jsonPrimitive.content }
+
+        assertEquals(expected, GeneratedPresetModelCatalogData.computerControlGroundingModelChain)
+        assertEquals(expected, LOCATOR_MODEL_IDS)
+    }
+
+    @Test
+    fun locatorChainFallsBackAndReportsTheSuccessfulModel() = runTest {
+        val attempted = mutableListOf<String>()
+        val result = runLocatorModelChain(
+            modelIds = listOf("primary", "fallback"),
+            execute = { model ->
+                attempted += model
+                if (model == "primary") Result.failure(IllegalStateException("quota"))
+                else Result.success("valid")
+            },
+            parse = { _, model -> model },
+            shouldAdvance = { false },
+            requestFailure = { "failed" },
+        )
+
+        assertEquals(listOf("primary", "fallback"), attempted)
+        assertEquals("fallback", result)
+    }
+
+    @Test
+    fun terminalGroundingResultDoesNotConsultFallback() = runTest {
+        val attempted = mutableListOf<String>()
+        val result = runLocatorModelChain(
+            modelIds = listOf("primary", "fallback"),
+            execute = { model ->
+                attempted += model
+                Result.success("not-visible")
+            },
+            parse = { response, _ -> response },
+            shouldAdvance = { false },
+            requestFailure = { "failed" },
+        )
+
+        assertEquals(listOf("primary"), attempted)
+        assertEquals("not-visible", result)
+    }
+
+    @Test
+    fun malformedGroundingResultConsultsFallback() = runTest {
+        val attempted = mutableListOf<String>()
+        val result = runLocatorModelChain(
+            modelIds = listOf("primary", "fallback"),
+            execute = { model ->
+                attempted += model
+                Result.success(if (model == "primary") "malformed" else "valid")
+            },
+            parse = { response, _ -> response },
+            shouldAdvance = { it == "malformed" },
+            requestFailure = { "failed" },
+        )
+
+        assertEquals(listOf("primary", "fallback"), attempted)
+        assertEquals("valid", result)
+    }
+
     @Test
     fun parsesOneAllowedCurrentMarkDespiteNonJsonPreamble() {
         val result = parseUiDetectorTargetSelection(
@@ -91,5 +168,15 @@ class UiDetectorTargetSelectorTest {
         val failure = result as UiDetectorDragSelection.Failure
         assertEquals("ambiguous_target", failure.code)
         assertTrue(failure.retryable)
+    }
+
+    private fun fixturePath(): Path {
+        val candidates = listOf(
+            Paths.get("..", "parity-fixtures", "phone-control", "model-chain.json"),
+            Paths.get("..", "..", "parity-fixtures", "phone-control", "model-chain.json"),
+            Paths.get("parity-fixtures", "phone-control", "model-chain.json"),
+        )
+        return candidates.firstOrNull(Files::exists)
+            ?: error("Missing Phone Control model-chain fixture. Tried: $candidates")
     }
 }

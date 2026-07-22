@@ -118,6 +118,11 @@ review; it must not silently fork Phone Control into a weaker Play implementatio
 authority and routing contract. Catalog availability is never inferred from
 the user's words.
 
+Pixel grounding uses the catalog-owned ordered model chain and fallback contract
+in `parity-fixtures/phone-control/model-chain.json`. Windows Computer Control and
+Android Phone Control consume the same generated IDs; neither platform owns a
+second locator-model constant.
+
 ## Behavior Contract
 
 ### User-visible flow
@@ -143,9 +148,18 @@ the user's words.
    control; the ongoing notification also retains a Stop action.
 5. The first orb appearance asks for an optional power preference in a compact,
    orb-owned prompt: standard Android, Shizuku, or root. Standard control starts
-   without an elevated provider. Choosing an elevated tier launches only its
-   exact user-owned setup/authorization path. Tapping the orb reopens this small
-   preference prompt, so setup remains reachable without an inner product page.
+   without an elevated provider. Choosing Shizuku immediately explains the next
+   user-owned step, then the coordinator probes and advances the strongest safe
+   setup route: request SGT's Shizuku grant when its Binder is ready, open the
+   installed Shizuku manager when its service is stopped or authorization was
+   revoked, or open the store listing with an official-download fallback when it
+   is absent or outdated. Each return is re-probed and may advance only to a different
+   capability state, so install -> start/pair -> authorize can continue without a
+   setup dashboard or an external-surface loop. Android-owned wireless-debugging
+   pairing, trust, and confirmation remain user actions. Choosing any elevated
+   tier launches only its exact user-owned setup/authorization path. Tapping the
+   orb reopens this small preference prompt, so setup remains reachable without
+   an inner product page.
 6. Capability checks and reversible self-tests remain internal diagnostics and
    acceptance seams. They never block the card with a wall of text. The orb then
    runs the same listen/work/respond/idle cycle as Windows Computer Control.
@@ -309,6 +323,14 @@ prevents a late callback from recreating a cancelled probe receipt.
   This preserves exact pixels while underlying apps remain interactive. During
   an accessibility-service reconnect, an application-overlay fallback may render
   only at the platform-reported non-obscuring alpha until the trusted host returns.
+- Crossing the touch shim's drag threshold opens the same shared, single-target
+  bottom dismiss bubble used by Android's other floating overlays. Current raw
+  pointer coordinates drive its proximity feedback. Releasing inside its commit
+  threshold runs the canonical orb exit plus the shared swallow animation, stops
+  the Phone Control foreground service, and returns the Apps card to **Turn on**.
+  Releasing elsewhere hides the target and persists the clamped orb position;
+  cancellation hides the target without stopping the session. The dismiss target
+  is local overlay chrome, not a model tool or phrase-gated action.
 - A capture or tool action must never blink the orb. Window-scoped capture does
   not mutate it. An action aimed through its footprint moves it clear instead of
   fading it. A receipt that both reports uncertain effect and carries a fresh
@@ -641,6 +663,13 @@ protected directory. See
 - The setup wizard may open Developer Options/Wireless debugging, observe the
   current surface, and guide pairing. The user still performs Android-owned
   pairing, trust, and confirmation steps.
+- Selecting Shizuku is event/return driven and bounded by structural probe state.
+  SGT gives short localized feedback before leaving its surface, opens only the
+  official manager/store/download route for the observed state, re-probes on
+  return, and automatically requests SGT's Shizuku permission once the Binder is
+  ready. It never branches on localized Shizuku labels, clicks private manager UI,
+  captures a pairing code, repeats an unchanged external step, or claims the
+  provider is ready before the grant probe succeeds.
 - On current non-root Android, Shizuku's wireless-debugging service must be
   started again after reboot. Record `needs_user_step` after a failed boot probe.
 - Elevated commands use the same exact operation ID in the app process and the

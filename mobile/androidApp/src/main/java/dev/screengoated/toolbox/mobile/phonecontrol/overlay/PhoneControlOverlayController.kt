@@ -18,6 +18,8 @@ import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlServiceState
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerChoice
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
+import dev.screengoated.toolbox.mobile.service.DismissAction
+import dev.screengoated.toolbox.mobile.service.DismissBubbleController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
@@ -27,10 +29,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
-import kotlin.math.abs
 
 internal class PhoneControlOverlayController(
     private val context: Context,
+    private val onDismiss: () -> Unit,
 ) : PhoneControlOverlayStateSink, PhoneControlOverlayExclusionParticipant {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -38,6 +40,12 @@ internal class PhoneControlOverlayController(
     private val relocationState = Mutex()
     private val orbSize = context.dp(128)
     private val edgeMargin = context.dp(12)
+    private val dismissBubble = DismissBubbleController(
+        context = context.applicationContext,
+        windowManager = context.getSystemService(WindowManager::class.java),
+        showDismissAll = false,
+        coordinateScaleOverride = 1f,
+    )
 
     private var host = PhoneControlOverlayWindowHost.resolve(context)
     private var orb: PhoneControlOrbView? = null
@@ -55,6 +63,7 @@ internal class PhoneControlOverlayController(
     )
     private var powerPromptVisible = PhoneControlPowerPreferences.current(context) == null
     private var appliedCaptureHidden: Boolean? = null
+    private var dismissing = false
     private var destroyed = false
 
     @Volatile
@@ -161,6 +170,7 @@ internal class PhoneControlOverlayController(
             detachWindows()
             return
         }
+        if (dismissing) return
         val orbWasAttached = orb != null
         val promptWasAttached = powerPrompt != null
         ensureWindows()
@@ -382,6 +392,7 @@ internal class PhoneControlOverlayController(
     }
 
     private fun detachWindows() {
+        dismissBubble.hide()
         orb?.let { view ->
             runCatching { host.windowManager.removeView(view) }
             view.dispose()
@@ -394,6 +405,19 @@ internal class PhoneControlOverlayController(
         touchParams = null
         interactionBounds = null
         appliedCaptureHidden = null
+        dismissing = false
+    }
+
+    private fun commitOrbDismiss() {
+        if (dismissing) return
+        dismissing = true
+        powerPromptVisible = false
+        detachPowerPrompt()
+        interactionBounds = null
+        touchTarget?.isEnabled = false
+        orb?.animateDismiss()
+        PhoneControlLog.i(TAG, "orb_dismiss committed=true")
+        dismissBubble.swallow(DismissAction.SINGLE, onDismiss)
     }
 
     private fun detachPowerPrompt() {
@@ -446,47 +470,56 @@ internal class PhoneControlOverlayController(
     }
 
     private inner class OrbTouchListener : View.OnTouchListener {
-        private var downX = 0f
-        private var downY = 0f
-        private var startX = 0
-        private var startY = 0
-        private var dragging = false
+        private val gesture = PhoneControlOrbDragSession(context.dp(5).toFloat())
 
         override fun onTouch(view: View, event: MotionEvent): Boolean {
             val params = touchParams ?: return false
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX
-                    downY = event.rawY
-                    startX = params.x
-                    startY = params.y
-                    dragging = false
+                    gesture.begin(event.rawX, event.rawY, params.x, params.y)
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - downX
-                    val dy = event.rawY - downY
-                    if (!dragging && (abs(dx) > context.dp(5) || abs(dy) > context.dp(5))) {
-                        dragging = true
-                    }
-                    if (dragging) {
-                        params.x = startX + dx.toInt()
-                        params.y = startY + dy.toInt()
+                    gesture.move(event.rawX, event.rawY)?.let { update ->
+                        if (update.started) {
+                            powerPromptVisible = false
+                            detachPowerPrompt()
+                            PhoneControlLog.i(TAG, "orb_drag started=true")
+                        }
+                        params.x = update.windowX
+                        params.y = update.windowY
                         updateLayouts()
+                        dismissBubble.update(
+                            dismissBubble.hit(event.rawX, event.rawY, screenBounds()),
+                        )
                     }
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (dragging) {
-                        clampAndSavePosition()
-                        updateLayouts()
+                    val hit = if (gesture.dragging) {
+                        dismissBubble.hit(event.rawX, event.rawY, screenBounds())
                     } else {
-                        view.performClick()
-                        togglePowerPrompt()
+                        null
+                    }
+                    when (gesture.release(hit)) {
+                        PhoneControlOrbDragRelease.TAP -> {
+                            view.performClick()
+                            togglePowerPrompt()
+                        }
+                        PhoneControlOrbDragRelease.MOVED -> {
+                            dismissBubble.hide()
+                            clampAndSavePosition()
+                            updateLayouts()
+                        }
+                        PhoneControlOrbDragRelease.DISMISS -> commitOrbDismiss()
                     }
                     return true
                 }
-                MotionEvent.ACTION_CANCEL -> return true
+                MotionEvent.ACTION_CANCEL -> {
+                    gesture.cancel()
+                    dismissBubble.hide()
+                    return true
+                }
             }
             return false
         }
@@ -500,76 +533,5 @@ internal class PhoneControlOverlayController(
         const val DEFAULT_X_FRACTION = 0.88f
         const val DEFAULT_Y_FRACTION = 0.28f
         const val LOCAL_RENDERER_MAGNIFICATION = 1.3f
-    }
-}
-
-internal class OverlayCaptureGate {
-    private val state = Mutex()
-
-    @Volatile
-    private var captureDepth = 0
-
-    internal val depth: Int
-        get() = captureDepth
-
-    internal val isHidden: Boolean
-        get() = captureDepth > 0
-
-    internal suspend fun <T> withHidden(
-        onHide: suspend (firstCapture: Boolean) -> Unit,
-        onRestore: suspend (lastCapture: Boolean) -> Unit,
-        block: suspend () -> T,
-    ): T {
-        var entered = false
-        try {
-            state.withLock {
-                val firstCapture = captureDepth == 0
-                captureDepth += 1
-                entered = true
-                onHide(firstCapture)
-            }
-            currentCoroutineContext().ensureActive()
-            return block()
-        } finally {
-            if (entered) {
-                withContext(NonCancellable) {
-                    state.withLock {
-                        check(captureDepth > 0) { "Overlay capture depth underflow" }
-                        captureDepth -= 1
-                        onRestore(captureDepth == 0)
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-
-internal fun needsOverlayLayoutUpdate(
-    forceLayout: Boolean,
-    windowSetChanged: Boolean,
-    suppressionChanged: Boolean,
-): Boolean = forceLayout || windowSetChanged || suppressionChanged
-
-internal fun farthestOverlayCorner(
-    screen: OverlayBounds,
-    overlayWidth: Int,
-    overlayHeight: Int,
-    margin: Int,
-    avoid: OverlayBounds,
-): Pair<Int, Int> {
-    val left = screen.left + margin
-    val top = screen.top + margin
-    val right = (screen.right - overlayWidth - margin).coerceAtLeast(left)
-    val bottom = (screen.bottom - overlayHeight - margin).coerceAtLeast(top)
-    val avoidX = avoid.left.toLong() + (avoid.right - avoid.left) / 2L
-    val avoidY = avoid.top.toLong() + (avoid.bottom - avoid.top) / 2L
-    return listOf(left to top, right to top, left to bottom, right to bottom).maxBy { point ->
-        val centerX = point.first.toLong() + overlayWidth / 2L
-        val centerY = point.second.toLong() + overlayHeight / 2L
-        val dx = centerX - avoidX
-        val dy = centerY - avoidY
-        dx * dx + dy * dy
     }
 }

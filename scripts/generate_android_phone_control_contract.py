@@ -291,6 +291,15 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
         raise ValueError("Android orb host must preserve touch-through rendering")
     if invariants.get("visualOverlayDoesNotConsumeUnderlyingTouches") is not True:
         raise ValueError("Android orb visuals must not consume underlying touches")
+    expected_dismiss = {
+        "dragDismissOwner": "shared_android_dismiss_bubble",
+        "dragDismissTargets": "single_bottom_target",
+        "dragDismissCommit": "stop_phone_control_service",
+        "dragDismissCancel": "hide_target_and_keep_session",
+        "dragDismissCoordinates": "current_raw_pointer",
+    }
+    if any(invariants.get(key) != value for key, value in expected_dismiss.items()):
+        raise ValueError("Android orb drag-dismiss contract is incomplete")
 
     states = contract["stateLabels"]
     if not isinstance(states, list) or not states or len(states) != len(set(states)):

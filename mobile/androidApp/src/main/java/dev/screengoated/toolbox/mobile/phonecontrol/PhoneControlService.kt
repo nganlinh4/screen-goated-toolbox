@@ -61,7 +61,9 @@ class PhoneControlService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "service_created")
-        overlayController = PhoneControlOverlayController(this)
+        overlayController = PhoneControlOverlayController(this) {
+            stopRequested(source = "orb_dismiss")
+        }
         PhoneControlOverlayExclusion.register(overlayController)
         ensureChannel()
         publish(
@@ -78,13 +80,8 @@ class PhoneControlService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             val source = intent.getStringExtra(EXTRA_STOP_SOURCE).orEmpty().ifBlank { "unknown" }
-            stopReason = "requested:$source"
             Log.i(TAG, "service_command action=stop source=$source start_id=$startId")
-            preserveFailureOnDestroy = false
-            runtime?.stop()
-            runtime = null
-            publish(stoppedState())
-            stopSelf()
+            stopRequested(source)
         } else if (runtime == null) {
             stopReason = "runtime_terminal"
             Log.i(TAG, "service_command action=start start_id=$startId")
@@ -168,6 +165,15 @@ class PhoneControlService : Service() {
             )
             stopSelf()
         }
+    }
+
+    private fun stopRequested(source: String) {
+        stopReason = "requested:$source"
+        preserveFailureOnDestroy = false
+        runtime?.stop()
+        runtime = null
+        publish(stoppedState())
+        stopSelf()
     }
 
     private fun publishRuntimeSnapshot(snapshot: PhoneControlRuntimeSnapshot) {
@@ -322,10 +328,14 @@ class PhoneControlService : Service() {
         )
 
         fun stop(context: Context) {
+            dispatchStop(context, source = "app")
+        }
+
+        private fun dispatchStop(context: Context, source: String) {
             context.startService(
                 Intent(context, PhoneControlService::class.java)
                     .setAction(ACTION_STOP)
-                    .putExtra(EXTRA_STOP_SOURCE, "app"),
+                    .putExtra(EXTRA_STOP_SOURCE, source),
             )
         }
     }

@@ -1,6 +1,9 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.ui
 
 import java.io.File
+import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuBridgeCondition
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuBridgeProbe
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
@@ -67,6 +70,34 @@ class PhoneControlActivationFlowTest {
                 it.jsonPrimitive.content
             },
         )
+        val shizuku = invariants.getValue("shizukuSetup").jsonObject
+        assertTrue(shizuku.boolean("feedbackBeforeExternalStep"))
+        assertEquals("structural_probe_state", shizuku.string("plannerInput"))
+        assertEquals("complete", shizuku.string("ready"))
+        assertEquals("request_permission", shizuku.string("binderReadyPermissionMissing"))
+        assertEquals("open_manager", shizuku.string("installedServiceStoppedOrGrantRevoked"))
+        assertEquals(
+            "open_store_with_official_download_fallback",
+            shizuku.string("packageMissingOrApiUnsupported"),
+        )
+        assertEquals("on_external_return_or_binder_event", shizuku.string("reprobe"))
+        assertEquals("stop_without_reopening", shizuku.string("unchangedExternalState"))
+        assertEquals("user_step", shizuku.string("androidOwnedPairingAndTrust"))
+        val shizukuCases = shizuku.getValue("cases").jsonArray
+        assertEquals(ShizukuBridgeCondition.entries.size, shizukuCases.size)
+        shizukuCases.forEach { element ->
+            val case = element.jsonObject
+            val condition = ShizukuBridgeCondition.entries.single {
+                it.wireName == case.string("condition")
+            }
+            val actual = nextPhoneControlShizukuSetupAction(
+                ShizukuBridgeProbe(
+                    state = CapabilityState.NEEDS_USER_STEP,
+                    condition = condition,
+                ),
+            )
+            assertEquals(case.string("expect"), actual.wireName)
+        }
 
         fixture.getValue("cases").jsonArray.forEach { element ->
             val case = element.jsonObject

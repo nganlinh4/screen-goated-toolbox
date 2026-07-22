@@ -18,8 +18,8 @@ import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PlatformUserStepSlot
-import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.RootCommandBridge
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuBridgeCondition
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuCommandBridge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
@@ -35,7 +35,8 @@ class PhoneControlActivity : ComponentActivity() {
     private var mode = Mode.ACTIVATE
     private var awaitingStep: PhoneControlActivationStep? = null
     private var requestedNotification = false
-    private var shizukuReturnCount = 0
+    private var shizukuLastAttempt: PhoneControlShizukuSetupAttempt? = null
+    private var shizukuExternalStepActive = false
     private var activationResumeJob: Job? = null
     private var settingsNavigationJob: Job? = null
 
@@ -61,6 +62,7 @@ class PhoneControlActivity : ComponentActivity() {
         settingsNavigationJob?.cancel()
         settingsNavigationJob = null
         userSteps.settings.finish()
+        shizukuExternalStepActive = false
         PhoneControlLog.i(
             TAG,
             "activation_user_step_returned step=${returnedStep?.wireName ?: "optional"} " +
@@ -77,16 +79,36 @@ class PhoneControlActivity : ComponentActivity() {
         Shizuku.OnRequestPermissionResultListener { requestCode, _ ->
             if (requestCode == SHIZUKU_PERMISSION_REQUEST) {
                 userSteps.shizuku.finish()
-                val ready = ShizukuCommandBridge.probe(this).state == CapabilityState.READY
-                PhoneControlLog.i(TAG, "optional_setup_result provider=shizuku ready=$ready")
-                finish()
+                continueShizukuSetup(trigger = "permission_result")
             }
         }
 
+    private val shizukuBinderReceivedListener = Shizuku.OnBinderReceivedListener {
+        runOnUiThread {
+            if (mode != Mode.SHIZUKU || isFinishing) return@runOnUiThread
+            PhoneControlLog.i(
+                TAG,
+                "optional_setup_event provider=shizuku binder=received " +
+                    "external_step_active=$shizukuExternalStepActive",
+            )
+            if (shizukuExternalStepActive) {
+                userSteps.settings.finish()
+                shizukuExternalStepActive = false
+            }
+            continueShizukuSetup(trigger = "binder_received")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
         mode = intent.mode()
+        shizukuLastAttempt = savedInstanceState?.shizukuAttempt()
+        shizukuExternalStepActive = savedInstanceState?.getBoolean(
+            STATE_SHIZUKU_EXTERNAL_ACTIVE,
+            false,
+        ) ?: false
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
+        Shizuku.addBinderReceivedListener(shizukuBinderReceivedListener)
         PhoneControlLog.i(TAG, "coordinator_open mode=${mode.wireName}")
         when (mode) {
             Mode.ACTIVATE -> advanceActivation()
@@ -102,6 +124,8 @@ class PhoneControlActivity : ComponentActivity() {
         setIntent(intent)
         mode = intent.mode()
         awaitingStep = null
+        shizukuLastAttempt = null
+        shizukuExternalStepActive = false
         when (mode) {
             Mode.ACTIVATE -> advanceActivation()
             Mode.SHIZUKU -> continueShizukuSetup()
@@ -113,7 +137,17 @@ class PhoneControlActivity : ComponentActivity() {
         activationResumeJob?.cancel()
         settingsNavigationJob?.cancel()
         Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
+        Shizuku.removeBinderReceivedListener(shizukuBinderReceivedListener)
         super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        shizukuLastAttempt?.let { attempt ->
+            outState.putString(STATE_SHIZUKU_CONDITION, attempt.condition.wireName)
+            outState.putString(STATE_SHIZUKU_ACTION, attempt.action.wireName)
+        }
+        outState.putBoolean(STATE_SHIZUKU_EXTERNAL_ACTIVE, shizukuExternalStepActive)
     }
 
     private fun advanceActivation() {
@@ -287,28 +321,117 @@ class PhoneControlActivity : ComponentActivity() {
         finish()
     }
 
-    private fun continueShizukuSetup() {
+    private fun continueShizukuSetup(trigger: String = "direct") {
         val probe = ShizukuCommandBridge.probe(this)
-        if (probe.state == CapabilityState.READY) {
+        val action = nextPhoneControlShizukuSetupAction(probe)
+        val attempt = PhoneControlShizukuSetupAttempt(probe.condition, action)
+        PhoneControlLog.i(
+            TAG,
+            "optional_setup_step provider=shizuku trigger=$trigger " +
+                "condition=${probe.condition.wireName} action=${action.wireName}",
+        )
+        if (action == PhoneControlShizukuSetupAction.COMPLETE) {
+            Toast.makeText(this, R.string.phone_control_shizuku_ready, Toast.LENGTH_SHORT).show()
             PhoneControlLog.i(TAG, "optional_setup_result provider=shizuku ready=true")
             finish()
             return
         }
-        if (probe.state == CapabilityState.NEEDS_USER_STEP && userSteps.shizuku.begin()) {
-            if (ShizukuCommandBridge.requestPermission(this, SHIZUKU_PERMISSION_REQUEST)) {
-                return
-            }
-            userSteps.shizuku.finish()
-        }
-        if (shizukuReturnCount++ > 0) {
-            PhoneControlLog.w(TAG, "optional_setup_result provider=shizuku ready=false")
+        if (shizukuLastAttempt == attempt) {
+            Toast.makeText(
+                this,
+                R.string.phone_control_shizuku_still_needs_user_step,
+                Toast.LENGTH_LONG,
+            ).show()
+            PhoneControlLog.w(
+                TAG,
+                "optional_setup_result provider=shizuku ready=false unchanged=true " +
+                    "condition=${probe.condition.wireName}",
+            )
             finish()
             return
         }
-        val launch = packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE)
+        shizukuLastAttempt = attempt
+        when (action) {
+            PhoneControlShizukuSetupAction.REQUEST_PERMISSION -> {
+                Toast.makeText(
+                    this,
+                    R.string.phone_control_shizuku_request_permission,
+                    Toast.LENGTH_LONG,
+                ).show()
+                if (userSteps.shizuku.begin() &&
+                    ShizukuCommandBridge.requestPermission(this, SHIZUKU_PERMISSION_REQUEST)
+                ) {
+                    return
+                }
+                userSteps.shizuku.finish()
+                PhoneControlLog.w(TAG, "optional_setup_dispatch provider=shizuku accepted=false")
+                finish()
+            }
+            PhoneControlShizukuSetupAction.OPEN_MANAGER,
+            PhoneControlShizukuSetupAction.OPEN_STORE,
+            -> launchShizukuExternalStep(probe.condition, action)
+            PhoneControlShizukuSetupAction.COMPLETE -> error("handled above")
+        }
+    }
+
+    private fun launchShizukuExternalStep(
+        condition: ShizukuBridgeCondition,
+        action: PhoneControlShizukuSetupAction,
+    ) {
+        val message = when (condition) {
+            ShizukuBridgeCondition.SERVICE_STOPPED -> R.string.phone_control_shizuku_start_service
+            ShizukuBridgeCondition.PERMISSION_REVOKED ->
+                R.string.phone_control_shizuku_restore_permission
+            ShizukuBridgeCondition.API_UNSUPPORTED -> R.string.phone_control_shizuku_update
+            ShizukuBridgeCondition.PACKAGE_MISSING -> R.string.phone_control_shizuku_install
+            ShizukuBridgeCondition.READY,
+            ShizukuBridgeCondition.PERMISSION_REQUESTABLE,
+            -> error("condition does not own an external Shizuku step")
+        }
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        val launch = when (action) {
+            PhoneControlShizukuSetupAction.OPEN_MANAGER -> shizukuManagerIntent()
+            PhoneControlShizukuSetupAction.OPEN_STORE -> shizukuStoreIntent()
+            else -> error("action does not own an external Shizuku step")
+        }
+        shizukuExternalStepActive = true
+        try {
+            launchPlatformStep(userSteps.settings) { settingsLauncher.launch(launch) }
+            PhoneControlLog.i(
+                TAG,
+                "optional_setup_dispatch provider=shizuku accepted=true action=${action.wireName}",
+            )
+        } catch (error: RuntimeException) {
+            shizukuExternalStepActive = false
+            PhoneControlLog.w(
+                TAG,
+                "optional_setup_dispatch provider=shizuku accepted=false action=${action.wireName}",
+            )
+            throw error
+        }
+    }
+
+    private fun shizukuManagerIntent(): Intent =
+        packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE) ?: shizukuStoreIntent()
+
+    private fun shizukuStoreIntent(): Intent {
+        val store = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("market://details?id=$SHIZUKU_PACKAGE"),
+        ).setPackage(PLAY_STORE_PACKAGE)
+        return store.takeIf { it.resolveActivity(packageManager) != null }
             ?: Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_DOWNLOAD_URL))
                 .addCategory(Intent.CATEGORY_BROWSABLE)
-        launchPlatformStep(userSteps.settings) { settingsLauncher.launch(launch) }
+    }
+
+    private fun Bundle.shizukuAttempt(): PhoneControlShizukuSetupAttempt? {
+        val condition = getString(STATE_SHIZUKU_CONDITION)?.let { wireName ->
+            ShizukuBridgeCondition.entries.firstOrNull { it.wireName == wireName }
+        } ?: return null
+        val action = getString(STATE_SHIZUKU_ACTION)?.let { wireName ->
+            PhoneControlShizukuSetupAction.entries.firstOrNull { it.wireName == wireName }
+        } ?: return null
+        return PhoneControlShizukuSetupAttempt(condition, action)
     }
 
     private fun requestRootAuthorization() {
@@ -353,10 +476,14 @@ class PhoneControlActivity : ComponentActivity() {
         private const val TAG = "SGTPhoneControlActivation"
         private const val EXTRA_MODE = "dev.screengoated.toolbox.mobile.phonecontrol.MODE"
         private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+        private const val PLAY_STORE_PACKAGE = "com.android.vending"
         private const val SHIZUKU_DOWNLOAD_URL = "https://shizuku.rikka.app/download/"
         private const val SHIZUKU_PERMISSION_REQUEST = 4082
         private const val ACTIVATION_PROPAGATION_ATTEMPTS = 30
         private const val ACTIVATION_PROPAGATION_POLL_MS = 100L
+        private const val STATE_SHIZUKU_CONDITION = "shizuku_condition"
+        private const val STATE_SHIZUKU_ACTION = "shizuku_action"
+        private const val STATE_SHIZUKU_EXTERNAL_ACTIVE = "shizuku_external_active"
 
         internal fun activationIntent(context: Context): Intent = Intent(
             context,

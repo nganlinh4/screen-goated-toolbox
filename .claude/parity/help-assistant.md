@@ -24,6 +24,5 @@
 - Android may tighten the input layout in compact landscape, but must not change request/ranking semantics or create a second answer surface.
 - Missing overlay permission preserves the pending question, opens system settings, and retries the result overlay afterward.
 
-## Current Implementation Debt
-
-At this audit, both platform constants and the fixture still point at a retired Flash-Lite preview model. The documentation no longer endorses that ID; migrate code, catalog/default chains, fixture, and tests together before treating the primary path as healthy.
+The ordered model chain is generated from `catalog/model_catalog.json`; platform
+code must not duplicate it.

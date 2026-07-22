@@ -82,6 +82,15 @@ internal class PhoneControlOrbView(
         if (ready) applyVisual(next, nextPlacement)
     }
 
+    fun animateDismiss() {
+        if (disposed) return
+        if (ready) {
+            evaluateJavascript("window.cc.hide();", null)
+        } else {
+            alpha = 0f
+        }
+    }
+
     fun dispose() {
         if (disposed) return
         disposed = true

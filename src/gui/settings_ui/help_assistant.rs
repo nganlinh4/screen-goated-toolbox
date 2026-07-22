@@ -29,8 +29,8 @@ struct ChunkEntry {
     text: String,
 }
 
-const PRIMARY_MODEL: &str = "gemini-3.1-flash-lite";
-const FALLBACK_MODEL: &str = "gemma-4-26b-a4b-it";
+const PRIMARY_MODEL: &str = crate::model_config::HELP_ASSISTANT_MODEL_CHAIN_IDS[0];
+const FALLBACK_MODEL: &str = crate::model_config::HELP_ASSISTANT_MODEL_CHAIN_IDS[1];
 const MAX_OUTPUT_TOKENS: u32 = 4096;
 
 pub fn is_modal_open() -> bool {
@@ -129,9 +129,17 @@ fn ask_gemini(
         return Err("Gemini API key not configured. Please set it in Global Settings.".to_string());
     }
 
+    let model = crate::model_config::get_model_by_id(model_id)
+        .ok_or_else(|| format!("Unknown Help Assistant model: {model_id}"))?;
+    if model.provider != "google" {
+        return Err(format!(
+            "Help Assistant model {model_id} is not a Gemini REST model"
+        ));
+    }
+
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-        model_id, gemini_api_key
+        model.full_name, gemini_api_key
     );
 
     let system_prompt = r#"You are the SGT (Screen Goated Toolbox) Windows app help assistant. The user is asking from the Windows version — assume questions are about the Windows app unless they explicitly mention Android. Answer in a helpful, concise and easy to understand way in the question's language, no made up information, only true information. Go straight to the point. Do not mention "Based on the source code". If the answer needs to mention UI elements, use correct i18n locale terms matching the question's language. Format your response in Markdown."#;
@@ -339,7 +347,26 @@ mod tests {
 
     #[test]
     fn model_constants_are_set() {
-        assert_eq!(PRIMARY_MODEL, "gemini-3.1-flash-lite");
-        assert_eq!(FALLBACK_MODEL, "gemma-4-26b-a4b-it");
+        assert_eq!(PRIMARY_MODEL, "gemini-3.5-flash-lite");
+        assert_eq!(FALLBACK_MODEL, "gemini-3.1-flash-lite");
+    }
+
+    #[test]
+    fn model_chain_matches_shared_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/mobile-shell/help-assistant.json"
+        )))
+        .expect("Help Assistant fixture parses");
+        let model_chain = fixture["cases"]
+            .as_array()
+            .expect("fixture cases must be an array")
+            .iter()
+            .find(|case| case["name"] == "model_chain")
+            .expect("model_chain case must exist");
+
+        assert_eq!(model_chain["primary"], PRIMARY_MODEL);
+        assert_eq!(model_chain["fallback"], FALLBACK_MODEL);
+        assert_eq!(model_chain["max_output_tokens"], MAX_OUTPUT_TOKENS);
     }
 }

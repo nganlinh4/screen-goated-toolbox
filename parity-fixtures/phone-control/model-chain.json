@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "grounding": {
+    "catalog_chain": "computer_control_grounding",
+    "models": [
+      "gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite"
+    ],
+    "environment_override": "CC_VISION_MODEL",
+    "override_replaces_default_chain": true,
+    "advance_on": [
+      "transport_error",
+      "empty_response",
+      "malformed_structured_response"
+    ],
+    "terminal_results": [
+      "valid_target_not_visible",
+      "valid_verification_rejection"
+    ],
+    "inherits_general_image_chain": false
+  }
+}

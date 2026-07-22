@@ -3,6 +3,7 @@
     "default_image_model_id": "gemma-4-31b-cerebras-vision",
     "default_text_model_id": "gpt_oss_120b_cerebras",
     "default_text_api_model": "gpt-oss-120b",
+    "gemini_embedding_api_model": "gemini-embedding-2",
     "gemini_live_api_model_2_5": "gemini-2.5-flash-native-audio-preview-12-2025",
     "gemini_live_api_model_3_1": "gemini-3.1-flash-live-preview",
     "gemini_live_vision_model_id_2_5": "gemini-live-vision",
@@ -34,6 +35,26 @@
       "lifecycle": "deprecated",
       "replacement": "gemini-3.1-flash-lite",
       "verified_at": "2026-07-13"
+    },
+    "gemini-3.5-flash": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-07-22"
+    },
+    "gemini-3.5-flash-lite": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-07-22"
+    },
+    "gemini-3.6-flash": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-07-22"
+    },
+    "gemini-embedding-2": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-07-22"
     },
     "gemini-2.5-flash-native-audio-preview-12-2025": {
       "lifecycle": "preview",
@@ -132,6 +153,16 @@
       "gemini-live-text-3.1",
       "text_gemini_3_1_flash_lite",
       "gemma-4-26b-a4b"
+    ]
+  },
+  "feature_model_chains": {
+    "help_assistant": [
+      "gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite"
+    ],
+    "computer_control_grounding": [
+      "gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite"
     ]
   },
   "search_disabled_full_names": [
@@ -450,6 +481,19 @@
       "quota_en": "500 requests/day"
     },
     {
+      "id": "gemini-3.5-flash-lite",
+      "provider": "google",
+      "name_vi": "Nhanh, hiệu quả",
+      "name_ko": "빠르고 효율적",
+      "name_en": "Fast, Efficient",
+      "full_name": "gemini-3.5-flash-lite",
+      "model_type": "Vision",
+      "enabled": true,
+      "quota_vi": "500 lượt/ngày",
+      "quota_ko": "500 요청/일",
+      "quota_en": "500 requests/day"
+    },
+    {
       "id": "gemini-flash",
       "provider": "google",
       "name_vi": "Rất chính xác",
@@ -495,6 +539,19 @@
       "name_ko": "최정밀",
       "name_en": "Ultra Accurate",
       "full_name": "gemini-3.5-flash",
+      "model_type": "Vision",
+      "enabled": true,
+      "quota_vi": "20 lượt/ngày",
+      "quota_ko": "20 요청/일",
+      "quota_en": "20 requests/day"
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "provider": "google",
+      "name_vi": "Mới nhất, chính xác",
+      "name_ko": "최신, 정확함",
+      "name_en": "Latest, Accurate",
+      "full_name": "gemini-3.6-flash",
       "model_type": "Vision",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",
@@ -684,6 +741,19 @@
       "quota_en": "500 requests/day"
     },
     {
+      "id": "text_gemini_3_5_flash_lite",
+      "provider": "google",
+      "name_vi": "Nhanh, hiệu quả",
+      "name_ko": "빠르고 효율적",
+      "name_en": "Fast, Efficient",
+      "full_name": "gemini-3.5-flash-lite",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "500 lượt/ngày",
+      "quota_ko": "500 요청/일",
+      "quota_en": "500 requests/day"
+    },
+    {
       "id": "text_gemini_flash",
       "provider": "google",
       "name_vi": "Rất chính xác",
@@ -729,6 +799,19 @@
       "name_ko": "최정밀",
       "name_en": "Ultra Accurate",
       "full_name": "gemini-3.5-flash",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "20 lượt/ngày",
+      "quota_ko": "20 요청/일",
+      "quota_en": "20 requests/day"
+    },
+    {
+      "id": "text_gemini_3_6_flash",
+      "provider": "google",
+      "name_vi": "Mới nhất, chính xác",
+      "name_ko": "최신, 정확함",
+      "name_en": "Latest, Accurate",
+      "full_name": "gemini-3.6-flash",
       "model_type": "Text",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",
@@ -892,6 +975,19 @@
       "quota_en": "500 requests/day"
     },
     {
+      "id": "gemini-audio-3.5-flash-lite",
+      "provider": "google",
+      "name_vi": "(Tuỳ chỉnh) 3.5 Flash-Lite",
+      "name_ko": "(사용자 지정) 3.5 Flash-Lite",
+      "name_en": "(Custom) 3.5 Flash-Lite",
+      "full_name": "gemini-3.5-flash-lite",
+      "model_type": "Audio",
+      "enabled": true,
+      "quota_vi": "500 lượt/ngày",
+      "quota_ko": "500 요청/일",
+      "quota_en": "500 requests/day"
+    },
+    {
       "id": "gemini-audio",
       "provider": "google",
       "name_vi": "(Tuỳ chỉnh) 2.5 Flash-Lite",
@@ -950,6 +1046,19 @@
       "name_ko": "(사용자 지정) 3.5 Flash",
       "name_en": "(Custom) 3.5 Flash",
       "full_name": "gemini-3.5-flash",
+      "model_type": "Audio",
+      "enabled": true,
+      "quota_vi": "20 lượt/ngày",
+      "quota_ko": "20 요청/일",
+      "quota_en": "20 requests/day"
+    },
+    {
+      "id": "gemini-audio-3.6-flash",
+      "provider": "google",
+      "name_vi": "(Tuỳ chỉnh) 3.6 Flash",
+      "name_ko": "(사용자 지정) 3.6 Flash",
+      "name_en": "(Custom) 3.6 Flash",
+      "full_name": "gemini-3.6-flash",
       "model_type": "Audio",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",

@@ -15,6 +15,11 @@
     "captionPlacement": "above_orb_growing_toward_screen_center",
     "androidVisualHost": "trusted_accessibility_overlay_with_non_obscuring_fallback",
     "visualOverlayDoesNotConsumeUnderlyingTouches": true,
+    "dragDismissOwner": "shared_android_dismiss_bubble",
+    "dragDismissTargets": "single_bottom_target",
+    "dragDismissCommit": "stop_phone_control_service",
+    "dragDismissCancel": "hide_target_and_keep_session",
+    "dragDismissCoordinates": "current_raw_pointer",
     "captureDoesNotMutateVisibleOverlayWhenWindowCaptureIsAvailable": true,
     "freshReceiptPostconditionDoesNotPublishTransientWarning": true
   },
