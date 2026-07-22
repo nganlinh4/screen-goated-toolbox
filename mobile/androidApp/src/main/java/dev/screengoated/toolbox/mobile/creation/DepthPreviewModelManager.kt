@@ -2,6 +2,8 @@ package dev.screengoated.toolbox.mobile.creation
 
 import android.content.Context
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationDepthRuntime
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeManager
 import dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager
 import java.io.File
 import java.io.FileOutputStream
@@ -36,10 +38,12 @@ internal class DepthPreviewModelManager private constructor(
     private val httpClient =
         (context.applicationContext as SgtMobileApplication).appContainer.httpClient
     private val nativeLibManager = NativeLibManager(context)
+    private val creationRuntimeManager = CreationRuntimeManager.get(context)
     private val modelMutex = Mutex()
     private val inferenceMutex = Mutex()
     private val mutableStatus = MutableStateFlow<DepthPreviewModelStatus>(DepthPreviewModelStatus.Missing)
     private var verifiedMetadata: Pair<Long, Long>? = null
+    private var depthRuntime: CreationDepthRuntime? = null
 
     val status: StateFlow<DepthPreviewModelStatus> = mutableStatus.asStateFlow()
 
@@ -48,6 +52,7 @@ internal class DepthPreviewModelManager private constructor(
     }
 
     fun startInstall() {
+        creationRuntimeManager.startInstall()
         nativeLibManager.startDownload(NativeLibManager.Engine.ORT)
         scope.launch { runCatching { ensureModel() } }
     }
@@ -56,7 +61,8 @@ internal class DepthPreviewModelManager private constructor(
         scope.launch {
             inferenceMutex.withLock {
                 modelMutex.withLock {
-                    DepthPreviewOnnxEngine.close()
+                    depthRuntime?.close()
+                    depthRuntime = null
                     modelFile().delete()
                     previewDirectory().deleteRecursively()
                     verifiedMetadata = null
@@ -68,15 +74,20 @@ internal class DepthPreviewModelManager private constructor(
 
     suspend fun createPreview(sourcePath: String): String? = try {
         val modelTask = scope.async { ensureModel() }
+        val runtimeTask = scope.async { creationRuntimeManager.awaitFactory() }
         nativeLibManager.startDownload(NativeLibManager.Engine.ORT)
         val model = modelTask.await()
-        if (!awaitRuntime()) {
+        val factory = runtimeTask.await()
+        if (factory == null || !awaitRuntime()) {
             null
         } else {
             inferenceMutex.withLock {
                 val target = previewFile(sourcePath)
                 if (target.isFile && target.length() > 0L) return@withLock target.absolutePath
-                DepthPreviewOnnxEngine.create(sourcePath, model, target)
+                val runtime = depthRuntime ?: factory.createDepthRuntime().also { depthRuntime = it }
+                check(runtime.createPreview(sourcePath, model.absolutePath, target.absolutePath)) {
+                    "Depth preview was not created"
+                }
                 prunePreviews(target)
                 target.absolutePath
             }

@@ -166,6 +166,7 @@ tasks.register("verifyPlayReleaseCompliance") {
             "libffmpeg.so",
             "libffmpeg.zip.so",
             "libffprobe.so",
+            "libsgt_creation_glb.so",
         )
         val forbiddenDexStrings = listOf(
             "api.github.com/repos/nganlinh4/screen-goated-toolbox",
@@ -175,11 +176,17 @@ tasks.register("verifyPlayReleaseCompliance") {
             "browser_download_url",
             "YoutubeDLUpdater",
             "updateYoutubeDL",
+            "studio.tripo3d.ai",
+            "api.tripo3d.ai",
+            "temp-mail.org/en/",
+            "www.svgai.org/",
+            "Depth preview model has no depth output",
         )
         val allowedFeatureModules = setOf(
             "feature_asr_ort",
             "feature_asr_moonshine",
             "feature_asr_sherpa",
+            "feature_creation_runtime",
             "feature_native_cpp",
         )
         val requiredNativeOwners = mapOf(
@@ -212,6 +219,20 @@ tasks.register("verifyPlayReleaseCompliance") {
         val detectorAssetBytes = 131_216_489L
         val detectorAssetSha256 =
             "1892092320cd55fd182c6afd76ae5bb0fb9695f5fcdf0ba875c1f68d49792ff4"
+        val creationNativePath =
+            "feature_creation_runtime/lib/arm64-v8a/libsgt_creation_glb.so"
+        val creationNativeBytes = 342_304L
+        val creationNativeSha256 =
+            "6520b51e703b953ffed3509310f693c68ceb107b37908dfac4c44eb9f42c55cc"
+        val creationRuntimeSignatures = listOf(
+            "AndroidCreationRuntimeFactory",
+            "studio.tripo3d.ai",
+            "api.tripo3d.ai",
+            "temp-mail.org/en/",
+            "www.svgai.org/",
+            "Depth preview model has no depth output",
+            "MeshoptNative",
+        )
 
         val playManifest = project.file("src/play/AndroidManifest.xml")
         val manifestDocument = DocumentBuilderFactory.newInstance().apply {
@@ -289,6 +310,31 @@ tasks.register("verifyPlayReleaseCompliance") {
                     "Play native checksum mismatch for $fileName: $actualSha256"
                 }
             }
+            val creationNativeEntries = entries.filter { entry ->
+                entry.name.endsWith("/libsgt_creation_glb.so")
+            }
+            require(creationNativeEntries.map { it.name } == listOf(creationNativePath)) {
+                "Play creation native ownership mismatch: ${creationNativeEntries.map { it.name }}"
+            }
+            val creationNative = creationNativeEntries.single()
+            require(creationNative.size == creationNativeBytes) {
+                "Play creation native byte count mismatch: ${creationNative.size}"
+            }
+            val creationDigest = MessageDigest.getInstance("SHA-256")
+            zip.getInputStream(creationNative).use { input ->
+                val buffer = ByteArray(1024 * 1024)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    creationDigest.update(buffer, 0, read)
+                }
+            }
+            val actualCreationSha256 = creationDigest.digest().joinToString("") { byte ->
+                "%02x".format(byte)
+            }
+            require(actualCreationSha256 == creationNativeSha256) {
+                "Play creation native checksum mismatch: $actualCreationSha256"
+            }
             require(zip.getEntry("base/lib/arm64-v8a/libonnxruntime4j_jni.so") != null) {
                 "Play base is missing the Java ORT JNI bridge"
             }
@@ -338,6 +384,22 @@ tasks.register("verifyPlayReleaseCompliance") {
                 require(retained.isEmpty()) {
                     "Play base dex ${dexEntry.name} retains forbidden signatures: $retained"
                 }
+            }
+
+            val creationDexEntries = entries.filter { entry: ZipEntry ->
+                entry.name.matches(Regex("feature_creation_runtime/dex/classes\\d*\\.dex"))
+            }
+            require(creationDexEntries.isNotEmpty()) {
+                "Play creation runtime feature is missing executable code"
+            }
+            val creationDexText = creationDexEntries.joinToString(separator = "") { dexEntry ->
+                zip.getInputStream(dexEntry).use { input: InputStream ->
+                    input.readBytes().toString(Charsets.ISO_8859_1)
+                }
+            }
+            val missingCreationSignatures = creationRuntimeSignatures.filterNot(creationDexText::contains)
+            require(missingCreationSignatures.isEmpty()) {
+                "Play creation runtime feature is incomplete: $missingCreationSignatures"
             }
         }
     }

@@ -326,6 +326,7 @@ android {
         ":feature_asr_moonshine",
         ":feature_asr_sherpa",
         ":feature_native_cpp",
+        ":feature_creation_runtime",
     )
     compileSdk = 36
     // Build Tools 36 escapes Windows paths in generated AIDL comments; older output can
@@ -351,12 +352,6 @@ android {
 
         ndk {
             abiFilters += "arm64-v8a"
-        }
-
-        externalNativeBuild {
-            cmake {
-                arguments += "-DANDROID_STL=c++_static"
-            }
         }
 
     }
@@ -422,13 +417,6 @@ android {
         compose = true
         buildConfig = true
         aidl = true
-    }
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/creation_glb/CMakeLists.txt")
-            version = "3.22.1"
-        }
     }
 
     packaging {

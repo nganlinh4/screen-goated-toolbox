@@ -16,12 +16,20 @@ import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker2Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker3Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageToSvgWorker0Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageToSvgWorker1Service
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeManager
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeStatus
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 internal class CreationWorkerPool private constructor(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
     private val diagnostics = CreationDiagnostics(context, "pool")
+    private val runtime = CreationRuntimeManager.get(context)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val preparationPreferences = context.getSharedPreferences(
         PREPARATION_PREFERENCES,
         Context.MODE_PRIVATE,
@@ -43,6 +51,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         CreationPreparationCooldown.read(context),
     ).also { CreationPreparationCooldown.recordUntil(context, it) }
     @Volatile private var nextPreparationStartAtMs = 0L
+    @Volatile private var runtimeAwaiting = false
 
     init {
         check(workers.count { it.tool == CreationTool.IMAGE_TO_3D } == CreationContract.IMAGE_TO_3D_WORKSPACES)
@@ -58,6 +67,11 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             unrelated.forEach { key ->
                 pendingBindings.remove(key)?.let(handler::removeCallbacks)
             }
+        }
+        if (runtime.factory() == null) {
+            runtime.startInstall()
+            awaitRuntime(priority)
+            return
         }
         val ordered = if (priority == null) {
             CreationTool.entries.mapNotNull { tool -> workers.firstOrNull { it.tool == tool } }
@@ -82,6 +96,12 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     }
 
     fun preparationStatus(tool: CreationTool): String {
+        when (runtime.status.value) {
+            is CreationRuntimeStatus.Downloading -> return "preparing"
+            is CreationRuntimeStatus.Missing,
+            is CreationRuntimeStatus.Failed -> return "idle"
+            is CreationRuntimeStatus.Ready -> Unit
+        }
         val matching = workers.filter { it.tool == tool }
         val ready = matching.count { it.ready }
         return when {
@@ -124,6 +144,54 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         val key = jobWorkers[jobId] ?: return
         val worker = workers.firstOrNull { it.key == key } ?: return
         runCatching { worker.binder?.cancel(jobId) }
+    }
+
+    fun removeRuntime() {
+        shutdown()
+        runtime.delete()
+    }
+
+    private fun shutdown() {
+        pendingBindings.values.forEach(handler::removeCallbacks)
+        pendingBindings.clear()
+        synchronized(workers) {
+            workers.forEach { worker ->
+                worker.activeJobId?.let { runCatching { worker.binder?.cancel(it) } }
+                worker.connection?.let { connection ->
+                    runCatching { context.unbindService(connection) }
+                }
+                context.stopService(Intent(context, worker.serviceClass))
+                worker.binder = null
+                worker.connection = null
+                worker.binding = false
+                worker.prepareScheduled = false
+                worker.preparing = false
+                worker.ready = false
+                worker.busy = false
+                worker.activeJobId = null
+            }
+            jobWorkers.clear()
+        }
+    }
+
+    private fun awaitRuntime(priority: CreationTool?) {
+        synchronized(this) {
+            if (runtimeAwaiting) return
+            runtimeAwaiting = true
+        }
+        scope.launch {
+            val available = runtime.awaitFactory() != null
+            runtimeAwaiting = false
+            if (available) {
+                handler.post { startPreparation(priority ?: preferredPreparationTool) }
+            } else {
+                diagnostics.event(
+                    "runtime_unavailable",
+                    priority?.wireName ?: "creation",
+                    failureMessage = (runtime.status.value as? CreationRuntimeStatus.Failed)?.message,
+                )
+            }
+        }
     }
 
     private fun bind(worker: Worker) {

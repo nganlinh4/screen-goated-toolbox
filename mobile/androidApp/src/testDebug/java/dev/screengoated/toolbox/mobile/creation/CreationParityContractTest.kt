@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.creation
 
-import dev.screengoated.toolbox.mobile.creation.worker.freshGeneratedSvg
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlinx.serialization.json.Json
@@ -8,7 +7,6 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class CreationParityContractTest {
@@ -60,14 +58,6 @@ class CreationParityContractTest {
         assertEquals(CreationContract.svgCreditCost("simple"), models.modelInt("simple", "creditCost"))
         assertEquals(CreationContract.svgRemoteModel("detail"), models.modelString("detail", "remoteModel"))
         assertEquals(CreationContract.svgCreditCost("detail"), models.modelInt("detail", "creditCost"))
-    }
-
-    @Test
-    fun `new SVG selection never substitutes an old dashboard result`() {
-        val old = listOf("old-a", "old-b")
-        assertNull(freshGeneratedSvg(old, old))
-        assertEquals("new", freshGeneratedSvg(listOf("new", "old-a", "old-b"), old))
-        assertEquals("same", freshGeneratedSvg(listOf("same", "same"), listOf("same")))
     }
 
     private fun fixture(tool: String) = json.parseToJsonElement(

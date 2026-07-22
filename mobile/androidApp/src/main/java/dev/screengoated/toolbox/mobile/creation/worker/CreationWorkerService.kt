@@ -9,6 +9,9 @@ import dev.screengoated.toolbox.mobile.creation.CreationDiagnostics
 import dev.screengoated.toolbox.mobile.creation.CreationTool
 import dev.screengoated.toolbox.mobile.creation.CreationWorkerEvent
 import dev.screengoated.toolbox.mobile.creation.CreationWorkerRequest
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeEngine
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeEventSink
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeManager
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -26,7 +29,8 @@ internal abstract class CreationWorkerService : Service() {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val jobs = ConcurrentHashMap<String, Job>()
-    private var engine: CreationAutomationEngine? = null
+    private var engine: CreationRuntimeEngine? = null
+    private val runtime by lazy { CreationRuntimeManager.get(this) }
     private val diagnostics by lazy {
         CreationDiagnostics(this, "worker-${workerTool.wireName}-$workerSlot")
     }
@@ -37,15 +41,14 @@ internal abstract class CreationWorkerService : Service() {
                 val activeEngine = engine()
                 diagnostics.event("prepare_started", workerTool.wireName, workerSlot)
                 runCatching {
-                    activeEngine.prepare { event ->
+                    activeEngine.prepare(eventSink(callback) { event ->
                         diagnostics.event(
                             name = if (event.event == "ready") "prepare_ready" else "prepare_progress",
                             tool = workerTool.wireName,
                             slot = workerSlot,
                             stage = event.progressKey ?: event.stage,
                         )
-                        callback.emit(event)
-                    }
+                    })
                 }
                     .onFailure {
                         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
@@ -99,7 +102,7 @@ internal abstract class CreationWorkerService : Service() {
                 )
                 var lastStage: String? = null
                 try {
-                    activeEngine.run(request) { event ->
+                    activeEngine.runJob(requestJson, eventSink(callback) { event ->
                         val stage = event.progressKey ?: event.stage ?: event.event
                         if (stage != lastStage) {
                             lastStage = stage
@@ -111,8 +114,7 @@ internal abstract class CreationWorkerService : Service() {
                                 stage,
                             )
                         }
-                        callback.emit(event)
-                    }
+                    })
                 } catch (error: TimeoutCancellationException) {
                     if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
                         Log.e(DEBUG_TAG, "Job timed out for ${workerTool.wireName}-$workerSlot", error)
@@ -179,8 +181,21 @@ internal abstract class CreationWorkerService : Service() {
         super.onDestroy()
     }
 
-    private fun engine(): CreationAutomationEngine = engine
-        ?: CreationAutomationEngine(this, workerTool, workerSlot).also { engine = it }
+    private fun engine(): CreationRuntimeEngine = engine ?: run {
+        val factory = runtime.factory() ?: error("Creation runtime is not installed")
+        factory.createAutomation(this, workerTool.wireName, workerSlot).also { engine = it }
+    }
+
+    private fun eventSink(
+        callback: ICreationWorkerCallback,
+        observe: (CreationWorkerEvent) -> Unit,
+    ) = CreationRuntimeEventSink { eventJson ->
+        val event = runCatching {
+            json.decodeFromString(CreationWorkerEvent.serializer(), eventJson)
+        }.getOrNull() ?: return@CreationRuntimeEventSink
+        observe(event)
+        runCatching { callback.onEvent(eventJson) }
+    }
 
     private fun ICreationWorkerCallback.emit(event: CreationWorkerEvent) {
         runCatching { onEvent(json.encodeToString(CreationWorkerEvent.serializer(), event)) }

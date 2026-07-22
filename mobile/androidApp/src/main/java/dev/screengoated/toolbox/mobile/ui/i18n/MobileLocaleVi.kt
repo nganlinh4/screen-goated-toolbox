@@ -70,6 +70,9 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 selectedImages = "{} ảnh",
                 interrupted = "Không thể hoàn tất việc tạo.",
                 previewTools = "Xem trước khi tạo",
+                creationRuntime = "Bộ chạy công cụ sáng tạo",
+                creationRuntimeDescription =
+                    "Chạy tác vụ Ảnh sang 3D và Ảnh sang SVG trong nền.",
                 depthPreviewModel = "Depth Anything 3 Small",
                 depthPreviewDescription =
                     "Hiện hiệu ứng chiều sâu động trong lúc tạo kết quả 3D và SVG.",

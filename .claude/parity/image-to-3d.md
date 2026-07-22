@@ -32,8 +32,9 @@
 - Result history persists across sessions, lists only results whose output still exists, and can
   rename or delete the real output file.
 - Android presents the canonical job, settings, viewer, history, and continuation states through
-  an adaptive native Kotlin Compose Material 3 Expressive surface. Full and Play expose the same
-  app and state machine; no executable code is downloaded by either flavor.
+  an adaptive native Kotlin Compose Material 3 Expressive surface. The public app owns only the
+  frontend, IPC, storage, and delivery host. The separately built creation runtime owns browser
+  automation, account state, GLB conversion, and depth inference.
 
 ## Failure And Recovery
 
@@ -58,11 +59,12 @@
 
 - Windows writes directly to a filesystem folder. Android publishes output through MediaStore or
   a persisted Storage Access Framework directory and represents it by a content URI.
-- Android uses isolated WebView worker processes for background site automation in place of the
-  Windows native browser sidecar; those workers never render app UI.
+- Android runs the separately delivered runtime behind the same isolated worker-process IPC. Full
+  downloads a checksum-pinned DEX/native bundle from the runtime-bundles release; Play packages
+  the same private runtime build in an on-demand dynamic feature.
 - Android renders completed GLB files natively with SceneView/Filament instead of Three.js.
 - Android's native M3E presentation intentionally differs from the Windows desktop layout while
   preserving the same fixture-backed behavior contract.
 - Android downloads the checksum-verified Depth Anything 3 Small model as removable data and uses
-  the shared flavor-specific ONNX Runtime delivery. It keeps the 518-pixel inference map in the
-  app cache rather than expanding it to the source image's full resolution.
+  the shared flavor-specific ONNX Runtime delivery. Inference remains inside the private creation
+  runtime. It keeps the 518-pixel map in app cache rather than expanding it to source resolution.

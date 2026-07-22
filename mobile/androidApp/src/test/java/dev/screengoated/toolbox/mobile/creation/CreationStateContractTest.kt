@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.creation
 
-import dev.screengoated.toolbox.mobile.creation.worker.svgWorkspaceSignedIn
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -81,15 +80,6 @@ class CreationStateContractTest {
         assertEquals(10 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(2))
         assertEquals(15 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(3))
         assertEquals(15 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(20))
-    }
-
-    @Test
-    fun `svg workspace recovery does not treat an unknown page as authenticated`() {
-        assertEquals(true, svgWorkspaceSignedIn("https://www.svgai.org/dashboard", "New project"))
-        assertEquals(true, svgWorkspaceSignedIn("https://www.svgai.org/dashboard", "Start a new design."))
-        assertEquals(false, svgWorkspaceSignedIn("https://www.svgai.org/signup", ""))
-        assertEquals(false, svgWorkspaceSignedIn("https://www.svgai.org/", "SIGN IN"))
-        assertEquals(null, svgWorkspaceSignedIn("https://www.svgai.org/dashboard", "Loading"))
     }
 
     private fun loadFixture(path: String): JsonObject {

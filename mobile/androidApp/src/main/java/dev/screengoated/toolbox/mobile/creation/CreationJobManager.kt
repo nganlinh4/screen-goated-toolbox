@@ -37,6 +37,8 @@ internal class CreationJobManager private constructor(context: Context) {
 
     fun preparationStatus(tool: CreationTool): String = workers.preparationStatus(tool)
 
+    fun removeRuntime() = workers.removeRuntime()
+
     fun startJob(tool: CreationTool, args: JsonObject): CreationJobStatus {
         val source = args.string("imagePath") ?: error("Pick an image first")
         require(files.exists(source)) { "Image does not exist" }
