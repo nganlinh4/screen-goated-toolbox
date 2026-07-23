@@ -68,4 +68,33 @@ class GeminiLiveSetupTest {
                 .getValue("maxOutputTokens").jsonPrimitive.content,
         )
     }
+
+    @Test
+    fun deliberateReasoningOverrideReplacesOnlyOrdinaryThinkingPolicy() {
+        val setup = buildGeminiLiveSetup(
+            GeminiLiveSetupSpec(
+                apiModel = GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_3_1,
+                reasoningOverride = GeminiLiveReasoningOverride(
+                    thinkingLevel = "LOW",
+                    includeThoughts = true,
+                ),
+            ),
+        ).getValue("setup").jsonObject
+        val generation = setup.getValue("generationConfig").jsonObject
+
+        assertEquals(
+            "65536",
+            generation.getValue("maxOutputTokens").jsonPrimitive.content,
+        )
+        assertEquals(
+            "LOW",
+            generation.getValue("thinkingConfig").jsonObject
+                .getValue("thinkingLevel").jsonPrimitive.content,
+        )
+        assertEquals(
+            "true",
+            generation.getValue("thinkingConfig").jsonObject
+                .getValue("includeThoughts").jsonPrimitive.content,
+        )
+    }
 }

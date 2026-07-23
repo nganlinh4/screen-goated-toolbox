@@ -12,7 +12,6 @@ internal interface PhoneControlTurnSink {
     fun updateOutputCaption(text: String)
     fun updateOrbPresentation(stateLabel: String, iconOverride: String?) = Unit
     fun updateTurnPhase(phase: PhoneControlTurnPhase)
-    fun reconciliationRequired()
     fun requestScreenRefresh()
     fun abortProtocolSession() = Unit
 }

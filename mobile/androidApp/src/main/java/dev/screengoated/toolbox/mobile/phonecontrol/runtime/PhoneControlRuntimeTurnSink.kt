@@ -12,7 +12,6 @@ internal class PhoneControlRuntimeTurnSink(
     private val outputCaption: (String) -> Unit,
     private val orbPresentation: (String, String?) -> Unit,
     private val phase: (PhoneControlTurnPhase) -> Unit,
-    private val reconcile: () -> Unit,
     private val refresh: () -> Unit,
     private val abortProtocol: () -> Unit,
 ) : PhoneControlTurnSink {
@@ -34,8 +33,6 @@ internal class PhoneControlRuntimeTurnSink(
         orbPresentation(stateLabel, iconOverride)
 
     override fun updateTurnPhase(phase: PhoneControlTurnPhase) = this.phase(phase)
-
-    override fun reconciliationRequired() = reconcile()
 
     override fun requestScreenRefresh() = refresh()
 

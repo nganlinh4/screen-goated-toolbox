@@ -50,10 +50,16 @@ internal data class AccessibilityTargetAuthorityPolicy(
         }?.let { return it }
         val packageName = window.packageName?.takeIf(String::isNotBlank)
             ?: return AccessibilityTargetAuthority.ROUTINE
-        if (platformUserStepActive &&
+        val overlaysApplicationDuringUserStep = platformUserStepActive &&
             window.type in USER_STEP_WINDOW_TYPES &&
-            (window.active || window.focused)
-        ) {
+            (window.active || window.focused) &&
+            windows.any { behind ->
+                behind.displayId == window.displayId &&
+                    behind.layer < window.layer &&
+                    behind.type == APPLICATION_WINDOW &&
+                    !behind.accessibilityOverlay
+            }
+        if (overlaysApplicationDuringUserStep) {
             return AccessibilityTargetAuthority.OS_OWNED_USER_STEP
         }
         val overlaysAnotherApplication = window.type == APPLICATION_WINDOW &&

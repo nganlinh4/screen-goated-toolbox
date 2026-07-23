@@ -1,5 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
+  "live_session": {
+    "api_model": "gemini-3.1-flash-live-preview",
+    "thinking_config": {
+      "thinkingLevel": "LOW",
+      "includeThoughts": true
+    }
+  },
   "grounding": {
     "catalog_chain": "computer_control_grounding",
     "models": [

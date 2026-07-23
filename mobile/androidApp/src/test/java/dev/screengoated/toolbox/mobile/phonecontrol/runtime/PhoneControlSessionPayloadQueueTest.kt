@@ -74,4 +74,31 @@ class PhoneControlSessionPayloadQueueTest {
             ),
         )
     }
+
+    @Test
+    fun `visual evidence can be drained without disturbing other FIFO payloads`() {
+        val queue = PhoneControlSessionPayloadQueue(
+            maximumCount = 6,
+            maximumUtf8Bytes = 64,
+            maximumPayloadUtf8Bytes = 32,
+        )
+        assertTrue(queue.offer("response-a", PhoneControlOutboundKind.TOOL_RESPONSE))
+        assertTrue(queue.offer("screen-a", PhoneControlOutboundKind.TOOL_SCREEN_EVIDENCE))
+        assertTrue(queue.offer("microphone", PhoneControlOutboundKind.MICROPHONE_AUDIO))
+        assertTrue(queue.offer("screen-b", PhoneControlOutboundKind.AMBIENT_SCREEN))
+        assertTrue(queue.offer("response-b", PhoneControlOutboundKind.TOOL_RESPONSE))
+
+        assertEquals(1, queue.discard(PhoneControlOutboundKind.TOOL_SCREEN_EVIDENCE))
+        assertEquals(1, queue.discard(PhoneControlOutboundKind.AMBIENT_SCREEN))
+        assertEquals(3, queue.snapshot().count)
+        assertEquals("response-a", queue.next()?.payload)
+        queue.markSent(requireNotNull(queue.next()))
+        assertEquals("microphone", queue.next()?.payload)
+        queue.markSent(requireNotNull(queue.next()))
+        assertEquals("response-b", queue.next()?.payload)
+        assertEquals(
+            "response-b".toByteArray(Charsets.UTF_8).size,
+            queue.snapshot().utf8Bytes,
+        )
+    }
 }

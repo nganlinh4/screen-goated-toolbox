@@ -15,6 +15,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContrac
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlOverlayStateSink
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlServiceState
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbCommandBridge
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerChoice
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
@@ -33,6 +34,7 @@ import kotlin.coroutines.resume
 internal class PhoneControlOverlayController(
     private val context: Context,
     private val onDismiss: () -> Unit,
+    private val onPowerChoiceSelected: (PhoneControlPowerChoice) -> Unit = {},
 ) : PhoneControlOverlayStateSink, PhoneControlOverlayExclusionParticipant {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -261,10 +263,15 @@ internal class PhoneControlOverlayController(
 
     private fun ensurePowerPrompt() {
         if (powerPrompt != null) return
-        val prompt = PhoneControlPowerPromptView(host.context, ::selectPowerChoice)
+        val prompt = PhoneControlPowerPromptView(
+            context = host.context,
+            onChoice = ::selectPowerChoice,
+            showForgetSgtAdb = SgtAdbCommandBridge.hasPairing(context),
+            onForgetSgtAdb = ::forgetSgtAdb,
+        )
         val bounds = screenBounds()
         val params = overlayLayoutParams(
-            width = minOf(context.dp(340), (bounds.width() - edgeMargin * 2).coerceAtLeast(1)),
+            width = minOf(context.dp(304), (bounds.width() - edgeMargin * 2).coerceAtLeast(1)),
             height = WindowManager.LayoutParams.WRAP_CONTENT,
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -282,11 +289,15 @@ internal class PhoneControlOverlayController(
     private fun selectPowerChoice(choice: PhoneControlPowerChoice) {
         PhoneControlPowerPreferences.save(context, choice)
         PhoneControlLog.i(TAG, "power_choice choice=${choice.wireName}")
+        onPowerChoiceSelected(choice)
         powerPromptVisible = false
         render()
-        if (choice != PhoneControlPowerChoice.STANDARD) {
-            context.startActivity(PhoneControlActivity.optionalPowerIntent(context, choice))
-        }
+    }
+
+    private fun forgetSgtAdb() {
+        powerPromptVisible = false
+        render()
+        context.startActivity(PhoneControlActivity.sgtAdbForgetIntent(context))
     }
 
     private fun togglePowerPrompt() {

@@ -1,11 +1,12 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 13,
   "feature": "phone-control-activation",
   "requiredOrder": [
     "gemini_api",
     "runtime_permissions",
     "accessibility",
     "overlay",
+    "media_projection",
     "start"
   ],
   "invariants": {
@@ -14,13 +15,72 @@
     "innerSetupScreen": false,
     "apiKeySurface": "existing_settings_section_with_toast",
     "opensGeneralSettingsForApiKey": true,
+    "languageContract": {
+      "explicitUiLocales": ["default", "ko", "vi"],
+      "otherUiLocales": "android_default_resource_fallback",
+      "liveLanguage": "provider_detected_without_app_locale_override",
+      "transcription": ["input", "output"],
+      "languageSpecificRouting": false
+    },
     "oneExternalUserStepAtATime": true,
     "reprobeAfterReturn": true,
+    "accessibilityReadiness": {
+      "requiredEvidence": ["configured_service", "live_service_binding"],
+      "configuredSettingAloneIsReady": false,
+      "configuredButUnbound": "bounded_reconnect_wait_then_android_settings_user_step",
+      "serviceBoundAfterSettingRemovalIsReady": false
+    },
+    "reconciliationWait": {
+      "mutationGate": true,
+      "visibleState": "preserve_current_turn_phase",
+      "failureEscalation": "bounded_screen_capture_failure_only"
+    },
+    "mediaProjection": {
+      "requiredForEverySession": true,
+      "scope": "whole_default_display",
+      "grantLifetime": "single_session_single_consumption",
+      "serviceStartsBeforeProjectionConsumption": true,
+      "runtimeStartsAfterVirtualDisplay": true,
+      "revocation": "stop_phone_control",
+      "denial": "stop_without_service",
+      "protectedUserCheckpoint": {
+        "agentNavigation": "complete_before_handoff",
+        "capture": "seal_visual_evidence_drain_then_release",
+        "runtime": "keep_socket_microphone_audio_orb_and_conversation",
+        "settleWhen": ["idle", "listening"],
+        "modelVisualEvidence": "blocked_until_fresh_projection_attached",
+        "localSecretTransfer": "ephemeral_structural_provider_adapter_only",
+        "modelSecretAccess": false,
+        "secretPersistence": false,
+        "relayFailure": "typed_user_step_without_false_success",
+        "relayContinuation": {
+          "completed": "resume_selected_setup_after_fresh_projection",
+          "needsUserStep": "hold_selected_without_republishing_identical_goal",
+          "failed": "hold_selected_without_republishing_identical_goal",
+          "retry": "explicit_user_action_or_fresh_capability_evidence"
+        },
+        "guidance": "public_persistent_notification",
+        "cancel": "explicit_notification_action",
+        "cancelOutcome": {
+          "authority": "standard",
+          "adapter": "cancel",
+          "runtime": "remain_live_and_visually_sealed",
+          "nextStep": "fresh_media_projection"
+        },
+        "resume": "attach_fresh_media_projection_to_existing_runtime",
+        "providerSetupWhileSealed": false,
+        "unexpectedProjectionLoss": "stop_phone_control"
+      }
+    },
     "settingsNavigation": {
       "targetIdentity": "runtime_app_label_on_resolved_settings_package",
       "mayScroll": true,
       "mayOpenAppRow": true,
       "mayTogglePermission": false,
+      "activePlatformSession": {
+        "fullScreenSetupSurface": "routine_navigation",
+        "liveModalAboveApplication": "os_owned_user_step"
+      },
       "returnAfterGrant": "back_only_while_resolved_settings_is_foreground",
       "ambiguousTarget": "stop_without_effect"
     },
@@ -37,17 +97,61 @@
     ],
     "userFacingSelfTest": false,
     "optionalPowerPromptOwner": "orb",
-    "optionalPowerChoices": ["standard", "shizuku", "root"],
+    "optionalPowerChoices": ["standard", "sgt_adb", "shizuku", "root"],
+    "powerAuthoritySelection": {
+      "presentation": {
+        "surface": "compact_orb_card",
+        "explanatoryParagraph": false,
+        "recommendedNonRoot": "sgt_adb",
+        "recommendedMarker": "star_icon",
+        "forgetPairing": "compact_secondary_action_when_paired"
+      },
+      "persistBeforeSetup": true,
+      "standard": [],
+      "sgt_adb": ["sgt_adb_bridge"],
+      "shizuku": ["shizuku_shell"],
+      "root": ["root_bridge"],
+      "unselectedElevatedProviderState": "unavailable",
+      "changingChoiceCancelsPendingSetup": true,
+      "changeDuringProtectedCheckpoint": {
+        "oldAdapter": "cancel",
+        "runtime": "remain_live_and_visually_sealed",
+        "nextStep": "fresh_media_projection",
+        "selectedSetup": "start_only_after_projection_attach",
+        "automationWhileToolsBlocked": false
+      }
+    },
     "shizukuSetup": {
       "feedbackBeforeExternalStep": true,
+      "durableFeedbackSurfaces": ["orb_caption", "ongoing_notification"],
+      "guidancePresentation": {
+        "orbCaption": "compact_non_obscuring_status",
+        "ongoingNotification": "full_persistent_instruction"
+      },
       "plannerInput": "structural_probe_state",
+      "liveAutomation": {
+        "trigger": "user_power_authority_selection",
+        "turnBoundary": "one_bounded_goal_when_idle",
+        "catalog": "normal_full_catalog",
+        "navigation": "normal_semantic_and_vision_tools",
+        "providerSpecificClickScript": false,
+        "busyTurn": "remain_pending",
+        "checkpointNavigation": "expose_surface_without_entry_or_approval",
+        "screenShareProtectedCheckpoint": "finish_seal_visuals_then_release_capture",
+        "privateRelay": "local_ephemeral_adapter_without_model_visibility",
+        "systemOwnedConfirmation": "user_step"
+      },
+      "lifetime": "until_ready_or_authority_changed",
       "ready": "complete",
       "binderReadyPermissionMissing": "request_permission",
       "installedServiceStoppedOrGrantRevoked": "open_manager",
       "packageMissingOrApiUnsupported": "open_store_with_official_download_fallback",
-      "reprobe": "on_external_return_or_binder_event",
-      "unchangedExternalState": "stop_without_reopening",
+      "reprobe": "on_package_change_external_return_or_binder_event",
+      "packageInstalled": "open_manager_without_reselection",
+      "unchangedExternalState": "remain_selected_pending_without_reopening",
+      "androidPlayInstallConfirmation": "user_step",
       "androidOwnedPairingAndTrust": "user_step",
+      "oneTimePairingCodeTransfer": "sealed_local_adapter_or_user_step",
       "cases": [
         {"condition": "ready", "expect": "complete"},
         {"condition": "permission_requestable", "expect": "request_permission"},
@@ -56,6 +160,26 @@
         {"condition": "api_unsupported", "expect": "open_store"},
         {"condition": "package_missing", "expect": "open_store"}
       ]
+    },
+    "firstPartyAdbSetup": {
+      "distribution": ["play", "full"],
+      "minimumApi": 30,
+      "feedbackBeforeExternalStep": true,
+      "lifetime": "until_ready_forgotten_or_authority_changed",
+      "discovery": "local_interface_mdns_pairing_then_connect_services",
+      "keyStorage": "android_keystore_non_exportable_private_key",
+      "pairingCode": "sealed_local_adapter_only",
+      "pairingCodeModelVisibility": false,
+      "pairingCodePersistence": false,
+      "androidOwnedEnablementAndTrust": "user_step",
+      "captureLifecycle": "shared_protected_checkpoint",
+      "cancelDuringPairing": "serialize_then_forget_abandoned_client_key_after_terminal_return",
+      "pairingEstablishedBeforeConnect": "persist_pairing_then_bounded_reconnect_without_code_reentry",
+      "reconnect": "paired_client_key_and_persisted_adb_mdns_identity_family",
+      "commandTransport": "bounded_exact_argv_authenticated_adb_stream",
+      "lanCommandListener": false,
+      "revoke": "forget_pairing_and_delete_app_key",
+      "reboot": "fresh_probe_and_reconnect_no_command_replay"
     }
   },
   "cases": [
@@ -66,8 +190,9 @@
         "microphone": false,
         "notifications": false,
         "notificationPrompted": false,
-        "accessibilityEnabled": false,
-        "overlay": false
+        "accessibilityReady": false,
+        "overlay": false,
+        "mediaProjection": false
       },
       "expect": "gemini_api"
     },
@@ -78,8 +203,9 @@
         "microphone": false,
         "notifications": false,
         "notificationPrompted": false,
-        "accessibilityEnabled": false,
-        "overlay": false
+        "accessibilityReady": false,
+        "overlay": false,
+        "mediaProjection": false
       },
       "expect": "runtime_permissions"
     },
@@ -90,8 +216,9 @@
         "microphone": true,
         "notifications": false,
         "notificationPrompted": true,
-        "accessibilityEnabled": false,
-        "overlay": false
+        "accessibilityReady": false,
+        "overlay": false,
+        "mediaProjection": false
       },
       "expect": "accessibility"
     },
@@ -102,8 +229,9 @@
         "microphone": true,
         "notifications": true,
         "notificationPrompted": true,
-        "accessibilityEnabled": false,
-        "overlay": false
+        "accessibilityReady": false,
+        "overlay": false,
+        "mediaProjection": false
       },
       "expect": "accessibility"
     },
@@ -114,20 +242,35 @@
         "microphone": true,
         "notifications": true,
         "notificationPrompted": true,
-        "accessibilityEnabled": true,
-        "overlay": false
+        "accessibilityReady": true,
+        "overlay": false,
+        "mediaProjection": false
       },
       "expect": "overlay"
     },
     {
-      "name": "ready evidence starts without optional authority",
+      "name": "projection consent is required after the orb grant",
       "snapshot": {
         "apiKey": true,
         "microphone": true,
         "notifications": true,
         "notificationPrompted": true,
-        "accessibilityEnabled": true,
-        "overlay": true
+        "accessibilityReady": true,
+        "overlay": true,
+        "mediaProjection": false
+      },
+      "expect": "media_projection"
+    },
+    {
+      "name": "ready evidence starts with session projection authority",
+      "snapshot": {
+        "apiKey": true,
+        "microphone": true,
+        "notifications": true,
+        "notificationPrompted": true,
+        "accessibilityReady": true,
+        "overlay": true,
+        "mediaProjection": true
       },
       "expect": "start"
     }

@@ -16,8 +16,9 @@ Android/Kotlin Multiplatform companion for Screen Goated Toolbox. Windows remain
 
 Phone Control is the same product in both distributions: its entry point, optional
 user-granted overlay, stable tool catalog, runtime, Accessibility backend, and
-Shizuku/root authority are identical. Distribution-specific native delivery changes
-provider readiness mechanics, not the catalog or authority contract.
+first-party SGT Bridge/Shizuku/root authority are identical. Distribution-specific
+native delivery changes provider readiness mechanics, not the catalog or authority
+contract.
 
 Both derive `versionName` and default `versionCode` from root `Cargo.toml`.
 
@@ -112,6 +113,17 @@ Pass `-IncludeExternalSetupTests` when the selected device may open Android-owne
 setup surfaces. The Shizuku probe then verifies the real install handoff when the
 package is absent; the harness still restores the original foreground app and
 device state afterward.
+
+The optional **SGT Bridge** provider is built into both distributions and is the
+recommended non-root authority route. It keeps
+its ADB private key non-exportable in Android Keystore, discovers only the
+device-local wireless-debugging services, and runs its bounded command client in
+a private app process; it never opens a LAN command listener. The compact orb
+prompt also exposes an explicit pairing-forget action. Its transport uses
+`libadb-android` 3.1.1 and Conscrypt 2.5.3. Upstream states that libadb has not
+received a security audit, so the dependency threat model remains an explicit
+release-review item even though real-device pairing, reconnect, cancellation,
+revoke, and projection-resume checks now support the product recommendation.
 
 Use `scripts/invoke-phone-control-probe.ps1` only against an installed debug
 package. Physical targets require `-AllowPhysicalDevice`; registry-classified

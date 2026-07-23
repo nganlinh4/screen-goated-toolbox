@@ -11,8 +11,8 @@ import android.provider.Settings
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorModelManager
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorReadiness
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuCommandBridge
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.RootCommandBridge
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
+import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
@@ -76,6 +76,12 @@ internal object PhoneControlProviderRegistry {
         return ProviderRouter(catalog.providers, catalog.routes)
     }
 
+    fun providersFor(context: Context, capability: String): List<String> =
+        catalog(context).routes
+            .firstOrNull { it.capability == capability }
+            ?.providerIds
+            .orEmpty()
+
     private fun catalog(context: Context): PhoneControlAuthorityCatalog {
         val root = context.assets.open(GeneratedPhoneControlContract.AUTHORITY_MATRIX_ASSET_PATH)
             .bufferedReader()
@@ -127,19 +133,19 @@ internal object PhoneControlProviderRegistry {
             "Connect a verified browser debugging provider.",
         )
         "local_ui_detector" -> probeLocalDetector(context)
-        "shizuku_shell" -> ShizukuCommandBridge.probe(context).let { probe ->
-            Probe(probe.state, probe.requiredUserStep)
-        }
-        "root_bridge" -> RootCommandBridge.probe().let { probe ->
-            Probe(probe.state, probe.requiredUserStep)
-        }
         "device_owner" -> probeDeviceOwner(context)
         "privileged_system" -> if (Process.myUid() == Process.SYSTEM_UID) {
             Probe(CapabilityState.READY)
         } else {
             Probe(CapabilityState.UNSUPPORTED, "Install the separate privileged-system build.")
         }
-        else -> Probe(CapabilityState.UNAVAILABLE, "No provider probe is installed.")
+        else -> PrivilegedCommandProviderRegistry.find(id)
+            ?.let { provider ->
+                probeSelectedAuthority(context, id) {
+                    provider.probe(context).let { Probe(it.state, it.requiredUserStep) }
+                }
+            }
+            ?: Probe(CapabilityState.UNAVAILABLE, "No provider probe is installed.")
     }
 
     private fun probeAccessibility(context: Context): Probe = when {
@@ -173,6 +179,19 @@ internal object PhoneControlProviderRegistry {
         } else {
             Probe(CapabilityState.UNSUPPORTED, "This device is not provisioned with SGT as owner.")
         }
+    }
+
+    private inline fun probeSelectedAuthority(
+        context: Context,
+        providerId: String,
+        probe: () -> Probe,
+    ): Probe = if (PhoneControlPowerPreferences.enablesProvider(context, providerId)) {
+        probe()
+    } else {
+        Probe(
+            CapabilityState.UNAVAILABLE,
+            "Select this elevated authority from the Phone Control orb.",
+        )
     }
 
     private fun probeLocalDetector(context: Context): Probe =

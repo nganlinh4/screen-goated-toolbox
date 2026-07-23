@@ -15,6 +15,22 @@ internal data class PhoneControlShizukuSetupAttempt(
     val action: PhoneControlShizukuSetupAction,
 )
 
+internal enum class PhoneControlShizukuRepeatDisposition {
+    DISPATCH,
+    WAIT_FOR_EVENT,
+    LEAVE_SELECTED_PENDING,
+}
+
+internal fun phoneControlShizukuRepeatDisposition(
+    attempt: PhoneControlShizukuSetupAttempt,
+    previous: PhoneControlShizukuSetupAttempt?,
+    stepActive: Boolean,
+): PhoneControlShizukuRepeatDisposition = when {
+    attempt != previous -> PhoneControlShizukuRepeatDisposition.DISPATCH
+    stepActive -> PhoneControlShizukuRepeatDisposition.WAIT_FOR_EVENT
+    else -> PhoneControlShizukuRepeatDisposition.LEAVE_SELECTED_PENDING
+}
+
 internal fun nextPhoneControlShizukuSetupAction(
     probe: ShizukuBridgeProbe,
 ): PhoneControlShizukuSetupAction = when (probe.condition) {

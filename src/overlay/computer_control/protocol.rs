@@ -15,9 +15,8 @@ use crate::api::realtime_audio::websocket::pcm_bytes_to_i16;
 /// The Live model that backs Computer Control (catalog id `google-gemini-3-1-live-vision`).
 pub const MODEL: &str = crate::model_config::GEMINI_LIVE_API_MODEL_3_1;
 
-/// Preserve the endpoint's native reasoning level unless the operator explicitly
-/// overrides it. Thought parts stay enabled so intent never has to be inferred
-/// from narration.
+/// Use deliberate low thinking for control accuracy while keeping latency bounded.
+/// Thought parts stay enabled so intent never has to be inferred from narration.
 pub(crate) fn thinking_config() -> Value {
     thinking_config_for(
         std::env::var("CC_THINK")
@@ -27,11 +26,10 @@ pub(crate) fn thinking_config() -> Value {
 }
 
 fn thinking_config_for(level: Option<String>) -> Value {
-    let mut config = json!({"includeThoughts": true});
-    if let Some(level) = level {
-        config["thinkingLevel"] = json!(level);
-    }
-    config
+    json!({
+        "includeThoughts": true,
+        "thinkingLevel": level.unwrap_or_else(|| "LOW".to_string())
+    })
 }
 
 /// Function declarations exposed to the model. Mirrors the Computer-Use action
@@ -259,14 +257,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn setup_uses_endpoint_thinking_default_and_high_media_resolution() {
+    fn setup_uses_low_thinking_and_high_media_resolution() {
         let s = build_setup("hi");
-        assert_eq!(s["setup"]["model"], "models/gemini-3.1-flash-live-preview");
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/phone-control/model-chain.json"
+        )))
+        .expect("Phone Control model-chain fixture parses");
+        let live = &fixture["live_session"];
+        assert_eq!(
+            s["setup"]["model"],
+            format!("models/{}", live["api_model"].as_str().unwrap())
+        );
         let gc = &s["setup"]["generationConfig"];
         assert_eq!(gc["mediaResolution"], "MEDIA_RESOLUTION_HIGH");
         assert_eq!(gc["maxOutputTokens"], 65536);
-        assert_eq!(gc["thinkingConfig"]["includeThoughts"], true);
-        assert!(thinking_config_for(None).get("thinkingLevel").is_none());
+        assert_eq!(gc["thinkingConfig"], live["thinking_config"]);
         // The 3.1 trap: must NOT carry the legacy budget knob alongside the level.
         assert!(gc["thinkingConfig"].get("thinkingBudget").is_none());
         assert!(s["setup"]["tools"].is_array());

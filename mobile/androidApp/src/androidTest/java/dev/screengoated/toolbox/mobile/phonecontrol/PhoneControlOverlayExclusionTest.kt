@@ -42,9 +42,9 @@ class PhoneControlOverlayExclusionTest {
         val originalPowerChoice = PhoneControlPowerPreferences.current(targetContext)
         val dismissed = AtomicBoolean(false)
         PhoneControlPowerPreferences.save(targetContext, PhoneControlPowerChoice.STANDARD)
-        val controller = PhoneControlOverlayController(targetContext) {
+        val controller = PhoneControlOverlayController(targetContext, onDismiss = {
             assertTrue("Dismiss callback must run once", dismissed.compareAndSet(false, true))
-        }
+        })
 
         try {
             setOverlayMode(packageName, "allow")

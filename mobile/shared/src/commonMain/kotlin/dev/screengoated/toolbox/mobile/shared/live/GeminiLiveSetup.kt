@@ -25,8 +25,14 @@ data class GeminiLiveSetupSpec(
     val systemInstruction: String? = null,
     val transcriptionMode: GeminiLiveTranscriptionMode = GeminiLiveTranscriptionMode.NONE,
     val contextWindowCompression: Boolean = false,
+    val reasoningOverride: GeminiLiveReasoningOverride? = null,
     val generationOverrides: JsonObject = JsonObject(emptyMap()),
     val setupExtensions: JsonObject = JsonObject(emptyMap()),
+)
+
+data class GeminiLiveReasoningOverride(
+    val thinkingLevel: String,
+    val includeThoughts: Boolean = false,
 )
 
 /** Builds a complete Live setup envelope and always applies endpoint-owned policy. */
@@ -79,16 +85,28 @@ private fun buildGenerationConfig(spec: GeminiLiveSetupSpec): JsonObject = build
     endpoint?.maxOutputTokens?.let {
         put("maxOutputTokens", it)
     }
-    when (val thinking = endpoint?.thinking) {
-        is GeneratedLiveThinkingConfig.Budget -> put(
+    if (spec.reasoningOverride != null) {
+        put(
             "thinkingConfig",
-            buildJsonObject { put("thinkingBudget", thinking.value) },
+            buildJsonObject {
+                put("thinkingLevel", spec.reasoningOverride.thinkingLevel)
+                if (spec.reasoningOverride.includeThoughts) {
+                    put("includeThoughts", true)
+                }
+            },
         )
-        is GeneratedLiveThinkingConfig.Level -> put(
-            "thinkingConfig",
-            buildJsonObject { put("thinkingLevel", thinking.value) },
-        )
-        null -> Unit
+    } else {
+        when (val thinking = endpoint?.thinking) {
+            is GeneratedLiveThinkingConfig.Budget -> put(
+                "thinkingConfig",
+                buildJsonObject { put("thinkingBudget", thinking.value) },
+            )
+            is GeneratedLiveThinkingConfig.Level -> put(
+                "thinkingConfig",
+                buildJsonObject { put("thinkingLevel", thinking.value) },
+            )
+            null -> Unit
+        }
     }
     spec.mediaResolution?.let { put("mediaResolution", it.apiValue) }
     spec.voiceName?.let { voiceName ->

@@ -29,6 +29,18 @@ class PhoneControlOverlayStateTest {
     }
 
     @Test
+    fun `idle orb keeps compact authority guidance after the toast expires`() {
+        val result = visual(
+            phase = PhoneControlRuntimePhase.LISTENING,
+            guidance = "Setup remains pending. Complete the visible Android confirmation " +
+                "and return when the provider reports a new structural state.",
+        )
+
+        assertEquals("Setup remains pending.", result.caption)
+        assertTrue(result.caption.length < 64)
+    }
+
+    @Test
     fun `working and finalizing expose only the current useful caption`() {
         assertEquals(
             "request",
@@ -99,6 +111,7 @@ class PhoneControlOverlayStateTest {
         level: Float = 0f,
         orbState: String = GeneratedPhoneControlContract.ORB_STATE_THINKING,
         orbIcon: String? = null,
+        guidance: String = "",
     ) = phoneControlOverlayVisual(
         PhoneControlServiceState(
             running = running,
@@ -110,6 +123,7 @@ class PhoneControlOverlayStateTest {
             listeningLevel = level,
             orbStateLabel = orbState,
             orbIconOverride = orbIcon,
+            authorityGuidance = guidance,
         ),
     )
 }

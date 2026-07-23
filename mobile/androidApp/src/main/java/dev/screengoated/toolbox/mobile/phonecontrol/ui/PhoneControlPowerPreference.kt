@@ -1,12 +1,36 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.ui
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.content.edit
+import java.io.Closeable
 
-internal enum class PhoneControlPowerChoice(val wireName: String) {
-    STANDARD("standard"),
-    SHIZUKU("shizuku"),
-    ROOT("root"),
+internal enum class PhoneControlPowerChoice(
+    val wireName: String,
+    val elevatedProviderId: String?,
+) {
+    STANDARD("standard", null),
+    SGT_ADB("sgt_adb", "sgt_adb_bridge"),
+    SHIZUKU("shizuku", "shizuku_shell"),
+    ROOT("root", "root_bridge"),
+    ;
+
+    fun enablesProvider(providerId: String): Boolean = elevatedProviderId == providerId
+}
+
+internal enum class PhoneControlPowerSelectionRoute {
+    NONE,
+    SETUP,
+    RESUME_CAPTURE,
+}
+
+internal fun phoneControlPowerSelectionRoute(
+    choice: PhoneControlPowerChoice,
+    protectedCheckpointActive: Boolean,
+): PhoneControlPowerSelectionRoute = when {
+    protectedCheckpointActive -> PhoneControlPowerSelectionRoute.RESUME_CAPTURE
+    choice.elevatedProviderId != null -> PhoneControlPowerSelectionRoute.SETUP
+    else -> PhoneControlPowerSelectionRoute.NONE
 }
 
 internal object PhoneControlPowerPreferences {
@@ -20,6 +44,23 @@ internal object PhoneControlPowerPreferences {
 
     fun clear(context: Context) {
         context.preferences().edit { remove(KEY_CHOICE) }
+    }
+
+    fun enablesProvider(context: Context, providerId: String): Boolean =
+        current(context)?.enablesProvider(providerId) == true
+
+    fun observe(
+        context: Context,
+        onChanged: (PhoneControlPowerChoice?) -> Unit,
+    ): Closeable {
+        val preferences = context.preferences()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_CHOICE) onChanged(current(context))
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        return Closeable {
+            preferences.unregisterOnSharedPreferenceChangeListener(listener)
+        }
     }
 
     private fun Context.preferences() = getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)

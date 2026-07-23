@@ -33,7 +33,7 @@ class PhoneControlAuthorityMatrixTest {
         val fixture = PhoneControlAuthorityFixture.load()
         val catalog = fixture.root.getValue("catalog").jsonObject
 
-        assertEquals(11L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(14L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals("phone-control", fixture.root.getValue("feature").jsonPrimitive.content)
         val distribution = fixture.root.getValue("distribution").jsonObject
         assertEquals(
@@ -195,6 +195,11 @@ class PhoneControlAuthorityMatrixTest {
         PhoneControlToolRegistry.specs.forEach { spec ->
             assertTrue(spec.dependencyProviderIds.all(providerIds::contains))
         }
+        assertTrue("sgt_adb_bridge" in providerIds)
+        assertEquals(
+            listOf("sgt_adb_bridge", "shizuku_shell", "root_bridge", "privileged_system"),
+            fixture.routes.first { it.capability == "command_execution" }.providerIds,
+        )
         val selection = fixture.root.getValue("providerSelection").jsonObject
         assertEquals(
             "narrowest_ready_provider_with_full_requested_semantics",
@@ -263,6 +268,41 @@ class PhoneControlAuthorityMatrixTest {
             .jsonObject
             .getValue("visualObservation")
             .jsonObject
+        assertEquals(
+            listOf("accessibility", "media_projection"),
+            visual.getValue("requiredSessionProviders").jsonArray.map {
+                it.jsonPrimitive.content
+            },
+        )
+        assertEquals(
+            "whole_display_and_accessibility_pixel_fallback",
+            visual.getValue("projectionRole").jsonPrimitive.content,
+        )
+        assertEquals(
+            "fresh_single_use_grant_per_session",
+            visual.getValue("projectionConsent").jsonPrimitive.content,
+        )
+        assertEquals(
+            "stop_phone_control",
+            visual.getValue("projectionLoss").jsonPrimitive.content,
+        )
+        val checkpoint = visual.getValue("plannedProtectedCheckpoint").jsonObject
+        assertEquals(
+            "sealed_and_drained",
+            checkpoint.getValue("visualEvidence").jsonPrimitive.content,
+        )
+        assertEquals(
+            "kept_alive",
+            checkpoint.getValue("liveRuntime").jsonPrimitive.content,
+        )
+        assertEquals(
+            "fresh_projection_attached",
+            checkpoint.getValue("resume").jsonPrimitive.content,
+        )
+        assertEquals(
+            "stop_phone_control",
+            checkpoint.getValue("unexpectedLoss").jsonPrimitive.content,
+        )
         assertEquals(
             "same_tool_dual_semantic_selection_one_frame_detector_refresh_" +
                 "dual_crosshair_verification_exact_surface_lease",

@@ -119,7 +119,6 @@ class PhoneControlScreenReconciliationTest {
         override fun updateInputCaption(text: String) = Unit
         override fun updateOutputCaption(text: String) = Unit
         override fun updateTurnPhase(phase: PhoneControlTurnPhase) = Unit
-        override fun reconciliationRequired() = Unit
         override fun requestScreenRefresh() = Unit
     }
 }

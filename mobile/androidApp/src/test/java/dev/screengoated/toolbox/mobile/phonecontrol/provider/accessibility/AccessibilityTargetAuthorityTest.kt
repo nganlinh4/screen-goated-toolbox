@@ -57,20 +57,28 @@ class AccessibilityTargetAuthorityTest {
     }
 
     @Test
-    fun pendingPlatformSessionOwnsTheActiveApplicationSurfaceStructurally() {
+    fun pendingPlatformSessionAllowsFullScreenNavigationAndOwnsOnlyItsModal() {
         val policy = AccessibilityTargetAuthorityPolicy(
             osOwnedUserStepPackages = emptySet(),
             platformUserStepActive = true,
         )
+        val setupSurface = captured(
+            packageName = "fixture.application",
+            layer = 1,
+        )
+        assertEquals(
+            AccessibilityTargetAuthority.ROUTINE,
+            policy.classifyWindow(setupSurface, listOf(setupSurface)),
+        )
         listOf("application", "system").forEach { type ->
-            val activeSurface = captured(
+            val modal = captured(
                 packageName = "fixture.application",
-                layer = 1,
+                layer = 2,
                 type = type,
             )
             assertEquals(
                 AccessibilityTargetAuthority.OS_OWNED_USER_STEP,
-                policy.classifyWindow(activeSurface, listOf(activeSurface)),
+                policy.classifyWindow(modal, listOf(setupSurface, modal)),
             )
         }
     }
