@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize};
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
     CustomModelDefinition, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey,
-    KokoroSettings, MagpieSettings, ModelPriorityChains, PresetProfile, StepAudioReferenceVoice,
-    StepAudioSettings, SupertonicSettings, ThemeMode, TranslationGummySettings,
-    TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings, VieneuSettings, VoxtralSettings,
-    default_tts_language_conditions, get_system_ui_language,
+    KokoroSettings, MagpieSettings, ModelPriorityChains, PresetProfile, RestoreDefaultsSelection,
+    StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings, ThemeMode,
+    TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    VieneuSettings, VoxtralSettings, default_tts_language_conditions, get_system_ui_language,
 };
 
 // ============================================================================
@@ -201,6 +201,10 @@ pub struct Config {
     /// Default opacity percentage for new result overlays
     #[serde(default = "default_favorite_overlay_opacity")]
     pub favorite_overlay_opacity: u8,
+
+    /// Last category checklist used by the selective restore-defaults dialog.
+    #[serde(default)]
+    pub restore_defaults_selection: RestoreDefaultsSelection,
 
     // -------------------------------------------------------------------------
     // Startup Behavior
@@ -452,6 +456,7 @@ impl Default for Config {
             cc_max_memory_items: default_cc_memory_limit(),
             graphics_mode: "standard".to_string(),
             favorite_overlay_opacity: default_favorite_overlay_opacity(),
+            restore_defaults_selection: RestoreDefaultsSelection::default(),
 
             // Startup
             start_in_tray: false,

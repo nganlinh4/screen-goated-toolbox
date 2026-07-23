@@ -177,7 +177,7 @@ pub fn clear_all_app_data() {
     let roaming = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
 
     let sgt_local = crate::paths::app_local_data_dir();
-    let sgt_roaming = roaming.join("screen-goated-toolbox");
+    let sgt_roaming = crate::paths::app_config_dir();
     let legacy_sgt_roaming = roaming.join("SGT");
 
     // Local\screen-goated-toolbox\* — caches and user content with no UI.
@@ -199,18 +199,7 @@ pub fn clear_all_app_data() {
         }
     }
 
-    // Roaming\screen-goated-toolbox\history_media — transcript audio clips.
-    // Roaming\screen-goated-toolbox\fonts — app-bundled font cache.
-    // Config/history JSONs are reset by the caller via Config::default().
-    for name in ["history_media", "fonts"] {
-        let path = sgt_roaming.join(name);
-        if path.exists()
-            && let Err(e) = std::fs::remove_dir_all(&path)
-        {
-            eprintln!("[reset] failed to remove {:?}: {}", path, e);
-            delete_directory_contents_recursive(&path);
-        }
-    }
+    clear_roaming_reset_data(&sgt_roaming);
 
     // Legacy Roaming\SGT (orphaned from an old code version — pure garbage).
     if legacy_sgt_roaming.exists()
@@ -240,6 +229,31 @@ pub fn clear_all_app_data() {
     }
 }
 
+/// Clear history and cache entries in the roaming root while deliberately
+/// leaving config, downloaded models, and other user-managed state untouched.
+fn clear_roaming_reset_data(sgt_roaming: &std::path::Path) {
+    // history_media — transcript audio clips.
+    // history.json — matching history database.
+    // fonts — app-bundled font cache.
+    for name in ["history_media", "fonts"] {
+        let path = sgt_roaming.join(name);
+        if path.exists()
+            && let Err(e) = std::fs::remove_dir_all(&path)
+        {
+            eprintln!("[reset] failed to remove {:?}: {}", path, e);
+            delete_directory_contents_recursive(&path);
+        }
+    }
+    for name in ["history.json", "history.json.tmp"] {
+        let path = sgt_roaming.join(name);
+        if path.exists()
+            && let Err(e) = std::fs::remove_file(&path)
+        {
+            eprintln!("[reset] failed to remove {:?}: {}", path, e);
+        }
+    }
+}
+
 /// Check if we should use dark mode based on config.
 /// Uses direct registry check for System theme to avoid crate overhead/crashes.
 pub fn is_dark_mode() -> bool {
@@ -252,4 +266,46 @@ pub fn is_dark_mode() -> bool {
     };
 
     mode.is_dark()
+}
+
+#[cfg(test)]
+mod reset_cleanup_tests {
+    use super::clear_roaming_reset_data;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn roaming_cleanup_keeps_config_and_downloaded_models() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "sgt-restore-defaults-test-{}-{unique}",
+            std::process::id()
+        ));
+        let history_media = root.join("history_media");
+        let fonts = root.join("fonts");
+        let models = root.join("models");
+        fs::create_dir_all(&history_media).unwrap();
+        fs::create_dir_all(&fonts).unwrap();
+        fs::create_dir_all(&models).unwrap();
+        fs::write(history_media.join("clip.wav"), b"history").unwrap();
+        fs::write(fonts.join("font.ttf"), b"font").unwrap();
+        fs::write(root.join("history.json"), b"[]").unwrap();
+        fs::write(root.join("history.json.tmp"), b"[]").unwrap();
+        fs::write(root.join("config_v3.json"), b"{}").unwrap();
+        fs::write(models.join("weights.bin"), b"model").unwrap();
+
+        clear_roaming_reset_data(&root);
+
+        assert!(!history_media.exists());
+        assert!(!fonts.exists());
+        assert!(!root.join("history.json").exists());
+        assert!(!root.join("history.json.tmp").exists());
+        assert!(root.join("config_v3.json").exists());
+        assert!(models.join("weights.bin").exists());
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }

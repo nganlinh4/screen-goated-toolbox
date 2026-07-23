@@ -12,6 +12,7 @@ mod enums;
 mod hotkey;
 mod model_priority;
 mod profile;
+mod restore_defaults;
 mod translation_gummy;
 mod tts;
 
@@ -27,6 +28,8 @@ pub use hotkey::Hotkey;
 pub use model_priority::ModelPriorityChains;
 
 pub use profile::PresetProfile;
+
+pub use restore_defaults::RestoreDefaultsSelection;
 
 pub use tts::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,

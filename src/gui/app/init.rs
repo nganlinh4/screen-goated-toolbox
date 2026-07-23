@@ -307,6 +307,7 @@ impl SettingsApp {
             show_tools_modal: false,
             show_model_priority_modal: false,
             show_custom_models_modal: false,
+            show_restore_defaults_modal: false,
             // -----------------------
 
             // --- FAVORITE BUBBLE STATE INIT ---

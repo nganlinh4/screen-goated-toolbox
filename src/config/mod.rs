@@ -62,6 +62,9 @@ pub use types::Hotkey;
 // Retry priority types
 pub use types::ModelPriorityChains;
 
+// Selective restore-defaults dialog state
+pub use types::RestoreDefaultsSelection;
+
 // TTS types
 pub use types::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
