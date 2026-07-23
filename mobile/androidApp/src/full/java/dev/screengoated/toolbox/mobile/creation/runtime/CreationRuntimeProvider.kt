@@ -176,11 +176,11 @@ internal class CreationRuntimeProvider(private val context: Context) {
             "dev.screengoated.toolbox.creation.runtime.AndroidCreationRuntimeFactory"
         const val RUNTIME_URL =
             "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-arm64.zip"
-        const val BUNDLE_BYTES = 223_755L
-        const val BUNDLE_SHA256 = "325579fba17a81e5e7e2f38c86f01838a39b6eb511c29b12684166fd605a29cf"
+        const val BUNDLE_BYTES = 227_685L
+        const val BUNDLE_SHA256 = "b30721f650b35480fc826f3a0619c6bd8571f24150b879b9fb073f8b959d5f77"
         const val DEX_ENTRY = "runtime/sgt-creation-runtime.dex.jar"
-        const val DEX_BYTES = 106_719L
-        const val DEX_SHA256 = "536df90ccd4ba953be4cb1057f17d113c87207be9c4968715f67c3ad18d2558e"
+        const val DEX_BYTES = 110_640L
+        const val DEX_SHA256 = "5f2111e848c3e70dcaf99c8e0632145b3c60e57f80bd788eac34487a72b2f0db"
         const val NATIVE_ENTRY = "lib/arm64-v8a/libsgt_creation_glb.so"
         const val NATIVE_BYTES = 342_304L
         const val NATIVE_SHA256 = "6520b51e703b953ffed3509310f693c68ceb107b37908dfac4c44eb9f42c55cc"

@@ -240,8 +240,15 @@ internal class CreationJobManager private constructor(context: Context) {
                 stage = nextStage,
                 progressText = event.progressText ?: current.progressText,
                 phase = event.phase ?: current.phase,
+                workspaceState = event.workspaceState ?: current.workspaceState,
                 progressRatio = event.progressRatio ?: current.progressRatio,
                 estimatedTotalMs = event.estimatedTotalMs ?: current.estimatedTotalMs,
+                outputPath = event.outputPath ?: current.outputPath,
+                outputName = event.outputName ?: current.outputName,
+                isSegmented = event.isSegmented ?: current.isSegmented,
+                canSegment = event.canSegment ?: current.canSegment,
+                faces = event.faces ?: current.faces,
+                vertices = event.vertices ?: current.vertices,
             )
             requests[jobId]?.tool
         }

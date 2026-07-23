@@ -395,12 +395,26 @@ private fun CreationActiveWorkbench(
         ) {
             when {
                 outputPath != null && tool == CreationTool.IMAGE_TO_3D -> {
-                    CreationModelViewer(
-                        outputPath = outputPath,
-                        viewModel = viewModel,
-                        strings = locale.creationApps.model3d,
-                        accent = accent,
-                    )
+                    Box(Modifier.fillMaxSize()) {
+                        CreationModelViewer(
+                            outputPath = outputPath,
+                            viewModel = viewModel,
+                            strings = locale.creationApps.model3d,
+                            accent = accent,
+                        )
+                        if (item?.stage in setOf(
+                                CreationNativeStage.QUEUED,
+                                CreationNativeStage.RUNNING,
+                            )
+                        ) {
+                            CreationProgressOverlay(
+                                status = item?.status,
+                                common = locale.creationApps.common,
+                                accent = accent,
+                                hasDepthPreview = true,
+                            )
+                        }
+                    }
                 }
                 outputPath != null -> {
                     CreationSvgDocument(outputPath, viewModel, controller)

@@ -56,6 +56,7 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 ready = "준비됨",
                 preparing = "준비 중",
                 queued = "대기 중",
+                providerQueued = "서비스 대기열에 있음",
                 working = "생성 중",
                 done = "완료",
                 failed = "실패",

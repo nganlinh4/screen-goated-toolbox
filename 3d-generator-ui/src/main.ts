@@ -148,6 +148,16 @@ app.innerHTML = `
           <strong data-i18n="emptyTitle"></strong>
           <span data-i18n="emptyDetail"></span>
         </div>
+        <aside class="reference-preview" id="referencePreview" data-i18n-aria="referencePreview" hidden>
+          <header class="reference-preview-header">
+            <span>${ICONS.image}</span>
+            <strong id="referencePreviewName"></strong>
+            <button class="view-tool" id="referencePreviewClose" type="button" data-i18n-title="close">${ICONS.close}</button>
+          </header>
+          <div class="reference-preview-image">
+            <img id="referencePreviewImage" alt="" />
+          </div>
+        </aside>
         <div class="viewer-toolbar" id="viewerToolbar">
           <span class="tool-segment" role="group">
             <button class="view-tool shading-tool" type="button" data-shading="original" data-i18n-title="originalMaterials">${ICONS.model}</button>
@@ -237,6 +247,8 @@ const nodes = {
   stage: query<HTMLElement>("#modelStage"), viewerToolbar: query<HTMLElement>("#viewerToolbar"), outlineButton: query<HTMLButtonElement>("#outlineButton"),
   rotateButton: query<HTMLButtonElement>("#rotateButton"), gridButton: query<HTMLButtonElement>("#gridButton"), wireButton: query<HTMLButtonElement>("#wireButton"),
   fitButton: query<HTMLButtonElement>("#fitButton"), shadingButtons: [...document.querySelectorAll<HTMLButtonElement>(".shading-tool")],
+  referencePreview: query<HTMLElement>("#referencePreview"), referencePreviewName: query<HTMLElement>("#referencePreviewName"),
+  referencePreviewImage: query<HTMLImageElement>("#referencePreviewImage"), referencePreviewClose: query<HTMLButtonElement>("#referencePreviewClose"),
   confirmDialog: query<HTMLElement>("#confirmDialog"), confirmMessage: query<HTMLElement>("#confirmMessage"),
   confirmCancel: query<HTMLButtonElement>("#confirmCancel"), confirmAccept: query<HTMLButtonElement>("#confirmAccept"), appToast: query<HTMLElement>("#appToast"),
 };
@@ -247,7 +259,9 @@ const state = {
   items: [] as QueueItem[], selectedId: "", runningIds: new Set<string>(), outputDir: "", queueActive: false, cancelRequested: false,
   backendStatus: { stage: "idle", progressText: "", runtimeStatus: "checking" } as JobStatus,
   preparationStatus: "preparing", preparationTimer: 0, preparationPollToken: 0, displayToken: 0, displayedItemId: "", displayedModelPath: "",
+  displayRequestKey: "", displayPromise: undefined as Promise<void> | undefined,
   outline: true, rotate: false, grid: false, wire: false, renamingId: "", historyRefreshing: false,
+  referencePreviewItemId: "", referencePreviewToken: 0,
 };
 
 function pathLeaf(path: string) { return path.split(/[\\/]/).filter(Boolean).pop() || path; }
@@ -285,12 +299,43 @@ function showToast(message: string) {
   toastTimer = window.setTimeout(() => nodes.appToast.classList.remove("visible"), 4200);
 }
 
+function closeReferencePreview() {
+  state.referencePreviewToken += 1;
+  state.referencePreviewItemId = "";
+  nodes.referencePreview.hidden = true;
+  nodes.referencePreviewImage.removeAttribute("src");
+}
+
+async function openReferencePreview(item: QueueItem) {
+  if (state.selectedId !== item.id) void selectItem(item.id);
+  const token = ++state.referencePreviewToken;
+  state.referencePreviewItemId = item.id;
+  nodes.referencePreviewName.textContent = stripExtension(item.name);
+  nodes.referencePreviewImage.alt = t("referenceImageAlt", { name: stripExtension(item.name) });
+  nodes.referencePreview.hidden = false;
+  try {
+    if (!item.assetUrl) {
+      item.assetUrl = (await readAsset(item.path)).dataUrl;
+      renderedQueueSignature = "";
+      renderQueue();
+    }
+    if (token !== state.referencePreviewToken || state.referencePreviewItemId !== item.id) return;
+    nodes.referencePreviewImage.src = item.assetUrl;
+  } catch {
+    if (token !== state.referencePreviewToken) return;
+    closeReferencePreview();
+    showToast(t("referenceUnavailable"));
+  }
+}
+
 function applyTranslations() {
   document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n as MessageKey); });
   document.querySelectorAll<HTMLElement>("[data-i18n-title]").forEach((node) => {
     const value = t(node.dataset.i18nTitle as MessageKey); node.title = value; node.setAttribute("aria-label", value);
   });
   document.querySelectorAll<HTMLElement>("[data-i18n-aria]").forEach((node) => node.setAttribute("aria-label", t(node.dataset.i18nAria as MessageKey)));
+  const referenceItem = state.items.find((item) => item.id === state.referencePreviewItemId);
+  if (referenceItem) nodes.referencePreviewImage.alt = t("referenceImageAlt", { name: stripExtension(referenceItem.name) });
 }
 
 function queueStateLabel(value: QueueState) {
@@ -302,7 +347,29 @@ function itemQueueLabel(item: QueueItem) {
   return item.state === "queued" && !item.submitted ? t("draft") : queueStateLabel(item.state);
 }
 
+let renderedQueueSignature = "";
+
+function queueRenderSignature() {
+  return JSON.stringify({
+    locale: locale(),
+    selectedId: state.selectedId,
+    renamingId: state.renamingId,
+    items: state.items.map((item) => [
+      item.id,
+      item.batchId,
+      item.state,
+      item.submitted,
+      item.historyId || "",
+      item.result?.outputName || "",
+      Boolean(item.assetUrl),
+    ]),
+  });
+}
+
 function renderQueue() {
+  const signature = queueRenderSignature();
+  if (signature === renderedQueueSignature) return;
+  renderedQueueSignature = signature;
   nodes.queueList.replaceChildren();
   if (!state.items.length) {
     const empty = document.createElement("div");
@@ -328,12 +395,18 @@ function renderQueue() {
     const row = document.createElement("div");
     row.className = `queue-item ${item.id === state.selectedId ? "selected" : ""}`;
     row.dataset.state = item.state;
-    const button = document.createElement("div");
-    button.tabIndex = 0; button.setAttribute("role", "button");
-    button.className = "queue-item-main";
-    const thumb = document.createElement("span");
+    const main = document.createElement("div");
+    main.className = "queue-item-main";
+    const thumb = document.createElement("button");
+    thumb.type = "button";
     thumb.className = "queue-thumb";
     thumb.innerHTML = item.assetUrl ? `<img alt="" src="${item.assetUrl}">` : ICONS.image;
+    thumb.title = t("viewReference");
+    thumb.setAttribute("aria-label", t("viewReference"));
+    thumb.addEventListener("click", () => void openReferencePreview(item));
+    const button = document.createElement("div");
+    button.tabIndex = 0; button.setAttribute("role", "button");
+    button.className = "queue-select";
     const copy = document.createElement("span");
     copy.className = "queue-copy";
     const strong = document.createElement("strong"); strong.textContent = stripExtension(item.result?.outputName || item.name);
@@ -354,11 +427,12 @@ function renderQueue() {
       copy.append(input, small);
       window.setTimeout(() => { input.focus(); input.select(); });
     } else copy.append(strong, small);
-    button.append(thumb, copy);
+    button.append(copy);
     button.addEventListener("click", () => void selectItem(item.id));
     button.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void selectItem(item.id); }
     });
+    main.append(thumb, button);
     const actions = document.createElement("span"); actions.className = "queue-actions";
     if (item.historyId && item.state === "done") {
       const rename = document.createElement("button"); rename.type = "button"; rename.innerHTML = ICONS.rename;
@@ -374,7 +448,7 @@ function renderQueue() {
       remove.disabled = item.state === "running" || item.state === "done";
       remove.addEventListener("click", () => removeItem(item.id)); actions.append(remove);
     }
-    row.append(button, actions); nodes.queueList.append(row);
+    row.append(main, actions); nodes.queueList.append(row);
   }
   nodes.queueFooter.textContent = state.items.length ? t("jobsCount", { count: state.items.length }) : "";
 }
@@ -460,6 +534,7 @@ async function refreshHistory() {
       if (item.historyId) return validIds.has(item.historyId);
       return item.state !== "done" || !item.result?.outputPath || validPaths.has(comparablePath(item.result.outputPath));
     });
+    if (state.referencePreviewItemId && !state.items.some((item) => item.id === state.referencePreviewItemId)) closeReferencePreview();
     if (!state.items.some((item) => item.id === state.selectedId)) state.selectedId = state.items[0]?.id || "";
     updateUi();
     if (state.selectedId && state.selectedId !== selectedBefore) {
@@ -492,6 +567,7 @@ async function addImagePaths(paths: string[]) {
       polycount: 5000, autoSegment: false, submitted: false, state: "queued",
     };
   }));
+  closeReferencePreview();
   state.items.push(...items);
   state.selectedId = items[0].id;
   renderQueue(); updateUi();
@@ -505,6 +581,7 @@ async function addImages() {
 function removeItem(id: string) {
   const index = state.items.findIndex((item) => item.id === id);
   if (index < 0 || state.items[index].state === "running") return;
+  if (state.referencePreviewItemId === id) closeReferencePreview();
   state.items.splice(index, 1);
   if (state.selectedId === id) state.selectedId = state.items[Math.min(index, state.items.length - 1)]?.id || "";
   renderQueue(); updateUi();
@@ -513,47 +590,62 @@ function removeItem(id: string) {
 }
 
 async function selectItem(id: string) {
+  if (state.referencePreviewItemId && state.referencePreviewItemId !== id) closeReferencePreview();
   state.selectedId = id;
   renderQueue(); updateUi();
   const item = selectedItem();
   if (item) await displayItem(item);
 }
 
-async function displayItem(item: QueueItem) {
-  const token = ++state.displayToken;
+function displayItem(item: QueueItem): Promise<void> {
   const modelPath = item.result?.outputPath &&
     (item.state === "done" || item.result.stage === "segmenting" || item.state === "failed" || item.state === "cancelled")
     ? item.result.outputPath
     : undefined;
   if (modelPath && state.displayedItemId === item.id && state.displayedModelPath === modelPath && item.loadedModelPath === modelPath) {
     syncViewerControls();
-    return;
+    return Promise.resolve();
   }
-  try {
-    if (modelPath) {
-      const asset = await readModelAsset(item, modelPath);
+  const requestKey = `${item.id}\n${modelPath || "source"}\n${Boolean(item.result?.isSegmented)}`;
+  if (state.displayRequestKey === requestKey && state.displayPromise) return state.displayPromise;
+
+  const token = ++state.displayToken;
+  const operation = (async () => {
+    try {
+      if (modelPath) {
+        const asset = await readModelAsset(item, modelPath);
+        if (token !== state.displayToken || state.selectedId !== item.id) return;
+        const stats = await viewer.setModel(asset.dataUrl, Boolean(item.result?.isSegmented));
+        if (!stats) return;
+        item.modelStats = stats;
+        item.loadedModelPath = modelPath;
+        if (token !== state.displayToken || state.selectedId !== item.id) return;
+        state.displayedItemId = item.id;
+        state.displayedModelPath = modelPath;
+        updateUi();
+        return;
+      }
+      if (!item.assetUrl) item.assetUrl = (await readAsset(item.path)).dataUrl;
       if (token !== state.displayToken || state.selectedId !== item.id) return;
-      const stats = await viewer.setModel(asset.dataUrl, Boolean(item.result?.isSegmented));
-      if (!stats) return;
-      item.modelStats = stats;
-      item.loadedModelPath = modelPath;
+      await viewer.setSource(item.assetUrl);
       if (token !== state.displayToken || state.selectedId !== item.id) return;
       state.displayedItemId = item.id;
-      state.displayedModelPath = modelPath;
-      updateUi();
-      return;
+      state.displayedModelPath = "";
+      item.loadedModelPath = "";
+      item.loadedDepthPath = "";
+      if (item.result?.previewPath) await loadDepthFor(item, item.result.previewPath);
+    } catch { /* The status surface remains usable even if preview loading fails. */ }
+    syncViewerControls();
+  })();
+  state.displayRequestKey = requestKey;
+  state.displayPromise = operation;
+  void operation.finally(() => {
+    if (state.displayPromise === operation) {
+      state.displayPromise = undefined;
+      state.displayRequestKey = "";
     }
-    if (!item.assetUrl) item.assetUrl = (await readAsset(item.path)).dataUrl;
-    if (token !== state.displayToken || state.selectedId !== item.id) return;
-    await viewer.setSource(item.assetUrl);
-    if (token !== state.displayToken || state.selectedId !== item.id) return;
-    state.displayedItemId = item.id;
-    state.displayedModelPath = "";
-    item.loadedModelPath = "";
-    item.loadedDepthPath = "";
-    if (item.result?.previewPath) await loadDepthFor(item, item.result.previewPath);
-  } catch { /* The status surface remains usable even if preview loading fails. */ }
-  syncViewerControls();
+  });
+  return operation;
 }
 
 async function loadDepthFor(item: QueueItem, path: string) {
@@ -565,6 +657,7 @@ async function loadDepthFor(item: QueueItem, path: string) {
 function friendlyError(message: string) {
   const text = message.toLowerCase();
   if (text.includes("rate limit") || text.includes("retry after")) return t("serviceBusy");
+  if (text.includes("workspace preparation email") || text.includes("workspace email service")) return t("serviceBusy");
   if (text.includes("runtime_missing") || text.includes("runtime") && text.includes("missing")) return t("engineMissing");
   if (text.includes("timed out") || text.includes("timeout")) return t("timedOut");
   if (text.includes("segment")) return t("separationFailed");
@@ -584,6 +677,7 @@ function friendlyStatus() {
   if (item.state !== "running") return { title: t("ready"), detail: t("adjustThenGenerate"), stage: "idle" as Stage };
   const status = item.result || state.backendStatus;
   if (status.workspaceState === "waiting") return { title: t("preparingWorkspace"), detail: t("finishingPreparation"), stage: status.stage };
+  if (status.workspaceState === "provider_queue") return { title: t("providerQueueTitle"), detail: t("providerQueueDetail"), stage: status.stage };
   if (status.stage === "preparing") return { title: t("preparingWorkspace"), detail: t("gettingEverythingReady"), stage: status.stage };
   if (status.stage === "segmenting") return { title: t("separatingParts"), detail: t("findingPieces"), stage: status.stage };
   if (status.stage === "finalizing") return { title: t("finishingModel"), detail: t("preparingGeometry"), stage: status.stage };
@@ -613,12 +707,24 @@ function updateProgressUi() {
   const busy = item?.state === "running";
   nodes.progressTrack.classList.toggle("visible", busy); nodes.statusEta.classList.toggle("visible", busy);
   if (!busy) {
+    nodes.progressTrack.classList.remove("provider-queued");
+    nodes.progressTrack.removeAttribute("aria-valuetext");
     const done = selectedItem()?.state === "done";
     nodes.progressTrack.setAttribute("aria-valuenow", done ? "100" : "0"); nodes.progressFill.style.width = done ? "100%" : "0%"; nodes.statusEta.textContent = ""; return;
   }
   if (!item) return;
   const elapsedMs = Math.max(0, Date.now() - (item.operationStartedAt || Date.now()));
   const estimateMs = Math.max(10_000, item.estimatedTotalMs || 240_000);
+  const providerQueued = item.result?.workspaceState === "provider_queue";
+  nodes.progressTrack.classList.toggle("provider-queued", providerQueued);
+  if (providerQueued) {
+    nodes.progressTrack.removeAttribute("aria-valuenow");
+    nodes.progressTrack.setAttribute("aria-valuetext", t("providerQueueEta"));
+    nodes.progressFill.style.width = "34%";
+    nodes.statusEta.textContent = t("providerQueueEta");
+    return;
+  }
+  nodes.progressTrack.removeAttribute("aria-valuetext");
   const curved = Math.min(0.94, 0.9 * (1 - Math.exp((-3 * elapsedMs) / estimateMs)));
   const reported = Math.max(0, Math.min(0.94, item.result?.progressRatio || 0));
   item.displayedProgress = Math.max(item.displayedProgress || 0, curved, reported);
@@ -1038,6 +1144,10 @@ nodes.rotateButton.addEventListener("click", () => { state.rotate = !state.rotat
 nodes.gridButton.addEventListener("click", () => { state.grid = !state.grid; viewer.setGrid(state.grid); syncViewerControls(); });
 nodes.wireButton.addEventListener("click", () => { state.wire = !state.wire; viewer.setWireframe(state.wire); syncViewerControls(); });
 nodes.fitButton.addEventListener("click", () => viewer.fitView());
+nodes.referencePreviewClose.addEventListener("click", closeReferencePreview);
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !nodes.referencePreview.hidden) closeReferencePreview();
+});
 
 applyTranslations(); updateUi(); window.setInterval(updateProgressUi, 250);
 async function loadDefaultOutputDir() {

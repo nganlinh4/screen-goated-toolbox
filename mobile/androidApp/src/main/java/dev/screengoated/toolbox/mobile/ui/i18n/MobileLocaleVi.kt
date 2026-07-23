@@ -56,6 +56,7 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 ready = "Sẵn sàng",
                 preparing = "Đang chuẩn bị",
                 queued = "Đang chờ",
+                providerQueued = "Đang ở trong hàng đợi",
                 working = "Đang tạo",
                 done = "Hoàn tất",
                 failed = "Thất bại",

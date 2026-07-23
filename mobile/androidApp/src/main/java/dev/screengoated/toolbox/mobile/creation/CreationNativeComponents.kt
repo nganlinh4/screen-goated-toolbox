@@ -381,6 +381,7 @@ internal fun CreationProgressOverlay(
     hasDepthPreview: Boolean,
 ) {
     val stage = status?.toNativeStage() ?: CreationNativeStage.QUEUED
+    val providerQueued = status?.workspaceState == "provider_queue"
     val progress = estimatedProgress(status)
     Box(
         modifier = Modifier
@@ -397,21 +398,29 @@ internal fun CreationProgressOverlay(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                nativeStageLabel(stage, common),
+                if (providerQueued) common.providerQueued else nativeStageLabel(stage, common),
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
             )
-            LinearWavyProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = accent,
-                trackColor = Color.White.copy(alpha = 0.25f),
-            )
-            Text(
-                "${(progress * 100).toInt()}%",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.84f),
-            )
+            if (providerQueued) {
+                LinearWavyProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = accent,
+                    trackColor = Color.White.copy(alpha = 0.25f),
+                )
+            } else {
+                LinearWavyProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = accent,
+                    trackColor = Color.White.copy(alpha = 0.25f),
+                )
+                Text(
+                    "${(progress * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.84f),
+                )
+            }
         }
     }
 }

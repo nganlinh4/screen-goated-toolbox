@@ -12,7 +12,7 @@ use super::runtime_command;
 const SESSION_TTL_MS: u64 = 2 * 60 * 60 * 1000;
 const SESSION_REFRESH_AHEAD_MS: u64 = 20 * 60 * 1000;
 const SESSION_TARGET: usize = 4;
-const MAX_PARALLEL_WARMERS: usize = 2;
+const MAX_PARALLEL_WARMERS: usize = 1;
 const MAINTENANCE_IDLE_INTERVAL: Duration = Duration::from_secs(60);
 const MAINTENANCE_BATCH_GAP: Duration = Duration::from_secs(15);
 const MAINTENANCE_REFRESH_GAP: Duration = Duration::from_secs(5 * 60);
@@ -281,8 +281,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_slots_use_two_workers_but_refreshes_are_staggered() {
-        assert_eq!(warm_batch_size(0, 0), 2);
+    fn mailbox_backed_warmups_are_serial_but_keep_four_ready_slots() {
+        assert_eq!(warm_batch_size(0, 0), 1);
         assert_eq!(warm_batch_size(3, 3), 1);
         assert_eq!(warm_batch_size(4, 3), 1);
         assert_eq!(warm_batch_size(4, 4), 0);

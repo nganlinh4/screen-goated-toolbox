@@ -75,6 +75,7 @@ internal data class CreationWorkerEvent(
     val progressText: String? = null,
     val progressKey: String? = null,
     val phase: String? = null,
+    val workspaceState: String? = null,
     val progressRatio: Double? = null,
     val estimatedTotalMs: Long? = null,
     val taskId: String? = null,

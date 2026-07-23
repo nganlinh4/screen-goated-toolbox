@@ -65,6 +65,9 @@ const en = {
   readingDepth: "Reading depth and form",
   preparingImage: "Preparing image and topology",
   shapingGeometry: "Shaping depth into geometry",
+  providerQueueTitle: "In service queue",
+  providerQueueDetail: "Your request is safely queued with the creation service",
+  providerQueueEta: "Waiting for creation service",
   couldNotCreate: "Couldn't create model",
   cancelled: "Cancelled",
   cancelledDetail: "Generate again when you're ready",
@@ -91,6 +94,10 @@ const en = {
   toggleWireframe: "Toggle wireframe",
   resetView: "Reset view",
   preview: "3D model preview",
+  viewReference: "View reference image",
+  referencePreview: "Reference image preview",
+  referenceImageAlt: "Reference image: {name}",
+  referenceUnavailable: "The reference image is no longer available.",
   modelStats: "{vertices} vertices · {faces} faces",
 } as const;
 
@@ -116,7 +123,9 @@ const ko: Messages = {
   separatingParts: "파트 분리 중", findingPieces: "깔끔한 모델 파트를 찾는 중", finishingModel: "모델 마무리 중",
   preparingGeometry: "최종 지오메트리를 준비하는 중", creatingModel: "모델 생성 중",
   readingDepth: "깊이와 형태를 분석하는 중", preparingImage: "이미지와 토폴로지를 준비하는 중",
-  shapingGeometry: "깊이를 지오메트리로 만드는 중", couldNotCreate: "모델을 생성하지 못했습니다",
+  shapingGeometry: "깊이를 지오메트리로 만드는 중", providerQueueTitle: "서비스 대기열에 있음",
+  providerQueueDetail: "요청이 생성 서비스 대기열에 안전하게 등록되었습니다", providerQueueEta: "생성 서비스 대기 중",
+  couldNotCreate: "모델을 생성하지 못했습니다",
   cancelled: "취소됨", cancelledDetail: "준비되면 다시 생성하세요", queuedTitle: "대기열에서 기다리는 중",
   queuedDetail: "다른 모델을 생성하고 있습니다", dragInspect: "드래그하여 결과를 확인하세요",
   dragInspectParts: "드래그하여 색상별 파트를 확인하세요", almostThere: "거의 완료되었습니다",
@@ -128,6 +137,8 @@ const ko: Messages = {
   originalMaterials: "원본 재질", toonOutline: "툰 셰이딩 및 윤곽선", partColors: "파트 색상",
   toggleOutline: "윤곽선 전환", toggleRotation: "회전 전환", toggleGrid: "그리드 전환",
   toggleWireframe: "와이어프레임 전환", resetView: "보기 초기화", preview: "3D 모델 미리보기",
+  viewReference: "참조 이미지 보기", referencePreview: "참조 이미지 미리보기",
+  referenceImageAlt: "참조 이미지: {name}", referenceUnavailable: "참조 이미지를 더 이상 사용할 수 없습니다.",
   modelStats: "정점 {vertices}개 · 면 {faces}개",
 };
 
@@ -151,7 +162,9 @@ const vi: Messages = {
   separatingParts: "Đang tách các phần", findingPieces: "Đang tìm các phần mô hình sạch", finishingModel: "Đang hoàn thiện mô hình",
   preparingGeometry: "Đang chuẩn bị hình học cuối", creatingModel: "Đang tạo mô hình",
   readingDepth: "Đang đọc chiều sâu và hình khối", preparingImage: "Đang chuẩn bị ảnh và topology",
-  shapingGeometry: "Đang biến chiều sâu thành hình học", couldNotCreate: "Không thể tạo mô hình",
+  shapingGeometry: "Đang biến chiều sâu thành hình học", providerQueueTitle: "Đang ở trong hàng đợi",
+  providerQueueDetail: "Yêu cầu đã được lưu an toàn trong hàng đợi của dịch vụ tạo", providerQueueEta: "Đang chờ dịch vụ tạo",
+  couldNotCreate: "Không thể tạo mô hình",
   cancelled: "Đã hủy", cancelledDetail: "Tạo lại khi bạn sẵn sàng", queuedTitle: "Đang chờ trong hàng đợi",
   queuedDetail: "Một mô hình khác đang được tạo", dragInspect: "Kéo để xem kết quả",
   dragInspectParts: "Kéo để xem từng phần theo màu", almostThere: "Sắp xong", lessMinute: "Còn dưới một phút",
@@ -163,6 +176,8 @@ const vi: Messages = {
   originalMaterials: "Vật liệu gốc", toonOutline: "Tô bóng toon và đường viền", partColors: "Màu từng phần",
   toggleOutline: "Bật/tắt đường viền", toggleRotation: "Bật/tắt xoay", toggleGrid: "Bật/tắt lưới",
   toggleWireframe: "Bật/tắt khung dây", resetView: "Đặt lại góc nhìn", preview: "Xem trước mô hình 3D",
+  viewReference: "Xem ảnh tham chiếu", referencePreview: "Xem trước ảnh tham chiếu",
+  referenceImageAlt: "Ảnh tham chiếu: {name}", referenceUnavailable: "Ảnh tham chiếu không còn khả dụng.",
   modelStats: "{vertices} đỉnh · {faces} mặt",
 };
 
