@@ -219,6 +219,9 @@ export function useSubtitleTranslation({
       label: `${model.modelLabel} (${model.modelName})`,
       triggerLabel: model.modelLabel,
       keywords: [model.modelId, model.modelName, model.provider],
+      qualityTier: model.qualityTier,
+      typicalLatencyMs: model.typicalLatencyMs,
+      performanceSource: model.performanceSource,
     })),
     [capabilities],
   );

@@ -312,7 +312,7 @@ class PresetRepositoryTest {
         val streamingContract = fixture.getValue("streaming_capture_contract").jsonObject
         assertEquals(
             "partial_transcript_during_capture",
-            streamingContract.getValue("gemini-live-audio").jsonPrimitive.content,
+            streamingContract.getValue("google-gemini-2-5-live-transcribe-audio").jsonPrimitive.content,
         )
         assertEquals(
             "first_audio_block_uses_precomputed_transcript",
@@ -380,20 +380,20 @@ class PresetRepositoryTest {
 
     @Test
     fun presetModelCatalogIncludesGemma4FamilyAcrossModalities() {
-        val textModel = requireNotNull(PresetModelCatalog.getById("gemma-4-26b-a4b"))
-        val visionModel = requireNotNull(PresetModelCatalog.getById("gemma-4-26b-a4b-vision"))
+        val textModel = requireNotNull(PresetModelCatalog.getById("google-gemma-4-26b-a4b-text"))
+        val visionModel = requireNotNull(PresetModelCatalog.getById("google-gemma-4-26b-a4b-vision"))
 
         assertEquals(PresetModelProvider.GOOGLE, textModel.provider)
         assertEquals(PresetModelType.TEXT, textModel.modelType)
         assertEquals(PresetModelType.VISION, visionModel.modelType)
-        assertTrue(PresetModelCatalog.forType(PresetModelType.TEXT).any { it.id == "gemma-4-31b" })
-        assertTrue(PresetModelCatalog.forType(PresetModelType.VISION).any { it.id == "gemma-4-31b-vision" })
+        assertTrue(PresetModelCatalog.forType(PresetModelType.TEXT).any { it.id == "google-gemma-4-31b-text" })
+        assertTrue(PresetModelCatalog.forType(PresetModelType.VISION).any { it.id == "google-gemma-4-31b-vision" })
         val cerebrasVision = requireNotNull(
-            PresetModelCatalog.getById("gemma-4-31b-cerebras-vision"),
+            PresetModelCatalog.getById("cerebras-gemma-4-31b-vision"),
         )
         assertEquals(PresetModelProvider.CEREBRAS, cerebrasVision.provider)
         assertEquals("gemma-4-31b", cerebrasVision.fullName)
-        assertTrue(PresetModelCatalog.getById("gemma-4-26b-a4b-audio") == null)
+        assertTrue(PresetModelCatalog.getById("google-gemma-4-26b-a4b-text-audio") == null)
         assertTrue(PresetModelCatalog.getById("gemma-4-31b-audio") == null)
     }
 
@@ -407,7 +407,7 @@ class PresetRepositoryTest {
                 nameKo = "Image Audio Mixed",
                 presetType = dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE,
                 blocks = listOf(
-                    dev.screengoated.toolbox.mobile.shared.preset.audioBlock("whisper-fast"),
+                    dev.screengoated.toolbox.mobile.shared.preset.audioBlock("groq-whisper-large-v3-turbo-audio"),
                 ),
             ),
         )

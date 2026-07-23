@@ -9,6 +9,8 @@ mod app_entry;
 mod app_state;
 mod assets;
 mod atomic_json;
+#[cfg(test)]
+mod catalog_benchmark;
 mod config;
 mod debug_log;
 pub mod gui;

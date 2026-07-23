@@ -3,8 +3,8 @@
   "grounding": {
     "catalog_chain": "computer_control_grounding",
     "models": [
-      "gemini-3.5-flash-lite",
-      "gemini-3.1-flash-lite"
+      "google-gemini-3-5-flash-lite-vision",
+      "google-gemini-3-1-flash-lite-vision"
     ],
     "environment_override": "CC_VISION_MODEL",
     "override_replaces_default_chain": true,

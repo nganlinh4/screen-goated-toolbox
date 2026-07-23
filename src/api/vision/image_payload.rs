@@ -199,7 +199,8 @@ mod tests {
     #[test]
     fn groq_keeps_small_png_and_real_mime() {
         let image = ImageBuffer::from_pixel(64, 64, Rgba([20, 40, 60, 255]));
-        let result = prepare_image_payload("groq", "scout", image, None, 100).unwrap();
+        let result =
+            prepare_image_payload("groq", "future-vision-model", image, None, 100).unwrap();
         assert_eq!(result.mime_type, "image/png");
         assert!(result.image_data.len() <= groq_image_byte_budget(100).unwrap());
     }
@@ -214,7 +215,9 @@ mod tests {
             Rgba([state as u8, (state >> 8) as u8, (state >> 16) as u8, 255])
         });
         let prompt_bytes = 32_000;
-        let result = prepare_image_payload("groq", "scout", image, None, prompt_bytes).unwrap();
+        let result =
+            prepare_image_payload("groq", "future-vision-model", image, None, prompt_bytes)
+                .unwrap();
         assert_eq!(result.mime_type, "image/jpeg");
         assert!(result.image_data.len() <= groq_image_byte_budget(prompt_bytes).unwrap());
     }

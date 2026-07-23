@@ -276,7 +276,8 @@ fn render_locked_model_row(
         .inner_margin(Margin::symmetric(10, 6))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
+                crate::gui::model_performance::render_prefix(ui, model);
                 ui.label(
                     egui::RichText::new(model.localized_name(ui_language))
                         .color(theme.on_surface()),

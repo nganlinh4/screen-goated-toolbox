@@ -1,6 +1,6 @@
 ---
 name: manage-model-catalog
-description: Add, edit, migrate, reorder, or remove models through the canonical catalog and every generated/runtime consumer.
+description: Add, edit, rename, reorder, or remove models through the canonical catalog and every generated/runtime consumer.
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
@@ -9,6 +9,10 @@ allowed-tools: Bash, Read, Edit, Write, Glob, Grep
 ## Source of Truth
 
 `catalog/model_catalog.json` owns model IDs, API names, defaults, aliases, order, and shared provider metadata. Never start by hardcoding a model in a UI or platform runtime.
+
+`catalog/README.md` owns the durable internal-ID namespace, localized-name
+prefixes, performance metadata, migration policy, and priority policy. Apply
+those rules to every catalog change; do not invent a feature-local convention.
 
 ## Workflow
 
@@ -22,7 +26,9 @@ rg -n '<internal-id>|<api-model>|supports_thinking|supports_search|model_is_non_
 
 4. Edit the manifest and every relevant manifest section: constants, defaults, provider defaults, priority chains, aliases, TTS/Live lists, and non-LLM/search capability sets.
 5. Audit feature-specific request logic in `src/api/`, `src/overlay/`, and Android clients. A catalog entry does not automatically make a wire protocol compatible.
-6. Update presets, migrations, parity fixtures, and tests that use the internal ID.
+6. Update presets, parity fixtures, and tests that use the internal ID. The
+   catalog intentionally has no permanent model-ID migration table; unknown
+   saved IDs fall back by modality.
 7. Regenerate Android outputs. Gradle does this during normal builds; for direct inspection:
 
 ```powershell
@@ -39,9 +45,11 @@ Validate without generating files:
 py -3 scripts\generate_android_preset_model_catalog.py --manifest-source catalog\model_catalog.json --validate-only
 ```
 
-The validator and Cargo build reject duplicate IDs, broken migrations, incomplete lifecycle metadata, and deprecated/retired runtime defaults.
+The validator and Cargo build reject duplicate IDs, permanent migration tables,
+incomplete lifecycle metadata, and deprecated/retired runtime defaults.
 
-8. For removal/migration, prove no dangling references remain with `rg`.
+8. For removal or an intentional namespace rewrite, prove no dangling active
+   references remain with `rg`.
 9. Run focused tests, then repository validation from `AGENTS.md`. For Android catalog changes, run the relevant Gradle compile/unit tests from `mobile/README.md`.
 
 ## High-Risk Owners

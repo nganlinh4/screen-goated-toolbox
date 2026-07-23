@@ -1,12 +1,15 @@
 use std::fs;
 use std::path::Path;
 
+#[path = "model_catalog_validation.rs"]
+mod validation;
+
 pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
     let manifest = fs::read_to_string(manifest_path)
         .unwrap_or_else(|err| panic!("Failed to read {}: {}", manifest_path.display(), err));
     let manifest: serde_json::Value = serde_json::from_str(&manifest)
         .unwrap_or_else(|err| panic!("Failed to parse {}: {}", manifest_path.display(), err));
-    validate(&manifest);
+    validation::validate(&manifest);
 
     let constants = manifest_object(&manifest, "constants");
     let defaults = manifest_object(&manifest, "defaults");
@@ -67,20 +70,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
         "pub const DEFAULT_REALTIME_TRANSCRIPTION_MODEL: &str = {};",
         rust_string(manifest_string(defaults, "realtime_transcription_model"))
     ));
-    lines.push(String::new());
-
-    lines.push("pub fn generated_normalize_model_id(model_id: &str) -> &str {".to_string());
-    lines.push("    match model_id {".to_string());
-    for (old, replacement) in manifest_object(&manifest, "model_id_migrations") {
-        lines.push(format!(
-            "        {} => {},",
-            rust_string(old),
-            rust_string(replacement.as_str().unwrap())
-        ));
-    }
-    lines.push("        _ => model_id,".to_string());
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
     lines.push(String::new());
 
     lines.push(
@@ -264,6 +253,12 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
                 "            {},",
                 rust_string(manifest_string(model, "quota_en"))
             ),
+            format!("            {},", manifest_u64(model, "quality_tier")),
+            format!("            {},", manifest_u64(model, "typical_latency_ms")),
+            format!(
+                "            {},",
+                rust_string(manifest_string(model, "performance_source"))
+            ),
             "        ),".to_string(),
         ]);
     }
@@ -293,183 +288,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
 
     fs::write(output_path, lines.join("\n"))
         .unwrap_or_else(|err| panic!("Failed to write {}: {}", output_path.display(), err));
-}
-
-fn validate(manifest: &serde_json::Value) {
-    use std::collections::HashSet;
-    let models = manifest_array(manifest, "models");
-    let mut ids = HashSet::new();
-    for item in models {
-        let model = item.as_object().expect("model entries must be objects");
-        let id = manifest_string(model, "id");
-        assert!(ids.insert(id), "duplicate model id {id:?}");
-    }
-    for (old, replacement) in manifest_object(manifest, "model_id_migrations") {
-        assert!(
-            old != replacement.as_str().unwrap(),
-            "self-referential migration {old:?}"
-        );
-        assert!(
-            ids.contains(replacement.as_str().unwrap()),
-            "migration target is not a model id: {replacement}"
-        );
-    }
-    let enabled_ids: HashSet<&str> = models
-        .iter()
-        .filter_map(serde_json::Value::as_object)
-        .filter(|model| model.get("enabled").and_then(serde_json::Value::as_bool) == Some(true))
-        .map(|model| manifest_string(model, "id"))
-        .collect();
-    let feature_model_chains = manifest_object(manifest, "feature_model_chains");
-    for key in ["help_assistant", "computer_control_grounding"] {
-        let chain = manifest_array_from_object(feature_model_chains, key);
-        assert_eq!(
-            chain.len(),
-            2,
-            "{key} must define primary and fallback models"
-        );
-        let mut chain_ids = HashSet::new();
-        for value in chain {
-            let id = value
-                .as_str()
-                .unwrap_or_else(|| panic!("{key} model ids must be strings"));
-            assert!(
-                enabled_ids.contains(id),
-                "{key} references disabled or unknown model {id:?}"
-            );
-            assert!(
-                chain_ids.insert(id),
-                "{key} contains duplicate model {id:?}"
-            );
-        }
-    }
-    let endpoints = manifest_object(manifest, "endpoints");
-    for (endpoint, value) in endpoints {
-        let metadata = value
-            .as_object()
-            .expect("endpoint lifecycle must be an object");
-        let lifecycle = manifest_string(metadata, "lifecycle");
-        assert!(
-            ["stable", "preview", "experimental", "deprecated", "retired"].contains(&lifecycle),
-            "invalid lifecycle for {endpoint}"
-        );
-        assert!(
-            !manifest_string(metadata, "verified_at").is_empty(),
-            "missing verified_at for {endpoint}"
-        );
-        if let Some(replacement) = metadata
-            .get("replacement")
-            .and_then(serde_json::Value::as_str)
-        {
-            assert!(
-                endpoints.contains_key(replacement),
-                "unknown replacement {replacement:?}"
-            );
-        }
-        if let Some(thinking) = metadata.get("live_thinking") {
-            let thinking = thinking
-                .as_object()
-                .unwrap_or_else(|| panic!("live_thinking for {endpoint} must be an object"));
-            let kind = thinking
-                .get("kind")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_else(|| panic!("live_thinking kind for {endpoint} must be a string"));
-            let value = thinking
-                .get("value")
-                .unwrap_or_else(|| panic!("live_thinking value is required for {endpoint}"));
-            match kind {
-                "budget" => assert!(
-                    value
-                        .as_u64()
-                        .is_some_and(|budget| budget <= i32::MAX as u64),
-                    "live_thinking budget for {endpoint} must be a non-negative 32-bit integer"
-                ),
-                "level" => assert!(
-                    value.as_str().is_some_and(|level| !level.trim().is_empty()),
-                    "live_thinking level for {endpoint} must be a non-empty string"
-                ),
-                _ => panic!("unsupported live_thinking kind {kind:?} for {endpoint}"),
-            }
-        }
-        if let Some(limit) = metadata.get("live_max_output_tokens") {
-            let limit = limit.as_u64().unwrap_or_else(|| {
-                panic!("live_max_output_tokens for {endpoint} must be a positive u32")
-            });
-            assert!(
-                (1..=u32::MAX as u64).contains(&limit),
-                "live_max_output_tokens for {endpoint} must be a positive u32"
-            );
-        }
-        if let Some(value) = metadata.get("live_automatic_activity_detection_default") {
-            assert!(
-                value.is_boolean(),
-                "live_automatic_activity_detection_default for {endpoint} must be boolean"
-            );
-        }
-        if let Some(value) = metadata.get("live_protocol") {
-            assert!(
-                value.as_str().is_some_and(|value| !value.trim().is_empty()),
-                "live_protocol for {endpoint} must be a non-empty string"
-            );
-        }
-        if metadata
-            .get("live_protocol")
-            .and_then(serde_json::Value::as_str)
-            == Some("native-audio")
-        {
-            assert!(
-                metadata.get("live_thinking").is_some(),
-                "native-audio endpoint {endpoint} must define live_thinking"
-            );
-            assert!(
-                metadata.get("live_max_output_tokens").is_some(),
-                "native-audio endpoint {endpoint} must define live_max_output_tokens"
-            );
-        }
-    }
-    let forbidden = |endpoint: &str| {
-        endpoints
-            .get(endpoint)
-            .and_then(|v| v.get("lifecycle"))
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|stage| matches!(stage, "deprecated" | "retired"))
-    };
-    let constants = manifest_object(manifest, "constants");
-    for key in ["gemini_live_api_model_2_5", "gemini_live_api_model_3_1"] {
-        let endpoint = manifest_string(constants, key);
-        let profile = endpoints
-            .get(endpoint)
-            .and_then(serde_json::Value::as_object)
-            .unwrap_or_else(|| panic!("{key} must reference a catalog endpoint"));
-        assert_eq!(
-            profile
-                .get("live_protocol")
-                .and_then(serde_json::Value::as_str),
-            Some("native-audio"),
-            "{key} endpoint must use the native-audio protocol"
-        );
-    }
-    for model in models.iter().filter_map(serde_json::Value::as_object) {
-        if model.get("enabled").and_then(serde_json::Value::as_bool) == Some(true) {
-            let endpoint = manifest_string(model, "full_name");
-            assert!(
-                !forbidden(endpoint),
-                "enabled model uses deprecated/retired endpoint {endpoint:?}"
-            );
-        }
-    }
-    let defaults = manifest_object(manifest, "defaults");
-    assert!(
-        !forbidden(manifest_string(defaults, "tts_gemini_live_model")),
-        "default TTS endpoint is deprecated/retired"
-    );
-    for item in manifest_array(manifest, "tts_gemini_models") {
-        let endpoint = manifest_string(item.as_object().unwrap(), "api_model");
-        assert!(
-            !forbidden(endpoint),
-            "TTS option is deprecated/retired: {endpoint}"
-        );
-    }
 }
 
 fn manifest_object<'a>(
@@ -505,12 +323,12 @@ fn realtime_transcription_option_label<'a>(
 ) -> &'a str {
     let _ = manifest;
     match id {
-        "gemini-live-audio" => "Gemini Live",
-        "gemini-live-audio-3.1" => "Gemini S2S",
-        "gemini-3.5-translate" => "Gemini Translate",
+        "google-gemini-2-5-live-transcribe-audio" => "Gemini Live",
+        "google-gemini-3-1-live-transcribe-audio" => "Gemini S2S",
+        "google-gemini-3-5-live-translate-audio" => "Gemini Translate",
         "parakeet" => "Parakeet",
-        "qwen3-asr-0.6b" => "Qwen3-ASR 0.6B",
-        "qwen3-asr-1.7b" => "Qwen3-ASR 1.7B",
+        "local-qwen-3-asr-600m-audio" => "Qwen3-ASR 0.6B",
+        "local-qwen-3-asr-1-7b-audio" => "Qwen3-ASR 1.7B",
         "zipformer" => "Zipformer",
         "moonshine-tiny-streaming" => "Moonshine Tiny",
         "moonshine-small-streaming" => "Moonshine Small",
@@ -527,6 +345,13 @@ fn manifest_string<'a>(
         .get(key)
         .and_then(serde_json::Value::as_str)
         .unwrap_or_else(|| panic!("manifest object key {key:?} must be a string"))
+}
+
+fn manifest_u64(manifest: &serde_json::Map<String, serde_json::Value>, key: &str) -> u64 {
+    manifest
+        .get(key)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_else(|| panic!("manifest object key {key:?} must be an unsigned integer"))
 }
 
 fn rust_string(value: &str) -> String {

@@ -23,18 +23,14 @@ pub fn supports_strict_structured_output(model: &str) -> bool {
     model == "openai/gpt-oss-120b"
 }
 
-pub fn supports_best_effort_structured_output(model: &str) -> bool {
-    supports_strict_structured_output(model) || model == "meta-llama/llama-4-scout-17b-16e-instruct"
-}
-
 /// Select the strongest schema mode the requested model officially supports.
 pub fn structured_response_format(model: &str, name: &str, schema: Value) -> Value {
-    if supports_best_effort_structured_output(model) {
+    if supports_strict_structured_output(model) {
         serde_json::json!({
             "type": "json_schema",
             "json_schema": {
                 "name": name,
-                "strict": supports_strict_structured_output(model),
+                "strict": true,
                 "schema": schema
             }
         })
@@ -106,14 +102,10 @@ mod tests {
     fn strict_schema_is_used_only_where_supported() {
         let schema = serde_json::json!({"type": "object"});
         let strict = structured_response_format("openai/gpt-oss-120b", "result", schema.clone());
-        let scout = structured_response_format(
-            "meta-llama/llama-4-scout-17b-16e-instruct",
-            "result",
-            schema.clone(),
-        );
+        let generic = structured_response_format("future-vision-model", "result", schema.clone());
         let qwen = structured_response_format("qwen/qwen3.6-27b", "result", schema);
         assert_eq!(strict["json_schema"]["strict"], true);
-        assert_eq!(scout["json_schema"]["strict"], false);
+        assert_eq!(generic["type"], "json_object");
         assert_eq!(qwen["type"], "json_object");
     }
 

@@ -268,6 +268,17 @@ class PhoneControlAuthorityMatrixTest {
                 "dual_crosshair_verification_exact_surface_lease",
             visual.getValue("dragTarget").jsonPrimitive.content,
         )
+        assertEquals(
+            "same_attempt_display_scoped_fallback",
+            visual.getValue("invalidWindowCaptureRecovery").jsonPrimitive.content,
+        )
+        assertEquals(
+            "third_consecutive_failure",
+            visual.getValue("retryableFailureVisibility").jsonPrimitive.content,
+        )
+        assertTrue(
+            visual.getValue("successfulFrameClearsCaptureFailure").jsonPrimitive.boolean,
+        )
         val gesture = fixture.root.getValue("surfaceSemantics")
             .jsonObject
             .getValue("gestureDispatch")

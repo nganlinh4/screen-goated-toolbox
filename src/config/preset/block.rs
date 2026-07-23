@@ -80,7 +80,7 @@ impl Default for ProcessingBlock {
         Self {
             id: generate_block_id(),
             block_type: "text".to_string(),
-            model: "gemma-4-26b-a4b".to_string(),
+            model: "google-gemma-4-26b-a4b-text".to_string(),
             prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
@@ -101,7 +101,7 @@ impl Default for ProcessingBlock {
 ///
 /// # Example
 /// ```
-/// let block = BlockBuilder::text("gemma-4-26b-a4b")
+/// let block = BlockBuilder::text("google-gemma-4-26b-a4b-text")
 ///     .prompt("Translate to {language1}.")
 ///     .language("Vietnamese")
 ///     .streaming(true)

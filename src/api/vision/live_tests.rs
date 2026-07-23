@@ -14,16 +14,23 @@ fn qwen_payload_stays_below_tpm_and_hides_reasoning() {
     assert_eq!(payload["reasoning_format"], "hidden");
     assert!(payload.get("reasoning_effort").is_none());
 
-    let scout = groq_vision_payload("scout", "prompt", "image/png", "AA==", false, None);
-    assert!(scout.get("max_completion_tokens").is_none());
-    assert!(scout.get("reasoning_format").is_none());
+    let generic = groq_vision_payload(
+        "future-vision-model",
+        "prompt",
+        "image/png",
+        "AA==",
+        false,
+        None,
+    );
+    assert!(generic.get("max_completion_tokens").is_none());
+    assert!(generic.get("reasoning_format").is_none());
 }
 
 #[test]
-fn vision_schema_uses_scout_schema_mode_and_qwen_json_mode() {
+fn vision_schema_uses_generic_json_mode() {
     let schema = serde_json::json!({"type": "object"});
-    let scout = groq_vision_payload(
-        "meta-llama/llama-4-scout-17b-16e-instruct",
+    let generic = groq_vision_payload(
+        "future-vision-model",
         "prompt",
         "image/png",
         "AA==",
@@ -38,7 +45,7 @@ fn vision_schema_uses_scout_schema_mode_and_qwen_json_mode() {
         false,
         Some(&schema),
     );
-    assert_eq!(scout["response_format"]["type"], "json_schema");
+    assert_eq!(generic["response_format"]["type"], "json_object");
     assert_eq!(qwen["response_format"]["type"], "json_object");
 }
 

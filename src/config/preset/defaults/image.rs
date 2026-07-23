@@ -1,5 +1,6 @@
 //! Default image presets using the builder pattern.
 
+use super::OCR_EXTRACTION_PROMPT;
 use crate::config::preset::Preset;
 use crate::config::preset::{BlockBuilder, PresetBuilder};
 use crate::config::types::Hotkey;
@@ -33,7 +34,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .blocks(vec![
                 BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
-                    .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
+                    .prompt(OCR_EXTRACTION_PROMPT)
                     .language("English")
                     .show_overlay(false)
                     .build(),
@@ -87,7 +88,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .blocks(vec![
                 BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
-                    .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
+                    .prompt(OCR_EXTRACTION_PROMPT)
                     .language("English")
                     .show_overlay(false)
                     .build(),
@@ -114,7 +115,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .blocks(vec![
                 BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
-                    .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
+                    .prompt(OCR_EXTRACTION_PROMPT)
                     .language("English")
                     .show_overlay(false)
                     .markdown() // Upgraded: Thường -> Đẹp
@@ -128,7 +129,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .blocks(vec![
                 BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
-                    .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
+                    .prompt(OCR_EXTRACTION_PROMPT)
                     .language("English")
                     .show_overlay(false)
                     .markdown() // Upgraded: Thường -> Đẹp
@@ -165,7 +166,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .blocks(vec![
                 // Node 0: QR Scanner (non-LLM, extracts raw content)
-                BlockBuilder::image("qr-scanner")
+                BlockBuilder::image("qrserver-qr-scanner-vision")
                     .prompt("") // QR scanner doesn't need a prompt
                     .show_overlay(false)
                     .auto_copy()

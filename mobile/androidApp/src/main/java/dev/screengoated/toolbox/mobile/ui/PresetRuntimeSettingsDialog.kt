@@ -499,7 +499,15 @@ private fun ModelPill(
 private fun ModelDropdownItem(model: PresetModelDescriptor, uiLanguage: String, onClick: () -> Unit) {
     DropdownMenuItem(
         leadingIcon = {
-            Icon(painterResource(providerIconRes(model.provider)), null, modifier = Modifier.size(18.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ModelPerformancePrefix(model)
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    painterResource(providerIconRes(model.provider)),
+                    null,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         },
         text = {
             Column {

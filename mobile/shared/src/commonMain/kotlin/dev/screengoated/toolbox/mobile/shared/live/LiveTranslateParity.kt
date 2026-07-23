@@ -17,7 +17,10 @@ object LiveTranslateParity {
         transcriptionProviderId: String,
     ): Boolean {
         return previousLanguage != nextLanguage &&
-            (transcriptionProviderId == "gemini-live-s2s" || transcriptionProviderId == "gemini-3.5-translate")
+            (
+                transcriptionProviderId == "gemini-live-s2s" ||
+                    transcriptionProviderId == "google-gemini-3-5-live-translate-audio"
+                )
     }
 
     fun reset(

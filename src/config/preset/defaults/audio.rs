@@ -165,7 +165,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .blocks(vec![
                 BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
                     .build(),
-                BlockBuilder::text("gemma-4-26b-a4b")
+                BlockBuilder::text("google-gemma-4-26b-a4b-text")
                     .language("Vietnamese")
                     .build(),
             ])

@@ -46,10 +46,10 @@ class TextApiClientTest {
     }
 
     @Test
-    fun deprecatedQwenRequestBodyUsesMigratedWindowsApiModel() {
+    fun cerebrasGptOssRequestBodyUsesCatalogApiModel() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
-                modelId = "qwen_3_235b_a22b_instruct_2507",
+                modelId = "cerebras-gpt-oss-120b-text",
                 prompt = "Translate to Vietnamese.",
                 inputText = "Hello",
             ),
@@ -66,7 +66,7 @@ class TextApiClientTest {
     fun geminiRequestBodyCarriesWindowsThinkingConfigAndSearchRules() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
-                modelId = "text_gemini_3_0_flash",
+                modelId = "google-gemini-3-flash-text",
                 prompt = "Summarize this.",
                 inputText = "Hello",
             ),
@@ -87,7 +87,7 @@ class TextApiClientTest {
     fun compoundMiniBodyUsesCompoundToolsContract() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
-                modelId = "compound_mini",
+                modelId = "groq-compound-mini-search",
                 prompt = "Search this.",
                 inputText = "Hello",
             ),
@@ -123,7 +123,7 @@ class TextApiClientTest {
     fun geminiRequestRespectsStreamingToggle() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
-                modelId = "text_gemini_3_0_flash",
+                modelId = "google-gemini-3-flash-text",
                 prompt = "Summarize this.",
                 inputText = "Hello",
                 streamingEnabled = false,

@@ -8,7 +8,7 @@ pub(super) fn create_default_block_for_type(preset_type: &str) -> ProcessingBloc
     match preset_type {
         "audio" => ProcessingBlock {
             block_type: "audio".to_string(),
-            model: "whisper-accurate".to_string(),
+            model: "groq-whisper-large-v3-audio".to_string(),
             prompt: "Transcribe this audio.".to_string(),
             selected_language: "Vietnamese".to_string(),
             auto_copy: true,
@@ -16,7 +16,7 @@ pub(super) fn create_default_block_for_type(preset_type: &str) -> ProcessingBloc
         },
         "text" => ProcessingBlock {
             block_type: "text".to_string(),
-            model: "gemma-4-26b-a4b".to_string(),
+            model: "google-gemma-4-26b-a4b-text".to_string(),
             prompt: "Process this text.".to_string(),
             selected_language: "Vietnamese".to_string(),
             auto_copy: true,

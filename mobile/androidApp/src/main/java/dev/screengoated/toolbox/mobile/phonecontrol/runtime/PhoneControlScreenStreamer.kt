@@ -25,6 +25,7 @@ internal class PhoneControlScreenStreamer(
     suspend fun run() {
         var lastFailureCode: String? = null
         var visibleFailurePublished = false
+        val failurePolicy = ScreenCaptureFailurePolicy()
         var explicitRefreshPending = drainRefreshRequests()
         while (currentCoroutineContext().isActive && running.get()) {
             if (transportReady.get() && canSendAmbientScreen(pendingWorkCount())) {
@@ -48,6 +49,7 @@ internal class PhoneControlScreenStreamer(
                         if (lastFailureCode != null) {
                             statusPublisher.publishTurnPhase(currentTurnPhase())
                         }
+                        failurePolicy.reset()
                         lastFailureCode = null
                         visibleFailurePublished = false
                     } else {
@@ -60,30 +62,29 @@ internal class PhoneControlScreenStreamer(
                                 if (lastFailureCode != null) {
                                     statusPublisher.publishTurnPhase(currentTurnPhase())
                                 }
+                                failurePolicy.reset()
                                 lastFailureCode = null
                                 visibleFailurePublished = false
                             }
                             is VisualProviderResult.Failure -> {
-                                val transient = isTransientScreenFrameFailure(result.code)
-                                if (lastFailureCode != result.code) {
+                                val shouldPublish = visibleFailurePublished ||
+                                    failurePolicy.shouldPublish(result.code, result.retryable)
+                                if (lastFailureCode != result.code ||
+                                    shouldPublish != visibleFailurePublished
+                                ) {
                                     lastFailureCode = result.code
-                                    val state = if (transient) "waiting" else "degraded"
+                                    val state = if (shouldPublish) "degraded" else "waiting"
                                     val message = "screen_capture_$state code=${result.code}"
-                                    if (transient) {
-                                        Log.d(TAG, message)
-                                    } else {
+                                    if (shouldPublish) {
                                         Log.w(TAG, "$message retryable=${result.retryable}")
+                                    } else {
+                                        Log.d(TAG, message)
                                     }
                                 }
-                                if (transient) {
-                                    if (visibleFailurePublished) {
-                                        statusPublisher.publishTurnPhase(currentTurnPhase())
-                                        visibleFailurePublished = false
-                                    }
-                                } else {
+                                if (shouldPublish && !visibleFailurePublished) {
                                     statusPublisher.publishScreenFailure(result.message)
-                                    visibleFailurePublished = true
                                 }
+                                visibleFailurePublished = shouldPublish
                             }
                         }
                     }

@@ -347,8 +347,8 @@ mod tests {
 
     #[test]
     fn model_constants_are_set() {
-        assert_eq!(PRIMARY_MODEL, "gemini-3.5-flash-lite");
-        assert_eq!(FALLBACK_MODEL, "gemini-3.1-flash-lite");
+        assert_eq!(PRIMARY_MODEL, "google-gemini-3-5-flash-lite-vision");
+        assert_eq!(FALLBACK_MODEL, "google-gemini-3-1-flash-lite-vision");
     }
 
     #[test]

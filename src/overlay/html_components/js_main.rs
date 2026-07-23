@@ -75,12 +75,12 @@ pub fn get(font_size: u32) -> String {
         }}
 
         function isS2sTranscriptionModel(modelName) {{
-            return modelName === 'gemini-live-s2s' || modelName === 'gemini-3.5-translate';
+            return modelName === 'gemini-live-s2s' || modelName === 'google-gemini-3-5-live-translate-audio';
         }}
         window.isS2sTranscriptionModel = isS2sTranscriptionModel;
 
         function isLiveTranslateTranscriptionModel(modelName) {{
-            return modelName === 'gemini-3.5-translate';
+            return modelName === 'google-gemini-3-5-live-translate-audio';
         }}
         window.isLiveTranslateTranscriptionModel = isLiveTranslateTranscriptionModel;
 

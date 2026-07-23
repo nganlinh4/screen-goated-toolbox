@@ -35,8 +35,10 @@ pub struct GroqSubtitleBackend {
 impl GroqSubtitleBackend {
     pub fn new(method: SubtitleGenerationMethod) -> Result<Self, String> {
         let model_id = match method {
-            SubtitleGenerationMethod::GroqWhisperAccurate => "whisper-accurate",
-            SubtitleGenerationMethod::GroqWhisperLargeV3Turbo => "whisper-fast",
+            SubtitleGenerationMethod::GroqWhisperAccurate => "groq-whisper-large-v3-audio",
+            SubtitleGenerationMethod::GroqWhisperLargeV3Turbo => {
+                "groq-whisper-large-v3-turbo-audio"
+            }
             _ => return Err("Unsupported Groq subtitle method".to_string()),
         };
         let (api_key, model_name) = {

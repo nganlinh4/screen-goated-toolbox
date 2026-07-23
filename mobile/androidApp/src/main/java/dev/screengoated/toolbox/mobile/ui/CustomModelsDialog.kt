@@ -408,6 +408,7 @@ private fun LockedModelRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        ModelPerformancePrefix(model)
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = lockedModelDisplayName(model, uiLanguage),

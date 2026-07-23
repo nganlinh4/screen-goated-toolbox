@@ -476,6 +476,17 @@ with proven no effect. `reset_view` captures the fresh active application
 surface. `see_whole_screen` captures the complete default display and reports
 that display scope rather than implying unavailable multi-display pixels.
 
+An API 34+ window id may expire after observation but before the platform
+accepts its screenshot request. That typed invalid-window result is a capture
+race, not a broken screen provider: the same capture operation retries once
+through the display-scoped Accessibility route, preserving the requested
+absolute crop and suppressing only the controller overlay. Any retryable frame
+failure receives a bounded two-attempt grace period; the third consecutive
+failure becomes visible degradation, while one successful transmitted frame
+clears the failure state. Non-retryable failures remain visible immediately.
+This recovery depends only on typed platform outcomes and never on the current
+app, surface text, coordinates, or user language.
+
 `look` does not run a second language agent or synthesize a reading in code. It
 places one clean, ungridded capture of the current view into the same live
 model's input before the tool receipt and reports exact frame metadata; the live

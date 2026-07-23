@@ -67,6 +67,7 @@ fn main() {
     println!("cargo:rerun-if-changed=app.rc");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog.rs");
+    println!("cargo:rerun-if-changed=build_support/model_catalog_validation.rs");
     println!("cargo:rerun-if-changed={}", model_manifest_path.display());
 }
 

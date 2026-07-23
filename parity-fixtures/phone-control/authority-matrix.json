@@ -559,6 +559,9 @@
       "unsupportedDisplayResult": "unsupported_display",
       "secureCaptureResult": "screenshot_secure_window",
       "rateLimitedResult": "screenshot_rate_limited",
+      "invalidWindowCaptureRecovery": "same_attempt_display_scoped_fallback",
+      "retryableFailureVisibility": "third_consecutive_failure",
+      "successfulFrameClearsCaptureFailure": true,
       "overlayPolicy": "window_capture_excludes_controller_overlay_without_visible_mutation_when_available",
       "pointAt": "unavailable_without_universal_pointer_state",
       "dragTarget": "same_tool_dual_semantic_selection_one_frame_detector_refresh_dual_crosshair_verification_exact_surface_lease"

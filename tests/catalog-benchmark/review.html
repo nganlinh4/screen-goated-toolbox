@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Catalog benchmark fixture review</title>
+<style>
+body{font:15px system-ui,sans-serif;margin:24px;background:#17191d;color:#eef1f5}h1,h2{margin:0 0 14px}.note{color:#b9c1ca;max-width:80ch}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px;margin:20px 0 36px}.card{background:#242830;border:1px solid #39404b;border-radius:10px;padding:14px}.frame{position:relative;line-height:0}.frame img{width:100%;height:auto}.box{position:absolute;border:3px solid #ff3157;box-shadow:0 0 0 2px #fff8;box-sizing:border-box}.card p{line-height:1.4;margin:10px 0 0}.small{color:#aeb7c2;font-size:13px}
+</style></head><body>
+<h1>Catalog benchmark: review all 20 fixtures</h1>
+<p class="note">The red rectangles are ground truth and are not sent to models. Confirm each box fully covers the named click target. For OCR, compare the exact model input shown here with the reference in <code>manifest.json</code>; cases 3 and 4 show their runtime crops.</p>
+<h2>Coordinate grounding</h2><div class="grid">
+<article class="card"><div class="frame"><img src="images/coordinate/01-vlc.png"><i class="box" style="left:0.833%;top:92.667%;width:5.167%;height:6.889%"></i></div><p>1 — large Play button at bottom-left</p></article>
+<article class="card"><div class="frame"><img src="images/coordinate/02-office.png"><i class="box" style="left:1.186%;top:48.216%;width:12.411%;height:3.761%"></i></div><p>2 — Math Formula item</p></article>
+<article class="card"><div class="frame"><img src="images/coordinate/03-settings.png"><i class="box" style="left:66.042%;top:79.538%;width:16.146%;height:5.231%"></i></div><p>3 — Check for updates button</p></article>
+<article class="card"><div class="frame"><img src="images/coordinate/04-vector-editor.png"><i class="box" style="left:80.610%;top:15.549%;width:1.362%;height:2.236%"></i></div><p>4 — red X closing Fill and Stroke</p></article>
+<article class="card"><div class="frame"><img src="images/coordinate/05-3d-editor.png"><i class="box" style="left:85.208%;top:14.141%;width:6.979%;height:2.357%"></i></div><p>5 — Camera row in Scene Collection</p></article>
+<article class="card"><div class="frame"><img src="images/coordinate/06-duplicate-color.png"><i class="box" style="left:23.438%;top:25.741%;width:4.271%;height:12.778%"></i></div><p>6 — Colour 2 selector, excluding Colour 1 and palette swatches</p></article>
+<article class="card"><div class="frame"><img src="images/coordinate/07-mobile-controls.jpg"><i class="box" style="left:40.127%;top:91.220%;width:3.136%;height:5.000%"></i></div><p>7 — green plus beside Alarm under More Controls</p></article>
+<article class="card"><div class="frame"><img src="images/coordinate/08-filter-chip.png"><i class="box" style="left:30.547%;top:25.833%;width:2.500%;height:3.542%"></i></div><p>8 — X inside the Byte Blaze filter chip</p></article>
+<article class="card"><div class="frame"><img src="images/coordinate/09-nested-comments.png"><i class="box" style="left:5.039%;top:74.861%;width:2.305%;height:3.542%"></i></div><p>9 — up-arrow for the comment scored 72</p></article>
+<article class="card"><div class="frame"><img src="images/coordinate/10-rating-stars.png"><i class="box" style="left:24.023%;top:27.431%;width:1.211%;height:3.819%"></i></div><p>10 — fourth star in the five-star row</p></article>
+</div>
+<h2>OCR</h2><div class="grid">
+<article class="card"><img src="images/ocr/01-poster.jpg" style="width:100%"><p>1 — two poster headlines</p></article>
+<article class="card"><img src="images/ocr/02-receipt.jpg" style="width:100%"><p>2 — full image; OCR preset prompt extracts all text</p></article>
+<article class="card"><svg viewBox="328 136 350 758" style="width:100%"><image href="images/ocr/03-multilingual-sign.jpg" width="960" height="960"/></svg><p>3 — exact 350×758 station-sign crop; OCR preset prompt extracts all text</p></article>
+<article class="card"><svg viewBox="190 363 220 125" style="width:100%"><image href="images/ocr/04-historic-menu.jpg" width="598" height="600"/></svg><p>4 — exact 220×125 menu crop; OCR preset prompt extracts all text</p></article>
+<article class="card"><img src="images/ocr/05-newspaper.jpg" style="width:100%"><p>5 — masthead and two largest top headlines</p></article>
+<article class="card"><img src="images/ocr/06-perspective-sign.jpg" style="width:100%"><p>6 — perspective sign with Czech diacritics</p></article>
+<article class="card"><img src="images/ocr/07-status-bar.png" style="width:100%"><p>7 — tiny lower status labels and zoom percentage</p></article>
+<article class="card"><img src="images/ocr/08-issue-list.png" style="width:100%"><p>8 — first five issue titles and numbers</p></article>
+<article class="card"><img src="images/ocr/09-product-grid.png" style="width:100%"><p>9 — four multi-column product names and prices</p></article>
+<article class="card"><img src="images/ocr/10-handwritten-address.jpg" style="width:100%"><p>10 — first handwritten Gettysburg Address paragraph</p></article>
+</div><p class="small">Fixture provenance and licenses: SOURCES.md</p></body></html>

@@ -173,7 +173,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
         presetType = PresetType.IMAGE,
         blocks = listOf(
             imageBlock(
-                "qr-scanner",
+                "qrserver-qr-scanner-vision",
                 "",
             ).copy(showOverlay = false, autoCopy = true),
             textBlock(

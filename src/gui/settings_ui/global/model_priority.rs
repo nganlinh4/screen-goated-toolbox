@@ -159,6 +159,7 @@ fn render_chain_section(
                             let label = model_option_label(model, ui_language);
                             let selected = chain[row_idx] == model.id;
                             ui.horizontal(|ui| {
+                                crate::gui::model_performance::render_prefix(ui, model);
                                 crate::gui::icons::draw_icon_static(
                                     ui,
                                     crate::gui::icons::provider_icon(&model.provider),

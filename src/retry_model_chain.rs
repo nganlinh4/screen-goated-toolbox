@@ -286,8 +286,12 @@ mod tests {
             ..Default::default()
         };
 
-        let reason =
-            preflight_skip_reason("gemini-3.1-flash-lite", "google", &config, &HashSet::new());
+        let reason = preflight_skip_reason(
+            "google-gemini-3-1-flash-lite-vision",
+            "google",
+            &config,
+            &HashSet::new(),
+        );
 
         assert_eq!(reason.as_deref(), Some("PROVIDER_DISABLED:google"));
     }
@@ -299,16 +303,16 @@ mod tests {
     }
 
     #[test]
-    fn explicit_chain_respects_failed_models() {
+    fn search_capable_retry_skips_incompatible_priority_candidates() {
         let config = Config {
             api_key: "test-groq-key".to_string(),
             gemini_api_key: "test-gemini-key".to_string(),
             ..Default::default()
         };
-        let failed = vec!["scout".to_string()];
+        let failed = vec!["google-gemini-3-5-flash-lite-vision".to_string()];
 
         let next = resolve_next_retry_model(
-            "scout",
+            "google-gemini-3-5-flash-lite-vision",
             &failed,
             &HashSet::new(),
             RetryChainKind::ImageToText,
@@ -316,8 +320,6 @@ mod tests {
         )
         .expect("image chain should produce a next model");
 
-        // Qwen 3.6 is the first image fallback. A failed Scout attempt starts
-        // again at the highest-priority eligible model.
-        assert_eq!(next.id, "qwen-3.6-27b-vision");
+        assert_eq!(next.id, "google-gemini-3-6-flash-vision");
     }
 }

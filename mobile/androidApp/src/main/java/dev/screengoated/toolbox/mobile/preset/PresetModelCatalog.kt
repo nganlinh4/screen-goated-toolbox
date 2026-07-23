@@ -58,6 +58,9 @@ data class PresetModelDescriptor(
     val quotaKo: String = "",
     val source: PresetModelSource = PresetModelSource.BUILT_IN,
     val supportsSearchOverride: Boolean? = null,
+    val qualityTier: Int? = null,
+    val typicalLatencyMs: Int? = null,
+    val performanceSource: String? = null,
 ) {
     fun localizedName(lang: String): String = when (lang) {
         "vi" -> nameVi
@@ -114,10 +117,7 @@ object PresetModelCatalog {
     private val byId: Map<String, PresetModelDescriptor>
         get() = allModels.associateBy { it.id }
 
-    fun getById(id: String): PresetModelDescriptor? =
-        byId[GeneratedPresetModelCatalogData.normalizeModelId(id)]
-
-    fun normalizeModelId(id: String): String = GeneratedPresetModelCatalogData.normalizeModelId(id)
+    fun getById(id: String): PresetModelDescriptor? = byId[id]
 
     fun forType(type: PresetModelType): List<PresetModelDescriptor> =
         models.filter { it.modelType == type }

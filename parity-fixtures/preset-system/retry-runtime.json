@@ -8,21 +8,21 @@
   },
   "model_priority_chains": {
     "image_to_text": [
-      "gemma-4-31b-cerebras-vision",
-      "scout",
-      "qwen-3.6-27b-vision",
-      "gemini-3.1-flash-lite",
-      "gemini-live-vision-3.1",
-      "gemini-flash"
+      "google-gemini-3-5-flash-lite-vision",
+      "google-gemma-4-31b-vision",
+      "google-gemini-3-1-flash-lite-vision",
+      "cerebras-gemma-4-31b-vision",
+      "google-gemma-4-26b-a4b-vision",
+      "groq-qwen-3-6-27b-vision"
     ],
     "text_to_text": [
-      "gpt_oss_120b_cerebras",
-      "zai_glm_4_7",
-      "text_llama_3_3_70b",
-      "text_qwen3_32b",
-      "gemini-live-text-3.1",
-      "text_gemini_3_1_flash_lite",
-      "gemma-4-26b-a4b"
+      "google-gemma-4-31b-text",
+      "groq-gpt-oss-120b-text",
+      "google-gemini-3-5-flash-lite-text",
+      "cerebras-zai-glm-4-7-text",
+      "google-gemini-3-1-flash-lite-text",
+      "cerebras-gpt-oss-120b-text",
+      "google-gemini-3-1-live-text"
     ]
   }
 }

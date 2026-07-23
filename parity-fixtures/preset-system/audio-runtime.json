@@ -39,15 +39,15 @@
     "preset_transcribe_prompt": "Transcribe the audio into text. Output ONLY the transcript."
   },
   "streaming_capture_contract": {
-    "gemini-live-audio": "partial_transcript_during_capture",
-    "parakeet-local": "android_unsupported_until_mobile_runtime_exists",
+    "google-gemini-2-5-live-transcribe-audio": "partial_transcript_during_capture",
+    "local-parakeet-120m-v1-audio": "android_unsupported_until_mobile_runtime_exists",
     "final_transcript_handoff": "first_audio_block_uses_precomputed_transcript",
     "streaming_auto_paste": "inject_deltas_during_capture_and_skip_final_paste_when_already_written"
   },
   "android_explicit_unsupported_presets": [
     {
       "preset_id": "preset_transcribe_english_offline",
-      "model_id": "parakeet-local",
+      "model_id": "local-parakeet-120m-v1-audio",
       "reason": "MODEL_PROVIDER_NOT_READY"
     }
   ],

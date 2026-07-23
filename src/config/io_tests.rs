@@ -53,7 +53,7 @@ fn migrate_config_preserves_valid_non_llm_image_blocks() {
         id: "custom_image_preset".to_string(),
         blocks: vec![ProcessingBlock {
             block_type: "image".to_string(),
-            model: "qr-scanner".to_string(),
+            model: "qrserver-qr-scanner-vision".to_string(),
             ..Default::default()
         }],
         ..Default::default()
@@ -63,7 +63,10 @@ fn migrate_config_preserves_valid_non_llm_image_blocks() {
 
     migrate_config(&mut config);
 
-    assert_eq!(config.presets[0].blocks[0].model, "qr-scanner");
+    assert_eq!(
+        config.presets[0].blocks[0].model,
+        "qrserver-qr-scanner-vision"
+    );
 }
 
 #[test]
@@ -72,7 +75,7 @@ fn migrate_config_preserves_valid_gemini_image_blocks() {
         id: "preset_translate".to_string(),
         blocks: vec![ProcessingBlock {
             block_type: "image".to_string(),
-            model: "gemini-3.1-flash-lite-preview".to_string(),
+            model: "google-gemini-3-1-flash-lite-vision".to_string(),
             ..Default::default()
         }],
         ..Default::default()
@@ -82,66 +85,40 @@ fn migrate_config_preserves_valid_gemini_image_blocks() {
         id: "custom_image_preset".to_string(),
         blocks: vec![ProcessingBlock {
             block_type: "image".to_string(),
-            model: "gemini-3.1-flash-lite-preview".to_string(),
+            model: "google-gemini-3-1-flash-lite-vision".to_string(),
             ..Default::default()
         }],
         ..Default::default()
     };
 
-    let mut config = legacy_config_with_presets(vec![builtin, custom]);
-
-    migrate_config(&mut config);
-
-    assert_eq!(config.presets[0].blocks[0].model, "gemini-3.1-flash-lite");
-    assert_eq!(config.presets[1].blocks[0].model, "gemini-3.1-flash-lite");
-}
-
-#[test]
-fn migrate_config_promotes_old_builtin_image_defaults_only() {
-    let builtin = Preset {
-        id: "preset_ocr".to_string(),
-        blocks: vec![ProcessingBlock {
-            block_type: "image".to_string(),
-            model: "scout".to_string(),
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
-    let custom = Preset {
-        id: "custom_scout".to_string(),
-        blocks: vec![ProcessingBlock {
-            block_type: "image".to_string(),
-            model: "scout".to_string(),
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
     let mut config = legacy_config_with_presets(vec![builtin, custom]);
 
     migrate_config(&mut config);
 
     assert_eq!(
         config.presets[0].blocks[0].model,
-        "gemma-4-31b-cerebras-vision"
+        "google-gemini-3-1-flash-lite-vision"
     );
-    assert_eq!(config.presets[1].blocks[0].model, "scout");
+    assert_eq!(
+        config.presets[1].blocks[0].model,
+        "google-gemini-3-1-flash-lite-vision"
+    );
 }
 
 #[test]
 fn migrate_config_sanitizes_model_priority_chains() {
     let mut config = Config::default();
     config.model_priority_chains.image_to_text = vec![
-        "gemini-3.1-flash-lite-preview".to_string(),
-        "google-gtx".to_string(),
+        "google-gemini-3-1-flash-lite-vision".to_string(),
+        "google-gtx-translate-text".to_string(),
         "missing-model".to_string(),
-        "scout".to_string(),
+        "groq-qwen-3-6-27b-vision".to_string(),
     ];
     config.model_priority_chains.text_to_text = vec![
         "retired_text_model".to_string(),
-        "gemma-4-26b-a4b".to_string(),
-        "qr-scanner".to_string(),
-        "scout".to_string(),
-        "text_llama_3_3_70b".to_string(),
+        "google-gemma-4-26b-a4b-text".to_string(),
+        "qrserver-qr-scanner-vision".to_string(),
+        "groq-llama-3-3-70b-text".to_string(),
     ];
 
     migrate_config(&mut config);
@@ -149,72 +126,18 @@ fn migrate_config_sanitizes_model_priority_chains() {
     assert_eq!(
         config.model_priority_chains.image_to_text,
         vec![
-            "gemini-3.1-flash-lite".to_string(),
-            "gemma-4-31b-cerebras-vision".to_string(),
-            "scout".to_string()
+            "google-gemini-3-1-flash-lite-vision".to_string(),
+            crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string(),
+            "groq-qwen-3-6-27b-vision".to_string()
         ]
     );
     assert_eq!(
         config.model_priority_chains.text_to_text,
         vec![
             crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
-            "gemma-4-26b-a4b".to_string(),
-            "text_llama_3_3_70b".to_string()
+            "google-gemma-4-26b-a4b-text".to_string(),
+            "groq-llama-3-3-70b-text".to_string()
         ]
-    );
-}
-
-#[test]
-fn migrate_config_updates_only_the_historical_image_default() {
-    let mut config = Config::default();
-    config.model_priority_chains.image_to_text = vec![
-        "gemma-4-31b-cerebras-vision",
-        "scout",
-        "qwen-3.6-27b-vision",
-        "gemini-3.1-flash-lite",
-        "gemini-flash",
-        "gemini-flash-lite",
-        "gemini-live-vision-3.1",
-    ]
-    .into_iter()
-    .map(str::to_string)
-    .collect();
-
-    migrate_config(&mut config);
-
-    assert_eq!(
-        config.model_priority_chains.image_to_text,
-        crate::model_config::default_image_to_text_priority_chain_ids()
-            .iter()
-            .map(|id| (*id).to_string())
-            .collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn migrate_config_updates_the_released_image_default_order() {
-    let mut config = Config::default();
-    config.model_priority_chains.image_to_text = [
-        "gemma-4-31b-cerebras-vision",
-        "qwen-3.6-27b-vision",
-        "scout",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-lite",
-        "gemini-live-vision-3.1",
-        "gemini-flash",
-    ]
-    .into_iter()
-    .map(str::to_string)
-    .collect();
-
-    migrate_config(&mut config);
-
-    assert_eq!(
-        config.model_priority_chains.image_to_text,
-        crate::model_config::default_image_to_text_priority_chain_ids()
-            .iter()
-            .map(|id| (*id).to_string())
-            .collect::<Vec<_>>()
     );
 }
 

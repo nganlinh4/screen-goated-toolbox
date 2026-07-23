@@ -4,6 +4,7 @@ import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_TEXT_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_TRANSCRIBE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
@@ -96,19 +97,19 @@ class PresetRepository(
 
         val defaultBlock = when (type) {
             PresetType.IMAGE -> dev.screengoated.toolbox.mobile.shared.preset.imageBlock(
-                dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID,
+                DEFAULT_IMAGE_MODEL_ID,
                 "Extract text from this image.",
             )
             PresetType.TEXT_SELECT, PresetType.TEXT_INPUT -> dev.screengoated.toolbox.mobile.shared.preset.textBlock(
-                "gemma-4-26b-a4b",
+                DEFAULT_TEXT_MODEL_ID,
                 "Translate to {language1}. Output ONLY the translation.",
                 "language1" to "Vietnamese",
             )
             PresetType.MIC -> dev.screengoated.toolbox.mobile.shared.preset.audioBlock(
-                "whisper-fast",
+                PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
             )
             PresetType.DEVICE_AUDIO -> dev.screengoated.toolbox.mobile.shared.preset.audioBlock(
-                "whisper-fast",
+                PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
             )
         }
 
@@ -316,7 +317,7 @@ class PresetRepository(
         val builtInResolved = canonicalPresets.mapNotNull { canonical ->
             val override = storedOverrides.builtInOverrides[canonical.id]
             if (override?.isHidden == true) return@mapNotNull null
-            val resolved = normalizePresetModelIds(override?.let { canonical.applyOverride(it) } ?: canonical)
+            val resolved = resolvePresetModelIds(override?.let { canonical.applyOverride(it) } ?: canonical)
             val executionCapability = resolveExecutionCapability(resolved)
             ResolvedPreset(
                 preset = resolved,
@@ -330,15 +331,15 @@ class PresetRepository(
             )
         }
         val customResolved = storedOverrides.customPresets.values.map { preset ->
-            val normalizedPreset = normalizePresetModelIds(preset)
-            val executionCapability = resolveExecutionCapability(normalizedPreset)
+            val resolvedPreset = resolvePresetModelIds(preset)
+            val executionCapability = resolveExecutionCapability(resolvedPreset)
             ResolvedPreset(
-                preset = normalizedPreset,
+                preset = resolvedPreset,
                 hasOverride = false,
                 isBuiltIn = false,
                 executionCapability = executionCapability,
                 placeholderReasons = resolvePlaceholderReasons(
-                    preset = preset,
+                    preset = resolvedPreset,
                     executionCapability = executionCapability,
                 ),
             )
@@ -348,11 +349,10 @@ class PresetRepository(
         )
     }
 
-    private fun normalizePresetModelIds(preset: Preset): Preset {
+    private fun resolvePresetModelIds(preset: Preset): Preset {
         return preset.copy(
             blocks = preset.blocks.map { block ->
-                val normalizedModel = PresetModelCatalog.normalizeModelId(block.model)
-                val descriptor = PresetModelCatalog.getById(normalizedModel)
+                val descriptor = PresetModelCatalog.getById(block.model)
                 val expectedType = when (block.blockType) {
                     BlockType.IMAGE -> PresetModelType.VISION
                     BlockType.TEXT -> PresetModelType.TEXT
@@ -360,7 +360,7 @@ class PresetRepository(
                     BlockType.INPUT_ADAPTER -> null
                 }
                 if (expectedType == null || descriptor?.modelType == expectedType) {
-                    block.copy(model = normalizedModel)
+                    block
                 } else {
                     block.copy(model = defaultModelIdForBlock(block.blockType))
                 }
@@ -371,7 +371,7 @@ class PresetRepository(
     private fun defaultModelIdForBlock(blockType: BlockType): String = when (blockType) {
         BlockType.IMAGE -> DEFAULT_IMAGE_MODEL_ID
         BlockType.TEXT -> DEFAULT_TEXT_MODEL_ID
-        BlockType.AUDIO -> "whisper-accurate"
+        BlockType.AUDIO -> PRESET_AUDIO_TRANSCRIBE_MODEL_ID
         BlockType.INPUT_ADAPTER -> ""
     }
 

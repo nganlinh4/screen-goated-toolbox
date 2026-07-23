@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { Check, ChevronDown, Search } from '@/components/ui/MaterialIcon';
+import { Check, ChevronDown, Psychology, Search } from '@/components/ui/MaterialIcon';
 import { motion } from 'motion/react';
 
 import { cn } from '@/lib/utils';
@@ -11,6 +11,9 @@ export interface PanelSelectOption {
   triggerLabel?: string;
   disabled?: boolean;
   keywords?: string[];
+  qualityTier?: number | null;
+  typicalLatencyMs?: number | null;
+  performanceSource?: string | null;
   trailing?: React.ReactNode;
   action?: {
     label: string;
@@ -32,6 +35,47 @@ interface PanelSelectProps {
   emptyStateLabel?: string;
   triggerClassName?: string;
   contentClassName?: string;
+}
+
+export function formatModelLatencyMs(milliseconds: number | null | undefined): string {
+  if (milliseconds == null) {
+    return '—';
+  }
+  const tenths = Math.round(milliseconds / 100);
+  return tenths % 10 === 0
+    ? `${tenths / 10}s`
+    : `${Math.floor(tenths / 10)}.${tenths % 10}s`;
+}
+
+function hasPerformanceMetadata(option: PanelSelectOption): boolean {
+  return option.qualityTier !== undefined || option.typicalLatencyMs !== undefined;
+}
+
+function ModelPerformancePrefix({ option }: { option: PanelSelectOption }) {
+  const tier = option.qualityTier == null
+    ? null
+    : Math.min(5, Math.max(1, Math.round(option.qualityTier)));
+  return (
+    <span
+      className="model-performance-prefix flex w-[116px] shrink-0 items-center text-[10px] text-[var(--on-surface-variant)]"
+      title={option.performanceSource ?? undefined}
+    >
+      <span className="model-performance-quality flex w-[74px] shrink-0 items-center gap-px">
+        {tier == null
+          ? '—'
+          : Array.from({ length: tier }, (_, index) => (
+              <Psychology
+                key={index}
+                className="model-performance-brain h-[13px] w-[13px] shrink-0"
+                aria-hidden="true"
+              />
+            ))}
+      </span>
+      <span className="model-performance-latency w-[42px] shrink-0 tabular-nums">
+        {formatModelLatencyMs(option.typicalLatencyMs)}
+      </span>
+    </span>
+  );
 }
 
 export function PanelSelect({
@@ -113,8 +157,13 @@ export function PanelSelect({
             triggerClassName,
           )}
         >
-          <span className="panel-select-trigger-label min-w-0 flex-1 truncate">
-            {selectedOption?.triggerLabel ?? selectedOption?.label ?? value}
+          <span className="panel-select-trigger-content flex min-w-0 flex-1 items-center">
+            {selectedOption && hasPerformanceMetadata(selectedOption) ? (
+              <ModelPerformancePrefix option={selectedOption} />
+            ) : null}
+            <span className="panel-select-trigger-label min-w-0 flex-1 truncate">
+              {selectedOption?.triggerLabel ?? selectedOption?.label ?? value}
+            </span>
           </span>
           <ChevronDown className="panel-select-trigger-icon h-4 w-4 shrink-0 opacity-70" />
         </button>
@@ -186,6 +235,9 @@ export function PanelSelect({
                             <Check className="h-3.5 w-3.5 text-[var(--primary-color)]" />
                           ) : null}
                         </span>
+                        {hasPerformanceMetadata(option) ? (
+                          <ModelPerformancePrefix option={option} />
+                        ) : null}
                         <span className="panel-select-option-label flex-1 text-left">
                           {option.label}
                         </span>

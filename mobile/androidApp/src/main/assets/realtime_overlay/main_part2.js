@@ -140,9 +140,9 @@
             if (currentTranslationModelBtn && window.setTranslationModel) {
                 window.setTranslationModel(currentTranslationModelBtn.dataset.value || '');
             }
-            updateTitleBySelector('.trans-model-icon[data-value="gemini-live-audio"]', 'Gemini Live');
-            updateTitleBySelector('.trans-model-icon[data-value="gemini-live-audio-3.1"]', 'Gemini S2S');
-            updateTitleBySelector('.trans-model-icon[data-value="gemini-3.5-translate"]', 'Gemini Translate');
+            updateTitleBySelector('.trans-model-icon[data-value="google-gemini-2-5-live-transcribe-audio"]', 'Gemini Live');
+            updateTitleBySelector('.trans-model-icon[data-value="google-gemini-3-1-live-transcribe-audio"]', 'Gemini S2S');
+            updateTitleBySelector('.trans-model-icon[data-value="google-gemini-3-5-live-translate-audio"]', 'Gemini Translate');
             const currentTranscriptionModelBtn = document.getElementById('transcription-model-btn');
             if (currentTranscriptionModelBtn && window.setTranscriptionModel) {
                 window.setTranscriptionModel(currentTranscriptionModelBtn.dataset.value || '');

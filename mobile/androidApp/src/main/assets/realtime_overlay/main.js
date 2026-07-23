@@ -134,9 +134,9 @@
             }
         }
         const TRANSCRIPTION_MODEL_LABELS = {
-            'gemini-live-audio': 'Gemini Live',
-            'gemini-live-audio-3.1': 'Gemini S2S',
-            'gemini-3.5-translate': 'Gemini Translate',
+            'google-gemini-2-5-live-transcribe-audio': 'Gemini Live',
+            'google-gemini-3-1-live-transcribe-audio': 'Gemini S2S',
+            'google-gemini-3-5-live-translate-audio': 'Gemini Translate',
             'moonshine-tiny-streaming': 'Moonshine Tiny',
             'moonshine-small-streaming': 'Moonshine Small',
             'moonshine-medium-streaming': 'Moonshine Medium',
@@ -145,7 +145,7 @@
 
         function transcriptionModelLabel(modelName) {
             if (modelName === 'gemini-live-s2s') {
-                return TRANSCRIPTION_MODEL_LABELS['gemini-3.5-translate'];
+                return TRANSCRIPTION_MODEL_LABELS['google-gemini-3-5-live-translate-audio'];
             }
             if (modelName === 'parakeet') {
                 return 'Parakeet (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')';
@@ -154,7 +154,7 @@
         }
 
         function isLiveTranslateModel(modelName) {
-            return modelName === 'gemini-3.5-translate';
+            return modelName === 'google-gemini-3-5-live-translate-audio';
         }
 
         function applyS2sMode(enabled, modelName) {
@@ -221,7 +221,7 @@
             // Legacy
             const icons = document.querySelectorAll('.trans-model-icon');
             if (icons.length) setSelectedByDataValue(icons, modelName);
-            applyS2sMode(modelName === 'gemini-live-s2s' || modelName === 'gemini-3.5-translate', modelName);
+            applyS2sMode(modelName === 'gemini-live-s2s' || modelName === 'google-gemini-3-5-live-translate-audio', modelName);
         }
 
         function setFontSize(fontSize) {
