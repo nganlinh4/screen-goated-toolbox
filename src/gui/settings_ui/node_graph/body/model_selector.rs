@@ -96,6 +96,7 @@ pub fn show_model_and_settings(
                     let is_selected = *model == m.id;
 
                     ui.horizontal(|ui| {
+                        crate::gui::model_performance::render_prefix(ui, &m);
                         crate::gui::icons::draw_icon_static(
                             ui,
                             crate::gui::icons::provider_icon(&m.provider),

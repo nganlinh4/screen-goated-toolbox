@@ -13,6 +13,7 @@ vi.mock("@/hooks/useSettings", () => ({
 
 vi.mock("@/hooks/useSubtitleNarration", () => ({
   DEFAULT_NARRATION_GROUP_TEXT_BUDGET: 25,
+  DEFAULT_NARRATION_TARGET_SEGMENT_SEC: 4,
   MIN_NARRATION_GROUP_TEXT_BUDGET: 5,
   MAX_NARRATION_GROUP_TEXT_BUDGET: 120,
   useSubtitleNarration: () => ({

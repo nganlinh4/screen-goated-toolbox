@@ -15,6 +15,9 @@ pub use image::create_image_presets;
 pub use master::create_master_presets;
 pub use text::create_text_presets;
 
+pub const OCR_EXTRACTION_PROMPT: &str =
+    "Extract all text from this image exactly as it appears. Output ONLY the text.";
+
 /// Get all default presets in the correct display order.
 ///
 /// The order is organized by columns in the sidebar:

@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "id_rule": {
+    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-(?:text|vision|audio|search)$",
+    "forbidden_lifecycle_segments": [
+      "preview",
+      "latest",
+      "experimental",
+      "stable",
+      "deprecated",
+      "retired"
+    ],
+    "provider_prefixes": {
+      "google": "google-",
+      "google-gtx": "google-",
+      "gemini-live": "google-",
+      "groq": "groq-",
+      "cerebras": "cerebras-",
+      "taalas": "taalas-",
+      "qrserver": "qrserver-",
+      "parakeet": "local-",
+      "qwen3": "local-"
+    }
+  },
+  "localized_name_prefixes": {
+    "google": "GG ",
+    "google-gtx": "GG ",
+    "gemini-live": "GG ",
+    "groq": "G ",
+    "cerebras": "C ",
+    "taalas": "T ",
+    "qrserver": "QR ",
+    "parakeet": "L ",
+    "qwen3": "L "
+  },
+  "performance": {
+    "brain_min": 1,
+    "brain_max": 5,
+    "unknown_label": "—",
+    "latency_format_cases": [
+      {
+        "milliseconds": 800,
+        "label": "0.8s"
+      },
+      {
+        "milliseconds": 1050,
+        "label": "1.1s"
+      },
+      {
+        "milliseconds": 20000,
+        "label": "20s"
+      }
+    ]
+  },
+  "row_order": [
+    "brain",
+    "latency",
+    "provider_icon",
+    "localized_name",
+    "details"
+  ],
+  "surfaces": [
+    "windows-node-model-menu",
+    "windows-priority-menu",
+    "windows-locked-catalog",
+    "windows-usage-list",
+    "android-node-model-menu",
+    "android-priority-menu",
+    "android-locked-catalog",
+    "android-usage-list",
+    "screen-recorder-translation-menu"
+  ]
+}

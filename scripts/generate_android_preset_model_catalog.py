@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
@@ -44,14 +45,96 @@ def load_manifest(manifest_path: Path) -> dict:
 
 
 def validate_manifest(manifest: dict) -> None:
+    if manifest.get("schema_version") != 2:
+        raise ValueError("catalog schema_version must be 2")
+    if "model_id_migrations" in manifest:
+        raise ValueError("permanent model ID migrations are forbidden")
     models = manifest["models"]
     ids = [model["id"] for model in models]
     if len(ids) != len(set(ids)):
         raise ValueError("model ids must be unique")
-    for old, replacement in manifest["model_id_migrations"].items():
-        if old == replacement or replacement not in ids:
-            raise ValueError(f"invalid model id migration: {old} -> {replacement}")
+    allowed_providers = {"google", "groq", "cerebras", "taalas", "qrserver", "local"}
+    allowed_capabilities = {"text", "vision", "audio", "search"}
+    lifecycle_words = {
+        "preview", "latest", "experimental", "stable", "deprecated", "retired",
+    }
+    provider_prefixes = {
+        "google": "GG",
+        "google-gtx": "GG",
+        "gemini-live": "GG",
+        "groq": "G",
+        "cerebras": "C",
+        "taalas": "T",
+        "parakeet": "L",
+        "qwen3": "L",
+        "qrserver": "QR",
+    }
+    provider_id_prefixes = {
+        "google": "google-",
+        "google-gtx": "google-",
+        "gemini-live": "google-",
+        "groq": "groq-",
+        "cerebras": "cerebras-",
+        "taalas": "taalas-",
+        "parakeet": "local-",
+        "qwen3": "local-",
+        "qrserver": "qrserver-",
+    }
+    localized_names: set[tuple[str, str, str]] = set()
+    for model in models:
+        model_id = model["id"]
+        segments = model_id.split("-")
+        if (
+            re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", model_id) is None
+            or segments[0] not in allowed_providers
+            or segments[-1] not in allowed_capabilities
+            or lifecycle_words.intersection(segments)
+        ):
+            raise ValueError(f"invalid durable model id: {model_id}")
+        id_prefix = provider_id_prefixes.get(model["provider"])
+        if id_prefix is None or not model_id.startswith(id_prefix):
+            raise ValueError(
+                f"model id {model_id} does not match provider {model['provider']}"
+            )
+        quality = model.get("quality_tier")
+        latency = model.get("typical_latency_ms")
+        source = model.get("performance_source")
+        if isinstance(quality, bool) or not isinstance(quality, int) or not 1 <= quality <= 5:
+            raise ValueError(f"quality_tier for {model_id} must be 1..5")
+        if (
+            isinstance(latency, bool)
+            or not isinstance(latency, int)
+            or not 1 <= latency <= 2_147_483_647
+        ):
+            raise ValueError(
+                f"typical_latency_ms for {model_id} must be a positive cross-platform i32"
+            )
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError(f"performance_source for {model_id} must not be empty")
+        prefix = provider_prefixes.get(model["provider"])
+        if prefix is None:
+            raise ValueError(f"missing localized-name prefix for {model['provider']}")
+        for language in ("vi", "ko", "en"):
+            name = model[f"name_{language}"]
+            if not name.startswith(f"{prefix} "):
+                raise ValueError(f"{language} name for {model_id} must start with {prefix}")
+            name_key = (language, prefix, name)
+            if name_key in localized_names:
+                raise ValueError(f"duplicate {language} name in {prefix}: {name}")
+            localized_names.add(name_key)
     enabled_ids = {model["id"] for model in models if model["enabled"]}
+    priority_chains = manifest["priority_chains"]
+    for key in ("image_to_text", "text_to_text"):
+        chain = priority_chains.get(key)
+        if not isinstance(chain, list) or not chain or len(chain) != len(set(chain)):
+            raise ValueError(f"{key} must be a non-empty unique model chain")
+        unknown = [model_id for model_id in chain if model_id not in enabled_ids]
+        if unknown:
+            raise ValueError(f"{key} references disabled or unknown models: {unknown}")
+    if manifest["constants"]["default_image_model_id"] != priority_chains["image_to_text"][0]:
+        raise ValueError("default image model must lead image_to_text")
+    if manifest["constants"]["default_text_model_id"] != priority_chains["text_to_text"][0]:
+        raise ValueError("default text model must lead text_to_text")
     feature_model_chains = manifest["feature_model_chains"]
     for key in ("help_assistant", "computer_control_grounding"):
         chain = feature_model_chains.get(key)
@@ -180,6 +263,9 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
                 f"            quotaEn = {kotlin_string(model['quota_en'])},",
                 f"            quotaVi = {kotlin_string(model['quota_vi'])},",
                 f"            quotaKo = {kotlin_string(model['quota_ko'])},",
+                f"            qualityTier = {model['quality_tier']},",
+                f"            typicalLatencyMs = {model['typical_latency_ms']},",
+                f"            performanceSource = {kotlin_string(model['performance_source'])},",
                 "        ),",
             ]
         )
@@ -216,14 +302,6 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
             "    val computerControlGroundingModelChain: List<String> = listOf(",
             *[f"        {kotlin_string(item)}," for item in feature_model_chains["computer_control_grounding"]],
             "    )",
-            "",
-            "    fun normalizeModelId(modelId: String): String = when (modelId) {",
-            *[
-                f"        {kotlin_string(old)} -> {kotlin_string(replacement)}"
-                for old, replacement in manifest["model_id_migrations"].items()
-            ],
-            "        else -> modelId",
-            "    }",
             "}",
             "",
         ]
@@ -264,12 +342,12 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
     provider_api_by_id = {item["id"]: item["api_model"] for item in live_translation_providers}
     def realtime_option_label(option_id: str) -> str:
         return {
-            "gemini-live-audio": "Gemini Live",
-            "gemini-live-audio-3.1": "Gemini S2S",
-            "gemini-3.5-translate": "Gemini Translate",
+            "google-gemini-2-5-live-transcribe-audio": "Gemini Live",
+            "google-gemini-3-1-live-transcribe-audio": "Gemini S2S",
+            "google-gemini-3-5-live-translate-audio": "Gemini Translate",
             "parakeet": "Parakeet",
-            "qwen3-asr-0.6b": "Qwen3-ASR 0.6B",
-            "qwen3-asr-1.7b": "Qwen3-ASR 1.7B",
+            "local-qwen-3-asr-600m-audio": "Qwen3-ASR 0.6B",
+            "local-qwen-3-asr-1-7b-audio": "Qwen3-ASR 1.7B",
             "zipformer": "Zipformer",
             "moonshine-tiny-streaming": "Moonshine Tiny",
             "moonshine-small-streaming": "Moonshine Small",
@@ -431,8 +509,8 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
             "                model = GEMINI_LIVE_TRANSLATE_API_MODEL,",
             "            )",
             "",
-            '            "gemini-live-audio-3.1" -> ProviderDescriptor(',
-            '                id = "gemini-live-audio-3.1",',
+            '            "google-gemini-3-1-live-transcribe-audio" -> ProviderDescriptor(',
+            '                id = "google-gemini-3-1-live-transcribe-audio",',
             "                model = GEMINI_LIVE_API_MODEL_3_1,",
             "            )",
             "",

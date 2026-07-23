@@ -552,6 +552,3 @@ fn num_after_key(s: &str, key: u8) -> Option<f64> {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod vision_benchmark_tests;

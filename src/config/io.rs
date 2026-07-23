@@ -79,10 +79,8 @@ fn migrate_config(config: &mut Config) {
     migrate_computer_control_launcher(config);
     config.ensure_preset_profiles();
     migrate_preset_list(&mut config.presets, &default_presets);
-    promote_builtin_image_defaults(&mut config.presets);
     for profile in &mut config.preset_profiles {
         migrate_preset_list(&mut profile.presets, &default_presets);
-        promote_builtin_image_defaults(&mut profile.presets);
         profile.active_preset_idx = profile
             .active_preset_idx
             .min(profile.presets.len().saturating_sub(1));
@@ -90,15 +88,14 @@ fn migrate_config(config: &mut Config) {
 
     let custom_models = config.custom_models.clone();
 
-    migrate_builtin_image_priority_chain(&mut config.model_priority_chains.image_to_text);
     normalize_model_priority_chain(
         &mut config.model_priority_chains.image_to_text,
         ModelType::Vision,
         &custom_models,
     );
-    normalize_saved_block_model_ids(&mut config.presets, &custom_models);
+    resolve_saved_block_model_ids(&mut config.presets, &custom_models);
     for profile in &mut config.preset_profiles {
-        normalize_saved_block_model_ids(&mut profile.presets, &custom_models);
+        resolve_saved_block_model_ids(&mut profile.presets, &custom_models);
     }
     normalize_model_priority_chain(
         &mut config.model_priority_chains.text_to_text,
@@ -162,53 +159,6 @@ fn remove_legacy_launcher(
     }
 }
 
-/// Replace only known historical defaults. A user-customized chain remains
-/// untouched, including an intentional Gemini 2.5 Flash Lite selection.
-fn migrate_builtin_image_priority_chain(chain: &mut Vec<String>) {
-    const RECENT_DEFAULT: &[&str] = &[
-        "gemma-4-31b-cerebras-vision",
-        "scout",
-        "qwen-3.6-27b-vision",
-        "gemini-3.1-flash-lite",
-        "gemini-flash",
-        "gemini-flash-lite",
-        "gemini-live-vision-3.1",
-    ];
-    const RELEASED_DEFAULT: &[&str] = &[
-        "gemma-4-31b-cerebras-vision",
-        "qwen-3.6-27b-vision",
-        "scout",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-lite",
-        "gemini-live-vision-3.1",
-        "gemini-flash",
-    ];
-    let matches = |old: &[&str]| {
-        chain.len() == old.len() && chain.iter().map(String::as_str).eq(old.iter().copied())
-    };
-    let is_old_default = matches(RECENT_DEFAULT) || matches(RELEASED_DEFAULT);
-    if is_old_default {
-        *chain = crate::model_config::default_image_to_text_priority_chain_ids()
-            .iter()
-            .map(|id| (*id).to_string())
-            .collect();
-    }
-}
-
-fn promote_builtin_image_defaults(presets: &mut [Preset]) {
-    for preset in presets.iter_mut().filter(|preset| preset.is_builtin()) {
-        for block in &mut preset.blocks {
-            let was_scout_default = block.block_type == "image" && block.model == "scout";
-            let was_translate_default = preset.id == "preset_translate"
-                && block.block_type == "image"
-                && block.model == "gemma-4-26b-a4b-vision";
-            if was_scout_default || was_translate_default {
-                block.model = crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string();
-            }
-        }
-    }
-}
-
 fn normalize_removed_tts_methods(config: &mut Config) {
     if config.tts_method == crate::config::TtsMethod::FishAudioS2Pro {
         config.tts_method = crate::config::TtsMethod::GeminiLive;
@@ -260,24 +210,23 @@ fn migrate_preset_list(presets: &mut Vec<Preset>, default_presets: &[Preset]) {
     }
 }
 
-fn normalize_saved_block_model_ids(
+fn resolve_saved_block_model_ids(
     presets: &mut [Preset],
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) {
     for preset in presets {
         for block in &mut preset.blocks {
             block.model =
-                normalize_model_id_for_block(&block.block_type, &block.model, custom_models);
+                resolve_model_id_for_block(&block.block_type, &block.model, custom_models);
         }
     }
 }
 
-fn normalize_model_id_for_block(
+fn resolve_model_id_for_block(
     block_type: &str,
     model_id: &str,
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) -> String {
-    let model_id = crate::model_config::normalize_model_id(model_id);
     let expected_type = match block_type {
         "image" => Some(ModelType::Vision),
         "text" => Some(ModelType::Text),
@@ -310,7 +259,7 @@ fn normalize_model_priority_chain(
     for model_id in chain.drain(..) {
         let candidate = match get_model_by_id_with_custom(&model_id, custom_models) {
             Some(model) if model.model_type == expected_type && !model_is_non_llm(&model_id) => {
-                crate::model_config::normalize_model_id(&model_id).to_string()
+                model_id
             }
             _ => fallback.clone(),
         };

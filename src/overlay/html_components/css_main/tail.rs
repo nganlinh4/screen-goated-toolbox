@@ -64,22 +64,22 @@ pub(super) fn get(
         .trans-model-icon:hover {{
             transform: scale(1.08);
         }}
-        .trans-model-icon.active[data-value="gemini-live-audio"] {{
+        .trans-model-icon.active[data-value="google-gemini-2-5-live-transcribe-audio"] {{
             color: {secondary};
         }}
-        .trans-model-icon.active[data-value="gemini-live-audio-3.1"] {{
+        .trans-model-icon.active[data-value="google-gemini-3-1-live-transcribe-audio"] {{
             color: {secondary};
         }}
-        .trans-model-icon.active[data-value="gemini-3.5-translate"] {{
+        .trans-model-icon.active[data-value="google-gemini-3-5-live-translate-audio"] {{
             color: {secondary};
         }}
         .trans-model-icon.active[data-value="parakeet"] {{
             color: {primary};
         }}
-        .trans-model-icon.active[data-value="qwen3-asr-0.6b"] {{
+        .trans-model-icon.active[data-value="local-qwen-3-asr-600m-audio"] {{
             color: {tertiary};
         }}
-        .trans-model-icon.active[data-value="qwen3-asr-1.7b"] {{
+        .trans-model-icon.active[data-value="local-qwen-3-asr-1-7b-audio"] {{
             color: {tertiary};
         }}
         .trans-model-icon.active[data-value="zipformer"] {{

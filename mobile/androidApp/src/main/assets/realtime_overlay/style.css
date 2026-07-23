@@ -543,7 +543,7 @@
         .trans-model-icon:hover {
             transform: scale(1.08);
         }
-        .trans-model-icon.active[data-value="gemini-live-audio"] {
+        .trans-model-icon.active[data-value="google-gemini-2-5-live-transcribe-audio"] {
             color: {{SECONDARY}};
         }
 

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use crate::api::gemini_live::server_frame::parse_server_frame;
 use crate::api::realtime_audio::websocket::pcm_bytes_to_i16;
 
-/// The Live model that backs Computer Control (catalog id `gemini-live-vision-3.1`).
+/// The Live model that backs Computer Control (catalog id `google-gemini-3-1-live-vision`).
 pub const MODEL: &str = crate::model_config::GEMINI_LIVE_API_MODEL_3_1;
 
 /// Preserve the endpoint's native reasoning level unless the operator explicitly

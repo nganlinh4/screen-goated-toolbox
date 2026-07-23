@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
+import dev.screengoated.toolbox.mobile.ui.ModelPerformancePrefix
 
 // Node colors use Material 3 dynamic accent (Material You) — 3 tonal variants.
 private data class NodeColors(
@@ -276,7 +277,15 @@ internal fun NodeCard(
                                             )
                                         else Modifier,
                                         leadingIcon = {
-                                            Icon(painterResource(providerIcon), null, modifier = Modifier.size(16.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                ModelPerformancePrefix(model)
+                                                Spacer(Modifier.width(6.dp))
+                                                Icon(
+                                                    painterResource(providerIcon),
+                                                    null,
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                            }
                                         },
                                         trailingIcon = {
                                             if (hasSearch) {
@@ -511,4 +520,3 @@ internal fun NodeCard(
         }
     }
 }
-

@@ -112,9 +112,9 @@ class LiveTranslateOverlayBootstrapTest {
 
         val mainJsSource = loadRepoFile(OVERLAY_MAIN_JS_PATH).readText() +
             loadRepoFile(OVERLAY_MAIN_JS_PART2_PATH).readText()
-        assertTrue(mainJsSource.contains("'gemini-live-audio': 'Gemini Live'"))
-        assertTrue(mainJsSource.contains("'gemini-live-audio-3.1': 'Gemini S2S'"))
-        assertTrue(mainJsSource.contains("'gemini-3.5-translate': 'Gemini Translate'"))
+        assertTrue(mainJsSource.contains("'google-gemini-2-5-live-transcribe-audio': 'Gemini Live'"))
+        assertTrue(mainJsSource.contains("'google-gemini-3-1-live-transcribe-audio': 'Gemini S2S'"))
+        assertTrue(mainJsSource.contains("'google-gemini-3-5-live-translate-audio': 'Gemini Translate'"))
         assertTrue(mainJsSource.contains("'moonshine-tiny-streaming': 'Moonshine Tiny'"))
         assertTrue(mainJsSource.contains("'moonshine-small-streaming': 'Moonshine Small'"))
         assertTrue(mainJsSource.contains("'moonshine-medium-streaming': 'Moonshine Medium'"))
@@ -228,7 +228,7 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(controllerSource.contains("previousConfig.transcriptionProvider.id"))
         assertTrue(controllerSource.contains("restartRequested()"))
         assertTrue(paritySource.contains("transcriptionProviderId == \"gemini-live-s2s\""))
-        assertTrue(paritySource.contains("transcriptionProviderId == \"gemini-3.5-translate\""))
+        assertTrue(paritySource.contains("transcriptionProviderId == \"google-gemini-3-5-live-translate-audio\""))
     }
 
     @Test

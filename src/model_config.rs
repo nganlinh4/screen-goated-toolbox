@@ -44,6 +44,9 @@ pub struct ModelConfig {
     pub quota_limit_en: String,
     pub source: ModelSource,
     pub supports_search_override: Option<bool>,
+    pub quality_tier: Option<u8>,
+    pub typical_latency_ms: Option<u32>,
+    pub performance_source: Option<String>,
 }
 
 impl ModelConfig {
@@ -63,6 +66,9 @@ impl ModelConfig {
         quota_limit_vi: &str,
         quota_limit_ko: &str,
         quota_limit_en: &str,
+        quality_tier: u8,
+        typical_latency_ms: u32,
+        performance_source: &str,
     ) -> Self {
         Self {
             id: id.to_string(),
@@ -78,6 +84,9 @@ impl ModelConfig {
             quota_limit_en: quota_limit_en.to_string(),
             source: ModelSource::BuiltIn,
             supports_search_override: None,
+            quality_tier: Some(quality_tier),
+            typical_latency_ms: Some(typical_latency_ms),
+            performance_source: Some(performance_source.to_string()),
         }
     }
 
@@ -126,7 +135,6 @@ pub fn get_model_by_id_with_custom(
     id: &str,
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) -> Option<ModelConfig> {
-    let id = generated_normalize_model_id(id);
     if let Some(model) = get_all_models().iter().find(|m| m.id == id) {
         return Some(model.clone());
     }
@@ -141,10 +149,6 @@ pub fn get_model_by_id_with_custom(
 
     let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
     cached.iter().find(|model| model.id == id).cloned()
-}
-
-pub fn normalize_model_id(model_id: &str) -> &str {
-    generated_normalize_model_id(model_id)
 }
 
 pub fn live_endpoint_profile(api_model: &str) -> Option<LiveEndpointProfile> {
@@ -291,6 +295,9 @@ pub fn custom_model_definition_to_config(
         quota_limit_en: custom.quota_en.clone(),
         source: ModelSource::User,
         supports_search_override: custom.supports_search,
+        quality_tier: None,
+        typical_latency_ms: None,
+        performance_source: None,
     })
 }
 
@@ -436,6 +443,9 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_en: "Unlimited".to_string(),
                         source: ModelSource::Discovered,
                         supports_search_override: None,
+                        quality_tier: None,
+                        typical_latency_ms: None,
+                        performance_source: None,
                     });
 
                     new_models.push(ModelConfig {
@@ -452,6 +462,9 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_en: "Unlimited".to_string(),
                         source: ModelSource::Discovered,
                         supports_search_override: None,
+                        quality_tier: None,
+                        typical_latency_ms: None,
+                        performance_source: None,
                     });
                 } else {
                     new_models.push(ModelConfig {
@@ -468,6 +481,9 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_en: "Unlimited".to_string(),
                         source: ModelSource::Discovered,
                         supports_search_override: None,
+                        quality_tier: None,
+                        typical_latency_ms: None,
+                        performance_source: None,
                     });
                 }
             }
@@ -485,30 +501,24 @@ mod lifecycle_tests {
     use super::*;
 
     #[test]
-    fn retired_flash_lite_id_migrates_to_stable() {
+    fn benchmark_winner_is_default_and_first_vision_fallback() {
         assert_eq!(
-            normalize_model_id("gemini-3.1-flash-lite-preview"),
-            "gemini-3.1-flash-lite"
+            DEFAULT_IMAGE_MODEL_ID,
+            "google-gemini-3-5-flash-lite-vision"
         );
-    }
-
-    #[test]
-    fn retired_cerebras_ids_migrate_to_gpt_oss() {
-        for retired in ["llama_3_1_8b_cerebras", "qwen_3_235b_a22b_instruct_2507"] {
-            assert_eq!(normalize_model_id(retired), "gpt_oss_120b_cerebras");
-        }
-    }
-
-    #[test]
-    fn cerebras_gemma_is_default_and_first_vision_fallback() {
-        assert_eq!(DEFAULT_IMAGE_MODEL_ID, "gemma-4-31b-cerebras-vision");
         assert_eq!(
             default_image_to_text_priority_chain_ids().first().copied(),
             Some(DEFAULT_IMAGE_MODEL_ID)
         );
         let model = get_model_by_id(DEFAULT_IMAGE_MODEL_ID).expect("default vision model exists");
-        assert_eq!(model.provider, "cerebras");
-        assert_eq!(model.full_name, "gemma-4-31b");
+        assert_eq!(model.provider, "google");
+        assert_eq!(model.full_name, "gemini-3.5-flash-lite");
+        assert_eq!(model.quality_tier, Some(5));
+        assert_eq!(model.typical_latency_ms, Some(1500));
+        assert_eq!(
+            model.performance_source.as_deref(),
+            Some("benchmark-2026-07-23:vision")
+        );
     }
 
     #[test]

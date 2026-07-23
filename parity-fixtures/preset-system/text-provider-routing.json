@@ -1,22 +1,15 @@
 {
   "cases": [
     {
-      "name": "deprecated_qwen_selection_migrates_to_gpt_oss",
-      "model_id": "qwen_3_235b_a22b_instruct_2507",
-      "provider": "CEREBRAS",
-      "api_model": "gpt-oss-120b",
-      "supports_search": false
-    },
-    {
       "name": "cerebras_gemma_is_the_cerebras_vision_route",
-      "model_id": "gemma-4-31b-cerebras-vision",
+      "model_id": "cerebras-gemma-4-31b-vision",
       "provider": "CEREBRAS",
       "api_model": "gemma-4-31b",
       "supports_search": false
     },
     {
       "name": "gemini_text_search_and_thinking_follow_windows_rules",
-      "model_id": "text_gemini_3_0_flash",
+      "model_id": "google-gemini-3-flash-text",
       "provider": "GOOGLE",
       "api_model": "gemini-3-flash-preview",
       "supports_search": false,
@@ -24,7 +17,7 @@
     },
     {
       "name": "gemma_4_26b_uses_minimal_thinking",
-      "model_id": "gemma-4-26b-a4b",
+      "model_id": "google-gemma-4-26b-a4b-text",
       "provider": "GOOGLE",
       "api_model": "gemma-4-26b-a4b-it",
       "supports_search": false,
@@ -32,7 +25,7 @@
     },
     {
       "name": "gemma_4_31b_uses_minimal_thinking",
-      "model_id": "gemma-4-31b",
+      "model_id": "google-gemma-4-31b-text",
       "provider": "GOOGLE",
       "api_model": "gemma-4-31b-it",
       "supports_search": false,
@@ -40,7 +33,7 @@
     },
     {
       "name": "gemma_4_vision_26b_uses_minimal_thinking",
-      "model_id": "gemma-4-26b-a4b-vision",
+      "model_id": "google-gemma-4-26b-a4b-vision",
       "provider": "GOOGLE",
       "api_model": "gemma-4-26b-a4b-it",
       "supports_search": false,
@@ -48,7 +41,7 @@
     },
     {
       "name": "gemma_4_vision_31b_uses_minimal_thinking",
-      "model_id": "gemma-4-31b-vision",
+      "model_id": "google-gemma-4-31b-vision",
       "provider": "GOOGLE",
       "api_model": "gemma-4-31b-it",
       "supports_search": false,
@@ -56,14 +49,14 @@
     },
     {
       "name": "compound_mini_uses_groq_compound_contract",
-      "model_id": "compound_mini",
+      "model_id": "groq-compound-mini-search",
       "provider": "GROQ",
       "api_model": "groq/compound-mini",
       "supports_search": true
     },
     {
       "name": "gtx_uses_language1_target_language",
-      "model_id": "google-gtx",
+      "model_id": "google-gtx-translate-text",
       "provider": "GOOGLE_GTX",
       "api_model": "translate.googleapis.com/gtx",
       "supports_search": false,

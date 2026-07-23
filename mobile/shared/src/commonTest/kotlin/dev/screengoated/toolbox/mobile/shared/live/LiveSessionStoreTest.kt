@@ -29,14 +29,14 @@ class LiveSessionStoreTest {
             LiveTranslateParity.targetLanguageChangeRequiresRestart(
                 previousLanguage = "Vietnamese",
                 nextLanguage = "Korean",
-                transcriptionProviderId = "gemini-3.5-translate",
+                transcriptionProviderId = "google-gemini-3-5-live-translate-audio",
             ),
         )
         assertFalse(
             LiveTranslateParity.targetLanguageChangeRequiresRestart(
                 previousLanguage = "Vietnamese",
                 nextLanguage = "Korean",
-                transcriptionProviderId = "gemini-live-audio",
+                transcriptionProviderId = "google-gemini-2-5-live-transcribe-audio",
             ),
         )
         assertFalse(

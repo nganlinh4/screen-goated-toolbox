@@ -60,9 +60,9 @@ impl GeminiSubtitleBackend {
 
 pub fn gemini_subtitle_model_id(method: SubtitleGenerationMethod) -> &'static str {
     match method {
-        SubtitleGenerationMethod::Gemini3_1FlashLite => "gemini-audio-3.1-flash-lite",
-        SubtitleGenerationMethod::Gemini3FlashPreview => "gemini-audio-3.0-flash",
-        _ => "gemini-audio-3.1-flash-lite",
+        SubtitleGenerationMethod::Gemini3_1FlashLite => "google-gemini-3-1-flash-lite-audio",
+        SubtitleGenerationMethod::Gemini3FlashPreview => "google-gemini-3-flash-audio",
+        _ => "google-gemini-3-1-flash-lite-audio",
     }
 }
 

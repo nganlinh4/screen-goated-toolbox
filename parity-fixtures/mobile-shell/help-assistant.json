@@ -49,15 +49,15 @@
     },
     {
       "name": "model_chain",
-      "primary": "gemini-3.5-flash-lite",
-      "fallback": "gemini-3.1-flash-lite",
+      "primary": "google-gemini-3-5-flash-lite-vision",
+      "fallback": "google-gemini-3-1-flash-lite-vision",
       "max_output_tokens": 4096,
       "temperature": 0.7,
       "thinking_config": {
-        "gemini-3.5-flash-lite": {
+        "google-gemini-3-5-flash-lite-vision": {
           "thinkingLevel": "MINIMAL"
         },
-        "gemini-3.1-flash-lite": {
+        "google-gemini-3-1-flash-lite-vision": {
           "thinkingLevel": "MINIMAL"
         }
       }

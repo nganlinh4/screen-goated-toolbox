@@ -491,7 +491,7 @@ fn classify_autonomous_boundary(
 /// answer (validates chain resolution / keys / provider dispatch). `--cc-vision-test`.
 pub fn run_vision_test(target: Option<&str>, question: &str) -> Result<()> {
     // Start the Gemini Live worker pool so a gemini-live vision model
-    // (CC_VISION_MODEL=gemini-live-vision-3.1) is reachable from this CLI - it
+    // (CC_VISION_MODEL=google-gemini-3-1-live-vision) is reachable from this CLI - it
     // routes through that worker (image-attach -> audio -> outputTranscription).
     crate::api::gemini_live::init_gemini_live();
     std::thread::sleep(Duration::from_millis(200));

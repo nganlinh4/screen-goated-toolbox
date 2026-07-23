@@ -78,14 +78,17 @@ where
             {
                 (original_model_id.to_string(), original_provider.to_string())
             } else if !gemini_api_key.trim().is_empty() {
-                ("gemini-flash-lite".to_string(), "google".to_string())
+                (
+                    "google-gemini-2-5-flash-lite-text".to_string(),
+                    "google".to_string(),
+                )
             } else if !cerebras_api_key.trim().is_empty() {
                 (
                     crate::model_config::DEFAULT_TEXT_API_MODEL.to_string(),
                     "cerebras".to_string(),
                 )
             } else if !groq_api_key.trim().is_empty() {
-                ("text_fast_120b".to_string(), "groq".to_string())
+                ("groq-gpt-oss-120b-text".to_string(), "groq".to_string())
             } else {
                 (original_model_id.to_string(), original_provider.to_string())
             }

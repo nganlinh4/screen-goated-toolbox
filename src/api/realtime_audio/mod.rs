@@ -103,7 +103,7 @@ pub fn cancel_download_and_revert_to_gemini() {
             let script = r#"
                 if(window.hideDownloadModal) window.hideDownloadModal();
                 document.querySelectorAll('.trans-model-icon').forEach(icon => {
-                    icon.classList.toggle('active', icon.getAttribute('data-value') === 'gemini-3.5-translate');
+                    icon.classList.toggle('active', icon.getAttribute('data-value') === 'google-gemini-3-5-live-translate-audio');
                 });
             "#;
             REALTIME_WEBVIEWS.with(|wvs| {

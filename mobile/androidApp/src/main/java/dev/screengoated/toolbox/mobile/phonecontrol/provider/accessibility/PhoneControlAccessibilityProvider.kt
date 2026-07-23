@@ -10,6 +10,7 @@ import android.view.accessibility.AccessibilityEvent
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayExclusion
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
+import dev.screengoated.toolbox.mobile.service.ScreenshotCaptureFailureReason
 import dev.screengoated.toolbox.mobile.service.ScreenshotCaptureResult
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -46,6 +47,7 @@ internal object PhoneControlAccessibilityProvider {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val loggedWindowCapture = AtomicBoolean(false)
     private val loggedDisplayCapture = AtomicBoolean(false)
+    private val loggedInvalidWindowFallback = AtomicBoolean(false)
 
     @Volatile
     private var service: SgtAccessibilityService? = null
@@ -275,16 +277,35 @@ internal object PhoneControlAccessibilityProvider {
             if (loggedWindowCapture.compareAndSet(false, true)) {
                 Log.i(TAG, "screenshot_route route=window_scoped overlay_mutated=false")
             }
-            captureScreenshot(windowBounds, windowId) { callback ->
+            val windowResult = captureScreenshot(windowBounds, windowId) { callback ->
                 activeService.captureWindowScreenshot(platformWindowId, callback)
             }
+            if (windowResult is AccessibilityProviderResult.Failure &&
+                windowResult.code == INVALID_WINDOW_SCREENSHOT_CODE
+            ) {
+                if (loggedInvalidWindowFallback.compareAndSet(false, true)) {
+                    Log.i(
+                        TAG,
+                        "screenshot_window_stale recovery=display_scoped overlay_suppressed=true",
+                    )
+                }
+                captureDisplayScreenshot(activeService)
+            } else {
+                windowResult
+            }
         } else {
-            if (loggedDisplayCapture.compareAndSet(false, true)) {
-                Log.i(TAG, "screenshot_route route=display_scoped overlay_suppressed=true")
-            }
-            PhoneControlOverlayExclusion.forCapture {
-                captureScreenshot(null, null, activeService::captureScreenshot)
-            }
+            captureDisplayScreenshot(activeService)
+        }
+    }
+
+    private suspend fun captureDisplayScreenshot(
+        activeService: SgtAccessibilityService,
+    ): AccessibilityProviderResult<AccessibilityScreenshot> {
+        if (loggedDisplayCapture.compareAndSet(false, true)) {
+            Log.i(TAG, "screenshot_route route=display_scoped overlay_suppressed=true")
+        }
+        return PhoneControlOverlayExclusion.forCapture {
+            captureScreenshot(null, null, activeService::captureScreenshot)
         }
     }
 
@@ -316,6 +337,8 @@ internal object PhoneControlAccessibilityProvider {
                         code = "screenshot_${result.reason.name.lowercase()}",
                         message = "Accessibility screenshot failed: ${result.reason.name.lowercase()}.",
                         retryable = result.reason.name in RETRYABLE_SCREENSHOT_FAILURES,
+                        freshObservationRequired =
+                            result.reason == ScreenshotCaptureFailureReason.INVALID_TARGET,
                     )
                 }
                 continuation.resume(mapped)
@@ -481,8 +504,10 @@ internal object PhoneControlAccessibilityProvider {
         "RATE_LIMITED",
         "REQUEST_FAILED",
         "SERVICE_UNAVAILABLE",
+        "INVALID_TARGET",
     )
 
+    private const val INVALID_WINDOW_SCREENSHOT_CODE = "screenshot_invalid_target"
     private const val TAG = "SGTPhoneControlAccessibility"
 }
 

@@ -42,7 +42,7 @@ class PresetRetryChainTest {
         assertEquals(
             "NO_API_KEY:google",
             preflightSkipReason(
-                modelId = "text_gemini_3_0_flash",
+                modelId = "google-gemini-3-flash-text",
                 provider = PresetModelProvider.GOOGLE,
                 apiKeys = ApiKeys(),
                 blockedProviders = emptySet(),
@@ -70,8 +70,8 @@ class PresetRetryChainTest {
     @Test
     fun retryResolutionUsesWindowsDefaultChainFirst() {
         val next = resolveNextRetryModel(
-            currentModelId = "gemma-4-26b-a4b",
-            failedModelIds = listOf("gemma-4-26b-a4b"),
+            currentModelId = "google-gemma-4-26b-a4b-text",
+            failedModelIds = listOf("google-gemma-4-26b-a4b-text"),
             blockedProviders = emptySet(),
             chainKind = PresetRetryChainKind.TEXT_TO_TEXT,
             apiKeys = ApiKeys(
@@ -85,7 +85,7 @@ class PresetRetryChainTest {
         )
 
         assertNotNull(next)
-        assertEquals("gpt_oss_120b_cerebras", next?.id)
+        assertEquals("google-gemma-4-31b-text", next?.id)
     }
 
     @Test
@@ -93,7 +93,7 @@ class PresetRetryChainTest {
         assertEquals(
             "PROVIDER_DISABLED:google",
             preflightSkipReason(
-                modelId = "text_gemini_3_0_flash",
+                modelId = "google-gemini-3-flash-text",
                 provider = PresetModelProvider.GOOGLE,
                 apiKeys = ApiKeys(geminiKey = "g"),
                 blockedProviders = emptySet(),

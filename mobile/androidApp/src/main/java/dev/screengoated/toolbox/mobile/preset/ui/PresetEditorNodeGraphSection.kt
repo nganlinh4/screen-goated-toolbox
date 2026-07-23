@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_TEXT_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_TRANSCRIBE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 
@@ -404,7 +406,7 @@ internal fun NodeGraphSection(
                                 showAddMenu = false
                                 val newBlock =
                                     dev.screengoated.toolbox.mobile.shared.preset.textBlock(
-                                        "gemma-4-26b-a4b",
+                                        "google-gemma-4-26b-a4b-text",
                                         "Translate to {language1}. Output ONLY the translation.",
                                         "language1" to "Vietnamese",
                                     )
@@ -432,17 +434,17 @@ internal fun NodeGraphSection(
                             val specialBlockType = when (editorTypeGroup) {
                                 EditorTypeGroup.IMAGE -> BlockType.IMAGE
                                 EditorTypeGroup.AUDIO -> BlockType.AUDIO
-                                else -> BlockType.TEXT
+                                EditorTypeGroup.TEXT -> BlockType.TEXT
                             }
                             val defaultModel = when (editorTypeGroup) {
                                 EditorTypeGroup.IMAGE -> DEFAULT_IMAGE_MODEL_ID
-                                EditorTypeGroup.AUDIO -> "whisper-accurate"
-                                else -> "gemma-4-26b-a4b"
+                                EditorTypeGroup.AUDIO -> PRESET_AUDIO_TRANSCRIBE_MODEL_ID
+                                EditorTypeGroup.TEXT -> DEFAULT_TEXT_MODEL_ID
                             }
                             val specialLabel = when (editorTypeGroup) {
                                 EditorTypeGroup.IMAGE -> localized(lang, "Add Image → Text Node", "Thêm node Ảnh → Text", "이미지 → 텍스트 노드 추가")
                                 EditorTypeGroup.AUDIO -> localized(lang, "Add Audio → Text Node", "Thêm node Audio → Text", "오디오 → 텍스트 노드 추가")
-                                else -> localized(lang, "Add Special Node", "Thêm node đặc biệt", "특별 노드 추가")
+                                EditorTypeGroup.TEXT -> localized(lang, "Add Special Node", "Thêm node đặc biệt", "특별 노드 추가")
                             }
                             DropdownMenuItem(
                                 text = { Text(specialLabel) },
@@ -471,7 +473,7 @@ internal fun NodeGraphSection(
                                         painterResource(when (editorTypeGroup) {
                                             EditorTypeGroup.IMAGE -> R.drawable.ms_image
                                             EditorTypeGroup.AUDIO -> R.drawable.ms_mic
-                                            else -> R.drawable.ms_auto_awesome
+                                            EditorTypeGroup.TEXT -> R.drawable.ms_auto_awesome
                                         }),
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp),
@@ -490,4 +492,3 @@ internal fun NodeGraphSection(
 // =============================================================================
 // Section 4: Auto-paste
 // =============================================================================
-

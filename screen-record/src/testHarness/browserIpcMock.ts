@@ -50,7 +50,7 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
     case "get_subtitle_generation_capabilities":
       return { methods: [], available: false, reason: "test harness" };
     case "get_subtitle_translation_capabilities":
-      return { methods: [], available: false, reason: "test harness" };
+      return { models: [], available: false, reason: "test harness" };
     case "get_narration_tts_metadata":
       return {
         providers: [

@@ -185,6 +185,7 @@ internal fun UsageStatsDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            ModelPerformancePrefix(model)
                             Text(
                                 text = model.localizedName(lang),
                                 style = MaterialTheme.typography.bodyMedium,

@@ -74,7 +74,10 @@ pub fn render_usage_modal(
                                 if shown_models.contains(&model.full_name) { continue; }
                                 shown_models.insert(model.full_name.clone());
 
-                                ui.label(&model.full_name);
+                                ui.horizontal(|ui| {
+                                    crate::gui::model_performance::render_prefix(ui, model);
+                                    ui.label(&model.full_name);
+                                });
 
                                 if model.model_type == crate::model_config::ModelType::Audio {
                                     ui.label("");
@@ -123,7 +126,10 @@ pub fn render_usage_modal(
                                 if shown_models.contains(&model.full_name) { continue; }
                                 shown_models.insert(model.full_name.clone());
 
-                                ui.label(&model.full_name);
+                                ui.horizontal(|ui| {
+                                    crate::gui::model_performance::render_prefix(ui, model);
+                                    ui.label(&model.full_name);
+                                });
 
                                 let static_limit = model.quota_limit_en.split_whitespace().next().unwrap_or("?");
                                 let default_status = format!("??? / {}", static_limit);
@@ -190,7 +196,10 @@ pub fn render_usage_modal(
                             if shown_models.contains(&model.full_name) { continue; }
                             shown_models.insert(model.full_name.clone());
 
-                            ui.label(&model.full_name);
+                            ui.horizontal(|ui| {
+                                crate::gui::model_performance::render_prefix(ui, model);
+                                ui.label(&model.full_name);
+                            });
                         }
                     });
                 }
@@ -219,7 +228,10 @@ pub fn render_usage_modal(
                             if shown_models.contains(&model.full_name) { continue; }
                             shown_models.insert(model.full_name.clone());
 
-                            ui.label(&model.full_name);
+                            ui.horizontal(|ui| {
+                                crate::gui::model_performance::render_prefix(ui, model);
+                                ui.label(&model.full_name);
+                            });
                         }
                     });
                 }
@@ -248,7 +260,10 @@ pub fn render_usage_modal(
                             if shown_models.contains(&model.full_name) { continue; }
                             shown_models.insert(model.full_name.clone());
 
-                            ui.label(&model.full_name);
+                            ui.horizontal(|ui| {
+                                crate::gui::model_performance::render_prefix(ui, model);
+                                ui.label(&model.full_name);
+                            });
                         }
                     });
                 }

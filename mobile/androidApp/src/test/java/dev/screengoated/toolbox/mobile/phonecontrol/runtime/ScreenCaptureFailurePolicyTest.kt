@@ -6,23 +6,35 @@ import org.junit.Test
 
 class ScreenCaptureFailurePolicyTest {
     @Test
-    fun `frame races and absence of an external surface stay transient`() {
-        listOf(
-            "surface_unavailable",
-            "surface_unstable",
-            "stale_frame",
-            "screenshot_rate_limited",
-        ).forEach { code -> assertTrue(code, isTransientScreenFrameFailure(code)) }
+    fun `retryable failures become visible only after the bounded grace period`() {
+        val policy = ScreenCaptureFailurePolicy()
+
+        assertFalse(policy.shouldPublish("temporary_failure", retryable = true))
+        assertFalse(policy.shouldPublish("temporary_failure", retryable = true))
+        assertTrue(policy.shouldPublish("temporary_failure", retryable = true))
     }
 
     @Test
-    fun `platform and processing failures remain visible`() {
-        listOf(
-            "screenshot_capability_missing",
-            "screenshot_secure_window",
-            "screenshot_request_failed",
-            "screenshot_processing_failed",
-            "unsupported_display",
-        ).forEach { code -> assertFalse(code, isTransientScreenFrameFailure(code)) }
+    fun `a different retryable outcome starts a fresh grace period`() {
+        val policy = ScreenCaptureFailurePolicy()
+
+        repeat(2) { assertFalse(policy.shouldPublish("first_failure", retryable = true)) }
+        assertFalse(policy.shouldPublish("second_failure", retryable = true))
+    }
+
+    @Test
+    fun `non retryable failure is visible immediately`() {
+        val policy = ScreenCaptureFailurePolicy()
+
+        assertTrue(policy.shouldPublish("hard_failure", retryable = false))
+    }
+
+    @Test
+    fun `successful frame resets accumulated failures`() {
+        val policy = ScreenCaptureFailurePolicy()
+
+        repeat(2) { assertFalse(policy.shouldPublish("temporary_failure", retryable = true)) }
+        policy.reset()
+        assertFalse(policy.shouldPublish("temporary_failure", retryable = true))
     }
 }
