@@ -5,6 +5,9 @@ internal class PlatformUserStepSlot {
     private val lock = Any()
     private var token: PlatformUserStepToken? = null
 
+    val active: Boolean
+        get() = synchronized(lock) { token != null }
+
     fun begin(): Boolean = synchronized(lock) {
         if (token != null) return@synchronized false
         token = PlatformUserStepSessionRegistry.begin()

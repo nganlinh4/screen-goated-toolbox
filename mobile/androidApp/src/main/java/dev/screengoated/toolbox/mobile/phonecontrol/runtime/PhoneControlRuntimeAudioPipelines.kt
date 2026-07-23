@@ -3,12 +3,10 @@ package dev.screengoated.toolbox.mobile.phonecontrol.runtime
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
-import dev.screengoated.toolbox.mobile.shared.live.GenerationPlaybackChunk
 import dev.screengoated.toolbox.mobile.shared.live.GenerationPlaybackGate
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.collect
 import java.util.concurrent.atomic.AtomicInteger
@@ -19,7 +17,7 @@ internal class PhoneControlRuntimeAudioPipelines(
     private val playbackGate: GenerationPlaybackGate,
     private val audioFrames: SendChannel<ShortArray>,
     private val bufferedAudio: AtomicInteger,
-    private val playback: ReceiveChannel<GenerationPlaybackChunk>,
+    private val playback: PhoneControlPlaybackQueue,
     private val onListeningLevel: (Float) -> Unit,
 ) {
     suspend fun captureMicrophone() {
@@ -50,7 +48,7 @@ internal class PhoneControlRuntimeAudioPipelines(
     }
 
     suspend fun playOutput() {
-        for (chunk in playback) {
+        playback.consume { chunk ->
             playbackGate.playIfCurrent(chunk) { bytes ->
                 audioPlayer.playNativePcm24k(bytes, DEFAULT_OUTPUT_VOLUME_PERCENT)
             }

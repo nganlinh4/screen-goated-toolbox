@@ -21,7 +21,6 @@ import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReadySession
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReceiveResult
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionFailure
-import dev.screengoated.toolbox.mobile.shared.live.GenerationPlaybackChunk
 import dev.screengoated.toolbox.mobile.shared.live.GenerationPlaybackGate
 import dev.screengoated.toolbox.mobile.shared.live.openGeminiLiveConnectedSession
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
@@ -41,11 +40,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-
 internal class PhoneControlRuntime(
     context: Context,
     private val httpClient: OkHttpClient,
@@ -57,6 +54,7 @@ internal class PhoneControlRuntime(
     memoryRepository: PhoneControlMemoryRepository,
     dispatchBoundary: PhoneControlToolDispatchBoundary,
     observer: PhoneControlRuntimeObserver,
+    private val onUserInterfaceGoalFinished: (PhoneControlUiGoalCompletion) -> Unit = {},
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -64,20 +62,19 @@ internal class PhoneControlRuntime(
     private val stopRequested = AtomicBoolean(false)
     private val resourcesReleased = AtomicBoolean(false)
     private val transportReady = AtomicBoolean(false)
+    private val visualEvidence = PhoneControlRuntimeVisualEvidence()
     private val protocolAbortRequested = AtomicBoolean(false)
     private val discardOutboundUntilFreshConnection = AtomicBoolean(false)
     private val screenReconciliationQueued = AtomicBoolean(false)
     private val bufferedAudio = AtomicInteger(0)
-    private val lastLevelUpdateMs = AtomicLong(0L)
     private val audioFramesSent = AtomicLong(0L)
     private val screenFramesSent = AtomicLong(0L)
     private val serverFramesReceived = AtomicLong(0L)
-    private val speechObserved = AtomicBoolean(false)
+    private val userInterfaceGoals = PhoneControlUserInterfaceGoalQueue()
     private val audioCapture = AudioCaptureController(appContext, projectionConsentStore)
     private val audioPlayer = AudioTrackPlayer(appContext)
     private val playbackGate = GenerationPlaybackGate()
-    private val voiceActivity = VoiceActivityHangover(SPEECH_RMS_THRESHOLD, SPEECH_HANGOVER_MS)
-    private val outboundDiagnostics = PhoneControlOutboundDiagnostics(SystemClock::elapsedRealtime)
+    private val outboundSender = PhoneControlOutboundSender()
 
     private val audioFrames = Channel<ShortArray>(
         capacity = MAX_BUFFERED_AUDIO_FRAMES,
@@ -93,10 +90,7 @@ internal class PhoneControlRuntime(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     private val controlPayloads = PhoneControlSessionPayloadQueue()
-    private val playback = Channel<GenerationPlaybackChunk>(
-        capacity = MAX_BUFFERED_PLAYBACK_CHUNKS,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    private val playback = PhoneControlPlaybackQueue(MAX_BUFFERED_PLAYBACK_CHUNKS)
     private val audioPipelines = PhoneControlRuntimeAudioPipelines(
         audioCapture = audioCapture,
         audioPlayer = audioPlayer,
@@ -104,58 +98,57 @@ internal class PhoneControlRuntime(
         audioFrames = audioFrames,
         bufferedAudio = bufferedAudio,
         playback = playback,
-        onListeningLevel = ::updateListeningLevel,
+        onListeningLevel = { level -> inputActivity.observe(level) },
     )
 
     private val statusPublisher = PhoneControlRuntimeStatusPublisher(
         observer = observer,
         isTransportReady = transportReady::get,
     )
-
     @Volatile
     private var resumptionHandle: String? = null
-
     private val turnRecorder = PhoneControlMemoryTurnRecorder(memoryRepository)
-
     private val turnCoordinator = PhoneControlTurnCoordinator(
         executor = PhoneControlDispatcherToolExecutor(dispatchBoundary, scope),
         scope = scope,
         sink = PhoneControlRuntimeTurnSink(
             send = { payload ->
-                offerControlPayload(payload, PhoneControlOutboundKind.TOOL_RESPONSE)
+                offerPhoneControlPayload(
+                    controlPayloads,
+                    protocolAbortRequested,
+                    payload,
+                    PhoneControlOutboundKind.TOOL_RESPONSE,
+                )
             },
             sendEvidence = { payload ->
-                while (screenFrames.tryReceive().isSuccess) {
-                    // Retire older periodic frames before exact tool-owned evidence.
-                }
-                offerControlPayload(payload, PhoneControlOutboundKind.TOOL_SCREEN_EVIDENCE)
+                visualEvidence.offerExact(payload, screenFrames, controlPayloads)
             },
-            play = { bytes -> playback.trySend(playbackGate.tag(bytes)) },
+            play = { bytes -> playback.offer(playbackGate.tag(bytes)) },
             interrupt = { playbackGate.interrupt(audioPlayer::stopImmediate) },
-            discard = {
-                while (playback.tryReceive().isSuccess) {
-                    // Drain current-generation chunks admitted before interruption.
-                }
-            },
+            discard = playback::discard,
             inputCaption = { text -> statusPublisher.updateCaption(input = text) },
             outputCaption = { text -> statusPublisher.updateCaption(output = text) },
             orbPresentation = statusPublisher::updateOrbPresentation,
             phase = statusPublisher::publishTurnPhase,
-            reconcile = {
-                statusPublisher.publish(
-                    phase = PhoneControlRuntimePhase.DEGRADED,
-                    code = PhoneControlRuntimeCode.TOOL_RECONCILIATION_REQUIRED,
-                    message = "A tool effect must be observed again before more changes.",
-                )
-            },
             refresh = { screenRefreshRequests.trySend(Unit) },
             abortProtocol = { protocolAbortRequested.set(true) },
         ),
         recorder = turnRecorder,
     )
+    private val inputActivity by lazy {
+        PhoneControlRuntimeInputActivity(
+            onFirstSpeech = { Log.i(TAG, "microphone_speech_detected") },
+            onSpeechActive = {
+                val output = audioPlayer.debugSnapshot()
+                turnCoordinator.userSpeechStarted(output.active || output.pendingFrames > 0L)
+            },
+            onLevel = statusPublisher::updateListeningLevel,
+        )
+    }
     private val screenStreamer = PhoneControlScreenStreamer(
         running = running,
         transportReady = transportReady,
+        visualEvidenceEnabled = visualEvidence.enabled,
         screenFrames = screenFrames,
         refreshRequests = screenRefreshRequests,
         reconciliationFrameQueued = screenReconciliationQueued,
@@ -243,10 +236,37 @@ internal class PhoneControlRuntime(
         releaseResources()
     }
 
+    fun submitUserInterfaceGoal(text: String): Long? {
+        val result = userInterfaceGoals.offer(
+            text = text,
+            runtimeReady = running.get() && !resourcesReleased.get(),
+        )
+        if (result.disposition == PhoneControlUiGoalOffer.REJECTED) return null
+        screenRefreshRequests.trySend(Unit)
+        Log.i(
+            TAG,
+            "ui_goal_queued id=${result.id} " +
+                "replaced=${result.disposition == PhoneControlUiGoalOffer.REPLACED}",
+        )
+        return result.id
+    }
+
+    fun suspendVisualEvidence() {
+        visualEvidence.suspend(
+            screenFrames,
+            screenRefreshRequests,
+            controlPayloads,
+            screenReconciliationQueued,
+        )
+    }
+
+    fun resumeVisualEvidence() = visualEvidence.resume(screenRefreshRequests)
+
     private suspend fun runTransportLoop() {
         var readyGeneration = 0L
         while (currentCoroutineContext().isActive && running.get()) {
             turnCoordinator.drainToolCompletions()
+            settleUserInterfaceGoalIfReady()
             if (abortOverflowedProtocolSession()) continue
             val connection = lifecycle.ensureReady()
             if (lifecycle.state.phase == GeminiLiveLifecyclePhase.FAILED) break
@@ -265,7 +285,7 @@ internal class PhoneControlRuntime(
             lifecycle.updateWorkState(
                 pendingWorkCount = turnCoordinator.pendingWorkCount.toLong(),
                 bufferedInputCount = bufferedAudio.get().coerceAtLeast(0).toLong(),
-                userSpeaking = voiceActivity.isActive(SystemClock.elapsedRealtime()),
+                userSpeaking = inputActivity.isActive(SystemClock.elapsedRealtime()),
             )
             when (val received = connection.session.receive(RECEIVE_POLL_MS)) {
                 GeminiLiveReceiveResult.TimedOut -> lifecycle.tick()
@@ -283,7 +303,7 @@ internal class PhoneControlRuntime(
                         "transport_closed code=${received.code ?: -1} reason=$reason " +
                             "pending=${turnCoordinator.pendingWorkCount} " +
                             "control_count=${queued.count} control_bytes=${queued.utf8Bytes} " +
-                            "outbound_tail=${outboundDiagnostics.describe()}",
+                            "outbound_tail=${outboundSender.describe()}",
                     )
                     lifecycle.transportFailed(connection.generation)
                 }
@@ -344,20 +364,33 @@ internal class PhoneControlRuntime(
     }
 
     private fun flushOutbound(session: GeminiLiveReadySession): Boolean {
+        visualEvidence.discardPending(screenFrames, controlPayloads)
         while (true) {
             val queued = controlPayloads.next() ?: break
-            if (!trySendOutbound(session, queued.payload, queued.kind, queued.utf8Bytes)) {
+            if (!outboundSender.send(
+                    session = session,
+                    payload = queued.payload,
+                    kind = queued.kind,
+                    pendingWork = turnCoordinator.pendingWorkCount,
+                    turnPhase = turnCoordinator.phase,
+                    utf8Bytes = queued.utf8Bytes,
+                )
+            ) {
                 return false
             }
             controlPayloads.markSent(queued)
         }
-        if (canSendAmbientScreen(turnCoordinator.pendingWorkCount)) {
+        if (visualEvidence.enabled.get() &&
+            canSendAmbientScreen(turnCoordinator.pendingWorkCount)
+        ) {
             val screenPayload = screenFrames.tryReceive().getOrNull()
             if (screenPayload != null) {
-                if (!trySendOutbound(
-                        session,
-                        screenPayload,
-                        PhoneControlOutboundKind.AMBIENT_SCREEN,
+                if (!outboundSender.send(
+                        session = session,
+                        payload = screenPayload,
+                        kind = PhoneControlOutboundKind.AMBIENT_SCREEN,
+                        pendingWork = turnCoordinator.pendingWorkCount,
+                        turnPhase = turnCoordinator.phase,
                     )
                 ) return false
                 val sent = screenFramesSent.incrementAndGet()
@@ -368,14 +401,27 @@ internal class PhoneControlRuntime(
                 }
             }
         }
+        if (!userInterfaceGoals.flushRuntimeGoal(
+                session,
+                turnCoordinator.phase,
+                turnCoordinator.pendingWorkCount,
+                inputActivity.isActive(SystemClock.elapsedRealtime()),
+                outboundSender,
+            ) {
+                lifecycle.inputSent()
+                Log.i(TAG, "ui_goal_sent")
+            }
+        ) return false
         repeat(MAX_AUDIO_FRAMES_PER_FLUSH) {
             val samples = audioFrames.tryReceive().getOrNull() ?: return@repeat
             bufferedAudio.updateAndGet { (it - 1).coerceAtLeast(0) }
             val payload = buildPhoneControlAudioPayload(samples)
-            if (!trySendOutbound(
-                    session,
-                    payload,
-                    PhoneControlOutboundKind.MICROPHONE_AUDIO,
+            if (!outboundSender.send(
+                    session = session,
+                    payload = payload,
+                    kind = PhoneControlOutboundKind.MICROPHONE_AUDIO,
+                    pendingWork = turnCoordinator.pendingWorkCount,
+                    turnPhase = turnCoordinator.phase,
                 )
             ) return false
             val sent = audioFramesSent.incrementAndGet()
@@ -386,31 +432,6 @@ internal class PhoneControlRuntime(
             lifecycle.inputActivity()
         }
         return true
-    }
-
-    private fun trySendOutbound(
-        session: GeminiLiveReadySession,
-        payload: String,
-        kind: PhoneControlOutboundKind,
-        utf8Bytes: Int = payload.toByteArray(StandardCharsets.UTF_8).size,
-    ): Boolean {
-        val accepted = session.trySend(payload)
-        outboundDiagnostics.record(
-            kind = kind,
-            utf8Bytes = utf8Bytes,
-            pendingWork = turnCoordinator.pendingWorkCount,
-            turnPhase = turnCoordinator.phase,
-            accepted = accepted,
-        )
-        if (!accepted) {
-            Log.w(
-                TAG,
-                "transport_send_rejected kind=${kind.contractValue} bytes=$utf8Bytes " +
-                    "pending=${turnCoordinator.pendingWorkCount} " +
-                    "phase=${turnCoordinator.phase.name.lowercase()}",
-            )
-        }
-        return accepted
     }
 
     private suspend fun observeServerFrame(
@@ -447,6 +468,20 @@ internal class PhoneControlRuntime(
             ),
         )
         turnCoordinator.handleFrame(frame, effects)
+        if (frame.interrupted || frame.turnComplete || frame.generationComplete) {
+            userInterfaceGoals.observeTurnBoundary(frame.interrupted)
+                ?.let(onUserInterfaceGoalFinished)
+        }
+    }
+
+    private fun settleUserInterfaceGoalIfReady() {
+        if (!userInterfaceGoals.awaitingSettlement) return
+        val pendingFrames = audioPlayer.debugSnapshot().pendingFrames
+        userInterfaceGoals.settle(
+            phase = turnCoordinator.phase,
+            pendingWorkCount = turnCoordinator.pendingWorkCount,
+            playbackDrained = playback.isDrained(pendingFrames),
+        )?.let(onUserInterfaceGoalFinished)
     }
 
     private suspend fun observeReceiveFailure(
@@ -523,39 +558,17 @@ internal class PhoneControlRuntime(
         }
     }
 
-    private fun updateListeningLevel(level: Float) {
-        val now = SystemClock.elapsedRealtime()
-        if (voiceActivity.observe(level, now)) {
-            if (speechObserved.compareAndSet(false, true)) {
-                Log.i(TAG, "microphone_speech_detected")
-            }
-            val playback = audioPlayer.debugSnapshot()
-            turnCoordinator.userSpeechStarted(playback.active || playback.pendingFrames > 0L)
-        }
-        val previous = lastLevelUpdateMs.get()
-        if (now - previous < LEVEL_UPDATE_INTERVAL_MS ||
-            !lastLevelUpdateMs.compareAndSet(previous, now)
-        ) {
-            return
-        }
-        statusPublisher.updateListeningLevel(level)
-    }
-
-    private fun offerControlPayload(payload: String, kind: PhoneControlOutboundKind): Boolean {
-        val accepted = controlPayloads.offer(payload, kind)
-        if (!accepted) protocolAbortRequested.set(true)
-        return accepted
-    }
     private fun releaseResources() {
         if (!resourcesReleased.compareAndSet(false, true)) return
         Log.i(
             TAG,
             "runtime_released requested=${stopRequested.get()} " +
                 "audio_frames=${audioFramesSent.get()} screen_frames=${screenFramesSent.get()} " +
-                "server_frames=${serverFramesReceived.get()} speech=${speechObserved.get()}",
+                "server_frames=${serverFramesReceived.get()} speech=${inputActivity.speechObserved}",
         )
         running.set(false)
         transportReady.set(false)
+        userInterfaceGoals.clear()
         turnRecorder.finalizeSession()
         turnCoordinator.stop()
         audioFrames.close()
@@ -575,14 +588,5 @@ internal class PhoneControlRuntime(
 
     private companion object {
         const val TAG = "SGTPhoneControl"
-        const val TRANSPORT_POLL_MS = 40L
-        const val RECEIVE_POLL_MS = 40L
-        const val MAX_TRANSPORT_REASON_CHARS = 240
-        const val LEVEL_UPDATE_INTERVAL_MS = 50L
-        const val MAX_BUFFERED_AUDIO_FRAMES = 24
-        const val MAX_AUDIO_FRAMES_PER_FLUSH = 8
-        const val MAX_BUFFERED_PLAYBACK_CHUNKS = 32
-        const val SPEECH_RMS_THRESHOLD = 0.015f
-        const val SPEECH_HANGOVER_MS = 800L
     }
 }

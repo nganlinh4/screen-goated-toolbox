@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 11,
+  "schemaVersion": 14,
   "feature": "phone-control",
   "canonicalFeature": "computer-control",
   "distribution": {
@@ -36,6 +36,7 @@
     "newMutationAllowedWhileAcceptedEffectRetiring": false,
     "rootCancellationScope": "exact_operation_root_and_owned_descendants",
     "shizukuCancellationScope": "exact_remote_operation",
+    "firstPartyAdbCancellationScope": "exact_authenticated_stream",
     "shizukuGlobalServiceDestructionAllowed": false,
     "platformDispatchRunsUnderOwnerMonitor": false,
     "inFlightPlatformDispatchCancellationCertainty": "effect_may_have_occurred"
@@ -183,8 +184,11 @@
     {
       "id": "media_projection",
       "authority": "user_consent_session",
-      "optional": true,
-      "consentPerSession": true
+      "optional": false,
+      "consentPerSession": true,
+      "scope": "whole_default_display",
+      "singleConsumption": true,
+      "revocation": "stop_phone_control"
     },
     {
       "id": "notification_listener",
@@ -224,6 +228,17 @@
       "optional": true,
       "readiness": "implemented_mobile_benchmark_required",
       "role": "blind_surface_clickable_region_marks"
+    },
+    {
+      "id": "sgt_adb_bridge",
+      "authority": "shell",
+      "optional": true,
+      "minimumApi": 30,
+      "requiresUserGrant": true,
+      "pairing": "wireless_debugging_local_mdns",
+      "credentialStorage": "android_keystore",
+      "survivesReboot": "probe_and_authenticated_reconnect_required",
+      "lanListener": false
     },
     {
       "id": "shizuku_shell",
@@ -319,7 +334,7 @@
     },
     {
       "capability": "command_execution",
-      "providers": ["shizuku_shell", "root_bridge", "privileged_system"]
+      "providers": ["sgt_adb_bridge", "shizuku_shell", "root_bridge", "privileged_system"]
     },
     {
       "capability": "browser_semantic",
@@ -535,7 +550,17 @@
       "arbitraryAndroidGeometry": "unsupported_on_surface"
     },
     "visualObservation": {
-      "provider": "accessibility",
+      "provider": "accessibility_then_media_projection",
+      "requiredSessionProviders": ["accessibility", "media_projection"],
+      "projectionRole": "whole_display_and_accessibility_pixel_fallback",
+      "projectionConsent": "fresh_single_use_grant_per_session",
+      "projectionLoss": "stop_phone_control",
+      "plannedProtectedCheckpoint": {
+        "visualEvidence": "sealed_and_drained",
+        "liveRuntime": "kept_alive",
+        "resume": "fresh_projection_attached",
+        "unexpectedLoss": "stop_phone_control"
+      },
       "normalFrame": "current_view_with_numbered_6x5_grid",
       "activeView": "active_default_display_application_surface",
       "wholeScreenView": "complete_default_display_capture",

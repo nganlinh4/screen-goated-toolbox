@@ -2,12 +2,14 @@ package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
 import android.content.Context
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
+import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProviderRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.RootCommandBridge
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuCommandBridge
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProvider
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
+import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
@@ -18,11 +20,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-
-internal enum class CommandAuthority(val providerId: String) {
-    SHIZUKU("shizuku_shell"),
-    ROOT("root_bridge"),
-}
 
 internal data class CommandProviderAvailability(
     val state: CapabilityState,
@@ -44,11 +41,13 @@ internal sealed interface CommandProviderExecution {
 }
 
 internal interface CommandToolBackend {
-    fun probe(authority: CommandAuthority): CommandProviderAvailability
+    val providerIds: List<String>
+
+    fun probe(providerId: String): CommandProviderAvailability
 
     suspend fun execute(
         job: PhoneControlToolJobContext,
-        authority: CommandAuthority,
+        providerId: String,
         program: String,
         args: List<String>,
         cwd: String,
@@ -58,50 +57,82 @@ internal interface CommandToolBackend {
 
 internal class AndroidCommandToolBackend(context: Context) : CommandToolBackend {
     private val context = context.applicationContext
+    private val providersById: Map<String, PrivilegedCommandProvider> =
+        PrivilegedCommandProviderRegistry
+            .ordered(
+                PhoneControlProviderRegistry.providersFor(
+                    this.context,
+                    COMMAND_CAPABILITY,
+                ),
+            )
+            .associateBy(PrivilegedCommandProvider::providerId)
 
-    override fun probe(authority: CommandAuthority): CommandProviderAvailability = when (authority) {
-        CommandAuthority.SHIZUKU -> ShizukuCommandBridge.probe(context).let {
-            CommandProviderAvailability(it.state, it.requiredUserStep)
+    override val providerIds: List<String> = providersById.keys.toList()
+
+    override fun probe(providerId: String): CommandProviderAvailability =
+        probeSelected(providerId) {
+            providersById[providerId]
+                ?.probe(context)
+                ?.let { CommandProviderAvailability(it.state, it.requiredUserStep) }
+                ?: CommandProviderAvailability(
+                    CapabilityState.UNSUPPORTED,
+                    "No command provider implementation is installed.",
+                )
         }
-        CommandAuthority.ROOT -> RootCommandBridge.probe().let {
-            CommandProviderAvailability(it.state, it.requiredUserStep)
-        }
-    }
 
     override suspend fun execute(
         job: PhoneControlToolJobContext,
-        authority: CommandAuthority,
+        providerId: String,
         program: String,
         args: List<String>,
         cwd: String,
         timeoutMs: Long,
     ): CommandProviderExecution {
+        if (!PhoneControlPowerPreferences.enablesProvider(context, providerId)) {
+            return CommandProviderExecution.Failure(
+                code = "provider_not_selected",
+                message = "This elevated authority is not selected.",
+                state = CapabilityState.UNAVAILABLE,
+                guidance = "Select the authority from the Phone Control orb.",
+                effectMayHaveOccurred = false,
+            )
+        }
+        val provider = providersById[providerId]
+            ?: return CommandProviderExecution.Failure(
+                code = "provider_not_implemented",
+                message = "The selected authority has no command provider implementation.",
+                state = CapabilityState.UNSUPPORTED,
+                effectMayHaveOccurred = false,
+            )
         val lease = when (val prepared = PhoneControlAccessibilityProvider.prepareCommandDispatch()) {
             is AccessibilityProviderResult.Failure -> return prepared.toCommandFailure()
             is AccessibilityProviderResult.Success -> prepared.value
         }
-        val result = when (authority) {
-            CommandAuthority.SHIZUKU -> ShizukuCommandBridge.executeAuthorized(
-                context,
-                lease,
-                job.effectOwner,
-                program,
-                args,
-                cwd,
-                timeoutMs,
-            )
-            CommandAuthority.ROOT -> RootCommandBridge.executeAuthorized(
-                lease,
-                job.effectOwner,
-                program,
-                args,
-                cwd,
-                timeoutMs,
-            )
-        }
+        val result = provider.executeAuthorized(
+            context,
+            lease,
+            job.effectOwner,
+            program,
+            args,
+            cwd,
+            timeoutMs,
+        )
         coroutineContext.ensureActive()
         return result.toCommandExecution()
     }
+
+    private inline fun probeSelected(
+        providerId: String,
+        probe: () -> CommandProviderAvailability,
+    ): CommandProviderAvailability =
+        if (PhoneControlPowerPreferences.enablesProvider(context, providerId)) {
+            probe()
+        } else {
+            CommandProviderAvailability(
+                CapabilityState.UNAVAILABLE,
+                "Select this elevated authority from the Phone Control orb.",
+            )
+        }
 
     private fun AccessibilityProviderResult.Failure.toCommandFailure() =
         CommandProviderExecution.Failure(
@@ -150,7 +181,7 @@ internal suspend fun handleRunCommand(
             job,
             "run_command",
             COMMAND_CAPABILITY,
-            CommandAuthority.SHIZUKU.providerId,
+            backend.providerIds.firstOrNull() ?: NO_COMMAND_PROVIDER,
             CapabilityState.UNSUPPORTED,
         )
     }
@@ -173,20 +204,20 @@ internal suspend fun handleRunCommand(
         return invalidArgs(job, "run_command", "cwd must be an absolute bounded directory path")
     }
 
-    val probes = CommandAuthority.entries.associateWith(backend::probe)
-    val selected = CommandAuthority.entries.firstOrNull { authority ->
-        probes.getValue(authority).state == CapabilityState.READY
+    val probes = backend.providerIds.associateWith(backend::probe)
+    val selected = backend.providerIds.firstOrNull { providerId ->
+        probes.getValue(providerId).state == CapabilityState.READY
     } ?: return commandUnavailable(job, probes)
     return commandProviderResult(
         job = job,
-        authority = selected,
+        providerId = selected,
         result = backend.execute(job, selected, exactProgram, argv, cwd, COMMAND_TIMEOUT_MS),
     )
 }
 
 private fun commandProviderResult(
     job: PhoneControlToolJobContext,
-    authority: CommandAuthority,
+    providerId: String,
     result: CommandProviderExecution,
 ): PhoneControlToolExecution = when (result) {
     is CommandProviderExecution.Receipt -> {
@@ -202,7 +233,7 @@ private fun commandProviderResult(
                 job = job,
                 requestedTool = "run_command",
                 capability = COMMAND_CAPABILITY,
-                provider = authority.providerId,
+                provider = providerId,
                 providerState = CapabilityState.READY,
                 code = if (dispatched) "ok" else receiptCode ?: "command_not_dispatched",
                 observationGeneration = 0,
@@ -226,7 +257,7 @@ private fun commandProviderResult(
                 job = job,
                 requestedTool = "run_command",
                 capability = COMMAND_CAPABILITY,
-                provider = authority.providerId,
+                provider = providerId,
                 providerState = result.state,
                 code = result.code,
                 observationGeneration = 0,
@@ -252,22 +283,25 @@ private fun commandProviderResult(
 
 private fun commandUnavailable(
     job: PhoneControlToolJobContext,
-    probes: Map<CommandAuthority, CommandProviderAvailability>,
+    probes: Map<String, CommandProviderAvailability>,
 ): PhoneControlToolExecution {
-    val recoveryAuthority = CommandAuthority.entries.firstOrNull { authority ->
-        probes.getValue(authority).state in setOf(
+    val recoveryProviderId = probes.keys.firstOrNull { providerId ->
+        probes.getValue(providerId).state in setOf(
             CapabilityState.DEGRADED,
             CapabilityState.NEEDS_USER_STEP,
             CapabilityState.REVOKED,
         )
-    } ?: CommandAuthority.SHIZUKU
-    val recovery = probes.getValue(recoveryAuthority)
+    } ?: probes.keys.firstOrNull() ?: NO_COMMAND_PROVIDER
+    val recovery = probes[recoveryProviderId] ?: CommandProviderAvailability(
+        CapabilityState.UNSUPPORTED,
+        "No command provider implementation is installed.",
+    )
     return PhoneControlToolExecution(
         response = toolResponse(
             job = job,
             requestedTool = "run_command",
             capability = COMMAND_CAPABILITY,
-            provider = recoveryAuthority.providerId,
+            provider = recoveryProviderId,
             providerState = recovery.state,
             code = "capability_unavailable",
             observationGeneration = 0,
@@ -279,11 +313,10 @@ private fun commandUnavailable(
                 put(
                     "provider_attempts",
                     buildJsonArray {
-                        CommandAuthority.entries.forEach { authority ->
-                            val availability = probes.getValue(authority)
+                        probes.forEach { (providerId, availability) ->
                             add(
                                 buildJsonObject {
-                                    put("provider", authority.providerId)
+                                    put("provider", providerId)
                                     put("state", availability.state.wireName)
                                     availability.guidance?.let { put("guidance", it) }
                                 },
@@ -309,6 +342,7 @@ private fun JsonObject.stringList(name: String): List<String>? {
 private fun String.utf8Size(): Int = toByteArray(Charsets.UTF_8).size
 
 private const val COMMAND_CAPABILITY = "command_execution"
+private const val NO_COMMAND_PROVIDER = "command_provider"
 private const val CONFIGURE_COMMAND_PROVIDER_STEP = "configure_command_provider"
 private const val DEFAULT_COMMAND_CWD = "/data/local/tmp"
 private const val COMMAND_TIMEOUT_MS = 60_000L

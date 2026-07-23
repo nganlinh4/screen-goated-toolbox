@@ -105,6 +105,40 @@ class PhoneControlToolDispatcherTest {
     }
 
     @Test
+    fun protectedCheckpointBlocksEveryRegisteredModelToolBeforeProviderDispatch() = runTest {
+        var dispatchCount = 0
+        val dispatcher = PhoneControlToolDispatcher(
+            executor = PhoneControlHandlerExecutor { _, _, _, _ ->
+                dispatchCount += 1
+                error("protected checkpoints must stop before provider dispatch")
+            },
+            providerRouter = ROUTER,
+            failureReporter = PhoneControlToolFailureReporter { _, _, _ -> },
+            modelToolAdmission = PhoneControlModelToolAdmission { false },
+        )
+
+        PhoneControlToolRegistry.specs.forEach { spec ->
+            val response = dispatcher.dispatch(
+                JOB,
+                spec.name,
+                JsonObject(emptyMap()),
+            ).response
+            assertEquals("protected_checkpoint", response.stringValue("provider"))
+            assertEquals("needs_user_step", response.stringValue("provider_state"))
+            assertEquals("proven_no_effect", response.stringValue("effect_status"))
+            assertEquals(
+                "finish_private_checkpoint_or_resume_screen_share",
+                response.getValue("required_user_step")
+                    .jsonObject
+                    .getValue("code")
+                    .jsonPrimitive
+                    .content,
+            )
+        }
+        assertEquals(0, dispatchCount)
+    }
+
+    @Test
     fun providerFailureIsReportedWithoutBeingDiscarded() = runTest {
         val failure = IllegalStateException("provider exploded")
         var reportedTool: String? = null

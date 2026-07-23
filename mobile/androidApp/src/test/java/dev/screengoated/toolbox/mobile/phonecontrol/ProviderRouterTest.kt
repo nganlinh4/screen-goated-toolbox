@@ -134,6 +134,11 @@ class ProviderRouterTest {
         val request = CapabilityRequest("command_execution", "run_command")
         val snapshots = listOf(
             snapshot(
+                "sgt_adb_bridge",
+                request.capability,
+                state = CapabilityState.UNAVAILABLE,
+            ),
+            snapshot(
                 "shizuku_shell",
                 request.capability,
                 state = CapabilityState.NEEDS_USER_STEP,
@@ -156,11 +161,13 @@ class ProviderRouterTest {
         assertEquals("capability_unavailable", unavailable.code)
         assertEquals("command_execution", unavailable.request.capability)
         assertEquals("run_command", unavailable.request.requestedTool)
-        assertEquals(3, unavailable.attempts.size)
+        assertEquals(4, unavailable.attempts.size)
         assertTrue(unavailable.attempts.all { it.rejection == RouteRejection.PROVIDER_NOT_READY })
         assertEquals(
             "restart_shizuku_after_reboot",
-            unavailable.attempts.first().requiredUserStep,
+            unavailable.attempts
+                .first { it.provider.id == "shizuku_shell" }
+                .requiredUserStep,
         )
     }
 

@@ -18,6 +18,7 @@ internal enum class PhoneControlActivationStep(val wireName: String) {
     RUNTIME_PERMISSIONS("runtime_permissions"),
     ACCESSIBILITY("accessibility"),
     OVERLAY("overlay"),
+    MEDIA_PROJECTION("media_projection"),
     START("start"),
 }
 
@@ -26,8 +27,9 @@ internal data class PhoneControlActivationSnapshot(
     val microphoneReady: Boolean,
     val notificationsReady: Boolean,
     val notificationPrompted: Boolean,
-    val accessibilityEnabled: Boolean,
+    val accessibilityReady: Boolean,
     val overlayReady: Boolean,
+    val mediaProjectionReady: Boolean,
 )
 
 internal fun nextPhoneControlActivationStep(
@@ -37,12 +39,16 @@ internal fun nextPhoneControlActivationStep(
     !snapshot.microphoneReady ||
         (!snapshot.notificationsReady && !snapshot.notificationPrompted) ->
         PhoneControlActivationStep.RUNTIME_PERMISSIONS
-    !snapshot.accessibilityEnabled -> PhoneControlActivationStep.ACCESSIBILITY
+    !snapshot.accessibilityReady -> PhoneControlActivationStep.ACCESSIBILITY
     !snapshot.overlayReady -> PhoneControlActivationStep.OVERLAY
+    !snapshot.mediaProjectionReady -> PhoneControlActivationStep.MEDIA_PROJECTION
     else -> PhoneControlActivationStep.START
 }
 
-internal fun probePhoneControlActivation(context: Context): PhoneControlActivationSnapshot {
+internal fun probePhoneControlActivation(
+    context: Context,
+    mediaProjectionReady: Boolean,
+): PhoneControlActivationSnapshot {
     val app = context.applicationContext as SgtMobileApplication
     val notificationReady = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         ContextCompat.checkSelfPermission(
@@ -58,8 +64,9 @@ internal fun probePhoneControlActivation(context: Context): PhoneControlActivati
         notificationsReady = notificationReady,
         notificationPrompted = notificationReady || activationPreferences(context)
             .getBoolean(KEY_NOTIFICATION_PROMPTED, false),
-        accessibilityEnabled = isAccessibilityEnabled(context),
+        accessibilityReady = isAccessibilityReady(context),
         overlayReady = Settings.canDrawOverlays(context),
+        mediaProjectionReady = mediaProjectionReady,
     )
 }
 
@@ -69,7 +76,32 @@ internal fun markPhoneControlNotificationPrompted(context: Context) {
     }
 }
 
-internal fun isAccessibilityEnabled(context: Context): Boolean {
+internal enum class PhoneControlAccessibilityState {
+    DISABLED,
+    RECONNECTING,
+    READY,
+}
+
+internal fun phoneControlAccessibilityState(
+    configured: Boolean,
+    serviceBound: Boolean,
+): PhoneControlAccessibilityState = when {
+    configured && serviceBound -> PhoneControlAccessibilityState.READY
+    configured -> PhoneControlAccessibilityState.RECONNECTING
+    else -> PhoneControlAccessibilityState.DISABLED
+}
+
+internal fun probePhoneControlAccessibilityState(
+    context: Context,
+): PhoneControlAccessibilityState = phoneControlAccessibilityState(
+    configured = isAccessibilityConfigured(context),
+    serviceBound = SgtAccessibilityService.isAvailable,
+)
+
+internal fun isAccessibilityReady(context: Context): Boolean =
+    probePhoneControlAccessibilityState(context) == PhoneControlAccessibilityState.READY
+
+internal fun isAccessibilityConfigured(context: Context): Boolean {
     val expected = "${context.packageName}/${SgtAccessibilityService::class.java.name}"
     val enabled = Settings.Secure.getString(
         context.contentResolver,

@@ -97,7 +97,6 @@ class PhoneControlSingleFlightRuntimeTest {
                 assertEquals(0, cancelling.sink.protocolAborts)
                 cancelling.coordinator.drainToolCompletions()
                 assertEquals(1, cancelling.sink.protocolAborts)
-                assertEquals(1, cancelling.sink.reconciliationRequests)
                 assertFalse(cancelling.executor.hasRequest("barge-call"))
             }
         }
@@ -225,7 +224,6 @@ class PhoneControlSingleFlightRuntimeTest {
         val payloads = mutableListOf<String>()
         val protocolEvents = mutableListOf<String>()
         var protocolAborts = 0
-        var reconciliationRequests = 0
         var payloadAttempts = 0
         var acceptPayloads = true
 
@@ -244,9 +242,6 @@ class PhoneControlSingleFlightRuntimeTest {
         override fun updateInputCaption(text: String) = Unit
         override fun updateOutputCaption(text: String) = Unit
         override fun updateTurnPhase(phase: PhoneControlTurnPhase) = Unit
-        override fun reconciliationRequired() {
-            reconciliationRequests += 1
-        }
         override fun requestScreenRefresh() = Unit
         override fun abortProtocolSession() {
             protocolAborts += 1

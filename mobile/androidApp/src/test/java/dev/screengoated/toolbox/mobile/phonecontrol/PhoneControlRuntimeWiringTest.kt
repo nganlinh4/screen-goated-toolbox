@@ -252,13 +252,11 @@ class PhoneControlRuntimeWiringTest {
 
             assertEquals(1, coordinator.pendingWorkCount)
             assertFalse(executor.hasRequest("new-observe"))
-            assertEquals(0, sink.reconciliationRequests)
             assertTrue(sink.payloads.isEmpty())
 
             coordinator.drainToolCompletions()
 
             assertEquals(0, coordinator.pendingWorkCount)
-            assertEquals(1, sink.reconciliationRequests)
             assertEquals(1, sink.payloads.size)
             assertTrue("\"id\":\"new-observe\"" in sink.payloads.single())
             assertTrue(
@@ -326,7 +324,6 @@ class PhoneControlRuntimeWiringTest {
             dispatch(coordinator, beginTurn = false, call("done-pending", "done"))
 
             assertEquals(PhoneControlTurnPhase.WORKING, coordinator.phase)
-            assertEquals(1, sink.reconciliationRequests)
             assertTrue(sink.payloads.any { "blocked_reconciliation_required" in it })
 
             dispatch(coordinator, beginTurn = false, call("blocked-mutation", "act"))
@@ -346,7 +343,7 @@ class PhoneControlRuntimeWiringTest {
     }
 
     @Test
-    fun `fresh postcondition in an uncertain receipt never publishes a transient warning`() {
+    fun `fresh postcondition in an uncertain receipt keeps later mutation available`() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val executor = RecordingExecutor()
         val sink = RecordingSink()
@@ -364,7 +361,6 @@ class PhoneControlRuntimeWiringTest {
             )
             coordinator.drainToolCompletions()
 
-            assertEquals(0, sink.reconciliationRequests)
             dispatch(coordinator, beginTurn = false, call("next-action", "act"))
             assertEquals("next-action", executor.awaitRequest("next-action").id)
         } finally {
@@ -533,7 +529,6 @@ class PhoneControlRuntimeWiringTest {
         val payloads = mutableListOf<String>()
         var playbackInterrupts = 0
         var playbackDiscards = 0
-        var reconciliationRequests = 0
 
         override fun sendPayload(payload: String): Boolean = payloads.add(payload)
         override fun playAudio(bytes: ByteArray) = Unit
@@ -546,9 +541,6 @@ class PhoneControlRuntimeWiringTest {
         override fun updateInputCaption(text: String) = Unit
         override fun updateOutputCaption(text: String) = Unit
         override fun updateTurnPhase(phase: PhoneControlTurnPhase) = Unit
-        override fun reconciliationRequired() {
-            reconciliationRequests += 1
-        }
         override fun requestScreenRefresh() = Unit
     }
 

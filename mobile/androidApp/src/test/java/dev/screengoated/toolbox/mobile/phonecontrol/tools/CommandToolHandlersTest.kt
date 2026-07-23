@@ -32,7 +32,7 @@ class CommandToolHandlersTest {
 
         assertEquals(1, backend.calls.size)
         assertEquals(JOB.operationId, backend.calls.single().operationId)
-        assertEquals(CommandAuthority.SHIZUKU, backend.calls.single().authority)
+        assertEquals(SHIZUKU_PROVIDER, backend.calls.single().providerId)
         assertEquals(listOf("-u"), backend.calls.single().args)
         assertEquals("/data/local/tmp", backend.calls.single().cwd)
         assertEquals("ok", execution.response.stringValue("code"))
@@ -63,7 +63,7 @@ class CommandToolHandlersTest {
 
         val execution = handleRunCommand(JOB, args, backend)
 
-        assertEquals(CommandAuthority.ROOT, backend.calls.single().authority)
+        assertEquals(ROOT_PROVIDER, backend.calls.single().providerId)
         assertEquals("root_bridge", execution.response.stringValue("provider"))
         assertEquals("ok", execution.response.stringValue("code"))
         assertEquals(
@@ -190,7 +190,7 @@ class CommandToolHandlersTest {
 
     private data class CommandCall(
         val operationId: String,
-        val authority: CommandAuthority,
+        val providerId: String,
         val program: String,
         val args: List<String>,
         val cwd: String,
@@ -203,24 +203,25 @@ class CommandToolHandlersTest {
         private val shizukuResult: CommandProviderExecution = processReceipt(0),
         private val rootResult: CommandProviderExecution = processReceipt(0),
     ) : CommandToolBackend {
-        val probes = mutableListOf<CommandAuthority>()
+        override val providerIds = listOf(SHIZUKU_PROVIDER, ROOT_PROVIDER)
+        val probes = mutableListOf<String>()
         val calls = mutableListOf<CommandCall>()
 
-        override fun probe(authority: CommandAuthority): CommandProviderAvailability {
-            probes += authority
-            return if (authority == CommandAuthority.SHIZUKU) shizuku else root
+        override fun probe(providerId: String): CommandProviderAvailability {
+            probes += providerId
+            return if (providerId == SHIZUKU_PROVIDER) shizuku else root
         }
 
         override suspend fun execute(
             job: PhoneControlToolJobContext,
-            authority: CommandAuthority,
+            providerId: String,
             program: String,
             args: List<String>,
             cwd: String,
             timeoutMs: Long,
         ): CommandProviderExecution {
-            calls += CommandCall(job.operationId, authority, program, args, cwd, timeoutMs)
-            return if (authority == CommandAuthority.SHIZUKU) shizukuResult else rootResult
+            calls += CommandCall(job.operationId, providerId, program, args, cwd, timeoutMs)
+            return if (providerId == SHIZUKU_PROVIDER) shizukuResult else rootResult
         }
     }
 
@@ -230,6 +231,8 @@ class CommandToolHandlersTest {
             jobId = "job-command-test",
             responseGeneration = 6,
         )
+        const val SHIZUKU_PROVIDER = "shizuku_shell"
+        const val ROOT_PROVIDER = "root_bridge"
 
         fun processReceipt(exitCode: Int): CommandProviderExecution =
             CommandProviderExecution.Receipt(

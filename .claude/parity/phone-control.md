@@ -60,10 +60,12 @@ around those contracts.
 - The goal is the strongest control Android permits after explicit user grants.
   It is not a promise to bypass the lock screen, secure surfaces, hardware-backed
   authentication, OS-owned confirmations, SELinux, or unavailable OEM APIs.
-- Accessibility is the baseline semantic/control backend. Shizuku, root, device
-  owner, direct app APIs, browser debugging, notification access, media
-  projection, and future privileged deployments are optional capability
-  providers, not alternate agent designs.
+- Accessibility is the baseline semantic/control backend. A whole-display
+  MediaProjection session is required for every running Phone Control session;
+  it supplies the display-wide pixel route while Accessibility supplies exact
+  window pixels, semantics, and actions. Shizuku, root, device owner, direct app
+  APIs, browser debugging, notification access, and future privileged
+  deployments are optional capability providers, not alternate agent designs.
 - Android's developer-verification rollout can affect how a full APK is
   installed, but it grants no runtime authority and weakens none of the setup
   checks. Track the current
@@ -123,6 +125,16 @@ in `parity-fixtures/phone-control/model-chain.json`. Windows Computer Control an
 Android Phone Control consume the same generated IDs; neither platform owns a
 second locator-model constant.
 
+The live control session uses the fixture's exact Gemini Live endpoint and
+bounded `LOW` thinking configuration on both platforms. Silent thought parts
+feed control intent only and are never narrated or shown to the user.
+
+Phone Control UI strings have complete default-English, Korean, and Vietnamese
+resource sets; Android's normal default-resource fallback serves every other UI
+locale. The live model is not pinned to the app locale or a language list. Input
+and output transcription stay enabled and provider-detected, so speech meaning,
+planning, and replies remain multilingual without language-specific routing.
+
 ## Behavior Contract
 
 ### User-visible flow
@@ -137,29 +149,89 @@ second locator-model constant.
    never shows a capability checklist, setup dashboard, or user-facing self-test.
 3. The required activation path is Gemini API configuration, microphone,
    foreground notification where Android exposes that runtime permission,
-   Accessibility, and display-over-other-apps for the orb. When the key is
-   missing, the coordinator shows one short toast and opens SGT's existing
-   Settings section, where provider credentials already live. It does not own a
-   second credential form. Android grants stay in Android-owned surfaces. A
-   refusal or unresolved grant stops that activation attempt without looping or
-   claiming success, and another **Turn on** starts from fresh evidence.
-4. Once required evidence is sufficient, SGT starts the foreground service and
-   orb immediately. The card becomes **Turn off** and remains the primary stop
-   control; the ongoing notification also retains a Stop action.
-5. The first orb appearance asks for an optional power preference in a compact,
-   orb-owned prompt: standard Android, Shizuku, or root. Standard control starts
-   without an elevated provider. Choosing Shizuku immediately explains the next
-   user-owned step, then the coordinator probes and advances the strongest safe
-   setup route: request SGT's Shizuku grant when its Binder is ready, open the
-   installed Shizuku manager when its service is stopped or authorization was
-   revoked, or open the store listing with an official-download fallback when it
-   is absent or outdated. Each return is re-probed and may advance only to a different
-   capability state, so install -> start/pair -> authorize can continue without a
-   setup dashboard or an external-surface loop. Android-owned wireless-debugging
-   pairing, trust, and confirmation remain user actions. Choosing any elevated
-   tier launches only its exact user-owned setup/authorization path. Tapping the
-   orb reopens this small preference prompt, so setup remains reachable without
-   an inner product page.
+   Accessibility, display-over-other-apps for the orb, and a fresh
+   whole-display MediaProjection grant. The projection request is the final
+   Android-owned step before service start and is requested for every session;
+   its token is passed once to the foreground service and is never cached or
+   reused. When the key is missing, the coordinator shows one short toast and
+   opens SGT's existing Settings section, where provider credentials already
+   live. It does not own a second credential form. Android grants stay in
+   Android-owned surfaces. A refusal or unresolved grant stops that activation
+   attempt without looping or claiming success, and another **Turn on** starts
+   from fresh evidence.
+   Accessibility readiness requires both Android's configured-service record and
+   a live `SgtAccessibilityService` binding. The configured record alone is not
+   semantic or control authority. When Android reports the service configured
+   but the binding is absent, activation waits only for a bounded reconnect
+   interval. It then opens the Android-owned Accessibility surface for a user
+   re-enable step instead of starting a degraded session or claiming readiness.
+4. Once required evidence is sufficient, SGT starts the correctly typed
+   foreground service, creates the granted projection and its virtual display,
+   then starts the runtime and orb. The card becomes **Turn off** and remains the
+   primary stop control; the ongoing notification also retains a Stop action.
+   If projection creation fails or Android revokes the session, Phone Control
+   stops instead of continuing with reduced visual authority.
+5. The first orb appearance asks for a power preference in a compact, orb-owned
+   prompt: standard Android, SGT Bridge, Shizuku, or root. The choice is an
+   authority selection, not a suggestion: standard disables elevated providers,
+   SGT Bridge selects only the first-party authenticated ADB route, Shizuku
+   selects only the Shizuku shell route, and root selects only the root route.
+   The chooser is a compact four-choice card without explanatory prose. It marks
+   SGT Bridge with a star as the recommended non-root route; this is presentation,
+   not an automatic selection or a weaker fallback contract. A paired bridge
+   exposes only a compact secondary forget action.
+   Choosing Shizuku persists that requested authority before setup starts and
+   keeps a resumable setup session pending until Shizuku is ready or the user
+   selects another authority. SGT explains the next unavoidable user action,
+   keeps a compact, non-obscuring status in the orb and the full persistent
+   instruction in the ongoing notification, opens the official store route when
+   Shizuku is absent, observes package
+   installation, opens the installed manager, re-probes on package, activity,
+   and Binder events, then requests SGT's Shizuku grant as soon as the Binder is
+   ready. The orb selection is itself a user-originated setup goal: while the
+   normal live turn boundary is idle, send that provider goal through the same
+   full-catalog semantic/vision agent used for ordinary Phone Control. The model
+   automates reversible navigation on the visible setup surfaces, including
+   exposing the exact Android/provider input or confirmation surface. It stops
+   before reading, filling, submitting, or approving an installation
+   confirmation, pairing code, credential, trust decision, or any other
+   system-owned checkpoint so the user can perform it. A busy live turn is never
+   interrupted or raced; the setup
+   goal remains bounded and pending until the turn is idle. It must not end setup
+   merely because one external return has the same probe state, require the user
+   to select Shizuku again between stages, repeatedly reopen the same external
+   surface, or replace the ordinary tool catalog with a provider-specific click
+   script. Android/Play installation confirmation and Android-owned
+   wireless-debugging pairing, trust, and confirmation remain user actions; SGT
+   advances every surrounding step. If Android's screen-share protection hides
+   a private notification action, secret field, or equivalent checkpoint, the
+   bounded agent goal finishes at the nearest visible surface. SGT then suspends
+   every model-visible pixel and semantic observation, drains queued visual
+   evidence, and releases MediaProjection while the live socket, microphone,
+   audio, orb, and conversation remain active. A public-version setup
+   notification keeps the instruction visible. A provider adapter may relay an
+   ephemeral one-time value only inside this sealed checkpoint after the user's
+   explicit provider selection. The value never enters model context, captions,
+   logs, screenshots, traces, storage, or generic tool results. Structural
+   ambiguity or relay failure becomes an honest typed user step. Every relay
+   outcome attaches a fresh MediaProjection grant to the same runtime before
+   provider setup can continue; no command, frame, secret, or consent token is
+   replayed. A completed relay may resume the selected provider after that fresh
+   grant. A relay that still needs a user step or fails keeps the provider
+   selected and its guidance visible, but must not automatically republish the
+   identical setup goal. It retries only after an explicit user action or fresh
+   capability evidence.
+   Tapping the orb reopens the preference prompt, so the user can explicitly
+   cancel the pending route by choosing another authority. If that choice occurs
+   while a protected checkpoint is active, SGT cancels the old local adapter but
+   keeps the runtime sealed, requests a fresh MediaProjection grant, and starts
+   the newly selected authority setup only after visual evidence is restored.
+   The notification cancel action selects standard authority and follows that
+   same fresh-projection route, so it cannot strand the live runtime behind the
+   visual gate. An abandoned first-party pairing call remains singly owned until
+   its bounded terminal return, then forgets its client key before another
+   pairing can begin. It never queues a provider automation goal while model
+   tools are blocked.
 6. Capability checks and reversible self-tests remain internal diagnostics and
    acceptance seams. They never block the card with a wall of text. The orb then
    runs the same listen/work/respond/idle cycle as Windows Computer Control.
@@ -276,6 +348,10 @@ sideloaded app before Accessibility can be enabled. Treat this as a typed
   the fresh frame is successfully transmitted. It may release a generation whose
   completion was already deferred, but it never completes an active generation
   early and an unsent capture proves nothing.
+- Automatic reconciliation is internal turn state, not a user-facing failure.
+  While the fresh frame is pending, preserve the current working/finalizing orb
+  state and caption. Only a bounded capture failure may publish a degraded
+  screen-capture status; a normal successful action must never flash an error.
 - `done` and server generation completion cannot publish idle while the admitted
   job or its cancellation acknowledgement is pending. A completed `done` is
   delivered last after any held rejection receipts; it never cancels work to
@@ -344,9 +420,38 @@ prevents a late callback from recreating a cancelled probe receipt.
   orb/overlay in both distributions.
 - Start the session from a user-visible action. Do not depend on hidden
   background activity launches or an immortal background daemon.
-- Microphone, media-projection, and playback service types follow the platform
-  contract already declared by the mobile app. Process death retires owned jobs
-  and requires state reconciliation; it never replays a command.
+- The foreground service includes the media-projection type before it consumes
+  the one-shot grant. Runtime and orb startup require a successfully created
+  projection virtual display. Projection callback stop, lock-screen revocation,
+  or replacement by another projection terminates Phone Control; it never
+  remains listening with a dead capture grant. Microphone and playback service
+  types follow the platform contract already declared by the mobile app.
+  Process death retires owned jobs and requires a fresh consent session; it
+  never replays a command or reuses projection consent.
+- Android may redact private notification content while whole-display capture is
+  active. Provider setup may therefore declare a protected user checkpoint.
+  The full-catalog agent first completes its bounded reversible navigation goal.
+  Only after that goal, its tool receipts, reconciliation, and queued speech
+  settle at either quiescent turn phase (`idle` or `listening`) does the service
+  atomically block model-visible semantics and pixels, drain pending visual
+  payloads, and release capture. The runtime, socket, microphone, audio, orb,
+  tool state, and conversation remain alive. The setup coordinator keeps durable
+  public guidance, observes capability state, and requests a fresh
+  MediaProjection grant after the protected step. A provider adapter may perform
+  a bounded local relay of an ephemeral one-time value only while the visual gate
+  is sealed. It receives no model plan or arbitrary target text, uses structural
+  provider identity, exposes no secret-bearing result, and clears transient
+  material immediately. Its ongoing notification has an explicit cancel action
+  which cancels the adapter, selects standard authority, and requests fresh
+  projection consent, so a suspended setup can never trap the selected authority.
+  This is one provider-neutral lifecycle; provider glue cannot weaken it with
+  localized UI text, coordinates, screenshots, or model-visible secret handling.
+- The fresh projection grant attaches to the existing live runtime and reopens
+  visual evidence only after a virtual display is ready. Denial keeps the runtime
+  in its explicit capture-suspended state with public resume/cancel affordances.
+  Unexpected projection callback stop, lock-screen revocation, replacement by
+  another projection, process death, or a capture loss outside that planned
+  checkpoint still terminates Phone Control and retires owned work.
 - Screen-off, lock, revoked overlay, and background-start denial are typed
   lifecycle/capability states, not reasons to fabricate an idle success.
 
@@ -461,12 +566,16 @@ surfaces return `unsupported_on_surface`. `move_window` and `resize_window`
 always return `unsupported_on_surface` for arbitrary Android surfaces. Keep all
 three tools declared; never fake success or hide them.
 
-Android visual observation uses the Accessibility screenshot provider on the
-default display. On API 34+, active-surface frames use the exact Accessibility
-window id with `takeScreenshotOfWindow`, so controller overlays are excluded
-without hiding, fading, detaching, or otherwise mutating visible UI. Whole-display
-capture and the API 30-33 compatibility path use a bounded display-capture
-suppression scope because Android exposes no older window-scoped screenshot API. Normal
+Android visual observation requires two complementary providers on the default
+display. MediaProjection owns the live whole-display session and supplies
+whole-display pixels or a typed fallback when an Accessibility screenshot route
+cannot capture the requested pixels. Accessibility remains the preferred
+active-window route because its exact window identity excludes controller
+overlays without mutating visible UI and binds pixels to the semantic surface
+lease. On API 34+, active-surface frames use the exact Accessibility window id
+with `takeScreenshotOfWindow`. The API 30-33 compatibility route uses a bounded
+display-capture suppression scope because Android exposes no older
+window-scoped screenshot API. Normal
 frames carry the same numbered 6x5 grid geometry used by `click_at`, `drag`, and
 `zoom`. Every grid and crop is bound to the observation generation, display,
 window, package/surface, rotation, density, capture timestamp, absolute screen
@@ -674,13 +783,30 @@ protected directory. See
 - The setup wizard may open Developer Options/Wireless debugging, observe the
   current surface, and guide pairing. The user still performs Android-owned
   pairing, trust, and confirmation steps.
-- Selecting Shizuku is event/return driven and bounded by structural probe state.
-  SGT gives short localized feedback before leaving its surface, opens only the
-  official manager/store/download route for the observed state, re-probes on
-  return, and automatically requests SGT's Shizuku permission once the Binder is
-  ready. It never branches on localized Shizuku labels, clicks private manager UI,
-  captures a pairing code, repeats an unchanged external step, or claims the
-  provider is ready before the grant probe succeeds.
+- Selecting Shizuku immediately makes it the requested elevated provider and
+  starts an event-driven, resumable setup session bounded by structural probe
+  state. SGT gives short localized feedback before leaving its surface, keeps
+  compact guidance on the orb and full durable guidance in the ongoing
+  notification, opens only the official manager/store/download route for the observed state,
+  observes installation while Phone Control remains alive, re-probes on package
+  changes, external return, and Binder events, and automatically requests SGT's
+  Shizuku permission once the Binder is ready. An unchanged return leaves the
+  selected route pending without reopening or pretending setup ended. Provider
+  code never branches on localized Shizuku labels or contains a model-facing
+  private-manager click script; the normal full-catalog model may navigate the
+  currently visible manager and Android surfaces. It may expose the pairing
+  surface but never receives, narrates, fills, submits, or approves a pairing
+  code, Android/Play confirmation, credential, or trust decision. When the
+  pairing surface is ready, the general protected-checkpoint lifecycle seals
+  model-visible pixels and semantics and releases capture. A Shizuku adapter may
+  then relay the one-time pairing value locally between structurally identified
+  Android/Shizuku surfaces. It must refuse multiple candidates, unexpected
+  packages/windows, stale nodes, non-ephemeral inputs, or any need for model
+  interpretation. Android/Play install, wireless-debugging enablement, trust, and
+  confirmation remain user steps. After the adapter or user completes the step,
+  SGT probes Binder authority and requests a fresh capture grant without ending
+  the live conversation. It never claims the provider is ready before the grant
+  probe succeeds.
 - On current non-root Android, Shizuku's wireless-debugging service must be
   started again after reboot. Record `needs_user_step` after a failed boot probe.
 - Elevated commands use the same exact operation ID in the app process and the
@@ -696,23 +822,45 @@ protected directory. See
 See the [Shizuku API](https://github.com/RikkaApps/Shizuku-API) and
 [current setup/reboot behavior](https://shizuku.rikka.app/guide/setup/).
 
-### First-party SGT privileged bridge research track
+### First-party SGT privileged bridge
 
-A future local ADB bridge may remove the external Shizuku-app dependency, but
-only after a threat model and real-device prototype prove pairing, discovery,
-reboot, and Chrome socket access. Its contract is:
+The first-party local ADB bridge removes the external Shizuku-app dependency
+when the device supports wireless debugging. It is an additional provider, not
+a special agent mode. The `sgt_adb` orb choice selects only provider
+`sgt_adb_bridge`; it is present in both Play and Full builds. Ship it only as
+successive real-device-tested capability layers: discovery and pairing,
+authenticated reconnect, scoped command service, then higher-level routes such
+as Chrome sockets. A layer stays typed `needs_user_step` or `degraded` until its
+real-device proof passes. Its contract is:
 
 - bind only locally; never expose an unauthenticated LAN command server;
 - keep ADB keys in Android Keystore and provide explicit revoke/forget controls;
-- show the Android pairing/trust UI and never capture or bypass an OS-owned secret;
+- show Android-owned enablement, pairing, trust, and MediaProjection UI; a sealed
+  local adapter may relay a one-time pairing value under the same protected
+  checkpoint contract, but the model and diagnostics never receive it;
+- once the authenticated pairing exchange succeeds, persist that structural
+  fact before connection-service discovery. A delayed connect remains a bounded
+  reconnect state and never asks for the one-time code again or claims another
+  user step is required;
+- bind pairing and connection discovery to the same persisted Android ADB mDNS
+  identity family. Accept exact names and Android's documented pairing/connect
+  backend-suffix variants; never accept an unrelated `adb-` family merely
+  because its address belongs to this device;
 - authenticate the app/bridge endpoint, scope each job, and return effect receipts;
+- discover only Android's local mDNS pairing/connect services and reject remote
+  addresses that do not belong to a current local interface;
 - survive process interruption without replaying commands;
+- expose a provider-neutral probe, start, cancel, and revoke API so Shizuku,
+  first-party ADB, root, and future backends share one router;
+- keep command transport typed and bounded; never expose a generic unauthenticated
+  shell listener or infer authorization from command text;
 - require Android 17 `ACCESS_LOCAL_NETWORK` when applicable.
 
 Android 17 plus adb 37 can automatically reconnect a paired device to a trusted
 workstation network. That does **not** prove that an on-device bridge or Shizuku
-service auto-starts after reboot. Keep this as an experimental result until a
-device test proves it. See [ADB Wi-Fi 2.0](https://developer.android.com/studio/run/device)
+service auto-starts after reboot. Reboot recovery stays a typed capability state
+until the exact device/provider re-establishes authority. See
+[ADB Wi-Fi 2.0](https://developer.android.com/studio/run/device)
 and the [Android 17 local-network requirement](https://developer.android.com/about/versions/17/behavior-changes-17).
 
 ### Root, device owner, and privileged-system backends
@@ -812,7 +960,10 @@ limits them to computers.
   Localized labels, model prose, and user phrases never assign or clear it.
 - Being preinstalled or system-signed does not make an app an OS-owned user
   step. Only a capability-derived platform authority on the matching live
-  surface, or an active opaque platform user-step session, may assign that state.
+  surface, or a live modal window above an application during an active opaque
+  platform user-step session, may assign that state. The full-screen setup
+  application remains routine navigation; opening a user-owned setup session
+  never turns every screen in that application into a confirmation.
 - Consequential authority likewise needs platform effect metadata. Android's
   explicit Accessibility dismiss action is consequential; a generic clickable
   node is not promoted from its label, app identity, or visual appearance.
@@ -1037,8 +1188,9 @@ consequential checkpoints. One initial run and at most one repair rerun per case
    discovery and the Accessibility browser-chrome/fallback matrix. Keep the
    owned-WebView bridge for SGT-owned or deliberately isolated content.
 6. Optional Shizuku shell backend and no-brainer setup/reboot diagnosis.
-7. First-party local ADB bridge prototype; promote it only after it matches the
-   Shizuku route's authority, lifecycle, security, and real-device reliability.
+7. Keep the first-party local ADB bridge as the recommended non-root route after
+   its pairing, reconnect, cancellation, revoke, and real-device lifecycle
+   checks; continue the transport threat-model and dependency-audit work.
 8. Optional root/device-owner/privileged providers behind the same registry.
 9. UI-DETR mobile feasibility benchmark and integration only if it improves the
    real blind-surface route.
@@ -1060,9 +1212,13 @@ effect receipt, terminal completion, audio ownership, and typed failure rules.
   credentialed CDP, Custom Tabs, Accessibility, and current-frame grounding form
   a surface-aware ladder; owned WebViews remain isolated unless the user signs
   into that separate store.
-- MediaProjection consent is session-scoped on modern Android and cannot be
-  cached as a perpetual grant. See Android's
+- MediaProjection consent is a required, session-scoped Android deviation and
+  cannot be cached as a perpetual grant. See Android's
   [media-projection guide](https://developer.android.com/media/grow/media-projection).
+- Android 15 may replace private notifications with their public version during
+  whole-screen sharing. Protected setup checkpoints follow Android's
+  [screen-share protection contract](https://developer.android.com/about/versions/15/behavior-changes-all#screen-share-protection)
+  instead of retrying an inaccessible notification action.
 - Shizuku ADB startup currently does not survive reboot; root/device-owner/system
   deployments have different lifecycle contracts.
 - All other behavior defaults to the Windows contract.

@@ -16,6 +16,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.ACTIV
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilitySurfaceLease
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.surfaceLease
+import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProjectionProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import dev.screengoated.toolbox.mobile.phonecontrol.session.buildPhoneControlScreenPayload
 import dev.screengoated.toolbox.mobile.phonecontrol.tools.AccessibilityGridIdentity
@@ -253,9 +254,12 @@ internal object PhoneControlVisualProvider {
         }
         if (reusable != null) return AccessibilityProviderResult.Success(reusable)
 
-        return when (
-            val captured = PhoneControlAccessibilityProvider.screenshot(windowId, windowBounds)
-        ) {
+        val primary = if (windowId == null && windowBounds == null) {
+            capturePhoneControlProjectionScreenshot(observationGeneration)
+        } else {
+            PhoneControlAccessibilityProvider.screenshot(windowId, windowBounds)
+        }
+        return when (val captured = primary) {
             is AccessibilityProviderResult.Success -> {
                 cachedScreenshot?.bitmap?.let { bitmap ->
                     if (!bitmap.isRecycled) bitmap.recycle()
@@ -264,6 +268,12 @@ internal object PhoneControlVisualProvider {
                 captured
             }
             is AccessibilityProviderResult.Failure -> {
+                if (windowId != null &&
+                    captured.retryable &&
+                    PhoneControlProjectionProvider.isReady
+                ) {
+                    return capturePhoneControlProjectionScreenshot(observationGeneration)
+                }
                 val fallback = cachedScreenshot?.takeIf { screenshot ->
                     captured.code == "screenshot_rate_limited" &&
                         screenshot.generation == observationGeneration &&

@@ -491,6 +491,7 @@ tasks.matching {
     dependsOn(generatePresetOverlayAssets)
     dependsOn(generatePresetModelCatalog)
     dependsOn(stageNativeRuntimeContract)
+    if (name.contains("Full")) dependsOn(stageFullOrtRuntimeAsset)
 }
 
 dependencies {
@@ -536,6 +537,8 @@ dependencies {
     "fullImplementation"(libs.youtubedl.android.ffmpeg)
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+    implementation(libs.libadb.android)
+    implementation(libs.conscrypt.android)
     // Google Play In-App Updates (used by the `play` flavor; no-ops on sideload installs).
     implementation(libs.play.app.update.ktx)
     implementation(libs.play.feature.delivery)

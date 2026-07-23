@@ -12,6 +12,7 @@ internal data class PhoneControlPayloadQueueSnapshot(
 internal enum class PhoneControlOutboundKind(val contractValue: String) {
     TOOL_RESPONSE("tool_response"),
     TOOL_SCREEN_EVIDENCE("tool_screen_evidence"),
+    USER_INTERFACE_GOAL("user_interface_goal"),
     AMBIENT_SCREEN("ambient_screen"),
     MICROPHONE_AUDIO("microphone_audio"),
 }
@@ -72,6 +73,23 @@ internal class PhoneControlSessionPayloadQueue(
 
     fun abandonSession() = synchronized(lock) {
         clear()
+    }
+
+    fun discard(kind: PhoneControlOutboundKind): Int = synchronized(lock) {
+        if (queued.isEmpty()) return@synchronized 0
+        val retained = ArrayDeque<PhoneControlQueuedPayload>(queued.size)
+        var discarded = 0
+        while (queued.isNotEmpty()) {
+            val payload = queued.removeFirst()
+            if (payload.kind == kind) {
+                queuedUtf8Bytes -= payload.utf8Bytes
+                discarded += 1
+            } else {
+                retained.addLast(payload)
+            }
+        }
+        queued.addAll(retained)
+        discarded
     }
 
     fun snapshot(): PhoneControlPayloadQueueSnapshot = synchronized(lock) {

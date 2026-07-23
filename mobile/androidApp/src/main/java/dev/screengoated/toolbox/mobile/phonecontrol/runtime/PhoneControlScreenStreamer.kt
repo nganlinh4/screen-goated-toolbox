@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class PhoneControlScreenStreamer(
     private val running: AtomicBoolean,
     private val transportReady: AtomicBoolean,
+    private val visualEvidenceEnabled: AtomicBoolean,
     private val screenFrames: Channel<String>,
     private val refreshRequests: Channel<Unit>,
     private val reconciliationFrameQueued: AtomicBoolean,
@@ -28,7 +29,10 @@ internal class PhoneControlScreenStreamer(
         val failurePolicy = ScreenCaptureFailurePolicy()
         var explicitRefreshPending = drainRefreshRequests()
         while (currentCoroutineContext().isActive && running.get()) {
-            if (transportReady.get() && canSendAmbientScreen(pendingWorkCount())) {
+            if (visualEvidenceEnabled.get() &&
+                transportReady.get() &&
+                canSendAmbientScreen(pendingWorkCount())
+            ) {
                 if (!PhoneControlAccessibilityProvider.isReady) {
                     if (lastFailureCode != CAPABILITY_UNAVAILABLE) {
                         lastFailureCode = CAPABILITY_UNAVAILABLE

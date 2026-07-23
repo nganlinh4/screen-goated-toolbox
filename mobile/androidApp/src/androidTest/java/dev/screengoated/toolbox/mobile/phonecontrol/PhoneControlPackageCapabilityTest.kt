@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbBridgeService
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -34,6 +35,10 @@ class PhoneControlPackageCapabilityTest {
             ComponentName(context, PhoneControlService::class.java),
             PackageManager.ComponentInfoFlags.of(0),
         )
+        val adbService = packageManager.getServiceInfo(
+            ComponentName(context, SgtAdbBridgeService::class.java),
+            PackageManager.ComponentInfoFlags.of(0),
+        )
         val debugProbe = packageManager.getReceiverInfo(
             ComponentName(context, PhoneControlDebugProbeReceiver::class.java),
             PackageManager.ComponentInfoFlags.of(0),
@@ -49,6 +54,9 @@ class PhoneControlPackageCapabilityTest {
 
         assertFalse(activity.exported)
         assertFalse(service.exported)
+        assertFalse(adbService.exported)
+        assertTrue(adbService.enabled)
+        assertTrue(adbService.processName.endsWith(":phone_control_adb"))
         assertTrue(debugProbe.exported)
         assertEquals(Manifest.permission.DUMP, debugProbe.permission)
         assertFalse(receiptCleanup.exported)

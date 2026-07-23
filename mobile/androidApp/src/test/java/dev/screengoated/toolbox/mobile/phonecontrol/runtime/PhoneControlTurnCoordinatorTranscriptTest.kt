@@ -218,7 +218,6 @@ class PhoneControlTurnCoordinatorTranscriptTest {
             outputs += text
         }
         override fun updateTurnPhase(phase: PhoneControlTurnPhase) = Unit
-        override fun reconciliationRequired() = Unit
         override fun requestScreenRefresh() = Unit
     }
 

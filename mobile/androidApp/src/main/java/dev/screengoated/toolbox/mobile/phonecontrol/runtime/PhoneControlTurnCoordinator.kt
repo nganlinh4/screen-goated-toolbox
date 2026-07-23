@@ -137,7 +137,6 @@ internal class PhoneControlTurnCoordinator(
             } else {
                 Log.d(TAG, "absorbed_tool_receipt id=${completed.request.id} decision=${transition.decision.contractValue}")
             }
-            if (lifecycle.reconciliationRequired) sink.reconciliationRequired()
         }
         if (abortOverflowedSessionIfSettled()) return
         flushHeldToolRejections()
@@ -436,7 +435,6 @@ internal class PhoneControlTurnCoordinator(
         }
         if (lifecycle.reconciliationRequired) {
             generationAwaitingReconciliation = generation
-            sink.reconciliationRequired()
             sink.updateTurnPhase(PhoneControlTurnPhase.WORKING)
             return
         }

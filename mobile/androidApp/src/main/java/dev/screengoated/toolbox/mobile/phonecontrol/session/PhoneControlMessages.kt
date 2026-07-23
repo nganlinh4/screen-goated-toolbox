@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveMediaResolution
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReasoningOverride
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSetupSpec
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveTranscriptionMode
 import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
@@ -85,9 +86,10 @@ internal fun buildPhoneControlSetupPayload(
             systemInstruction = instruction,
             transcriptionMode = GeminiLiveTranscriptionMode.BOTH,
             contextWindowCompression = true,
-            generationOverrides = buildJsonObject {
-                put("thinkingConfig", buildJsonObject { put("includeThoughts", true) })
-            },
+            reasoningOverride = GeminiLiveReasoningOverride(
+                thinkingLevel = "LOW",
+                includeThoughts = true,
+            ),
             setupExtensions = buildJsonObject {
                 put("tools", tools)
                 put(

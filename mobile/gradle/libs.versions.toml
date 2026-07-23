@@ -38,6 +38,8 @@ youtubedl-android = "0.18.1"
 play-app-update = "2.1.0"
 play-feature-delivery = "2.1.0"
 shizuku = "13.1.5"
+libadb-android = "3.1.1"
+conscrypt = "2.5.3"
 sceneview = "4.24.0"
 
 [plugins]
@@ -96,3 +98,5 @@ play-feature-delivery = { group = "com.google.android.play", name = "feature-del
 play-feature-delivery-ktx = { group = "com.google.android.play", name = "feature-delivery-ktx", version.ref = "play-feature-delivery" }
 shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
 shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
+libadb-android = { group = "com.github.MuntashirAkon", name = "libadb-android", version.ref = "libadb-android" }
+conscrypt-android = { group = "org.conscrypt", name = "conscrypt-android", version.ref = "conscrypt" }

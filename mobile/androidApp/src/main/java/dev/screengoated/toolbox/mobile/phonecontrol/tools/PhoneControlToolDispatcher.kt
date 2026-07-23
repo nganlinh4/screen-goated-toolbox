@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
 import android.content.Context
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityRequest
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProviderRegistry
@@ -39,6 +40,10 @@ internal fun interface PhoneControlToolFailureReporter {
     fun report(requestedTool: String, jobId: String, error: Throwable)
 }
 
+internal fun interface PhoneControlModelToolAdmission {
+    fun allowed(): Boolean
+}
+
 internal object AndroidPhoneControlToolFailureReporter : PhoneControlToolFailureReporter {
     override fun report(requestedTool: String, jobId: String, error: Throwable) {
         Log.e(
@@ -58,12 +63,17 @@ internal class PhoneControlToolDispatcher(
         AndroidPhoneControlToolFailureReporter,
     private val observationRecovery: ActionableObservationRecovery =
         NoOpActionableObservationRecovery,
+    private val modelToolAdmission: PhoneControlModelToolAdmission =
+        PhoneControlModelToolAdmission { true },
 ) : PhoneControlToolDispatchBoundary {
     constructor(context: Context) : this(
         executor = AndroidPhoneControlHandlerExecutor(context),
         providerRouter = PhoneControlProviderRegistry.router(context),
         failureReporter = AndroidPhoneControlToolFailureReporter,
         observationRecovery = AndroidActionableObservationRecovery(),
+        modelToolAdmission = PhoneControlModelToolAdmission(
+            PhoneControlProtectedCheckpointRegistry::modelToolsAllowed,
+        ),
     )
 
     override suspend fun dispatch(
@@ -79,6 +89,16 @@ internal class PhoneControlToolDispatcher(
                 provider = "unregistered",
                 state = CapabilityState.UNSUPPORTED,
             )
+        if (!modelToolAdmission.allowed()) {
+            return unavailableToolResponse(
+                job = job,
+                requestedTool = requestedTool,
+                capability = spec.capability,
+                provider = PROTECTED_CHECKPOINT_PROVIDER,
+                state = CapabilityState.NEEDS_USER_STEP,
+                requiredUserStep = "finish_private_checkpoint_or_resume_screen_share",
+            )
+        }
         val handler = spec.handler ?: return unavailableToolResponse(
             job = job,
             requestedTool = requestedTool,
@@ -264,5 +284,6 @@ internal class PhoneControlToolDispatcher(
         const val PROVIDER_ROLE_FIELD = "provider_role"
         const val PRIMARY_PROVIDER_ROLE = "primary"
         const val DEPENDENCY_PROVIDER_ROLE = "dependency"
+        const val PROTECTED_CHECKPOINT_PROVIDER = "protected_checkpoint"
     }
 }
