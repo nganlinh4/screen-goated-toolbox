@@ -1,4 +1,3 @@
-use super::node_graph::request_node_graph_view_reset;
 use crate::config::Config;
 use crate::gui::icons::{Icon, draw_icon_static};
 use crate::gui::locale::LocaleText;
@@ -12,6 +11,7 @@ mod custom_models;
 mod donate_section;
 mod downloaded_tools;
 mod model_priority;
+mod restore_defaults;
 mod tts_settings;
 mod update_section;
 mod usage_stats;
@@ -22,6 +22,7 @@ use custom_models::render_custom_models_modal;
 use donate_section::render_donate_section_content;
 use downloaded_tools::render_downloaded_tools_modal;
 use model_priority::render_model_priority_modal;
+use restore_defaults::render_restore_defaults_modal;
 use tts_settings::render_tts_settings_modal;
 use update_section::render_update_section_content;
 use usage_stats::render_usage_modal;
@@ -50,6 +51,7 @@ pub fn render_global_settings(
     show_tools_modal: &mut bool,
     show_model_priority_modal: &mut bool,
     show_custom_models_modal: &mut bool,
+    show_restore_defaults_modal: &mut bool,
     download_manager: &mut DownloadManager,
     _cached_audio_devices: &std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
     _recording_sr_hotkey: &mut bool,
@@ -216,6 +218,17 @@ pub fn render_global_settings(
     }
 
     if render_custom_models_modal(ui, config, text, show_custom_models_modal) {
+        changed = true;
+    }
+
+    if render_restore_defaults_modal(
+        ui,
+        config,
+        text,
+        show_restore_defaults_modal,
+        run_at_startup,
+        auto_launcher,
+    ) {
         changed = true;
     }
 
@@ -484,60 +497,19 @@ pub fn render_global_settings(
 
                 ui.add_space(10.0);
 
-                // Reset Defaults button — red: a factory reset wipes everything, so
-                // it's the most alarming action (distinct from the amber Force Quit).
-                if crate::gui::widgets::filled_button(
+                // This opens a scoped restore dialog; the trailing chevron makes
+                // the extra decision step explicit before anything is changed.
+                if crate::gui::widgets::filled_trailing_icon_button(
                     ui,
                     text.preset_basics.reset_defaults_btn,
-                    theme.danger_fill(),
-                    theme.on_accent(),
+                    Icon::ArrowRight,
+                    theme.restore_fill(),
+                    theme.on_surface(),
                     8,
                 )
                 .clicked()
                 {
-                    let saved_groq_key = config.api_key.clone();
-                    let saved_gemini_key = config.gemini_api_key.clone();
-                    let saved_openrouter_key = config.openrouter_api_key.clone();
-                    let saved_cerebras_key = config.cerebras_api_key.clone();
-                    let saved_language = config.ui_language.clone();
-                    let saved_use_groq = config.use_groq;
-                    let saved_use_gemini = config.use_gemini;
-                    let saved_use_openrouter = config.use_openrouter;
-                    let saved_use_ollama = config.use_ollama;
-                    let saved_use_cerebras = config.use_cerebras;
-                    let saved_ollama_base_url = config.ollama_base_url.clone();
-                    let saved_custom_models = config.custom_models.clone();
-
-                    *config = Config::default();
-
-                    config.api_key = saved_groq_key;
-                    config.gemini_api_key = saved_gemini_key;
-                    config.openrouter_api_key = saved_openrouter_key;
-                    config.cerebras_api_key = saved_cerebras_key;
-                    config.ui_language = saved_language;
-                    config.use_groq = saved_use_groq;
-                    config.use_gemini = saved_use_gemini;
-                    config.use_openrouter = saved_use_openrouter;
-                    config.use_ollama = saved_use_ollama;
-                    config.use_cerebras = saved_use_cerebras;
-                    config.ollama_base_url = saved_ollama_base_url;
-                    config.custom_models = saved_custom_models;
-                    // config.realtime_translation_model = saved_realtime_model;
-                    request_node_graph_view_reset(ui.ctx());
-
-                    // Full factory reset: wipe every app-managed directory
-                    // (recordings, downloaded runtime DLLs, models, caches,
-                    // pointer packs, backgrounds, webview-selector, legacy
-                    // orphans). SGT/webview_data is still locked by the
-                    // running process, so that one is scheduled for startup.
-                    crate::overlay::clear_all_app_data();
-                    config.clear_webview_on_startup = true;
-
-                    // Save immediately and restart
-                    crate::config::save_config(config);
-                    crate::gui::app::restart_app();
-
-                    changed = true;
+                    *show_restore_defaults_modal = true;
                 }
             });
         });

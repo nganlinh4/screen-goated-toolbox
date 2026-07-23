@@ -115,6 +115,7 @@ pub struct SettingsApp {
     pub(crate) show_tools_modal: bool,
     pub(crate) show_model_priority_modal: bool,
     pub(crate) show_custom_models_modal: bool,
+    pub(crate) show_restore_defaults_modal: bool,
     // --------------------
 
     // --- FAVORITE BUBBLE STATE TRACKING ---

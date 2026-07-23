@@ -218,6 +218,69 @@ pub fn filled_icon_button(
     response
 }
 
+/// A Material-style filled button with a label followed by a trailing icon.
+///
+/// Use this for actions that open a deeper surface, where a right chevron
+/// communicates navigation more accurately than an immediate one-click action.
+pub fn filled_trailing_icon_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    icon: crate::gui::icons::Icon,
+    fill: Color32,
+    text: Color32,
+    corner_radius: u8,
+) -> egui::Response {
+    let label_galley = ui.painter().layout_no_wrap(
+        label.to_string(),
+        egui::TextStyle::Button.resolve(ui.style()),
+        text,
+    );
+    let icon_size = crate::gui::icons::ICON_SM;
+    let icon_gap = 6.0;
+    let h_pad = ui.spacing().button_padding.x.max(10.0);
+    let button_size = egui::vec2(
+        h_pad + label_galley.rect.width() + icon_gap + icon_size + h_pad,
+        ui.spacing()
+            .interact_size
+            .y
+            .max(label_galley.rect.height() + ui.spacing().button_padding.y * 2.0),
+    );
+
+    let (button_rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
+    let surface = if response.is_pointer_button_down_on() {
+        blend(fill, text, 0.14)
+    } else if response.hovered() {
+        blend(fill, text, 0.08)
+    } else {
+        fill
+    };
+
+    let painter = ui.painter();
+    painter.rect_filled(button_rect, CornerRadius::same(corner_radius), surface);
+    painter.galley(
+        egui::pos2(
+            button_rect.left() + h_pad,
+            button_rect.center().y - label_galley.rect.height() / 2.0,
+        ),
+        label_galley,
+        text,
+    );
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(
+            button_rect.right() - h_pad - icon_size,
+            button_rect.center().y - icon_size / 2.0,
+        ),
+        egui::vec2(icon_size, icon_size),
+    );
+    crate::gui::icons::paint_icon(painter, icon_rect, icon, text);
+
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+
+    response
+}
+
 /// Material chevron for [`egui::ComboBox::icon`] — a down chevron that flips up
 /// when the dropdown is open, replacing egui's tiny default triangle.
 fn combo_chevron(
