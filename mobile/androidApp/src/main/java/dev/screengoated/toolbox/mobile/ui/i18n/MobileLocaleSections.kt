@@ -61,6 +61,7 @@ data class CreationCommonLocale(
     val ready: String,
     val preparing: String,
     val queued: String,
+    val providerQueued: String,
     val working: String,
     val done: String,
     val failed: String,

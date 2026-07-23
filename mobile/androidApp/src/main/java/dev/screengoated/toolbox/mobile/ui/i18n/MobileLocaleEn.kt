@@ -56,6 +56,7 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 ready = "Ready",
                 preparing = "Preparing",
                 queued = "Queued",
+                providerQueued = "In service queue",
                 working = "Creating",
                 done = "Done",
                 failed = "Failed",
