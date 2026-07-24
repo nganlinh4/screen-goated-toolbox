@@ -366,11 +366,13 @@ impl Preset {
         self.id.starts_with("preset_")
     }
 
-    /// Replace a preset's configuration while retaining its user-assigned
-    /// trigger keys.
-    pub fn replace_config_preserving_hotkeys(&mut self, template: &Self) {
+    /// Replace a preset's configuration while retaining user-owned state that
+    /// restore operations must never clear.
+    pub fn replace_config_preserving_user_state(&mut self, template: &Self) {
         let hotkeys = std::mem::take(&mut self.hotkeys);
+        let is_favorite = self.is_favorite;
         *self = template.clone();
         self.hotkeys = hotkeys;
+        self.is_favorite = is_favorite;
     }
 }

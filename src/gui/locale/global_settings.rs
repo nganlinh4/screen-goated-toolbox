@@ -28,7 +28,6 @@ pub struct GlobalSettingsLocaleText {
     pub restore_defaults_data_title: &'static str,
     pub restore_defaults_data_description: &'static str,
     pub restore_defaults_kept_note: &'static str,
-    pub restore_defaults_hotkeys_kept: &'static str,
     pub restore_defaults_data_warning: &'static str,
     pub restore_defaults_empty: &'static str,
     pub restore_defaults_cancel: &'static str,

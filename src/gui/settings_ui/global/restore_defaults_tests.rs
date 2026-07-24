@@ -184,6 +184,56 @@ fn modal_fits_the_minimum_window_in_every_supported_locale() {
 }
 
 #[test]
+fn restore_copy_uses_the_supported_locale_feature_names() {
+    let vi = LocaleText::get("vi");
+    assert_eq!(
+        vi.global_settings.restore_defaults_models_description,
+        "Khôi phục thứ tự ưu tiên và các tuỳ chỉnh mô hình."
+    );
+    assert!(
+        vi.global_settings
+            .restore_defaults_audio_description
+            .contains("Sân chơi TTS")
+    );
+    assert!(
+        vi.global_settings
+            .restore_defaults_shortcuts_description
+            .contains("Quay MH")
+    );
+    assert!(
+        vi.global_settings
+            .restore_defaults_shortcuts_description
+            .contains("Bánh mỳ chuyển ngữ")
+    );
+    assert_eq!(
+        vi.global_settings.restore_defaults_kept_note,
+        "Luôn giữ lại: ngôn ngữ, mã API, nhà cung cấp đang bật, URL Ollama, mô hình tùy chỉnh và công cụ/mô hình đã tải, các preset yêu thích và toàn bộ phím tắt."
+    );
+    assert!(
+        vi.desktop_settings
+            .preset_model_update_kept
+            .contains("Quay MH")
+    );
+    assert!(
+        vi.desktop_settings
+            .preset_model_update_kept
+            .contains("Bánh mỳ chuyển ngữ")
+    );
+
+    let ko = LocaleText::get("ko");
+    assert!(
+        ko.global_settings
+            .restore_defaults_audio_description
+            .contains("TTS 플레이그라운드")
+    );
+    assert!(
+        ko.global_settings
+            .restore_defaults_shortcuts_description
+            .contains("통역 곤약")
+    );
+}
+
+#[test]
 fn non_default_fixture_exercises_every_resettable_config_field() {
     let defaults = serde_json::to_value(Config::default()).unwrap();
     let changed = serde_json::to_value(non_default_config()).unwrap();
@@ -247,7 +297,7 @@ fn each_category_resets_only_its_owned_fields() {
 }
 
 #[test]
-fn preset_restore_refreshes_builtins_but_keeps_profiles_custom_presets_and_hotkeys() {
+fn preset_restore_resets_all_presets_and_profiles_but_keeps_user_state() {
     let defaults = Config::default();
     let mut config = non_default_config();
     let before = config.clone();
@@ -259,6 +309,17 @@ fn preset_restore_refreshes_builtins_but_keeps_profiles_custom_presets_and_hotke
     );
 
     assert_preset_restore_contract(&config, &before, &defaults);
+    assert!(
+        config
+            .presets
+            .iter()
+            .all(|preset| preset.id != "custom-active-preset")
+    );
+    assert_eq!(
+        config.preset_profiles.len(),
+        defaults.preset_profiles.len(),
+        "user-created profiles must be reset"
+    );
     assert_eq!(config.screen_record_hotkeys, before.screen_record_hotkeys);
     assert_eq!(
         config.computer_control_hotkeys,
@@ -275,7 +336,7 @@ fn preset_restore_refreshes_builtins_but_keeps_profiles_custom_presets_and_hotke
 }
 
 #[test]
-fn selecting_every_category_keeps_every_hotkey() {
+fn selecting_every_category_keeps_hotkeys_and_favorite_stars() {
     let defaults = Config::default();
     let mut config = non_default_config();
     let before = config.clone();
@@ -367,10 +428,12 @@ fn non_default_config() -> Config {
     let mut second_builtin = defaults.presets[1].clone();
     second_builtin.name = "Second edited built-in".to_string();
     second_builtin.hotkeys = vec![Hotkey::new(0x33, "Ctrl + 3", 2)];
+    second_builtin.is_favorite = !defaults.presets[1].is_favorite;
     let second_custom = Preset {
         id: "custom-active-preset".to_string(),
         name: "Active custom preset".to_string(),
         hotkeys: vec![Hotkey::new(0x34, "Ctrl + 4", 2)],
+        is_favorite: true,
         ..Default::default()
     };
     let active_profile = PresetProfile {
@@ -453,57 +516,33 @@ fn non_default_config() -> Config {
 }
 
 fn assert_preset_restore_contract(config: &Config, before: &Config, defaults: &Config) {
+    let mut expected_presets = defaults.presets.clone();
+    preserve_expected_preset_user_state(&mut expected_presets, &before.presets);
+    assert_eq!(
+        serde_json::to_value(&config.presets).unwrap(),
+        serde_json::to_value(expected_presets).unwrap()
+    );
+    assert_eq!(config.active_preset_idx, defaults.active_preset_idx);
+
+    let mut expected_profiles = defaults.preset_profiles.clone();
+    for profile in &mut expected_profiles {
+        preserve_expected_preset_user_state(&mut profile.presets, &before.presets);
+    }
+    assert_eq!(
+        serde_json::to_value(&config.preset_profiles).unwrap(),
+        serde_json::to_value(expected_profiles).unwrap()
+    );
     assert_eq!(
         config.active_preset_profile_idx,
-        before.active_preset_profile_idx
+        defaults.active_preset_profile_idx
     );
-    assert_eq!(config.preset_profiles.len(), before.preset_profiles.len());
-
-    for (actual_profile, previous_profile) in
-        config.preset_profiles.iter().zip(&before.preset_profiles)
-    {
-        assert_eq!(actual_profile.id, previous_profile.id);
-        assert_eq!(actual_profile.name, previous_profile.name);
-        assert_eq!(
-            actual_profile.active_preset_idx,
-            previous_profile.active_preset_idx
-        );
-
-        for previous in &previous_profile.presets {
-            let actual = actual_profile
-                .presets
-                .iter()
-                .find(|preset| preset.id == previous.id)
-                .expect("existing preset must be retained");
-            if previous.is_builtin() {
-                let expected = defaults
-                    .presets
-                    .iter()
-                    .find(|preset| preset.id == previous.id)
-                    .expect("built-in preset must have a current default");
-                let mut actual_without_hotkeys = actual.clone();
-                actual_without_hotkeys.hotkeys.clear();
-                let mut expected_without_hotkeys = expected.clone();
-                expected_without_hotkeys.hotkeys.clear();
-                clear_runtime_block_ids(&mut actual_without_hotkeys);
-                clear_runtime_block_ids(&mut expected_without_hotkeys);
-                assert_eq!(
-                    serde_json::to_value(actual_without_hotkeys).unwrap(),
-                    serde_json::to_value(expected_without_hotkeys).unwrap()
-                );
-                assert_eq!(actual.hotkeys, previous.hotkeys);
-            } else {
-                assert_eq!(
-                    serde_json::to_value(actual).unwrap(),
-                    serde_json::to_value(previous).unwrap()
-                );
-            }
-        }
-    }
 }
 
-fn clear_runtime_block_ids(preset: &mut Preset) {
-    for block in &mut preset.blocks {
-        block.id.clear();
+fn preserve_expected_preset_user_state(defaults: &mut [Preset], previous: &[Preset]) {
+    for preset in defaults {
+        if let Some(previous) = previous.iter().find(|previous| previous.id == preset.id) {
+            preset.hotkeys = previous.hotkeys.clone();
+            preset.is_favorite = previous.is_favorite;
+        }
     }
 }
