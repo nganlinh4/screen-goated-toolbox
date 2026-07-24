@@ -131,18 +131,35 @@ pub(super) fn render_restore_defaults_modal(
                 .corner_radius(8.0)
                 .inner_margin(egui::Margin::symmetric(10, 8))
                 .show(ui, |ui| {
-                    ui.horizontal_top(|ui| {
-                        draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_SM));
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(
-                                    text.global_settings.restore_defaults_kept_note,
+                    ui.vertical(|ui| {
+                        ui.horizontal_top(|ui| {
+                            draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_SM));
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(
+                                        text.global_settings.restore_defaults_kept_note,
+                                    )
+                                    .size(11.5)
+                                    .color(theme.on_surface_variant()),
                                 )
-                                .size(11.5)
-                                .color(theme.on_surface_variant()),
-                            )
-                            .wrap(),
-                        );
+                                .wrap(),
+                            );
+                        });
+                        ui.add_space(4.0);
+                        ui.horizontal_top(|ui| {
+                            draw_icon_static(ui, Icon::Keyboard, Some(crate::gui::icons::ICON_SM));
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(
+                                        text.global_settings.restore_defaults_hotkeys_kept,
+                                    )
+                                    .size(11.5)
+                                    .strong()
+                                    .color(theme.on_surface()),
+                                )
+                                .wrap(),
+                            );
+                        });
                     });
                 });
 
@@ -257,7 +274,7 @@ fn category_row(
         .fill(fill)
         .stroke(egui::Stroke::new(1.0, stroke_color))
         .corner_radius(9.0)
-        .inner_margin(egui::Margin::symmetric(10, 7))
+        .inner_margin(egui::Margin::symmetric(10, 6))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.vertical(|ui| {
@@ -339,10 +356,7 @@ fn apply_selected_config_defaults_from(
     defaults: &Config,
 ) {
     if selection.presets {
-        config.presets = defaults.presets.clone();
-        config.active_preset_idx = defaults.active_preset_idx;
-        config.preset_profiles = defaults.preset_profiles.clone();
-        config.active_preset_profile_idx = defaults.active_preset_profile_idx;
+        config.apply_current_builtin_preset_defaults_preserving_hotkeys();
     }
 
     if selection.app_settings {
@@ -395,10 +409,12 @@ fn apply_selected_config_defaults_from(
     }
 
     if selection.shortcuts_and_mini_apps {
-        config.screen_record_hotkeys = defaults.screen_record_hotkeys.clone();
-        config.computer_control_hotkeys = defaults.computer_control_hotkeys.clone();
         config.screen_record_window_size = defaults.screen_record_window_size;
+        let legacy_hotkey = config.translation_gummy.hotkey.clone();
+        let hotkeys = config.translation_gummy.hotkeys.clone();
         config.translation_gummy = defaults.translation_gummy.clone();
+        config.translation_gummy.hotkey = legacy_hotkey;
+        config.translation_gummy.hotkeys = hotkeys;
     }
 
     if selection.local_data {

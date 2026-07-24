@@ -28,4 +28,9 @@ pub struct DesktopSettingsLocaleText {
     pub update_success: &'static str,
     pub restart_to_use_new_version: &'static str,
     pub restart_app_btn: &'static str,
+    pub preset_model_update_title: &'static str,
+    pub preset_model_update_body: &'static str,
+    pub preset_model_update_kept: &'static str,
+    pub preset_model_update_skip: &'static str,
+    pub preset_model_update_apply: &'static str,
 }

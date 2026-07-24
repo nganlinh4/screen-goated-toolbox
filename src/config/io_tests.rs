@@ -223,6 +223,56 @@ fn migrate_config_creates_default_profile_for_legacy_presets() {
 }
 
 #[test]
+fn migrate_config_preserves_user_edited_builtin_settings() {
+    let defaults = crate::config::preset::get_default_presets();
+    let mut image = defaults
+        .iter()
+        .find(|preset| preset.id == "preset_translate")
+        .unwrap()
+        .clone();
+    image.auto_paste = !image.auto_paste;
+    image.auto_paste_newline = !image.auto_paste_newline;
+    image.prompt_mode = "user-selected-mode".to_string();
+
+    let mut audio = defaults
+        .iter()
+        .find(|preset| preset.id == "preset_transcribe")
+        .unwrap()
+        .clone();
+    audio.auto_stop_recording = !audio.auto_stop_recording;
+
+    let expected_image = (
+        image.auto_paste,
+        image.auto_paste_newline,
+        image.prompt_mode.clone(),
+    );
+    let expected_audio_auto_stop = audio.auto_stop_recording;
+    let mut config = legacy_config_with_presets(vec![image, audio]);
+
+    migrate_config(&mut config);
+
+    let image = config
+        .presets
+        .iter()
+        .find(|preset| preset.id == "preset_translate")
+        .unwrap();
+    assert_eq!(
+        (
+            image.auto_paste,
+            image.auto_paste_newline,
+            image.prompt_mode.clone(),
+        ),
+        expected_image
+    );
+    let audio = config
+        .presets
+        .iter()
+        .find(|preset| preset.id == "preset_transcribe")
+        .unwrap();
+    assert_eq!(audio.auto_stop_recording, expected_audio_auto_stop);
+}
+
+#[test]
 fn migrate_config_moves_computer_control_out_of_every_profile() {
     let normal = |id: &str| Preset {
         id: id.to_string(),

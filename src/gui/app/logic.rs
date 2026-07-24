@@ -26,6 +26,15 @@ impl SettingsApp {
                 );
                 crate::overlay::auto_copy_badge::show_update_notification(&notification_text);
             }
+            if let crate::updater::UpdateStatus::UpdatedAndRestartRequired { ref version } = status
+            {
+                match self.config.mark_staged_preset_model_update(version.clone()) {
+                    Ok(()) => self.save_and_sync(),
+                    Err(error) => crate::log_info!(
+                        "[updater] failed to stage preset-model comparison: {error}"
+                    ),
+                }
+            }
             self.update_status = status;
         }
     }

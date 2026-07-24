@@ -16,7 +16,7 @@ pub(super) fn get() -> WorkspaceLocaleText {
         tips_list: super::super::tips::en(),
         tips_click_hint: "Open tip list",
         restore_preset_btn: "Restore",
-        restore_preset_tooltip: "Reset preset to default settings",
+        restore_preset_tooltip: "Reset preset settings while keeping its hotkeys",
         search_doing: "Running",
         search_searching: "searching",
         search_query_label: "Search queries:",

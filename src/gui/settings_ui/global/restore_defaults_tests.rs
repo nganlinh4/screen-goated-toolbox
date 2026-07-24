@@ -1,5 +1,6 @@
 use super::{apply_selected_config_defaults_from, render_restore_defaults_modal};
-use crate::config::{Config, Hotkey, RestoreDefaultsSelection, ThemeMode};
+use crate::config::types::{PendingPresetModelUpdate, PresetProfile};
+use crate::config::{Config, Hotkey, Preset, RestoreDefaultsSelection, ThemeMode};
 use crate::gui::locale::LocaleText;
 use auto_launch::AutoLaunch;
 use eframe::egui;
@@ -19,6 +20,9 @@ const ALWAYS_KEPT: &[&str] = &[
     "ollama_base_url",
     "custom_models",
     "restore_defaults_selection",
+    "pending_preset_model_update",
+    "screen_record_hotkeys",
+    "computer_control_hotkeys",
 ];
 const PRESETS: &[&str] = &[
     "presets",
@@ -72,12 +76,7 @@ const AUDIO: &[&str] = &[
     "voxtral_settings",
     "tts_playground",
 ];
-const SHORTCUTS: &[&str] = &[
-    "screen_record_hotkeys",
-    "computer_control_hotkeys",
-    "screen_record_window_size",
-    "translation_gummy",
-];
+const SHORTCUTS: &[&str] = &["screen_record_window_size", "translation_gummy"];
 const LOCAL_DATA: &[&str] = &["clear_webview_on_startup"];
 
 #[test]
@@ -203,7 +202,6 @@ fn non_default_fixture_exercises_every_resettable_config_field() {
 #[test]
 fn each_category_resets_only_its_owned_fields() {
     for (selection, selected_keys) in [
-        (only(|selection| selection.presets = true), PRESETS),
         (only(|selection| selection.app_settings = true), APP),
         (only(|selection| selection.model_settings = true), MODELS),
         (only(|selection| selection.audio_settings = true), AUDIO),
@@ -225,11 +223,22 @@ fn each_category_resets_only_its_owned_fields() {
             .flatten()
         {
             let expected = if selected_keys.contains(key) {
-                &expected_defaults[key]
+                if *key == "translation_gummy" {
+                    let mut expected_gummy = defaults.translation_gummy.clone();
+                    expected_gummy.hotkey = config.translation_gummy.hotkey.clone();
+                    expected_gummy.hotkeys = config.translation_gummy.hotkeys.clone();
+                    assert_eq!(
+                        actual[*key],
+                        serde_json::to_value(expected_gummy).unwrap(),
+                        "unexpected policy for {key}"
+                    );
+                    continue;
+                }
+                &expected_defaults[*key]
             } else {
-                &before[key]
+                &before[*key]
             };
-            assert_eq!(&actual[key], expected, "unexpected policy for {key}");
+            assert_eq!(&actual[*key], expected, "unexpected policy for {key}");
         }
         for key in ALWAYS_KEPT {
             assert_eq!(&actual[*key], &before[*key], "{key} must be kept");
@@ -238,24 +247,77 @@ fn each_category_resets_only_its_owned_fields() {
 }
 
 #[test]
-fn selecting_every_category_matches_the_legacy_reset_contract() {
+fn preset_restore_refreshes_builtins_but_keeps_profiles_custom_presets_and_hotkeys() {
     let defaults = Config::default();
     let mut config = non_default_config();
-    let before = serde_json::to_value(&config).unwrap();
+    let before = config.clone();
+
+    apply_selected_config_defaults_from(
+        &mut config,
+        only(|selection| selection.presets = true),
+        &defaults,
+    );
+
+    assert_preset_restore_contract(&config, &before, &defaults);
+    assert_eq!(config.screen_record_hotkeys, before.screen_record_hotkeys);
+    assert_eq!(
+        config.computer_control_hotkeys,
+        before.computer_control_hotkeys
+    );
+    assert_eq!(
+        config.translation_gummy.hotkey,
+        before.translation_gummy.hotkey
+    );
+    assert_eq!(
+        config.translation_gummy.hotkeys,
+        before.translation_gummy.hotkeys
+    );
+}
+
+#[test]
+fn selecting_every_category_keeps_every_hotkey() {
+    let defaults = Config::default();
+    let mut config = non_default_config();
+    let before = config.clone();
 
     apply_selected_config_defaults_from(
         &mut config,
         RestoreDefaultsSelection::default(),
         &defaults,
     );
-    let actual = serde_json::to_value(&config).unwrap();
-    let mut expected = serde_json::to_value(defaults).unwrap();
-    for key in ALWAYS_KEPT {
-        expected[*key] = before[*key].clone();
-    }
-    expected["clear_webview_on_startup"] = true.into();
 
-    assert_eq!(actual, expected);
+    assert_preset_restore_contract(&config, &before, &defaults);
+    assert_eq!(config.screen_record_hotkeys, before.screen_record_hotkeys);
+    assert_eq!(
+        config.computer_control_hotkeys,
+        before.computer_control_hotkeys
+    );
+    assert_eq!(
+        config.translation_gummy.hotkey,
+        before.translation_gummy.hotkey
+    );
+    assert_eq!(
+        config.translation_gummy.hotkeys,
+        before.translation_gummy.hotkeys
+    );
+    let actual = serde_json::to_value(&config).unwrap();
+    let expected_defaults = serde_json::to_value(&defaults).unwrap();
+    let before_json = serde_json::to_value(&before).unwrap();
+    for key in [APP, MODELS, AUDIO].into_iter().flatten() {
+        assert_eq!(&actual[*key], &expected_defaults[*key], "{key} not reset");
+    }
+    for key in ALWAYS_KEPT {
+        assert_eq!(&actual[*key], &before_json[*key], "{key} must be kept");
+    }
+    assert_eq!(
+        actual["screen_record_window_size"],
+        expected_defaults["screen_record_window_size"]
+    );
+    assert_eq!(
+        actual["translation_gummy"]["guide_seen"],
+        expected_defaults["translation_gummy"]["guide_seen"]
+    );
+    assert_eq!(actual["clear_webview_on_startup"], true);
 }
 
 #[test]
@@ -286,15 +348,46 @@ fn only(update: impl FnOnce(&mut RestoreDefaultsSelection)) -> RestoreDefaultsSe
 
 fn non_default_config() -> Config {
     let defaults = Config::default();
+    let mut edited_builtin = defaults.presets[0].clone();
+    edited_builtin.name = "Edited built-in".to_string();
+    edited_builtin.blocks.clear();
+    edited_builtin.hotkeys = vec![Hotkey::new(0x31, "Ctrl + 1", 2)];
+    let custom = Preset {
+        id: "custom-user-preset".to_string(),
+        name: "Custom user preset".to_string(),
+        hotkeys: vec![Hotkey::new(0x32, "Ctrl + 2", 2)],
+        ..Default::default()
+    };
+    let first_profile = PresetProfile {
+        id: "profile-first".to_string(),
+        name: "First profile".to_string(),
+        presets: vec![edited_builtin, custom],
+        active_preset_idx: 1,
+    };
+    let mut second_builtin = defaults.presets[1].clone();
+    second_builtin.name = "Second edited built-in".to_string();
+    second_builtin.hotkeys = vec![Hotkey::new(0x33, "Ctrl + 3", 2)];
+    let second_custom = Preset {
+        id: "custom-active-preset".to_string(),
+        name: "Active custom preset".to_string(),
+        hotkeys: vec![Hotkey::new(0x34, "Ctrl + 4", 2)],
+        ..Default::default()
+    };
+    let active_profile = PresetProfile {
+        id: "profile-active".to_string(),
+        name: "Active profile".to_string(),
+        presets: vec![second_builtin, second_custom],
+        active_preset_idx: 1,
+    };
     let mut config = Config {
         api_key: "groq-secret".to_string(),
         gemini_api_key: "gemini-secret".to_string(),
         openrouter_api_key: "openrouter-secret".to_string(),
         cerebras_api_key: "cerebras-secret".to_string(),
-        presets: Vec::new(),
-        active_preset_idx: 7,
-        preset_profiles: Vec::new(),
-        active_preset_profile_idx: 3,
+        presets: active_profile.presets.clone(),
+        active_preset_idx: active_profile.active_preset_idx,
+        preset_profiles: vec![first_profile, active_profile],
+        active_preset_profile_idx: 1,
         theme_mode: ThemeMode::Dark,
         ui_language: "test-locale".to_string(),
         max_history_items: defaults.max_history_items + 1,
@@ -302,6 +395,10 @@ fn non_default_config() -> Config {
         cc_max_memory_items: defaults.cc_max_memory_items + 1,
         graphics_mode: "minimal".to_string(),
         favorite_overlay_opacity: 42,
+        pending_preset_model_update: Some(PendingPresetModelUpdate {
+            target_version: "99.0.0".to_string(),
+            previous_models: Default::default(),
+        }),
         start_in_tray: true,
         run_as_admin_on_startup: true,
         run_at_startup: true,
@@ -349,6 +446,64 @@ fn non_default_config() -> Config {
     config.vieneu_settings.emotion = "storytelling".to_string();
     config.voxtral_settings.voice = "voxtral-voice".to_string();
     config.tts_playground.draft_text = "changed draft".to_string();
+    config.translation_gummy.hotkey = Some(Hotkey::new(5, "Legacy", 6));
+    config.translation_gummy.hotkeys = vec![Hotkey::new(7, "Gummy", 8)];
     config.translation_gummy.guide_seen = true;
     config
+}
+
+fn assert_preset_restore_contract(config: &Config, before: &Config, defaults: &Config) {
+    assert_eq!(
+        config.active_preset_profile_idx,
+        before.active_preset_profile_idx
+    );
+    assert_eq!(config.preset_profiles.len(), before.preset_profiles.len());
+
+    for (actual_profile, previous_profile) in
+        config.preset_profiles.iter().zip(&before.preset_profiles)
+    {
+        assert_eq!(actual_profile.id, previous_profile.id);
+        assert_eq!(actual_profile.name, previous_profile.name);
+        assert_eq!(
+            actual_profile.active_preset_idx,
+            previous_profile.active_preset_idx
+        );
+
+        for previous in &previous_profile.presets {
+            let actual = actual_profile
+                .presets
+                .iter()
+                .find(|preset| preset.id == previous.id)
+                .expect("existing preset must be retained");
+            if previous.is_builtin() {
+                let expected = defaults
+                    .presets
+                    .iter()
+                    .find(|preset| preset.id == previous.id)
+                    .expect("built-in preset must have a current default");
+                let mut actual_without_hotkeys = actual.clone();
+                actual_without_hotkeys.hotkeys.clear();
+                let mut expected_without_hotkeys = expected.clone();
+                expected_without_hotkeys.hotkeys.clear();
+                clear_runtime_block_ids(&mut actual_without_hotkeys);
+                clear_runtime_block_ids(&mut expected_without_hotkeys);
+                assert_eq!(
+                    serde_json::to_value(actual_without_hotkeys).unwrap(),
+                    serde_json::to_value(expected_without_hotkeys).unwrap()
+                );
+                assert_eq!(actual.hotkeys, previous.hotkeys);
+            } else {
+                assert_eq!(
+                    serde_json::to_value(actual).unwrap(),
+                    serde_json::to_value(previous).unwrap()
+                );
+            }
+        }
+    }
+}
+
+fn clear_runtime_block_ids(preset: &mut Preset) {
+    for block in &mut preset.blocks {
+        block.id.clear();
+    }
 }

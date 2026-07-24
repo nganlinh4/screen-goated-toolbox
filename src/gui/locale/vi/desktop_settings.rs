@@ -31,5 +31,10 @@ pub(super) fn get() -> DesktopSettingsLocaleText {
         update_success: "Cập Nhật Thành Công!",
         restart_to_use_new_version: "Khởi động lại để sử dụng phiên bản mới.",
         restart_app_btn: "Khởi Động Lại Ứng Dụng",
+        preset_model_update_title: "Áp dụng mô hình preset mới?",
+        preset_model_update_body: "Bản cập nhật này có mô hình đề xuất mới hơn cho một số khối preset tích hợp. Áp dụng chỉ thay đổi trường mô hình, và chỉ ở các khối trong mọi hồ sơ vẫn dùng mô hình mặc định cũ. Prompt, sơ đồ, chế độ, mục yêu thích, phím tắt và mọi cài đặt khác được giữ nguyên. Nếu bỏ qua, bạn vẫn có thể nhận mặc định mới sau này bằng cách khôi phục preset tích hợp hoặc từng preset.",
+        preset_model_update_kept: "Mô hình bạn tự chọn và toàn bộ phím tắt của preset, Ghi màn hình, Điều khiển máy tính và Translation Gummy sẽ được giữ lại.",
+        preset_model_update_skip: "Không áp dụng",
+        preset_model_update_apply: "Áp dụng",
     }
 }

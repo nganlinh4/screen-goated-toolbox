@@ -31,5 +31,10 @@ pub(super) fn get() -> DesktopSettingsLocaleText {
         update_success: "Update Success!",
         restart_to_use_new_version: "Restart to use the new version.",
         restart_app_btn: "Restart App",
+        preset_model_update_title: "Apply updated preset models?",
+        preset_model_update_body: "This update includes newer recommended models for some built-in preset blocks. Apply changes only the model field, and only in blocks in any profile that still use the previous default model. Prompts, graphs, modes, favorites, hotkeys, and every other setting stay unchanged. If you skip, you can get the new defaults later by restoring built-in presets or an individual preset.",
+        preset_model_update_kept: "Models you selected yourself and all preset, Screen Record, Computer Control, and Translation Gummy hotkeys will be kept.",
+        preset_model_update_skip: "Don't apply",
+        preset_model_update_apply: "Apply",
     }
 }

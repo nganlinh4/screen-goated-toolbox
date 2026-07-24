@@ -16,7 +16,7 @@ pub(super) fn get() -> WorkspaceLocaleText {
         tips_list: super::super::tips::ko(),
         tips_click_hint: "팁 목록 열기",
         restore_preset_btn: "복원",
-        restore_preset_tooltip: "기본 설정으로 초기화",
+        restore_preset_tooltip: "단축키를 유지하면서 프리셋 설정 초기화",
         search_doing: "진행 중:",
         search_searching: "검색",
         search_query_label: "검색 쿼리:",
