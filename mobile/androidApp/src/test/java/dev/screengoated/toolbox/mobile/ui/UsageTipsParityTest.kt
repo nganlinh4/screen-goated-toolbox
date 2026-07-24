@@ -4,11 +4,9 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,55 +16,15 @@ class UsageTipsParityTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test
-    fun displayDurationMatchesWindowsFormula() {
-        val case = fixtureCase("windows_rotation_contract")
-        assertEquals(500, case.getValue("fade_duration_ms").jsonPrimitive.int)
-        assertEquals("2000 + tip.length * 60", case.getValue("display_duration_formula").jsonPrimitive.content)
-        assertEquals(case.getValue("fade_duration_ms").jsonPrimitive.int.toLong(), USAGE_TIP_FADE_DURATION_MS)
-        assertEquals(2000L, usageTipDisplayDurationMillis(""))
-        assertEquals(2240L, usageTipDisplayDurationMillis("1234"))
-    }
+    fun usageTipsUseStaticEntryContract() {
+        val windows = fixtureCase("windows_static_entry_contract")
+        assertEquals("lightbulb", windows.getValue("icon").jsonPrimitive.content)
+        assertFalse(windows.getValue("rotating_preview").jsonPrimitive.boolean)
+        assertTrue(windows.getValue("full_list_on_activate").jsonPrimitive.boolean)
 
-    @Test
-    fun nextTipDoesNotRepeatWhenMultipleTipsExist() {
-        val next = selectNextUsageTipIndex(
-            currentIndex = 1,
-            tipCount = 3,
-            random = Random(0),
-        )
-
-        assertTrue(next in 0..2)
-        assertFalse(next == 1)
-        repeat(20) { current ->
-            val currentIndex = current % 5
-            val candidate = selectNextUsageTipIndex(
-                currentIndex = currentIndex,
-                tipCount = 5,
-                random = Random(current),
-            )
-            assertTrue(candidate in 0..4)
-            assertFalse("current=$currentIndex", candidate == currentIndex)
-        }
-    }
-
-    @Test
-    fun singleTipListStaysOnSameIndex() {
-        assertEquals(
-            0,
-            selectNextUsageTipIndex(
-                currentIndex = 0,
-                tipCount = 1,
-                random = Random(0),
-            ),
-        )
-        assertEquals(
-            -1,
-            selectNextUsageTipIndex(
-                currentIndex = -1,
-                tipCount = 0,
-                random = Random(0),
-            ),
-        )
+        val android = fixtureCase("android_settings_surface")
+        assertEquals("static_card", android.getValue("entry_surface").jsonPrimitive.content)
+        assertFalse(android.getValue("rotating_preview").jsonPrimitive.boolean)
     }
 
     @Test
@@ -77,6 +35,17 @@ class UsageTipsParityTest {
 
         assertEquals(en.usageTipsList.size, vi.usageTipsList.size)
         assertEquals(en.usageTipsList.size, ko.usageTipsList.size)
+        listOf(en, vi, ko).forEach { locale ->
+            assertTrue(locale.usageTipsList.isNotEmpty())
+            locale.usageTipsList.forEach { tip ->
+                assertTrue(tip.isNotBlank())
+                assertEquals(
+                    "unbalanced bold markers: $tip",
+                    0,
+                    tip.windowed(2).count { it == "**" } % 2,
+                )
+            }
+        }
         assertTrue(en.usageTipsTitle.isNotBlank())
         assertTrue(vi.usageTipsTitle.isNotBlank())
         assertTrue(ko.usageTipsTitle.isNotBlank())
@@ -104,7 +73,9 @@ class UsageTipsParityTest {
         val case = fixtureCase("android_settings_surface")
 
         assertEquals("SETTINGS", case.getValue("section").jsonPrimitive.content)
-        assertEquals("card", case.getValue("entry_surface").jsonPrimitive.content)
+        assertEquals("static_card", case.getValue("entry_surface").jsonPrimitive.content)
+        assertEquals("lightbulb", case.getValue("icon").jsonPrimitive.content)
+        assertFalse(case.getValue("rotating_preview").jsonPrimitive.boolean)
         assertEquals("dialog", case.getValue("full_list_surface").jsonPrimitive.content)
     }
 
@@ -117,12 +88,18 @@ class UsageTipsParityTest {
 
     private fun conceptKeywords(concept: String): List<String> {
         return when (concept) {
+            "quick settings bubble favorites" -> listOf("quick settings", "bubble", "★")
             "dimmed screen selection cancel" -> listOf("dimmed", "screen", "select", "cancel")
-            "history cleanup" -> listOf("history", "clean")
-            "single auto-copy step" -> listOf("one step", "auto copy")
-            "auto-paste requires caret" -> listOf("auto-paste", "cursor")
-            "smart audio stop" -> listOf("audio recording", "smart stop")
-            "display mode toggle" -> listOf("display mode", "switch")
+            "history cleanup" -> listOf("history", "oldest")
+            "single auto-copy step" -> listOf("one step", "auto-copy")
+            "auto-paste accessibility" -> listOf("auto-paste", "accessibility")
+            "audio auto-stop" -> listOf("audio", "auto-stop")
+            "live translate auto speed" -> listOf("live translate", "auto", "speed")
+            "model priority fallback" -> listOf("model priority", "fallback")
+            "phone control screen sharing" -> listOf("phone control", "screen sharing")
+            "translation gummy" -> listOf("translation gummy")
+            "creation tools background jobs" -> listOf("image to 3d", "image to svg", "background")
+            "continuous mode" -> listOf("continuous mode")
             else -> concept.split(' ').map { it.lowercase() }
         }
     }
