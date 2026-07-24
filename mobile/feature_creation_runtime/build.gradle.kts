@@ -10,8 +10,8 @@ plugins {
 
 val runtimeUrl =
     "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android.aar"
-val runtimeBytes = 398_811L
-val runtimeSha256 = "77b945651e88f0cd39ee0bdf6f04a77c8ce6be24d54c2a7333fbdf5b803a457c"
+val runtimeBytes = 681_455L
+val runtimeSha256 = "e0681ce03004ac6559c4ebbc4b0fb198bd92f25b3a9788ac6849776ad1315033"
 val generatedRuntime = layout.buildDirectory.file("generated/runtime/sgt-creation-runtime-android.aar")
 val localCandidates = listOf(
     rootProject.projectDir.parentFile.resolve(

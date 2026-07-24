@@ -21,17 +21,23 @@ internal class CreationDiagnostics(context: Context, private val scope: String) 
         stage: String? = null,
         failure: Throwable? = null,
         failureMessage: String? = failure?.message,
+        generationMode: String? = null,
+        provider: String? = null,
     ) {
         val category = failureMessage?.let(::failureCategory)
         val summary = buildString {
             append(scope).append(' ').append(name)
             tool?.let { append(" tool=").append(it) }
+            generationMode?.let { append(" mode=").append(it) }
+            provider?.let { append(" provider=").append(it) }
             slot?.let { append(" slot=").append(it) }
             stage?.let { append(" stage=").append(it) }
             category?.let { append(" failure=").append(it) }
         }
         if (category == null) Log.i(TAG, summary) else Log.w(TAG, summary)
-        runCatching { append(record(name, tool, slot, jobId, stage, category)) }
+        runCatching {
+            append(record(name, tool, slot, jobId, stage, category, generationMode, provider))
+        }
             .onFailure { Log.w(TAG, "$scope journal_write_failed") }
     }
 
@@ -42,12 +48,16 @@ internal class CreationDiagnostics(context: Context, private val scope: String) 
         jobId: String?,
         stage: String?,
         failureCategory: String?,
+        generationMode: String?,
+        provider: String?,
     ): String = JSONObject().apply {
         put("timeMs", System.currentTimeMillis())
         put("pid", Process.myPid())
         put("scope", fixedToken(scope))
         put("event", fixedToken(name))
         tool?.let { put("tool", fixedToken(it)) }
+        generationMode?.let { put("mode", fixedToken(it)) }
+        provider?.let { put("provider", fixedToken(it)) }
         slot?.let { put("slot", it) }
         jobId?.let { put("job", it.takeLast(16).replace(NON_TOKEN, "_")) }
         stage?.let { put("stage", fixedToken(it)) }

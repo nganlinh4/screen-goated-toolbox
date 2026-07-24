@@ -47,6 +47,7 @@ internal abstract class CreationWorkerService : Service() {
                             tool = workerTool.wireName,
                             slot = workerSlot,
                             stage = event.progressKey ?: event.stage,
+                            provider = event.provider,
                         )
                     })
                 }
@@ -84,6 +85,7 @@ internal abstract class CreationWorkerService : Service() {
                 callback.emit(
                     CreationWorkerEvent(
                         jobId = request.jobId,
+                        provider = request.provider,
                         event = "failure",
                         error = "Job was routed to the wrong worker",
                     ),
@@ -99,10 +101,12 @@ internal abstract class CreationWorkerService : Service() {
                     workerSlot,
                     request.jobId,
                     request.operation,
+                    generationMode = request.generationMode,
+                    provider = request.provider,
                 )
                 var lastStage: String? = null
                 try {
-                    activeEngine.runJob(requestJson, eventSink(callback) { event ->
+                    activeEngine.runJob(requestJson, eventSink(callback, request.provider) { event ->
                         val stage = event.progressKey ?: event.stage ?: event.event
                         if (stage != lastStage) {
                             lastStage = stage
@@ -112,6 +116,8 @@ internal abstract class CreationWorkerService : Service() {
                                 workerSlot,
                                 request.jobId,
                                 stage,
+                                generationMode = request.generationMode,
+                                provider = request.provider,
                             )
                         }
                     })
@@ -126,10 +132,14 @@ internal abstract class CreationWorkerService : Service() {
                         request.jobId,
                         lastStage,
                         error,
+                        generationMode = request.generationMode,
+                        provider = request.provider,
                     )
                     callback.emit(
                         CreationWorkerEvent(
                             jobId = request.jobId,
+                            generationMode = request.generationMode,
+                            provider = request.provider,
                             event = "failure",
                             error = error.message ?: "Creation timed out",
                         ),
@@ -140,8 +150,17 @@ internal abstract class CreationWorkerService : Service() {
                         workerTool.wireName,
                         workerSlot,
                         request.jobId,
+                        generationMode = request.generationMode,
+                        provider = request.provider,
                     )
-                    callback.emit(CreationWorkerEvent(jobId = request.jobId, event = "cancelled"))
+                    callback.emit(
+                        CreationWorkerEvent(
+                            jobId = request.jobId,
+                            generationMode = request.generationMode,
+                            provider = request.provider,
+                            event = "cancelled",
+                        ),
+                    )
                 } catch (error: Throwable) {
                     if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
                         Log.e(DEBUG_TAG, "Job failed for ${workerTool.wireName}-$workerSlot", error)
@@ -153,10 +172,14 @@ internal abstract class CreationWorkerService : Service() {
                         request.jobId,
                         lastStage,
                         error,
+                        generationMode = request.generationMode,
+                        provider = request.provider,
                     )
                     callback.emit(
                         CreationWorkerEvent(
                             jobId = request.jobId,
+                            generationMode = request.generationMode,
+                            provider = request.provider,
                             event = "failure",
                             error = error.message ?: "Creation failed",
                         ),
@@ -188,13 +211,24 @@ internal abstract class CreationWorkerService : Service() {
 
     private fun eventSink(
         callback: ICreationWorkerCallback,
+        provider: String? = null,
         observe: (CreationWorkerEvent) -> Unit,
     ) = CreationRuntimeEventSink { eventJson ->
         val event = runCatching {
             json.decodeFromString(CreationWorkerEvent.serializer(), eventJson)
         }.getOrNull() ?: return@CreationRuntimeEventSink
-        observe(event)
-        runCatching { callback.onEvent(eventJson) }
+        val normalized = if (provider != null && event.provider == null) {
+            event.copy(provider = provider)
+        } else {
+            event
+        }
+        observe(normalized)
+        val outbound = if (normalized === event) {
+            eventJson
+        } else {
+            json.encodeToString(CreationWorkerEvent.serializer(), normalized)
+        }
+        runCatching { callback.onEvent(outbound) }
     }
 
     private fun ICreationWorkerCallback.emit(event: CreationWorkerEvent) {

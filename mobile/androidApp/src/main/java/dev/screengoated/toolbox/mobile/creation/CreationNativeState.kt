@@ -16,6 +16,7 @@ internal data class CreationNativeItem(
     val batchId: String,
     val sourcePath: String,
     val sourceName: String,
+    val generationMode: String = CreationGenerationMode.QUALITY.wireName,
     val polycount: Int = CreationContract.DEFAULT_POLYCOUNT,
     val autoSegment: Boolean = false,
     val model: String = "simple",
@@ -59,3 +60,6 @@ internal fun CreationNativeStage.isTerminal(): Boolean = this in setOf(
     CreationNativeStage.FAILED,
     CreationNativeStage.CANCELLED,
 )
+
+internal fun CreationNativeItem.isConfigurable(): Boolean =
+    (!submitted && stage == CreationNativeStage.DRAFT) || stage.isTerminal()

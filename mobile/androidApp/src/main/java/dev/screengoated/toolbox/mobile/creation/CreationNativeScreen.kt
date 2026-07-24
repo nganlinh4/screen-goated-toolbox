@@ -14,12 +14,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -338,13 +336,14 @@ private fun CreationActiveSettings(
 ) {
     val item = state.selectedItem
     if (state.tab != CreationNativeTab.JOBS || item == null) return
-    val enabled = item.stage == CreationNativeStage.DRAFT && !item.submitted
+    val enabled = item.isConfigurable()
     if (tool == CreationTool.IMAGE_TO_3D) {
         Creation3dSettings(
             item = item,
             strings = locale.creationApps.model3d,
             accent = accent,
             enabled = enabled,
+            onGenerationMode = viewModel::setGenerationMode,
             onPolycount = viewModel::setPolycount,
             onAutoSegment = viewModel::setAutoSegment,
         )
@@ -569,56 +568,4 @@ private fun RenameResultDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(common.dismiss) } },
     )
-}
-
-@Composable
-private fun CreationBottomActions(
-    tool: CreationTool,
-    state: CreationNativeUiState,
-    locale: MobileLocaleText,
-    accent: Color,
-    viewModel: CreationNativeViewModel,
-) {
-    if (state.tab != CreationNativeTab.JOBS || state.selectedItem == null) return
-    val item = requireNotNull(state.selectedItem)
-    val common = locale.creationApps.common
-    val label = when {
-        item.stage == CreationNativeStage.FAILED || item.stage == CreationNativeStage.CANCELLED ->
-            common.retry
-        item.stage == CreationNativeStage.RUNNING -> common.cancel
-        item.stage == CreationNativeStage.DONE && tool == CreationTool.IMAGE_TO_3D &&
-            item.status?.canSegment == true && !item.status.isSegmented ->
-            locale.creationApps.model3d.separate
-        item.stage == CreationNativeStage.DONE -> return
-        else -> if (tool == CreationTool.IMAGE_TO_3D) locale.creationApps.model3d.generate
-        else locale.creationApps.svg.generate
-    }
-    val action = when {
-        item.stage == CreationNativeStage.RUNNING -> viewModel::cancelSelected
-        item.stage == CreationNativeStage.DONE -> viewModel::segmentSelected
-        else -> viewModel::submitSelected
-    }
-    androidx.compose.material3.Surface(tonalElevation = 3.dp) {
-        Button(
-            onClick = action,
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-                .height(52.dp),
-            enabled = item.stage != CreationNativeStage.QUEUED,
-            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = accent),
-            shape = MaterialTheme.shapes.medium,
-        ) {
-            Icon(
-                painterResource(
-                    if (item.stage == CreationNativeStage.RUNNING) R.drawable.ms_close
-                    else R.drawable.ms_auto_awesome,
-                ),
-                contentDescription = null,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(label)
-        }
-    }
 }

@@ -1,5 +1,6 @@
 import "./styles.css";
 import { locale, setLocale, t, type MessageKey } from "./i18n";
+import { generationSettings, type GenerationMode } from "./generation-mode";
 import { ModelViewer, type ModelStats, type ShadingMode } from "./viewer";
 
 type Stage = "idle" | "runtime_missing" | "preparing" | "visualizing" | "generating" | "segmenting" | "finalizing" | "done" | "failed" | "cancelled";
@@ -19,6 +20,7 @@ type JobStatus = {
   outputName?: string | null;
   previewPath?: string | null;
   sourceImagePath?: string | null;
+  generationMode?: GenerationMode;
   isSegmented?: boolean;
   canSegment?: boolean;
   error?: string | null;
@@ -30,6 +32,7 @@ type StartJobRequest = {
   outputDir?: string | null;
   polycount: number;
   mode: "topology_mesh";
+  generationMode: GenerationMode;
   outputFormat: "glb_plain";
   autoSegment: boolean;
   segmentationMode: "parts" | "none";
@@ -39,7 +42,7 @@ type AssetPayload = { dataUrl: string; sizeBytes: number };
 type HostContext = { theme?: "light" | "dark"; language?: string };
 type HistoryEntry = {
   id: string; tool: "3d"; sourcePath: string; outputPath: string; outputName: string;
-  createdAtMs: number; metadata?: { isSegmented?: boolean };
+  createdAtMs: number; metadata?: { generationMode?: GenerationMode; isSegmented?: boolean };
 };
 
 type QueueItem = {
@@ -49,6 +52,7 @@ type QueueItem = {
   name: string;
   extension: string;
   assetUrl: string;
+  generationMode: GenerationMode;
   polycount: number;
   autoSegment: boolean;
   submitted: boolean;
@@ -192,8 +196,18 @@ app.innerHTML = `
           </button>
         </div>
         <div class="control-section">
-          <div class="control-heading"><label for="polycountRange" data-i18n="topology"></label><output id="polycountValue">5,000</output></div>
-          <input class="range" id="polycountRange" type="range" min="500" max="20000" step="100" value="5000" />
+          <span class="control-label" data-i18n="generationMode"></span>
+          <div class="mode-options" role="group" data-i18n-aria="generationMode">
+            <button type="button" data-generation-mode="fast" data-i18n="fast"></button>
+            <button type="button" data-generation-mode="quality" data-i18n="quality"></button>
+          </div>
+        </div>
+        <div class="control-section">
+          <div class="control-heading">
+            <label for="polycountRange" data-i18n="topology"></label>
+            <output id="polycountValue">5,000</output>
+          </div>
+          <input class="range" id="polycountRange" type="range" min="100" max="20000" step="100" value="5000" />
           <div class="range-scale"><span data-i18n="light"></span><span data-i18n="detailed"></span></div>
         </div>
         <div class="control-section compact">
@@ -201,7 +215,7 @@ app.innerHTML = `
             <span>${ICONS.folder}</span><span><small data-i18n="saveTo"></small><strong id="folderName"></strong></span>
           </button>
         </div>
-        <div class="control-section compact">
+        <div class="control-section compact" id="autoSegmentSection">
           <label class="switch-row" for="autoSegmentInput">
             <span><strong data-i18n="autoSeparateParts"></strong><small data-i18n="colorReadyPieces"></small></span>
             <input id="autoSegmentInput" type="checkbox" /><i class="switch" aria-hidden="true"></i>
@@ -236,7 +250,9 @@ const nodes = {
   chooseImageButton: query<HTMLButtonElement>("#chooseImageButton"), chooseFolderButton: query<HTMLButtonElement>("#chooseFolderButton"),
   showFolderButton: query<HTMLButtonElement>("#showFolderButton"), sourceThumb: query<HTMLElement>("#sourceThumb"), sourceName: query<HTMLElement>("#sourceName"),
   sourceMeta: query<HTMLElement>("#sourceMeta"), folderName: query<HTMLElement>("#folderName"), polycountRange: query<HTMLInputElement>("#polycountRange"),
-  polycountValue: query<HTMLOutputElement>("#polycountValue"), autoSegmentInput: query<HTMLInputElement>("#autoSegmentInput"),
+  polycountValue: query<HTMLOutputElement>("#polycountValue"),
+  modeButtons: [...document.querySelectorAll<HTMLButtonElement>("[data-generation-mode]")],
+  autoSegmentSection: query<HTMLElement>("#autoSegmentSection"), autoSegmentInput: query<HTMLInputElement>("#autoSegmentInput"),
   generateButton: query<HTMLButtonElement>("#generateButton"), generateLabel: query<HTMLElement>("#generateLabel"), cancelButton: query<HTMLButtonElement>("#cancelButton"), cancelLabel: query<HTMLElement>("#cancelLabel"),
   segmentButton: query<HTMLButtonElement>("#segmentButton"), statusTitle: query<HTMLElement>("#statusTitle"), statusDetail: query<HTMLElement>("#statusDetail"),
   statusEta: query<HTMLElement>("#statusEta"), progressTrack: query<HTMLElement>("#progressTrack"), progressFill: query<HTMLElement>("#progressFill"),
@@ -274,6 +290,13 @@ function delay(ms: number) { return new Promise((resolve) => window.setTimeout(r
 function isDraft(item?: QueueItem) { return Boolean(item?.state === "queued" && !item.submitted); }
 function isRerunnable(item?: QueueItem) { return Boolean(item && ["done", "failed", "cancelled"].includes(item.state)); }
 function isConfigurable(item?: QueueItem) { return isDraft(item) || isRerunnable(item); }
+function normalizeGenerationSettings(item: QueueItem) {
+  const settings = generationSettings(item.generationMode, item.polycount, item.autoSegment);
+  item.generationMode = settings.mode;
+  item.polycount = settings.polycount;
+  item.autoSegment = settings.autoSegment;
+  return settings;
+}
 
 let confirmResolver: ((accepted: boolean) => void) | undefined;
 function confirmInApp(message: string) {
@@ -501,7 +524,6 @@ async function refreshHistory() {
   try {
     const entries = await invoke<HistoryEntry[]>("history_results");
     const validIds = new Set(entries.map((entry) => entry.id));
-    const validPaths = new Set(entries.map((entry) => comparablePath(entry.outputPath)));
     for (const entry of entries) {
       let item = state.items.find((candidate) => candidate.historyId === entry.id)
         || state.items.find((candidate) => comparablePath(candidate.result?.outputPath) === comparablePath(entry.outputPath));
@@ -519,21 +541,20 @@ async function refreshHistory() {
       const name = pathLeaf(sourcePath || entry.outputName);
       item = {
         id: `history_${entry.id}`, batchId: `history_${entry.id}`, path: sourcePath, name,
-        extension: name.split(".").pop()?.toUpperCase() || t("image"), assetUrl, polycount: 5000,
+        extension: name.split(".").pop()?.toUpperCase() || t("image"), assetUrl,
+        generationMode: entry.metadata?.generationMode || "quality", polycount: 5000,
         autoSegment: Boolean(entry.metadata?.isSegmented), submitted: true, state: "done", historyId: entry.id,
         createdAtMs: entry.createdAtMs,
         result: {
           stage: "done", progressText: "", outputPath: entry.outputPath, outputName: entry.outputName,
-          sourceImagePath: sourcePath, isSegmented: Boolean(entry.metadata?.isSegmented), canSegment: false,
+          sourceImagePath: sourcePath, isSegmented: Boolean(entry.metadata?.isSegmented),
+          canSegment: false,
         },
       };
       state.items.push(item);
     }
     const selectedBefore = state.selectedId;
-    state.items = state.items.filter((item) => {
-      if (item.historyId) return validIds.has(item.historyId);
-      return item.state !== "done" || !item.result?.outputPath || validPaths.has(comparablePath(item.result.outputPath));
-    });
+    state.items = state.items.filter((item) => !item.historyId || validIds.has(item.historyId));
     if (state.referencePreviewItemId && !state.items.some((item) => item.id === state.referencePreviewItemId)) closeReferencePreview();
     if (!state.items.some((item) => item.id === state.selectedId)) state.selectedId = state.items[0]?.id || "";
     updateUi();
@@ -564,7 +585,7 @@ async function addImagePaths(paths: string[]) {
     return {
       id: `image_${Date.now()}_${Math.random().toString(36).slice(2)}`, batchId, path, name,
       extension: name.split(".").pop()?.toUpperCase() || t("image"), assetUrl,
-      polycount: 5000, autoSegment: false, submitted: false, state: "queued",
+      generationMode: "quality", polycount: 5000, autoSegment: false, submitted: false, state: "queued",
     };
   }));
   closeReferencePreview();
@@ -599,7 +620,8 @@ async function selectItem(id: string) {
 
 function displayItem(item: QueueItem): Promise<void> {
   const modelPath = item.result?.outputPath &&
-    (item.state === "done" || item.result.stage === "segmenting" || item.state === "failed" || item.state === "cancelled")
+    (item.state === "done" || item.result.stage === "done" || item.result.stage === "segmenting"
+      || item.state === "failed" || item.state === "cancelled")
     ? item.result.outputPath
     : undefined;
   if (modelPath && state.displayedItemId === item.id && state.displayedModelPath === modelPath && item.loadedModelPath === modelPath) {
@@ -765,10 +787,22 @@ function updateUi() {
   nodes.sourceThumb.innerHTML = item?.assetUrl ? `<img alt="" src="${item.assetUrl}">` : ICONS.image;
   nodes.folderName.textContent = state.outputDir || t("defaultFolder");
   nodes.folderName.title = state.outputDir;
-  const polycount = item?.polycount ?? 5000;
+  const settings = item
+    ? normalizeGenerationSettings(item)
+    : generationSettings("quality", 5000, false);
+  const polycount = settings.polycount;
   nodes.polycountValue.value = new Intl.NumberFormat(locale()).format(polycount); nodes.polycountRange.value = String(polycount);
-  nodes.autoSegmentInput.checked = Boolean(item?.autoSegment);
+  nodes.polycountRange.min = String(settings.minimumPolycount);
+  nodes.polycountRange.max = String(settings.maximumPolycount);
+  nodes.modeButtons.forEach((button) => {
+    const selected = button.dataset.generationMode === settings.mode;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  nodes.autoSegmentSection.hidden = !settings.showAutoSegment;
+  nodes.autoSegmentInput.checked = settings.autoSegment;
   const locked = !isConfigurable(item);
+  nodes.modeButtons.forEach((button) => { button.disabled = locked; });
   nodes.polycountRange.disabled = locked; nodes.autoSegmentInput.disabled = locked;
   const selectedDraft = isDraft(item);
   nodes.generateButton.disabled = !item || missing || item.state === "running";
@@ -786,12 +820,15 @@ function updateUi() {
           : t("generateModel");
   nodes.cancelButton.classList.toggle("visible", busy || state.queueActive);
   nodes.cancelLabel.textContent = item?.result?.stage === "segmenting" ? t("cancelSegmentation") : t("cancel");
-  const canSegment = item?.state === "done" && item.result?.canSegment && item.result?.jobId && !item.result?.isSegmented && activeJobCount() < MAX_PARALLEL_JOBS;
+  const canSegment = item?.state === "done" && item.result?.canSegment
+    && item.result?.jobId && !item.result?.isSegmented
+    && activeJobCount() < MAX_PARALLEL_JOBS;
   nodes.segmentButton.classList.toggle("visible", Boolean(canSegment));
   const hasModel = Boolean(item?.result?.outputPath && item.loadedModelPath);
   nodes.resultSummary.classList.toggle("visible", hasModel);
   nodes.resultName.textContent = item?.result?.isSegmented ? t("partsReady") : t("modelReady");
-  nodes.resultMeta.textContent = item?.result?.outputName || t("savedAutomatically");
+  const resultFilename = item?.result?.outputName || t("savedAutomatically");
+  nodes.resultMeta.textContent = resultFilename;
   const showModelStats = hasModel && Boolean(item?.modelStats);
   nodes.modelStats.textContent = item?.modelStats ? formatModelStats(item.modelStats) : "";
   nodes.modelStats.classList.toggle("visible", showModelStats);
@@ -829,12 +866,15 @@ async function waitForJob(item: QueueItem, initial: JobStatus) {
 }
 
 async function runItem(item: QueueItem) {
+  const settings = normalizeGenerationSettings(item);
   state.runningIds.add(item.id); item.state = "running";
-  beginProgress(item, item.autoSegment ? 360_000 : 240_000);
+  beginProgress(item, 240_000);
   if (state.selectedId === item.id) await displayItem(item);
   const request: StartJobRequest = {
-    imagePath: item.path, outputDir: state.outputDir || null, polycount: Math.min(20000, Math.max(500, Math.round(item.polycount))),
-    mode: "topology_mesh", outputFormat: "glb_plain", autoSegment: item.autoSegment, segmentationMode: item.autoSegment ? "parts" : "none",
+    imagePath: item.path, outputDir: state.outputDir || null, polycount: settings.polycount,
+    mode: "topology_mesh", generationMode: settings.mode, outputFormat: "glb_plain",
+    autoSegment: settings.autoSegment,
+    segmentationMode: settings.autoSegment ? "parts" : "none",
   };
   try {
     const final = await waitForJob(item, await invoke<JobStatus>("start_job", request));
@@ -847,7 +887,10 @@ async function runItem(item: QueueItem) {
     else item.state = "failed";
   } catch (error) {
     item.state = "failed";
-    item.result = { stage: "failed", progressText: String(error), error: String(error), runtimeStatus: state.backendStatus.runtimeStatus };
+    item.result = {
+      stage: "failed", progressText: String(error), error: String(error),
+      runtimeStatus: state.backendStatus.runtimeStatus,
+    };
   } finally {
     state.runningIds.delete(item.id); updateUi(); startPreparationPolling();
   }
@@ -902,7 +945,8 @@ function submitSelectedBatch() {
 
 async function segmentSelected() {
   const item = selectedItem();
-  if (!item?.result?.jobId || !item.result.canSegment || activeJobCount() >= MAX_PARALLEL_JOBS) return;
+  if (!item?.result?.jobId || item.result.isSegmented
+    || !item.result.canSegment || activeJobCount() >= MAX_PARALLEL_JOBS) return;
   const continuationId = item.result.jobId;
   state.runningIds.add(item.id); item.state = "running"; beginProgress(item, 120_000); updateUi();
   try {
@@ -910,7 +954,8 @@ async function segmentSelected() {
     item.result = final; item.state = final.stage === "done" ? "done" : "failed";
     if (item.state === "done") { await displayItem(item); await refreshHistory(); }
   } catch (error) {
-    item.state = "failed"; item.result = { stage: "failed", progressText: String(error), error: String(error) };
+    item.state = "failed";
+    item.result = { stage: "failed", progressText: String(error), error: String(error) };
   } finally {
     state.runningIds.delete(item.id); updateUi(); startPreparationPolling();
     if (pendingItems().length && !state.queueActive) void processQueue();
@@ -946,7 +991,8 @@ async function restoreCurrentJobs() {
       const running = BUSY_STAGES.has(status.stage);
       return {
         id: `recovered_${Date.now()}_${index}`, batchId: `recovered_batch_${Date.now()}_${index}`, path, name,
-        extension: name.split(".").pop()?.toUpperCase() || t("image"), assetUrl, polycount: 5000,
+        extension: name.split(".").pop()?.toUpperCase() || t("image"), assetUrl,
+        generationMode: status.generationMode || "quality", polycount: 5000,
         autoSegment: Boolean(status.isSegmented), submitted: true, state: running ? "running" : "done", result: status,
         operationStartedAt: running ? Date.now() - Math.max(0, status.elapsedMs || 0) : undefined,
         estimatedTotalMs: status.estimatedTotalMs || 240_000, displayedProgress: status.progressRatio || 0,
@@ -983,6 +1029,7 @@ async function loadDevModelPreview(modelUrl: string) {
     const name = pathLeaf(modelUrl);
     const item: QueueItem = {
       id: "dev_model", batchId: "dev_batch", path: modelUrl, name, extension: "GLB", assetUrl: "", polycount: 5000,
+      generationMode: "quality",
       autoSegment: devParams?.get("segmented") === "1", submitted: true, state: "done",
       result: { stage: "done", progressText: "", outputPath: modelUrl, outputName: name, isSegmented: devParams?.get("segmented") === "1", canSegment: false },
     };
@@ -1006,7 +1053,9 @@ function loadDevBatchPreview() {
     itemState: QueueState,
     submitted: boolean,
   ): QueueItem => ({
-    id, batchId, path: name, name, extension: "PNG", assetUrl: "", polycount: batchId === "batch_2" ? 8200 : 5000,
+    id, batchId, path: name, name, extension: "PNG", assetUrl: "",
+    generationMode: batchId === "batch_2" ? "fast" : "quality",
+    polycount: batchId === "batch_2" ? 8200 : 5000,
     autoSegment: batchId === "batch_2", submitted, state: itemState,
   });
   state.items.push(
@@ -1076,8 +1125,8 @@ function loadDevParallelHarness() {
   };
   const batchId = "parallel_batch";
   state.items.push(
-    { id: "parallel_a", batchId, path: "parallel-a.png", name: "parallel-a.png", extension: "PNG", assetUrl: "", polycount: 5000, autoSegment: false, submitted: true, state: "queued" },
-    { id: "parallel_b", batchId, path: "parallel-b.png", name: "parallel-b.png", extension: "PNG", assetUrl: "", polycount: 5000, autoSegment: true, submitted: true, state: "queued" },
+    { id: "parallel_a", batchId, path: "parallel-a.png", name: "parallel-a.png", extension: "PNG", assetUrl: "", generationMode: "quality", polycount: 5000, autoSegment: false, submitted: true, state: "queued" },
+    { id: "parallel_b", batchId, path: "parallel-b.png", name: "parallel-b.png", extension: "PNG", assetUrl: "", generationMode: "fast", polycount: 5000, autoSegment: false, submitted: true, state: "queued" },
   );
   state.selectedId = "parallel_a";
   updateUi();
@@ -1121,20 +1170,52 @@ nodes.cancelButton.addEventListener("click", async () => {
 nodes.confirmCancel.addEventListener("click", () => closeConfirmation(false));
 nodes.confirmAccept.addEventListener("click", () => closeConfirmation(true));
 nodes.confirmDialog.addEventListener("click", (event) => { if (event.target === nodes.confirmDialog) closeConfirmation(false); });
+nodes.modeButtons.forEach((button) => button.addEventListener("click", () => {
+  const item = selectedItem();
+  const generationMode = button.dataset.generationMode as GenerationMode;
+  if (!item || !isConfigurable(item) || !generationMode) return;
+  const update = (member: QueueItem) => {
+    member.generationMode = generationMode;
+    normalizeGenerationSettings(member);
+  };
+  if (isRerunnable(item)) update(item);
+  else batchItems(item.batchId).forEach((member) => {
+    if (member.state === "queued" && !member.submitted) update(member);
+  });
+  updateUi();
+}));
 nodes.polycountRange.addEventListener("input", () => {
   const item = selectedItem();
   if (item && isConfigurable(item)) {
     const value = Number(nodes.polycountRange.value);
-    if (isRerunnable(item)) item.polycount = value;
-    else batchItems(item.batchId).forEach((member) => { if (member.state === "queued" && !member.submitted) member.polycount = value; });
+    if (isRerunnable(item)) {
+      item.polycount = value;
+      normalizeGenerationSettings(item);
+    } else {
+      batchItems(item.batchId).forEach((member) => {
+        if (member.state === "queued" && !member.submitted) {
+          member.polycount = value;
+          normalizeGenerationSettings(member);
+        }
+      });
+    }
     updateUi();
   }
 });
 nodes.autoSegmentInput.addEventListener("change", () => {
   const item = selectedItem();
   if (item && isConfigurable(item)) {
-    if (isRerunnable(item)) item.autoSegment = nodes.autoSegmentInput.checked;
-    else batchItems(item.batchId).forEach((member) => { if (member.state === "queued" && !member.submitted) member.autoSegment = nodes.autoSegmentInput.checked; });
+    if (isRerunnable(item)) {
+      item.autoSegment = nodes.autoSegmentInput.checked;
+      normalizeGenerationSettings(item);
+    } else {
+      batchItems(item.batchId).forEach((member) => {
+        if (member.state === "queued" && !member.submitted) {
+          member.autoSegment = nodes.autoSegmentInput.checked;
+          normalizeGenerationSettings(member);
+        }
+      });
+    }
     updateUi();
   }
 });

@@ -46,70 +46,141 @@ internal fun Creation3dSettings(
     strings: Creation3dLocale,
     accent: Color,
     enabled: Boolean,
+    onGenerationMode: (String) -> Unit,
     onPolycount: (Int) -> Unit,
     onAutoSegment: (Boolean) -> Unit,
 ) {
-    UtilityExpressiveCard(accent = accent) {
-        UtilityHeaderRow(
-            icon = R.drawable.ms_tune,
-            title = strings.polycount,
-            accent = accent,
-            trailing = {
-                Text(
-                    NumberFormat.getIntegerInstance().format(item.polycount),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = accent,
+    val mode = CreationGenerationMode.fromWireName(item.generationMode)
+    val route = CreationContract.route3dProvider(mode, item.polycount, item.autoSegment)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        UtilityExpressiveCard(accent = accent) {
+            UtilityHeaderRow(
+                icon = R.drawable.ms_auto_awesome,
+                title = strings.mode,
+                accent = accent,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(
+                    ButtonGroupDefaults.ConnectedSpaceBetween,
+                ),
+            ) {
+                ModeToggle(
+                    selected = mode == CreationGenerationMode.FAST,
+                    label = strings.fast,
+                    enabled = enabled,
+                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                    accent = accent,
+                    onClick = { onGenerationMode(CreationGenerationMode.FAST.wireName) },
+                    modifier = Modifier.weight(1f),
                 )
-            },
-        )
-        Slider(
-            value = item.polycount.toFloat(),
-            onValueChange = { onPolycount((it / 100f).toInt() * 100) },
-            valueRange = CreationContract.MINIMUM_POLYCOUNT.toFloat()..
-                CreationContract.MAXIMUM_POLYCOUNT.toFloat(),
-            enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                strings.light,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                strings.detailed,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+                ModeToggle(
+                    selected = mode == CreationGenerationMode.QUALITY,
+                    label = strings.quality,
+                    enabled = enabled,
+                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                    accent = accent,
+                    onClick = { onGenerationMode(CreationGenerationMode.QUALITY.wireName) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
-        HorizontalDivider()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = enabled) { onAutoSegment(!item.autoSegment) }
-                .semantics { role = Role.Switch }
-                .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                painterResource(R.drawable.ms_layers),
-                contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(21.dp),
+        UtilityExpressiveCard(accent = accent) {
+            UtilityHeaderRow(
+                icon = R.drawable.ms_tune,
+                title = strings.polycount,
+                accent = accent,
+                trailing = {
+                    Text(
+                        NumberFormat.getIntegerInstance().format(route.polycount),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = accent,
+                    )
+                },
             )
-            Text(
-                strings.autoSeparate,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            Switch(
-                checked = item.autoSegment,
-                onCheckedChange = onAutoSegment,
+            Slider(
+                value = route.polycount.toFloat(),
+                onValueChange = { onPolycount((it / 100f).toInt() * 100) },
+                valueRange = when (mode) {
+                    CreationGenerationMode.FAST ->
+                        CreationContract.MINIMUM_POLYCOUNT.toFloat()..
+                            CreationContract.FAST_MAXIMUM_POLYCOUNT.toFloat()
+                    CreationGenerationMode.QUALITY ->
+                        CreationContract.QUALITY_MINIMUM_POLYCOUNT.toFloat()..
+                            CreationContract.MAXIMUM_POLYCOUNT.toFloat()
+                },
                 enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
             )
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    strings.light,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    strings.detailed,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (route.showAutoSegment) {
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = enabled) { onAutoSegment(!item.autoSegment) }
+                        .semantics { role = Role.Switch }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ms_layers),
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(21.dp),
+                    )
+                    Text(
+                        strings.autoSeparate,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = item.autoSegment,
+                        onCheckedChange = onAutoSegment,
+                        enabled = enabled,
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun ModeToggle(
+    selected: Boolean,
+    label: String,
+    enabled: Boolean,
+    shapes: androidx.compose.material3.ToggleButtonShapes,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier,
+) {
+    ToggleButton(
+        checked = selected,
+        onCheckedChange = { if (it) onClick() },
+        enabled = enabled,
+        shapes = shapes,
+        colors = modelToggleColors(selected, accent),
+        modifier = modifier,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = modelToggleTextColor(selected, accent),
+        )
     }
 }
 

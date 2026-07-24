@@ -35,10 +35,10 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         Context.MODE_PRIVATE,
     )
     private val workers = listOf(
-        Worker("3d-0", CreationTool.IMAGE_TO_3D, ImageTo3dWorker0Service::class.java),
-        Worker("3d-1", CreationTool.IMAGE_TO_3D, ImageTo3dWorker1Service::class.java),
-        Worker("3d-2", CreationTool.IMAGE_TO_3D, ImageTo3dWorker2Service::class.java),
-        Worker("3d-3", CreationTool.IMAGE_TO_3D, ImageTo3dWorker3Service::class.java),
+        Worker("3d-0", CreationTool.IMAGE_TO_3D, ImageTo3dWorker0Service::class.java, slot = 0),
+        Worker("3d-1", CreationTool.IMAGE_TO_3D, ImageTo3dWorker1Service::class.java, slot = 1),
+        Worker("3d-2", CreationTool.IMAGE_TO_3D, ImageTo3dWorker2Service::class.java, slot = 2),
+        Worker("3d-3", CreationTool.IMAGE_TO_3D, ImageTo3dWorker3Service::class.java, slot = 3),
         Worker("svg-0", CreationTool.IMAGE_TO_SVG, ImageToSvgWorker0Service::class.java),
         Worker("svg-1", CreationTool.IMAGE_TO_SVG, ImageToSvgWorker1Service::class.java),
     )
@@ -55,6 +55,10 @@ internal class CreationWorkerPool private constructor(private val context: Conte
 
     init {
         check(workers.count { it.tool == CreationTool.IMAGE_TO_3D } == CreationContract.IMAGE_TO_3D_WORKSPACES)
+        check(
+            workers.filter { it.tool == CreationTool.IMAGE_TO_3D }.mapNotNull { it.slot }.toSet() ==
+                (0 until CreationContract.IMAGE_TO_3D_WORKSPACES).toSet(),
+        )
         check(workers.count { it.tool == CreationTool.IMAGE_TO_SVG } == CreationContract.IMAGE_TO_SVG_WORKSPACES)
     }
 
@@ -116,25 +120,45 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         request: CreationWorkerRequest,
         preferredWorker: String? = null,
         onEvent: (String, CreationWorkerEvent) -> Unit,
+        onAssigned: (String) -> Unit = {},
     ): String? {
         val tool = CreationTool.fromWireName(request.tool) ?: return null
-        val worker = synchronized(workers) {
-            preferredWorker?.let { key ->
-                workers.firstOrNull { it.key == key && it.binder != null && !it.busy }
-            }
-                ?: workers.firstOrNull { it.tool == tool && it.ready && !it.busy }
+        val assignment = synchronized(workers) {
+            val worker = if (preferredWorker != null) {
+                workers.firstOrNull {
+                    it.key == preferredWorker &&
+                        it.binder != null &&
+                        !it.busy &&
+                        it.canRun(request)
+                }
+            } else {
+                workers.firstOrNull {
+                    it.tool == tool &&
+                        it.ready &&
+                        !it.busy &&
+                        it.canRun(request)
+                }
+            } ?: return@synchronized null
+            val binder = worker.binder ?: return@synchronized null
+            worker.busy = true
+            worker.ready = false
+            worker.ownedJobReady = false
+            worker.assignment.claim(request.jobId, onEvent)
+            jobWorkers[request.jobId] = worker.key
+            Assignment(worker, binder)
         } ?: return null
-        val binder = worker.binder ?: return null
-        worker.busy = true
-        worker.ready = false
-        worker.activeJobId = request.jobId
-        jobWorkers[request.jobId] = worker.key
+        val worker = assignment.worker
         val callback = callback(worker, request.jobId, onEvent)
+        onAssigned(worker.key)
         return try {
-            binder.runJob(json.encodeToString(CreationWorkerRequest.serializer(), request), callback)
+            assignment.binder.runJob(
+                json.encodeToString(CreationWorkerRequest.serializer(), request),
+                callback,
+            )
             worker.key
         } catch (_: RemoteException) {
             release(worker, request.jobId)
+            synchronized(workers) { worker.binder = null }
             bind(worker)
             null
         }
@@ -156,7 +180,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         pendingBindings.clear()
         synchronized(workers) {
             workers.forEach { worker ->
-                worker.activeJobId?.let { runCatching { worker.binder?.cancel(it) } }
+                worker.assignment.jobId?.let { runCatching { worker.binder?.cancel(it) } }
                 worker.connection?.let { connection ->
                     runCatching { context.unbindService(connection) }
                 }
@@ -167,8 +191,9 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                 worker.prepareScheduled = false
                 worker.preparing = false
                 worker.ready = false
+                worker.ownedJobReady = false
                 worker.busy = false
-                worker.activeJobId = null
+                worker.assignment.lose()
             }
             jobWorkers.clear()
         }
@@ -200,18 +225,18 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         diagnostics.event("worker_binding", worker.tool.wireName, stage = worker.key)
         worker.binding = true
         val connection = object : ServiceConnection {
+            private var connectedEpoch = -1L
+
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
-                worker.binding = false
-                worker.binder = ICreationWorker.Stub.asInterface(service)
+                synchronized(workers) {
+                    worker.binding = false
+                    worker.connectionEpoch += 1
+                    connectedEpoch = worker.connectionEpoch
+                    worker.binder = ICreationWorker.Stub.asInterface(service)
+                }
                 service.linkToDeath(
                     {
-                        worker.binder = null
-                        worker.ready = false
-                        worker.busy = false
-                        worker.activeJobId?.let(jobWorkers::remove)
-                        worker.activeJobId = null
-                        diagnostics.event("worker_died", worker.tool.wireName, stage = worker.key)
-                        bind(worker)
+                        handleWorkerLoss(worker, connectedEpoch, "worker_died")
                     },
                     0,
                 )
@@ -219,11 +244,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             }
 
             override fun onServiceDisconnected(name: ComponentName) {
-                worker.binder = null
-                worker.ready = false
-                worker.busy = false
-                worker.activeJobId?.let(jobWorkers::remove)
-                worker.activeJobId = null
+                handleWorkerLoss(worker, connectedEpoch, "worker_disconnected")
             }
         }
         worker.connection = connection
@@ -238,7 +259,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     private fun requestPrepare(worker: Worker, delayMs: Long = 0L) {
         val schedule = synchronized(workers) {
             if (worker.prepareScheduled || worker.preparing || worker.busy || worker.ready ||
-                worker.binder == null
+                worker.ownedJobReady || worker.binder == null
             ) {
                 false
             } else {
@@ -269,7 +290,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                 nextPreparationStartAtMs,
             )
             when {
-                worker.preparing || worker.busy || worker.ready -> null
+                worker.preparing || worker.busy || worker.ready || worker.ownedJobReady -> null
                 workers.any { it.busy } -> PREPARATION_QUEUE_POLL_MS
                 workers.any { it !== worker && it.preparing } -> PREPARATION_QUEUE_POLL_MS
                 preparationNotBefore > now -> preparationNotBefore - now
@@ -294,6 +315,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                         if (event.event == "ready") {
                             synchronized(workers) {
                                 worker.ready = event.ready != false
+                                worker.ownedJobReady = event.ownedJobReady == true
                                 worker.preparing = false
                                 worker.preparationFailures = 0
                                 worker.mailboxBlocked = false
@@ -306,6 +328,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                             val error = event.error.orEmpty()
                             synchronized(workers) {
                                 worker.ready = false
+                                worker.ownedJobReady = false
                                 worker.preparing = false
                                 worker.preparationFailures += 1
                                 val mailboxFailure = isMailboxFailure(error)
@@ -341,7 +364,8 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         val next = synchronized(workers) {
             workers.asSequence()
                 .filter {
-                    it.binder != null && !it.ready && !it.busy && !it.preparing &&
+                    it.binder != null && !it.ready && !it.ownedJobReady &&
+                        !it.busy && !it.preparing &&
                         !it.prepareScheduled
                 }
                 .sortedWith(
@@ -365,18 +389,56 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             val event = runCatching {
                 json.decodeFromString(CreationWorkerEvent.serializer(), eventJson)
             }.getOrNull() ?: return
-            onEvent(worker.key, event)
-            if (event.event == "success" || event.event == "failure" || event.event == "cancelled") {
-                release(worker, jobId)
-                schedulePrepare(worker)
+            val terminal = event.event == "success" ||
+                event.event == "failure" ||
+                event.event == "cancelled"
+            val accepted = synchronized(workers) {
+                if (!worker.assignment.owns(jobId, onEvent)) {
+                    false
+                } else {
+                    if (terminal) {
+                        worker.assignment.release(jobId)
+                        jobWorkers.remove(jobId, worker.key)
+                        worker.busy = false
+                    }
+                    true
+                }
             }
+            if (!accepted) return
+            onEvent(worker.key, event)
+            if (terminal) schedulePrepare(worker)
         }
     }
 
     private fun release(worker: Worker, jobId: String) {
-        jobWorkers.remove(jobId)
-        worker.busy = false
-        worker.activeJobId = null
+        synchronized(workers) {
+            if (worker.assignment.release(jobId) == null) return
+            jobWorkers.remove(jobId, worker.key)
+            worker.busy = false
+        }
+    }
+
+    private fun handleWorkerLoss(worker: Worker, epoch: Long, diagnosticEvent: String) {
+        val lostAssignment = synchronized(workers) {
+            if (worker.connectionEpoch != epoch) return
+            val assignment = worker.assignment.lose()
+            assignment?.jobId?.let { jobWorkers.remove(it, worker.key) }
+            worker.binder = null
+            worker.ready = false
+            worker.ownedJobReady = false
+            worker.busy = false
+            assignment
+        }
+        diagnostics.event(diagnosticEvent, worker.tool.wireName, stage = worker.key)
+        lostAssignment?.sink?.invoke(
+            worker.key,
+            CreationWorkerEvent(
+                jobId = lostAssignment.jobId,
+                event = "failure",
+                error = "Creation worker disconnected. Retry this creation.",
+            ),
+        )
+        bind(worker)
     }
 
     private fun schedulePrepare(worker: Worker) {
@@ -415,16 +477,30 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         val key: String,
         val tool: CreationTool,
         val serviceClass: Class<*>,
+        val slot: Int? = null,
         @Volatile var binder: ICreationWorker? = null,
         @Volatile var connection: ServiceConnection? = null,
         @Volatile var binding: Boolean = false,
         @Volatile var prepareScheduled: Boolean = false,
         @Volatile var preparing: Boolean = false,
         @Volatile var ready: Boolean = false,
+        @Volatile var ownedJobReady: Boolean = false,
         @Volatile var busy: Boolean = false,
-        @Volatile var activeJobId: String? = null,
+        val assignment: CreationWorkerAssignmentGuard = CreationWorkerAssignmentGuard(),
+        @Volatile var connectionEpoch: Long = 0,
         @Volatile var preparationFailures: Int = 0,
         @Volatile var mailboxBlocked: Boolean = false,
+    ) {
+        fun canRun(request: CreationWorkerRequest): Boolean {
+            if (tool != CreationTool.fromWireName(request.tool)) return false
+            return tool != CreationTool.IMAGE_TO_3D ||
+                CreationContract.canUse3dWorker(request.provider, requireNotNull(slot))
+        }
+    }
+
+    private data class Assignment(
+        val worker: Worker,
+        val binder: ICreationWorker,
     )
 
     companion object {

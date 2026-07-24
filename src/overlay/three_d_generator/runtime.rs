@@ -10,8 +10,10 @@ use serde_json::Value;
 
 mod preparation;
 mod process;
+mod provider;
 
 use process::{CommandNoWindowExt as _, run_runtime_operation};
+use provider::{GenerationMode, ModelProvider};
 
 #[cfg(debug_assertions)]
 pub(super) const RUNTIME_EXE_NAME: &str = "sgt_creation_runtime.exe";
@@ -25,9 +27,13 @@ pub(super) struct StartJobRequest {
     pub output_dir: Option<String>,
     pub polycount: u32,
     pub mode: String,
+    #[serde(default)]
+    pub generation_mode: GenerationMode,
     pub output_format: String,
     pub auto_segment: bool,
     pub segmentation_mode: String,
+    #[serde(skip, default)]
+    pub provider: ModelProvider,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,6 +52,7 @@ pub(super) struct JobStatus {
     pub output_name: Option<String>,
     pub preview_path: Option<String>,
     pub source_image_path: Option<String>,
+    pub generation_mode: Option<GenerationMode>,
     pub is_segmented: bool,
     pub can_segment: bool,
     pub error: Option<String>,
@@ -60,6 +67,7 @@ struct Continuation {
     output_dir: PathBuf,
     previous_output_path: PathBuf,
     preview_path: Option<String>,
+    provider: ModelProvider,
 }
 
 #[derive(Default)]
@@ -130,6 +138,20 @@ impl RuntimeOperation {
         match self {
             Self::Generate { request, .. } => &request.image_path,
             Self::Segment { continuation } => &continuation.image_path,
+        }
+    }
+
+    fn provider(&self) -> ModelProvider {
+        match self {
+            Self::Generate { request, .. } => request.provider,
+            Self::Segment { continuation } => continuation.provider,
+        }
+    }
+
+    fn generation_mode(&self) -> GenerationMode {
+        match self {
+            Self::Generate { request, .. } => request.generation_mode,
+            Self::Segment { .. } => GenerationMode::Quality,
         }
     }
 }
@@ -233,6 +255,7 @@ fn idle_status() -> JobStatus {
         output_name: None,
         preview_path: None,
         source_image_path: None,
+        generation_mode: None,
         is_segmented: false,
         can_segment: false,
         error: None,
@@ -314,7 +337,7 @@ pub(super) fn forget_result_path(path: &str) {
 }
 
 pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, String> {
-    request.polycount = request.polycount.clamp(500, 20_000);
+    provider::normalize_request(&mut request);
     if request.image_path.trim().is_empty() {
         return Err("Pick an image first.".to_string());
     }
@@ -360,6 +383,7 @@ pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, Strin
         output_name: None,
         preview_path: None,
         source_image_path: Some(request.image_path.clone()),
+        generation_mode: Some(request.generation_mode),
         is_segmented: false,
         can_segment: false,
         error: None,
@@ -395,6 +419,9 @@ pub(super) fn start_segmentation(continuation_id: &str) -> Result<JobStatus, Str
             .continuations
             .remove(continuation_id)
             .ok_or_else(|| "This model can no longer be separated into parts.".to_string())?;
+        if continuation.provider != ModelProvider::Tripo {
+            return Err("This model cannot be separated after creation.".to_string());
+        }
         if let Some(status) = state.jobs.get_mut(continuation_id) {
             status.can_segment = false;
         }
@@ -426,6 +453,7 @@ pub(super) fn start_segmentation(continuation_id: &str) -> Result<JobStatus, Str
             .map(|name| name.to_string_lossy().to_string()),
         preview_path,
         source_image_path: Some(continuation.image_path.clone()),
+        generation_mode: Some(GenerationMode::Quality),
         is_segmented: false,
         can_segment: false,
         error: None,
@@ -537,57 +565,4 @@ pub(super) fn open_output(kind: &str, requested_path: Option<&str>) -> Result<()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn continuation(profile_dir: &str) -> Continuation {
-        Continuation {
-            task_id: "task".to_string(),
-            profile_dir: profile_dir.to_string(),
-            image_path: "image.png".to_string(),
-            output_dir: PathBuf::from("output"),
-            previous_output_path: PathBuf::from("model.glb"),
-            preview_path: None,
-        }
-    }
-
-    #[cfg(debug_assertions)]
-    #[test]
-    fn development_runtime_uses_the_newest_binary() {
-        let older = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1);
-        let newer = std::time::UNIX_EPOCH + std::time::Duration::from_secs(2);
-
-        let selected = newest_dev_runtime_candidate([
-            (PathBuf::from("debug.exe"), older),
-            (PathBuf::from("release.exe"), newer),
-        ]);
-
-        assert_eq!(selected, Some(PathBuf::from("release.exe")));
-    }
-
-    #[test]
-    fn consuming_separation_invalidates_every_model_on_the_profile() {
-        let mut state = RuntimeState::default();
-        for (job_id, profile_dir) in [
-            ("first", "shared"),
-            ("second", "shared"),
-            ("other", "other"),
-        ] {
-            let mut status = idle_status();
-            status.can_segment = true;
-            state.jobs.insert(job_id.to_string(), status);
-            state
-                .continuations
-                .insert(job_id.to_string(), continuation(profile_dir));
-        }
-
-        state.invalidate_profile_continuations("shared");
-
-        assert!(!state.continuations.contains_key("first"));
-        assert!(!state.continuations.contains_key("second"));
-        assert!(state.continuations.contains_key("other"));
-        assert!(!state.jobs["first"].can_segment);
-        assert!(!state.jobs["second"].can_segment);
-        assert!(state.jobs["other"].can_segment);
-    }
-}
+mod tests;

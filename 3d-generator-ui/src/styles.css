@@ -736,6 +736,35 @@ body.file-dragging .drop-overlay { opacity: 1; visibility: visible; }
 .range-scale { display: flex; align-items: center; justify-content: space-between; }
 .control-heading output { color: var(--text); font-size: 12px; font-variation-settings: "ROND" 100, "wght" 700; }
 
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: 8px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--control);
+}
+
+.mode-options button {
+  min-height: 30px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-variation-settings: "ROND" 90, "wght" 680;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.mode-options button:hover:not(:disabled) { color: var(--text); background: var(--control-hover); }
+.mode-options button.active {
+  color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
+}
+.mode-options button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mode-options button:disabled { opacity: 0.45; }
+
 .range { width: 100%; height: 22px; margin: 8px 0 0; appearance: none; background: transparent; cursor: pointer; }
 .range::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: var(--control); }
 .range::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -6px; appearance: none; border: 4px solid var(--accent); border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -764,6 +793,7 @@ body.file-dragging .drop-overlay { opacity: 1; visibility: visible; }
 .switch-row input:checked + .switch::after { transform: translateX(14px); background: var(--accent); }
 .switch-row input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
 .switch-row input:disabled + .switch { opacity: 0.45; }
+#autoSegmentSection[hidden] { display: none; }
 
 .rail-spacer { flex: 1 1 10px; min-height: 10px; }
 .result-summary { display: none; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px; border-radius: 8px; background: var(--accent-soft); }

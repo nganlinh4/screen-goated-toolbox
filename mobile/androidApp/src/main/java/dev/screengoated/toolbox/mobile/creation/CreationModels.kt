@@ -19,6 +19,10 @@ internal enum class CreationTool(
 @Serializable
 internal data class CreationJobStatus(
     val jobId: String? = null,
+    val generationMode: String? = null,
+    val provider: String? = null,
+    val polycount: Int? = null,
+    val autoSegment: Boolean? = null,
     val stage: String,
     val progressText: String,
     val phase: String? = null,
@@ -56,6 +60,8 @@ internal data class CreationHistoryEntry(
 internal data class CreationWorkerRequest(
     val jobId: String,
     val tool: String,
+    val generationMode: String? = null,
+    val provider: String? = null,
     val operation: String,
     val imagePath: String,
     val outputPath: String,
@@ -70,6 +76,8 @@ internal data class CreationWorkerRequest(
 @Serializable
 internal data class CreationWorkerEvent(
     val jobId: String? = null,
+    val generationMode: String? = null,
+    val provider: String? = null,
     val event: String,
     val stage: String? = null,
     val progressText: String? = null,
@@ -78,6 +86,7 @@ internal data class CreationWorkerEvent(
     val workspaceState: String? = null,
     val progressRatio: Double? = null,
     val estimatedTotalMs: Long? = null,
+    val timingSampleCount: Long? = null,
     val taskId: String? = null,
     val outputPath: String? = null,
     val outputName: String? = null,
@@ -88,4 +97,5 @@ internal data class CreationWorkerEvent(
     val vertices: Long? = null,
     val error: String? = null,
     val ready: Boolean? = null,
+    val ownedJobReady: Boolean? = null,
 )

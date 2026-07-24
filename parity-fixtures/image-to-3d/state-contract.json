@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 6,
   "tool": "image-to-3d",
   "names": {
     "en": "Image to 3D",
@@ -22,27 +22,186 @@
     "polycount": 5000,
     "autoSegment": false,
     "segmentationMode": "none",
+    "generationMode": "quality",
+    "provider": "tripo",
     "topologyMode": "topology_mesh",
     "outputFormat": "glb_plain"
   },
   "limits": {
-    "minimumPolycount": 500,
+    "minimumPolycount": 100,
     "maximumPolycount": 20000,
     "maximumParallelJobs": 2,
     "maximumConcurrentPreparations": 1,
     "minimumPreparationIntervalSeconds": 60,
     "preparedWorkspaces": 4,
+    "preparedMeshyWorkspaces": 2,
     "reuseWindowHours": 24
+  },
+  "providers": {
+    "meshy": {
+      "model": "meshy_t2",
+      "modelType": "smart_topology",
+      "minimumPolycount": 100,
+      "maximumPolycount": 15000,
+      "generationCreditCost": 5,
+      "nativeSegmentation": true,
+      "lazyPreparation": true,
+      "reuseWhileCreditsAtLeast": 5
+    },
+    "tripo": {
+      "minimumPolycount": 500,
+      "maximumPolycount": 20000,
+      "generationCreditCost": 35,
+      "nativeSegmentation": false,
+      "allowContinuationAfterGeneration": true,
+      "reuseWindowHours": 24
+    }
+  },
+  "generationModes": {
+    "default": "quality",
+    "selectionVisible": true,
+    "providerNamesVisible": false,
+    "cases": [
+      {
+        "mode": "fast",
+        "polycount": 100,
+        "autoSegment": false,
+        "provider": "meshy",
+        "effectiveAutoSegment": false,
+        "showAutoSegment": false,
+        "resultSegmented": true,
+        "canSegmentAfterGeneration": false
+      },
+      {
+        "mode": "fast",
+        "polycount": 15000,
+        "autoSegment": true,
+        "provider": "meshy",
+        "effectiveAutoSegment": false,
+        "showAutoSegment": false,
+        "resultSegmented": true,
+        "canSegmentAfterGeneration": false
+      },
+      {
+        "mode": "quality",
+        "polycount": 501,
+        "autoSegment": false,
+        "provider": "tripo",
+        "effectiveAutoSegment": false,
+        "showAutoSegment": true,
+        "resultSegmented": false,
+        "canSegmentAfterGeneration": true
+      },
+      {
+        "mode": "quality",
+        "polycount": 501,
+        "autoSegment": true,
+        "provider": "tripo",
+        "effectiveAutoSegment": true,
+        "showAutoSegment": true,
+        "resultSegmented": true,
+        "canSegmentAfterGeneration": false
+      },
+      {
+        "mode": "quality",
+        "polycount": 20000,
+        "autoSegment": false,
+        "provider": "tripo",
+        "effectiveAutoSegment": false,
+        "showAutoSegment": true,
+        "resultSegmented": false,
+        "canSegmentAfterGeneration": true
+      }
+    ],
+    "clampingCases": [
+      {
+        "mode": "fast",
+        "polycount": 20000,
+        "normalizedPolycount": 15000,
+        "autoSegment": true,
+        "effectiveAutoSegment": false,
+        "provider": "meshy",
+        "showAutoSegment": false,
+        "resultSegmented": true,
+        "canSegmentAfterGeneration": false
+      },
+      {
+        "mode": "quality",
+        "polycount": 100,
+        "normalizedPolycount": 500,
+        "autoSegment": false,
+        "provider": "tripo",
+        "effectiveAutoSegment": false,
+        "showAutoSegment": true,
+        "resultSegmented": false,
+        "canSegmentAfterGeneration": true
+      }
+    ]
+  },
+  "paidRecovery": {
+    "generationIntentBeforeSubmit": true,
+    "generationCostReserved": 5,
+    "jobIdentityUsesSourceContent": true,
+    "jobIdentityIgnoresSourcePathAndTimestamps": true,
+    "jobIdentityIncludesProviderAndMode": true,
+    "jobIdentityIncludesPromptPolycountAndModel": true,
+    "matchingJobSerializedAcrossWorkers": true,
+    "acceptedTaskResumedWithoutResubmit": true,
+    "unknownSubmissionFailsClosed": true,
+    "qualityControlReadyBeforeSubmit": true,
+    "qualityControlRequiresPointerEvents": true,
+    "qualityControlRequiresTopmostHitTarget": true,
+    "qualityAttemptPersistedBeforeClick": true,
+    "qualityConfirmationPersistedSeparately": true,
+    "qualityRecoveryUsesOwningAccount": true,
+    "qualityTaskUrlConfirmsStart": true,
+    "qualityGeneratingStateConfirmsStart": true,
+    "qualityCreditDebitConfirmsStart": true,
+    "qualityNativeClickFallback": "dom_click_while_control_remains_ready",
+    "qualityUnknownSubmissionFailsClosed": true,
+    "qualityRetryScope": "before_submission_only",
+    "completionReceiptBeforeHostSuccess": true,
+    "androidCompletionReceiptUsesPrivateRuntimeArtifact": true,
+    "recoveryRetentionHours": 168,
+    "androidOwnerWorkerRedirect": true
   },
   "segmentation": {
     "selection": "detailed_15_plus",
+    "generationPrerequisite": {
+      "unsegmentedResult": "validated_artifact",
+      "automaticSeparation": "validated_artifact_and_terminal_success",
+      "continuation": "validated_artifact_and_terminal_success"
+    },
     "retireWorkspaceAfterUse": true,
-    "allowContinuationAfterGeneration": true
+    "allowContinuationAfterGeneration": true,
+    "continuationRequiresGenerationCredits": false,
+    "continuationRequiresGenerationReadiness": false,
+    "continuationUsesOwningWorkspace": true,
+    "insufficientCreditsDoNotResetContinuationOwner": true,
+    "newGenerationInvalidatesReusedWorkspaceContinuation": true,
+    "continuationProvider": "tripo",
+    "meshyResultIsNativeSegmented": true,
+    "requireRenderableNormals": true,
+    "expandDisconnectedComponentsForSingleMesh": true,
+    "preserveExistingPartNodes": true,
+    "windowsViewerRepairsLegacySegmentedOutputs": true
   },
   "history": {
     "requireExistingOutput": true,
     "renameMutatesOutput": true,
-    "deleteMutatesOutput": true
+    "deleteMutatesOutput": true,
+    "freezeGenerationMode": true,
+    "freezeProvider": true,
+    "retainCurrentSessionResultUntilHistoryPersists": true,
+    "doneStatusTransitionsDirectlyToModel": true,
+    "terminalItemCanBeReconfiguredAndRerun": true,
+    "rerunPreservesPreviousOutput": true
+  },
+  "presentation": {
+    "showProviderBranding": false,
+    "showProviderSelection": false,
+    "showGenerationModeSelection": true,
+    "sanitizeProviderBrandedRuntimeText": true
   },
   "androidSurface": {
     "shell": "native_compose_m3e",
@@ -53,11 +212,56 @@
     "previewSetupVisible": false,
     "preparationProgressMaximumPercent": 18,
     "diagnostics": "bounded_privacy_safe_journal",
-    "backgroundAutomationVisible": false
+    "backgroundAutomationVisible": false,
+    "viewerControls": [
+      "orbit",
+      "zoom",
+      "pan",
+      "grid",
+      "wireframe",
+      "auto_rotate",
+      "toon",
+      "outline"
+    ],
+    "wireframeAndOutlineIndependent": true
+  },
+  "hostLifecycle": {
+    "workerLossFailsActiveJobExactlyOnce": true,
+    "staleCallbackCannotReleaseNewAssignment": true,
+    "cancelWinsOverLateSuccess": true,
+    "lateSuccessCannotPublishAfterCancel": true,
+    "lateSuccessCannotDeletePreviousOutputAfterCancel": true
+  },
+  "timing": {
+    "persistMeasuredDurations": true,
+    "boundedSamples": true,
+    "reportSampleCount": true,
+    "fixedEstimateOnlyWhenSampleCountIsZero": true
   },
   "distribution": {
-    "fullSupported": true,
-    "playSupported": true,
-    "downloadExecutableCode": false
+    "hostBehavior": "identical",
+    "sameRuntimeBuild": true,
+    "sameRuntimeManifestVersionAndFeatures": true,
+    "full": {
+      "supported": true,
+      "runtimeDelivery": "verified_download",
+      "downloadExecutableCode": true,
+      "integrity": {
+        "bundleByteCountPinned": true,
+        "bundleSha256Pinned": true,
+        "extractedFileByteCountsPinned": true,
+        "extractedFileSha256Pinned": true
+      }
+    },
+    "play": {
+      "supported": true,
+      "runtimeDelivery": "packaged_on_demand",
+      "downloadExecutableCode": false,
+      "networkExecutableFallback": false,
+      "integrity": {
+        "playAppSigning": true,
+        "packagedArtifactSha256Pinned": true
+      }
+    }
   }
 }

@@ -55,16 +55,24 @@ internal fun CreationModelViewer(
     accent: Color,
     modifier: Modifier = Modifier,
 ) {
-    val modelFile by produceState<Result<File>?>(null, outputPath) {
-        value = runCatching { viewModel.previewFile(outputPath, "glb") }
+    val previewFiles by produceState<Result<ModelPreviewFiles>?>(null, outputPath) {
+        value = runCatching {
+            ModelPreviewFiles(
+                model = viewModel.previewFile(outputPath, "glb"),
+                wireframe = runCatching { viewModel.wireframePreviewFile(outputPath) },
+            )
+        }
     }
     var showGrid by remember(outputPath) { mutableStateOf(true) }
+    var wireframe by remember(outputPath) { mutableStateOf(false) }
+    var outline by remember(outputPath) { mutableStateOf(false) }
     var autoRotate by remember(outputPath) { mutableStateOf(false) }
     var shading by remember(outputPath) { mutableStateOf(MobileModelShading.ORIGINAL) }
     var fitRevision by remember(outputPath) { mutableStateOf(0) }
     val currentAutoRotate by rememberUpdatedState(autoRotate)
-    val runtimeNode = remember(outputPath) { arrayOfNulls<ModelNode>(1) }
+    val runtimeNodes = remember(outputPath) { arrayOfNulls<ModelNode>(2) }
     var materialController by remember(outputPath) { mutableStateOf<ModelMaterialController?>(null) }
+    var lineController by remember(outputPath) { mutableStateOf<ModelLineMaterialController?>(null) }
 
     Box(
         modifier = modifier
@@ -72,28 +80,39 @@ internal fun CreationModelViewer(
             .background(MaterialTheme.colorScheme.surfaceContainerLowest),
         contentAlignment = Alignment.Center,
     ) {
-        val fileResult = modelFile
+        val fileResult = previewFiles
         if (fileResult == null) {
             CircularProgressIndicator()
         } else if (fileResult.isFailure) {
             Text(strings.previewUnavailable, color = MaterialTheme.colorScheme.error)
         } else {
-            val file = fileResult.getOrThrow()
+            val files = fileResult.getOrThrow()
             if (showGrid) ModelGrid(accent)
             val engine = rememberEngine()
             val modelLoader = rememberModelLoader(engine)
-            val modelInstance = remember(file, modelLoader) {
-                runCatching { modelLoader.createModelInstance(file) }
+            val modelInstance = remember(files.model, modelLoader) {
+                runCatching { modelLoader.createModelInstance(files.model) }
+            }
+            val wireframeInstance = remember(files.wireframe, modelLoader) {
+                files.wireframe.mapCatching { file ->
+                    modelLoader.createModelInstance(file)
+                }
             }
             val instance = modelInstance.getOrNull()
-            DisposableEffect(instance, modelLoader) {
+            val lineInstance = wireframeInstance.getOrNull()
+            DisposableEffect(instance, lineInstance, modelLoader) {
                 onDispose {
                     instance?.let { modelLoader.destroyModel(it.model) }
+                    lineInstance?.let { modelLoader.destroyModel(it.model) }
                 }
             }
             val currentMaterialController = materialController
             DisposableEffect(currentMaterialController) {
                 onDispose { currentMaterialController?.destroy() }
+            }
+            val currentLineController = lineController
+            DisposableEffect(currentLineController) {
+                onDispose { currentLineController?.destroy() }
             }
             LaunchedEffect(shading, materialController) {
                 materialController?.apply(shading)
@@ -123,28 +142,43 @@ internal fun CreationModelViewer(
                     isOpaque = false,
                     cameraManipulator = cameraManipulator,
                     onFrame = { frameTimeNanos ->
-                        val node = runtimeNode[0]
                         if (currentAutoRotate) {
-                            node?.rotation = Float3(
+                            val rotation = Float3(
                                 0f,
-                                (frameTimeNanos / 1_000_000_000.0 * 18.0 % 360.0).toFloat(),
+                                (frameTimeNanos / 1_000_000_000.0 * 18.0 % 360.0)
+                                    .toFloat(),
                                 0f,
                             )
+                            runtimeNodes.forEach { it?.rotation = rotation }
                         }
                     },
                 ) {
-                    ModelNode(
-                        modelInstance = instance,
-                        scaleToUnits = 1.0f,
-                        centerOrigin = Float3(0f, 0f, 0f),
-                        autoAnimate = true,
-                        apply = {
-                            runtimeNode[0] = this
-                            materialController = ModelMaterialController(this, engine).also {
-                                it.apply(shading)
-                            }
-                        },
-                    )
+                    if (!wireframe) {
+                        ModelNode(
+                            modelInstance = instance,
+                            scaleToUnits = 1.0f,
+                            centerOrigin = Float3(0f, 0f, 0f),
+                            autoAnimate = true,
+                            apply = {
+                                runtimeNodes[0] = this
+                                materialController = ModelMaterialController(this, engine).also {
+                                    it.apply(shading)
+                                }
+                            },
+                        )
+                    }
+                    if ((wireframe || outline) && lineInstance != null) {
+                        ModelNode(
+                            modelInstance = lineInstance,
+                            scaleToUnits = 1.0f,
+                            centerOrigin = Float3(0f, 0f, 0f),
+                            autoAnimate = true,
+                            apply = {
+                                runtimeNodes[1] = this
+                                lineController = ModelLineMaterialController(this, engine)
+                            },
+                        )
+                    }
                 }
                 ModelGestureLayer(
                     detector = gestureDetector,
@@ -175,6 +209,20 @@ internal fun CreationModelViewer(
                     onCheckedChange = { if (it) shading = MobileModelShading.PARTS },
                 )
                 ViewerToggle(
+                    checked = wireframe,
+                    icon = R.drawable.ms_grid_view,
+                    label = strings.wireframe,
+                    enabled = lineInstance != null,
+                    onCheckedChange = { wireframe = it },
+                )
+                ViewerToggle(
+                    checked = outline,
+                    icon = R.drawable.ms_deployed_code,
+                    label = strings.outline,
+                    enabled = lineInstance != null,
+                    onCheckedChange = { outline = it },
+                )
+                ViewerToggle(
                     checked = showGrid,
                     icon = R.drawable.ms_grid_view,
                     label = strings.grid,
@@ -196,6 +244,11 @@ internal fun CreationModelViewer(
         }
     }
 }
+
+private data class ModelPreviewFiles(
+    val model: File,
+    val wireframe: Result<File>,
+)
 
 @Composable
 private fun ModelGestureLayer(
@@ -287,16 +340,55 @@ private class ModelMaterialController(
     }
 }
 
+private class ModelLineMaterialController(
+    node: ModelNode,
+    private val engine: com.google.android.filament.Engine,
+) {
+    private val materials = node.materialInstances.map { group ->
+        group.mapIndexed { index, source ->
+            com.google.android.filament.MaterialInstance.duplicate(
+                source,
+                "sgt_wire_${source.name}_$index",
+            ).apply {
+                runCatching {
+                    setParameter(
+                        "baseColorFactor",
+                        com.google.android.filament.Colors.RgbaType.SRGB,
+                        0.025f, 0.035f, 0.045f, 1f,
+                    )
+                }
+                runCatching { setParameter("metallicFactor", 0.0f) }
+                runCatching { setParameter("roughnessFactor", 1.0f) }
+            }
+        }
+    }
+    private var destroyed = false
+
+    init {
+        node.materialInstances = materials
+    }
+
+    fun destroy() {
+        if (destroyed) return
+        destroyed = true
+        materials.flatten().forEach { material ->
+            runCatching { engine.destroyMaterialInstance(material) }
+        }
+    }
+}
+
 @Composable
 private fun ViewerToggle(
     checked: Boolean,
     icon: Int,
     label: String,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     FilledIconToggleButton(
         checked = checked,
         onCheckedChange = onCheckedChange,
+        enabled = enabled,
         modifier = Modifier.size(42.dp),
     ) {
         Icon(painterResource(icon), contentDescription = label, modifier = Modifier.size(19.dp))

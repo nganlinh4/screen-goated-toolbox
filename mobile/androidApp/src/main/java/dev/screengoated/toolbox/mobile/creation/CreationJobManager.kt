@@ -49,22 +49,36 @@ internal class CreationJobManager private constructor(context: Context) {
         }
         val jobId = nextJobId(tool)
         val extension = if (tool == CreationTool.IMAGE_TO_3D) "glb" else "svg"
-        val output = files.stagingFile(tool, source, extension)
         val model = if (args.string("model") == "detail") "detail" else "simple"
-        val autoSegment = args.boolean("autoSegment") == true &&
+        val polycount = (args.int("polycount") ?: CreationContract.DEFAULT_POLYCOUNT).coerceIn(
+            CreationContract.MINIMUM_POLYCOUNT,
+            CreationContract.MAXIMUM_POLYCOUNT,
+        )
+        val requestedAutoSegment = args.boolean("autoSegment") == true &&
             args.string("segmentationMode") != "none"
+        val requestedMode = CreationGenerationMode.fromWireName(args.string("generationMode"))
+        val providerRoute = if (tool == CreationTool.IMAGE_TO_3D) {
+            CreationContract.validate3dProvider(
+                requestedMode,
+                polycount,
+                requestedAutoSegment,
+                args.string("provider"),
+            )
+        } else {
+            null
+        }
+        val output = files.stagingFile(tool, source, extension)
         val request = CreationWorkerRequest(
             jobId = jobId,
             tool = tool.wireName,
+            generationMode = providerRoute?.mode?.wireName,
+            provider = providerRoute?.provider?.wireName,
             operation = "generate",
             imagePath = source,
             outputPath = output.absolutePath,
             outputName = output.name,
-            polycount = (args.int("polycount") ?: CreationContract.DEFAULT_POLYCOUNT).coerceIn(
-                CreationContract.MINIMUM_POLYCOUNT,
-                CreationContract.MAXIMUM_POLYCOUNT,
-            ),
-            autoSegment = autoSegment,
+            polycount = providerRoute?.polycount ?: polycount,
+            autoSegment = providerRoute?.autoSegment ?: requestedAutoSegment,
             model = model,
         )
         val status = initialStatus(tool, request)
@@ -73,7 +87,14 @@ internal class CreationJobManager private constructor(context: Context) {
             requests[jobId] = request
             startedAt[jobId] = System.currentTimeMillis()
         }
-        diagnostics.event("job_queued", tool.wireName, jobId = jobId, stage = "preparing")
+        diagnostics.event(
+            "job_queued",
+            tool.wireName,
+            jobId = jobId,
+            stage = "preparing",
+            generationMode = request.generationMode,
+            provider = request.provider,
+        )
         dispatchWhenAvailable(request)
         return status
     }
@@ -86,11 +107,16 @@ internal class CreationJobManager private constructor(context: Context) {
             continuations.remove(continuationId)
                 ?: error("This model can no longer be separated into parts")
         }
+        check(continuation.provider == CreationProvider.TRIPO.wireName) {
+            "This result cannot be separated after generation"
+        }
         val jobId = nextJobId(CreationTool.IMAGE_TO_3D)
         val output = files.stagingFile(CreationTool.IMAGE_TO_3D, continuation.sourcePath, "glb")
         val request = CreationWorkerRequest(
             jobId = jobId,
             tool = CreationTool.IMAGE_TO_3D.wireName,
+            generationMode = CreationGenerationMode.QUALITY.wireName,
+            provider = continuation.provider,
             operation = "segment",
             imagePath = continuation.sourcePath,
             outputPath = output.absolutePath,
@@ -123,6 +149,8 @@ internal class CreationJobManager private constructor(context: Context) {
             CreationTool.IMAGE_TO_3D.wireName,
             jobId = jobId,
             stage = "segmenting",
+            generationMode = request.generationMode,
+            provider = request.provider,
         )
         dispatchWhenAvailable(request, continuation.workerKey)
         return status
@@ -142,13 +170,17 @@ internal class CreationJobManager private constructor(context: Context) {
     fun cancel(tool: CreationTool, jobId: String?): List<CreationJobStatus> {
         val targets = synchronized(lock) {
             val ids = if (jobId != null) listOf(jobId) else jobs.values
-                .filter { requestTool(it.jobId) == tool && isBusy(it.stage) }
+                .filter { requestTool(it.jobId) == tool && creationStageIsBusy(it.stage) }
                 .mapNotNull { it.jobId }
+            val transitioned = mutableListOf<String>()
             ids.forEach { id ->
-                jobs[id]?.let { jobs[id] = it.copy(stage = "cancelled", progressText = "Cancelled.") }
+                jobs[id]?.takeIf { creationStageIsBusy(it.stage) }?.let {
+                    jobs[id] = it.copy(stage = "cancelled", progressText = "Cancelled.")
+                    transitioned += id
+                }
                 requests[id]?.outputPath?.let(::File).let { file -> if (file?.length() == 0L) file.delete() }
             }
-            ids
+            transitioned
         }
         targets.forEach(workers::cancel)
         return statuses(tool)
@@ -192,14 +224,33 @@ internal class CreationJobManager private constructor(context: Context) {
             var waitingSeconds = 0
             while (true) {
                 if (synchronized(lock) { jobs[request.jobId]?.stage == "cancelled" }) return@launch
-                val worker = workers.dispatch(request, preferred, ::handleWorkerEvent)
+                val worker = workers.dispatch(
+                    request,
+                    preferred,
+                    ::handleWorkerEvent,
+                ) { assignedWorker ->
+                    synchronized(lock) {
+                        workerKeys[request.jobId] = assignedWorker
+                        if (request.operation == "generate") {
+                            val invalidated = continuations
+                                .filterValues { it.workerKey == assignedWorker }
+                                .keys
+                                .toSet()
+                            continuations.keys.removeAll(invalidated)
+                            invalidated.forEach { id ->
+                                jobs[id]?.let { jobs[id] = it.copy(canSegment = false) }
+                            }
+                        }
+                    }
+                }
                 if (worker != null) {
-                    synchronized(lock) { workerKeys[request.jobId] = worker }
                     diagnostics.event(
                         "job_dispatched",
                         request.tool,
                         jobId = request.jobId,
                         stage = "preparing",
+                        generationMode = request.generationMode,
+                        provider = request.provider,
                     )
                     return@launch
                 }
@@ -210,6 +261,8 @@ internal class CreationJobManager private constructor(context: Context) {
                         request.tool,
                         jobId = request.jobId,
                         stage = "preparing",
+                        generationMode = request.generationMode,
+                        provider = request.provider,
                     )
                 }
                 delay(1_000)
@@ -220,10 +273,55 @@ internal class CreationJobManager private constructor(context: Context) {
     private fun handleWorkerEvent(workerKey: String, event: CreationWorkerEvent) {
         val jobId = event.jobId ?: return
         scope.launch {
-            if (event.event == "success") finish(workerKey, jobId, event)
-            else if (event.event == "failure") fail(jobId, event.error ?: "Creation failed")
-            else if (event.event == "cancelled") cancel(requestTool(jobId) ?: return@launch, jobId)
-            else updateProgress(jobId, event)
+            val expectedRequest = synchronized(lock) { requests[jobId] }
+            val expectedProvider = expectedRequest?.provider
+            if (expectedRequest?.generationMode != null &&
+                event.generationMode != null &&
+                event.generationMode != expectedRequest.generationMode
+            ) {
+                fail(jobId, "Creation runtime returned a conflicting mode")
+                return@launch
+            }
+            if (expectedProvider != null &&
+                event.provider != null &&
+                event.provider != expectedProvider
+            ) {
+                fail(jobId, "Creation runtime returned a conflicting provider")
+                return@launch
+            }
+            when (event.event) {
+                "success" -> finish(workerKey, jobId, event)
+                "failure" -> {
+                    val error = event.error ?: "Creation failed"
+                    val route = runCatching {
+                        routeCreationWorkerFailure(expectedProvider, error)
+                    }.getOrElse { invalidOwner ->
+                        fail(jobId, invalidOwner.message ?: "Creation failed")
+                        return@launch
+                    }
+                    when (route) {
+                        CreationWorkerFailureRoute.Fail -> fail(jobId, error)
+                        is CreationWorkerFailureRoute.Redispatch -> {
+                            val request = synchronized(lock) { requests[jobId] }
+                                ?: return@launch
+                            diagnostics.event(
+                                "job_recovery_redirected",
+                                request.tool,
+                                jobId = jobId,
+                                stage = route.preferredWorker,
+                                generationMode = request.generationMode,
+                                provider = request.provider,
+                            )
+                            dispatchWhenAvailable(
+                                request,
+                                preferred = route.preferredWorker,
+                            )
+                        }
+                    }
+                }
+                "cancelled" -> cancel(requestTool(jobId) ?: return@launch, jobId)
+                else -> updateProgress(jobId, event)
+            }
         }
     }
 
@@ -238,11 +336,15 @@ internal class CreationJobManager private constructor(context: Context) {
             }
             jobs[jobId] = current.copy(
                 stage = nextStage,
-                progressText = event.progressText ?: current.progressText,
+                progressText = event.progressText?.let(::publicCreationText)
+                    ?: current.progressText,
                 phase = event.phase ?: current.phase,
                 workspaceState = event.workspaceState ?: current.workspaceState,
                 progressRatio = event.progressRatio ?: current.progressRatio,
                 estimatedTotalMs = event.estimatedTotalMs ?: current.estimatedTotalMs,
+                timingSampleCount = event.timingSampleCount ?: current.timingSampleCount,
+                generationMode = event.generationMode ?: current.generationMode,
+                provider = event.provider ?: current.provider,
                 outputPath = event.outputPath ?: current.outputPath,
                 outputName = event.outputName ?: current.outputName,
                 isSegmented = event.isSegmented ?: current.isSegmented,
@@ -253,24 +355,32 @@ internal class CreationJobManager private constructor(context: Context) {
             requests[jobId]?.tool
         }
         changedStage?.let { stage ->
-            diagnostics.event("job_progress", tool, jobId = jobId, stage = stage)
+            diagnostics.event(
+                "job_progress",
+                tool,
+                jobId = jobId,
+                stage = stage,
+                generationMode = synchronized(lock) { requests[jobId]?.generationMode },
+                provider = synchronized(lock) { requests[jobId]?.provider },
+            )
         }
     }
 
     private fun finish(workerKey: String, jobId: String, event: CreationWorkerEvent) {
-        val request = synchronized(lock) { requests[jobId] } ?: return
-        val staging = File(event.outputPath ?: request.outputPath)
-        if (!staging.isFile || staging.length() == 0L) {
-            fail(jobId, "Creation ended without an output file")
-            return
-        }
-        runCatching {
-            val mime = if (request.tool == "3d") "model/gltf-binary" else "image/svg+xml"
-            val published = files.publish(staging, request.outputName, mime)
-            request.previousOutputPath?.takeIf(files::exists)?.let(files::delete)
-            val segmented = event.isSegmented ?: request.autoSegment
-            val status = synchronized(lock) {
+        val completion = runCatching {
+            synchronized(lock) {
+                val request = requests[jobId] ?: return
                 val current = jobs[jobId] ?: error("Creation job disappeared")
+                if (!creationStageIsBusy(current.stage)) return
+                val staging = File(event.outputPath ?: request.outputPath)
+                require(staging.isFile && staging.length() > 0L) {
+                    "Creation ended without an output file"
+                }
+                val mime = if (request.tool == "3d") "model/gltf-binary" else "image/svg+xml"
+                val published = files.publish(staging, request.outputName, mime)
+                request.previousOutputPath?.takeIf(files::exists)?.let(files::delete)
+                val segmented = request.provider == CreationProvider.MESHY.wireName ||
+                    (event.isSegmented ?: request.autoSegment)
                 val updated = current.copy(
                     stage = "done",
                     progressText = if (request.tool == "3d") "Model ready." else "Vector ready",
@@ -278,8 +388,16 @@ internal class CreationJobManager private constructor(context: Context) {
                     progressRatio = 1.0,
                     outputPath = published,
                     outputName = request.outputName,
+                    generationMode = request.generationMode,
+                    provider = request.provider,
                     isSegmented = segmented,
-                    canSegment = request.tool == "3d" && !segmented && event.canSegment != false,
+                    canSegment = request.tool == CreationTool.IMAGE_TO_3D.wireName &&
+                        request.operation == "generate" &&
+                        CreationContract.canContinueSegmentation(
+                            request.provider,
+                            segmented,
+                            event.canSegment != false,
+                        ),
                     creditsRemaining = event.creditsRemaining,
                     faces = event.faces,
                     vertices = event.vertices,
@@ -293,27 +411,59 @@ internal class CreationJobManager private constructor(context: Context) {
                         request.imagePath,
                         published,
                         request.outputName,
+                        requireNotNull(request.provider),
                     )
                 }
-                updated
+                Completion(request, segmented, published)
             }
-            val tool = CreationTool.fromWireName(request.tool) ?: error("Unknown creation tool")
-            val metadata = buildJsonObject {
-                if (tool == CreationTool.IMAGE_TO_3D) {
-                    put("isSegmented", segmented)
-                    event.faces?.let { put("faces", it) }
-                    event.vertices?.let { put("vertices", it) }
-                } else {
-                    put("model", request.model)
-                }
+        }.getOrElse {
+            fail(jobId, it.message ?: "Could not save creation result")
+            return
+        }
+        val request = completion.request
+        val tool = CreationTool.fromWireName(request.tool) ?: return
+        val metadata = buildJsonObject {
+            if (tool == CreationTool.IMAGE_TO_3D) {
+                put("isSegmented", completion.segmented)
+                request.generationMode?.let { put("generationMode", it) }
+                request.provider?.let { put("provider", it) }
+                event.faces?.let { put("faces", it) }
+                event.vertices?.let { put("vertices", it) }
+            } else {
+                put("model", request.model)
             }
-            history.record(tool, request.imagePath, published, request.outputName, metadata)
-            diagnostics.event("job_succeeded", request.tool, jobId = jobId, stage = "done")
-            status
-        }.onFailure { fail(jobId, it.message ?: "Could not save creation result") }
+        }
+        runCatching {
+            history.record(
+                tool,
+                request.imagePath,
+                completion.publishedPath,
+                request.outputName,
+                metadata,
+            )
+        }.onFailure { error ->
+            diagnostics.event(
+                "history_record_failed",
+                request.tool,
+                jobId = jobId,
+                stage = "done",
+                failureMessage = error.message,
+                generationMode = request.generationMode,
+                provider = request.provider,
+            )
+        }
+        diagnostics.event(
+            "job_succeeded",
+            request.tool,
+            jobId = jobId,
+            stage = "done",
+            generationMode = request.generationMode,
+            provider = request.provider,
+        )
     }
 
     private fun fail(jobId: String, message: String) {
+        val publicMessage = publicCreationText(message)
         val tool = synchronized(lock) {
             val current = jobs[jobId] ?: return@synchronized null
             if (current.stage == "cancelled") return@synchronized null
@@ -322,7 +472,7 @@ internal class CreationJobManager private constructor(context: Context) {
                 stage = "failed",
                 progressText = "Could not create result.",
                 phase = "failed",
-                error = message,
+                error = publicMessage,
             )
             requests[jobId]?.tool
         }
@@ -331,12 +481,18 @@ internal class CreationJobManager private constructor(context: Context) {
             tool,
             jobId = jobId,
             stage = "failed",
-            failureMessage = message,
+            failureMessage = publicMessage,
+            generationMode = synchronized(lock) { requests[jobId]?.generationMode },
+            provider = synchronized(lock) { requests[jobId]?.provider },
         )
     }
 
     private fun initialStatus(tool: CreationTool, request: CreationWorkerRequest) = CreationJobStatus(
         jobId = request.jobId,
+        generationMode = request.generationMode,
+        provider = request.provider,
+        polycount = request.polycount.takeIf { tool == CreationTool.IMAGE_TO_3D },
+        autoSegment = request.autoSegment.takeIf { tool == CreationTool.IMAGE_TO_3D },
         stage = "preparing",
         progressText = "Preparing creation.",
         phase = "preparing",
@@ -345,15 +501,23 @@ internal class CreationJobManager private constructor(context: Context) {
         estimatedTotalMs = when {
             tool == CreationTool.IMAGE_TO_SVG && request.model == "detail" -> 70_000
             tool == CreationTool.IMAGE_TO_SVG -> 45_000
+            request.provider == CreationProvider.MESHY.wireName -> 90_000
             request.autoSegment -> 360_000
             else -> 240_000
         },
+        timingSampleCount = 0,
         progressRatio = 0.0,
         sourceImagePath = request.imagePath,
         model = request.model.takeIf { tool == CreationTool.IMAGE_TO_SVG },
     )
 
     private fun idleStatus(tool: CreationTool) = CreationJobStatus(
+        generationMode = CreationGenerationMode.QUALITY.wireName.takeIf {
+            tool == CreationTool.IMAGE_TO_3D
+        },
+        provider = CreationProvider.TRIPO.wireName.takeIf {
+            tool == CreationTool.IMAGE_TO_3D
+        },
         stage = if (tool == CreationTool.IMAGE_TO_3D) "idle" else "draft",
         progressText = "Ready to create.",
         sourceImagePath = if (tool == CreationTool.IMAGE_TO_SVG) "" else null,
@@ -363,11 +527,15 @@ internal class CreationJobManager private constructor(context: Context) {
     private fun withElapsed(status: CreationJobStatus): CreationJobStatus {
         val id = status.jobId ?: return status
         val start = startedAt[id] ?: return status
-        return if (isBusy(status.stage)) status.copy(elapsedMs = System.currentTimeMillis() - start) else status
+        return if (creationStageIsBusy(status.stage)) {
+            status.copy(elapsedMs = System.currentTimeMillis() - start)
+        } else {
+            status
+        }
     }
 
     private fun runningCount(tool: CreationTool): Int = jobs.values.count {
-        requestTool(it.jobId) == tool && isBusy(it.stage)
+        requestTool(it.jobId) == tool && creationStageIsBusy(it.stage)
     }
 
     private fun requestTool(jobId: String?): CreationTool? = jobId?.let(requests::get)
@@ -383,6 +551,13 @@ internal class CreationJobManager private constructor(context: Context) {
         val sourcePath: String,
         val outputPath: String,
         val outputName: String,
+        val provider: String,
+    )
+
+    private data class Completion(
+        val request: CreationWorkerRequest,
+        val segmented: Boolean,
+        val publishedPath: String,
     )
 
     companion object {
@@ -394,11 +569,16 @@ internal class CreationJobManager private constructor(context: Context) {
             instance ?: CreationJobManager(context.applicationContext).also { instance = it }
         }
 
-        private fun isBusy(stage: String): Boolean = stage in setOf(
-            "preparing", "visualizing", "generating", "segmenting", "finalizing",
-        )
     }
 }
+
+internal fun creationStageIsBusy(stage: String): Boolean = stage in setOf(
+    "preparing",
+    "visualizing",
+    "generating",
+    "segmenting",
+    "finalizing",
+)
 
 private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
 private fun JsonObject.int(key: String): Int? = this[key]?.jsonPrimitive?.intOrNull

@@ -13,6 +13,13 @@ use super::{
 };
 use crate::overlay::creation_runtime;
 
+fn public_runtime_text(value: &str) -> String {
+    value
+        .replace("Meshy T2", "creation service")
+        .replace("Meshy", "creation service")
+        .replace("Tripo", "creation service")
+}
+
 fn command_for_operation(operation: &RuntimeOperation) -> Option<Command> {
     let mut command = runtime_command()?;
     match operation {
@@ -27,7 +34,9 @@ fn command_for_operation(operation: &RuntimeOperation) -> Option<Command> {
                 .arg("--output-dir")
                 .arg(output_dir)
                 .arg("--polycount")
-                .arg(request.polycount.to_string());
+                .arg(request.polycount.to_string())
+                .arg("--provider")
+                .arg(request.provider.as_str());
             if request.auto_segment {
                 command.arg("--auto-segment");
             }
@@ -65,7 +74,7 @@ fn update_progress(job_id: &str, value: &Value, runtime_status: &str) {
         current.stage = stage.to_string();
     }
     if let Some(progress_text) = value.get("progressText").and_then(Value::as_str) {
-        current.progress_text = progress_text.to_string();
+        current.progress_text = public_runtime_text(progress_text);
     }
     if let Some(phase) = value.get("phase").and_then(Value::as_str) {
         current.phase = Some(phase.to_string());
@@ -112,7 +121,12 @@ fn update_preview(job_id: &str, preview_path: String) {
     }
 }
 
-fn finish_job(job_id: &str, status: JobStatus, continuation: Option<Continuation>) {
+fn finish_job(
+    job_id: &str,
+    status: JobStatus,
+    continuation: Option<Continuation>,
+    provider: super::provider::ModelProvider,
+) {
     let completed = (status.stage == "done").then(|| status.clone());
     if let Ok(mut state) = STATE.lock() {
         if state
@@ -138,7 +152,11 @@ fn finish_job(job_id: &str, status: JobStatus, continuation: Option<Continuation
             "3d",
             source_path,
             output_path,
-            serde_json::json!({ "isSegmented": status.is_segmented }),
+            serde_json::json!({
+                "isSegmented": status.is_segmented,
+                "generationMode": status.generation_mode,
+                "provider": provider.as_str(),
+            }),
         )
     {
         crate::log_info!("[3D Generator] Could not record result history: {error}");
@@ -146,6 +164,8 @@ fn finish_job(job_id: &str, status: JobStatus, continuation: Option<Continuation
 }
 
 pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation) {
+    let provider = operation.provider();
+    let generation_mode = operation.generation_mode();
     if runtime_command().is_none() {
         update_progress(
             &job_id,
@@ -174,12 +194,14 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                     output_name: None,
                     preview_path: None,
                     source_image_path: Some(operation.source_image_path().to_string()),
+                    generation_mode: Some(generation_mode),
                     is_segmented: false,
                     can_segment: false,
                     error: Some(error.to_string()),
                     runtime_status: "missing".to_string(),
                 },
                 None,
+                provider,
             );
             return;
         }
@@ -230,12 +252,14 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                     output_name: None,
                     preview_path: None,
                     source_image_path: Some(source_image_path),
+                    generation_mode: Some(generation_mode),
                     is_segmented: false,
                     can_segment: false,
                     error: Some("runtime_missing".to_string()),
                     runtime_status,
                 },
                 None,
+                provider,
             );
             return;
         }
@@ -265,12 +289,14 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                     output_name: None,
                     preview_path: None,
                     source_image_path: Some(source_image_path),
+                    generation_mode: Some(generation_mode),
                     is_segmented: false,
                     can_segment: false,
                     error: Some(err.to_string()),
                     runtime_status,
                 },
                 None,
+                provider,
             );
             return;
         }
@@ -361,26 +387,32 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                     .get("canSegment")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let continuation = if can_segment {
-                    let task_id = result.get("taskId").and_then(Value::as_str);
-                    let profile_dir = result.get("profileDir").and_then(Value::as_str);
-                    let output_dir = result.get("outputDir").and_then(Value::as_str);
-                    match (task_id, profile_dir, output_dir, output_path.as_deref()) {
-                        (Some(task_id), Some(profile_dir), Some(output_dir), Some(output_path)) => {
-                            Some(Continuation {
+                let continuation =
+                    if super::provider::can_offer_continuation(provider, is_segmented, can_segment)
+                    {
+                        let task_id = result.get("taskId").and_then(Value::as_str);
+                        let profile_dir = result.get("profileDir").and_then(Value::as_str);
+                        let output_dir = result.get("outputDir").and_then(Value::as_str);
+                        match (task_id, profile_dir, output_dir, output_path.as_deref()) {
+                            (
+                                Some(task_id),
+                                Some(profile_dir),
+                                Some(output_dir),
+                                Some(output_path),
+                            ) => Some(Continuation {
                                 task_id: task_id.to_string(),
                                 profile_dir: profile_dir.to_string(),
                                 image_path: source_image_path.clone(),
                                 output_dir: PathBuf::from(output_dir),
                                 previous_output_path: PathBuf::from(output_path),
                                 preview_path: preview_path.clone(),
-                            })
+                                provider,
+                            }),
+                            _ => None,
                         }
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
+                    } else {
+                        None
+                    };
                 finish_job(
                     &job_id,
                     JobStatus {
@@ -401,12 +433,14 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                         output_name,
                         preview_path,
                         source_image_path: Some(source_image_path.clone()),
+                        generation_mode: Some(generation_mode),
                         is_segmented,
                         can_segment: can_segment && continuation.is_some(),
                         error: None,
                         runtime_status: runtime_status.clone(),
                     },
                     continuation,
+                    provider,
                 );
                 let _ = child.wait();
                 let _ = prepare_runtime();
@@ -414,11 +448,12 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
             }
 
             if value.get("ok").and_then(Value::as_bool) == Some(false) {
-                let error = value
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("Creation failed")
-                    .to_string();
+                let error = public_runtime_text(
+                    value
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Creation failed"),
+                );
                 let current = job_status(Some(&job_id));
                 finish_job(
                     &job_id,
@@ -436,12 +471,14 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                         output_name: current.output_name,
                         preview_path: current.preview_path,
                         source_image_path: Some(source_image_path.clone()),
+                        generation_mode: Some(generation_mode),
                         is_segmented: false,
                         can_segment: false,
                         error: Some(error),
                         runtime_status: runtime_status.clone(),
                     },
                     None,
+                    provider,
                 );
                 let _ = child.wait();
                 let _ = prepare_runtime();
@@ -455,11 +492,11 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
         .lock()
         .map(|tail| tail.trim().to_string())
         .unwrap_or_default();
-    let message = if stderr.is_empty() {
+    let message = public_runtime_text(&if stderr.is_empty() {
         format!("3D engine exited unexpectedly: {process_status:?}")
     } else {
         format!("3D engine exited unexpectedly: {process_status:?}. {stderr}")
-    };
+    });
     let current = job_status(Some(&job_id));
     finish_job(
         &job_id,
@@ -477,12 +514,14 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
             output_name: current.output_name,
             preview_path: current.preview_path,
             source_image_path: Some(source_image_path),
+            generation_mode: Some(generation_mode),
             is_segmented: false,
             can_segment: false,
             error: Some(message),
             runtime_status,
         },
         None,
+        provider,
     );
     let _ = prepare_runtime();
 }
@@ -499,5 +538,16 @@ impl CommandNoWindowExt for Command {
             self.creation_flags(0x08000000);
         }
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::public_runtime_text;
+
+    #[test]
+    fn provider_branding_is_removed_from_public_runtime_text() {
+        let text = public_runtime_text("Meshy T2 queued; Tripo fallback");
+        assert_eq!(text, "creation service queued; creation service fallback");
     }
 }

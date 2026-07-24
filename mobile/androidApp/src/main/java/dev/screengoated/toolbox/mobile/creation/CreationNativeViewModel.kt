@@ -119,20 +119,30 @@ internal class CreationNativeViewModel(
         }
     }
 
-    fun setPolycount(value: Int) = updateSelectedDraftBatch { item ->
-        item.copy(
-            polycount = value.coerceIn(
-                CreationContract.MINIMUM_POLYCOUNT,
-                CreationContract.MAXIMUM_POLYCOUNT,
+    fun setPolycount(value: Int) = updateSelectedConfigurable { item ->
+        route3dItem(
+            item.copy(
+                polycount = value.coerceIn(
+                    CreationContract.MINIMUM_POLYCOUNT,
+                    CreationContract.MAXIMUM_POLYCOUNT,
+                ),
             ),
         )
     }
 
-    fun setAutoSegment(enabled: Boolean) = updateSelectedDraftBatch {
-        it.copy(autoSegment = enabled)
+    fun setGenerationMode(mode: String) = updateSelectedConfigurable { item ->
+        route3dItem(
+            item.copy(
+                generationMode = CreationGenerationMode.fromWireName(mode).wireName,
+            ),
+        )
     }
 
-    fun setModel(model: String) = updateSelectedDraftBatch {
+    fun setAutoSegment(enabled: Boolean) = updateSelectedConfigurable { item ->
+        route3dItem(item.copy(autoSegment = enabled))
+    }
+
+    fun setModel(model: String) = updateSelectedConfigurable {
         it.copy(model = if (model == "detail") "detail" else "simple")
     }
 
@@ -181,7 +191,14 @@ internal class CreationNativeViewModel(
             runCatching { manager.startSegmentation(continuationId) }
                 .onSuccess { status ->
                     updateItem(selected.id) {
-                        it.copy(stage = CreationNativeStage.RUNNING, status = status, submitted = true)
+                        it.copy(
+                            stage = CreationNativeStage.RUNNING,
+                            status = status,
+                            submitted = true,
+                            generationMode = status.generationMode ?: it.generationMode,
+                            polycount = status.polycount ?: it.polycount,
+                            autoSegment = status.autoSegment ?: it.autoSegment,
+                        )
                     }
                     monitor(selected.id, status)
                 }
@@ -235,6 +252,19 @@ internal class CreationNativeViewModel(
         manager.files.materializePreview(path, extension)
     }
 
+    suspend fun wireframePreviewFile(path: String): File = withContext(Dispatchers.IO) {
+        val source = manager.files.materializePreview(path, "glb")
+        val target = File(source.parentFile, "${source.nameWithoutExtension}.wireframe.glb")
+        if (
+            !target.isFile ||
+            target.length() == 0L ||
+            target.lastModified() < source.lastModified()
+        ) {
+            CreationWireframeGlb.create(source, target)
+        }
+        target
+    }
+
     suspend fun readSvg(path: String): String = withContext(Dispatchers.IO) {
         manager.files.readBytes(path, 20L * 1024 * 1024).decodeToString()
     }
@@ -254,13 +284,19 @@ internal class CreationNativeViewModel(
         mutableState.update { it.copy(transientError = null) }
     }
 
-    private fun updateSelectedDraftBatch(transform: (CreationNativeItem) -> CreationNativeItem) {
+    private fun updateSelectedConfigurable(transform: (CreationNativeItem) -> CreationNativeItem) {
         val selected = mutableState.value.selectedItem ?: return
-        if (selected.submitted || selected.stage != CreationNativeStage.DRAFT) return
+        val draft = !selected.submitted && selected.stage == CreationNativeStage.DRAFT
+        if (!selected.isConfigurable()) return
         mutableState.update { current ->
             current.copy(
                 items = current.items.map { item ->
-                    if (item.batchId == selected.batchId && !item.submitted) transform(item) else item
+                    val matches = if (draft) {
+                        item.batchId == selected.batchId && !item.submitted
+                    } else {
+                        item.id == selected.id
+                    }
+                    if (matches) transform(item) else item
                 },
             )
         }
@@ -273,12 +309,23 @@ internal class CreationNativeViewModel(
                     val next = mutableState.value.items.firstOrNull {
                         it.submitted && it.stage == CreationNativeStage.QUEUED
                     } ?: break
+                    val routed = if (tool == CreationTool.IMAGE_TO_3D) route3dItem(next) else next
+                    if (routed != next) {
+                        updateItem(next.id) { current ->
+                            current.copy(
+                                generationMode = routed.generationMode,
+                                polycount = routed.polycount,
+                                autoSegment = routed.autoSegment,
+                            )
+                        }
+                    }
                     val args = buildJsonObject {
-                        put("imagePath", next.sourcePath)
-                        put("polycount", next.polycount)
-                        put("autoSegment", next.autoSegment)
-                        put("segmentationMode", if (next.autoSegment) "parts" else "none")
-                        put("model", next.model)
+                        put("imagePath", routed.sourcePath)
+                        put("generationMode", routed.generationMode)
+                        put("polycount", routed.polycount)
+                        put("autoSegment", routed.autoSegment)
+                        put("segmentationMode", if (routed.autoSegment) "parts" else "none")
+                        put("model", routed.model)
                     }
                     val status = runCatching { manager.startJob(tool, args) }.getOrElse { error ->
                         if (error.message.orEmpty().contains("busy", ignoreCase = true)) {
@@ -295,14 +342,22 @@ internal class CreationNativeViewModel(
                                     stage = "failed",
                                     progressText = "Could not create result.",
                                     error = error.message,
-                                    sourceImagePath = next.sourcePath,
+                                    sourceImagePath = routed.sourcePath,
+                                    generationMode = routed.generationMode,
+                                    polycount = routed.polycount,
+                                    autoSegment = routed.autoSegment,
                                 ),
                             )
                         }
                         continue
                     }
                     updateItem(next.id) {
-                        it.copy(stage = CreationNativeStage.RUNNING, status = status)
+                        it.copy(
+                            stage = CreationNativeStage.RUNNING,
+                            status = status,
+                            generationMode = status.generationMode ?: routed.generationMode,
+                            autoSegment = status.autoSegment ?: routed.autoSegment,
+                        )
                     }
                     startDepthPreview(next.id)
                     monitor(next.id, status)
@@ -319,7 +374,15 @@ internal class CreationNativeViewModel(
             while (status.toNativeStage() == CreationNativeStage.RUNNING) {
                 delay(1_000)
                 status = manager.status(tool, jobId)
-                updateItem(itemId) { it.copy(stage = status.toNativeStage(), status = status) }
+                updateItem(itemId) {
+                    it.copy(
+                        stage = status.toNativeStage(),
+                        status = status,
+                        generationMode = status.generationMode ?: it.generationMode,
+                        polycount = status.polycount ?: it.polycount,
+                        autoSegment = status.autoSegment ?: it.autoSegment,
+                    )
+                }
             }
             monitors.remove(jobId)
             depthPreviewJobs.remove(itemId)?.cancel()
@@ -336,13 +399,19 @@ internal class CreationNativeViewModel(
             if (recovered.isEmpty()) return@launch
             val items = recovered.map { status ->
                 val path = requireNotNull(status.sourceImagePath)
+                val polycount = status.polycount ?: CreationContract.DEFAULT_POLYCOUNT
+                val autoSegment = status.autoSegment ?: false
+                val generationMode = CreationGenerationMode
+                    .fromWireName(status.generationMode)
                 CreationNativeItem(
                     id = status.jobId ?: "recovered_${UUID.randomUUID()}",
                     batchId = "recovered_${status.jobId}",
                     sourcePath = path,
                     sourceName = File(path).name,
+                    generationMode = generationMode.wireName,
+                    polycount = polycount,
                     model = status.model ?: "simple",
-                    autoSegment = status.isSegmented,
+                    autoSegment = autoSegment,
                     submitted = true,
                     stage = CreationNativeStage.RUNNING,
                     status = status,
@@ -402,6 +471,20 @@ internal class CreationNativeViewModel(
         mutableState.update { current ->
             current.copy(items = current.items.map { if (it.id == id) transform(it) else it })
         }
+    }
+
+    private fun route3dItem(item: CreationNativeItem): CreationNativeItem {
+        if (tool != CreationTool.IMAGE_TO_3D) return item
+        val route = CreationContract.route3dProvider(
+            CreationGenerationMode.fromWireName(item.generationMode),
+            item.polycount,
+            item.autoSegment,
+        )
+        return item.copy(
+            generationMode = route.mode.wireName,
+            polycount = route.polycount,
+            autoSegment = route.autoSegment,
+        )
     }
 
     private fun showError(error: Throwable) {

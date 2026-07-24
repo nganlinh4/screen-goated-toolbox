@@ -5,6 +5,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { meshVertexCount, prepareSegmentedGeometry } from "./segmented-geometry";
 
 export type ShadingMode = "original" | "toon" | "parts";
 export type ModelStats = { vertices: number; faces: number };
@@ -264,6 +265,7 @@ export class ModelViewer {
       return null;
     }
     this.idleObject.visible = false;
+    prepareSegmentedGeometry(object, segmented);
     const box = new THREE.Box3().setFromObject(object);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
@@ -276,7 +278,7 @@ export class ModelViewer {
     object.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       const positions = child.geometry.getAttribute("position");
-      stats.vertices += positions?.count || 0;
+      stats.vertices += meshVertexCount(child.geometry);
       stats.faces += Math.floor((child.geometry.getIndex()?.count || positions?.count || 0) / 3);
       const source = Array.isArray(child.material) ? child.material : [child.material];
       const originals = source.map((material) => this.cloneMaterial(material));
