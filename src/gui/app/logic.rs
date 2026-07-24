@@ -1,12 +1,10 @@
 use super::types::{RESTORE_SIGNAL, SettingsApp, UserEvent};
 use crate::config::ThemeMode;
-use crate::gui::app::utils::simple_rand;
 use crate::gui::locale::LocaleText;
 use crate::icon_gen;
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use eframe::egui;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 use tray_icon::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::{
@@ -317,82 +315,6 @@ impl SettingsApp {
         if crate::overlay::translation_gummy::REQUEST_DISMISS_SPLASH.swap(false, Ordering::SeqCst) {
             self.splash = None;
         }
-    }
-
-    pub(crate) fn update_tips_logic(&mut self, ctx: &egui::Context) {
-        let text = LocaleText::get(&self.config.ui_language);
-        let now = ctx.input(|i| i.time);
-
-        // Initialize timer on first run
-        if self.tip_timer == 0.0 {
-            self.tip_timer = now;
-        }
-
-        let current_tip = text
-            .workspace
-            .tips_list
-            .get(self.current_tip_idx)
-            .unwrap_or(&"")
-            .to_string();
-
-        // One cycle: fade in -> hold -> slide gradually left (within the fixed
-        // display window) -> hold -> fade out. The slide duration scales with the
-        // tip length so longer tips slide at a comfortable, near-constant pace.
-        let fade = 0.4_f32;
-        let hold = 1.0_f32; // "wait lil bit" on each side of the slide
-        let slide = (current_tip.chars().count() as f32 * 0.045).clamp(0.6, 4.0);
-        let total = fade + hold + slide + hold + fade;
-        let slide_start = fade + hold;
-        let e = (now - self.tip_timer) as f32;
-
-        // Opacity: ramp up over `fade`, hold at full, ramp down over the last `fade`.
-        self.tip_fade_state = if e < fade {
-            (e / fade).clamp(0.0, 1.0)
-        } else if e > total - fade {
-            ((total - e) / fade).clamp(0.0, 1.0)
-        } else {
-            1.0
-        };
-
-        // Slide progress 0..1, smoothstep-eased so the motion eases in and out.
-        self.tip_scroll = if e <= slide_start {
-            0.0
-        } else if e >= slide_start + slide {
-            1.0
-        } else {
-            let s = (e - slide_start) / slide;
-            s * s * (3.0 - 2.0 * s)
-        };
-
-        if e >= total {
-            // Advance to the next (non-repeating) random tip and restart the cycle.
-            self.rng_seed = simple_rand(self.rng_seed);
-            if !text.workspace.tips_list.is_empty() {
-                let next = (self.rng_seed as usize) % text.workspace.tips_list.len();
-                if next == self.current_tip_idx && text.workspace.tips_list.len() > 1 {
-                    self.current_tip_idx = (next + 1) % text.workspace.tips_list.len();
-                } else {
-                    self.current_tip_idx = next;
-                }
-            }
-            self.tip_fade_state = 0.0;
-            self.tip_scroll = 0.0;
-            self.tip_timer = now;
-        }
-
-        // Repaint at 60 fps while animating (fade / slide); coast through the holds.
-        let next = if e < fade {
-            0.016
-        } else if e < slide_start {
-            (slide_start - e).max(0.016)
-        } else if e < slide_start + slide {
-            0.016
-        } else if e < total - fade {
-            (total - fade - e).max(0.016)
-        } else {
-            0.016
-        };
-        ctx.request_repaint_after(Duration::from_secs_f32(next));
     }
 
     pub(crate) fn handle_events(&mut self, ctx: &egui::Context) {

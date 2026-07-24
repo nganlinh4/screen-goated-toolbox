@@ -15,14 +15,6 @@ impl SettingsApp {
         let visuals = root_ui.visuals().clone();
         let footer_bg = crate::gui::theme::AppTheme::from_dark(visuals.dark_mode).bar_bg();
 
-        // Determine current tip text for footer
-        let current_tip = text
-            .workspace
-            .tips_list
-            .get(self.current_tip_idx)
-            .unwrap_or(&"")
-            .to_string();
-
         egui::Panel::bottom("footer_panel")
             .resizable(false)
             .show_separator_line(false)
@@ -50,9 +42,6 @@ impl SettingsApp {
                 render_footer(
                     ui,
                     &text,
-                    current_tip.clone(),
-                    self.tip_fade_state,
-                    self.tip_scroll,
                     FooterToggles {
                         show_modal: &mut self.show_tips_modal,
                         show_computer_control: &mut self.show_computer_control_dialog,

@@ -9,6 +9,7 @@ pub struct WorkspaceLocaleText {
     pub listen_audio_btn: &'static str,
     pub view_text_btn: &'static str,
     pub tips_title: &'static str,
+    pub tips_btn: &'static str,
     pub tips_list: Vec<&'static str>,
     pub tips_click_hint: &'static str,
     pub restore_preset_btn: &'static str,
