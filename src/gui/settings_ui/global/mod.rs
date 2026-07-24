@@ -497,14 +497,14 @@ pub fn render_global_settings(
 
                 ui.add_space(10.0);
 
-                // This opens a scoped restore dialog; the trailing chevron makes
-                // the extra decision step explicit before anything is changed.
+                // Keep the destructive red entry point while the trailing
+                // chevron makes the extra decision step explicit.
                 if crate::gui::widgets::filled_trailing_icon_button(
                     ui,
                     text.preset_basics.reset_defaults_btn,
                     Icon::ArrowRight,
-                    theme.restore_fill(),
-                    theme.on_surface(),
+                    theme.danger_fill(),
+                    theme.on_accent(),
                     8,
                 )
                 .clicked()
