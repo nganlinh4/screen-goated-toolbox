@@ -42,23 +42,21 @@ impl Config {
         Ok(true)
     }
 
-    /// Refresh every built-in preset in every profile while retaining custom
-    /// presets, profile identity/order, active selections, and all hotkeys.
-    /// This is the explicit manual restore behavior, not the update migration.
-    pub fn apply_current_builtin_preset_defaults_preserving_hotkeys(&mut self) -> usize {
-        self.sync_active_profile_from_presets();
-        let defaults = get_default_presets();
-        let mut updated = 0;
+    /// Replace every preset and profile with the supplied defaults. Hotkeys
+    /// and favorite stars from the active preset set follow matching preset
+    /// IDs into the reset configuration.
+    pub fn restore_presets_and_profiles_preserving_user_state(&mut self, defaults: &Self) {
+        let previous_presets = self.presets.clone();
 
+        self.presets = defaults.presets.clone();
+        restore_preset_user_state(&mut self.presets, &previous_presets);
+        self.active_preset_idx = defaults.active_preset_idx;
+
+        self.preset_profiles = defaults.preset_profiles.clone();
         for profile in &mut self.preset_profiles {
-            updated += refresh_builtin_presets(&mut profile.presets, &defaults);
-            profile.active_preset_idx = profile
-                .active_preset_idx
-                .min(profile.presets.len().saturating_sub(1));
+            restore_preset_user_state(&mut profile.presets, &previous_presets);
         }
-
-        self.ensure_preset_profiles();
-        updated
+        self.active_preset_profile_idx = defaults.active_preset_profile_idx;
     }
 
     /// Resolve the one-time post-update choice. Applying performs a three-way
@@ -158,24 +156,17 @@ fn changed_model_slots(
     changes
 }
 
-fn refresh_builtin_presets(presets: &mut Vec<Preset>, defaults: &[Preset]) -> usize {
-    let mut updated = 0;
-
-    for preset in presets.iter_mut().filter(|preset| preset.is_builtin()) {
-        if let Some(template) = defaults.iter().find(|template| template.id == preset.id) {
-            preset.replace_config_preserving_hotkeys(template);
-            updated += 1;
-        }
+fn restore_preset_user_state(presets: &mut [Preset], previous_presets: &[Preset]) {
+    for preset in presets {
+        let Some(previous) = previous_presets
+            .iter()
+            .find(|previous| previous.id == preset.id)
+        else {
+            continue;
+        };
+        preset.hotkeys = previous.hotkeys.clone();
+        preset.is_favorite = previous.is_favorite;
     }
-
-    for template in defaults {
-        if template.is_builtin() && !presets.iter().any(|preset| preset.id == template.id) {
-            presets.push(template.clone());
-            updated += 1;
-        }
-    }
-
-    updated
 }
 
 fn builtin_preset_model_defaults() -> PresetModelDefaults {
@@ -201,10 +192,7 @@ fn preset_model_defaults(presets: &[Preset]) -> PresetModelDefaults {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        builtin_preset_model_defaults, changed_model_slots, preset_model_defaults,
-        refresh_builtin_presets,
-    };
+    use super::{builtin_preset_model_defaults, changed_model_slots, preset_model_defaults};
     use crate::config::preset::get_default_presets;
     use crate::config::types::{PendingPresetModelUpdate, PresetProfile};
     use crate::config::{Config, Hotkey, Preset};
@@ -286,11 +274,12 @@ mod tests {
     }
 
     #[test]
-    fn manual_refresh_preserves_profiles_custom_presets_and_every_hotkey_owner() {
-        let defaults = get_default_presets();
-        let mut edited_builtin = defaults[0].clone();
+    fn manual_restore_replaces_profiles_and_custom_presets_but_keeps_active_user_state() {
+        let defaults = Config::default();
+        let mut edited_builtin = defaults.presets[0].clone();
         edited_builtin.name = "User-edited built-in".to_string();
         edited_builtin.hotkeys = vec![hotkey(0x41, "Ctrl + A")];
+        edited_builtin.is_favorite = !defaults.presets[0].is_favorite;
         let custom = Preset {
             id: "custom-workflow".to_string(),
             name: "Custom workflow".to_string(),
@@ -320,27 +309,48 @@ mod tests {
             config.translation_gummy.hotkeys.clone(),
         );
 
-        let updated = config.apply_current_builtin_preset_defaults_preserving_hotkeys();
+        config.restore_presets_and_profiles_preserving_user_state(&defaults);
 
-        assert!(updated >= defaults.len());
-        assert_eq!(config.preset_profiles[0].id, "profile-user");
-        assert_eq!(config.preset_profiles[0].name, "User profile");
-        assert_eq!(config.preset_profiles[0].active_preset_idx, 1);
-        let refreshed = config.preset_profiles[0]
+        assert_eq!(
+            config.active_preset_profile_idx,
+            defaults.active_preset_profile_idx
+        );
+        assert_eq!(config.active_preset_idx, defaults.active_preset_idx);
+        assert_eq!(config.preset_profiles.len(), defaults.preset_profiles.len());
+        assert_eq!(config.preset_profiles[0].id, defaults.preset_profiles[0].id);
+        assert_eq!(
+            config.preset_profiles[0].name,
+            defaults.preset_profiles[0].name
+        );
+        assert!(config.presets.iter().all(|preset| preset.id != custom.id));
+        let restored = config
             .presets
             .iter()
             .find(|preset| preset.id == edited_builtin.id)
             .unwrap();
-        assert_eq!(refreshed.name, defaults[0].name);
-        assert_eq!(refreshed.hotkeys, edited_builtin.hotkeys);
-        assert!(
-            config.preset_profiles[0]
+        assert_eq!(restored.name, defaults.presets[0].name);
+        assert_eq!(restored.hotkeys, edited_builtin.hotkeys);
+        assert_eq!(restored.is_favorite, edited_builtin.is_favorite);
+        let restored_in_profile = config.preset_profiles[0]
+            .presets
+            .iter()
+            .find(|preset| preset.id == edited_builtin.id)
+            .unwrap();
+        assert_eq!(restored_in_profile.hotkeys, edited_builtin.hotkeys);
+        assert_eq!(restored_in_profile.is_favorite, edited_builtin.is_favorite);
+        for restored_default in config
+            .presets
+            .iter()
+            .filter(|preset| preset.id != edited_builtin.id)
+        {
+            let expected = defaults
                 .presets
                 .iter()
-                .any(|preset| preset.id == custom.id
-                    && preset.name == custom.name
-                    && preset.hotkeys == custom.hotkeys)
-        );
+                .find(|preset| preset.id == restored_default.id)
+                .unwrap();
+            assert_eq!(restored_default.hotkeys, expected.hotkeys);
+            assert_eq!(restored_default.is_favorite, expected.is_favorite);
+        }
         assert_eq!(
             global_hotkeys,
             (
@@ -353,20 +363,22 @@ mod tests {
     }
 
     #[test]
-    fn manual_refresh_helper_keeps_existing_hotkeys() {
+    fn individual_preset_restore_keeps_hotkeys_and_favorite_star() {
         let defaults = get_default_presets();
         let mut preset = defaults[0].clone();
         preset.hotkeys = vec![hotkey(0x47, "Ctrl + G")];
+        preset.is_favorite = !defaults[0].is_favorite;
         preset.blocks.clear();
-        let mut presets = vec![preset];
+        let expected_favorite = preset.is_favorite;
 
-        refresh_builtin_presets(&mut presets, &defaults);
+        preset.replace_config_preserving_user_state(&defaults[0]);
 
         assert_eq!(
-            serde_json::to_value(&presets[0].blocks).unwrap(),
+            serde_json::to_value(&preset.blocks).unwrap(),
             serde_json::to_value(&defaults[0].blocks).unwrap()
         );
-        assert_eq!(presets[0].hotkeys, vec![hotkey(0x47, "Ctrl + G")]);
+        assert_eq!(preset.hotkeys, vec![hotkey(0x47, "Ctrl + G")]);
+        assert_eq!(preset.is_favorite, expected_favorite);
     }
 
     #[test]

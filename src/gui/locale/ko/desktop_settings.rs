@@ -33,7 +33,7 @@ pub(super) fn get() -> DesktopSettingsLocaleText {
         restart_app_btn: "앱 다시 시작",
         preset_model_update_title: "업데이트된 프리셋 모델을 적용할까요?",
         preset_model_update_body: "이 업데이트에는 일부 기본 제공 프리셋 블록의 새로운 권장 모델이 포함됩니다. 적용하면 모든 프로필에서 이전 기본 모델을 그대로 사용하는 블록의 모델 필드만 변경됩니다. 프롬프트, 그래프, 모드, 즐겨찾기, 단축키 및 다른 모든 설정은 유지됩니다. 건너뛰어도 나중에 기본 제공 프리셋이나 개별 프리셋을 복원하여 새 기본값을 적용할 수 있습니다.",
-        preset_model_update_kept: "직접 선택한 모델과 프리셋, 화면 녹화, 컴퓨터 제어 및 Translation Gummy의 모든 단축키가 유지됩니다.",
+        preset_model_update_kept: "직접 선택한 모델과 프리셋, 화면 녹화, 컴퓨터 제어 및 통역 곤약의 모든 단축키가 유지됩니다.",
         preset_model_update_skip: "적용 안 함",
         preset_model_update_apply: "적용",
     }

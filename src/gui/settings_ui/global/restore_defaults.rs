@@ -131,35 +131,18 @@ pub(super) fn render_restore_defaults_modal(
                 .corner_radius(8.0)
                 .inner_margin(egui::Margin::symmetric(10, 8))
                 .show(ui, |ui| {
-                    ui.vertical(|ui| {
-                        ui.horizontal_top(|ui| {
-                            draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_SM));
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(
-                                        text.global_settings.restore_defaults_kept_note,
-                                    )
-                                    .size(11.5)
-                                    .color(theme.on_surface_variant()),
+                    ui.horizontal_top(|ui| {
+                        draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_SM));
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(
+                                    text.global_settings.restore_defaults_kept_note,
                                 )
-                                .wrap(),
-                            );
-                        });
-                        ui.add_space(4.0);
-                        ui.horizontal_top(|ui| {
-                            draw_icon_static(ui, Icon::Keyboard, Some(crate::gui::icons::ICON_SM));
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(
-                                        text.global_settings.restore_defaults_hotkeys_kept,
-                                    )
-                                    .size(11.5)
-                                    .strong()
-                                    .color(theme.on_surface()),
-                                )
-                                .wrap(),
-                            );
-                        });
+                                .size(11.5)
+                                .color(theme.on_surface_variant()),
+                            )
+                            .wrap(),
+                        );
                     });
                 });
 
@@ -356,7 +339,7 @@ fn apply_selected_config_defaults_from(
     defaults: &Config,
 ) {
     if selection.presets {
-        config.apply_current_builtin_preset_defaults_preserving_hotkeys();
+        config.restore_presets_and_profiles_preserving_user_state(defaults);
     }
 
     if selection.app_settings {
