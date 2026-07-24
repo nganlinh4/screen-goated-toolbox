@@ -13,6 +13,25 @@ enum PresetModelUpdateAction {
 }
 
 impl SettingsApp {
+    #[cfg(debug_assertions)]
+    pub(crate) fn update_preset_model_update_preview_shortcut(&mut self, ctx: &egui::Context) {
+        if self.recording_hotkey_for_preset.is_some()
+            || self.recording_sr_hotkey
+            || self.recording_computer_control_hotkey
+        {
+            return;
+        }
+
+        let shortcut = egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+            egui::Key::U,
+        );
+        if ctx.input_mut(|input| input.consume_shortcut(&shortcut)) {
+            self.show_preset_model_update_modal = true;
+            crate::log_info!("[Debug] showing preset model update dialog preview (Ctrl+Shift+U)");
+        }
+    }
+
     pub(crate) fn render_preset_model_update_modal(&mut self, ui: &mut egui::Ui) {
         if !self.show_preset_model_update_modal {
             return;

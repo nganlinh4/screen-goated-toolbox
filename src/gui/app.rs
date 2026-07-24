@@ -82,6 +82,11 @@ impl eframe::App for SettingsApp {
 
         let main_ui_ready = self.is_main_ui_ready();
 
+        #[cfg(debug_assertions)]
+        if main_ui_ready {
+            self.update_preset_model_update_preview_shortcut(ctx);
+        }
+
         // --- RESIZE SUBCLASS (once, after window is visible) ---
         if main_ui_ready && !self.resize_subclass_installed {
             unsafe {
