@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// This is persisted so reopening the dialog (including after an app restart)
 /// restores the user's last checklist instead of silently selecting a different
 /// scope. New installs and configs created before this field existed start with
-/// every category selected, matching the legacy one-click reset scope.
+/// every category selected; protected user data and hotkeys remain untouched.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(default)]
 pub struct RestoreDefaultsSelection {
@@ -64,7 +64,7 @@ mod tests {
     use super::RestoreDefaultsSelection;
 
     #[test]
-    fn defaults_to_the_legacy_full_reset_scope() {
+    fn defaults_to_every_category_selected() {
         let selection = RestoreDefaultsSelection::default();
         assert!(selection.all());
         assert!(selection.any());

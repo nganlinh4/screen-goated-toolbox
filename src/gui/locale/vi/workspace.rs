@@ -16,7 +16,7 @@ pub(super) fn get() -> WorkspaceLocaleText {
         tips_list: super::super::tips::vi(),
         tips_click_hint: "Mở danh sách mẹo",
         restore_preset_btn: "Khôi phục",
-        restore_preset_tooltip: "Đặt lại cài đặt về mặc định",
+        restore_preset_tooltip: "Đặt lại cài đặt preset và giữ nguyên phím tắt",
         search_doing: "Đang thực thi",
         search_searching: "tìm kiếm",
         search_query_label: "Truy vấn tìm kiếm:",

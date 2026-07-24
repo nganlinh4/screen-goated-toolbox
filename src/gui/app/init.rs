@@ -24,6 +24,25 @@ impl SettingsApp {
             ctx,
             pending_file_path,
         } = init;
+        let pending_model_update_before = config.pending_preset_model_update.clone();
+        let show_preset_model_update_modal = match config
+            .prepare_preset_model_update_prompt(env!("CARGO_PKG_VERSION"))
+        {
+            Ok(show) => show,
+            Err(error) => {
+                crate::log_info!("[preset-models] discarded invalid staged update marker: {error}");
+                config.pending_preset_model_update = None;
+                false
+            }
+        };
+        if pending_model_update_before != config.pending_preset_model_update {
+            crate::config::save_config(&config);
+            if let Ok(mut state) = app_state.lock() {
+                state.config.pending_preset_model_update =
+                    config.pending_preset_model_update.clone();
+            }
+        }
+
         // Unified app name for both Debug and Release to share the same registry/task spot
         let app_name = "ScreenGoatedToolbox";
         let app_path = std::env::current_exe().unwrap();
@@ -299,6 +318,7 @@ impl SettingsApp {
             show_model_priority_modal: false,
             show_custom_models_modal: false,
             show_restore_defaults_modal: false,
+            show_preset_model_update_modal,
             // -----------------------
 
             // --- FAVORITE BUBBLE STATE INIT ---

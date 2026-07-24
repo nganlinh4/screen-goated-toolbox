@@ -126,7 +126,7 @@ pub fn render_preset_editor(
                             if let Some(default_p) =
                                 default_config.presets.iter().find(|p| p.id == preset.id)
                             {
-                                preset = default_p.clone();
+                                preset.replace_config_preserving_hotkeys(default_p);
                                 *snarl = blocks_to_snarl(
                                     &preset.blocks,
                                     &preset.block_connections,

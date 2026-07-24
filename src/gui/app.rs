@@ -118,6 +118,7 @@ impl eframe::App for SettingsApp {
 
             // Main Layout — central panel, fills the remaining root ui.
             self.render_main_layout(ui);
+            self.render_preset_model_update_modal(ui);
 
             // Window Resizing (Must be last to override cursors at edges)
             if self.custom_chrome_ready {

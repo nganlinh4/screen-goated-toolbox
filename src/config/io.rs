@@ -185,22 +185,6 @@ fn migrate_preset_list(presets: &mut Vec<Preset>, default_presets: &[Preset]) {
     }
 
     for preset in presets.iter_mut() {
-        if !preset.is_builtin() {
-            continue;
-        }
-
-        if let Some(default_preset) = default_presets.iter().find(|p| p.id == preset.id) {
-            preset.auto_paste = default_preset.auto_paste;
-            preset.auto_paste_newline = default_preset.auto_paste_newline;
-            preset.prompt_mode = default_preset.prompt_mode.clone();
-
-            if preset.preset_type == "audio" {
-                preset.auto_stop_recording = default_preset.auto_stop_recording;
-            }
-        }
-    }
-
-    for preset in presets.iter_mut() {
         if preset.blocks.is_empty() && !preset.is_master {
             preset.blocks.push(ProcessingBlock {
                 block_type: preset.preset_type.clone(),

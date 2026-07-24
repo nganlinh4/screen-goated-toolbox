@@ -1,5 +1,6 @@
 //! Main Config struct definition.
 
+mod preset_defaults;
 mod profiles;
 
 pub use profiles::{GlobalHotkeyOwner, HotkeyConflict};
@@ -9,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
     CustomModelDefinition, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey,
-    KokoroSettings, MagpieSettings, ModelPriorityChains, PresetProfile, RestoreDefaultsSelection,
-    StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings, ThemeMode,
-    TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    KokoroSettings, MagpieSettings, ModelPriorityChains, PendingPresetModelUpdate, PresetProfile,
+    RestoreDefaultsSelection, StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings,
+    ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
     VieneuSettings, VoxtralSettings, default_tts_language_conditions, get_system_ui_language,
 };
 
@@ -205,6 +206,11 @@ pub struct Config {
     /// Last category checklist used by the selective restore-defaults dialog.
     #[serde(default)]
     pub restore_defaults_selection: RestoreDefaultsSelection,
+
+    /// Staged update metadata used to offer changed built-in preset models
+    /// after the downloaded version starts.
+    #[serde(default)]
+    pub pending_preset_model_update: Option<PendingPresetModelUpdate>,
 
     // -------------------------------------------------------------------------
     // Startup Behavior
@@ -457,6 +463,7 @@ impl Default for Config {
             graphics_mode: "standard".to_string(),
             favorite_overlay_opacity: default_favorite_overlay_opacity(),
             restore_defaults_selection: RestoreDefaultsSelection::default(),
+            pending_preset_model_update: None,
 
             // Startup
             start_in_tray: false,

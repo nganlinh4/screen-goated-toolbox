@@ -90,7 +90,7 @@ pub fn render_update_section_content(
                 u.check_for_updates();
             }
         }
-        UpdateStatus::UpdatedAndRestartRequired => {
+        UpdateStatus::UpdatedAndRestartRequired { .. } => {
             ui.label(
                 egui::RichText::new(text.desktop_settings.update_success)
                     .color(theme.success())

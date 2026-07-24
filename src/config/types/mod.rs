@@ -11,6 +11,7 @@ mod custom_models;
 mod enums;
 mod hotkey;
 mod model_priority;
+mod preset_model_update;
 mod profile;
 mod restore_defaults;
 mod translation_gummy;
@@ -26,6 +27,9 @@ pub use enums::{DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, ThemeMode, get_sy
 pub use hotkey::Hotkey;
 
 pub use model_priority::ModelPriorityChains;
+
+pub use preset_model_update::PendingPresetModelUpdate;
+pub(crate) use preset_model_update::PresetModelDefaults;
 
 pub use profile::PresetProfile;
 

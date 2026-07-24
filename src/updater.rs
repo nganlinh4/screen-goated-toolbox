@@ -10,6 +10,7 @@ struct ReleaseAsset {
 /// Minimal local model of a GitHub release (replaces `self_update::update::Release`).
 /// Only the fields the updater actually consumes are kept.
 struct Release {
+    version: String,
     assets: Vec<ReleaseAsset>,
 }
 
@@ -63,7 +64,7 @@ pub enum UpdateStatus {
     UpdateAvailable { version: String, body: String },
     Downloading,
     Error(String),
-    UpdatedAndRestartRequired,
+    UpdatedAndRestartRequired { version: String },
 }
 
 pub struct Updater {
@@ -220,7 +221,20 @@ impl Updater {
             let release = match release_data {
                 Ok(mut releases) if !releases.is_empty() => {
                     let rel = releases.remove(0);
+                    let version = rel
+                        .get("tag_name")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .trim_start_matches('v')
+                        .to_string();
+                    if version.is_empty() {
+                        let _ = tx.send(UpdateStatus::Error(
+                            "Release version was missing".to_string(),
+                        ));
+                        return;
+                    }
                     Release {
+                        version,
                         assets: rel
                             .get("assets")
                             .and_then(|a| a.as_array())
@@ -293,7 +307,9 @@ impl Updater {
                                                 {
                                                     let _ = std::fs::remove_file(&temp_path);
                                                     let _ = tx.send(
-                                                        UpdateStatus::UpdatedAndRestartRequired,
+                                                        UpdateStatus::UpdatedAndRestartRequired {
+                                                            version: release.version.clone(),
+                                                        },
                                                     );
                                                 } else {
                                                     let _ = tx.send(UpdateStatus::Error(
@@ -334,7 +350,9 @@ impl Updater {
                         // Direct exe - move to staging
                         match std::fs::rename(&temp_path, &staging_path) {
                             Ok(_) => {
-                                let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired);
+                                let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired {
+                                    version: release.version.clone(),
+                                });
                             }
                             Err(e) => {
                                 let _ = tx.send(UpdateStatus::Error(format!(
