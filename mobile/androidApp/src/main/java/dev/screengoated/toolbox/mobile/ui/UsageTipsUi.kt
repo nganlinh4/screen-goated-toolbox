@@ -2,66 +2,37 @@
 
 package dev.screengoated.toolbox.mobile.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.res.painterResource
-import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
-import kotlinx.coroutines.delay
-import kotlin.random.Random
-
-internal const val USAGE_TIP_FADE_DURATION_MS: Long = 500L
-
-internal fun usageTipDisplayDurationMillis(text: String): Long = 2000L + text.length * 60L
-
-internal fun selectNextUsageTipIndex(
-    currentIndex: Int,
-    tipCount: Int,
-    random: Random,
-): Int {
-    if (tipCount <= 1) {
-        return if (tipCount == 1) 0 else -1
-    }
-    val next = random.nextInt(tipCount)
-    return if (next == currentIndex) {
-        (next + 1) % tipCount
-    } else {
-        next
-    }
-}
+import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 
 @Composable
 internal fun UsageTipsCard(
@@ -70,16 +41,7 @@ internal fun UsageTipsCard(
 ) {
     var showDialog by rememberSaveable { mutableStateOf(false) }
     val tips = locale.usageTipsList
-    val preview = rememberUsageTipsPreview(
-        tips = tips,
-        paused = showDialog,
-    )
-    val previewText = if (preview.currentIndex in tips.indices) {
-        tips[preview.currentIndex]
-    } else {
-        ""
-    }
-    val accent = MaterialTheme.colorScheme.primary
+    val accent = MaterialTheme.sgtColors.appSlotAmber
 
     ExpressiveSettingsCard(
         accent = accent,
@@ -87,53 +49,32 @@ internal fun UsageTipsCard(
             .fillMaxWidth()
             .clickable(enabled = tips.isNotEmpty()) { showDialog = true },
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            MorphingShapeBadge(
+                morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie6Sided),
+                progress = 0.56f,
+                containerColor = accent.copy(alpha = 0.18f),
+                modifier = Modifier.size(42.dp),
             ) {
-                MorphingShapeBadge(
-                    morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie6Sided),
-                    progress = 0.56f,
-                    containerColor = accent.copy(alpha = 0.18f),
-                    modifier = Modifier.size(42.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ms_lightbulb),
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = accent,
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    SettingsCardTitle(
-                        text = locale.usageTipsTitle,
-                        maxLines = 2,
-                    )
-                    Text(
-                        text = locale.usageTipsClickHint,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Icon(
+                    painter = painterResource(R.drawable.ms_lightbulb),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = accent,
+                )
             }
-
-            if (tips.isEmpty()) {
+            Column(modifier = Modifier.weight(1f)) {
+                SettingsCardTitle(
+                    text = locale.usageTipsTitle,
+                    maxLines = 2,
+                )
                 Text(
                     text = locale.usageTipsClickHint,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text(
-                    text = rememberUsageTipAnnotatedString(
-                        text = previewText,
-                        regularColor = MaterialTheme.colorScheme.onSurface,
-                        boldColor = MaterialTheme.colorScheme.primary,
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 3,
-                    modifier = Modifier.graphicsLayer(alpha = preview.alpha),
                 )
             }
         }
@@ -220,68 +161,6 @@ private fun UsageTipListCard(
             )
         }
     }
-}
-
-private data class UsageTipsPreviewState(
-    val currentIndex: Int,
-    val alpha: Float,
-)
-
-@Composable
-private fun rememberUsageTipsPreview(
-    tips: List<String>,
-    paused: Boolean,
-): UsageTipsPreviewState {
-    var currentIndex by remember(tips) {
-        mutableIntStateOf(if (tips.isNotEmpty()) 0 else -1)
-    }
-    val alpha = remember { Animatable(0f) }
-    val random = remember { Random(System.currentTimeMillis()) }
-
-    LaunchedEffect(tips, paused) {
-        if (tips.isEmpty()) {
-            currentIndex = -1
-            alpha.snapTo(0f)
-            return@LaunchedEffect
-        }
-        if (currentIndex !in tips.indices) {
-            currentIndex = 0
-        }
-        if (paused) {
-            alpha.snapTo(1f)
-            return@LaunchedEffect
-        }
-
-        while (true) {
-            if (alpha.value < 1f) {
-                alpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(
-                        durationMillis = USAGE_TIP_FADE_DURATION_MS.toInt(),
-                        easing = LinearEasing,
-                    ),
-                )
-            }
-            delay(usageTipDisplayDurationMillis(tips[currentIndex]))
-            alpha.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = USAGE_TIP_FADE_DURATION_MS.toInt(),
-                    easing = LinearEasing,
-                ),
-            )
-            currentIndex = selectNextUsageTipIndex(
-                currentIndex = currentIndex,
-                tipCount = tips.size,
-                random = random,
-            )
-        }
-    }
-
-    return UsageTipsPreviewState(
-        currentIndex = currentIndex,
-        alpha = alpha.value,
-    )
 }
 
 @Composable

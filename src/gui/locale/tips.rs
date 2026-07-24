@@ -1,107 +1,126 @@
+const TIP_COUNT: usize = 25;
+
+const EN: [&str; TIP_COUNT] = [
+    "While choosing a screen region, press **Esc** or the same preset hotkey again to cancel.",
+    "If text is already highlighted in another app, press a **Text-Select** preset hotkey to process it immediately.",
+    "Preset hotkeys can use **Middle Click**, **Mouse Back**, or **Mouse Forward**. Assign one to any **MASTER** preset to open its matching preset wheel.",
+    "Star presets for **Favorite Bubble**, then enable it from the system tray. Hold a non-MASTER Image or Text hotkey—or its bubble item—to enter Continuous Mode; press Esc or the same hotkey to exit.",
+    "**Drop files onto SGT** or press Ctrl+V with a clipboard image or text. Images and text open a preset wheel; audio can use a preset or Record Screen, while video and subtitle files open Record Screen actions.",
+    "On a result overlay, left, right, or middle click closes **one, its group, or all**; dragging with those buttons moves the same scope.",
+    "Closed a result by mistake? Use the tray menu to **restore the last closed overlay batch** or a recent batch.",
+    "On a result, use **Edit / Refine** for follow-up instructions, or **Toggle Markdown** to switch between plain text and rendered output.",
+    "If result overlays feel slow, try **Graphics Mode → Minimal**.",
+    "On the preset graph, scroll to zoom, drag empty space to pan, double-click to fit nodes, and right-click for **Add/Delete** menus.",
+    "The output mode beside the eye offers **Normal, Stream, Markdown, and MD+Stream**.",
+    "A model's magnifying-glass marker means its normal selection runs **web search by default**.",
+    "Only one processing step can own **Auto-copy**. With Controller off, it reveals Auto-paste and Add newline; Auto-paste still needs a blinking caret in the target app.",
+    "Choose **Restore** on a built-in preset to reset its settings without losing its hotkeys; custom preset names remain editable.",
+    "Use **Profiles** to keep separate preset collections; a new profile copies the active one so you can customize it safely.",
+    "Use **History** search to find earlier results. Lowering Max Items prunes the oldest entries, while Computer Control memory has its own limit.",
+    "For non-realtime audio presets, enable **Auto-stop** to finish recording after silence.",
+    "In **Model Priority**, put preferred models first and leave Auto to continue through smart fallbacks; unavailable providers or bad or missing keys are skipped.",
+    "Use **Custom Models** to scan OpenRouter or Ollama. Use **Downloaded Tools** to install or remove local models, runtimes, Record Screen backgrounds, and pointer collections.",
+    "Voice Settings selects the TTS method and per-language voices or accents for Presets, Live Translate, and Translation Gummy; Live Translate's **AUTO** speed catches up with the speaker.",
+    "Use **TTS Playground** to test or clone voices, edit audio, and export WAV or MP3.",
+    "In **Download Video**, Advanced Features controls metadata, SponsorBlock, subtitles, playlists, and browser cookies.",
+    "The footer opens **Computer Control, Pointer Gallery, Translation Gummy, TTS Playground, Image to 3D, Image to SVG, Be a DJ, Download Video, and Record Screen** directly.",
+    "In **Be a DJ**, enable MIDI and map MIDI CC controls to the prompt-weight knobs.",
+    "If you are unsure which workflow to use, open **How to use** in Global Settings and ask in your own words.",
+];
+
+const KO: [&str; TIP_COUNT] = [
+    "어두워진 화면에서 영역을 선택하는 중에는 **Esc** 또는 같은 프리셋 단축키를 다시 눌러 취소할 수 있습니다.",
+    "다른 앱에서 텍스트가 이미 선택되어 있다면 **텍스트 선택** 프리셋 단축키를 눌러 바로 처리할 수 있습니다.",
+    "프리셋 단축키에는 **가운데 클릭, 마우스 뒤로, 마우스 앞으로**도 지정할 수 있습니다. **마스터 프리셋**에 지정하면 해당 프리셋 선택 휠이 열립니다.",
+    "자주 쓰는 프리셋을 **즐겨찾기 버블**에 추가하고 트레이에서 버블을 켜세요. 마스터가 아닌 이미지 또는 텍스트 단축키나 버블 항목을 길게 누르면 연속 모드로 들어가며, Esc 또는 같은 단축키로 종료합니다.",
+    "SGT에 **파일을 드롭**하거나 클립보드 이미지 또는 텍스트를 Ctrl+V로 붙여넣으세요. 이미지와 텍스트는 프리셋 휠을 열고, 오디오는 프리셋 또는 화면 녹화로, 비디오와 자막은 화면 녹화 작업으로 연결됩니다.",
+    "결과 오버레이를 왼쪽, 오른쪽, 가운데 버튼으로 클릭하면 각각 **하나, 그룹, 전체**를 닫고, 같은 버튼으로 드래그하면 같은 범위를 이동합니다.",
+    "결과를 실수로 닫았다면 트레이 메뉴에서 **마지막으로 닫은 오버레이 묶음**이나 최근 묶음을 복원하세요.",
+    "결과에서 **편집 / 다듬기**로 후속 지시를 입력하거나 **마크다운 토글**로 일반 텍스트와 렌더링된 결과를 전환하세요.",
+    "결과 오버레이가 느리다면 **그래픽 모드 → 최소**로 바꿔 보세요.",
+    "프리셋 그래프에서 스크롤로 확대/축소하고, 빈 공간을 드래그해 이동하고, 더블 클릭해 노드를 화면에 맞추고, 오른쪽 클릭으로 **추가/삭제** 메뉴를 여세요.",
+    "눈 아이콘 옆의 출력 모드에는 **일반, 스트림, 마크다운, 마크다운+스트림**이 있습니다.",
+    "모델의 돋보기 표시는 일반 선택 시 **웹 검색이 기본으로 실행됨**을 뜻합니다.",
+    "처리 단계 하나만 **자동 복사**를 사용할 수 있습니다. 컨트롤러가 꺼져 있으면 자동 붙여넣기와 줄바꿈 추가가 나타나며, 자동 붙여넣기는 대상 앱의 깜빡이는 텍스트 커서가 필요합니다.",
+    "기본 제공 프리셋에서 **복원**을 누르면 단축키를 유지한 채 설정을 초기화합니다. 사용자 프리셋 이름은 계속 편집할 수 있습니다.",
+    "**프로필**로 작업별 프리셋 모음을 분리하세요. 새 프로필은 현재 프로필을 복사하므로 안전하게 바꿀 수 있습니다.",
+    "**기록** 검색으로 이전 결과를 찾을 수 있습니다. 최대 항목 수를 줄이면 오래된 항목부터 정리되며, 컴퓨터 제어 메모리는 별도 한도를 사용합니다.",
+    "비실시간 오디오 프리셋에서 **자동 중지**를 켜면 침묵을 감지한 뒤 녹음을 마칩니다.",
+    "**모델 우선순위**에서 선호 모델을 먼저 두고 자동을 남겨 스마트 폴백을 계속하세요. 비활성 공급자와 누락되거나 잘못된 키는 건너뜁니다.",
+    "**사용자 모델**에서 OpenRouter나 Ollama를 검색하세요. **다운로드된 도구**에서는 로컬 모델, 런타임, 화면 녹화 배경, 포인터 컬렉션을 설치하거나 삭제할 수 있습니다.",
+    "음성 설정에서는 프리셋, 실시간 음성 번역, 통역 곤약에 사용할 TTS 방식과 언어별 음성 또는 억양을 고를 수 있습니다. 실시간 음성 번역의 **자동** 속도는 화자의 속도를 따라갑니다.",
+    "**TTS 플레이그라운드**에서 음성을 시험하거나 클론하고, 오디오를 편집한 뒤 WAV 또는 MP3로 내보낼 수 있습니다.",
+    "**비디오 다운로드**의 고급 기능에서 메타데이터, SponsorBlock, 자막, 재생 목록, 브라우저 쿠키를 설정할 수 있습니다.",
+    "푸터에서 **컴퓨터 제어, 포인터 갤러리, 통역 곤약, TTS 플레이그라운드, 이미지를 3D로, SVG 변환, DJ 되기, 비디오 다운로드, 화면 녹화**를 바로 열 수 있습니다.",
+    "**DJ 되기**에서 MIDI를 켜고 MIDI CC 컨트롤을 프롬프트 가중치 노브에 연결할 수 있습니다.",
+    "어떤 작업 흐름을 써야 할지 모르겠다면 전역 설정에서 **사용법 문의**를 열고 원하는 작업을 자연스럽게 물어보세요.",
+];
+
+const VI: [&str; TIP_COUNT] = [
+    "Khi đang chọn vùng trên màn hình tối, nhấn **Esc** hoặc nhấn lại phím tắt preset để hủy.",
+    "Nếu văn bản đã được bôi đen trong ứng dụng khác, nhấn phím tắt của preset **chọn văn bản** để xử lý ngay.",
+    "Phím tắt preset có thể dùng **chuột giữa, nút Quay lại hoặc nút Tiến**. Gán một nút cho **preset MASTER** để mở vòng chọn preset tương ứng.",
+    "Đánh dấu preset cho **bong bóng yêu thích** rồi bật bong bóng từ khay hệ thống. Nhấn giữ phím tắt Ảnh hoặc Văn bản không phải MASTER, hoặc mục trong bong bóng, để vào Chế độ liên tục; nhấn Esc hoặc phím đó để thoát.",
+    "**Thả tệp vào SGT** hoặc nhấn Ctrl+V với ảnh hay văn bản trong clipboard. Ảnh và văn bản mở vòng chọn preset; âm thanh có thể vào preset hoặc Quay màn hình, còn video và phụ đề mở tác vụ Quay màn hình.",
+    "Nhấp nút trái, phải hoặc giữa trên cửa sổ kết quả để đóng **một cửa sổ, cả nhóm hoặc tất cả**; kéo bằng các nút đó để di chuyển cùng phạm vi.",
+    "Lỡ đóng kết quả? Dùng menu khay hệ thống để **khôi phục nhóm overlay vừa đóng** hoặc một nhóm gần đây.",
+    "Trong cửa sổ kết quả, dùng **Chỉnh sửa / Viết lại** để nhập yêu cầu tiếp theo hoặc **Bật/Tắt Markdown** để đổi giữa văn bản thường và bản trình bày có định dạng.",
+    "Nếu cửa sổ kết quả chạy chậm, hãy thử **Chế độ đồ họa → Tối giản**.",
+    "Trên sơ đồ preset, cuộn để zoom, kéo vùng trống để pan, nhấp đúp để căn vừa các node, và nhấp phải để mở menu **Thêm/Xóa**.",
+    "Nút chế độ cạnh biểu tượng con mắt có **Thường, Stream, Đẹp và Đẹp+Str**.",
+    "Dấu kính lúp cạnh mô hình nghĩa là khi chọn bình thường, mô hình sẽ **tìm kiếm web theo mặc định**.",
+    "Chỉ một bước xử lý có thể dùng **Tự động copy**. Khi Bộ điều khiển tắt, tùy chọn này hiện Tự động dán và Thêm dòng mới; Tự động dán vẫn cần con trỏ văn bản đang nhấp nháy ở ứng dụng đích.",
+    "Chọn **Khôi phục** trên preset tích hợp để đặt lại cài đặt mà vẫn giữ phím tắt. Tên preset tùy chỉnh vẫn có thể chỉnh sửa.",
+    "Dùng **Hồ sơ** để tách các bộ preset theo công việc. Hồ sơ mới sao chép hồ sơ hiện tại để bạn tùy chỉnh an toàn.",
+    "Dùng tìm kiếm trong **Lịch sử** để tìm kết quả cũ. Giảm Giới hạn mục sẽ dọn các mục lâu nhất; bộ nhớ Điều khiển máy tính có giới hạn riêng.",
+    "Với preset âm thanh không chạy thời gian thực, bật **Tự động dừng** để kết thúc ghi âm sau khi phát hiện im lặng.",
+    "Trong **Ưu tiên mô hình**, đặt mô hình muốn dùng lên đầu và giữ Tự động để tiếp tục fallback thông minh; nhà cung cấp tắt hoặc khóa thiếu hay sai sẽ bị bỏ qua.",
+    "Dùng **Tùy chỉnh mô hình** để quét OpenRouter hoặc Ollama. Trong **Công cụ đã tải**, bạn có thể cài hoặc xóa mô hình cục bộ, runtime, nền Quay màn hình và bộ con trỏ.",
+    "Cài đặt giọng đọc chọn phương thức TTS cùng giọng hoặc giọng vùng theo từng ngôn ngữ cho preset, Dịch cabin và Bánh mỳ chuyển ngữ; tốc độ **Tự động** của Dịch cabin sẽ bám theo nhịp nói.",
+    "Dùng **Sân chơi TTS** để thử hoặc clone giọng, chỉnh audio và xuất WAV hoặc MP3.",
+    "**Tải video** có các tùy chọn nâng cao cho metadata, SponsorBlock, phụ đề, playlist và cookie trình duyệt.",
+    "Thanh dưới mở nhanh **Điều khiển máy tính, Kho trỏ chuột, Bánh mỳ chuyển ngữ, Sân chơi TTS, Ảnh sang 3D, Ảnh sang SVG, Làm DJ, Tải video và Quay màn hình**.",
+    "Trong **Làm DJ**, bật MIDI rồi gán các điều khiển MIDI CC cho núm trọng số prompt.",
+    "Nếu chưa biết nên dùng quy trình nào, mở **Hỏi cách dùng** trong Cài đặt chung và mô tả điều bạn muốn làm.",
+];
+
 pub(super) fn en() -> Vec<&'static str> {
-    vec![
-        "**Middle-click** any overlay window to instantly close ALL overlays!",
-        "**Right-click** an overlay to quickly copy its text content!",
-        "While drawing the box (dimmed screen), press **ESC** or Hotkey again to cancel.",
-        "If you like **SGT**, please give us a Star on Github and share it!",
-        "Did you know? **Hotkeys** can be assigned to Middle Mouse, Button 4, and 5!",
-        "If the overlay **crashes/lags**, try switching Graphics Mode to 'Minimal'!",
-        "You cannot rename default presets, but **custom presets** can be renamed freely!",
-        "The **History library** automatically cleans up old items when the limit is reached.",
-        "In the action chain, only **one step** can have Auto copy enabled, or no steps at all.",
-        "Even if **Auto-paste** is enabled, it requires a text cursor (blinking) at the paste location to work.",
-        "The **Auto add newline** control only appears when Auto copy is enabled (on at least one step).",
-        "Preset names with a **green/lime background** indicate they have a hotkey assigned and are ready to use.",
-        "Left-click drag moves only the **current overlay**, but right-click drag moves all overlays in the same group.",
-        "On **canvas**: scroll: zoom, drag: pan, double-click: reset view, right-click: add node. On node: drag: move, right-click: delete.",
-        "Text-select mode special feature: If **text is already highlighted**, pressing the hotkey will process it instantly!",
-        "**Audio recording** also has a smart stop mode, remember to try it!",
-        "When browsing the **web** directly in the overlay, use only the mouse - keyboard input won't work, sorry!",
-        "Assign a hotkey to **'Image MASTER'** or **'Selection MASTER'** to open the Wheel selector, giving you quick access to multiple tools with just one key!",
-        "Click the **Edit button** not only to fix text, but you can also type commands for AI to rewrite your content (e.g., 'Translate to Japanese').",
-        "You can **drag and drop** or paste image files or text files directly into the settings window for instant processing!",
-        "Enable the **Favorite Bubble** in the system tray menu to quickly access your configurations without needing to remember hotkeys.",
-        "In Voice Settings, try the **Standard voice** option and adjust the regional accent to see what works best for you!",
-        "The **Realtime Translation** mode can automatically adjust the reading speed (TTS) to keep up with the speaker's pace.",
-        "Click the **display mode button** (next to the eye icon) to switch between plain text and beautifully formatted Markdown/HTML views.",
-        "Models with a **magnifying glass icon** can access the internet to find citations and the latest information.",
-        "When **Auto-copy** is activated, a small green notification will appear at the bottom of your screen to confirm your content has been copied to the clipboard.",
-        "Not sure how to use SGT? Open **'How to use'** and let the AI assistant guide you through it!",
-        "Feeling stressed? Visit **'Be a DJ'** to create a relaxing background music experience while you work.",
-        "Need to download video? The built-in **'Download Video'** supports YouTube, Facebook, and more, including 4K and subtitles!",
-        "**Hold down the Hotkey** or the Preset in the bubble to enter **Continuous Mode**, allowing you to process multiple regions or texts in succession.",
-        "Got a MIDI keyboard? Plug it in when opening **Be a DJ** to adjust the music using physical knobs!",
-    ]
+    EN.to_vec()
 }
 
 pub(super) fn ko() -> Vec<&'static str> {
-    vec![
-        "오버레이를 **마우스 가운데 버튼(휠)**으로 클릭하면 모든 오버레이가 닫힙니다!",
-        "오버레이를 **마우스 오른쪽 버튼**으로 클릭하면 내용이 빠르게 복사됩니다!",
-        "화면이 어두워진 상태(캡처 중)에서 **ESC**나 단축키를 다시 누르면 취소됩니다.",
-        "**SGT** 앱이 마음에 드신다면 Github에서 Star를 눌러주시고 공유해주세요!",
-        "알고 계셨나요? **단축키**는 키보드뿐만 아니라 마우스 휠, 버튼 4, 5에도 지정 가능합니다!",
-        "오버레이 표시 중 렉이 걸린다면 **그래픽 설정**을 '최소'로 변경해보세요!",
-        "기본 프리셋 이름은 변경할 수 없지만, **새로 만든 프리셋**은 변경 가능합니다!",
-        "**히스토리**는 저장 한도를 초과하면 오래된 항목부터 자동으로 삭제됩니다.",
-        "작업 체인에서는 **한 단계만** 자동 복사를 활성화할 수 있으며, 또는 어떤 단계도 활성화할 수 없습니다.",
-        "자동 붙여넣기가 활성화되어 있어도 **텍스트 입력 위치(깜박이는 커서)**가 있어야만 작동합니다.",
-        "자동 줄바꿈 추가 컨트롤은 **자동 복사**가 활성화되어 있을 때(한 단계 이상에서)만 나타납니다.",
-        "녹색 배경의 **프리셋 이름**은 단축키가 이미 할당되어 사용할 준비가 된 것을 의미합니다.",
-        "왼쪽 마우스로 드래그하면 **현재 오버레이**만 이동하지만, 오른쪽 마우스로 드래그하면 같은 그룹의 모든 오버레이가 이동합니다.",
-        "캔버스에서: 스크롤: 확대/축소, 드래그: 이동, 더블 클릭: 보기 초기화, 오른쪽 클릭: 노드 추가. **노드**에서: 드래그: 이동, 오른쪽 클릭: 노드 삭제.",
-        "텍스트 선택 모드의 특별한 기능: 이미 **텍스트가 선택**되어 있으면 단축키를 누르면 즉시 처리됩니다!",
-        "**오디오 녹음**에는 스마트 중지 모드도 있으니 꼭 써보세요!",
-        "오버레이 내에서 **웹**을 탐색할 때는 마우스만 사용하세요 - 키보드는 작동하지 않습니다, 양해 부탁드립니다!",
-        "'**이미지 MASTER**' 또는 '**선택 MASTER**'에 단축키를 지정하면 휠 선택기가 열려 여러 도구에 한 번에 액세스할 수 있습니다!",
-        "편집 버튼을 클릭하여 **텍스트를 수정**할 뿐만 아니라, AI에게 콘텐츠를 다시 작성하도록 명령을 입력할 수 있습니다(예: '일본어로 번역').",
-        "이미지 파일이나 **텍스트 파일**을 설정 창으로 직접 드래그하여 놓거나 붙여넣어 즉시 처리할 수 있습니다!",
-        "시스템 트레이 메뉴에서 **즐겨찾기 버블**을 활성화하여 단축키를 기억하지 않고도 구성에 빠르게 액세스할 수 있습니다.",
-        "음성 설정에서 **표준 음성 옵션**을 시도하고 지역 억양을 조정하여 최적의 설정을 찾아보세요!",
-        "**실시간 번역** 모드는 읽기 속도(TTS)를 자동으로 조정하여 말하는 사람의 속도에 맞출 수 있습니다.",
-        "디스플레이 모드 **버튼**(눈 아이콘 옆)을 클릭하여 일반 텍스트와 아름답게 포맷된 Markdown/HTML 보기 사이를 전환합니다.",
-        "돋보기 아이콘이 있는 **모델**은 인터넷에 액세스하여 인용문과 최신 정보를 찾을 수 있습니다.",
-        "자동 복사가 활성화되면 **화면 하단**에 작은 녹색 알림이 나타나 콘텐츠가 클립보드에 복사되었음을 확인할 수 있습니다.",
-        "사용 방법을 모르신다면? **'사용법 문의'**를 열어서 AI 어시스턴트에게 친절한 안내를 받으세요!",
-        "스트레스를 받을 땐 **'DJ 되기'**에 가서 편안한 배경음악을 만들어 업무 중에 힐링하세요.",
-        "비디오 다운로드가 필요하신가요? 내장된 **'비디오 다운로드'**는 YouTube, Facebook 등 다양한 사이트의 4K 및 자막을 지원합니다!",
-        "**단축키** 또는 버블의 프리셋을 **길게 누르면** **연속 모드**로 진입하여, 여러 영역이나 텍스트를 연속으로 처리할 수 있습니다.",
-        "MIDI 키보드가 있나요? **DJ 되기**를 열 때 연결하면 물리 노브로 음악을 조절할 수 있습니다!",
-    ]
+    KO.to_vec()
 }
 
 pub(super) fn vi() -> Vec<&'static str> {
-    vec![
-        "Nhấp **chuột giữa** một overlay bất kỳ giúp xoá tất cả overlay trên màn hình!",
-        "**Chuột phải** lên một overlay giúp copy nhanh nội dung của overlay đó!",
-        "Khi đang vẽ hộp trên màn hình tối (chưa thả chuột), có thể bấm **ESC** hoặc Phím tắt một lần nữa để hủy.",
-        "Nếu thích ứng dụng **SGT** hãy bấm Star cho Github và chia sẻ cho mọi người biết nha!",
-        "Bạn có biết? Phím tắt có thể gán cho **chuột giữa, chuột 4, chuột 5** nữa nha, không chỉ cho bàn phím.",
-        "Nếu bị **crash** trong lúc hiện overlay thì bạn hãy thử đổi Đồ hoạ sang Tối giản thử xem!",
-        "Bạn không thể đổi tên các Cấu hình có sẵn nhưng **Cấu hình mới** thì đổi được bình thường nha!",
-        "**Thư viện lịch sử** kết quả có cơ chế tự dọn kết quả cũ khi vượt Giới hạn lưu nên bạn khỏi lo nha!",
-        "Trong chuỗi hành động, chỉ **một bước** trong đó được phép bật Tự động copy, hoặc không bước nào.",
-        "Dù **Tự động dán** có được bật, nó cần nó nơi dán text được (con trỏ text nhấp nháy) thì mới dán được.",
-        "Điều khiển **Tự thêm xuống dòng** sau khi copy chỉ xuất hiện khi Tự động copy bật (tại 1 bước nào đó).",
-        "Những tên Cấu hình có nền **xanh lá** nghĩa là nó đã được gán phím tắt để sẵn sàng sử dụng.",
-        "Kéo bằng **chuột trái** chỉ dịch chuyển overlay hiện tại nhưng chuột phải sẽ dịch chuyển hết các overlay cùng nhóm.",
-        "Trên **canvas**: cuộn: zoom, kéo: pan, click đúp: reset view, chuột phải: thêm node. Trên node: kéo: dời, chuột phải: xoá node.",
-        "Cơ chế đặc biệt của **chế độ bôi đen** text: Nếu text đã bôi đen sẵn, bấm phím tắt sẽ xử lý ngay và luôn!",
-        "**Thu âm** có chế độ dừng thông minh nữa đó, nhớ dùng thử nha",
-        "Khi lướt **web** ngay bên trong overlay, chỉ dùng chuột chứ không dùng bàn phím được, thông cảm nha",
-        "Gán phím tắt cho **'Ảnh MASTER'** hoặc **'Bôi MASTER'**,... để gọi vòng tròn chọn (Wheel), giúp truy cập nhiều công cụ chỉ với 1 phím.",
-        "Bấm nút **Chỉnh sửa** không chỉ để sửa text, bạn có thể nhập lệnh để AI viết lại nội dung (VD: 'Dịch sang tiếng Nhật').",
-        "Bạn có thể **kéo thả/dán** file ảnh hoặc file text trực tiếp vào cửa sổ cài đặt để xử lý ngay lập tức!",
-        "Bật **'Bong bóng yêu thích'** (Favorite Bubble) trong menu khay hệ thống để truy cập nhanh các cấu hình mà không cần nhớ phím tắt.",
-        "Trong Cài đặt giọng đọc, hãy thử **tuỳ chọn giọng Xịn** và điều chỉnh giọng vùng miền xem sao!",
-        "Chế độ **'Dịch cabin'** (Thời gian thực) có thể tự động điều chỉnh tốc độ đọc (TTS) để đuổi kịp tốc độ nói của người phát.",
-        "Bấm vào **nút chế độ hiển thị** (bên cạnh biểu tượng con mắt) để chuyển đổi giữa dạng văn bản thô và dạng Markdown/HTML đẹp mắt.",
-        "Các **mô hình** có biểu tượng kính lúp có khả năng truy cập internet để tìm dẫn chứng và thông tin mới nhất.",
-        "Khi **'Tự động copy'** kích hoạt, một thông báo nhỏ màu xanh sẽ hiện ra ở góc dưới màn hình để bạn biết nội dung đã vào Clipboard.",
-        "Không biết cách dùng? Mở **'Hỏi cách dùng'** để trợ lý AI hướng dẫn bạn tận tình nhé!",
-        "Căng thẳng quá thì ghé **'Làm DJ'** để tạo nhạc nền thư giãn vừa làm vừa chill.",
-        "Cần tải video? **'Tải video'** tích hợp sẵn hỗ trợ YouTube, Facebook và nhiều trang khác, hỗ trợ cả 4K và phụ đề!",
-        "**Giữ chặt Phím tắt** hoặc Cấu hình trong bong bóng để vào **Chế độ Liên tục**, giúp bạn xử lý nhiều vùng hoặc nhiều đoạn văn liên tiếp.",
-        "Bạn có bàn phím MIDI? Cắm vào máy khi mở **Làm DJ** để điều chỉnh nhạc bằng núm vặn vật lý nhé!",
-    ]
+    VI.to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::{EN, KO, VI};
+
+    #[test]
+    fn localized_tip_catalogs_are_complete_and_well_formed() {
+        for (language, tips) in [("en", &EN), ("ko", &KO), ("vi", &VI)] {
+            assert!(
+                tips.iter().all(|tip| !tip.trim().is_empty()),
+                "{language} contains an empty tip"
+            );
+            assert_eq!(
+                tips.iter().copied().collect::<HashSet<_>>().len(),
+                tips.len(),
+                "{language} contains duplicate tips"
+            );
+            for tip in tips {
+                assert_eq!(
+                    tip.matches("**").count() % 2,
+                    0,
+                    "{language} contains unbalanced bold markers: {tip}"
+                );
+            }
+        }
+    }
 }

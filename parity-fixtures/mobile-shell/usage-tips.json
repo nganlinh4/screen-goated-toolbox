@@ -1,35 +1,51 @@
 {
-  "version": 1,
+  "version": 2,
   "cases": [
     {
-      "name": "windows_rotation_contract",
-      "fade_duration_ms": 500,
-      "display_duration_formula": "2000 + tip.length * 60",
-      "no_immediate_repeat": true
+      "name": "windows_static_entry_contract",
+      "entry_surface": "footer_button",
+      "icon": "lightbulb",
+      "icon_tone": "warning",
+      "rotating_preview": false,
+      "full_list_on_activate": true,
+      "labels": {
+        "en": "Tips",
+        "vi": "Mẹo",
+        "ko": "팁"
+      }
     },
     {
       "name": "android_settings_surface",
       "section": "SETTINGS",
-      "entry_surface": "card",
+      "entry_surface": "static_card",
+      "icon": "lightbulb",
+      "rotating_preview": false,
       "full_list_surface": "dialog"
     },
     {
       "name": "android_filtered_parity_content",
       "required_concepts": [
+        "quick settings bubble favorites",
         "dimmed screen selection cancel",
         "history cleanup",
         "single auto-copy step",
-        "auto-paste requires caret",
-        "smart audio stop",
-        "display mode toggle",
+        "auto-paste accessibility",
+        "audio auto-stop",
+        "live translate auto speed",
+        "model priority fallback",
+        "phone control screen sharing",
+        "translation gummy",
+        "creation tools background jobs",
         "continuous mode"
       ],
       "excluded_desktop_only_concepts": [
-        "middle-click close all overlays",
-        "right-click overlay copy",
-        "system tray bubble toggle",
-        "mouse-wheel canvas zoom instructions",
-        "desktop drag-and-drop into settings"
+        "result overlay mouse scopes",
+        "middle-click mouse hotkey",
+        "preset MASTER wheel",
+        "desktop system tray",
+        "preset profiles",
+        "desktop file drop",
+        "record screen footer"
       ]
     }
   ]
