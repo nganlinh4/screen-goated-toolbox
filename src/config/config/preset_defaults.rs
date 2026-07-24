@@ -19,21 +19,6 @@ impl Config {
         Ok(())
     }
 
-    #[cfg(debug_assertions)]
-    pub(crate) fn stage_preset_model_update_preview(&mut self) {
-        let mut previous_models = builtin_preset_model_defaults();
-        for blocks in previous_models.values_mut() {
-            for (_, model) in blocks {
-                model.push_str("-debug-preview-previous");
-            }
-        }
-        self.pending_preset_model_update = Some(PendingPresetModelUpdate {
-            target_version: env!("CARGO_PKG_VERSION").to_string(),
-            previous_models,
-            previous_model_priority_chains: Some(Default::default()),
-        });
-    }
-
     /// Return whether the new executable should offer changed preset models.
     /// An update with identical model defaults is consumed silently.
     pub fn prepare_preset_model_update_prompt(&mut self, current_version: &str) -> Result<bool> {
@@ -325,32 +310,6 @@ mod tests {
         .unwrap();
 
         assert!(marker.previous_model_priority_chains.is_none());
-    }
-
-    #[test]
-    fn preview_marker_flags_every_builtin_model_slot_without_changing_settings() {
-        let mut config = Config::default();
-        let presets_before = config.presets.clone();
-        let profiles_before = config.preset_profiles.clone();
-        let priorities_before = config.model_priority_chains.clone();
-
-        config.stage_preset_model_update_preview();
-
-        let pending = config.pending_preset_model_update.as_ref().unwrap();
-        let current_models = builtin_preset_model_defaults();
-        let changed = changed_model_slots(&pending.previous_models, &current_models);
-        let changed_slots = changed.values().map(Vec::len).sum::<usize>();
-        let expected_slots = current_models.values().map(Vec::len).sum::<usize>();
-        assert_eq!(changed_slots, expected_slots);
-        assert_eq!(
-            serde_json::to_value(&config.presets).unwrap(),
-            serde_json::to_value(&presets_before).unwrap()
-        );
-        assert_eq!(
-            serde_json::to_value(&config.preset_profiles).unwrap(),
-            serde_json::to_value(&profiles_before).unwrap()
-        );
-        assert_eq!(config.model_priority_chains, priorities_before);
     }
 
     #[test]
