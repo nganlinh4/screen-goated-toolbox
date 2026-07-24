@@ -27,6 +27,9 @@ impl SettingsApp {
             egui::Key::U,
         );
         if ctx.input_mut(|input| input.consume_shortcut(&shortcut)) {
+            if self.config.pending_preset_model_update.is_none() {
+                self.config.stage_preset_model_update_preview();
+            }
             self.show_preset_model_update_modal = true;
             crate::log_info!("[Debug] showing preset model update dialog preview (Ctrl+Shift+U)");
         }
@@ -79,28 +82,6 @@ fn show_dialog(ui: &mut egui::Ui, text: &LocaleText) -> PresetModelUpdateAction 
                 )
                 .wrap(),
             );
-            ui.add_space(12.0);
-
-            egui::Frame::new()
-                .fill(ui.visuals().faint_bg_color)
-                .stroke(theme.card_stroke())
-                .corner_radius(9.0)
-                .inner_margin(egui::Margin::symmetric(10, 9))
-                .show(ui, |ui| {
-                    ui.horizontal_top(|ui| {
-                        draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_SM));
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(text.desktop_settings.preset_model_update_kept)
-                                    .size(12.0)
-                                    .strong()
-                                    .color(theme.on_surface()),
-                            )
-                            .wrap(),
-                        );
-                    });
-                });
-
             ui.add_space(14.0);
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -151,6 +132,14 @@ mod tests {
     #[test]
     fn vietnamese_actions_match_the_product_copy() {
         let text = LocaleText::get("vi");
+        assert_eq!(
+            text.desktop_settings.preset_model_update_title,
+            "Áp dụng các cài đặt mô hình preset mới?"
+        );
+        assert_eq!(
+            text.desktop_settings.preset_model_update_body,
+            "Bản cập nhật này có các mô hình đề xuất mới hơn cho một số preset. Khi áp dụng, chỉ trường mô hình của các preset đó được thay đổi; prompt, sơ đồ, chế độ, mục yêu thích, phím tắt và mọi cài đặt khác được giữ nguyên. Danh sách ưu tiên mô hình cũng được cập nhật theo mặc định mới. Nếu bỏ qua, bạn vẫn có thể nhận mặc định mới sau này bằng cách khôi phục tất cả preset hoặc từng preset."
+        );
         assert_eq!(
             text.desktop_settings.preset_model_update_skip,
             "Không áp dụng"
