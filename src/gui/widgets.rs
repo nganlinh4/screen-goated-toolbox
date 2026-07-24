@@ -164,14 +164,45 @@ pub fn filled_icon_button(
     text: Color32,
     corner_radius: u8,
 ) -> egui::Response {
+    filled_icon_button_with_spacing(ui, icon, label, fill, text, corner_radius, (10.0, 6.0))
+}
+
+/// A horizontally compact [`filled_icon_button`] with the same control height.
+///
+/// Intended for dense launcher rows where reducing the gap and side padding is
+/// preferable to shortening localized labels or shrinking the click target.
+pub fn compact_filled_icon_button(
+    ui: &mut egui::Ui,
+    icon: crate::gui::icons::Icon,
+    label: &str,
+    fill: Color32,
+    text: Color32,
+    corner_radius: u8,
+) -> egui::Response {
+    filled_icon_button_with_spacing(ui, icon, label, fill, text, corner_radius, (8.0, 5.0))
+}
+
+fn filled_icon_button_with_spacing(
+    ui: &mut egui::Ui,
+    icon: crate::gui::icons::Icon,
+    label: &str,
+    fill: Color32,
+    text: Color32,
+    corner_radius: u8,
+    spacing: (f32, f32),
+) -> egui::Response {
+    let (minimum_horizontal_padding, icon_gap) = spacing;
     let label_galley = ui.painter().layout_no_wrap(
         label.to_string(),
         egui::TextStyle::Button.resolve(ui.style()),
         text,
     );
     let icon_size = crate::gui::icons::ICON_MD;
-    let icon_gap = 6.0;
-    let h_pad = ui.spacing().button_padding.x.max(10.0);
+    let h_pad = ui
+        .spacing()
+        .button_padding
+        .x
+        .max(minimum_horizontal_padding);
     let button_size = egui::vec2(
         h_pad + icon_size + icon_gap + label_galley.rect.width() + h_pad,
         ui.spacing()

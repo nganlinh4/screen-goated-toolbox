@@ -215,10 +215,6 @@ impl SettingsApp {
         };
 
         let initial_ui_language = config.ui_language.clone(); // Extract before move
-        let rng_seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u32;
 
         // Initialize tray item state
         tray_favorite_bubble_item.set_checked(config.show_favorite_bubble);
@@ -289,12 +285,7 @@ impl SettingsApp {
             // ----------------------
 
             // --- TIP INIT ---
-            current_tip_idx: 0,
-            tip_timer: 0.0,
-            tip_fade_state: 0.0,
-            tip_scroll: 0.0,
             show_tips_modal: false,
-            rng_seed,
             // ---------------
 
             // --- USAGE MODAL INIT ---

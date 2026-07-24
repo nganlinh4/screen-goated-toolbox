@@ -12,11 +12,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::*;
 use windows_core::BOOL;
 
-// Simple Linear Congruential Generator for randomness without external crate
-pub fn simple_rand(seed: u32) -> u32 {
-    seed.wrapping_mul(1103515245).wrapping_add(12345)
-}
-
 /// Public function to signal the main window to restore (called from tray popup)
 pub fn signal_restore_window() {
     accept_restore_activation();

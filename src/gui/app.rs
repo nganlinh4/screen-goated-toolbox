@@ -80,9 +80,6 @@ impl eframe::App for SettingsApp {
         // Close Request
         self.handle_close_request(ctx);
 
-        // Tips Logic
-        self.update_tips_logic(ctx);
-
         let main_ui_ready = self.is_main_ui_ready();
 
         // --- RESIZE SUBCLASS (once, after window is visible) ---

@@ -1,18 +1,10 @@
 use crate::gui::icons::{Icon, paint_icon};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
-use crate::gui::widgets::filled_icon_button;
+use crate::gui::widgets::compact_filled_icon_button;
 use eframe::egui;
-use egui::text::{LayoutJob, TextFormat};
 
-pub fn render_footer(
-    ui: &mut egui::Ui,
-    text: &LocaleText,
-    current_tip: String,
-    tip_alpha: f32,
-    tip_scroll: f32,
-    toggles: FooterToggles<'_>,
-) {
+pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggles<'_>) {
     let FooterToggles {
         show_modal,
         show_computer_control,
@@ -21,8 +13,8 @@ pub fn render_footer(
         show_tts_playground,
         show_download,
     } = toggles;
+
     ui.horizontal(|ui| {
-        // 1. Left Side: the mini-app launch buttons.
         let theme = AppTheme::from_ui(ui);
         let is_dark = ui.visuals().dark_mode;
         // Bright accent fills read better with near-black labels in dark mode.
@@ -33,8 +25,7 @@ pub fn render_footer(
         };
         ui.spacing_mut().item_spacing.x = 6.0;
 
-        // Computer Control — screen-aware voice agent
-        if filled_icon_button(
+        if compact_filled_icon_button(
             ui,
             Icon::SmartToy,
             text.shell.computer_control_btn,
@@ -47,8 +38,7 @@ pub fn render_footer(
             *show_computer_control = true;
         }
 
-        // Pointer Gallery — green
-        if filled_icon_button(
+        if compact_filled_icon_button(
             ui,
             Icon::Pointer,
             text.tool_runtime.pointer_gallery_btn,
@@ -60,8 +50,8 @@ pub fn render_footer(
         {
             *show_pointer_gallery = true;
         }
-        // Translation Gummy — rose
-        if filled_icon_button(
+
+        if compact_filled_icon_button(
             ui,
             Icon::BreakfastDining,
             text.translation_gummy.translation_gummy_btn,
@@ -73,8 +63,8 @@ pub fn render_footer(
         {
             *show_translation_gummy = true;
         }
-        // TTS Playground — amber / terracotta
-        if filled_icon_button(
+
+        if compact_filled_icon_button(
             ui,
             Icon::Speaker,
             text.tts_playground.tts_playground_btn,
@@ -86,8 +76,8 @@ pub fn render_footer(
         {
             *show_tts_playground = true;
         }
-        // 3D Generator — mint
-        if filled_icon_button(
+
+        if compact_filled_icon_button(
             ui,
             Icon::DeployedCode,
             text.shell.three_d_generator_btn,
@@ -99,8 +89,8 @@ pub fn render_footer(
         {
             crate::overlay::three_d_generator::show_three_d_generator();
         }
-        // Image to SVG - cobalt
-        if filled_icon_button(
+
+        if compact_filled_icon_button(
             ui,
             Icon::DrawCollage,
             text.shell.image_to_svg_btn,
@@ -112,8 +102,8 @@ pub fn render_footer(
         {
             crate::overlay::image_to_svg::show_image_to_svg();
         }
-        // PromptDJ — violet
-        if filled_icon_button(
+
+        if compact_filled_icon_button(
             ui,
             Icon::Album,
             text.shell.prompt_dj_btn,
@@ -125,8 +115,8 @@ pub fn render_footer(
         {
             crate::overlay::prompt_dj::show_prompt_dj();
         }
-        // Download Manager — red
-        if filled_icon_button(
+
+        if compact_filled_icon_button(
             ui,
             Icon::Movie,
             text.auxiliary.download.download_feature_btn,
@@ -138,78 +128,32 @@ pub fn render_footer(
         {
             *show_download = true;
         }
-        // Screen Record — blue
-        if filled_icon_button(
+
+        let screen_record_response = compact_filled_icon_button(
             ui,
             Icon::Videocam,
             text.tool_runtime.screen_record_btn,
             theme.accent_screen_record(),
             btn_text,
             6,
-        )
-        .clicked()
-        {
+        );
+        if screen_record_response.clicked() {
             crate::overlay::screen_record::show_screen_record();
         }
 
-        ui.add_space(10.0);
+        #[cfg(test)]
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new("footer_last_launcher_test_rect"),
+                screen_record_response.rect,
+            );
+        });
 
-        // 2. Tips: an EXPANDING display window — a minimum width that grows to
-        // fit the tip, up to the free space. The tip fades in, holds, and ONLY if
-        // it's too long to fit does it slide left to reveal the overflow, then
-        // fades out (driven by `tip_alpha` / `tip_scroll` from `update_tips_logic`).
-        // Text is clipped to the window, so long tips never push the layout around.
-        let tip_color = ui.visuals().text_color().linear_multiply(tip_alpha);
-        let icon_color =
-            egui::Color32::from_rgba_unmultiplied(255, 200, 50, (tip_alpha * 255.0) as u8);
-        let icon_size = crate::gui::icons::ICON_SM;
-        let icon_spacing = 4.0;
-        let is_dark_mode = ui.visuals().dark_mode;
-        let layout_job = format_footer_tip(&current_tip, tip_color, is_dark_mode, tip_alpha);
-        let text_galley = ui.painter().layout_job(layout_job);
-
-        // Window = the tip's width, but AT LEAST `TIP_WINDOW_MIN` (so the region
-        // doesn't jump as tips cycle) and never beyond the free space. So a tip
-        // that fits in the available room is shown in full (overflow = 0 → it
-        // never slides); only genuinely-too-long tips slide.
-        const TIP_WINDOW_MIN: f32 = 480.0;
-        let avail_for_text = (ui.available_width() - 10.0 - icon_size - icon_spacing).max(40.0);
-        let min_window = TIP_WINDOW_MIN.min(avail_for_text);
-        let window_w = text_galley.rect.width().clamp(min_window, avail_for_text);
-        let region_w = icon_size + icon_spacing + window_w;
-
-        let (response, painter) = ui.allocate_painter(
-            egui::vec2(region_w + 8.0, ui.available_height().max(18.0)),
-            egui::Sense::click(),
-        );
-        let rect = response.rect;
-        let icon_rect = egui::Rect::from_min_size(
-            egui::pos2(rect.left(), rect.center().y - icon_size / 2.0),
-            egui::vec2(icon_size, icon_size),
-        );
-        paint_icon(&painter, icon_rect, Icon::Lightbulb, icon_color);
-
-        // Clip the text to its window and slide it left by `tip_scroll * overflow`.
-        let win_left = icon_rect.right() + icon_spacing;
-        let win_rect = egui::Rect::from_min_size(
-            egui::pos2(win_left, rect.top()),
-            egui::vec2(window_w, rect.height()),
-        );
-        let overflow = (text_galley.rect.width() - window_w).max(0.0);
-        let text_pos = egui::pos2(
-            win_left - tip_scroll * overflow,
-            rect.center().y - text_galley.rect.height() / 2.0,
-        );
-        painter
-            .with_clip_rect(win_rect)
-            .galley(text_pos, text_galley, egui::Color32::WHITE);
-
-        if response
-            .on_hover_text(text.workspace.tips_click_hint)
-            .clicked()
-        {
-            *show_modal = true;
-        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if tips_button(ui, text).clicked() {
+                *show_modal = true;
+            }
+        });
     });
 }
 
@@ -222,78 +166,135 @@ pub struct FooterToggles<'a> {
     pub show_download: &'a mut bool,
 }
 
-// Helper function to format footer tip with bold text
-fn format_footer_tip(
-    text: &str,
-    base_color: egui::Color32,
-    is_dark_mode: bool,
-    alpha_factor: f32,
-) -> LayoutJob {
-    let mut job = LayoutJob::default();
+fn tips_button(ui: &mut egui::Ui, text: &LocaleText) -> egui::Response {
+    let text_color = ui.visuals().text_color();
+    let label_galley = ui.painter().layout_no_wrap(
+        text.workspace.tips_btn.to_owned(),
+        egui::TextStyle::Button.resolve(ui.style()),
+        text_color,
+    );
+    let icon_size = crate::gui::icons::ICON_SM;
+    let icon_gap = 4.0;
+    let horizontal_padding = 6.0;
+    let button_size = egui::vec2(
+        horizontal_padding * 2.0 + icon_size + icon_gap + label_galley.rect.width(),
+        ui.spacing()
+            .interact_size
+            .y
+            .max(label_galley.rect.height() + ui.spacing().button_padding.y * 2.0),
+    );
+    let (rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
 
-    // Color scheme for bold text
-    let bold_color = if is_dark_mode {
-        egui::Color32::from_rgb(150, 200, 255) // Soft cyan for dark mode
+    let state_fill = if response.is_pointer_button_down_on() {
+        ui.visuals().widgets.active.weak_bg_fill
+    } else if response.hovered() {
+        ui.visuals().widgets.hovered.weak_bg_fill
     } else {
-        egui::Color32::from_rgb(40, 100, 180) // Dark blue for light mode
+        egui::Color32::TRANSPARENT
     };
-
-    // Apply alpha to colors
-    let regular_color = egui::Color32::from_rgba_unmultiplied(
-        base_color.r(),
-        base_color.g(),
-        base_color.b(),
-        (base_color.a() as f32 * alpha_factor) as u8,
-    );
-
-    let bold_color_with_alpha = egui::Color32::from_rgba_unmultiplied(
-        bold_color.r(),
-        bold_color.g(),
-        bold_color.b(),
-        (255.0 * alpha_factor) as u8,
-    );
-
-    // Create text format
-    let text_format = TextFormat {
-        font_id: egui::FontId::proportional(11.0),
-        color: regular_color,
-        ..Default::default()
-    };
-
-    // Parse text for **bold** markers
-    let mut current_text = String::new();
-    let mut chars = text.chars().peekable();
-    let mut is_bold = false;
-
-    while let Some(ch) = chars.next() {
-        if ch == '*' && chars.peek() == Some(&'*') {
-            // Found ** marker
-            chars.next(); // consume second *
-
-            if !current_text.is_empty() {
-                // Append accumulated text
-                let mut fmt = text_format.clone();
-                if is_bold {
-                    fmt.color = bold_color_with_alpha;
-                }
-                job.append(&current_text, 0.0, fmt);
-                current_text.clear();
-            }
-
-            is_bold = !is_bold;
-        } else {
-            current_text.push(ch);
-        }
+    if state_fill != egui::Color32::TRANSPARENT {
+        ui.painter().rect_filled(rect, 6.0, state_fill);
     }
 
-    // Append remaining text
-    if !current_text.is_empty() {
-        let mut fmt = text_format.clone();
-        if is_bold {
-            fmt.color = bold_color_with_alpha;
-        }
-        job.append(&current_text, 0.0, fmt);
-    }
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(
+            rect.left() + horizontal_padding,
+            rect.center().y - icon_size / 2.0,
+        ),
+        egui::vec2(icon_size, icon_size),
+    );
+    paint_icon(
+        ui.painter(),
+        icon_rect,
+        Icon::Lightbulb,
+        AppTheme::from_ui(ui).warning(),
+    );
+    ui.painter().galley(
+        egui::pos2(
+            icon_rect.right() + icon_gap,
+            rect.center().y - label_galley.rect.height() / 2.0,
+        ),
+        label_galley,
+        text_color,
+    );
 
-    job
+    let response = response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(text.workspace.tips_click_hint);
+    #[cfg(test)]
+    ui.ctx().data_mut(|data| {
+        data.insert_temp(egui::Id::new("footer_tips_test_rect"), response.rect);
+    });
+    response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_tips_action_stays_on_the_launcher_row_in_every_locale() {
+        let screen =
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(crate::MIN_WINDOW_WIDTH, 100.0));
+
+        for (language, expected_label) in [("en", "Tips"), ("vi", "Mẹo"), ("ko", "팁")] {
+            let context = egui::Context::default();
+            crate::gui::configure_fonts(&context);
+            AppTheme::apply_global_style(&context, false);
+            let text = LocaleText::get(language);
+            assert_eq!(text.workspace.tips_btn, expected_label);
+            let mut show_modal = false;
+            let mut show_computer_control = false;
+            let mut show_pointer_gallery = false;
+            let mut show_translation_gummy = false;
+            let mut show_tts_playground = false;
+            let mut show_download = false;
+
+            let _ = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::Frame::default()
+                        .inner_margin(egui::Margin::symmetric(10, 4))
+                        .show(ui, |ui| {
+                            render_footer(
+                                ui,
+                                &text,
+                                FooterToggles {
+                                    show_modal: &mut show_modal,
+                                    show_computer_control: &mut show_computer_control,
+                                    show_pointer_gallery: &mut show_pointer_gallery,
+                                    show_translation_gummy: &mut show_translation_gummy,
+                                    show_tts_playground: &mut show_tts_playground,
+                                    show_download: &mut show_download,
+                                },
+                            );
+                        });
+                },
+            );
+
+            let last_launcher_rect = context
+                .data(|data| {
+                    data.get_temp::<egui::Rect>(egui::Id::new("footer_last_launcher_test_rect"))
+                })
+                .expect("last footer launcher rect should be captured");
+            let tips_rect = context
+                .data(|data| data.get_temp::<egui::Rect>(egui::Id::new("footer_tips_test_rect")))
+                .expect("tips action rect should be captured");
+            assert!(
+                last_launcher_rect.right() + 6.0 <= tips_rect.left(),
+                "{language} tips action overlapped the launchers: last={last_launcher_rect:?}, tips={tips_rect:?}"
+            );
+            assert!(
+                (last_launcher_rect.center().y - tips_rect.center().y).abs() <= 1.0,
+                "{language} tips action left the launcher row: last={last_launcher_rect:?}, tips={tips_rect:?}"
+            );
+            assert!(
+                screen.contains_rect(tips_rect),
+                "{language} tips action overflowed the minimum viewport: {tips_rect:?}"
+            );
+        }
+    }
 }
