@@ -209,17 +209,6 @@ fn restore_copy_uses_the_supported_locale_feature_names() {
         vi.global_settings.restore_defaults_kept_note,
         "Luôn giữ lại: ngôn ngữ, mã API, nhà cung cấp đang bật, URL Ollama, mô hình tùy chỉnh và công cụ/mô hình đã tải, các preset yêu thích và toàn bộ phím tắt."
     );
-    assert!(
-        vi.desktop_settings
-            .preset_model_update_kept
-            .contains("Quay MH")
-    );
-    assert!(
-        vi.desktop_settings
-            .preset_model_update_kept
-            .contains("Bánh mỳ chuyển ngữ")
-    );
-
     let ko = LocaleText::get("ko");
     assert!(
         ko.global_settings
@@ -461,6 +450,7 @@ fn non_default_config() -> Config {
         pending_preset_model_update: Some(PendingPresetModelUpdate {
             target_version: "99.0.0".to_string(),
             previous_models: Default::default(),
+            previous_model_priority_chains: Some(Default::default()),
         }),
         start_in_tray: true,
         run_as_admin_on_startup: true,

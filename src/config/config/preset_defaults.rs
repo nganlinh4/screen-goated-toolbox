@@ -14,8 +14,24 @@ impl Config {
         self.pending_preset_model_update = Some(PendingPresetModelUpdate {
             target_version,
             previous_models,
+            previous_model_priority_chains: Some(Default::default()),
         });
         Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn stage_preset_model_update_preview(&mut self) {
+        let mut previous_models = builtin_preset_model_defaults();
+        for blocks in previous_models.values_mut() {
+            for (_, model) in blocks {
+                model.push_str("-debug-preview-previous");
+            }
+        }
+        self.pending_preset_model_update = Some(PendingPresetModelUpdate {
+            target_version: env!("CARGO_PKG_VERSION").to_string(),
+            previous_models,
+            previous_model_priority_chains: Some(Default::default()),
+        });
     }
 
     /// Return whether the new executable should offer changed preset models.
@@ -34,7 +50,13 @@ impl Config {
         }
 
         let current_models = builtin_preset_model_defaults();
-        if changed_model_slots(&pending.previous_models, &current_models).is_empty() {
+        let preset_models_changed =
+            !changed_model_slots(&pending.previous_models, &current_models).is_empty();
+        let priority_chains_changed = pending
+            .previous_model_priority_chains
+            .as_ref()
+            .is_some_and(|previous| previous != &Default::default());
+        if !preset_models_changed && !priority_chains_changed {
             self.pending_preset_model_update = None;
             return Ok(false);
         }
@@ -59,9 +81,9 @@ impl Config {
         self.active_preset_profile_idx = defaults.active_preset_profile_idx;
     }
 
-    /// Resolve the one-time post-update choice. Applying performs a three-way
-    /// model-only migration: a block changes only when it still uses the old
-    /// compiled default, so user-selected models and every other setting stay.
+    /// Resolve the one-time post-update choice. Applying makes changed
+    /// built-in preset model slots and the model-priority chains follow the
+    /// newly compiled defaults. Every other setting stays unchanged.
     pub fn finish_preset_model_update(&mut self, apply_models: bool) -> usize {
         let previous_models = self
             .pending_preset_model_update
@@ -69,7 +91,9 @@ impl Config {
             .map(|pending| pending.previous_models.clone())
             .unwrap_or_default();
         let updated = if apply_models {
-            self.apply_changed_builtin_preset_models(&previous_models)
+            let updated = self.apply_changed_builtin_preset_models(&previous_models);
+            self.model_priority_chains = Default::default();
+            updated
         } else {
             0
         };
@@ -95,7 +119,7 @@ impl Config {
                     let Some(block) = preset.blocks.get_mut(change.block_index) else {
                         continue;
                     };
-                    if block.block_type == change.block_type && block.model == change.previous_model
+                    if block.block_type == change.block_type && block.model != change.current_model
                     {
                         block.model = change.current_model.clone();
                         updated += 1;
@@ -113,7 +137,6 @@ impl Config {
 struct ModelChange {
     block_index: usize,
     block_type: String,
-    previous_model: String,
     current_model: String,
 }
 
@@ -142,7 +165,6 @@ fn changed_model_slots(
                     Some(ModelChange {
                         block_index,
                         block_type: previous_type.clone(),
-                        previous_model: previous_model.clone(),
                         current_model: current_model.clone(),
                     })
                 },
@@ -240,6 +262,7 @@ mod tests {
             pending_preset_model_update: Some(PendingPresetModelUpdate {
                 target_version: "2.0.0".to_string(),
                 previous_models: models,
+                previous_model_priority_chains: Some(Default::default()),
             }),
             ..Default::default()
         };
@@ -264,6 +287,7 @@ mod tests {
                 pending_preset_model_update: Some(PendingPresetModelUpdate {
                     target_version: "2.0.0".to_string(),
                     previous_models,
+                    previous_model_priority_chains: Some(Default::default()),
                 }),
                 ..Default::default()
             };
@@ -271,6 +295,62 @@ mod tests {
             assert!(config.prepare_preset_model_update_prompt(current).unwrap());
             assert!(config.pending_preset_model_update.is_some());
         }
+    }
+
+    #[test]
+    fn prompt_appears_when_only_model_priority_defaults_changed() {
+        let previous_priorities = crate::config::ModelPriorityChains {
+            image_to_text: vec!["previous-image-priority".to_string()],
+            ..Default::default()
+        };
+        let mut config = Config {
+            pending_preset_model_update: Some(PendingPresetModelUpdate {
+                target_version: "2.0.0".to_string(),
+                previous_models: builtin_preset_model_defaults(),
+                previous_model_priority_chains: Some(previous_priorities),
+            }),
+            ..Default::default()
+        };
+
+        assert!(config.prepare_preset_model_update_prompt("2.0.0").unwrap());
+        assert!(config.pending_preset_model_update.is_some());
+    }
+
+    #[test]
+    fn marker_without_priority_baseline_remains_compatible() {
+        let marker: PendingPresetModelUpdate = serde_json::from_value(serde_json::json!({
+            "target_version": "2.0.0",
+            "previous_models": {}
+        }))
+        .unwrap();
+
+        assert!(marker.previous_model_priority_chains.is_none());
+    }
+
+    #[test]
+    fn preview_marker_flags_every_builtin_model_slot_without_changing_settings() {
+        let mut config = Config::default();
+        let presets_before = config.presets.clone();
+        let profiles_before = config.preset_profiles.clone();
+        let priorities_before = config.model_priority_chains.clone();
+
+        config.stage_preset_model_update_preview();
+
+        let pending = config.pending_preset_model_update.as_ref().unwrap();
+        let current_models = builtin_preset_model_defaults();
+        let changed = changed_model_slots(&pending.previous_models, &current_models);
+        let changed_slots = changed.values().map(Vec::len).sum::<usize>();
+        let expected_slots = current_models.values().map(Vec::len).sum::<usize>();
+        assert_eq!(changed_slots, expected_slots);
+        assert_eq!(
+            serde_json::to_value(&config.presets).unwrap(),
+            serde_json::to_value(&presets_before).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&config.preset_profiles).unwrap(),
+            serde_json::to_value(&profiles_before).unwrap()
+        );
+        assert_eq!(config.model_priority_chains, priorities_before);
     }
 
     #[test]
@@ -382,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn update_changes_only_unchanged_old_models_across_profiles() {
+    fn update_overrides_changed_model_slots_and_priority_lists_only() {
         let defaults = get_default_presets();
         let current_model = defaults[0].blocks[0].model.clone();
         let old_model = format!("{current_model}-previous");
@@ -400,23 +480,28 @@ mod tests {
         overridden.blocks[0].model = "user-selected-model".to_string();
         overridden.hotkeys = vec![hotkey(0x49, "Ctrl + I")];
 
+        let mut custom = overridden.clone();
+        custom.id = "custom-preset".to_string();
+        custom.blocks[0].model = "custom-preset-model".to_string();
+
         let marker = PendingPresetModelUpdate {
             target_version: "2.0.0".to_string(),
             previous_models,
+            previous_model_priority_chains: Some(Default::default()),
         };
         let mut base = Config {
-            presets: vec![inherited.clone()],
+            presets: vec![inherited.clone(), custom.clone()],
             preset_profiles: vec![
                 PresetProfile {
                     id: "profile-inherited".to_string(),
                     name: "Inherited".to_string(),
-                    presets: vec![inherited],
+                    presets: vec![inherited, custom.clone()],
                     active_preset_idx: 0,
                 },
                 PresetProfile {
                     id: "profile-overridden".to_string(),
                     name: "Overridden".to_string(),
-                    presets: vec![overridden],
+                    presets: vec![overridden, custom],
                     active_preset_idx: 0,
                 },
             ],
@@ -427,6 +512,8 @@ mod tests {
         };
         base.translation_gummy.hotkey = Some(hotkey(0x52, "Ctrl + R"));
         base.translation_gummy.hotkeys = vec![hotkey(0x53, "Ctrl + S")];
+        base.model_priority_chains.image_to_text = vec!["custom-image-priority".to_string()];
+        base.model_priority_chains.text_to_text = vec!["custom-text-priority".to_string()];
 
         let mut expected_skipped = base.clone();
         expected_skipped.pending_preset_model_update = None;
@@ -442,12 +529,14 @@ mod tests {
         expected_applied.pending_preset_model_update = None;
         expected_applied.presets[0].blocks[0].model = current_model.clone();
         expected_applied.preset_profiles[0].presets[0].blocks[0].model = current_model.clone();
+        expected_applied.preset_profiles[1].presets[0].blocks[0].model = current_model;
+        expected_applied.model_priority_chains = Default::default();
         let mut applied = base;
-        assert_eq!(applied.finish_preset_model_update(true), 1);
+        assert_eq!(applied.finish_preset_model_update(true), 2);
         assert_eq!(
             serde_json::to_value(&applied).unwrap(),
             serde_json::to_value(&expected_applied).unwrap(),
-            "applying must change only inherited model slots and consume the marker"
+            "applying must override affected built-in model slots and priority lists only"
         );
     }
 }

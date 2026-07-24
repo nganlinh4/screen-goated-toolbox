@@ -30,7 +30,6 @@ pub struct DesktopSettingsLocaleText {
     pub restart_app_btn: &'static str,
     pub preset_model_update_title: &'static str,
     pub preset_model_update_body: &'static str,
-    pub preset_model_update_kept: &'static str,
     pub preset_model_update_skip: &'static str,
     pub preset_model_update_apply: &'static str,
 }
