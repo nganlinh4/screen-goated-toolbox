@@ -138,7 +138,7 @@ class AccessibilityMutationAuthorityTest {
     }
 
     @Test
-    fun activeUnknownAuthorityCannotBeBypassedByTargetsOrCommands() {
+    fun activeUnknownAuthorityCannotBeBypassedByUiTargets() {
         val underlying = window(active = false, focused = false)
         val unknown = window(
             id = 8,
@@ -159,14 +159,6 @@ class AccessibilityMutationAuthorityTest {
                 false,
                 TargetBounds(5, 5, 6, 6),
             )?.code,
-        )
-        assertEquals(
-            "surface_authority_unknown",
-            captured.commandDispatchAuthorityFailure()?.code,
-        )
-        assertEquals(
-            "surface_authority_unknown",
-            observation(emptyList()).commandDispatchAuthorityFailure()?.code,
         )
     }
 
@@ -196,25 +188,6 @@ class AccessibilityMutationAuthorityTest {
     }
 
     @Test
-    fun elevatedCommandIsBlockedOnlyByAnActiveOsOwnedStep() {
-        val inactiveConfirmation = window(
-            id = 8,
-            layer = 2,
-            packageName = "fixture.authority",
-            authority = AccessibilityTargetAuthority.OS_OWNED_USER_STEP,
-            active = false,
-            focused = false,
-        )
-        assertNull(observation(listOf(window(), inactiveConfirmation)).commandDispatchAuthorityFailure())
-
-        val activeConfirmation = inactiveConfirmation.copy(active = true)
-        val failure = observation(listOf(window(active = false), activeConfirmation))
-            .commandDispatchAuthorityFailure()
-        assertEquals("os_owned_confirmation", failure?.code)
-        assertEquals("complete_os_owned_confirmation", failure?.requiredUserStep)
-    }
-
-    @Test
     fun activeOsOwnedStepHasUniformPrecedenceForEveryInputKind() {
         val activeConfirmation = window(
             id = 8,
@@ -236,20 +209,6 @@ class AccessibilityMutationAuthorityTest {
                 )
                 assertEquals(kind.name, EffectCertainty.PROVEN_NO_EFFECT, failure?.effect)
             }
-    }
-
-    @Test
-    fun activeControllerApplicationCannotHideAPlatformUserStepFromCommandPreflight() {
-        val platformStep = window(
-            packageName = "fixture.controller",
-            authority = AccessibilityTargetAuthority.OS_OWNED_USER_STEP,
-            controllerOwned = true,
-        )
-
-        val failure = observation(listOf(platformStep)).commandDispatchAuthorityFailure()
-
-        assertEquals("os_owned_confirmation", failure?.code)
-        assertEquals(EffectCertainty.PROVEN_NO_EFFECT, failure?.effect)
     }
 
     @Test

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 21,
+  "schemaVersion": 22,
   "feature": "phone-control",
   "canonicalFeature": "computer-control",
   "distribution": {
@@ -31,6 +31,14 @@
       "storage": "volumes",
       "window": "list"
     }
+  },
+  "modelExecutionContract": {
+    "requestedOutcomeAuthorizesRequiredLocalEvidence": true,
+    "resolveOperationalDetailsBeforeClarifying": true,
+    "readyProviderMeansExecutionAuthority": true,
+    "setupCapabilitySummaryMayVetoDeclaredTool": false,
+    "unselectedOptionalProvidersListedAsBlockers": false,
+    "selectedReadyShellAdvertisesDirectRunCommand": true
   },
   "effectCancellation": {
     "operationIdentityFields": ["turn_id", "response_generation", "job_id"],
@@ -70,8 +78,7 @@
       "scroll",
       "text_edit",
       "key_sequence",
-      "global_action",
-      "command_execution"
+      "global_action"
     ],
     "mutationLeaseFields": [
       "snapshot_generation",
@@ -89,7 +96,7 @@
       "accessibility_action_dismiss"
     ],
     "platformPendingConfirmationUsesOpaqueSession": true,
-    "activeOsOwnedStepBlocksElevatedCommandDispatch": true,
+    "deviceShellRequiresAccessibilityObservationLease": false,
     "activeOsOwnedStepFailurePrecedenceAfterRequiredFieldValidation": true,
     "consequentialRequiresConfirm": true,
     "osOwnedConfirmationIsAlwaysUserStep": true,

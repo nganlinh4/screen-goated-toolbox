@@ -135,7 +135,6 @@ class PhoneControlService : Service() {
         try {
             val container = (application as SgtMobileApplication).appContainer
             val assets = PhoneControlContractAssets.load(this, container.json)
-            val providerEvidence = PhoneControlProviderRegistry.probe(this)
             val apiKey = container.repository.currentApiKey()
             if (apiKey.isBlank()) {
                 stopReason = "api_key_required"
@@ -161,7 +160,12 @@ class PhoneControlService : Service() {
                 apiKey = apiKey,
                 voiceName = container.repository.currentGlobalTtsSettings().voice,
                 contractAssets = assets,
-                capabilityContext = providerEvidence.modelContext(),
+                capabilityContext = {
+                    PhoneControlProviderRegistry.probe(this).let { evidence ->
+                        Log.i(TAG, evidence.diagnosticEvent())
+                        evidence.modelContext()
+                    }
+                },
                 memoryRepository = container.phoneControlMemoryRepository,
                 dispatchBoundary = PhoneControlToolDispatcher(
                     this,

@@ -9,9 +9,6 @@ import android.os.IBinder
 import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.effect.PhoneControlEffectOwner
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityCommandDispatchLease
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -134,7 +131,6 @@ internal object ShizukuCommandBridge {
 
     suspend fun executeAuthorized(
         context: Context,
-        lease: AccessibilityCommandDispatchLease,
         effectOwner: PhoneControlEffectOwner,
         program: String,
         args: List<String>,
@@ -143,7 +139,6 @@ internal object ShizukuCommandBridge {
         effectMayChangeUserState: Boolean = true,
     ): PrivilegedCommandResult = execute(
         context,
-        lease,
         effectOwner,
         program,
         args,
@@ -155,7 +150,6 @@ internal object ShizukuCommandBridge {
     suspend fun verifyAuthority(context: Context, timeoutMs: Long): PrivilegedCommandResult =
         execute(
             context = context,
-            lease = null,
             effectOwner = null,
             program = ID_PROGRAM,
             args = listOf(ID_UID_ARGUMENT),
@@ -208,7 +202,6 @@ internal object ShizukuCommandBridge {
 
     private suspend fun execute(
         context: Context,
-        lease: AccessibilityCommandDispatchLease?,
         effectOwner: PhoneControlEffectOwner?,
         program: String,
         args: List<String>,
@@ -228,19 +221,9 @@ internal object ShizukuCommandBridge {
         }
         var dispatchStarted = false
         return try {
-            lease?.let { initialLease ->
-                PhoneControlAccessibilityProvider.validateCommandDispatch(initialLease)
-                    ?.let { return it.toPrivilegedCommandFailure() }
-            }
             val remote = awaitService()
             val operationId = effectOwner?.operationId?.wireValue
                 ?: nextInternalOperationId("authority-probe")
-            val finalLease = when (val prepared = PhoneControlAccessibilityProvider.prepareCommandDispatch()) {
-                is AccessibilityProviderResult.Failure ->
-                    return prepared.toPrivilegedCommandFailure()
-                is AccessibilityProviderResult.Success ->
-                    prepared.value
-            }
             val cancellation = effectOwner?.registerCancellationHandler {
                 remote.cancelCommand(operationId)
             }
@@ -252,8 +235,6 @@ internal object ShizukuCommandBridge {
             }
             try {
                 withContext(Dispatchers.IO) {
-                    PhoneControlAccessibilityProvider.validateCommandDispatch(finalLease)
-                        ?.let { return@withContext it.toPrivilegedCommandFailure() }
                     if (
                         effectLease != null &&
                         !effectLease.tryReserveDispatch(effectMayChangeUserState)

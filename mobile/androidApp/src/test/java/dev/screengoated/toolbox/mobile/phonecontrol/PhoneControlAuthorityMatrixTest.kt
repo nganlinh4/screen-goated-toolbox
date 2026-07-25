@@ -31,7 +31,7 @@ class PhoneControlAuthorityMatrixTest {
         val fixture = PhoneControlAuthorityFixture.load()
         val catalog = fixture.root.getValue("catalog").jsonObject
 
-        assertEquals(21L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(22L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals("phone-control", fixture.root.getValue("feature").jsonPrimitive.content)
         val distribution = fixture.root.getValue("distribution").jsonObject
         assertEquals(
@@ -77,6 +77,31 @@ class PhoneControlAuthorityMatrixTest {
             catalog.getValue("silentToolReroutes").jsonPrimitive.boolean,
             PhoneControlCapabilityContract.SILENT_TOOL_REROUTES,
         )
+        val modelExecution = fixture.root.getValue("modelExecutionContract").jsonObject
+        assertTrue(
+            modelExecution.getValue("requestedOutcomeAuthorizesRequiredLocalEvidence")
+                .jsonPrimitive.boolean,
+        )
+        assertTrue(
+            modelExecution.getValue("resolveOperationalDetailsBeforeClarifying")
+                .jsonPrimitive.boolean,
+        )
+        assertTrue(
+            modelExecution.getValue("readyProviderMeansExecutionAuthority")
+                .jsonPrimitive.boolean,
+        )
+        assertFalse(
+            modelExecution.getValue("setupCapabilitySummaryMayVetoDeclaredTool")
+                .jsonPrimitive.boolean,
+        )
+        assertFalse(
+            modelExecution.getValue("unselectedOptionalProvidersListedAsBlockers")
+                .jsonPrimitive.boolean,
+        )
+        assertTrue(
+            modelExecution.getValue("selectedReadyShellAdvertisesDirectRunCommand")
+                .jsonPrimitive.boolean,
+        )
         val targetAuthority = fixture.root.getValue("targetEffectAuthority").jsonObject
         assertEquals(
             listOf("routine", "consequential", "os_owned_user_step"),
@@ -97,10 +122,10 @@ class PhoneControlAuthorityMatrixTest {
         assertFalse(
             targetAuthority.getValue("alternateToolMayWeakenAuthority").jsonPrimitive.boolean,
         )
-        assertTrue(
+        assertFalse(
             targetAuthority.getValue("coveredDispatches").jsonArray
                 .map { it.jsonPrimitive.content }
-                .containsAll(setOf("global_action", "command_execution")),
+                .contains("command_execution"),
         )
         assertFalse(
             targetAuthority.getValue("commandTextMayAssignOrClearAuthority")
@@ -110,8 +135,8 @@ class PhoneControlAuthorityMatrixTest {
             targetAuthority.getValue("platformPendingConfirmationUsesOpaqueSession")
                 .jsonPrimitive.boolean,
         )
-        assertTrue(
-            targetAuthority.getValue("activeOsOwnedStepBlocksElevatedCommandDispatch")
+        assertFalse(
+            targetAuthority.getValue("deviceShellRequiresAccessibilityObservationLease")
                 .jsonPrimitive.boolean,
         )
         assertTrue(

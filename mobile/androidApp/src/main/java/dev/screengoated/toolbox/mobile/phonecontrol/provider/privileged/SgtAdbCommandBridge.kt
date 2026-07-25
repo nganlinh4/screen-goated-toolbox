@@ -4,9 +4,6 @@ import android.content.Context
 import android.os.Build
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.effect.PhoneControlEffectOwner
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityCommandDispatchLease
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -165,7 +162,6 @@ internal object SgtAdbCommandBridge {
 
     suspend fun executeAuthorized(
         context: Context,
-        lease: AccessibilityCommandDispatchLease,
         effectOwner: PhoneControlEffectOwner,
         program: String,
         args: List<String>,
@@ -199,15 +195,6 @@ internal object SgtAdbCommandBridge {
                 effectMayHaveOccurred = false,
             )
         }
-        PhoneControlAccessibilityProvider.validateCommandDispatch(lease)
-            ?.let { return it.toPrivilegedCommandFailure() }
-        val finalLease = when (val prepared = PhoneControlAccessibilityProvider.prepareCommandDispatch()) {
-            is AccessibilityProviderResult.Failure ->
-                return prepared.toPrivilegedCommandFailure()
-            is AccessibilityProviderResult.Success -> prepared.value
-        }
-        PhoneControlAccessibilityProvider.validateCommandDispatch(finalLease)
-            ?.let { return it.toPrivilegedCommandFailure() }
         val operationId = effectOwner.operationId.wireValue
         val cancellation = effectOwner.registerCancellationHandler {
             runCatching { service.cancelCommand(operationId) }

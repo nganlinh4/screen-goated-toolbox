@@ -3,7 +3,6 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 import android.content.Context
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.effect.PhoneControlEffectOwner
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityCommandDispatchLease
 
 internal data class PrivilegedCommandProbe(
     val state: CapabilityState,
@@ -19,7 +18,6 @@ internal interface PrivilegedCommandProvider {
 
     suspend fun executeAuthorized(
         context: Context,
-        lease: AccessibilityCommandDispatchLease,
         effectOwner: PhoneControlEffectOwner,
         program: String,
         args: List<String>,
@@ -58,7 +56,6 @@ private object SgtAdbPrivilegedCommandProvider : PrivilegedCommandProvider {
 
     override suspend fun executeAuthorized(
         context: Context,
-        lease: AccessibilityCommandDispatchLease,
         effectOwner: PhoneControlEffectOwner,
         program: String,
         args: List<String>,
@@ -67,7 +64,6 @@ private object SgtAdbPrivilegedCommandProvider : PrivilegedCommandProvider {
         effectMayChangeUserState: Boolean,
     ): PrivilegedCommandResult = SgtAdbCommandBridge.executeAuthorized(
         context,
-        lease,
         effectOwner,
         program,
         args,
@@ -87,7 +83,6 @@ private object ShizukuPrivilegedCommandProvider : PrivilegedCommandProvider {
 
     override suspend fun executeAuthorized(
         context: Context,
-        lease: AccessibilityCommandDispatchLease,
         effectOwner: PhoneControlEffectOwner,
         program: String,
         args: List<String>,
@@ -96,7 +91,6 @@ private object ShizukuPrivilegedCommandProvider : PrivilegedCommandProvider {
         effectMayChangeUserState: Boolean,
     ): PrivilegedCommandResult = ShizukuCommandBridge.executeAuthorized(
         context,
-        lease,
         effectOwner,
         program,
         args,
@@ -116,7 +110,6 @@ private object RootPrivilegedCommandProvider : PrivilegedCommandProvider {
 
     override suspend fun executeAuthorized(
         context: Context,
-        lease: AccessibilityCommandDispatchLease,
         effectOwner: PhoneControlEffectOwner,
         program: String,
         args: List<String>,
@@ -124,7 +117,6 @@ private object RootPrivilegedCommandProvider : PrivilegedCommandProvider {
         timeoutMs: Long,
         effectMayChangeUserState: Boolean,
     ): PrivilegedCommandResult = RootCommandBridge.executeAuthorized(
-        lease,
         effectOwner,
         program,
         args,

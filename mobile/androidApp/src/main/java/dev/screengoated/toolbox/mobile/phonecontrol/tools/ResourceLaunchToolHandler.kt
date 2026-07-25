@@ -14,12 +14,9 @@ import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProvi
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidAppPackageResolution
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidAppProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidProviderResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.toPrivilegedCommandFailure
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
 import java.io.File
@@ -180,20 +177,8 @@ internal class ResourceLaunchToolHandler(
         file: File,
         packageName: String?,
     ): PhoneControlToolExecution {
-        val lease = when (val prepared = PhoneControlAccessibilityProvider.prepareCommandDispatch()) {
-            is AccessibilityProviderResult.Failure -> {
-                return privilegedFailure(
-                    job,
-                    provider.providerId,
-                    prepared.toPrivilegedCommandFailure(),
-                    observationGeneration = 0,
-                )
-            }
-            is AccessibilityProviderResult.Success -> prepared.value
-        }
         val exists = provider.executeAuthorized(
             context = context,
-            lease = lease,
             effectOwner = job.effectOwner,
             program = TEST_PROGRAM,
             args = listOf("-e", file.absolutePath),
@@ -204,7 +189,7 @@ internal class ResourceLaunchToolHandler(
         currentCoroutineContext().ensureActive()
         when (exists) {
             is PrivilegedCommandResult.Failure -> {
-                return privilegedFailure(job, provider.providerId, exists, lease.observationGeneration)
+                return privilegedFailure(job, provider.providerId, exists, 0)
             }
             is PrivilegedCommandResult.Success -> {
                 if (!exists.receipt.isSuccessfulProcess()) {
@@ -214,7 +199,7 @@ internal class ResourceLaunchToolHandler(
                         CapabilityState.READY,
                         "resource_not_found",
                         "The requested resource is unavailable to the selected authority.",
-                        observationGeneration = lease.observationGeneration,
+                        observationGeneration = 0,
                     )
                 }
             }
@@ -222,7 +207,6 @@ internal class ResourceLaunchToolHandler(
         val uri = externalDocumentUri(context, file) ?: Uri.fromFile(file)
         val launched = provider.executeAuthorized(
             context = context,
-            lease = lease,
             effectOwner = job.effectOwner,
             program = ACTIVITY_MANAGER,
             args = buildList {
@@ -248,7 +232,7 @@ internal class ResourceLaunchToolHandler(
             effectMayChangeUserState = true,
         )
         currentCoroutineContext().ensureActive()
-        return elevatedLaunchResult(job, provider.providerId, lease.observationGeneration, launched)
+        return elevatedLaunchResult(job, provider.providerId, 0, launched)
     }
 
     private fun ordinaryResourceUri(file: File): Uri? = if (file.isDirectory) {

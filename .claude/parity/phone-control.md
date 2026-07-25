@@ -88,6 +88,11 @@ review; it must not silently fork Phone Control into a weaker Play implementatio
 
 - The live model owns language meaning, planning, tool choice, and semantic
   completion.
+- A requested outcome authorizes inspection and use of the on-device state
+  needed to complete that outcome, within the requested effect scope. Resolve
+  operational details from current device evidence and tools before asking the
+  user. A ready provider is execution authority, not a reason to downgrade the
+  task to advice or delegate resolvable steps back to the user.
 - Every normal turn receives one stable, full Phone Control tool catalog.
 - Code gates only job identity, cancellation, stale targets, required structured
   fields, consequential checkpoints, postconditions, reconnect/audio safety,
@@ -117,6 +122,14 @@ review; it must not silently fork Phone Control into a weaker Play implementatio
   must attest their primary provider against the exact execution plan.
 - Unavailable tools stay declared. They return a typed capability result that
   names the missing grant or backend and any required user step.
+- Provider readiness is resolved at dispatch time. The setup-time capability
+  summary is compact, never lists unselected optional providers as blockers,
+  and cannot veto a declared tool after an authority changes. A selected ready
+  shell authority is advertised as a direct `run_command` backend.
+- Device-shell execution is independent of Accessibility observations and
+  visual target leases. It owns only its exact command job, cancellation, and
+  process receipt. Semantic element actions and coordinate actions continue to
+  require their exact current target or frame leases.
 - Unknown future integrations remain available by default through the same
   catalog and capability registry.
 - One user turn produces at most one final response, then settles idle.
@@ -559,7 +572,7 @@ declarations append through the same versioned catalog boundary.
 | `observe`, `act`, `do_steps`, `click_at`, `look`, `click_target`, marks, zoom/view tools | Accessibility windows/nodes first; current screenshot, local detector, then vision when semantics are absent |
 | `type_text`, keyboard, scroll, drag, pointer tools | Node actions and Accessibility input connection first; gesture dispatch or a proven elevated input backend as fallback |
 | `open_url`, `launch_app`, window/app focus/list tools | Intents, package/task/display state, Accessibility global actions, and elevated system APIs when required |
-| `system_query`, files, clipboard, and `run_command` | App APIs and persisted SAF grants first; Shizuku/root only for authority the app UID lacks |
+| `system_query`, files, clipboard, and `run_command` | App APIs and persisted SAF grants first; selected SGT Bridge, Shizuku, or root authority for operations the app UID lacks. Shell commands do not require an Accessibility surface lease |
 | artifacts, memory, paste/extract/save tools | The shared artifact/memory schema with Android content URIs and persisted grants |
 | browser read/navigation/tabs/eval/network/console/upload tools | Direct integration when available; credentialed browser CDP for full page authority; Custom Tabs for shared browser sessions; Accessibility for browser chrome/fallback; owned WebView only for SGT-owned or deliberately isolated content |
 | research and web search | Shared research/source/evidence contract; research-owned tabs are turn-scoped and silently cleaned |

@@ -17,11 +17,12 @@ import org.junit.Test
 
 class CommandToolHandlersTest {
     @Test
-    fun exactArgvUsesShizukuBeforeRootAndReturnsUnverifiedEffectReceipt() = runTest {
+    fun exactArgvUsesSgtBridgeBeforeShizukuAndRootAndReturnsUnverifiedEffectReceipt() = runTest {
         val backend = FakeCommandBackend(
+            sgt = CommandProviderAvailability(CapabilityState.READY),
             shizuku = CommandProviderAvailability(CapabilityState.READY),
             root = CommandProviderAvailability(CapabilityState.READY),
-            shizukuResult = processReceipt(exitCode = 0),
+            sgtResult = processReceipt(exitCode = 0),
         )
         val args = buildJsonObject {
             put("program", "/system/bin/id")
@@ -32,11 +33,11 @@ class CommandToolHandlersTest {
 
         assertEquals(1, backend.calls.size)
         assertEquals(JOB.operationId, backend.calls.single().operationId)
-        assertEquals(SHIZUKU_PROVIDER, backend.calls.single().providerId)
+        assertEquals(SGT_PROVIDER, backend.calls.single().providerId)
         assertEquals(listOf("-u"), backend.calls.single().args)
         assertEquals("/data/local/tmp", backend.calls.single().cwd)
         assertEquals("ok", execution.response.stringValue("code"))
-        assertEquals("shizuku_shell", execution.response.stringValue("provider"))
+        assertEquals("sgt_adb_bridge", execution.response.stringValue("provider"))
         assertEquals("may_have_occurred", execution.response.stringValue("effect_status"))
         assertEquals(
             "process_exited",
@@ -91,7 +92,7 @@ class CommandToolHandlersTest {
             backend,
         )
 
-        assertEquals(listOf(SHIZUKU_PROVIDER, ROOT_PROVIDER), backend.awaits)
+        assertEquals(listOf(SGT_PROVIDER, SHIZUKU_PROVIDER, ROOT_PROVIDER), backend.awaits)
         assertEquals(SHIZUKU_PROVIDER, backend.calls.single().providerId)
         assertEquals("ok", execution.response.stringValue("code"))
     }
@@ -125,7 +126,7 @@ class CommandToolHandlersTest {
             "configure_command_provider",
             execution.response.getValue("required_user_step").jsonObject.stringValue("code"),
         )
-        assertEquals(listOf("shizuku_shell", "root_bridge"), attempts.map {
+        assertEquals(listOf("sgt_adb_bridge", "shizuku_shell", "root_bridge"), attempts.map {
             it.jsonObject.stringValue("provider")
         })
         assertEquals("proven_no_effect", execution.response.stringValue("effect_status"))
@@ -191,8 +192,9 @@ class CommandToolHandlersTest {
     }
 
     @Test
-    fun unsupportedCommandStringNeverBecomesShellArgv() = runTest {
+    fun commandStringUsesBoundedPlatformShellFallback() = runTest {
         val backend = FakeCommandBackend(
+            sgt = CommandProviderAvailability(CapabilityState.READY),
             shizuku = CommandProviderAvailability(CapabilityState.READY),
             root = CommandProviderAvailability(CapabilityState.READY),
         )
@@ -203,10 +205,29 @@ class CommandToolHandlersTest {
             backend,
         )
 
-        assertTrue(backend.probes.isEmpty())
+        val call = backend.calls.single()
+        assertEquals("/system/bin/sh", call.program)
+        assertEquals(listOf("-c", "echo must-not-run"), call.args)
+        assertEquals("ok", execution.response.stringValue("code"))
+        assertEquals("may_have_occurred", execution.response.stringValue("effect_status"))
+    }
+
+    @Test
+    fun shellFallbackRejectsAnArgumentVectorBeyondItsExactByteBudget() = runTest {
+        val backend = FakeCommandBackend(
+            sgt = CommandProviderAvailability(CapabilityState.READY),
+            shizuku = CommandProviderAvailability(CapabilityState.READY),
+            root = CommandProviderAvailability(CapabilityState.READY),
+        )
+
+        val execution = handleRunCommand(
+            JOB,
+            buildJsonObject { put("command", "x".repeat(16_383)) },
+            backend,
+        )
+
         assertTrue(backend.calls.isEmpty())
-        assertEquals("capability_unavailable", execution.response.stringValue("code"))
-        assertEquals("unsupported", execution.response.stringValue("provider_state"))
+        assertEquals("invalid_arguments", execution.response.stringValue("code"))
         assertEquals("proven_no_effect", execution.response.stringValue("effect_status"))
     }
 
@@ -220,30 +241,37 @@ class CommandToolHandlersTest {
     )
 
     private class FakeCommandBackend(
+        private val sgt: CommandProviderAvailability =
+            CommandProviderAvailability(CapabilityState.UNAVAILABLE),
         private val shizuku: CommandProviderAvailability,
         private val root: CommandProviderAvailability,
+        private val sgtResult: CommandProviderExecution = processReceipt(0),
         private val shizukuResult: CommandProviderExecution = processReceipt(0),
         private val rootResult: CommandProviderExecution = processReceipt(0),
         private val awaitedShizuku: CommandProviderAvailability? = null,
     ) : CommandToolBackend {
-        override val providerIds = listOf(SHIZUKU_PROVIDER, ROOT_PROVIDER)
+        override val providerIds = listOf(SGT_PROVIDER, SHIZUKU_PROVIDER, ROOT_PROVIDER)
         val probes = mutableListOf<String>()
         val awaits = mutableListOf<String>()
         val calls = mutableListOf<CommandCall>()
 
         override fun probe(providerId: String): CommandProviderAvailability {
             probes += providerId
-            return if (providerId == SHIZUKU_PROVIDER) shizuku else root
+            return when (providerId) {
+                SGT_PROVIDER -> sgt
+                SHIZUKU_PROVIDER -> shizuku
+                else -> root
+            }
         }
 
         override suspend fun awaitAvailability(
             providerId: String,
         ): CommandProviderAvailability {
             awaits += providerId
-            return if (providerId == SHIZUKU_PROVIDER) {
-                awaitedShizuku ?: shizuku
-            } else {
-                root
+            return when (providerId) {
+                SGT_PROVIDER -> sgt
+                SHIZUKU_PROVIDER -> awaitedShizuku ?: shizuku
+                else -> root
             }
         }
 
@@ -256,7 +284,11 @@ class CommandToolHandlersTest {
             timeoutMs: Long,
         ): CommandProviderExecution {
             calls += CommandCall(job.operationId, providerId, program, args, cwd, timeoutMs)
-            return if (providerId == SHIZUKU_PROVIDER) shizukuResult else rootResult
+            return when (providerId) {
+                SGT_PROVIDER -> sgtResult
+                SHIZUKU_PROVIDER -> shizukuResult
+                else -> rootResult
+            }
         }
     }
 
@@ -266,6 +298,7 @@ class CommandToolHandlersTest {
             jobId = "job-command-test",
             responseGeneration = 6,
         )
+        const val SGT_PROVIDER = "sgt_adb_bridge"
         const val SHIZUKU_PROVIDER = "shizuku_shell"
         const val ROOT_PROVIDER = "root_bridge"
 

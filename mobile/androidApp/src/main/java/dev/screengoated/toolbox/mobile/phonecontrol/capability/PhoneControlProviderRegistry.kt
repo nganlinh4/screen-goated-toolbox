@@ -38,17 +38,34 @@ internal data class PhoneControlAuthorityCatalog(
 internal data class PhoneControlProviderEvidence(
     val catalog: PhoneControlAuthorityCatalog,
     val snapshots: List<ProviderSnapshot>,
+    val selectedAuthorityProviderId: String?,
 ) {
+    private val selectedSnapshot: ProviderSnapshot?
+        get() = snapshots.singleOrNull { it.providerId == selectedAuthorityProviderId }
+
     fun modelContext(): String = buildString {
-        append("\nANDROID CAPABILITY SNAPSHOT\n")
-        snapshots.forEach { snapshot ->
-            append("- ")
-            append(snapshot.providerId)
-            append(": ")
-            append(snapshot.state.wireName)
-            snapshot.requiredUserStep?.let { append("; user_step=").append(it) }
-            append('\n')
+        append("\nANDROID EXECUTION CONTEXT\n")
+        append("- Every tool probes its provider at invocation. This setup snapshot never ")
+        append("vetoes a declared tool; call the useful tool and follow its live receipt.\n")
+        append("- Providers ready when this connection opened: ")
+        val readyProviders = snapshots
+            .filter { it.state == CapabilityState.READY }
+            .map(ProviderSnapshot::providerId)
+        append(readyProviders.joinToString().ifBlank { "none" })
+        append(".\n")
+        val selected = selectedSnapshot
+        if (selected?.state == CapabilityState.READY) {
+            append("- Elevated shell: ${selected.providerId} is ready. run_command executes ")
+            append("Android shell programs directly; use it for device operations that ")
+            append("lack a narrower provider.\n")
         }
+    }
+
+    fun diagnosticEvent(): String {
+        val selected = selectedSnapshot
+        return "execution_context provider=${selected?.providerId ?: "none"} " +
+            "provider_state=${selected?.state?.wireName ?: "none"} " +
+            "ready_providers=${snapshots.count { it.state == CapabilityState.READY }}"
     }
 }
 
@@ -70,7 +87,12 @@ internal object PhoneControlProviderRegistry {
                 requiredUserStep = probe.requiredUserStep,
             )
         }
-        return PhoneControlProviderEvidence(catalog, snapshots)
+        return PhoneControlProviderEvidence(
+            catalog = catalog,
+            snapshots = snapshots,
+            selectedAuthorityProviderId = PhoneControlPowerPreferences.current(context)
+                ?.elevatedProviderId,
+        )
     }
 
     fun router(context: Context): ProviderRouter {

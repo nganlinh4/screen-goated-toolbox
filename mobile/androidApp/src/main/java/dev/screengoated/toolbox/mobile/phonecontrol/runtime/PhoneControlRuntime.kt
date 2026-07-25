@@ -50,7 +50,7 @@ internal class PhoneControlRuntime(
     private val apiKey: String,
     private val voiceName: String,
     private val contractAssets: PhoneControlContractAssets,
-    private val capabilityContext: String,
+    private val capabilityContext: () -> String,
     memoryRepository: PhoneControlMemoryRepository,
     dispatchBoundary: PhoneControlToolDispatchBoundary,
     observer: PhoneControlRuntimeObserver,
@@ -200,7 +200,7 @@ internal class PhoneControlRuntime(
         setupPayload = {
             buildPhoneControlSetupPayload(
                 assets = contractAssets,
-                capabilityContext = capabilityContext,
+                capabilityContext = capabilityContext(),
                 voiceName = voiceName,
                 resumptionHandle = PhoneControlResumptionPolicy.usableHandle(resumptionHandle),
             )

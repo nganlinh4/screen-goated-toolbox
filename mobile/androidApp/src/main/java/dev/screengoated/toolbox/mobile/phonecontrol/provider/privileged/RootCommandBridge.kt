@@ -2,9 +2,6 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.effect.PhoneControlEffectOwner
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityCommandDispatchLease
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
@@ -52,7 +49,6 @@ internal object RootCommandBridge {
     }
 
     suspend fun executeAuthorized(
-        lease: AccessibilityCommandDispatchLease,
         effectOwner: PhoneControlEffectOwner,
         program: String,
         args: List<String>,
@@ -60,7 +56,6 @@ internal object RootCommandBridge {
         timeoutMs: Long,
         effectMayChangeUserState: Boolean = true,
     ): PrivilegedCommandResult = execute(
-        lease,
         effectOwner,
         program,
         args,
@@ -71,7 +66,6 @@ internal object RootCommandBridge {
 
     suspend fun verifyAuthority(timeoutMs: Long): PrivilegedCommandResult =
         execute(
-            lease = null,
             effectOwner = null,
             program = ID_PROGRAM,
             args = listOf(ID_UID_ARGUMENT),
@@ -81,7 +75,6 @@ internal object RootCommandBridge {
         )
 
     private suspend fun execute(
-        lease: AccessibilityCommandDispatchLease?,
         effectOwner: PhoneControlEffectOwner?,
         program: String,
         args: List<String>,
@@ -98,18 +91,6 @@ internal object RootCommandBridge {
                 effectMayHaveOccurred = false,
             )
         }
-        lease?.let { initialLease ->
-            PhoneControlAccessibilityProvider.validateCommandDispatch(initialLease)
-                ?.let { return@withContext it.toPrivilegedCommandFailure() }
-        }
-        val finalLease = when (val prepared = PhoneControlAccessibilityProvider.prepareCommandDispatch()) {
-            is AccessibilityProviderResult.Failure ->
-                return@withContext prepared.toPrivilegedCommandFailure()
-            is AccessibilityProviderResult.Success ->
-                prepared.value
-        }
-        PhoneControlAccessibilityProvider.validateCommandDispatch(finalLease)
-            ?.let { return@withContext it.toPrivilegedCommandFailure() }
         val invocation = (listOf(program) + args).joinToString(" ", transform = ::shellQuote)
         val guarded = "test \"$(id -u)\" = 0 || exit 126; exec $invocation"
         val operationId = effectOwner?.operationId?.wireValue
