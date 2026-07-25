@@ -21,10 +21,7 @@ internal data class OverlayBounds(
 }
 
 internal interface PhoneControlOverlayExclusionParticipant {
-    suspend fun <T> withOverlayHidden(block: suspend () -> T): T
-
-    suspend fun <T> withOverlayAvoiding(bounds: OverlayBounds, block: suspend () -> T): T =
-        withOverlayHidden(block)
+    suspend fun <T> withOverlayAvoiding(bounds: OverlayBounds, block: suspend () -> T): T
 
     fun orbBounds(): OverlayBounds?
 }
@@ -33,7 +30,7 @@ internal object PhoneControlOverlayExclusion {
     private val participant = AtomicReference<PhoneControlOverlayExclusionParticipant?>()
     private val transitionDepth = AtomicInteger(0)
 
-    /** True only while SGT-owned overlay windows are being hidden or restored. */
+    /** True only while the controller is relocated/restored around an input path. */
     internal val controllerTransitionActive: Boolean
         get() = transitionDepth.get() > 0
 
@@ -45,8 +42,7 @@ internal object PhoneControlOverlayExclusion {
         participant.compareAndSet(candidate, null)
     }
 
-    suspend fun <T> forCapture(block: suspend () -> T): T =
-        withControllerOverlayHidden(participant.get(), block)
+    fun currentCaptureBounds(): OverlayBounds? = participant.get()?.orbBounds()
 
     suspend fun <T> forPoint(
         x: Float,
@@ -89,20 +85,6 @@ internal object PhoneControlOverlayExclusion {
         transitionDepth.incrementAndGet()
         return try {
             current.withOverlayAvoiding(bounds, block)
-        } finally {
-            val remaining = transitionDepth.decrementAndGet()
-            check(remaining >= 0) { "Controller overlay transition depth underflow" }
-        }
-    }
-
-    private suspend fun <T> withControllerOverlayHidden(
-        current: PhoneControlOverlayExclusionParticipant?,
-        block: suspend () -> T,
-    ): T {
-        if (current == null) return block()
-        transitionDepth.incrementAndGet()
-        return try {
-            current.withOverlayHidden(block)
         } finally {
             val remaining = transitionDepth.decrementAndGet()
             check(remaining >= 0) { "Controller overlay transition depth underflow" }

@@ -4,7 +4,6 @@ import dev.screengoated.toolbox.mobile.phonecontrol.tools.PhoneControlHandler
 import dev.screengoated.toolbox.mobile.phonecontrol.tools.PhoneControlToolRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,25 +28,28 @@ class PhoneControlBrowserRegistryTest {
     }
 
     @Test
-    fun cdpOnlyToolsStayExplicitlyUnavailable() {
-        val cdpOnly = listOf(
-            "browser_reset",
-            "browser_wait_for",
-            "browser_eval",
-            "browser_open_tab",
-            "browser_upload",
-            "browser_tabs",
-            "browser_switch_tab",
-            "browser_close_tab",
-            "browser_network",
-            "browser_console",
+    fun cdpToolsAndPublicResearchHaveRealHandlers() {
+        val expected = mapOf(
+            "browser_reset" to PhoneControlHandler.BROWSER_RESET,
+            "browser_wait_for" to PhoneControlHandler.BROWSER_WAIT_FOR,
+            "browser_eval" to PhoneControlHandler.BROWSER_EVAL,
+            "browser_open_tab" to PhoneControlHandler.BROWSER_OPEN_TAB,
+            "browser_upload" to PhoneControlHandler.BROWSER_UPLOAD,
+            "browser_tabs" to PhoneControlHandler.BROWSER_TABS,
+            "browser_switch_tab" to PhoneControlHandler.BROWSER_SWITCH_TAB,
+            "browser_close_tab" to PhoneControlHandler.BROWSER_CLOSE_TAB,
+            "browser_network" to PhoneControlHandler.BROWSER_NETWORK,
+            "browser_console" to PhoneControlHandler.BROWSER_CONSOLE,
         )
 
-        cdpOnly.forEach { name ->
+        expected.forEach { (name, handler) ->
             val spec = PhoneControlToolRegistry.byName.getValue(name)
-            assertNull("$name must not claim an ordinary Android implementation", spec.handler)
+            assertEquals(handler, spec.handler)
             assertEquals(listOf("browser_cdp"), spec.providerIds)
         }
+        val research = PhoneControlToolRegistry.byName.getValue("research_web")
+        assertEquals(PhoneControlHandler.RESEARCH_WEB, research.handler)
+        assertEquals(listOf("direct_web_research"), research.providerIds)
     }
 
     @Test

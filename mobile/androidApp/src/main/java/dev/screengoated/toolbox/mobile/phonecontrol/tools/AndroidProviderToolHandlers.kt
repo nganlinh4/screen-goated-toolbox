@@ -1,40 +1,56 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorization
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorizer
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlStructuralEditAuthorization
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidAppProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidFileProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidSafProvider
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.ExactReplacement
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.PhoneControlArtifactStore
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.browser.AndroidBrowserProvider
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.browser.AndroidChromeCdpProvider
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.browser.PublicWebResearchProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import java.io.File
 import java.net.URI
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 internal class AndroidProviderToolHandlers(
     context: Context,
+    private val structuralAuthorization: PhoneControlStructuralEditAuthorization =
+        PhoneControlStructuralEditAuthorization(context),
+    private val resourceAuthorization: PhoneControlResourceAuthorizer =
+        PhoneControlResourceAuthorization(context),
 ) {
     private val artifacts = PhoneControlArtifactStore(context)
     private val app = AndroidAppProvider(context)
     private val files = AndroidFileProvider(artifacts)
+    private val structuralEdits = StructuralEditToolCoordinator(
+        files,
+        structuralAuthorization,
+        resourceAuthorization,
+    )
     private val saf = AndroidSafProvider(context, artifacts)
-    private val artifactHandlers = ArtifactToolHandlers(artifacts, files)
-    private val browserHandlers = BrowserToolHandlers(AndroidBrowserProvider(context, artifacts))
+    private val artifactHandlers = ArtifactToolHandlers(artifacts, files, resourceAuthorization)
+    private val browserHandlers = BrowserToolHandlers(
+        provider = AndroidBrowserProvider(context, artifacts),
+        deep = AndroidChromeCdpProvider(context, artifacts),
+        research = PublicWebResearchProvider(artifacts),
+    )
     private val textHandlers = TextToolHandlers(ArtifactStoreTextResolver(artifacts))
     private val surfaceHandlers = SurfaceToolHandlers(context)
     private val systemNavigationHandlers = AndroidSystemNavigationToolHandler(
         AndroidSurfaceToolBackend(context),
     )
+    private val fileListings = FileListingToolHandler(context, files, saf)
+    private val resourceLauncher = ResourceLaunchToolHandler(context, app)
 
     suspend fun typeText(
         job: PhoneControlToolJobContext,
@@ -62,17 +78,13 @@ internal class AndroidProviderToolHandlers(
         job: PhoneControlToolJobContext,
         args: JsonObject,
     ): PhoneControlToolExecution {
-        val url = args.string("url") ?: return invalidArgs(job, "open_url", "open_url requires url")
-        val scheme = runCatching { URI(url.trim()).scheme?.lowercase() }.getOrNull()
-        if (scheme !in setOf("http", "https")) {
-            return unavailableToolResponse(
-                job,
-                "open_url",
-                "browser_authenticated_navigation",
-                "android_app_api",
-                CapabilityState.UNSUPPORTED,
-            )
-        }
+        val url = args.string("url") ?: return invalidArgs(
+            job = job,
+            tool = "open_url",
+            message = "open_url requires url",
+            argumentField = "url",
+            contractReason = "missing_or_invalid",
+        )
         return providerResult(
             job,
             "open_url",
@@ -84,30 +96,19 @@ internal class AndroidProviderToolHandlers(
         )
     }
 
-    fun launchApp(
+    suspend fun launchApp(
         job: PhoneControlToolJobContext,
         args: JsonObject,
     ): PhoneControlToolExecution {
         val name = args.string("name")
-            ?: return invalidArgs(job, "launch_app", "launch_app requires name")
-        if (!args.string("args").isNullOrBlank()) {
-            return unavailableToolResponse(
+            ?: return invalidArgs(
                 job,
                 "launch_app",
-                "app_and_task_control",
-                "android_app_api",
-                CapabilityState.UNSUPPORTED,
+                "launch_app requires name",
+                argumentField = "name",
+                contractReason = "missing_or_invalid",
             )
-        }
-        return providerResult(
-            job,
-            "launch_app",
-            "app_and_task_control",
-            "android_app_api",
-            mutating = true,
-            invalidatesSnapshot = true,
-            result = app.launchApp(name),
-        )
+        return resourceLauncher.execute(job, name, args.string("args"))
     }
 
     suspend fun systemQuery(
@@ -115,9 +116,30 @@ internal class AndroidProviderToolHandlers(
         args: JsonObject,
     ): PhoneControlToolExecution {
         val domain = args.string("domain")
-            ?: return invalidArgs(job, "system_query", "system_query requires domain")
+            ?: return invalidArgs(
+                job,
+                "system_query",
+                "system_query requires domain",
+                argumentField = "domain",
+                contractReason = "missing_or_invalid",
+            )
         val query = args.string("query")
-            ?: return invalidArgs(job, "system_query", "system_query requires query")
+            ?: return invalidArgs(
+                job,
+                "system_query",
+                "system_query requires query",
+                argumentField = "query",
+                contractReason = "missing_or_invalid",
+            )
+        if (!isSupportedSystemQuery(domain, query)) {
+            return invalidArgs(
+                job,
+                "system_query",
+                "Unsupported system_query domain/query pair.",
+                argumentField = "domain_query",
+                contractReason = "unsupported_pair",
+            )
+        }
         val filters = args["args"] as? JsonObject
         if (filters != null && filters.isNotEmpty()) {
             return unavailableToolResponse(
@@ -154,51 +176,10 @@ internal class AndroidProviderToolHandlers(
             result = app.systemQuery("clipboard", "text"),
         )
 
-    fun listFiles(
+    suspend fun listFiles(
         job: PhoneControlToolJobContext,
         args: JsonObject,
-    ): PhoneControlToolExecution {
-        val path = args.string("path")
-            ?: return invalidArgs(job, "list_files", "list_files requires path")
-        val kind = args.string("kind")
-        if (kind != null && kind !in setOf("any", "file", "directory")) {
-            return invalidArgs(job, "list_files", "kind is not supported")
-        }
-        val extensions = args.stringSet("extensions")
-            ?: return invalidArgs(job, "list_files", "extensions must contain only strings")
-        val sortBy = args.string("sort_by") ?: "modified"
-        if (sortBy !in setOf("modified", "created", "name", "size")) {
-            return invalidArgs(job, "list_files", "sort_by is not supported")
-        }
-        val order = args.string("order") ?: "descending"
-        if (order !in setOf("descending", "ascending")) {
-            return invalidArgs(job, "list_files", "order is not supported")
-        }
-        val limit = args.int("limit") ?: DEFAULT_FILE_LIMIT
-        if (limit <= 0) return invalidArgs(job, "list_files", "limit must be positive")
-        if (isContentUri(path)) {
-            if (kind !in setOf(null, "any") || extensions.isNotEmpty() || sortBy == "created") {
-                return unsupportedSafVariant(job, "list_files")
-            }
-            return providerResult(
-                job,
-                "list_files",
-                "file_resource_access",
-                "android_app_api",
-                mutating = false,
-                result = saf.list(path, sortBy, order == "descending", limit),
-            )
-        }
-        if (!isAbsolutePath(path)) return unavailableStoragePath(job, "list_files")
-        return providerResult(
-            job,
-            "list_files",
-            "file_resource_access",
-            "android_app_api",
-            mutating = false,
-            result = files.list(path, kind, extensions, sortBy, order == "descending", limit),
-        )
-    }
+    ): PhoneControlToolExecution = fileListings.execute(job, args)
 
     fun readTextFile(
         job: PhoneControlToolJobContext,
@@ -226,39 +207,25 @@ internal class AndroidProviderToolHandlers(
         )
     }
 
-    fun editTextFile(
+    suspend fun editTextFile(
         job: PhoneControlToolJobContext,
         args: JsonObject,
     ): PhoneControlToolExecution {
-        val path = args.string("path")
-            ?: return invalidArgs(job, "edit_text_file", "edit_text_file requires path")
-        if (isContentUri(path)) return unsupportedSafVariant(job, "edit_text_file")
-        if (!isAbsolutePath(path)) return unavailableStoragePath(job, "edit_text_file")
-        val expectedSha = args.string("expected_sha256")?.takeIf(String::isNotBlank)
-            ?: return invalidArgs(job, "edit_text_file", "expected_sha256 is required")
-        val rawReplacements = args["replacements"] as? JsonArray
-            ?: return invalidArgs(job, "edit_text_file", "replacements must be an array")
-        if (rawReplacements.size !in 1..MAX_REPLACEMENTS) {
-            return invalidArgs(
-                job,
-                "edit_text_file",
-                "replacements must contain 1 to $MAX_REPLACEMENTS items",
-            )
+        val request = when (val parsed = parseExactEditArguments(job, args, "edit_text_file")) {
+            is ExactEditArguments.Invalid -> return parsed.response
+            is ExactEditArguments.Valid -> parsed.request
         }
-        val replacements = rawReplacements.mapIndexed { index, element ->
-            val replacement = element as? JsonObject
-                ?: return invalidArgs(job, "edit_text_file", "replacement ${index + 1} is not an object")
-            val oldText = replacement.string("old_text")?.takeIf(String::isNotEmpty)
-                ?: return invalidArgs(job, "edit_text_file", "replacement ${index + 1} needs old_text")
-            val newText = replacement.string("new_text")
-                ?: return invalidArgs(job, "edit_text_file", "replacement ${index + 1} needs new_text")
-            val expectedCount = replacement.int("expected_count")?.takeIf { it > 0 }
-                ?: return invalidArgs(
-                    job,
-                    "edit_text_file",
-                    "replacement ${index + 1} needs positive expected_count",
-                )
-            ExactReplacement(oldText, newText, expectedCount)
+        val result = executeResourceScopedMutation(
+            tool = "edit_text_file",
+            arguments = args,
+            authorizer = resourceAuthorization,
+        ) { targetLease ->
+            files.exactReplace(
+                request.path,
+                request.expectedSha256,
+                request.replacements,
+                targetLease,
+            )
         }
         return providerResult(
             job,
@@ -266,7 +233,27 @@ internal class AndroidProviderToolHandlers(
             "file_resource_access",
             "android_app_api",
             mutating = true,
-            result = files.exactReplace(path, expectedSha, replacements),
+            result = result,
+        )
+    }
+
+    suspend fun editTextFileStructure(
+        job: PhoneControlToolJobContext,
+        args: JsonObject,
+    ): PhoneControlToolExecution {
+        val request = when (
+            val parsed = parseExactEditArguments(job, args, "edit_text_file_structure")
+        ) {
+            is ExactEditArguments.Invalid -> return parsed.response
+            is ExactEditArguments.Valid -> parsed.request
+        }
+        return providerResult(
+            job,
+            "edit_text_file_structure",
+            "file_resource_access",
+            "android_app_api",
+            mutating = true,
+            result = structuralEdits.execute(args, request),
         )
     }
 
@@ -280,7 +267,7 @@ internal class AndroidProviderToolHandlers(
         args: JsonObject,
     ): PhoneControlToolExecution = artifactHandlers.extract(job, args)
 
-    fun saveArtifact(
+    suspend fun saveArtifact(
         job: PhoneControlToolJobContext,
         args: JsonObject,
     ): PhoneControlToolExecution = artifactHandlers.save(job, args)
@@ -291,11 +278,29 @@ internal class AndroidProviderToolHandlers(
     suspend fun browserStatus(job: PhoneControlToolJobContext): PhoneControlToolExecution =
         browserHandlers.status(job)
 
+    suspend fun browserReset(job: PhoneControlToolJobContext): PhoneControlToolExecution =
+        browserHandlers.reset(job)
+
     suspend fun browserReadPage(job: PhoneControlToolJobContext): PhoneControlToolExecution =
         browserHandlers.readPage(job)
 
+    suspend fun researchWeb(
+        job: PhoneControlToolJobContext,
+        args: JsonObject,
+    ): PhoneControlToolExecution = browserHandlers.research(job, args)
+
     suspend fun browserExtractPage(job: PhoneControlToolJobContext): PhoneControlToolExecution =
         browserHandlers.extractPage(job)
+
+    suspend fun browserWaitFor(
+        job: PhoneControlToolJobContext,
+        args: JsonObject,
+    ): PhoneControlToolExecution = browserHandlers.waitFor(job, args)
+
+    suspend fun browserEval(
+        job: PhoneControlToolJobContext,
+        args: JsonObject,
+    ): PhoneControlToolExecution = browserHandlers.eval(job, args)
 
     suspend fun browserNavigate(
         job: PhoneControlToolJobContext,
@@ -306,6 +311,38 @@ internal class AndroidProviderToolHandlers(
         job: PhoneControlToolJobContext,
         args: JsonObject,
     ): PhoneControlToolExecution = browserHandlers.history(job, args)
+
+    suspend fun browserOpenTab(
+        job: PhoneControlToolJobContext,
+        args: JsonObject,
+    ): PhoneControlToolExecution = browserHandlers.openTab(job, args)
+
+    suspend fun browserUpload(
+        job: PhoneControlToolJobContext,
+        args: JsonObject,
+    ): PhoneControlToolExecution = browserHandlers.upload(job, args)
+
+    suspend fun browserTabs(job: PhoneControlToolJobContext): PhoneControlToolExecution =
+        browserHandlers.tabs(job)
+
+    suspend fun browserSwitchTab(
+        job: PhoneControlToolJobContext,
+        args: JsonObject,
+    ): PhoneControlToolExecution = browserHandlers.switchTab(job, args)
+
+    suspend fun browserCloseTab(
+        job: PhoneControlToolJobContext,
+        args: JsonObject,
+    ): PhoneControlToolExecution = browserHandlers.closeTab(job, args)
+
+    suspend fun browserNetwork(
+        job: PhoneControlToolJobContext,
+        args: JsonObject,
+    ): PhoneControlToolExecution = browserHandlers.network(job, args)
+
+    suspend fun browserConsole(job: PhoneControlToolJobContext): PhoneControlToolExecution =
+        browserHandlers.console(job)
+
 }
 
 internal fun providerResult(
@@ -368,7 +405,10 @@ internal fun providerResult(
                 snapshotInvalidated = effectMayHaveOccurred,
                 retryable = result.retryable,
                 requiredUserStep = result.requiredUserStep,
-                data = buildJsonObject { put("message", result.message) },
+                data = buildJsonObject {
+                    result.data.forEach { (key, value) -> put(key, value) }
+                    put("message", result.message)
+                },
             ),
             mutating = effectMayHaveOccurred,
             refreshScreenFrame = effectMayHaveOccurred,
@@ -388,26 +428,6 @@ private fun unavailableStoragePath(
     "grant_storage_access",
 )
 
-private fun unsupportedSafVariant(
-    job: PhoneControlToolJobContext,
-    tool: String,
-): PhoneControlToolExecution = unavailableToolResponse(
-    job,
-    tool,
-    "file_resource_access",
-    "android_app_api",
-    CapabilityState.UNSUPPORTED,
-)
-
-private fun JsonObject.stringSet(name: String): Set<String>? {
-    val value = get(name) ?: return emptySet()
-    val array = value as? JsonArray ?: return null
-    val strings = array.map { element ->
-        (element as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.contentOrNull ?: return null
-    }
-    return strings.toSet()
-}
-
 private fun isAbsolutePath(path: String): Boolean = runCatching { File(path.trim()).isAbsolute }
     .getOrDefault(false)
 
@@ -415,7 +435,16 @@ private fun isContentUri(path: String): Boolean = runCatching {
     URI(path.trim()).scheme.equals("content", ignoreCase = true)
 }.getOrDefault(false)
 
-private const val DEFAULT_FILE_LIMIT = 200
+internal fun isSupportedSystemQuery(domain: String, query: String): Boolean =
+    SUPPORTED_SYSTEM_QUERIES[domain] == query
+
 private const val MAX_TEXT_CHARS = 64_000
-private const val MAX_REPLACEMENTS = 64
 private val UNCERTAIN_MUTATION_FAILURES = setOf("write_failed", "save_failed")
+private val SUPPORTED_SYSTEM_QUERIES = mapOf(
+    "capabilities" to "list",
+    "audio" to "active_sessions",
+    "clipboard" to "text",
+    "process" to "list_basic",
+    "storage" to "volumes",
+    "window" to "list",
+)

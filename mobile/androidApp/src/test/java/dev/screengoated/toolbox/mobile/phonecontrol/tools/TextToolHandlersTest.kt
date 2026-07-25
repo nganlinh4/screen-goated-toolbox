@@ -86,6 +86,12 @@ class TextToolHandlersTest {
         )
 
         assertEquals("invalid_arguments", result.response.stringValue("code"))
+        assertEquals("contract", result.response.stringValue("failure_class"))
+        assertEquals("target", result.response.stringValue("argument_field"))
+        assertEquals(
+            "invalid_surface_identity",
+            result.response.stringValue("contract_reason"),
+        )
         assertEquals(null, backend.typedTarget)
         assertEquals("proven_no_effect", result.response.stringValue("effect_status"))
     }
@@ -172,6 +178,7 @@ class TextToolHandlersTest {
         )
 
         assertEquals("ok", supported.response.stringValue("code"))
+        assertEquals("ui.key_action", supported.response.stringValue("capability"))
         assertEquals(100L, backend.keyHoldMs)
         assertEquals(
             listOf(
@@ -183,7 +190,30 @@ class TextToolHandlersTest {
             backend.keyGroups,
         )
         assertEquals("unsupported_on_android", unsupported.response.stringValue("code"))
+        assertEquals("ui.key_action", unsupported.response.stringValue("capability"))
         assertEquals("unsupported", unsupported.response.stringValue("provider_state"))
+    }
+
+    @Test
+    fun `key target failures retain key action capability`() = runTest {
+        val backend = FakeTextBackend().apply {
+            focusResult = AccessibilityProviderResult.Failure(
+                code = "focused_editor_unavailable",
+                message = "No editor.",
+                retryable = true,
+            )
+        }
+
+        val execution = TextToolHandlers(missingArtifactResolver, backend).keyCombination(
+            job,
+            buildJsonObject {
+                put("target", surfaceTarget)
+                put("keys", "Ctrl+A")
+            },
+        )
+
+        assertEquals("focused_editor_unavailable", execution.response.stringValue("code"))
+        assertEquals("ui.key_action", execution.response.stringValue("capability"))
     }
 
     @Test

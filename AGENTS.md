@@ -40,7 +40,7 @@
 - Use `.claude/skills/enforce-mobile-parity/SKILL.md`.
 - Port Windows state/HTML contract; thin platform shim only. No guessed mobile redesign or duplicated core logic.
 - Divergent glue, repeated fixes, or parity monolith: rewrite from canonical Windows architecture.
-- Android workflow and machine paths: `mobile/README.md`.
+- Android rules: `mobile/AGENTS.md`. Workflow and machine paths: `mobile/README.md`.
 
 ## Screen Recorder
 

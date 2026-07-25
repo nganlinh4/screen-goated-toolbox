@@ -8,8 +8,10 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.Acces
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityMutationKind
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilitySurfaceLease
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.activeOsOwnedUserStepFailure
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.surfaceLease
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
+import dev.screengoated.toolbox.mobile.phonecontrol.result.PhoneControlTargetIdentity
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -52,12 +54,31 @@ internal suspend fun handleAct(
     backend: AccessibilityToolBackend = AndroidAccessibilityToolBackend,
 ): PhoneControlToolExecution {
     val id = args.int("id")
-        ?: return invalidArgs(job, requestedTool, "$requestedTool requires integer id")
+        ?: return invalidArgs(
+            job,
+            requestedTool,
+            "$requestedTool requires integer id",
+            argumentField = "id",
+            contractReason = "missing_or_invalid",
+        )
     val verb = parseActionVerb(args.string("verb"))
-        ?: return invalidArgs(job, requestedTool, "unknown or missing act verb")
+        ?: return invalidArgs(
+            job,
+            requestedTool,
+            "unknown or missing act verb",
+            argumentField = "verb",
+            contractReason = "missing_or_invalid",
+        )
     val confirmed = args.confirmationOrNull()
-        ?: return invalidArgs(job, requestedTool, "confirm must be a boolean when provided")
+        ?: return invalidArgs(
+            job,
+            requestedTool,
+            "confirm must be a boolean when provided",
+            argumentField = "confirm",
+            contractReason = "invalid_type",
+        )
     val capability = capabilityForVerb(verb)
+    val attemptedTarget = attemptedTargetData(id, backend.currentTargetIdentity(id))
     return when (val outcome = backend.act(id, verb, args.string("value"), confirmed)) {
         is AccessibilityProviderResult.Failure -> accessibilityFailure(
             job,
@@ -65,12 +86,14 @@ internal suspend fun handleAct(
             capability,
             outcome,
             backend,
+            attemptedTarget,
         )
         is AccessibilityProviderResult.Success -> actionSuccess(
             job,
             requestedTool,
             capability,
             outcome.value,
+            attemptedTarget,
         )
     }
 }
@@ -84,6 +107,17 @@ internal suspend fun handleClickAt(
         ?: return invalidArgs(job, "click_at", "click_at requires cell")
     val frame = currentOrFreshFrame(backend)
         ?: return unavailableAccessibility(job, "click_at", POINTER_CAPABILITY)
+    frame.observation
+        .activeOsOwnedUserStepFailure(AccessibilityMutationKind.POINTER_ACTIVATE)
+        ?.let { failure ->
+            return accessibilityFailure(
+                job,
+                "click_at",
+                POINTER_CAPABILITY,
+                failure,
+                backend,
+            )
+        }
     val grid = frame.matchingGrid()
         ?: return staleGrid(job, "click_at", backend.observationGeneration)
     val point = grid.cellCenter(cell)
@@ -108,6 +142,11 @@ internal suspend fun handleDrag(
         ?: return invalidArgs(job, "drag", "drag requires to_cell")
     val frame = currentOrFreshFrame(backend)
         ?: return unavailableAccessibility(job, "drag", POINTER_CAPABILITY)
+    frame.observation
+        .activeOsOwnedUserStepFailure(AccessibilityMutationKind.POINTER_ACTIVATE)
+        ?.let { failure ->
+            return accessibilityFailure(job, "drag", POINTER_CAPABILITY, failure, backend)
+        }
     val grid = frame.matchingGrid()
         ?: return staleGrid(job, "drag", backend.observationGeneration)
     val fromPoint = grid.cellCenter(from)
@@ -138,9 +177,20 @@ internal suspend fun handleScroll(
     backend: AccessibilityToolBackend = AndroidAccessibilityToolBackend,
 ): PhoneControlToolExecution {
     val direction = args.string("direction")
-        ?: return invalidArgs(job, "scroll", "scroll requires direction")
+        ?: return invalidArgs(
+            job,
+            "scroll",
+            "scroll requires direction",
+            argumentField = "direction",
+            contractReason = "missing_or_invalid",
+        )
     val frame = currentOrFreshFrame(backend)
         ?: return unavailableAccessibility(job, "scroll", POINTER_CAPABILITY)
+    frame.observation
+        .activeOsOwnedUserStepFailure(AccessibilityMutationKind.NAVIGATION_GESTURE)
+        ?.let { failure ->
+            return accessibilityFailure(job, "scroll", POINTER_CAPABILITY, failure, backend)
+        }
     val requestedCell = args.int("cell")
     val grid = frame.matchingGrid()
     val lease = if (grid != null) {
@@ -158,7 +208,13 @@ internal suspend fun handleScroll(
     } else {
         if (grid == null) return staleGrid(job, "scroll", backend.observationGeneration)
         grid.cellCenter(requestedCell)
-            ?: return invalidArgs(job, "scroll", "grid cell is outside the current frame")
+            ?: return invalidArgs(
+                job,
+                "scroll",
+                "grid cell is outside the current frame",
+                argumentField = "cell",
+                contractReason = "out_of_range",
+            )
     }
     val amount = args.number("amount")?.coerceIn(0.25, 10.0) ?: 1.0
     val horizontal = (bounds.right - bounds.left) *
@@ -166,7 +222,13 @@ internal suspend fun handleScroll(
     val vertical = (bounds.bottom - bounds.top) *
         (0.25f * amount.toFloat()).coerceAtMost(0.42f)
     val coordinates = scrollCoordinates(direction, center, bounds, horizontal, vertical)
-        ?: return invalidArgs(job, "scroll", "unknown scroll direction")
+        ?: return invalidArgs(
+            job,
+            "scroll",
+            "unknown scroll direction",
+            argumentField = "direction",
+            contractReason = "unsupported_value",
+        )
     return gestureExecution(
         job,
         "scroll",
@@ -192,6 +254,7 @@ private fun actionSuccess(
     requestedTool: String,
     capability: String,
     outcome: AccessibilityActionOutcome,
+    attemptedTarget: JsonObject,
 ): PhoneControlToolExecution = PhoneControlToolExecution(
     response = toolResponse(
         job = job,
@@ -204,7 +267,10 @@ private fun actionSuccess(
         effect = outcome.effect,
         snapshotInvalidated = outcome.snapshotInvalidated,
         freshObservationRequired = outcome.freshObservationRequired,
-        data = buildJsonObject { outcome.message?.let { put("message", it) } },
+        data = buildJsonObject {
+            attemptedTarget.forEach { (key, value) -> put(key, value) }
+            outcome.message?.let { put("message", it) }
+        },
     ),
     mutating = outcome.effect != EffectCertainty.PROVEN_NO_EFFECT,
     refreshScreenFrame = outcome.snapshotInvalidated,
@@ -335,6 +401,7 @@ private fun accessibilityFailure(
     capability: String,
     failure: AccessibilityProviderResult.Failure,
     backend: AccessibilityToolBackend,
+    structuralData: JsonObject = JsonObject(emptyMap()),
 ): PhoneControlToolExecution {
     val uncertain = failure.effect != EffectCertainty.PROVEN_NO_EFFECT
     val providerState = if (backend.isReady) {
@@ -358,6 +425,7 @@ private fun accessibilityFailure(
                 ?: if (backend.isReady) null else "enable_accessibility",
             freshObservationRequired = failure.freshObservationRequired || uncertain,
             data = buildJsonObject {
+                structuralData.forEach { (key, value) -> put(key, value) }
                 put("message", failure.message)
             },
         ),
@@ -366,11 +434,25 @@ private fun accessibilityFailure(
     )
 }
 
+private fun attemptedTargetData(
+    id: Int,
+    identity: PhoneControlTargetIdentity?,
+): JsonObject = buildJsonObject {
+    put("attempted_target_id", id)
+    identity?.let { target ->
+        put("target_snapshot_generation", target.snapshotGeneration)
+        put("target_display_id", target.displayId)
+        put("target_window_id", target.windowId)
+    }
+}
+
 internal fun invalidArgs(
     job: PhoneControlToolJobContext,
     tool: String,
     message: String,
     observationGeneration: Long = 0,
+    argumentField: String? = null,
+    contractReason: String? = null,
 ): PhoneControlToolExecution = PhoneControlToolExecution(
     response = toolResponse(
         job = job,
@@ -382,7 +464,12 @@ internal fun invalidArgs(
         observationGeneration = observationGeneration,
         effect = EffectCertainty.PROVEN_NO_EFFECT,
         snapshotInvalidated = false,
-        data = buildJsonObject { put("message", message) },
+        data = buildJsonObject {
+            put("message", message)
+            put("failure_class", "contract")
+            argumentField?.let { put("argument_field", it) }
+            contractReason?.let { put("contract_reason", it) }
+        },
     ),
     mutating = false,
 )

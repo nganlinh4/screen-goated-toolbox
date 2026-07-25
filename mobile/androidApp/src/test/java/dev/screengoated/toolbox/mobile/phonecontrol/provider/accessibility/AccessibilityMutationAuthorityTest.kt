@@ -215,6 +215,30 @@ class AccessibilityMutationAuthorityTest {
     }
 
     @Test
+    fun activeOsOwnedStepHasUniformPrecedenceForEveryInputKind() {
+        val activeConfirmation = window(
+            id = 8,
+            layer = 2,
+            packageName = "fixture.authority",
+            authority = AccessibilityTargetAuthority.OS_OWNED_USER_STEP,
+        )
+        val captured = observation(listOf(window(active = false), activeConfirmation))
+
+        AccessibilityMutationKind.entries
+            .filterNot { it == AccessibilityMutationKind.SEMANTIC_READ }
+            .forEach { kind ->
+                val failure = captured.activeOsOwnedUserStepFailure(kind)
+                assertEquals(kind.name, "os_owned_confirmation", failure?.code)
+                assertEquals(
+                    kind.name,
+                    "complete_os_owned_confirmation",
+                    failure?.requiredUserStep,
+                )
+                assertEquals(kind.name, EffectCertainty.PROVEN_NO_EFFECT, failure?.effect)
+            }
+    }
+
+    @Test
     fun activeControllerApplicationCannotHideAPlatformUserStepFromCommandPreflight() {
         val platformStep = window(
             packageName = "fixture.controller",

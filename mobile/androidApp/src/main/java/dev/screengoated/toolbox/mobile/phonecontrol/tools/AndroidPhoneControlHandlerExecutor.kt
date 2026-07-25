@@ -1,6 +1,9 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorization
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorizer
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlStructuralEditAuthorization
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import kotlin.math.roundToLong
@@ -9,8 +12,16 @@ import kotlinx.serialization.json.JsonObject
 
 internal class AndroidPhoneControlHandlerExecutor(
     context: Context,
+    structuralAuthorization: PhoneControlStructuralEditAuthorization =
+        PhoneControlStructuralEditAuthorization(context),
+    resourceAuthorization: PhoneControlResourceAuthorizer =
+        PhoneControlResourceAuthorization(context),
 ) : PhoneControlHandlerExecutor {
-    private val providers = AndroidProviderToolHandlers(context)
+    private val providers = AndroidProviderToolHandlers(
+        context,
+        structuralAuthorization,
+        resourceAuthorization,
+    )
     private val detector = UiDetectorToolHandlers(context)
     private val visual = VisualToolHandlers()
     private val surfaces = SurfaceToolHandlers(context)
@@ -46,6 +57,8 @@ internal class AndroidPhoneControlHandlerExecutor(
         PhoneControlHandler.LIST_FILES -> providers.listFiles(job, arguments)
         PhoneControlHandler.READ_TEXT_FILE -> providers.readTextFile(job, arguments)
         PhoneControlHandler.EDIT_TEXT_FILE -> providers.editTextFile(job, arguments)
+        PhoneControlHandler.EDIT_TEXT_FILE_STRUCTURE ->
+            providers.editTextFileStructure(job, arguments)
         PhoneControlHandler.RUN_COMMAND -> handleRunCommand(job, arguments, commands)
         PhoneControlHandler.FOCUS_WINDOW -> surfaces.focusWindow(job, arguments)
         PhoneControlHandler.LIST_WINDOWS -> surfaces.listWindows(job)
@@ -61,10 +74,21 @@ internal class AndroidPhoneControlHandlerExecutor(
         PhoneControlHandler.OPEN_MEMORY -> memory.openMemory(job, arguments)
         PhoneControlHandler.BROWSER_SETUP -> providers.browserSetup(job)
         PhoneControlHandler.BROWSER_STATUS -> providers.browserStatus(job)
+        PhoneControlHandler.BROWSER_RESET -> providers.browserReset(job)
         PhoneControlHandler.BROWSER_READ_PAGE -> providers.browserReadPage(job)
+        PhoneControlHandler.RESEARCH_WEB -> providers.researchWeb(job, arguments)
         PhoneControlHandler.BROWSER_EXTRACT_PAGE -> providers.browserExtractPage(job)
+        PhoneControlHandler.BROWSER_WAIT_FOR -> providers.browserWaitFor(job, arguments)
+        PhoneControlHandler.BROWSER_EVAL -> providers.browserEval(job, arguments)
         PhoneControlHandler.BROWSER_NAVIGATE -> providers.browserNavigate(job, arguments)
         PhoneControlHandler.BROWSER_HISTORY -> providers.browserHistory(job, arguments)
+        PhoneControlHandler.BROWSER_OPEN_TAB -> providers.browserOpenTab(job, arguments)
+        PhoneControlHandler.BROWSER_UPLOAD -> providers.browserUpload(job, arguments)
+        PhoneControlHandler.BROWSER_TABS -> providers.browserTabs(job)
+        PhoneControlHandler.BROWSER_SWITCH_TAB -> providers.browserSwitchTab(job, arguments)
+        PhoneControlHandler.BROWSER_CLOSE_TAB -> providers.browserCloseTab(job, arguments)
+        PhoneControlHandler.BROWSER_NETWORK -> providers.browserNetwork(job, arguments)
+        PhoneControlHandler.BROWSER_CONSOLE -> providers.browserConsole(job)
         PhoneControlHandler.DONE -> handleDone(job, arguments)
     }
 }

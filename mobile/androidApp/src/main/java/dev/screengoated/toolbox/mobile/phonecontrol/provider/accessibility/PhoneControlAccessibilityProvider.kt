@@ -8,6 +8,7 @@ import android.os.SystemClock
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import android.view.accessibility.AccessibilityEvent
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayExclusion
+import dev.screengoated.toolbox.mobile.phonecontrol.overlay.maskPhoneControlOverlay
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import dev.screengoated.toolbox.mobile.service.ScreenshotCaptureFailureReason
@@ -38,6 +39,7 @@ internal data class AccessibilityScreenshot(
     val bitmap: Bitmap,
     val captureBounds: TargetBounds,
     val windowId: Long?,
+    val captureProvider: String = "accessibility",
 )
 
 internal object PhoneControlAccessibilityProvider {
@@ -286,7 +288,7 @@ internal object PhoneControlAccessibilityProvider {
                 if (loggedInvalidWindowFallback.compareAndSet(false, true)) {
                     Log.i(
                         TAG,
-                        "screenshot_window_stale recovery=display_scoped overlay_suppressed=true",
+                        "screenshot_window_stale recovery=display_scoped overlay_mutated=false",
                     )
                 }
                 captureDisplayScreenshot(activeService)
@@ -302,10 +304,18 @@ internal object PhoneControlAccessibilityProvider {
         activeService: SgtAccessibilityService,
     ): AccessibilityProviderResult<AccessibilityScreenshot> {
         if (loggedDisplayCapture.compareAndSet(false, true)) {
-            Log.i(TAG, "screenshot_route route=display_scoped overlay_suppressed=true")
+            Log.i(TAG, "screenshot_route route=display_scoped overlay_mutated=false")
         }
-        return PhoneControlOverlayExclusion.forCapture {
-            captureScreenshot(null, null, activeService::captureScreenshot)
+        return when (
+            val captured = captureScreenshot(null, null, activeService::captureScreenshot)
+        ) {
+            is AccessibilityProviderResult.Failure -> captured
+            is AccessibilityProviderResult.Success -> {
+                val screenshot = captured.value
+                AccessibilityProviderResult.Success(
+                    screenshot.copy(bitmap = maskPhoneControlOverlay(screenshot.bitmap)),
+                )
+            }
         }
     }
 
@@ -357,6 +367,14 @@ internal object PhoneControlAccessibilityProvider {
     internal fun currentObservation(): AccessibilityObservation? = synchronized(lock) {
         latestCapture?.observation
     }
+
+    internal fun currentActiveOsOwnedStepFailure(
+        kind: AccessibilityMutationKind,
+    ): AccessibilityProviderResult.Failure? = synchronized(lock) {
+        latestCapture?.observation?.takeIf { observation ->
+            observation.generation == generation.get()
+        }
+    }?.activeOsOwnedUserStepFailure(kind)
 
     internal fun currentCaptureGeneration(): Long? = synchronized(lock) {
         latestCapture?.observation?.generation
@@ -417,7 +435,14 @@ internal object PhoneControlAccessibilityProvider {
     }
 
     internal fun validateVisualRevision(expected: Long?): AccessibilityProviderResult.Failure? {
-        return visualRevisionFailure(expected, visualRevision.get())
+        val current = visualRevision.get()
+        return visualRevisionFailure(expected, current)?.also {
+            Log.d(
+                TAG,
+                "visual_revision_mismatch expected_visual_revision=$expected " +
+                    "current_visual_revision=$current generation=$observationGeneration",
+            )
+        }
     }
 
     internal fun invalidate(reason: String): Long {

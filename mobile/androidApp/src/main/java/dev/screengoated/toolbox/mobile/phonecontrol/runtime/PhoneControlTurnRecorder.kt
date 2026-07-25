@@ -28,3 +28,27 @@ internal object NoOpPhoneControlTurnRecorder : PhoneControlTurnRecorder {
 
     override fun turnInterrupted(turnId: Long) = Unit
 }
+
+internal class CompositePhoneControlTurnRecorder(
+    private val delegates: List<PhoneControlTurnRecorder>,
+) : PhoneControlTurnRecorder {
+    override fun turnStarted(turnId: Long, generation: Long) {
+        delegates.forEach { it.turnStarted(turnId, generation) }
+    }
+
+    override fun userTranscriptUpdated(turnId: Long, text: String) {
+        delegates.forEach { it.userTranscriptUpdated(turnId, text) }
+    }
+
+    override fun assistantTranscriptUpdated(turnId: Long, text: String) {
+        delegates.forEach { it.assistantTranscriptUpdated(turnId, text) }
+    }
+
+    override fun turnCompleted(turnId: Long, userText: String, assistantText: String) {
+        delegates.forEach { it.turnCompleted(turnId, userText, assistantText) }
+    }
+
+    override fun turnInterrupted(turnId: Long) {
+        delegates.forEach { it.turnInterrupted(turnId) }
+    }
+}

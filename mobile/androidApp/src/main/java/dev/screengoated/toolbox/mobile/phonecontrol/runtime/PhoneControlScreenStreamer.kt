@@ -25,6 +25,7 @@ internal class PhoneControlScreenStreamer(
 ) {
     suspend fun run() {
         var lastFailureCode: String? = null
+        var lastCaptureRoute: String? = null
         var visibleFailurePublished = false
         val failurePolicy = ScreenCaptureFailurePolicy()
         var explicitRefreshPending = drainRefreshRequests()
@@ -33,63 +34,64 @@ internal class PhoneControlScreenStreamer(
                 transportReady.get() &&
                 canSendAmbientScreen(pendingWorkCount())
             ) {
-                if (!PhoneControlAccessibilityProvider.isReady) {
-                    if (lastFailureCode != CAPABILITY_UNAVAILABLE) {
-                        lastFailureCode = CAPABILITY_UNAVAILABLE
-                        Log.w(TAG, "screen_capture_degraded code=$CAPABILITY_UNAVAILABLE")
-                        statusPublisher.publish(
-                            phase = PhoneControlRuntimePhase.DEGRADED,
-                            code = PhoneControlRuntimeCode.ACCESSIBILITY_UNAVAILABLE,
-                            message = "Reconnect the SGT Accessibility service to share the screen.",
-                        )
-                        visibleFailurePublished = true
-                    }
-                } else {
-                    val groundingFrame = UiDetectorGroundingFrameStore.takeForGeneration(
-                        PhoneControlAccessibilityProvider.observationGeneration,
+                val groundingFrame = UiDetectorGroundingFrameStore.takeForGeneration(
+                    PhoneControlAccessibilityProvider.observationGeneration,
+                )
+                if (groundingFrame != null) {
+                    lastCaptureRoute = logCaptureRouteTransition(
+                        lastCaptureRoute,
+                        "local_ui_detector",
+                        "grounding_frame",
                     )
-                    if (groundingFrame != null) {
-                        explicitRefreshPending = queueFrame(groundingFrame, explicitRefreshPending)
-                        if (lastFailureCode != null) {
-                            statusPublisher.publishTurnPhase(currentTurnPhase())
+                    explicitRefreshPending = queueFrame(groundingFrame, explicitRefreshPending)
+                    if (lastFailureCode != null) {
+                        statusPublisher.publishTurnPhase(currentTurnPhase())
+                    }
+                    failurePolicy.reset()
+                    lastFailureCode = null
+                    visibleFailurePublished = false
+                } else {
+                    when (val result = PhoneControlVisualProvider.captureStreamingFrame()) {
+                        is VisualProviderResult.Success -> {
+                            val identity = result.value.identity
+                            lastCaptureRoute = logCaptureRouteTransition(
+                                lastCaptureRoute,
+                                identity.captureProvider,
+                                screenCaptureRoute(
+                                    captureProvider = identity.captureProvider,
+                                    hasCoordinateLease = identity.grid != null,
+                                ),
+                            )
+                            explicitRefreshPending = queueFrame(
+                                result.value.screenPayload,
+                                explicitRefreshPending,
+                            )
+                            if (lastFailureCode != null) {
+                                statusPublisher.publishTurnPhase(currentTurnPhase())
+                            }
+                            failurePolicy.reset()
+                            lastFailureCode = null
+                            visibleFailurePublished = false
                         }
-                        failurePolicy.reset()
-                        lastFailureCode = null
-                        visibleFailurePublished = false
-                    } else {
-                        when (val result = PhoneControlVisualProvider.captureStreamingFrame()) {
-                            is VisualProviderResult.Success -> {
-                                explicitRefreshPending = queueFrame(
-                                    result.value.screenPayload,
-                                    explicitRefreshPending,
-                                )
-                                if (lastFailureCode != null) {
-                                    statusPublisher.publishTurnPhase(currentTurnPhase())
+                        is VisualProviderResult.Failure -> {
+                            val shouldPublish = visibleFailurePublished ||
+                                failurePolicy.shouldPublish(result.code, result.retryable)
+                            if (lastFailureCode != result.code ||
+                                shouldPublish != visibleFailurePublished
+                            ) {
+                                lastFailureCode = result.code
+                                val state = if (shouldPublish) "degraded" else "waiting"
+                                val message = "screen_capture_$state code=${result.code}"
+                                if (shouldPublish) {
+                                    Log.w(TAG, "$message retryable=${result.retryable}")
+                                } else {
+                                    Log.d(TAG, message)
                                 }
-                                failurePolicy.reset()
-                                lastFailureCode = null
-                                visibleFailurePublished = false
                             }
-                            is VisualProviderResult.Failure -> {
-                                val shouldPublish = visibleFailurePublished ||
-                                    failurePolicy.shouldPublish(result.code, result.retryable)
-                                if (lastFailureCode != result.code ||
-                                    shouldPublish != visibleFailurePublished
-                                ) {
-                                    lastFailureCode = result.code
-                                    val state = if (shouldPublish) "degraded" else "waiting"
-                                    val message = "screen_capture_$state code=${result.code}"
-                                    if (shouldPublish) {
-                                        Log.w(TAG, "$message retryable=${result.retryable}")
-                                    } else {
-                                        Log.d(TAG, message)
-                                    }
-                                }
-                                if (shouldPublish && !visibleFailurePublished) {
-                                    statusPublisher.publishScreenFailure(result.message)
-                                }
-                                visibleFailurePublished = shouldPublish
+                            if (shouldPublish && !visibleFailurePublished) {
+                                statusPublisher.publishScreenFailure(result.message)
                             }
+                            visibleFailurePublished = shouldPublish
                         }
                     }
                 }
@@ -103,6 +105,21 @@ internal class PhoneControlScreenStreamer(
         if (!screenFrames.trySend(payload).isSuccess) return explicitRefreshPending
         if (explicitRefreshPending) reconciliationFrameQueued.set(true)
         return false
+    }
+
+    private fun logCaptureRouteTransition(
+        previous: String?,
+        provider: String,
+        route: String,
+    ): String {
+        val current = "$provider/$route"
+        if (previous != current) {
+            Log.i(
+                TAG,
+                "screen_capture_route provider=$provider route=$route overlay_mutated=false",
+            )
+        }
+        return current
     }
 
     private fun drainRefreshRequests(): Boolean {
@@ -119,7 +136,15 @@ internal class PhoneControlScreenStreamer(
 
     private companion object {
         const val TAG = "SGTPhoneControl"
-        const val CAPABILITY_UNAVAILABLE = "capability_unavailable"
         const val SCREEN_CAPTURE_INTERVAL_MS = 1_500L
     }
+}
+
+internal fun screenCaptureRoute(
+    captureProvider: String,
+    hasCoordinateLease: Boolean,
+): String = when {
+    captureProvider == "media_projection" && !hasCoordinateLease -> "projection_only"
+    captureProvider == "media_projection" -> "whole_display"
+    else -> "semantic_visual"
 }

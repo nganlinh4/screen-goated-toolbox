@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.runtime
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -36,5 +37,12 @@ class ScreenCaptureFailurePolicyTest {
         repeat(2) { assertFalse(policy.shouldPublish("temporary_failure", retryable = true)) }
         policy.reset()
         assertFalse(policy.shouldPublish("temporary_failure", retryable = true))
+    }
+
+    @Test
+    fun `capture route follows provider and coordinate lease instead of readiness snapshot`() {
+        assertEquals("projection_only", screenCaptureRoute("media_projection", false))
+        assertEquals("whole_display", screenCaptureRoute("media_projection", true))
+        assertEquals("semantic_visual", screenCaptureRoute("accessibility", true))
     }
 }

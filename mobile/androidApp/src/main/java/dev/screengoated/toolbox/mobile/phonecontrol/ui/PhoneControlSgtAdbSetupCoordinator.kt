@@ -2,7 +2,6 @@ package dev.screengoated.toolbox.mobile.phonecontrol.ui
 
 import android.content.Intent
 import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -10,6 +9,8 @@ import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlSetupNotification
+import dev.screengoated.toolbox.mobile.phonecontrol.phoneControlString
+import dev.screengoated.toolbox.mobile.phonecontrol.showPhoneControlToast
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PlatformUserStepSlot
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbCommandBridge
@@ -52,6 +53,14 @@ internal class PhoneControlSgtAdbSetupCoordinator(
 
     private fun advance(trigger: String) {
         if (closed || activity.isFinishing || activity.isDestroyed) return
+        if (PhoneControlService.captureSuspended) {
+            PhoneControlLog.i(
+                TAG,
+                "authority_setup_deferred provider=$PROVIDER_ID reason=protected_checkpoint",
+            )
+            finishActivity()
+            return
+        }
         if (PhoneControlPowerPreferences.current(activity) != PhoneControlPowerChoice.SGT_ADB) {
             cancelForAuthorityChange()
             return
@@ -81,11 +90,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
             return
         }
         externalStepActive = true
-        Toast.makeText(
-            activity,
-            R.string.phone_control_sgt_adb_setup,
-            Toast.LENGTH_LONG,
-        ).show()
+        activity.showPhoneControlToast(R.string.phone_control_sgt_adb_setup_toast)
         runCatching { launchExternal(intent) }
             .onSuccess {
                 reportGuidance(
@@ -128,7 +133,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
             else -> null
         }
         PhoneControlService.clearAuthoritySetup(activity, PROVIDER_ID)
-        Toast.makeText(activity, R.string.phone_control_sgt_adb_ready, Toast.LENGTH_SHORT).show()
+        activity.showPhoneControlToast(R.string.phone_control_sgt_adb_ready_toast)
         PhoneControlLog.i(TAG, "authority_setup_result provider=$PROVIDER_ID ready=true")
         if (continuation != null) {
             if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
@@ -136,7 +141,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
             } else {
                 PhoneControlSetupNotification.show(
                     activity,
-                    activity.getString(R.string.phone_control_sgt_adb_ready_resume),
+                    activity.phoneControlString(R.string.phone_control_sgt_adb_ready_resume),
                     continuation,
                 )
             }
@@ -150,11 +155,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
             requestAutomation = false,
             captureHandoffAfterAutomation = false,
         )
-        Toast.makeText(
-            activity,
-            R.string.phone_control_sgt_adb_pending,
-            Toast.LENGTH_LONG,
-        ).show()
+        activity.showPhoneControlToast(R.string.phone_control_sgt_adb_pending_toast)
         PhoneControlLog.i(TAG, "authority_setup_result provider=$PROVIDER_ID pending=true")
         finishActivity()
     }
@@ -164,7 +165,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
         requestAutomation: Boolean,
         captureHandoffAfterAutomation: Boolean,
     ) {
-        val guidance = activity.getString(messageResource)
+        val guidance = activity.phoneControlString(messageResource)
         PhoneControlSetupNotification.show(
             activity,
             guidance,

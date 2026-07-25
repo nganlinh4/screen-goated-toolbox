@@ -24,11 +24,24 @@ internal enum class PhoneControlPowerSelectionRoute {
     RESUME_CAPTURE,
 }
 
+internal data class PhoneControlPowerChoicePresentation(
+    val selected: Boolean,
+    val recommended: Boolean,
+)
+
+internal fun phoneControlPowerChoicePresentation(
+    choice: PhoneControlPowerChoice,
+    selectedChoice: PhoneControlPowerChoice?,
+) = PhoneControlPowerChoicePresentation(
+    selected = choice == selectedChoice,
+    recommended = choice == PhoneControlPowerChoice.SGT_ADB,
+)
+
 internal fun phoneControlPowerSelectionRoute(
     choice: PhoneControlPowerChoice,
-    protectedCheckpointActive: Boolean,
+    freshProjectionRequired: Boolean,
 ): PhoneControlPowerSelectionRoute = when {
-    protectedCheckpointActive -> PhoneControlPowerSelectionRoute.RESUME_CAPTURE
+    freshProjectionRequired -> PhoneControlPowerSelectionRoute.RESUME_CAPTURE
     choice.elevatedProviderId != null -> PhoneControlPowerSelectionRoute.SETUP
     else -> PhoneControlPowerSelectionRoute.NONE
 }

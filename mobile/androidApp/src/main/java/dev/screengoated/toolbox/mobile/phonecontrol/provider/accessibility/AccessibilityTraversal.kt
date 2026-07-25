@@ -276,7 +276,7 @@ private fun traverseAccessibilityTree(
     val bounds = Rect().also(node::getBoundsInScreen).toTargetBoundsOrNull()
     val actions = node.actionList.mapNotNull { actionName(it.id) }.toSet()
     val editable = node.isEditable || node.supportsAction(AccessibilityNodeInfo.ACTION_SET_TEXT)
-    val content = node.accessibilityContent(editable)
+    val content = node.contentForPublishedActionOwner(editable)
     val meaningful = node.isVisibleToUser && (
         content.label != null || content.hint != null || content.stateDescription != null ||
             actions.isNotEmpty() ||
@@ -340,12 +340,21 @@ private fun traverseAccessibilityTree(
         )
     }
 
-    for (index in 0 until node.childCount) {
+    val childCount = node.readChildCountSafely() ?: run {
+        onTruncated()
+        return
+    }
+    for (index in 0 until childCount) {
         if (elements.size >= maxElements) {
             onTruncated()
             break
         }
-        node.getChild(index)?.let { child ->
+        val childRead = node.readChildSafely(index)
+        if (childRead.failed) {
+            onTruncated()
+            break
+        }
+        childRead.node?.let { child ->
             traverseAccessibilityTree(
                 node = child,
                 path = path + index,
@@ -376,10 +385,20 @@ internal fun AccessibilityNodeInfo.matchesIgnoringActions(lease: AccessibilityTa
     return current.copy(actions = lease.fingerprint.actions) == lease.fingerprint
 }
 
+internal fun AccessibilityNodeInfo.matchesStableIdentity(lease: AccessibilityTargetLease): Boolean {
+    val current = currentFingerprint() ?: return false
+    val expected = lease.fingerprint
+    return current.packageName == expected.packageName &&
+        current.className == expected.className &&
+        current.viewId == expected.viewId &&
+        current.bounds == expected.bounds &&
+        current.isProtected == expected.isProtected
+}
+
 private fun AccessibilityNodeInfo.currentFingerprint(): AccessibilityNodeFingerprint? {
     val bounds = Rect().also(::getBoundsInScreen).toTargetBoundsOrNull() ?: return null
     val editable = isEditable || supportsAction(AccessibilityNodeInfo.ACTION_SET_TEXT)
-    val content = accessibilityContent(editable)
+    val content = contentForPublishedActionOwner(editable)
     return AccessibilityNodeFingerprint(
         packageName = packageName?.toString().orEmpty().ifBlank { "unknown" },
         className = className?.toString(),
@@ -391,7 +410,7 @@ private fun AccessibilityNodeInfo.currentFingerprint(): AccessibilityNodeFingerp
     )
 }
 
-private fun AccessibilityNodeInfo.accessibilityContent(editable: Boolean): AccessibilityNodeContent =
+internal fun AccessibilityNodeInfo.accessibilityContent(editable: Boolean): AccessibilityNodeContent =
     accessibilityNodeContent(
         isPassword = isPassword,
         contentDescription = contentDescription?.toString(),

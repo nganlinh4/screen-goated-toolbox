@@ -11,6 +11,7 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -20,19 +21,19 @@ internal class SgtAdbBridgeService : Service() {
     private val lock = Any()
     private var manager: SgtAdbConnectionManager? = null
     private var runner: SgtAdbCommandRunner? = null
+    private var browserTunnel: SgtAdbBrowserTunnel? = null
 
     private val binder = object : IPhoneControlAdbService.Stub() {
         override fun connectAndVerify(timeoutMs: Long): String =
             runBlocking(Dispatchers.IO) {
-                val connected = runCatching {
+                val connection = runCatching {
                     manager().connectDiscovered(timeoutMs)
-                }.getOrDefault(false)
-                Log.i(TAG, "connect_result connected=$connected")
-                if (!connected) {
-                    probeResult(
-                        state = "needs_user_step",
-                        code = "wireless_debugging_unavailable",
-                    )
+                }.getOrElse {
+                    SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTION_FAILED)
+                }
+                Log.i(TAG, "connect_result status=${connection.status.name.lowercase()}")
+                if (!connection.connected) {
+                    connection.toProbeResult()
                 } else {
                     verifyAuthority(timeoutMs)
                 }
@@ -90,8 +91,59 @@ internal class SgtAdbBridgeService : Service() {
         override fun cancelCommand(operationId: String): String =
             runner().cancel(operationId).toString()
 
+        override fun openBrowserTunnel(timeoutMs: Long): String =
+            runBlocking(Dispatchers.IO) {
+                val connection = runCatching {
+                    manager().connectDiscovered(timeoutMs)
+                }.getOrElse {
+                    SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTION_FAILED)
+                }
+                Log.i(
+                    TAG,
+                    "browser_connect_result status=${connection.status.name.lowercase()}",
+                )
+                if (!connection.connected) {
+                    return@runBlocking connection.toProbeResult().toString()
+                }
+                val authority = verifyAuthority(timeoutMs)
+                if (authority["state"]?.jsonPrimitive?.content != "ready") {
+                    return@runBlocking authority.toString()
+                }
+                val lease = synchronized(lock) {
+                    browserTunnel?.takeIf(SgtAdbBrowserTunnel::isOpen)
+                        ?: SgtAdbBrowserTunnel(manager()).also { browserTunnel = it }
+                }.lease
+                Log.i(TAG, "browser_tunnel_result ready=true")
+                buildJsonObject {
+                    put("state", "ready")
+                    put("code", "ready")
+                    put("lease_id", lease.leaseId)
+                    put("port", lease.port)
+                    put("bearer_token", lease.bearerToken)
+                }.toString()
+            }
+
+        override fun closeBrowserTunnel(leaseId: String): String {
+            val closed = synchronized(lock) {
+                val current = browserTunnel
+                if (current?.lease?.leaseId != leaseId) {
+                    false
+                } else {
+                    current.close()
+                    browserTunnel = null
+                    true
+                }
+            }
+            return buildJsonObject {
+                put("ok", closed)
+                put("code", if (closed) "browser_tunnel_closed" else "browser_tunnel_not_owned")
+            }.toString()
+        }
+
         override fun forget(): String {
             synchronized(lock) {
+                browserTunnel?.close()
+                browserTunnel = null
                 manager?.disconnectPreservingKey()
                 runner = null
                 manager = null
@@ -119,6 +171,8 @@ internal class SgtAdbBridgeService : Service() {
 
     override fun onDestroy() {
         synchronized(lock) {
+            browserTunnel?.close()
+            browserTunnel = null
             manager?.disconnectPreservingKey()
             runner = null
             manager = null
@@ -149,15 +203,14 @@ internal class SgtAdbBridgeService : Service() {
             cwd = DEFAULT_CWD,
             timeoutMs = timeoutMs.coerceIn(MIN_VERIFY_TIMEOUT_MS, MAX_VERIFY_TIMEOUT_MS),
         )
-        val exitCode = receipt["exit_code"]?.jsonPrimitive?.intOrNull
         val uid = receipt["output"]?.jsonPrimitive?.content?.trim()?.toIntOrNull()
-        val verified = exitCode == 0 && uid == ADB_SHELL_UID
+        val verified = isVerifiedAdbShellReceipt(receipt)
         Log.i(TAG, "authority_result verified=$verified uid=${uid ?: "unknown"}")
         return if (verified) {
             probeResult(
                 "ready",
                 "ready",
-                ADB_SHELL_UID,
+                SGT_ADB_SHELL_UID,
                 pairingEstablished = pairingEstablished,
                 deviceIdentity = deviceIdentity,
             )
@@ -189,11 +242,27 @@ internal class SgtAdbBridgeService : Service() {
         }
     }
 
+    private fun SgtAdbConnectResult.toProbeResult(): JsonObject = when (status) {
+        SgtAdbConnectStatus.CONNECTED -> probeResult("ready", "ready")
+        SgtAdbConnectStatus.PAIRING_STATE_MISSING ->
+            probeResult("needs_user_step", "pairing_state_missing")
+        SgtAdbConnectStatus.AUTHORIZATION_REJECTED ->
+            probeResult("needs_user_step", "pairing_authorization_rejected")
+        SgtAdbConnectStatus.ENDPOINT_NOT_DISCOVERED,
+        SgtAdbConnectStatus.ENDPOINT_ADDRESS_MISSING,
+        ->
+            probeResult("degraded", "connection_endpoint_unavailable")
+        SgtAdbConnectStatus.CONNECTION_REJECTED,
+        SgtAdbConnectStatus.CONNECTION_FAILED,
+        SgtAdbConnectStatus.CONNECTION_INTERRUPTED,
+        ->
+            probeResult("degraded", "connection_failed")
+    }
+
     private fun String.isAsciiPairingCode(): Boolean =
         length == PAIRING_CODE_LENGTH && all { it in '0'..'9' }
 
     private companion object {
-        const val ADB_SHELL_UID = 2000
         const val PAIRING_CODE_LENGTH = 6
         const val ID_PROGRAM = "/system/bin/id"
         const val ID_UID_ARGUMENT = "-u"
@@ -204,3 +273,17 @@ internal class SgtAdbBridgeService : Service() {
         const val TAG = "SGTPhoneControlAdb"
     }
 }
+
+internal fun isVerifiedAdbShellReceipt(receipt: JsonObject): Boolean {
+    val outputUid = receipt["output"]?.jsonPrimitive?.content?.trim()?.toIntOrNull()
+    return receipt["ok"]?.jsonPrimitive?.booleanOrNull == true &&
+        receipt["code"]?.jsonPrimitive?.content == "process_exited" &&
+        receipt["exit_code"]?.jsonPrimitive?.intOrNull == 0 &&
+        receipt["timed_out"]?.jsonPrimitive?.booleanOrNull == false &&
+        receipt["cancelled"]?.jsonPrimitive?.booleanOrNull == false &&
+        receipt["process_started"]?.jsonPrimitive?.booleanOrNull == true &&
+        receipt["authority_uid"]?.jsonPrimitive?.intOrNull == SGT_ADB_SHELL_UID &&
+        outputUid == SGT_ADB_SHELL_UID
+}
+
+private const val SGT_ADB_SHELL_UID = 2000

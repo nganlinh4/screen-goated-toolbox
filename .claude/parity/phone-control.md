@@ -1,7 +1,8 @@
 # Phone Control Parity Contract
 
-Status: implementation in progress. Emulator evidence is recorded only after each
-contract layer is exercised; untested real-device authority remains explicitly open.
+Status: core implementation complete; physical-device acceptance remains in
+progress. Evidence is recorded only after each contract layer is exercised;
+untested authority and device variants remain explicitly open.
 
 Research baseline: 2026-07-18. Re-check the linked Android, Play, Shizuku, Chrome,
 and ONNX Runtime documentation before implementation because platform and store
@@ -29,7 +30,6 @@ rules change independently of SGT.
 - Canonical end-to-end evaluation:
   - `tests/COMPUTER_CONTROL_GOLDEN_SUITE.md`
   - `tests/computer_control_golden_suite.json`
-  - `tests/VISION_GROUNDING_BENCHMARK.md`
 - Shared live-session contract:
   - `.claude/parity/gemini-live-session.md`
   - `parity-fixtures/gemini-live-session/lifecycle.json`
@@ -60,6 +60,11 @@ around those contracts.
 - The goal is the strongest control Android permits after explicit user grants.
   It is not a promise to bypass the lock screen, secure surfaces, hardware-backed
   authentication, OS-owned confirmations, SELinux, or unavailable OEM APIs.
+- One runtime contract covers Android devices and form factors. Product behavior
+  may branch on probed capabilities, Android API contracts, grants, provider
+  readiness, and live display/window geometry, density, insets, or rotation. It
+  must never branch on manufacturer, brand, model, product, serial, emulator
+  identity, a recorded resolution, or localized UI text.
 - Accessibility is the baseline semantic/control backend. A whole-display
   MediaProjection session is required for every running Phone Control session;
   it supplies the display-wide pixel route while Accessibility supplies exact
@@ -176,15 +181,24 @@ planning, and replies remain multilingual without language-specific routing.
    authority selection, not a suggestion: standard disables elevated providers,
    SGT Bridge selects only the first-party authenticated ADB route, Shizuku
    selects only the Shizuku shell route, and root selects only the root route.
-   The chooser is a compact four-choice card without explanatory prose. It marks
-   SGT Bridge with a star as the recommended non-root route; this is presentation,
-   not an automatic selection or a weaker fallback contract. A paired bridge
-   exposes only a compact secondary forget action.
+   The chooser is a compact four-choice card without explanatory prose. Purple
+   fill marks only the currently persisted authority choice. It marks SGT Bridge
+   with a star as the recommended non-root route even when another choice is
+   selected; recommendation alone never receives the selected fill. This is
+   presentation, not an automatic selection or a weaker fallback contract. A
+   paired bridge exposes only a compact secondary forget action. Forgetting
+   deletes the app-owned key and pairing state, persists standard authority, and
+   rebuilds the chooser from that persisted choice.
    Choosing Shizuku persists that requested authority before setup starts and
    keeps a resumable setup session pending until Shizuku is ready or the user
    selects another authority. SGT explains the next unavoidable user action,
-   keeps a compact, non-obscuring status in the orb and the full persistent
-   instruction in the ongoing notification, opens the official store route when
+   uses only a short localized state label (at most 32 rendered characters) in
+   transient toasts, keeps a compact,
+   non-obscuring status in the orb, and keeps the full persistent instruction in
+   the ongoing notification. Default English, Korean, and Vietnamese resources
+   own these strings and resolve from SGT's in-app language setting, including
+   toasts, the orb chooser, runtime status, and notifications. Every other UI
+   locale uses Android's default-resource fallback. SGT opens the official store route when
    Shizuku is absent, observes package
    installation, opens the installed manager, re-probes on package, activity,
    and Binder events, then requests SGT's Shizuku grant as soon as the Binder is
@@ -201,33 +215,88 @@ planning, and replies remain multilingual without language-specific routing.
    merely because one external return has the same probe state, require the user
    to select Shizuku again between stages, repeatedly reopen the same external
    surface, or replace the ordinary tool catalog with a provider-specific click
-   script. Android/Play installation confirmation and Android-owned
+   script. This app-originated setup turn is structurally silent: generated
+   assistant audio and captions are discarded, and the whole internal turn is
+   excluded from conversation memory. It also cannot replace the setup-owned orb
+   caption, state, or icon with thinking, tool, or done presentation. Silent
+   ownership is registered before its payload is sent, so even an immediate
+   provider response cannot cross onto the conversation surface. Tool calls and
+   lifecycle completion still run normally.
+   Provider setup automation is single-flight. A lifecycle return or repeated
+   capability callback for the same selected provider updates public guidance
+   and may strengthen the pending protected handoff, but it reuses the original
+   goal owner instead of queueing another model turn. A different provider
+   cannot inherit that owner. Completion is matched to the original goal ID, so
+   coordinator reentry cannot delay or steal its protected-checkpoint handoff.
+   If the user interrupts it, normal conversation presentation is restored
+   before the new user turn is admitted. Android/Play installation
+   confirmation and Android-owned
    wireless-debugging pairing, trust, and confirmation remain user actions; SGT
    advances every surrounding step. If Android's screen-share protection hides
    a private notification action, secret field, or equivalent checkpoint, the
    bounded agent goal finishes at the nearest visible surface. SGT then suspends
-   every model-visible pixel and semantic observation, drains queued visual
-   evidence, and releases MediaProjection while the live socket, microphone,
-   audio, orb, and conversation remain active. A public-version setup
-   notification keeps the instruction visible. A provider adapter may relay an
+   every model-visible pixel and semantic observation and drains queued visual
+   evidence while the live socket, microphone, audio, orb, and conversation
+   remain active. The selected provider declares the structural capture policy:
+   SGT Bridge retains the existing MediaProjection session because its local
+   pairing exchange does not require notification interaction; Shizuku releases
+   MediaProjection because its protected notification reply cannot reliably be
+   completed while screen sharing is active. A public-version setup
+   notification keeps the instruction visible. Entering the checkpoint
+   immediately replaces navigation guidance with neutral setup progress, and
+   late external progress callbacks cannot publish guidance or queue another
+   setup goal while the checkpoint owns the runtime. A provider adapter may relay an
    ephemeral one-time value only inside this sealed checkpoint after the user's
    explicit provider selection. The value never enters model context, captions,
    logs, screenshots, traces, storage, or generic tool results. Structural
-   ambiguity or relay failure becomes an honest typed user step. Every relay
-   outcome attaches a fresh MediaProjection grant to the same runtime before
-   provider setup can continue; no command, frame, secret, or consent token is
-   replayed. A completed relay may resume the selected provider after that fresh
-   grant. A relay that still needs a user step or fails keeps the provider
+   ambiguity or relay failure becomes an honest typed user step. A retained-
+   projection checkpoint resumes model-visible evidence on the already attached
+   virtual display, then performs the same fresh provider probe; it never asks
+   for redundant screen-share consent. A released-projection checkpoint replaces
+   the pre-checkpoint setup guidance with the immediate fresh-screen-share step,
+   brings the existing transparent coordinator above any coordinator-owned
+   external surface, and asks for a fresh MediaProjection grant. If that
+   coordinator task no longer exists, Android creates it. Merely
+   dispatching the activity intent is not proof that the prompt opened. SGT uses
+   an explicit immutable internal PendingIntent with the applicable Android
+   background-launch opt-in; the exact coordinator launch token must be
+   acknowledged before the projection launcher dispatches the system prompt.
+   Once that reentry is pending, any result from the retired external setup
+   surface is discarded and cannot finish the coordinator or clear setup.
+   Launcher dispatch is not reported as prompt visibility; the Android activity
+   result and a fresh projection attachment are the completion receipts. The
+   ongoing notification is the fallback affordance. A process
+   restart discards the transient checkpoint
+   and runs normal activation while retaining only the user's authority choice.
+   Provider setup cannot continue before the retained projection is safely
+   unsealed or a fresh grant attaches to the same runtime; no command, frame,
+   secret, or consent token is replayed. A released-projection relay uses a short
+   localized toast before Android asks for the fresh whole-screen grant; it never
+   asks the live model to narrate credentials or setup instructions. After a
+   completed relay restores visual evidence, SGT makes one fresh
+   probe of the selected provider. A provider that is now ready clears pending
+   setup without reopening it, immediately shows one localized ready caption and
+   short toast, then returns to the ordinary idle/listening cycle without an
+   extra model turn. A remembered authenticated provider may initially report an
+   in-flight cold reconnect. Tools that require that selected provider await the
+   single bounded reconnect and use its terminal receipt; they never fail from
+   the stale pre-reconnect snapshot while the same process becomes ready in the
+   background. Readiness diagnostics distinguish endpoint discovery, transport,
+   and rejected authorization without recording an endpoint, key, or pairing
+   code. A provider that is not ready resumes
+   the selected setup from fresh evidence. A relay that still needs a user step
+   or fails keeps the provider
    selected and its guidance visible, but must not automatically republish the
    identical setup goal. It retries only after an explicit user action or fresh
    capability evidence.
    Tapping the orb reopens the preference prompt, so the user can explicitly
    cancel the pending route by choosing another authority. If that choice occurs
-   while a protected checkpoint is active, SGT cancels the old local adapter but
-   keeps the runtime sealed, requests a fresh MediaProjection grant, and starts
-   the newly selected authority setup only after visual evidence is restored.
+   while a protected checkpoint is active, SGT cancels the old local adapter and
+   keeps the runtime sealed until capture is reconciled. It immediately unseals
+   a retained projection, or requests a fresh MediaProjection grant only if the
+   old provider released it, then starts the newly selected authority setup.
    The notification cancel action selects standard authority and follows that
-   same fresh-projection route, so it cannot strand the live runtime behind the
+   same policy-aware route, so it cannot strand the live runtime behind the
    visual gate. An abandoned first-party pairing call remains singly owned until
    its bounded terminal return, then forgets its client key before another
    pairing can begin. It never queues a provider automation goal while model
@@ -368,6 +437,11 @@ debug receiver requires Android's `DUMP` permission. A cancel arriving before
 tool-job attachment is delivered immediately after attachment; admission stays
 owned through the production terminal completion, and atomic receipt suppression
 prevents a late callback from recreating a cancelled probe receipt.
+The host supplies a bounded device execution deadline that is shorter than its
+own receipt deadline. The receiver clamps that value to the shared harness
+bounds, then retains admission through timeout cancellation and terminal
+settlement. A host timeout therefore cannot silently become an unrelated fixed
+device timeout or release a still-running production operation.
 
 ### Speech and captions
 
@@ -433,22 +507,33 @@ prevents a late callback from recreating a cancelled probe receipt.
   The full-catalog agent first completes its bounded reversible navigation goal.
   Only after that goal, its tool receipts, reconciliation, and queued speech
   settle at either quiescent turn phase (`idle` or `listening`) does the service
-  atomically block model-visible semantics and pixels, drain pending visual
-  payloads, and release capture. The runtime, socket, microphone, audio, orb,
-  tool state, and conversation remain alive. The setup coordinator keeps durable
-  public guidance, observes capability state, and requests a fresh
-  MediaProjection grant after the protected step. A provider adapter may perform
+  atomically block model-visible semantics and pixels and drain pending visual
+  payloads. The provider adapter declares whether its platform interaction can
+  retain the attached projection or must release it. The runtime, socket,
+  microphone, audio, orb, tool state, and conversation remain alive. The setup
+  coordinator keeps durable public guidance, observes capability state, resumes
+  the retained projection directly, or requests a fresh MediaProjection grant
+  only after a released-projection step. A provider adapter may perform
   a bounded local relay of an ephemeral one-time value only while the visual gate
   is sealed. It receives no model plan or arbitrary target text, uses structural
   provider identity, exposes no secret-bearing result, and clears transient
   material immediately. Its ongoing notification has an explicit cancel action
-  which cancels the adapter, selects standard authority, and requests fresh
-  projection consent, so a suspended setup can never trap the selected authority.
+  which cancels the adapter, selects standard authority, and either unseals the
+  retained projection or requests fresh projection consent, so a suspended setup
+  can never trap the selected authority.
   This is one provider-neutral lifecycle; provider glue cannot weaken it with
   localized UI text, coordinates, screenshots, or model-visible secret handling.
-- The fresh projection grant attaches to the existing live runtime and reopens
-  visual evidence only after a virtual display is ready. Denial keeps the runtime
-  in its explicit capture-suspended state with public resume/cancel affordances.
+- A retained projection reopens visual evidence only after the local protected
+  adapter has terminated and checkpoint ownership is retired. A fresh projection
+  grant attaches to the existing live runtime and reopens visual evidence only
+  after a virtual display is ready. Denial keeps the runtime in its explicit
+  capture-suspended state with public resume/cancel affordances.
+  A capture-resume reentry retires any prior coordinator-owned external surface
+  above the transparent coordinator before launching the system capture prompt;
+  stale external activity results cannot finish or redirect the new step.
+  Pre-checkpoint guidance is session-owned and is replaced as soon as the
+  checkpoint outcome makes fresh projection the next structural step. It is
+  cleared after the post-attach provider probe reports ready.
   Unexpected projection callback stop, lock-screen revocation, replacement by
   another projection, process death, or a capture loss outside that planned
   checkpoint still terminates Phone Control and retires owned work.
@@ -480,6 +565,23 @@ declarations append through the same versioned catalog boundary.
 | research and web search | Shared research/source/evidence contract; research-owned tabs are turn-scoped and silently cleaned |
 | app integrations and MCP | Shared declaration, schema, lifecycle, and typed failure contracts; platform transport is thin glue |
 | `done` | The canonical terminal turn signal |
+
+Structured tool arguments are protocol identities, not descriptive hints.
+`type_text` and `key_combination` require the complete exact current target
+returned by `list_windows`; an app label or window title is not a substitute.
+If no current target is available, call `list_windows` before dispatch.
+Numbered grid cells belong only to the latest visual frame. Android `observe`
+refreshes semantic `@id` identities but does not itself renew that visual grid,
+so focused-surface scrolling should omit `cell` unless the current numbered
+frame supplies one. A stale optional cell must fail closed rather than silently
+changing the requested coordinates.
+
+`system_query` exposes exactly the canonical Windows pairs:
+`capabilities.list`, `audio.active_sessions`, `clipboard.text`,
+`process.list_basic`, `storage.volumes`, and `window.list`. Android rejects any
+other pair at the tool-contract boundary before selecting a provider. Providers
+must not add aliases that make the same stable catalog mean different things on
+each platform.
 
 ### Durable conversation memory
 
@@ -540,7 +642,18 @@ before dispatch. Coordinate actions require the visual revision captured with
 their grid or detector verification, so content churn cannot turn an old image
 into a click. Streaming may return the bitmap captured at one instant while
 content continues changing. A topology or explicit mutation event during image
-capture returns `stale_frame`, with only a bounded internal capture retry.
+capture returns `stale_frame`. Explicit visual tools use only their bounded
+internal retry; ambient streaming immediately uses the lease-free projection
+fallback described below.
+Ambient capture never changes controller overlay alpha, interactivity, window
+membership, position, or layout. A whole-display provider instead masks the
+bounded controller-owned region in the captured bitmap after capture. A
+window-scoped provider excludes controller windows by selecting the external
+window itself. Therefore continuous visual evidence cannot visibly blink the
+orb, steal touch input, create topology events, or invalidate its own frame and
+action leases. A short-lived overlay relocation is permitted only at the final
+dispatch edge when the requested pointer path actually intersects the
+controller-owned region; it is never a periodic capture strategy.
 
 `focus_window` resolves one current token or one exact current package/title,
 launches only the resolved launchable package, then takes a fresh observation.
@@ -574,25 +687,38 @@ active-window route because its exact window identity excludes controller
 overlays without mutating visible UI and binds pixels to the semantic surface
 lease. On API 34+, active-surface frames use the exact Accessibility window id
 with `takeScreenshotOfWindow`. The API 30-33 compatibility route uses a bounded
-display-capture suppression scope because Android exposes no older
-window-scoped screenshot API. Normal
+display capture followed by an in-memory controller-region mask because Android
+exposes no older window-scoped screenshot API. Normal
 frames carry the same numbered 6x5 grid geometry used by `click_at`, `drag`, and
 `zoom`. Every grid and crop is bound to the observation generation, display,
 window, package/surface, rotation, density, capture timestamp, absolute screen
-crop, and visual-content revision. `zoom` accepts only a cell from the current frame and magnifies that
+crop, visual-content revision, and exact capture provider. `zoom` accepts only a cell from the current frame and magnifies that
 cell with one-quarter-cell context; a changed generation returns `stale_frame`
 with proven no effect. `reset_view` captures the fresh active application
 surface. `see_whole_screen` captures the complete default display and reports
 that display scope rather than implying unavailable multi-display pixels.
 
+A transient Accessibility disconnect, unavailable surface, unstable semantic
+tree, or frame-generation race does not discard an attached MediaProjection
+session. Ambient streaming makes one semantic capture attempt, then immediately
+falls back to a clean whole-display projection frame with no semantic or
+coordinate lease. It does not retry Accessibility inside the ambient frame
+interval. This keeps the live model visually current without periodic retry
+churn and reports Accessibility as the unavailable action authority. When
+Accessibility stabilizes, the next successful semantic capture restores leased
+active-window frames and numbered-grid authority. Projection-only pixels must
+never be presented as proof that an Accessibility mutation can be dispatched.
+
 An API 34+ window id may expire after observation but before the platform
 accepts its screenshot request. That typed invalid-window result is a capture
 race, not a broken screen provider: the same capture operation retries once
 through the display-scoped Accessibility route, preserving the requested
-absolute crop and suppressing only the controller overlay. Any retryable frame
-failure receives a bounded two-attempt grace period; the third consecutive
-failure becomes visible degradation, while one successful transmitted frame
-clears the failure state. Non-retryable failures remain visible immediately.
+absolute crop and masking only the controller overlay in the captured bitmap.
+Explicit visual tools retain a bounded two-attempt stale-frame grace period.
+Ambient streaming uses projection-only continuity instead of repeating semantic
+capture. A third consecutive remaining stream failure becomes visible
+degradation, while one successful transmitted frame clears the failure state.
+Non-retryable failures remain visible immediately.
 This recovery depends only on typed platform outcomes and never on the current
 app, surface text, coordinates, or user language.
 
@@ -640,6 +766,16 @@ display. Phone Control additionally requires:
 - global actions such as Back, Home, Recents, and notifications where supported;
 - node click, focus, set-text, selection, scroll, expand/collapse, and other
   advertised `AccessibilityAction`s;
+- actionable containers sometimes expose their human-readable semantics only
+  on non-actionable descendants. For a small, completely traversed subtree,
+  an otherwise unlabeled action owner inherits bounded, deduplicated,
+  model-visible labels from safe non-actionable descendants while retaining
+  the ancestor's real lease and bounds. This is structural and
+  language-neutral: it never matches a phrase, resource ID, device, OEM, or
+  screen. Editable or protected descendants, incomplete/deep subtrees, and
+  nested action owners are not inherited. Secret text therefore cannot be
+  promoted into an ancestor, and dispatch still revalidates the exact action
+  owner rather than climbing from an arbitrary label;
 - API 33 Accessibility `InputMethod` support with
   `FLAG_INPUT_METHOD_EDITOR` for robust multilingual text, cursor, selection,
   surrounding-text, and key-event behavior;
@@ -756,11 +892,69 @@ persisted Storage Access Framework grants, MediaSession, Notification listener,
 runtime permissions, overlay access, and other user-granted special access.
 Persisted URI grants are first-class resources, not filesystem-path guesses.
 
+Canonical `list_files` standard-folder identifiers are resolved structurally
+before provider selection. Android maps `home`, `documents`, `downloads`,
+`music`, `pictures`, and `videos` to the current primary shared-storage
+directories and treats an unavailable platform directory as a typed result;
+unknown relative paths never become working-directory guesses. SGT tries the
+ordinary app/SAF route first, then the exact selected elevated provider in the
+shared `file_resource_access` order. The elevated implementation uses bounded
+literal arguments and a fixed read-only listing program, reports truncation
+instead of returning a partial listing as complete, and never exposes arbitrary
+shell interpretation through `list_files`.
+
+`launch_app` resolves its input by structure, not by language or filename
+guessing. Exact installed package/label inputs use the launcher API. Absolute
+paths, standard-folder paths, `content:` URIs, and `file:` URIs use Android
+resource viewing with a MIME type, temporary read grant where applicable, and
+the platform chooser or owning handler. When `args` is present, it may identify
+one of those resources to open with the exact app in `name`; arbitrary Android
+command-line text returns a typed structural boundary instead of guessed intent
+extras. The ordinary app/SAF route is tried
+first; if it cannot represent an otherwise valid shared resource, the exact
+selected provider in the `app_and_task_control` route may dispatch a bounded
+literal `am start`. APK viewing reaches the Package Installer checkpoint and
+never silently installs. Unsupported URI schemes, absent resources, missing
+handlers, ambiguous app labels, and provider failures remain distinct typed
+results. `open_url` stays restricted to absolute `http:` and `https:` URLs, so
+neither tool silently reroutes or retries the other.
+
 Filesystem mutations sharing one canonical path are serialized within SGT.
 `save_artifact` with `overwrite:false` uses an atomic create-only operation, and
 an exact text replacement revalidates its expected hash immediately beside the
-atomic replacement. A concurrent creator or modifier is reported without
-silently overwriting its bytes.
+atomic replacement. All replacement groups are planned against one immutable
+baseline and overlapping ranges are rejected. Ordinary CSV/TSV edits preserve
+the parsed record shape and formula cells before staging. The same bounded,
+unambiguous repairs as Windows remove only redundant trailing empty fields,
+serialize a split changed trailing value, and restore exact opaque formula
+bytes; ambiguous structure still fails closed. A proposal that intentionally
+drifts shape or formulas must use `edit_text_file_structure`. Its first call is
+a no-effect preflight that returns a token bound to the exact format, baseline,
+and proposed bytes. That token identifies the proposal but never authorizes it.
+
+Every dedicated file write—ordinary edit, structural edit, or artifact save—
+also passes an independent target-scope checkpoint. Its bounded proposal
+contains the tool, canonical target identity, target existence state, and the
+current user request, but never replacement or artifact content. At least two
+distinct text-model verdicts must approve and any negative verdict vetoes the
+write. This authorizes only the exact target scope, not the mutation content.
+Starting a new independent user turn retires the completed prior turn's scope.
+
+An authorized write receives an immutable target lease containing the canonical
+path, whether it existed, and its existing hash when applicable. The commit edge
+revalidates that lease. A target authorized while absent cannot overwrite a file
+that appeared later, including with `overwrite:true`; canonical-target drift or
+content drift is reported with proven no effect.
+
+An identical structural retry can cross its separate private commit edge only
+after another text-model quorum compares the exact structural proposal with the
+same bounded current user request: at least two distinct positive verdicts and
+no negative verdict are required. Language meaning remains in the models;
+Kotlin uses no phrase or locale gate. Immediately before atomic replacement
+Android revalidates the target lease, expected hash, proposal, token, and
+structural audit. A concurrent creator or modifier is reported without silently
+overwriting its bytes. The shared machine contract is
+`parity-fixtures/phone-control/file-mutation-contract.json`.
 
 Prefer a precise app-owned integration over UI automation when it exposes the
 requested semantics without reducing scope. This includes ordinary Android
@@ -837,7 +1031,10 @@ real-device proof passes. Its contract is:
 - keep ADB keys in Android Keystore and provide explicit revoke/forget controls;
 - show Android-owned enablement, pairing, trust, and MediaProjection UI; a sealed
   local adapter may relay a one-time pairing value under the same protected
-  checkpoint contract, but the model and diagnostics never receive it;
+  checkpoint contract, but the model and diagnostics never receive it. This
+  adapter retains the current MediaProjection session while model-visible
+  evidence is sealed, then resumes that same session without another consent
+  prompt;
 - once the authenticated pairing exchange succeeds, persist that structural
   fact before connection-service discovery. A delayed connect remains a bounded
   reconnect state and never asks for the one-time code again or claims another
@@ -854,6 +1051,13 @@ real-device proof passes. Its contract is:
   first-party ADB, root, and future backends share one router;
 - keep command transport typed and bounded; never expose a generic unauthenticated
   shell listener or infer authorization from command text;
+- terminate each command on its exact per-operation status-marker line rather
+  than waiting for transport EOF. The complete line terminator is part of the
+  terminal signal, so a split numeric status cannot be accepted early;
+- accept shell authority only from a successful `process_exited` receipt that
+  proves process start, exit code zero, no timeout, no cancellation, shell
+  provenance, and exact UID 2000 output. A marker observed in a timed-out or
+  cancelled receipt never authenticates the provider;
 - require Android 17 `ACCESS_LOCAL_NETWORK` when applicable.
 
 Android 17 plus adb 37 can automatically reconnect a paired device to a trusted
@@ -914,15 +1118,23 @@ See Android's [DevicePolicyManager](https://developer.android.com/reference/andr
   browser chrome, permission sheets, account choosers outside the page target,
   or other OS-owned UI.
 - CDP transport must stay device-local and authenticated through a proven
-  Shizuku, root, or first-party bridge. USB/wireless-debugging trust remains an
-  Android-owned user step. Never expose a remote-debugging endpoint on the LAN,
-  reuse another app's pairing material, or treat a reachable socket as ownership
-  of every tab.
+  duplex stream. The implemented routes are the first-party SGT Bridge and a
+  Shizuku user service; both terminate an ephemeral authenticated loopback
+  lease into Chrome's abstract DevTools socket. Ordinary root command authority
+  is not evidence of a safe bidirectional stream and remains typed unsupported
+  for CDP until such a transport is implemented and proved. USB/wireless-
+  debugging trust remains an Android-owned user step. Never expose a remote-
+  debugging endpoint on the LAN, reuse another app's pairing material, or treat
+  a reachable socket as ownership of every tab.
 - Opening a Custom Tab and discovering that same surface as a CDP target are two
-  separately evidenced transitions. Target discoverability must be probed across
-  supported browser/version combinations. If the target is absent, keep the
-  authenticated Custom Tab and route only semantics that Accessibility can
-  honestly preserve; CDP-only tools return `capability_unavailable`.
+  separately evidenced transitions. Before launch, record the exact opaque page
+  target IDs and URLs. After the accepted launch, bind only one page target whose
+  identity or URL changed from that baseline and whose normalized URL exactly
+  matches the requested URL. Zero or multiple candidates never become a guessed
+  binding. Target discoverability must be probed across supported
+  browser/version combinations. If the exact target is absent or ambiguous,
+  keep the authenticated Custom Tab and route only semantics that Accessibility
+  can honestly preserve; CDP-only tools return `capability_unavailable`.
 - SGT-owned WebViews use a direct, authenticated JS/native bridge and stable web
   surface identity. Third-party WebViews are CDP-visible only when their owning
   app enables WebView debugging. Otherwise use Accessibility and vision and
@@ -932,6 +1144,28 @@ See Android's [DevicePolicyManager](https://developer.android.com/reference/andr
   generation, frame/surface, and observation generation. A Custom Tab launch is
   not proof of a CDP target, and a visible URL/title match alone is not ownership.
 - Research-owned and disposable tabs follow the Windows turn-lifetime contract.
+  Android bounds turn-owned CDP targets, closes them at turn retirement, verifies
+  their opaque IDs are absent, and retains unresolved ownership for later cleanup
+  instead of reporting an unverified close as complete.
+- `research_web` is a read-only public-network adapter and does not require an
+  elevated authority or a credentialed browser. It uses isolated requests,
+  blocks private/link-local destinations and credentials in URLs, preserves the
+  shared source-policy/evidence bounds, and never claims browser-session state.
+  Credentialed or interactive page tools remain on the browser ladder above.
+- SGT Bridge and Shizuku CDP transports use the same bounded tunnel contract.
+  Each lease owns an ephemeral loopback listener; every connection presents a
+  random per-process bearer secret delivered only through the selected
+  non-exported authority channel, and the tunnel strips it before proxying one
+  stream to `localabstract:chrome_devtools_remote`. Neither the secret nor the
+  lease is logged or persisted. Forgetting SGT Bridge, Shizuku service death,
+  provider replacement, or service teardown closes that provider's tunnels and
+  target sessions. A reachable loopback port without the secret proves no
+  authority.
+- Chrome target enumeration establishes opaque target identity; it does not
+  silently select by title or URL. Opening a target binds the returned exact
+  target ID. Switching an existing target requires the numeric handle from the
+  current authenticated `browser_tabs` observation, followed by a fresh target
+  probe. Navigation retires the prior document generation.
 - Browser content and auth state stay inside the provider. Logs/traces may record
   the credential-context kind (`attached_browser_tab`,
   `custom_tab_shared_state`, or `app_private_webview`) but never cookies, tokens,
@@ -960,10 +1194,13 @@ limits them to computers.
   Localized labels, model prose, and user phrases never assign or clear it.
 - Being preinstalled or system-signed does not make an app an OS-owned user
   step. Only a capability-derived platform authority on the matching live
-  surface, or a live modal window above an application during an active opaque
-  platform user-step session, may assign that state. The full-screen setup
-  application remains routine navigation; opening a user-owned setup session
-  never turns every screen in that application into a confirmation.
+  surface, a live modal window above an application during an active opaque
+  platform user-step session, or the active resolved handler package owned by
+  that exact session may assign that state. A full-screen handler stays
+  `os_owned_user_step` only for that token's lifetime; the same application is
+  routine outside the session. Coordinator-owned Settings navigation may
+  scroll, open the exact app row, and return after an observed grant, but may
+  never toggle or approve the grant.
 - Consequential authority likewise needs platform effect metadata. Android's
   explicit Accessibility dismiss action is consequential; a generic clickable
   node is not promoted from its label, app identity, or visual appearance.
@@ -971,6 +1208,11 @@ limits them to computers.
   convention. Semantic nodes, coordinate clicks, detector marks, long presses,
   drags, scrolls, text edits, and key sequences must all present an immutable
   observation-bound node or surface lease before Android receives input.
+- After required structured arguments validate, a fresh structurally active
+  Android-owned user-step surface returns the same `os_owned_confirmation`
+  receipt across every mutating input route before stale-frame, missing-editor,
+  detector-routing, or alternate-provider failures can obscure that checkpoint.
+  No input is dispatched and the receipt remains proven no effect.
 - Elevated command execution must perform the same fresh structural preflight
   immediately before process dispatch. While an active Android-owned user-step
   window is present, no shell or root command is dispatched; command text is
@@ -1032,14 +1274,58 @@ tool plan and capability route.
   app-specific external-files directory. Writes are asynchronous and best
   effort: diagnostic failure or backpressure can never affect the runtime.
   `mobile/scripts/collect-phone-control-diagnostics.ps1` collects that journal
-  plus filtered Logcat from one exact device, Android user 0, and package.
+  plus filtered Logcat from one exact device, Android user 0, and package. The
+  collector also emits a bounded structural timeline tail and summary with an
+  explicit omitted-record count; raw files remain evidence, not the primary
+  diagnosis view.
+- Journal schema v2 gives every record a process-session identity, monotonic
+  sequence, event name, and typed structural fields. Turn records carry
+  generation and elapsed time without transcript text. Tool dispatch/receipt
+  records carry turn, generation, job, elapsed time, capability/provider state,
+  observation identity, effect certainty, invalidation, recovery, retry, and
+  user-step fields when present.
+- Tool dispatch records include only sorted argument field names plus aggregate
+  field and UTF-8 byte counts, never argument values. Tool receipts retain
+  bounded `failure_class` and `provider_route_error` symbols when present so a
+  handler failure can be distinguished from dispatch-plan rejection without
+  collecting paths, URLs, text, or other content.
 - The persistent journal accepts structural event summaries only. It preserves
   Unicode but never persists exception messages or stack traces. Call sites
   must not place speech, model text, node text, URLs, paths, clipboard/file/page
   content, command output, keys, tokens, or authentication material in an event.
+- Field admission is a typed central allowlist. Unknown names, type mismatches,
+  and free-form values are omitted from both the journal and the filtered
+  Phone Control console summary. Unknown event names become a content-free
+  `diagnostic_event`; call-site formatting alone cannot make data persistent.
+  Throwable console summaries contain only the exception class and bounded code
+  locations, never the exception message.
 - Structured traces carry turn, generation, job, snapshot, surface, capability,
   provider, timestamps, cancellation, receipt, postcondition, and typed-error
   identity. This is the diagnosis source; console prose is only a safe summary.
+- Accessibility content churn is counted but does not emit periodic semantic-
+  only journal lines. A coalesced invalidation record is emitted only for hard
+  lease invalidation, or when a stale/action failure needs the counters as
+  evidence. Diagnostic volume must follow actionable state transitions rather
+  than ambient UI animation.
+- Visual streaming records `screen_capture_route` only when its provider
+  changes, including whether the live overlay was mutated. It emits no
+  per-frame heartbeat, so diagnostics can distinguish Accessibility,
+  projection-only continuity, and detector grounding without creating log or
+  rendering churn.
+- When collecting schema-v1 journals, compact legacy periodic invalidation
+  summaries before JSON parsing. Preserve aggregate record, hard-invalidation,
+  and semantic-invalidation counts in `summary.json`; omit those legacy lines
+  from the causal timeline. Schema-v2 records remain unchanged.
+- A changed child path inside the same live generation and exact display/window
+  may recover only after a bounded, complete traversal finds exactly one node
+  with the lease's full structural fingerprint. Ambiguous, incomplete, or
+  different-generation recovery is rejected as stale. Platform child lookup
+  exceptions become typed evidence and never escape the provider boundary.
+- After platform dispatch, a provider-read failure is
+  `postcondition_unavailable`; a failed required state check is
+  `postcondition_not_verified`. Both preserve
+  `effect_may_have_occurred`, invalidate the snapshot, and require a fresh
+  observation. Neither may be flattened into `ok`.
 - Preserve Unicode in trace artifacts. Never log encoded/garbled substitutes
   when the original provider text is available.
 - Transcripts, node text, screenshots, clipboard data, file contents, browser
@@ -1073,32 +1359,45 @@ tool plan and capability route.
   `parity-fixtures/phone-control/native-runtime-contract.json`
 - Shared launcher/activation fixture:
   `parity-fixtures/phone-control/activation-flow.json`
+- Shared diagnostics and target-recovery fixture:
+  `parity-fixtures/phone-control/diagnostics-contract.json`
 - Shared socket lifecycle fixture:
   `parity-fixtures/gemini-live-session/lifecycle.json`
 - Windows acceptance suite:
   `tests/computer_control_golden_suite.json`
-- Windows visual benchmark contract:
-  `tests/VISION_GROUNDING_BENCHMARK.md`
 
-### Verified emulator evidence (2026-07-18)
+### Verified Android evidence (2026-07-25)
 
-- Full and Play unit suites pass with 454 and 443 tests respectively; neither
-  suite has failures, errors, or skips.
-- Clean Full and Play installs each pass five instrumentation tests on
-  `emulator-5554`. Both load the same exact ORT libraries and 131,216,489-byte
+- The latest completed Full and Play unit runs pass 734 and 723 tests
+  respectively; neither run has failures, errors, or skips.
+- Clean Full and Play installs each pass six instrumentation tests on a
+  disposable Android virtual device. Both load the same exact ORT libraries and
   UI-DETR model, then run CPU inference on the current device frame. Full proves
   its bundled archive path; Play proves initially absent on-demand splits.
+- Clean Full and Play debug installs each pass three device-local SGT Bridge
+  primitive tests covering binding lifecycle, app-owned non-exportable ADB
+  signing keys, and authenticated-loopback secret stripping. The release package
+  remains unchanged and no debug/test package remains after cleanup. These probes
+  do not claim a real wireless-debugging pairing or authenticated Chrome session.
+  The same tests are part of the standard Full/Play harness class set.
+- A retained Full debug install on a physical current-API device passes those
+  same three bridge primitives, reconnects through its real wireless-debugging
+  pairing, accepts only a completed UID-2000 authority receipt, and opens the
+  authenticated Chrome CDP tunnel. The production tool stack enumerates the
+  existing credentialed-browser targets, binds one exact disposable public
+  target, reads its complete DOM text into a local artifact, and verifies that
+  target absent after close. The normal release package version and update time,
+  original foreground, and user-granted Accessibility state remain unchanged.
 - The final Play release AAB passes module ownership plus exact native/model
   byte-count and SHA-256 checks.
 - Production-path probes on real Settings surfaces verify a routine navigation
   postcondition, stale-target rejection with proven no effect, and an OS-owned
   Package Installer confirmation that remains a user step and preserves the
   installed package.
-- The emulator's AOSP Camera entered its own ANR dialog before a usable blind
-  preview existed. Phone Control returned a typed degraded, proven-no-effect
-  result. A successful blind-surface detector action and optional CDP, Shizuku,
-  root, and OEM/device variants remain real-device evidence gaps, not claimed
-  passes.
+- A visually blind target entered its own process-failure surface before usable
+  content existed. Phone Control returned a typed degraded, proven-no-effect
+  result. A successful blind-surface detector action, Shizuku, root, and broader
+  device variants remain evidence gaps, not claimed passes.
 
 Platform tests must consume the shared fixtures rather than duplicate their
 constants. Required Android coverage:
@@ -1195,7 +1494,31 @@ consequential checkpoints. One initial run and at most one repair rerun per case
 9. UI-DETR mobile feasibility benchmark and integration only if it improves the
    real blind-surface route.
 10. Real-task golden runs, security isolation, performance/thermal testing, and
-   one repair rerun per failed acceptance task.
+    one repair rerun per failed acceptance task.
+
+Implementation audit (2026-07-25):
+
+- Stages 1-9 have production paths or an honest platform-conditional result.
+  The shared generated catalog, lifecycle, Accessibility/visual providers,
+  files/artifacts/memory/research, SGT Bridge, Shizuku, root command route,
+  credentialed Chrome CDP, Custom Tabs, and UI-DETR are wired in both flavors.
+- An SGT-owned WebView provider becomes ready only for an actual isolated
+  SGT-owned browser surface. It is not a substitute for the user's credentialed
+  browser. Device-owner and privileged-system providers likewise become ready
+  only in their real provisioned deployment.
+- The five desktop app-integration management tools remain declared and return a
+  typed unavailable result because Android has no corresponding installed
+  desktop stdio-MCP catalog or process transport. A future Android integration
+  transport must join the same generated catalog; it must not be faked with UI
+  clicks or a hand-copied mobile list.
+- `click_here` and `point_at` remain typed platform limits because Android
+  exposes no universal persistent pointer/hover state. Touch, semantic actions,
+  coordinates, detector marks, and target grounding remain fully available.
+- Stage 10 and the physical-device matrix are acceptance work, not missing core
+  runtime code. An emulator can prove lifecycle, catalog, provider contracts,
+  app-owned storage, local tunnel isolation, and UI-DETR packaging/inference. It
+  cannot prove OEM behavior, real wireless-debugging/Shizuku/root authority,
+  signed-in Chrome CDP, radio/thermal behavior, or hardware-backed user steps.
 
 Do not start with broad UI polish, app-specific scripts, or a duplicated Android
 prompt. The first usable slice must already obey catalog, target identity,
@@ -1213,7 +1536,9 @@ effect receipt, terminal completion, audio ownership, and typed failure rules.
   a surface-aware ladder; owned WebViews remain isolated unless the user signs
   into that separate store.
 - MediaProjection consent is a required, session-scoped Android deviation and
-  cannot be cached as a perpetual grant. See Android's
+  cannot be cached as a perpetual grant. Once its live capture session starts,
+  the runtime capability snapshot reports `media_projection=ready`; only an
+  absent or revoked session reports `needs_user_step`. See Android's
   [media-projection guide](https://developer.android.com/media/grow/media-projection).
 - Android 15 may replace private notifications with their public version during
   whole-screen sharing. Protected setup checkpoints follow Android's

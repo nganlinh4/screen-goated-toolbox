@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.text.SpannableStringBuilder
 import android.view.accessibility.AccessibilityNodeInfo
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCapturePolicy
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointToken
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupAdapter
@@ -18,6 +19,8 @@ import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 
 internal object ShizukuProtectedSetupAdapter : PhoneControlProtectedSetupAdapter {
+    override val capturePolicy = PhoneControlProtectedCapturePolicy.RELEASE_PROJECTION
+
     override suspend fun complete(
         context: Context,
         token: PhoneControlProtectedCheckpointToken,

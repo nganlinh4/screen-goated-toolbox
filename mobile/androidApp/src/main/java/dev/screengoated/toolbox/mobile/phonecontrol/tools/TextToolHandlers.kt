@@ -70,13 +70,37 @@ internal class TextToolHandlers(
         args: JsonObject,
     ): PhoneControlToolExecution {
         val surface = parseAndroidTextTarget(args.string("target"))
-            ?: return invalidArgs(job, "type_text", ANDROID_TEXT_TARGET_MESSAGE)
+            ?: return invalidArgs(
+                job,
+                "type_text",
+                ANDROID_TEXT_TARGET_MESSAGE,
+                argumentField = "target",
+                contractReason = "invalid_surface_identity",
+            )
         val text = args.string("text")
-            ?: return invalidArgs(job, "type_text", "type_text requires literal text")
+            ?: return invalidArgs(
+                job,
+                "type_text",
+                "type_text requires literal text",
+                argumentField = "text",
+                contractReason = "missing_or_invalid",
+            )
         val slow = strictOptionalBoolean(args, "slow", false)
-            ?: return invalidArgs(job, "type_text", "slow must be boolean")
+            ?: return invalidArgs(
+                job,
+                "type_text",
+                "slow must be boolean",
+                argumentField = "slow",
+                contractReason = "invalid_type",
+            )
         val pressEnter = strictOptionalBoolean(args, "press_enter", false)
-            ?: return invalidArgs(job, "type_text", "press_enter must be boolean")
+            ?: return invalidArgs(
+                job,
+                "type_text",
+                "press_enter must be boolean",
+                argumentField = "press_enter",
+                contractReason = "invalid_type",
+            )
         val target = when (val focused = backend.focusedTarget(surface)) {
             is AccessibilityProviderResult.Failure -> return textFailure(job, "type_text", focused)
             is AccessibilityProviderResult.Success -> focused.value
@@ -124,12 +148,30 @@ internal class TextToolHandlers(
         args: JsonObject,
     ): PhoneControlToolExecution {
         val surface = parseAndroidTextTarget(args.string("target"))
-            ?: return invalidArgs(job, "key_combination", ANDROID_TEXT_TARGET_MESSAGE)
+            ?: return invalidArgs(
+                job,
+                "key_combination",
+                ANDROID_TEXT_TARGET_MESSAGE,
+                argumentField = "target",
+                contractReason = "invalid_surface_identity",
+            )
         val keys = args.string("keys")
-            ?: return invalidArgs(job, "key_combination", "key_combination requires keys")
+            ?: return invalidArgs(
+                job,
+                "key_combination",
+                "key_combination requires keys",
+                argumentField = "keys",
+                contractReason = "missing_or_invalid",
+            )
         val groups = when (val parsed = parseAndroidKeySequence(keys)) {
             is AndroidKeySequenceParseResult.Invalid -> {
-                return invalidArgs(job, "key_combination", parsed.message)
+                return invalidArgs(
+                    job,
+                    "key_combination",
+                    parsed.message,
+                    argumentField = "keys",
+                    contractReason = "invalid_value",
+                )
             }
             is AndroidKeySequenceParseResult.Unsupported -> {
                 return unsupportedKey(job, parsed.token)
@@ -137,16 +179,35 @@ internal class TextToolHandlers(
             is AndroidKeySequenceParseResult.Success -> parsed.groups
         }
         val holdSeconds = args.number("hold_seconds") ?: if ("hold_seconds" in args) {
-            return invalidArgs(job, "key_combination", "hold_seconds must be numeric")
+            return invalidArgs(
+                job,
+                "key_combination",
+                "hold_seconds must be numeric",
+                argumentField = "hold_seconds",
+                contractReason = "invalid_type",
+            )
         } else {
             0.0
         }
         if (!holdSeconds.isFinite() || holdSeconds !in 0.0..MAX_HOLD_SECONDS) {
-            return invalidArgs(job, "key_combination", "hold_seconds must be between 0 and 10")
+            return invalidArgs(
+                job,
+                "key_combination",
+                "hold_seconds must be between 0 and 10",
+                argumentField = "hold_seconds",
+                contractReason = "out_of_range",
+            )
         }
         val holdMs = (holdSeconds * 1_000.0).toLong().coerceAtLeast(DEFAULT_KEY_HOLD_MS)
         val target = when (val focused = backend.focusedTarget(surface)) {
-            is AccessibilityProviderResult.Failure -> return textFailure(job, "key_combination", focused)
+            is AccessibilityProviderResult.Failure -> {
+                return textFailure(
+                    job = job,
+                    tool = "key_combination",
+                    failure = focused,
+                    capability = KEY_ACTION_CAPABILITY,
+                )
+            }
             is AccessibilityProviderResult.Success -> focused.value
         }
         return editResult(
@@ -272,7 +333,7 @@ internal class TextToolHandlers(
         response = toolResponse(
             job = job,
             requestedTool = "key_combination",
-            capability = TEXT_EDIT_CAPABILITY,
+            capability = KEY_ACTION_CAPABILITY,
             provider = INPUT_METHOD_PROVIDER,
             providerState = CapabilityState.UNSUPPORTED,
             code = "unsupported_on_android",

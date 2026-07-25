@@ -33,7 +33,8 @@ internal class AndroidFileProvider(
             return failure("path_unavailable", "The directory is not readable.")
         }
         val normalizedExtensions = extensions.map { it.trim().trimStart('.').lowercase() }.toSet()
-        var files = directory.listFiles().orEmpty().asSequence().filter { file ->
+        val visibleEntries = directory.listFiles().orEmpty()
+        val matchingFiles = visibleEntries.asSequence().filter { file ->
             when (kind) {
                 "file" -> file.isFile
                 "directory" -> file.isDirectory
@@ -50,12 +51,16 @@ internal class AndroidFileProvider(
             "created" -> compareBy<File> { creationTime(it) }
             else -> compareBy(File::lastModified)
         }
-        files = files.sortedWith(if (descending) comparator.reversed() else comparator)
+        val files = matchingFiles
+            .sortedWith(if (descending) comparator.reversed() else comparator)
             .take(limit.coerceIn(1, MAX_LIST_ITEMS))
         return AndroidProviderResult.Success(
             buildJsonObject {
                 put("path", directory.absolutePath)
                 put("count", files.size)
+                put("total_entry_count", visibleEntries.size)
+                put("matched_entry_count", matchingFiles.size)
+                put("listing_complete", matchingFiles.size <= limit)
                 put(
                     "items",
                     buildJsonArray {
@@ -109,21 +114,90 @@ internal class AndroidFileProvider(
         path: String,
         expectedSha256: String,
         replacements: List<ExactReplacement>,
+        targetLease: FileMutationTargetLease,
     ): AndroidProviderResult {
         if (replacements.isEmpty()) return failure("invalid_request", "At least one replacement is required.")
         val file = resolve(path)
             ?: return failure("invalid_path", "The path could not be resolved.")
         return AndroidFileMutationCoordinator.withExclusivePath(file) {
+            targetIdentityFailure(file, targetLease)?.let { return@withExclusivePath it }
             exactReplaceLocked(file, expectedSha256, replacements)
         }
     }
 
-    fun saveArtifact(id: String, path: String, overwrite: Boolean): AndroidProviderResult {
+    fun structuralPreflight(
+        path: String,
+        expectedSha256: String,
+        replacements: List<ExactReplacement>,
+        suppliedToken: String?,
+    ): AndroidProviderResult {
+        if (replacements.isEmpty()) return failure("invalid_request", "At least one replacement is required.")
+        val file = resolve(path)
+            ?: return failure("invalid_path", "The path could not be resolved.")
+        return AndroidFileMutationCoordinator.withExclusivePath(file) {
+            when (
+                val prepared = prepareFileEditLocked(file, expectedSha256) { original ->
+                    ExactTextEditPlanner.planStructural(
+                        file,
+                        original,
+                        replacements,
+                        suppliedToken,
+                    )
+                }
+            ) {
+                is PreparedFileEditResult.Failure -> prepared.result
+                is PreparedFileEditResult.Ready -> AndroidProviderResult.Success(
+                    buildJsonObject {
+                        editEvidence(prepared.edit, editScope = "structure")
+                            .forEach { (key, value) -> put(key, value) }
+                        put("ready_for_request_contract_check", true)
+                        put("original_unchanged", true)
+                    },
+                )
+            }
+        }
+    }
+
+    fun commitStructuralAfterAuthorization(
+        path: String,
+        expectedSha256: String,
+        replacements: List<ExactReplacement>,
+        suppliedToken: String,
+        targetLease: FileMutationTargetLease,
+    ): AndroidProviderResult {
+        if (replacements.isEmpty()) return failure("invalid_request", "At least one replacement is required.")
+        val file = resolve(path)
+            ?: return failure("invalid_path", "The path could not be resolved.")
+        return AndroidFileMutationCoordinator.withExclusivePath(file) {
+            targetIdentityFailure(file, targetLease)?.let { return@withExclusivePath it }
+            when (
+                val prepared = prepareFileEditLocked(file, expectedSha256) { original ->
+                    ExactTextEditPlanner.planStructural(
+                        file,
+                        original,
+                        replacements,
+                        suppliedToken,
+                    )
+                }
+            ) {
+                is PreparedFileEditResult.Failure -> prepared.result
+                is PreparedFileEditResult.Ready ->
+                    commitPreparedEdit(prepared.edit, editScope = "structure")
+            }
+        }
+    }
+
+    fun saveArtifact(
+        id: String,
+        path: String,
+        overwrite: Boolean,
+        targetLease: FileMutationTargetLease,
+    ): AndroidProviderResult {
         val artifact = findArtifact(id) ?: return failure("artifact_not_found", "The artifact ID is unknown.")
         val file = resolve(path)
             ?: return failure("invalid_path", "The path could not be resolved.")
         return AndroidFileMutationCoordinator.withExclusivePath(file) {
-            saveArtifactLocked(artifact, file, overwrite)
+            saveArtifactLocked(artifact, file, overwrite, targetLease)
         }
     }
 
@@ -131,38 +205,113 @@ internal class AndroidFileProvider(
         file: File,
         expectedSha256: String,
         replacements: List<ExactReplacement>,
-    ): AndroidProviderResult {
+    ): AndroidProviderResult = when (
+        val prepared = prepareFileEditLocked(file, expectedSha256) { original ->
+            ExactTextEditPlanner.planOrdinary(file, original, replacements)
+        }
+    ) {
+        is PreparedFileEditResult.Failure -> prepared.result
+        is PreparedFileEditResult.Ready ->
+            commitPreparedEdit(prepared.edit, editScope = "content")
+    }
+
+    private fun prepareFileEditLocked(
+        file: File,
+        expectedSha256: String,
+        planner: (String) -> TextEditPlan,
+    ): PreparedFileEditResult {
         if (!file.isFile || !file.canRead() || !file.canWrite()) {
-            return failure("path_unavailable", "The file is not readable and writable.")
+            return preparedFailure(failure("path_unavailable", "The file is not readable and writable."))
+        }
+        if (file.length() > MAX_TEXT_BYTES) {
+            return preparedFailure(
+                failure("ERR_TEXT_FILE_TOO_LARGE", "The file exceeds the bounded text limit."),
+            )
         }
         val original = runCatching { file.readBytes() }.getOrElse {
-            return failure("read_failed", it.message ?: "The file could not be read.")
+            return preparedFailure(
+                failure("read_failed", it.message ?: "The file could not be read."),
+            )
+        }
+        if (original.size.toLong() > MAX_TEXT_BYTES) {
+            return preparedFailure(
+                failure("ERR_TEXT_FILE_TOO_LARGE", "The file exceeds the bounded text limit."),
+            )
         }
         val beforeSha256 = original.sha256()
         if (!beforeSha256.equals(expectedSha256, ignoreCase = true)) {
-            return failure(EXACT_FILE_CHANGED_CODE, "The file changed since it was read.")
+            return preparedFailure(
+                failure(EXACT_FILE_CHANGED_CODE, "The file changed since it was read."),
+            )
         }
-        var text = decodeUtf8(original) ?: return failure("not_utf8", "The file is not valid UTF-8 text.")
-        for (replacement in replacements) {
-            val actualCount = countExact(text, replacement.oldText)
-            if (actualCount != replacement.expectedCount) {
-                return failure(
-                    "replacement_count_mismatch",
-                    "An exact replacement count did not match the current file.",
+        val decoded = decodeUtf8(original)
+            ?: return preparedFailure(failure("not_utf8", "The file is not valid UTF-8 text."))
+        val hasBom = decoded.startsWith(UTF8_BOM)
+        val text = if (hasBom) decoded.drop(1) else decoded
+        val edit = when (val plan = planner(text)) {
+            is TextEditPlan.Ready -> plan.edit
+            is TextEditPlan.Rejected -> {
+                return preparedFailure(
+                    AndroidProviderResult.Failure(
+                        code = plan.code,
+                        message = plan.message,
+                        retryable = true,
+                        data = buildJsonObject {
+                            plan.data.forEach { (key, value) -> put(key, value) }
+                            put("path", file.absolutePath)
+                            put("before_sha256", beforeSha256)
+                            put("original_unchanged", true)
+                        },
+                    ),
                 )
             }
-            text = text.replace(replacement.oldText, replacement.newText)
         }
-        val updated = text.toByteArray(Charsets.UTF_8)
+        val editedBody = edit.text.toByteArray(Charsets.UTF_8)
+        val updated = if (hasBom) UTF8_BOM_BYTES + editedBody else editedBody
+        if (updated.size.toLong() > MAX_TEXT_BYTES) {
+            return preparedFailure(
+                AndroidProviderResult.Failure(
+                    code = "ERR_TEXT_FILE_TOO_LARGE",
+                    message = "The edited file exceeds the bounded text limit.",
+                    retryable = true,
+                    data = buildJsonObject {
+                        put("path", file.absolutePath)
+                        put("before_sha256", beforeSha256)
+                        put("byte_count", updated.size)
+                        put("max_byte_count", MAX_TEXT_BYTES)
+                        put("original_unchanged", true)
+                    },
+                ),
+            )
+        }
+        return PreparedFileEditResult.Ready(
+            PreparedFileEdit(
+                file = file,
+                original = original,
+                beforeSha256 = beforeSha256,
+                hasBom = hasBom,
+                edit = edit,
+                updated = updated,
+            ),
+        )
+    }
+
+    private fun commitPreparedEdit(
+        prepared: PreparedFileEdit,
+        editScope: String,
+    ): AndroidProviderResult {
         var staged: java.nio.file.Path? = null
         return try {
-            val stagedPath = AndroidFileMutationCoordinator.stageSibling(file, updated)
+            val stagedPath = AndroidFileMutationCoordinator.stageSibling(
+                prepared.file,
+                prepared.updated,
+            )
             staged = stagedPath
             when (
                 AndroidFileMutationCoordinator.replaceIfExpected(
-                    file,
+                    prepared.file,
                     stagedPath,
-                    expectedSha256,
+                    prepared.beforeSha256,
                 )
             ) {
                 is ExpectedFileCommit.Changed -> failure(
@@ -171,14 +320,14 @@ internal class AndroidFileProvider(
                 )
                 is ExpectedFileCommit.Replaced -> {
                     staged = null
-                    val verified = file.readBytes()
-                    check(verified.contentEquals(updated)) { "Post-write verification failed" }
+                    val verified = prepared.file.readBytes()
+                    check(verified.contentEquals(prepared.updated)) { "Post-write verification failed" }
                     AndroidProviderResult.Success(
                         buildJsonObject {
-                            put("path", file.absolutePath)
-                            put("before_sha256", beforeSha256)
+                            editEvidence(prepared, editScope)
+                                .forEach { (key, value) -> put(key, value) }
                             put("sha256", verified.sha256())
-                            put("replacement_count", replacements.sumOf(ExactReplacement::expectedCount))
+                            put("original_unchanged", false)
                         },
                         effectMayHaveOccurred = true,
                         effectVerified = true,
@@ -196,11 +345,52 @@ internal class AndroidFileProvider(
         }
     }
 
+    private fun editEvidence(
+        prepared: PreparedFileEdit,
+        editScope: String,
+    ): JsonObject = buildJsonObject {
+        put("path", prepared.file.absolutePath)
+        put("before_sha256", prepared.beforeSha256)
+        put("before_byte_count", prepared.original.size)
+        put("byte_count", prepared.updated.size)
+        put("char_count", prepared.edit.text.length)
+        put("replacement_count", prepared.edit.replacementCount)
+        put("replacements_applied", prepared.edit.replacementCount)
+        put("replacement_groups", prepared.edit.replacementGroups)
+        put("requested_replacement_groups", prepared.edit.requestedReplacementGroups)
+        put("formula_cells_auto_preserved", prepared.edit.formulaCellsAutoPreserved)
+        put(
+            "formula_replacement_groups_rewritten",
+            prepared.edit.formulaReplacementGroupsRewritten,
+        )
+        put("formula_only_groups_omitted", prepared.edit.formulaOnlyGroupsOmitted)
+        put("trailing_empty_fields_omitted", prepared.edit.trailingEmptyFieldsOmitted)
+        put("trailing_value_fields_repaired", prepared.edit.trailingValueFieldsRepaired)
+        prepared.edit.structure?.let { put("structure", it) }
+        put("edit_scope", editScope)
+        put("encoding", if (prepared.hasBom) "utf-8-bom" else "utf-8")
+        put("atomic", true)
+    }
+
+    private fun preparedFailure(
+        result: AndroidProviderResult,
+    ): PreparedFileEditResult.Failure = PreparedFileEditResult.Failure(result)
+
     private fun saveArtifactLocked(
         artifact: PhoneControlArtifact,
         file: File,
         overwrite: Boolean,
+        targetLease: FileMutationTargetLease,
     ): AndroidProviderResult {
+        if (
+            !targetLease.existedBefore &&
+            !overwrite &&
+            file.absolutePath == targetLease.canonicalPath &&
+            file.isFile
+        ) {
+            return failure("path_exists", "The destination already exists.")
+        }
+        targetIdentityFailure(file, targetLease)?.let { return it }
         if (file.isDirectory) {
             return failure("path_unavailable", "The destination path is a directory.")
         }
@@ -210,12 +400,26 @@ internal class AndroidFileProvider(
         }
         var staged: java.nio.file.Path? = null
         return try {
-            if (overwrite) {
+            if (targetLease.existedBefore && !overwrite) {
+                return failure("path_exists", "The destination already exists.")
+            }
+            if (targetLease.existedBefore) {
+                targetLeaseFailure(file, targetLease)?.let { return it }
                 val stagedPath = AndroidFileMutationCoordinator.stageSibling(file, artifact.bytes)
                 staged = stagedPath
-                AndroidFileMutationCoordinator.replace(file, stagedPath)
-                staged = null
+                targetLeaseFailure(file, targetLease)?.let { return it }
+                when (
+                    AndroidFileMutationCoordinator.replaceIfExpected(
+                        file,
+                        stagedPath,
+                        checkNotNull(targetLease.expectedSha256),
+                    )
+                ) {
+                    is ExpectedFileCommit.Changed -> return targetLeaseChanged()
+                    is ExpectedFileCommit.Replaced -> staged = null
+                }
             } else {
+                targetLeaseFailure(file, targetLease)?.let { return it }
                 AndroidFileMutationCoordinator.createNew(file, artifact.bytes)
             }
             check(file.readBytes().contentEquals(artifact.bytes)) { "Saved bytes did not verify" }
@@ -242,11 +446,54 @@ internal class AndroidFileProvider(
         }
     }
 
+    private fun targetLeaseFailure(
+        file: File,
+        lease: FileMutationTargetLease,
+    ): AndroidProviderResult.Failure? =
+        if (AndroidFileMutationCoordinator.targetMatchesLease(file, lease)) {
+            null
+        } else {
+            targetLeaseChanged()
+        }
+
+    private fun targetIdentityFailure(
+        file: File,
+        lease: FileMutationTargetLease,
+    ): AndroidProviderResult.Failure? =
+        if (AndroidFileMutationCoordinator.targetIdentityMatchesLease(file, lease)) {
+            null
+        } else {
+            targetLeaseChanged()
+        }
+
+    private fun targetLeaseChanged() = AndroidProviderResult.Failure(
+        code = "ERR_FILE_TARGET_LEASE_CHANGED",
+        message = "The authorized file target changed before commit.",
+        retryable = true,
+        data = buildJsonObject {
+            put("original_unchanged", true)
+        },
+    )
+
     private fun resolve(path: String): File? = runCatching {
         File(path.trim()).canonicalFile
     }.getOrNull()
 
     private fun failure(code: String, message: String) = AndroidProviderResult.Failure(code, message)
+}
+
+private data class PreparedFileEdit(
+    val file: File,
+    val original: ByteArray,
+    val beforeSha256: String,
+    val hasBom: Boolean,
+    val edit: PreparedTextEdit,
+    val updated: ByteArray,
+)
+
+private sealed interface PreparedFileEditResult {
+    data class Ready(val edit: PreparedFileEdit) : PreparedFileEditResult
+    data class Failure(val result: AndroidProviderResult) : PreparedFileEditResult
 }
 
 internal data class ExactReplacement(
@@ -263,18 +510,6 @@ private fun decodeUtf8(bytes: ByteArray): String? = runCatching {
         .toString()
 }.getOrNull()
 
-private fun countExact(text: String, needle: String): Int {
-    if (needle.isEmpty()) return 0
-    var count = 0
-    var offset = 0
-    while (true) {
-        val found = text.indexOf(needle, offset)
-        if (found < 0) return count
-        count += 1
-        offset = found + needle.length
-    }
-}
-
 private fun creationTime(file: File): Long = runCatching {
     Files.readAttributes(file.toPath(), java.nio.file.attribute.BasicFileAttributes::class.java)
         .creationTime()
@@ -284,3 +519,5 @@ private fun creationTime(file: File): Long = runCatching {
 private const val MAX_LIST_ITEMS = 2_000
 private const val MAX_TEXT_BYTES = 8L * 1024L * 1024L
 private const val MAX_TEXT_CHARS = 64_000
+private const val UTF8_BOM = '\uFEFF'
+private val UTF8_BOM_BYTES = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())

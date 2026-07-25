@@ -3,6 +3,8 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 import android.content.Context
 import android.os.Build
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
+import io.github.muntashirakon.adb.AdbPairingRequiredException
+import java.io.IOException
 import java.security.PrivateKey
 import java.security.cert.Certificate
 import java.util.concurrent.TimeUnit
@@ -58,7 +60,7 @@ internal class SgtAdbConnectionManager(
                 pairingEstablished = true,
             )
         }
-        return if (connectDiscovered(timeoutMs)) {
+        return if (connectDiscovered(timeoutMs).connected) {
             SgtAdbPairResult(
                 SgtAdbPairStatus.CONNECTED,
                 pairingEstablished = true,
@@ -73,17 +75,36 @@ internal class SgtAdbConnectionManager(
         }
     }
 
-    suspend fun connectDiscovered(timeoutMs: Long): Boolean {
-        if (isConnected) return true
-        val deviceIdentity = SgtAdbPairingStore.deviceIdentity(appContext) ?: return false
+    suspend fun connectDiscovered(timeoutMs: Long): SgtAdbConnectResult {
+        if (isConnected) return SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTED)
+        val deviceIdentity = SgtAdbPairingStore.deviceIdentity(appContext)
+            ?: return SgtAdbConnectResult(SgtAdbConnectStatus.PAIRING_STATE_MISSING)
         val endpoint = SgtAdbDiscovery.connection(
             appContext,
             expectedServiceName = deviceIdentity,
             timeoutMs = timeoutMs,
-        ) ?: return false
-        val host = endpoint.address.hostAddress ?: return false
-        return withContext(Dispatchers.IO) {
-            connect(host, endpoint.port) || isConnected
+        ) ?: return SgtAdbConnectResult(SgtAdbConnectStatus.ENDPOINT_NOT_DISCOVERED)
+        val host = endpoint.address.hostAddress
+            ?: return SgtAdbConnectResult(SgtAdbConnectStatus.ENDPOINT_ADDRESS_MISSING)
+        return try {
+            val connected = withContext(Dispatchers.IO) {
+                connect(host, endpoint.port) || isConnected
+            }
+            SgtAdbConnectResult(
+                if (connected) {
+                    SgtAdbConnectStatus.CONNECTED
+                } else {
+                    SgtAdbConnectStatus.CONNECTION_REJECTED
+                },
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: AdbPairingRequiredException) {
+            SgtAdbConnectResult(SgtAdbConnectStatus.AUTHORIZATION_REJECTED)
+        } catch (_: IOException) {
+            SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTION_FAILED)
+        } catch (_: InterruptedException) {
+            SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTION_INTERRUPTED)
         }
     }
 
@@ -110,4 +131,22 @@ internal enum class SgtAdbPairStatus {
     PAIRING_STATE_PERSIST_FAILED,
     PAIRED_CONNECT_PENDING,
     CONNECTED,
+}
+
+internal data class SgtAdbConnectResult(
+    val status: SgtAdbConnectStatus,
+) {
+    val connected: Boolean
+        get() = status == SgtAdbConnectStatus.CONNECTED
+}
+
+internal enum class SgtAdbConnectStatus {
+    CONNECTED,
+    PAIRING_STATE_MISSING,
+    ENDPOINT_NOT_DISCOVERED,
+    ENDPOINT_ADDRESS_MISSING,
+    AUTHORIZATION_REJECTED,
+    CONNECTION_REJECTED,
+    CONNECTION_FAILED,
+    CONNECTION_INTERRUPTED,
 }

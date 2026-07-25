@@ -111,10 +111,13 @@ internal class SgtAdbCommandRunner(
         }
         operation.attach(stream)
         val output = BoundedAdbOutput()
+        val terminalStatus = AtomicReference<Int?>(null)
         val readerFailure = AtomicReference<Throwable?>(null)
         val reader = Thread(
             {
-                runCatching { stream.openInputStream().use { input -> output.read(input) } }
+                runCatching {
+                    terminalStatus.set(output.read(stream.openInputStream(), marker))
+                }
                     .onFailure { error ->
                         if (!operation.cancelled.get() && !operation.timedOut.get()) {
                             readerFailure.set(error)
@@ -139,7 +142,7 @@ internal class SgtAdbCommandRunner(
             operation.closeStream()
             reader.interrupt()
         }
-        val exitCode = output.exitCode(marker)
+        val exitCode = terminalStatus.get() ?: output.exitCode(marker)
         operation.closeStream()
         return receipt(operation, exitCode, output, readerFailure.get(), startedAt)
     }
@@ -261,7 +264,7 @@ internal fun commandScript(
 
 internal fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
 
-private class BoundedAdbOutput {
+internal class BoundedAdbOutput {
     private val prefix = ByteArrayOutputStream()
     private val tail = ArrayDeque<Byte>()
     var totalBytes: Long = 0
@@ -270,18 +273,22 @@ private class BoundedAdbOutput {
     val truncated: Boolean
         get() = totalBytes > MAX_OUTPUT_BYTES
 
-    fun read(input: java.io.InputStream) {
+    fun read(
+        input: java.io.InputStream,
+        statusMarker: String,
+    ): Int? {
         val buffer = ByteArray(READ_BUFFER_BYTES)
         while (true) {
             val count = input.read(buffer)
-            if (count < 0) return
+            if (count < 0) return null
             append(buffer, count)
+            exitCode(statusMarker)?.let { return it }
         }
     }
 
     fun exitCode(marker: String): Int? {
         val text = tail.toByteArray().toString(StandardCharsets.UTF_8)
-        return Regex("${Regex.escape(marker)}(-?\\d+)\\s*$")
+        return Regex("(?:^|\\r?\\n)${Regex.escape(marker)}(-?\\d+)\\r?\\n$")
             .find(text)
             ?.groupValues
             ?.get(1)
@@ -312,7 +319,7 @@ private fun elapsedMs(startedAt: Long): Long =
 
 private fun String.utf8Size(): Int = toByteArray(StandardCharsets.UTF_8).size
 
-private val STATUS_SUFFIX = Regex("\\n__SGT_ADB_RC_[0-9a-f]+__-?\\d+\\s*$")
+private val STATUS_SUFFIX = Regex("\\n__SGT_ADB_RC_[0-9a-f]+__-?\\d+\\r?\\n$")
 private const val ADB_SHELL_UID = 2000
 private const val MAX_OUTPUT_BYTES = 64 * 1_024
 private const val TAIL_BYTES = 512

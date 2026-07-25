@@ -142,9 +142,9 @@ internal class PhoneControlEffectOwner(
         synchronized(lock) { effectMayHaveOccurred = true }
     }
 
-    private fun tryReserveAcceptedDispatch(): Boolean = synchronized(lock) {
+    private fun tryReserveDispatch(effectMayChangeUserState: Boolean): Boolean = synchronized(lock) {
         if (cancellationRequested) return@synchronized false
-        effectMayHaveOccurred = true
+        if (effectMayChangeUserState) effectMayHaveOccurred = true
         true
     }
 
@@ -219,10 +219,13 @@ internal class PhoneControlEffectOwner(
             }
         }
 
-        /** Reserves an effectful dispatch which the caller must perform immediately without suspension. */
-        fun tryReserveAcceptedDispatch(): Boolean = synchronized(lock) {
+        /**
+         * Reserves a platform dispatch while keeping read-only operations proven no-effect.
+         * The surrounding lease still owns cancellation and terminal settlement.
+         */
+        fun tryReserveDispatch(effectMayChangeUserState: Boolean): Boolean = synchronized(lock) {
             check(!closed) { "cannot dispatch a terminal effect" }
-            owner.tryReserveAcceptedDispatch()
+            owner.tryReserveDispatch(effectMayChangeUserState)
         }
 
         /** Holds the cancellation boundary across a short synchronous Android platform dispatch. */

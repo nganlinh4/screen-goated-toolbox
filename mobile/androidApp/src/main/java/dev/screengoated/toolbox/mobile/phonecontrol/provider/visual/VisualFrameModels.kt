@@ -127,6 +127,7 @@ internal data class VisualFrameIdentity(
     val viewKind: VisualViewKind,
     val clean: Boolean,
     val grid: VisualGridIdentity?,
+    val captureProvider: String = "accessibility",
 ) {
     init {
         require(observationGeneration > 0)
@@ -137,6 +138,7 @@ internal data class VisualFrameIdentity(
         require(captureWidth > 0 && captureHeight > 0)
         require(capturedAtMs >= 0)
         require(clean == (grid == null)) { "clean frames must not carry grid identity" }
+        require(captureProvider in setOf("accessibility", "media_projection"))
     }
 
     val wireIdentity: String
@@ -154,6 +156,7 @@ internal data class VisualFrameIdentity(
             capturedAtMs,
             viewKind.wireName,
             if (clean) "clean" else "grid",
+            captureProvider,
         ).joinToString(":")
 
     fun toWireJson(): JsonObject = buildJsonObject {
@@ -171,6 +174,7 @@ internal data class VisualFrameIdentity(
         put("captured_at_ms", capturedAtMs)
         put("view", viewKind.wireName)
         put("clean", clean)
+        put("capture_provider", captureProvider)
         grid?.let {
             put("grid_identity", it.wireIdentity)
             put("grid_columns", it.columns)

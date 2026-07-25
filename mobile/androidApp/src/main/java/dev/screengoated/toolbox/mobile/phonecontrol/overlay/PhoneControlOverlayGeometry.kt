@@ -1,61 +1,13 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.overlay
 
 import android.content.Context
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-
-internal class OverlayCaptureGate {
-    private val state = Mutex()
-
-    @Volatile
-    private var captureDepth = 0
-
-    internal val depth: Int
-        get() = captureDepth
-
-    internal val isHidden: Boolean
-        get() = captureDepth > 0
-
-    internal suspend fun <T> withHidden(
-        onHide: suspend (firstCapture: Boolean) -> Unit,
-        onRestore: suspend (lastCapture: Boolean) -> Unit,
-        block: suspend () -> T,
-    ): T {
-        var entered = false
-        try {
-            state.withLock {
-                val firstCapture = captureDepth == 0
-                captureDepth += 1
-                entered = true
-                onHide(firstCapture)
-            }
-            currentCoroutineContext().ensureActive()
-            return block()
-        } finally {
-            if (entered) {
-                withContext(NonCancellable) {
-                    state.withLock {
-                        check(captureDepth > 0) { "Overlay capture depth underflow" }
-                        captureDepth -= 1
-                        onRestore(captureDepth == 0)
-                    }
-                }
-            }
-        }
-    }
-}
 
 internal fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
 internal fun needsOverlayLayoutUpdate(
     forceLayout: Boolean,
     windowSetChanged: Boolean,
-    suppressionChanged: Boolean,
-): Boolean = forceLayout || windowSetChanged || suppressionChanged
+): Boolean = forceLayout || windowSetChanged
 
 internal fun farthestOverlayCorner(
     screen: OverlayBounds,

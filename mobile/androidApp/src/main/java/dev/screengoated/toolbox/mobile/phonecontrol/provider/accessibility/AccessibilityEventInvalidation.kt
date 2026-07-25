@@ -3,7 +3,6 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 
 internal enum class AccessibilityInvalidationImpact {
@@ -42,7 +41,6 @@ internal object AccessibilityInvalidationDiagnostics {
     private val hardCount = AtomicLong()
     private val semanticCount = AtomicLong()
     private val lastLogMs = AtomicLong()
-    private val lastSignature = AtomicReference("none")
 
     fun record(
         impact: AccessibilityInvalidationImpact,
@@ -55,24 +53,24 @@ internal object AccessibilityInvalidationDiagnostics {
     ) {
         when (impact) {
             AccessibilityInvalidationImpact.HARD -> hardCount.incrementAndGet()
-            AccessibilityInvalidationImpact.SEMANTIC_ONLY -> semanticCount.incrementAndGet()
+            AccessibilityInvalidationImpact.SEMANTIC_ONLY -> {
+                semanticCount.incrementAndGet()
+                return
+            }
             AccessibilityInvalidationImpact.NONE -> return
         }
-        lastSignature.set(
-            "event=$eventType content_changes=$contentChangeTypes " +
-                "window=$windowId source=$sourcePackage",
-        )
         val now = SystemClock.elapsedRealtime()
         val previous = lastLogMs.get()
         if (now - previous < LOG_INTERVAL_MS || !lastLogMs.compareAndSet(previous, now)) return
         Log.d(
             TAG,
-            "invalidation_summary hard=${hardCount.getAndSet(0)} " +
-                "semantic_only=${semanticCount.getAndSet(0)} last=${lastSignature.get()} " +
+            "invalidation_hard hard=${hardCount.getAndSet(0)} " +
+                "semantic_since_hard=${semanticCount.getAndSet(0)} event_type=$eventType " +
+                "content_changes=$contentChangeTypes window_id=$windowId source=$sourcePackage " +
                 "generation=$generation visual_revision=$visualRevision",
         )
     }
 
-    private const val LOG_INTERVAL_MS = 5_000L
+    private const val LOG_INTERVAL_MS = 1_000L
     private const val TAG = "SGTPhoneControlAccessibility"
 }

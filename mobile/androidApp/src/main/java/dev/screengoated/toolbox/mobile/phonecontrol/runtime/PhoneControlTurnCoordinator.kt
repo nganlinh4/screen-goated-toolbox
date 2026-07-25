@@ -4,7 +4,6 @@ import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlEffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlGenerationId
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlJobId
-import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlOutputChunk
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlTurnEffect
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlTurnEvent
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlTurnId
@@ -26,6 +25,7 @@ internal class PhoneControlTurnCoordinator(
     scope: CoroutineScope,
     private val sink: PhoneControlTurnSink,
     private val recorder: PhoneControlTurnRecorder = NoOpPhoneControlTurnRecorder,
+    private val cleanup: PhoneControlTurnCleanup = NoOpPhoneControlTurnCleanup,
 ) {
     private val completionEvents = Channel<PhoneControlToolCompletionEvent>(
         capacity = PHONE_CONTROL_COMPLETION_QUEUE_CAPACITY,
@@ -39,7 +39,7 @@ internal class PhoneControlTurnCoordinator(
 
     private var nextTurn = 0L
     private var nextGeneration = 0L
-    private var nextOutputSequence = 0L
+    private val outputSequencer = PhoneControlOutputSequencer()
     private var currentGeneration: PhoneControlGenerationId? = null
     private var finalGeneration: PhoneControlGenerationId? = null
     private var terminalDone = false
@@ -173,7 +173,7 @@ internal class PhoneControlTurnCoordinator(
         val update = fragment?.let(inputTranscript::merge) ?: return
         if (update.startsTurn) activateNewTurn()
         if (update.changed) {
-            sink.updateInputCaption(update.text)
+            sink.updateConversationInputCaption(update.text)
             lifecycle.activeTurn?.let { turn ->
                 recorder.userTranscriptUpdated(turn.value, update.text)
             }
@@ -198,15 +198,18 @@ internal class PhoneControlTurnCoordinator(
         sink.discardQueuedPlayback()
         heldToolRejections.discardHeld()
         val replacedTurn = lifecycle.activeTurn?.takeIf { lifecycle.turnRemainsActive }
-        nextTurn = nextOrdinal(nextTurn)
-        nextGeneration = nextOrdinal(nextGeneration)
+        nextTurn = outputSequencer.nextOrdinal(nextTurn)
+        nextGeneration = outputSequencer.nextOrdinal(nextGeneration)
         val turn = PhoneControlTurnId(nextTurn)
         val generation = PhoneControlGenerationId(nextGeneration)
         inputTranscript.claimCurrentEpoch()
         assistantTranscript.reset()
         val transition = lifecycle.reduce(PhoneControlTurnEvent.UserBargeIn(turn, generation))
         applyTurnEffects(transition.effects)
-        replacedTurn?.let { recorder.turnInterrupted(it.value) }
+        replacedTurn?.let {
+            recorder.turnInterrupted(it.value)
+            cleanup.retire(it.value)
+        }
         currentGeneration = generation
         finalGeneration = null
         terminalDone = false
@@ -214,9 +217,9 @@ internal class PhoneControlTurnCoordinator(
         pendingTerminalDone = null
         generationAwaitingReconciliation = null
         recorder.turnStarted(turn.value, generation.value)
-        sink.updateOrbPresentation(orbThinkingPresentation.stateLabel, null)
-        sink.updateOutputCaption("")
-        sink.updateTurnPhase(PhoneControlTurnPhase.WORKING)
+        sink.updateConversationOrb(orbThinkingPresentation.stateLabel, null)
+        sink.updateConversationOutputCaption("")
+        sink.updateConversationPhase(PhoneControlTurnPhase.WORKING)
         return generation
     }
 
@@ -228,7 +231,10 @@ internal class PhoneControlTurnCoordinator(
         )
         applyTurnEffects(transition.effects)
         if (transition.decision == PhoneControlTurnDecisionCode.ACCEPTED) {
-            turn?.let { recorder.turnInterrupted(it.value) }
+            turn?.let {
+                recorder.turnInterrupted(it.value)
+                cleanup.retire(it.value)
+            }
         }
         currentGeneration = null
         finalGeneration = null
@@ -237,7 +243,7 @@ internal class PhoneControlTurnCoordinator(
         pendingTerminalDone = null
         generationAwaitingReconciliation = null
         heldToolRejections.discardHeld()
-        sink.updateTurnPhase(PhoneControlTurnPhase.LISTENING)
+        sink.updateConversationPhase(PhoneControlTurnPhase.LISTENING)
     }
 
     private fun applyLivePlaybackEffect(effect: GeminiLiveLifecycleEffect) {
@@ -256,22 +262,23 @@ internal class PhoneControlTurnCoordinator(
             frame.visibleTextParts.isNotEmpty() ||
             frame.audioParts.isNotEmpty()
         if (!assistantContent || generation == null) return
-        sink.updateOrbPresentation(orbRespondingPresentation.stateLabel, null)
+        if (!sink.surfaceAssistantContent()) return
+        sink.updateConversationOrb(orbRespondingPresentation.stateLabel, null)
 
         val contentTransition = lifecycle.reduce(
             PhoneControlTurnEvent.AssistantContentReceived(generation),
         )
         if (contentTransition.decision != PhoneControlTurnDecisionCode.ACCEPTED) return
-        sink.updateTurnPhase(lifecycle.phase)
+        sink.updateConversationPhase(lifecycle.phase)
 
         val caption = frame.outputTranscript?.takeIf(String::isNotBlank)
             ?: frame.visibleTextParts.joinToString(separator = "").takeIf(String::isNotBlank)
         caption?.let { text ->
-            val chunk = outputChunk(generation)
+            val chunk = outputSequencer.chunk(generation)
             val transition = lifecycle.reduce(PhoneControlTurnEvent.CaptionReceived(chunk))
             if (transition.effects.any { it is PhoneControlTurnEffect.DeliverCaption }) {
                 if (assistantTranscript.merge(text)) {
-                    sink.updateOutputCaption(assistantTranscript.text)
+                    sink.updateConversationOutputCaption(assistantTranscript.text)
                     if (lifecycle.turnRemainsActive) {
                         lifecycle.activeTurn?.let { turn ->
                             recorder.assistantTranscriptUpdated(turn.value, assistantTranscript.text)
@@ -282,7 +289,7 @@ internal class PhoneControlTurnCoordinator(
         }
         frame.audioParts.forEach { inline ->
             val bytes = decodePhoneControlPcm24k(inline.mimeType, inline.data) ?: return@forEach
-            val chunk = outputChunk(generation)
+            val chunk = outputSequencer.chunk(generation)
             val transition = lifecycle.reduce(PhoneControlTurnEvent.AudioReceived(chunk))
             if (transition.effects.any { it is PhoneControlTurnEffect.PlayAudio }) {
                 sink.playAudio(bytes)
@@ -347,8 +354,11 @@ internal class PhoneControlTurnCoordinator(
         generation: PhoneControlGenerationId,
     ) {
         val jobId = PhoneControlJobId(call.id)
-        Log.i(TAG, call.structuralDispatchLog(generation.value))
-        call.orbPresentation().let { sink.updateOrbPresentation(it.stateLabel, it.iconOverride) }
+        val turnId = lifecycle.activeTurn?.value ?: 0L
+        Log.i(TAG, call.structuralDispatchLog(generation.value, turnId))
+        call.orbPresentation().let {
+            sink.updateConversationOrb(it.stateLabel, it.iconOverride)
+        }
         val transition = lifecycle.reduce(PhoneControlTurnEvent.JobRequested(generation, jobId))
         if (transition.effects.none { it is PhoneControlTurnEffect.DispatchJob }) {
             if (transition.decision == PhoneControlTurnDecisionCode.DUPLICATE_EVENT) return
@@ -365,7 +375,6 @@ internal class PhoneControlTurnCoordinator(
             )
             return
         }
-        val turnId = lifecycle.activeTurn?.value ?: 0L
         val admission = tools.dispatch(
             PhoneControlToolRequest(
                 id = call.id,
@@ -396,7 +405,7 @@ internal class PhoneControlTurnCoordinator(
                 "Another admitted tool job must settle before this call can run.",
             )
         }
-        sink.updateTurnPhase(PhoneControlTurnPhase.WORKING)
+        sink.updateConversationPhase(PhoneControlTurnPhase.WORKING)
     }
 
     private fun completeTerminalDone(
@@ -413,16 +422,16 @@ internal class PhoneControlTurnCoordinator(
         }
         terminalDone = true
         terminalSummary = summary
-        sink.updateOrbPresentation(orbDonePresentation.stateLabel, null)
+        sink.updateConversationOrb(orbDonePresentation.stateLabel, null)
         if (transition.effects.any { it is PhoneControlTurnEffect.FinalGenerationRequested }) {
-            nextGeneration = nextOrdinal(nextGeneration)
+            nextGeneration = outputSequencer.nextOrdinal(nextGeneration)
             finalGeneration = PhoneControlGenerationId(nextGeneration)
             currentGeneration = finalGeneration
-            sink.updateTurnPhase(PhoneControlTurnPhase.FINALIZING)
+            sink.updateConversationPhase(PhoneControlTurnPhase.FINALIZING)
         } else {
             currentGeneration = null
             recordCompletedTurn(turn)
-            sink.updateTurnPhase(PhoneControlTurnPhase.IDLE)
+            sink.updateConversationPhase(PhoneControlTurnPhase.IDLE)
         }
         return transition.decision
     }
@@ -430,12 +439,12 @@ internal class PhoneControlTurnCoordinator(
     private fun completeGeneration(generation: PhoneControlGenerationId?) {
         if (generation == null) return
         if (tools.pendingCount > 0 || pendingTerminalDone != null) {
-            sink.updateTurnPhase(PhoneControlTurnPhase.WORKING)
+            sink.updateConversationPhase(PhoneControlTurnPhase.WORKING)
             return
         }
         if (lifecycle.reconciliationRequired) {
             generationAwaitingReconciliation = generation
-            sink.updateTurnPhase(PhoneControlTurnPhase.WORKING)
+            sink.updateConversationPhase(PhoneControlTurnPhase.WORKING)
             return
         }
         if (generationAwaitingReconciliation == generation) {
@@ -448,7 +457,7 @@ internal class PhoneControlTurnCoordinator(
         if (finalGeneration == generation) finalGeneration = null
         if (transition.effects.any { it is PhoneControlTurnEffect.FinalResponseReady }) {
             recordCompletedTurn(turn)
-            sink.updateTurnPhase(PhoneControlTurnPhase.IDLE)
+            sink.updateConversationPhase(PhoneControlTurnPhase.IDLE)
         }
     }
 
@@ -456,6 +465,7 @@ internal class PhoneControlTurnCoordinator(
         turn ?: return
         val assistant = assistantTranscript.text.ifBlank { terminalSummary.orEmpty() }
         recorder.turnCompleted(turn.value, inputTranscript.text, assistant)
+        cleanup.retire(turn.value)
     }
 
     private fun cancelTools(ids: List<String>) {
@@ -472,7 +482,7 @@ internal class PhoneControlTurnCoordinator(
     private fun finishPendingTerminalDone() {
         val completed = pendingTerminalDone ?: return
         if (tools.pendingCount > 0) {
-            sink.updateTurnPhase(PhoneControlTurnPhase.WORKING)
+            sink.updateConversationPhase(PhoneControlTurnPhase.WORKING)
             return
         }
         pendingTerminalDone = null
@@ -494,7 +504,7 @@ internal class PhoneControlTurnCoordinator(
                 },
             ),
         )
-        sink.updateTurnPhase(PhoneControlTurnPhase.WORKING)
+        sink.updateConversationPhase(PhoneControlTurnPhase.WORKING)
     }
 
     private fun deliverToolReceipt(completed: PhoneControlCompletedTool) {
@@ -580,13 +590,6 @@ internal class PhoneControlTurnCoordinator(
                 },
             ),
         )
-
-    private fun outputChunk(generation: PhoneControlGenerationId): PhoneControlOutputChunk {
-        nextOutputSequence = if (nextOutputSequence == Long.MAX_VALUE) 0L else nextOutputSequence + 1L
-        return PhoneControlOutputChunk(generation, nextOutputSequence)
-    }
-
-    private fun nextOrdinal(current: Long): Long = if (current == Long.MAX_VALUE) 1L else current + 1L
 
     private companion object {
         const val TAG = "SGTPhoneControlTurn"

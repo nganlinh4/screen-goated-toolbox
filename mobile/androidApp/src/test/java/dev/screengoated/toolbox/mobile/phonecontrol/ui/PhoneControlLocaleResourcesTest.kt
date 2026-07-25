@@ -37,6 +37,33 @@ class PhoneControlLocaleResourcesTest {
         }
     }
 
+    @Test
+    fun `phone control toast copy stays glanceable in every explicit locale`() {
+        val resources = resourceDirectory()
+        resources.listFiles()
+            .orEmpty()
+            .filter { directory ->
+                directory.isDirectory &&
+                    (directory.name == "values" || directory.name.startsWith("values-")) &&
+                    File(directory, "strings.xml").isFile
+            }
+            .forEach { directory ->
+                val toastStrings = phoneControlStrings(File(directory, "strings.xml"))
+                    .filterKeys { it.endsWith("_toast") }
+                assertTrue("${directory.name} has toast copy", toastStrings.isNotEmpty())
+                toastStrings.forEach { (key, value) ->
+                    val renderedWorstCase = FORMAT_ARGUMENT.replace(
+                        value,
+                        FORMAT_ARGUMENT_SAMPLE,
+                    )
+                    assertTrue(
+                        "${directory.name}/$key exceeds $MAXIMUM_TOAST_CHARACTERS characters",
+                        renderedWorstCase.length <= MAXIMUM_TOAST_CHARACTERS,
+                    )
+                }
+            }
+    }
+
     private fun phoneControlStrings(file: File): Map<String, String> {
         val document = DocumentBuilderFactory.newInstance()
             .newDocumentBuilder()
@@ -67,6 +94,8 @@ class PhoneControlLocaleResourcesTest {
 
     private companion object {
         val FORMAT_ARGUMENT = Regex("%(?:\\d+\\$)?[a-zA-Z]")
+        const val FORMAT_ARGUMENT_SAMPLE = "XXXXXXXXXXXXXXXX"
         const val RESOURCE_PATH = "mobile/androidApp/src/main/res"
+        const val MAXIMUM_TOAST_CHARACTERS = 32
     }
 }

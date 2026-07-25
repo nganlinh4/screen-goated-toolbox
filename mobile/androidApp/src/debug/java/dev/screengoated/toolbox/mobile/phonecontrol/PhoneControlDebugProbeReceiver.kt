@@ -77,6 +77,12 @@ class PhoneControlDebugProbeReceiver : BroadcastReceiver() {
     ) {
         var mutating = false
         var dispatchAdmitted = false
+        val executionTimeoutMs = boundedDebugProbeExecutionTimeoutMs(
+            intent.getLongExtra(
+                EXTRA_EXECUTION_TIMEOUT_MS,
+                DEFAULT_DEBUG_PROBE_EXECUTION_TIMEOUT_MS,
+            ),
+        )
         val response = try {
             val tool = requireNotNull(intent.getStringExtra(EXTRA_TOOL))
                 .takeIf(String::isNotBlank) ?: error("tool is required")
@@ -108,7 +114,7 @@ class PhoneControlDebugProbeReceiver : BroadcastReceiver() {
                 controller.cancel(listOf(operation.requestId))
             }
             var timedOut = false
-            var event = withTimeoutOrNull(PROBE_EXECUTION_TIMEOUT_MS) { completions.receive() }
+            var event = withTimeoutOrNull(executionTimeoutMs) { completions.receive() }
             if (event == null) {
                 timedOut = true
                 operation.requestCancellation(suppressFutureReceipt = false)
@@ -172,9 +178,9 @@ class PhoneControlDebugProbeReceiver : BroadcastReceiver() {
         const val EXTRA_TOOL = "tool"
         const val EXTRA_ARGUMENTS_BASE64 = "arguments_b64"
         const val EXTRA_ALLOW_MUTATION = "allow_mutation"
+        const val EXTRA_EXECUTION_TIMEOUT_MS = "execution_timeout_ms"
         const val MAX_ARGUMENT_BYTES = 64 * 1024
         const val MAX_ERROR_CHARS = 400
-        const val PROBE_EXECUTION_TIMEOUT_MS = 8_000L
         val REQUEST_ID = Regex("[A-Za-z0-9_-]{1,64}")
         val JSON = Json { ignoreUnknownKeys = false }
         val PROBE_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -292,3 +298,13 @@ private const val CLEANUP_ACTION = "dev.screengoated.toolbox.mobile.debug.PHONE_
 private const val RECEIPT_TTL_MS = 5 * 60 * 1_000L
 private val REQUEST_ID = Regex("[A-Za-z0-9_-]{1,64}")
 private val RECEIPT_LOCK = Any()
+
+internal fun boundedDebugProbeExecutionTimeoutMs(requestedMs: Long): Long =
+    requestedMs.coerceIn(
+        MIN_DEBUG_PROBE_EXECUTION_TIMEOUT_MS,
+        MAX_DEBUG_PROBE_EXECUTION_TIMEOUT_MS,
+    )
+
+internal const val DEFAULT_DEBUG_PROBE_EXECUTION_TIMEOUT_MS = 8_000L
+internal const val MIN_DEBUG_PROBE_EXECUTION_TIMEOUT_MS = 250L
+internal const val MAX_DEBUG_PROBE_EXECUTION_TIMEOUT_MS = 118_000L

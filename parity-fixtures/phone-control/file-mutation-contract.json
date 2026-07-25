@@ -1,10 +1,30 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 4,
   "feature": "phone-control-file-mutation",
   "invariants": {
     "sameCanonicalPathSerializedWithinProcess": true,
     "createWithoutOverwriteIsAtomic": true,
-    "exactReplaceRevalidatesExpectedHashAtCommit": true
+    "exactReplaceRevalidatesExpectedHashAtCommit": true,
+    "exactReplacementGroupsArePlannedAgainstOneBaseline": true,
+    "overlappingReplacementRangesAreRejected": true,
+    "ordinaryDelimitedEditPreservesRecordShape": true,
+    "ordinaryDelimitedEditPreservesFormulaCells": true,
+    "formulaAndOrdinaryDataCannotChangeInOneEdit": true,
+    "unambiguousDelimitedSerializationRepairIsCrossPlatform": true,
+    "everyDedicatedFileWriteRequiresIndependentTargetScopeQuorum": true,
+    "targetScopeQuorumMinimumPositiveVerdicts": 2,
+    "targetScopeQuorumRejectsAnyNegativeVerdict": true,
+    "targetScopeProposalExcludesReplacementAndArtifactContent": true,
+    "targetScopeProposalIsPayloadTypeAgnostic": true,
+    "completedTurnScopeDoesNotLeakIntoNextIndependentTurn": true,
+    "ordinaryAndStructuralEditsShareCanonicalTargetScopeIdentity": true,
+    "targetScopeAuthorizationDoesNotAuthorizeMutationContent": true,
+    "authorizedTargetLeaseRevalidatedAtCommit": true,
+    "structuralTokenIdentifiesExactBytesButDoesNotAuthorize": true,
+    "structuralCommitRequiresIndependentUserRequestQuorum": true,
+    "structuralQuorumMinimumPositiveVerdicts": 2,
+    "structuralQuorumRejectsAnyNegativeVerdict": true,
+    "structuralCommitRevalidatesHashTokenAndProposal": true
   },
   "cases": [
     {
@@ -24,6 +44,81 @@
         "resultCode": "hash_mismatch",
         "effectMayHaveOccurred": false,
         "competingBytesOverwritten": false
+      }
+    },
+    {
+      "name": "input-only file cannot become a mutation target",
+      "operation": "exact_replace",
+      "expect": {
+        "resultCode": "ERR_FILE_TARGET_REQUEST_CONTRACT_REJECTED",
+        "effectMayHaveOccurred": false,
+        "originalBytesPreserved": true
+      }
+    },
+    {
+      "name": "authorized missing target cannot overwrite a newly appeared file",
+      "operation": "save_artifact",
+      "overwrite": true,
+      "expect": {
+        "resultCode": "ERR_FILE_TARGET_LEASE_CHANGED",
+        "effectMayHaveOccurred": false,
+        "competingBytesOverwritten": false
+      }
+    },
+    {
+      "name": "authorized canonical target cannot drift before exact commit",
+      "operation": "exact_replace",
+      "expect": {
+        "resultCode": "ERR_FILE_TARGET_LEASE_CHANGED",
+        "effectMayHaveOccurred": false,
+        "originalBytesPreserved": true
+      }
+    },
+    {
+      "name": "ordinary delimited edit rejects record-shape drift",
+      "operation": "exact_replace",
+      "expect": {
+        "resultCode": "ERR_TEXT_FILE_STRUCTURE_CHANGE_REQUIRES_EXPLICIT_TOOL",
+        "effectMayHaveOccurred": false,
+        "originalBytesPreserved": true
+      }
+    },
+    {
+      "name": "ordinary delimited edit preserves formula cells",
+      "operation": "exact_replace",
+      "expect": {
+        "resultCode": "ok",
+        "recordShapePreserved": true,
+        "formulasPreserved": true
+      }
+    },
+    {
+      "name": "structural preflight never commits",
+      "operation": "exact_replace_structure",
+      "expect": {
+        "resultCode": "ERR_TEXT_FILE_STRUCTURE_CHANGE",
+        "proposalTokenReturned": true,
+        "effectMayHaveOccurred": false,
+        "originalBytesPreserved": true
+      }
+    },
+    {
+      "name": "structural token without request quorum never commits",
+      "operation": "exact_replace_structure",
+      "expect": {
+        "resultCode": "ERR_TEXT_FILE_STRUCTURE_REQUEST_CONTRACT_UNVERIFIED",
+        "effectMayHaveOccurred": false,
+        "originalBytesPreserved": true
+      }
+    },
+    {
+      "name": "structural commit revalidates exact proposal",
+      "operation": "exact_replace_structure",
+      "expect": {
+        "resultCode": "ok",
+        "independentPositiveVerdicts": 2,
+        "negativeVerdicts": 0,
+        "effectVerified": true
       }
     }
   ]

@@ -12,13 +12,18 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerChoice
+import dev.screengoated.toolbox.mobile.phonecontrol.ui.phoneControlPowerChoicePresentation
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 
 internal class PhoneControlPowerPromptView(
     context: Context,
+    selectedChoice: PhoneControlPowerChoice?,
     onChoice: (PhoneControlPowerChoice) -> Unit,
     showForgetSgtAdb: Boolean,
     onForgetSgtAdb: () -> Unit,
 ) : LinearLayout(context) {
+    private val localized = context.uiLocalized()
+
     init {
         orientation = VERTICAL
         gravity = Gravity.START
@@ -29,7 +34,7 @@ internal class PhoneControlPowerPromptView(
             setStroke(dp(1), PANEL_STROKE_COLOR)
         }
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-        contentDescription = context.getString(R.string.phone_control_power_prompt_title)
+        contentDescription = localized.getString(R.string.phone_control_power_prompt_title)
 
         addView(
             label(R.string.phone_control_power_prompt_title, 15.5f, Typeface.BOLD),
@@ -42,6 +47,7 @@ internal class PhoneControlPowerPromptView(
         addView(choiceRow(
             R.string.phone_control_power_standard to PhoneControlPowerChoice.STANDARD,
             R.string.phone_control_power_sgt_adb to PhoneControlPowerChoice.SGT_ADB,
+            selectedChoice = selectedChoice,
             onChoice = onChoice,
         ), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = dp(6)
@@ -49,6 +55,7 @@ internal class PhoneControlPowerPromptView(
         addView(choiceRow(
             R.string.phone_control_power_shizuku to PhoneControlPowerChoice.SHIZUKU,
             R.string.phone_control_power_root to PhoneControlPowerChoice.ROOT,
+            selectedChoice = selectedChoice,
             onChoice = onChoice,
         ))
         if (showForgetSgtAdb) {
@@ -60,7 +67,7 @@ internal class PhoneControlPowerPromptView(
     }
 
     private fun label(resId: Int, size: Float, style: Int) = TextView(context).apply {
-        setText(resId)
+        text = localized.getString(resId)
         textSize = size
         setTextColor(Color.WHITE)
         setTypeface(typeface, style)
@@ -70,11 +77,12 @@ internal class PhoneControlPowerPromptView(
     private fun LinearLayout.addChoice(
         labelRes: Int,
         choice: PhoneControlPowerChoice,
+        selectedChoice: PhoneControlPowerChoice?,
         onChoice: (PhoneControlPowerChoice) -> Unit,
     ) {
-        val recommended = choice == PhoneControlPowerChoice.SGT_ADB
+        val presentation = phoneControlPowerChoicePresentation(choice, selectedChoice)
         addView(TextView(context).apply {
-            setText(labelRes)
+            text = localized.getString(labelRes)
             textSize = 13f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
@@ -82,13 +90,14 @@ internal class PhoneControlPowerPromptView(
             includeFontPadding = false
             minHeight = dp(46)
             setPadding(dp(8), 0, dp(8), 0)
-            background = choiceBackground(recommended)
-            if (recommended) {
+            background = choiceBackground(presentation.selected, presentation.recommended)
+            isSelected = presentation.selected
+            if (presentation.recommended) {
                 setCompoundDrawablesRelative(recommendedIcon(), null, null, null)
                 compoundDrawablePadding = dp(5)
-                contentDescription = context.getString(
+                contentDescription = localized.getString(
                     R.string.phone_control_power_recommended,
-                    context.getString(labelRes),
+                    localized.getString(labelRes),
                 )
             }
             isClickable = true
@@ -102,15 +111,18 @@ internal class PhoneControlPowerPromptView(
 
     private fun choiceRow(
         vararg choices: Pair<Int, PhoneControlPowerChoice>,
+        selectedChoice: PhoneControlPowerChoice?,
         onChoice: (PhoneControlPowerChoice) -> Unit,
     ) = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER
-        choices.forEach { (label, choice) -> addChoice(label, choice, onChoice) }
+        choices.forEach { (label, choice) ->
+            addChoice(label, choice, selectedChoice, onChoice)
+        }
     }
 
     private fun action(labelRes: Int, onClick: () -> Unit) = TextView(context).apply {
-        setText(labelRes)
+        text = localized.getString(labelRes)
         textSize = 11.5f
         gravity = Gravity.CENTER
         setTextColor(SECONDARY_TEXT_COLOR)
@@ -123,17 +135,19 @@ internal class PhoneControlPowerPromptView(
         setOnClickListener { onClick() }
     }
 
-    private fun choiceBackground(recommended: Boolean): Drawable {
+    private fun choiceBackground(selected: Boolean, recommended: Boolean): Drawable {
         val shape = GradientDrawable().apply {
             cornerRadius = dp(15).toFloat()
-            if (recommended) {
+            if (selected) {
                 orientation = GradientDrawable.Orientation.LEFT_RIGHT
                 colors = intArrayOf(RECOMMENDED_START_COLOR, RECOMMENDED_END_COLOR)
-                setStroke(dp(1), RECOMMENDED_STROKE_COLOR)
             } else {
                 setColor(CHOICE_COLOR)
-                setStroke(dp(1), CHOICE_STROKE_COLOR)
             }
+            setStroke(
+                dp(1),
+                if (recommended) RECOMMENDED_STROKE_COLOR else CHOICE_STROKE_COLOR,
+            )
         }
         return RippleDrawable(
             ColorStateList.valueOf(Color.argb(52, 255, 255, 255)),

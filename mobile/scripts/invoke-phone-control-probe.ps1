@@ -3,7 +3,9 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$Tool,
     [string]$ArgumentsJson = "{}",
-    [string]$Serial = "emulator-5554",
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Serial,
     [switch]$AllowPhysicalDevice,
     [switch]$AllowMutation,
     [ValidateRange(1, 120)]
@@ -21,6 +23,7 @@ $requestId = "probe_" + [Guid]::NewGuid().ToString("N")
 $relativeResult = "no_backup/phone-control-probes/$requestId.json"
 $probeDispatchAttempted = $false
 $receiptObserved = $false
+$completedJson = $null
 $candidateAdbPaths = @(
     $(if ($env:ANDROID_HOME) { Join-Path $env:ANDROID_HOME "platform-tools\adb.exe" }),
     $(if ($env:ANDROID_SDK_ROOT) { Join-Path $env:ANDROID_SDK_ROOT "platform-tools\adb.exe" }),
@@ -95,7 +98,7 @@ function Remove-ProbeReceipt {
 Assert-ExactAdbTarget
 $isEmulator = ((Invoke-TargetAdb -AdbArguments @("shell", "getprop", "ro.kernel.qemu")).Output -join "").Trim()
 if ($isEmulator -ne "1" -and -not $AllowPhysicalDevice) {
-    throw "Phone Control probes require a verified emulator unless -AllowPhysicalDevice is set."
+    throw "Phone Control probes on a physical target require explicit -AllowPhysicalDevice authorization."
 }
 $packagePaths = (Invoke-TargetAdb -AdbArguments @("shell", "pm", "path", $appPackage)).Output
 if (-not @($packagePaths | Where-Object { $_ -like "package:*" })) {
@@ -120,6 +123,11 @@ if ($arguments -isnot [System.Collections.IDictionary]) {
 
 $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($canonicalArguments))
 $allowMutationValue = if ($AllowMutation) { "true" } else { "false" }
+$hostTimeoutMs = [int64]$TimeoutSeconds * 1000
+$executionTimeoutMs = [Math]::Min(
+    [int64]118000,
+    [Math]::Max([int64]250, $hostTimeoutMs - [int64]1500)
+)
 Remove-ProbeReceipt
 try {
     $probeDispatchAttempted = $true
@@ -130,7 +138,8 @@ try {
         "--es", "request_id", $requestId,
         "--es", "tool", $Tool,
         "--es", "arguments_b64", $encoded,
-        "--ez", "allow_mutation", $allowMutationValue
+        "--ez", "allow_mutation", $allowMutationValue,
+        "--el", "execution_timeout_ms", "$executionTimeoutMs"
     ) | Out-Null
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
@@ -141,18 +150,20 @@ try {
             $json = ($result.Output -join "`n").Trim()
             $null = $json | ConvertFrom-Json
             $receiptObserved = $true
-            Write-Output $json
-            return
+            $completedJson = $json
+            break
         }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
 
-    $effectWarning = if ($AllowMutation) {
-        " The acknowledged mutation may have occurred; take a fresh observation before any further mutation or completion."
-    } else {
-        ""
+    if (-not $receiptObserved) {
+        $effectWarning = if ($AllowMutation) {
+            " The acknowledged mutation may have occurred; take a fresh observation before any further mutation or completion."
+        } else {
+            ""
+        }
+        throw "Phone Control probe '$requestId' did not produce a result within $TimeoutSeconds seconds.$effectWarning"
     }
-    throw "Phone Control probe '$requestId' did not produce a result within $TimeoutSeconds seconds.$effectWarning"
 } finally {
     Invoke-TargetAdb -AllowFailure -AdbArguments @(
         "shell", "am", "broadcast",
@@ -165,3 +176,6 @@ try {
         Write-Warning "The mutating probe produced no receipt. Its effect is unknown; reconcile with a fresh observation."
     }
 }
+
+Write-Output $completedJson
+exit 0

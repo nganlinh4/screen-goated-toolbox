@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 14,
+  "schemaVersion": 21,
   "feature": "phone-control",
   "canonicalFeature": "computer-control",
   "distribution": {
@@ -19,7 +19,18 @@
     "dynamicHiding": false,
     "phraseOrLanguageGates": false,
     "silentToolReroutes": false,
-    "unavailableResultCode": "capability_unavailable"
+    "unavailableResultCode": "capability_unavailable",
+    "surfaceTargetInput": "exact_current_list_windows_identity",
+    "semanticObserveRefreshesVisualGrid": false,
+    "optionalGridCellRequiresLatestVisualFrame": true,
+    "systemQueryPairs": {
+      "capabilities": "list",
+      "audio": "active_sessions",
+      "clipboard": "text",
+      "process": "list_basic",
+      "storage": "volumes",
+      "window": "list"
+    }
   },
   "effectCancellation": {
     "operationIdentityFields": ["turn_id", "response_generation", "job_id"],
@@ -79,6 +90,7 @@
     ],
     "platformPendingConfirmationUsesOpaqueSession": true,
     "activeOsOwnedStepBlocksElevatedCommandDispatch": true,
+    "activeOsOwnedStepFailurePrecedenceAfterRequiredFieldValidation": true,
     "consequentialRequiresConfirm": true,
     "osOwnedConfirmationIsAlwaysUserStep": true,
     "refusalEffect": "proven_no_effect",
@@ -91,6 +103,11 @@
     "physicalDeviceRequiresExplicitOptIn": true,
     "maximumConcurrentDispatches": 1,
     "usesProductionCancellableExecutor": true,
+    "hostSuppliesExecutionDeadline": true,
+    "deviceDefaultExecutionDeadlineMs": 8000,
+    "minimumExecutionDeadlineMs": 250,
+    "maximumExecutionDeadlineMs": 118000,
+    "hostReceiptMarginMs": 1500,
     "cancelBeforeToolJobAttachDeliveredAfterAttach": true,
     "admissionReleasedOnlyAfterTerminalCompletion": true,
     "concurrentRequestResult": "ProbeBusy_proven_no_effect",
@@ -103,6 +120,21 @@
     "cleanupOnlyRemovesRunOwnedPackages": true,
     "hostRecoveryStateMustBeDurableUntilVerifiedRestore": true,
     "releasePackageMustRemainUntouched": true
+  },
+  "firstPartyAdbCommand": {
+    "terminalSignal": "exact_per_operation_status_marker_line",
+    "transportEofRequired": false,
+    "markerLineTerminatorRequired": true,
+    "authorityReceipt": {
+      "ok": true,
+      "code": "process_exited",
+      "exitCode": 0,
+      "timedOut": false,
+      "cancelled": false,
+      "processStarted": true,
+      "authorityUid": 2000,
+      "outputUid": 2000
+    }
   },
   "setupSelfTest": {
     "flavors": ["play", "full"],
@@ -157,7 +189,13 @@
       "current_frame_grounding"
     ],
     "credentialContinuityAndControlAuthorityAreIndependent": true,
-    "customTabCdpAttachment": "current_target_probe_required",
+    "customTabCdpAttachment": "exact_pre_post_target_delta_and_normalized_requested_url",
+    "ambiguousCustomTabTarget": "accessibility_fallback_without_cdp_binding",
+    "cdpAuthorityOrder": [
+      "sgt_adb_bridge",
+      "shizuku_shell"
+    ],
+    "rootCommandAuthorityImpliesCdpStream": false,
     "browserSecretsMayMoveBetweenProviders": false
   },
   "providers": [
@@ -166,6 +204,15 @@
       "authority": "app",
       "optional": false,
       "survivesReboot": true
+    },
+    {
+      "id": "direct_web_research",
+      "authority": "network_read",
+      "optional": false,
+      "survivesReboot": true,
+      "publicHttpOnly": true,
+      "credentialContext": "isolated_public_request",
+      "privateNetworkAccess": false
     },
     {
       "id": "accessibility",
@@ -188,6 +235,8 @@
       "consentPerSession": true,
       "scope": "whole_default_display",
       "singleConsumption": true,
+      "activeSessionState": "ready",
+      "inactiveSessionState": "needs_user_step",
       "revocation": "stop_phone_control"
     },
     {
@@ -217,10 +266,19 @@
       "id": "browser_cdp",
       "authority": "debug_bridge",
       "optional": true,
-      "readiness": "real_device_proof_required",
+      "readiness": "fresh_device_local_endpoint_probe_required",
       "credentialContext": "attached_browser_tab",
       "pageControl": true,
-      "browserChromeControl": false
+      "browserChromeControl": false,
+      "transport": "authenticated_loopback_lease_over_selected_device_local_authority",
+      "implementedTransportAuthorities": [
+        "sgt_adb_bridge",
+        "shizuku_shell"
+      ],
+      "unsupportedTransportAuthorities": [
+        "root_bridge"
+      ],
+      "loopbackSecretPersistence": false
     },
     {
       "id": "local_ui_detector",
@@ -238,6 +296,14 @@
       "pairing": "wireless_debugging_local_mdns",
       "credentialStorage": "android_keystore",
       "survivesReboot": "probe_and_authenticated_reconnect_required",
+      "coldStartReadiness": "selected_tools_await_single_bounded_reconnect",
+      "stalePreReconnectFailureAllowed": false,
+      "reconnectFailureClasses": [
+        "pairing_state_missing",
+        "connection_endpoint_unavailable",
+        "pairing_authorization_rejected",
+        "connection_failed"
+      ],
       "lanListener": false
     },
     {
@@ -273,7 +339,17 @@
     "customTabsGenericDomAuthority": false,
     "cdpControlsBoundPageTargets": true,
     "cdpControlsAndroidBrowserChrome": false,
-    "customTabCdpTargetDiscoverability": "real_device_probe_required",
+    "cdpTransportAuthentication": "ephemeral_per_process_loopback_lease",
+    "cdpTransportAuthorities": "sgt_adb_bridge_or_shizuku_shell",
+    "rootCdpTransport": "unsupported_until_exact_duplex_stream_is_proven",
+    "cdpEndpointProbe": "fresh_per_operation_when_disconnected_or_stale",
+    "publicResearchRequiresElevatedAuthority": false,
+    "publicResearchCredentialContext": "isolated_public_request",
+    "publicResearchBlocksPrivateNetworkTargets": true,
+    "customTabCdpTargetDiscoverability": "bounded_exact_pre_post_target_delta_and_normalized_requested_url",
+    "ambiguousCustomTabCdpTarget": "do_not_attach_use_accessibility_fallback",
+    "turnOwnedTargetLimit": 32,
+    "turnOwnedTargetCleanup": "close_then_verify_absent_before_retiring_ownership",
     "accessibilityControlsBrowserChrome": true,
     "secretTransferAllowed": false,
     "visibleUrlOrTitleProvesTargetOwnership": false
@@ -322,7 +398,7 @@
     },
     {
       "capability": "app_and_task_control",
-      "providers": ["android_app_api", "accessibility", "shizuku_shell", "root_bridge", "device_owner", "privileged_system"]
+      "providers": ["android_app_api", "accessibility", "sgt_adb_bridge", "shizuku_shell", "root_bridge", "device_owner", "privileged_system"]
     },
     {
       "capability": "system_query",
@@ -330,11 +406,15 @@
     },
     {
       "capability": "file_resource_access",
-      "providers": ["android_app_api", "shizuku_shell", "root_bridge", "privileged_system"]
+      "providers": ["android_app_api", "sgt_adb_bridge", "shizuku_shell", "root_bridge", "privileged_system"]
     },
     {
       "capability": "command_execution",
       "providers": ["sgt_adb_bridge", "shizuku_shell", "root_bridge", "privileged_system"]
+    },
+    {
+      "capability": "public_web_research",
+      "providers": ["direct_web_research"]
     },
     {
       "capability": "browser_semantic",
@@ -446,7 +526,11 @@
       "semanticLeaseSafetyAfterContentChurn": "live_node_path_and_fingerprint_revalidation",
       "everyMutationRevalidatesLiveTargetFingerprint": true,
       "hardEventDuringCaptureResult": "stale_frame",
-      "staleVisualCaptureRetriesAreBounded": true
+      "staleVisualCaptureRetriesAreBounded": true,
+      "captureOverlaySuppression": "post_capture_controller_region_mask",
+      "captureOverlayMayMutateLiveView": false,
+      "captureOverlayMayUpdateWindowManagerLayout": false,
+      "captureOverlayMaySelfInvalidateGeneration": false
     },
     "nameResolution": {
       "acceptedInputs": [
@@ -466,6 +550,30 @@
       "alreadyFocused": "verified_no_effect",
       "dispatchedButUnverified": "effect_may_have_occurred",
       "missingLaunchablePackage": "unsupported_on_surface"
+    },
+    "resourceLaunch": {
+      "tool": "launch_app",
+      "classification": "structural_only",
+      "appInputs": ["exact_package", "unique_exact_label"],
+      "resourceInputs": ["absolute_path", "standard_folder_path", "content_uri", "file_uri"],
+      "resourceArgument": "exact_app_name_plus_structural_resource",
+      "arbitraryCommandLine": "typed_unsupported_arguments",
+      "ordinaryDispatch": "action_view_with_mime_and_temporary_read_grant",
+      "elevatedDispatch": "selected_provider_literal_am_start",
+      "elevatedProviderOrder": ["sgt_adb_bridge", "shizuku_shell", "root_bridge"],
+      "apkDispatch": "package_installer_os_owned_checkpoint",
+      "silentInstall": false,
+      "openUrlSchemes": ["http", "https"],
+      "typedFailures": [
+        "invalid_arguments",
+        "app_not_found",
+        "resource_not_found",
+        "unsupported_scheme",
+        "unsupported_arguments",
+        "no_handler",
+        "capability_unavailable",
+        "provider_failed"
+      ]
     },
     "gestureDispatch": {
       "rejectedBeforePlatformAcceptance": "proven_no_effect",
@@ -576,18 +684,31 @@
         "visual_revision",
         "rotation",
         "density_dpi",
-        "captured_at_ms"
+        "captured_at_ms",
+        "capture_provider"
       ],
       "staleResult": "stale_frame",
       "coordinateDispatchRequiresCurrentVisualRevision": true,
       "streamCaptureMayCompleteDuringContentChurn": true,
+      "ambientSemanticCaptureAttempts": 1,
+      "ambientSemanticFailurePolicy": "immediate_projection_only_without_coordinate_lease",
+      "ambientSemanticFailureCodes": [
+        "capability_unavailable",
+        "stale_frame",
+        "surface_unavailable",
+        "surface_unstable"
+      ],
+      "explicitVisualToolStalePolicy": "bounded_retry_then_typed_failure",
       "unsupportedDisplayResult": "unsupported_display",
       "secureCaptureResult": "screenshot_secure_window",
       "rateLimitedResult": "screenshot_rate_limited",
       "invalidWindowCaptureRecovery": "same_attempt_display_scoped_fallback",
       "retryableFailureVisibility": "third_consecutive_failure",
       "successfulFrameClearsCaptureFailure": true,
-      "overlayPolicy": "window_capture_excludes_controller_overlay_without_visible_mutation_when_available",
+      "overlayPolicy": "window_capture_excludes_controller_overlay_and_display_capture_masks_controller_region_without_live_ui_mutation",
+      "ambientCaptureMutatesLiveOverlay": false,
+      "projectionFallbackWithoutAccessibility": "clean_whole_display_without_semantic_or_coordinate_lease",
+      "projectionFallbackMayAuthorizeAccessibilityMutation": false,
       "pointAt": "unavailable_without_universal_pointer_state",
       "dragTarget": "same_tool_dual_semantic_selection_one_frame_detector_refresh_dual_crosshair_verification_exact_surface_lease"
     }

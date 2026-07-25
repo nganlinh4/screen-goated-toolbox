@@ -1,20 +1,25 @@
 package dev.screengoated.toolbox.mobile.phonecontrol
 
+import android.app.Instrumentation
 import android.app.UiAutomation
 import android.content.Intent
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.Settings
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayController
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntimeCode
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntimePhase
+import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerChoice
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -35,8 +40,28 @@ class PhoneControlShizukuSetupDeviceTest {
             assumeFalse("This device already has Shizuku", isPackageInstalled(context, SHIZUKU_PACKAGE))
             val originalMode = readOverlayMode(context.packageName)
             val originalChoice = PhoneControlPowerPreferences.current(context)
-            val controller = PhoneControlOverlayController(context, onDismiss = {})
+            val expectedInstallRoute = installRoute(context)
+            requireNotNull(expectedInstallRoute.resolveActivity(context.packageManager))
+            val observedInstallRoute = AtomicReference<Intent>()
+            val activityMonitor = object : Instrumentation.ActivityMonitor() {
+                override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                    if (intent.action == Intent.ACTION_VIEW &&
+                        intent.data == expectedInstallRoute.data
+                    ) {
+                        observedInstallRoute.compareAndSet(null, Intent(intent))
+                    }
+                    return null
+                }
+            }
+            val controller = PhoneControlOverlayController(
+                context = context,
+                onDismiss = {},
+                onPowerChoiceSelected = { choice ->
+                    context.startActivity(PhoneControlActivity.optionalPowerIntent(context, choice))
+                },
+            )
             val clicked = AtomicBoolean(false)
+            instrumentation.addMonitor(activityMonitor)
 
             try {
                 setOverlayMode(context.packageName, "allow")
@@ -44,9 +69,6 @@ class PhoneControlShizukuSetupDeviceTest {
                     Settings.canDrawOverlays(context)
                 }
                 PhoneControlPowerPreferences.clear(context)
-                requireNotNull(
-                    installRoute(context).resolveActivity(context.packageManager),
-                )
                 val fixture = Intent(
                     context,
                     PhoneControlAccessibilityFixtureActivity::class.java,
@@ -65,16 +87,28 @@ class PhoneControlShizukuSetupDeviceTest {
                     }
                     instrumentation.runOnMainSync {
                         val prompt = requireNotNull(powerPrompt(controller))
-                        val choices = prompt.getChildAt(2) as ViewGroup
-                        clicked.set(choices.getChildAt(1).performClick())
+                        val shizuku = requireNotNull(
+                            findChoice(
+                                prompt,
+                                context.getString(R.string.phone_control_power_shizuku),
+                            ),
+                        )
+                        clicked.set(shizuku.performClick())
                     }
                     assertTrue("Shizuku choice did not accept the click", clicked.get())
                     assertEquals(
                         PhoneControlPowerChoice.SHIZUKU,
                         PhoneControlPowerPreferences.current(context),
                     )
+                    awaitCondition("Official Shizuku install route was not dispatched") {
+                        observedInstallRoute.get() != null
+                    }
+                    val actualInstallRoute = requireNotNull(observedInstallRoute.get())
+                    assertEquals(expectedInstallRoute.data, actualInstallRoute.data)
+                    assertEquals(expectedInstallRoute.`package`, actualInstallRoute.`package`)
                 }
             } finally {
+                instrumentation.removeMonitor(activityMonitor)
                 withContext(Dispatchers.Main) { controller.destroy() }
                 setOverlayMode(context.packageName, originalMode)
                 if (originalChoice == null) {
@@ -103,6 +137,16 @@ class PhoneControlShizukuSetupDeviceTest {
         val field = PhoneControlOverlayController::class.java.getDeclaredField("powerPrompt")
         field.isAccessible = true
         return field.get(controller) as? ViewGroup
+    }
+
+    private fun findChoice(root: ViewGroup, label: CharSequence): TextView? {
+        repeat(root.childCount) { index ->
+            when (val child = root.getChildAt(index)) {
+                is TextView -> if (child.text.toString() == label.toString()) return child
+                is ViewGroup -> findChoice(child, label)?.let { return it }
+            }
+        }
+        return null
     }
 
     private suspend fun awaitCondition(message: String, condition: () -> Boolean) {

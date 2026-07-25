@@ -9,6 +9,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.Acces
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityMutationKind
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilitySurfaceLease
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityTargetAuthority
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityWindowSnapshot
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.surfaceLease as accessibilitySurfaceLease
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
@@ -99,6 +100,9 @@ class AccessibilityToolHandlersTest {
         assertEquals("confirmation_required", blocked.response.stringValue("code"))
         assertFalse(blocked.mutating)
         assertEquals("invalid_arguments", malformed.response.stringValue("code"))
+        assertEquals("contract", malformed.response.stringValue("failure_class"))
+        assertEquals("confirm", malformed.response.stringValue("argument_field"))
+        assertEquals("invalid_type", malformed.response.stringValue("contract_reason"))
         assertFalse(malformed.mutating)
         assertEquals("ok", allowed.response.stringValue("code"))
         assertTrue(allowed.mutating)
@@ -168,6 +172,31 @@ class AccessibilityToolHandlersTest {
         assertEquals("dev.test", backend.clicks.single().lease.packageOrSurface)
         assertEquals(0, backend.clicks.single().lease.windowLayer)
         assertEquals(77L, backend.clicks.single().expectedVisualRevision)
+    }
+
+    @Test
+    fun `active Android user step precedes missing or stale visual routing`() = runTest {
+        val routine = observation(generation = 23)
+        val protected = routine.copy(
+            windows = listOf(
+                routine.windows.single().copy(
+                    targetAuthority = AccessibilityTargetAuthority.OS_OWNED_USER_STEP,
+                ),
+            ),
+        )
+        val backend = FakeAccessibilityBackend(AccessibilityObservationFrame(protected))
+
+        val click = handleClickAt(JOB, jsonArgs("cell" to 1), backend)
+        val drag = handleDrag(JOB, jsonArgs("from_cell" to 1, "to_cell" to 2), backend)
+        val scroll = handleScroll(JOB, jsonArgs("direction" to "down"), backend)
+
+        listOf(click, drag, scroll).forEach { execution ->
+            assertEquals("os_owned_confirmation", execution.response.stringValue("code"))
+            assertEquals("proven_no_effect", execution.response.stringValue("effect_status"))
+            assertFalse(execution.mutating)
+        }
+        assertTrue(backend.clicks.isEmpty())
+        assertTrue(backend.swipes.isEmpty())
     }
 
     @Test

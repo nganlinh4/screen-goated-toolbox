@@ -4,7 +4,9 @@ import android.accessibilityservice.AccessibilityService
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityElement
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityObservation
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityMutationKind
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.activeOsOwnedUserStepFailure
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.surfaceLease
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import kotlinx.serialization.json.JsonObject
@@ -50,6 +52,8 @@ internal class AndroidSystemNavigationToolHandler(
             is AccessibilityProviderResult.Failure -> return failure(job, observed)
             is AccessibilityProviderResult.Success -> observed.value
         }
+        before.activeOsOwnedUserStepFailure(AccessibilityMutationKind.NAVIGATION_GESTURE)
+            ?.let { return failure(job, it) }
         val surfaceContext = SurfaceContext(before, before.surfaceLease())
         val window = surfaceContext.systemNavigationSnapshot(targetIdentity)
             ?: return stale(job, before.generation)

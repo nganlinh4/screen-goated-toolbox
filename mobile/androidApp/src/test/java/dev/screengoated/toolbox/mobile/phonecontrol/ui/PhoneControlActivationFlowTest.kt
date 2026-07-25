@@ -19,7 +19,7 @@ class PhoneControlActivationFlowTest {
     @Test
     fun `activation reducer and launcher contract match the shared fixture`() {
         val fixture = Json.parseToJsonElement(fixtureFile().readText()).jsonObject
-        assertEquals(13L, fixture.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(21L, fixture.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals(
             PhoneControlActivationStep.entries.map(PhoneControlActivationStep::wireName),
             fixture.getValue("requiredOrder").jsonArray.map { it.jsonPrimitive.content },
@@ -42,6 +42,7 @@ class PhoneControlActivationFlowTest {
             "android_default_resource_fallback",
             languageContract.string("otherUiLocales"),
         )
+        assertEquals("in_app_language_setting", languageContract.string("uiLocaleSource"))
         assertEquals(
             "provider_detected_without_app_locale_override",
             languageContract.string("liveLanguage"),
@@ -53,9 +54,72 @@ class PhoneControlActivationFlowTest {
             },
         )
         assertFalse(languageContract.boolean("languageSpecificRouting"))
+        val portability = invariants.getValue("devicePortability").jsonObject
+        assertFalse(portability.boolean("identityBasedBranching"))
+        assertFalse(portability.boolean("emulatorSpecificRuntimePath"))
+        assertEquals(
+            "live_display_window_insets_density_and_rotation",
+            portability.string("geometrySource"),
+        )
+        assertEquals(
+            "runtime_probe_and_android_api_contract",
+            portability.string("capabilitySource"),
+        )
+        assertEquals("typed_capability_result", portability.string("unsupportedOutcome"))
         assertFalse(invariants.boolean("userFacingSelfTest"))
         assertTrue(invariants.boolean("oneExternalUserStepAtATime"))
         assertTrue(invariants.boolean("reprobeAfterReturn"))
+        val internalAutomation = invariants.getValue("internalSetupAutomation").jsonObject
+        assertEquals("normal_full_catalog", internalAutomation.string("catalog"))
+        assertEquals("silent", internalAutomation.string("presentation"))
+        assertTrue(internalAutomation.boolean("ownershipBeforeSend"))
+        val setupSingleFlight = internalAutomation.getValue("singleFlight").jsonObject
+        assertEquals("selected_provider", setupSingleFlight.string("scope"))
+        assertEquals(
+            "coalesce_guidance_and_strengthen_handoff_on_original_goal",
+            setupSingleFlight.string("sameProviderReentry"),
+        )
+        assertEquals("cannot_inherit_active_goal", setupSingleFlight.string("differentProvider"))
+        assertEquals("original_goal_id", setupSingleFlight.string("completionOwner"))
+        assertEquals("discard", internalAutomation.string("assistantAudio"))
+        assertEquals("discard", internalAutomation.string("assistantCaption"))
+        assertEquals(
+            "preserve_setup_owned_caption_state_and_icon",
+            internalAutomation.string("orbPresentation"),
+        )
+        assertEquals(
+            "exclude_entire_internal_turn",
+            internalAutomation.string("memory"),
+        )
+        assertEquals(
+            "localized_structural_state",
+            internalAutomation.string("completionFeedback"),
+        )
+        assertEquals(
+            "restore_normal_conversation_before_new_turn",
+            internalAutomation.string("userInterruption"),
+        )
+        val setupFeedback = invariants.getValue("setupFeedback").jsonObject
+        assertEquals(
+            "localized_short_state_only_max_32_characters",
+            setupFeedback.string("toast"),
+        )
+        assertEquals("localized_compact_status", setupFeedback.string("orbCaption"))
+        assertEquals(
+            "localized_full_instruction",
+            setupFeedback.string("ongoingNotification"),
+        )
+        assertEquals(
+            listOf("default", "ko", "vi"),
+            setupFeedback.getValue("explicitUiLocales").jsonArray.map {
+                it.jsonPrimitive.content
+            },
+        )
+        assertEquals(
+            "android_default_resource_fallback",
+            setupFeedback.string("otherUiLocales"),
+        )
+        assertEquals("in_app_language_setting", setupFeedback.string("uiLocaleSource"))
         val accessibility = invariants.getValue("accessibilityReadiness").jsonObject
         assertEquals(
             listOf("configured_service", "live_service_binding"),
@@ -69,6 +133,17 @@ class PhoneControlActivationFlowTest {
             accessibility.string("configuredButUnbound"),
         )
         assertFalse(accessibility.boolean("serviceBoundAfterSettingRemovalIsReady"))
+        val semantics = invariants.getValue("accessibilitySemantics").jsonObject
+        assertEquals(
+            "bounded_safe_descendant_labels_on_exact_action_owner",
+            semantics.string("splitLabelAndAction"),
+        )
+        assertFalse(semantics.boolean("languageAndDeviceBranching"))
+        assertEquals("never_inherit", semantics.string("editableOrProtectedDescendant"))
+        assertEquals(
+            "revalidate_exact_published_action_owner",
+            semantics.string("dispatch"),
+        )
         val projection = invariants.getValue("mediaProjection").jsonObject
         assertTrue(projection.boolean("requiredForEverySession"))
         assertEquals("whole_default_display", projection.string("scope"))
@@ -86,9 +161,12 @@ class PhoneControlActivationFlowTest {
             protectedCheckpoint.string("agentNavigation"),
         )
         assertEquals(
-            "seal_visual_evidence_drain_then_release",
+            "seal_visual_evidence_then_apply_provider_capture_policy",
             protectedCheckpoint.string("capture"),
         )
+        val capturePolicy = protectedCheckpoint.getValue("capturePolicy").jsonObject
+        assertEquals("retain_projection", capturePolicy.string("sgt_adb_bridge"))
+        assertEquals("release_projection", capturePolicy.string("shizuku_shell"))
         assertEquals(
             "keep_socket_microphone_audio_orb_and_conversation",
             protectedCheckpoint.string("runtime"),
@@ -103,6 +181,54 @@ class PhoneControlActivationFlowTest {
             "public_persistent_notification",
             protectedCheckpoint.string("guidance"),
         )
+        val guidanceLifecycle = protectedCheckpoint.getValue("guidanceLifecycle").jsonObject
+        assertEquals(
+            "replace_with_neutral_progress_before_adapter_wait",
+            guidanceLifecycle.string("preCheckpoint"),
+        )
+        assertEquals(
+            "reject_while_checkpoint_active",
+            guidanceLifecycle.string("staleExternalProgress"),
+        )
+        assertEquals(
+            "fresh_projection_required_only_after_release",
+            guidanceLifecycle.string("awaitingProjection"),
+        )
+        assertEquals(
+            "clear_after_fresh_post_attach_probe",
+            guidanceLifecycle.string("providerReady"),
+        )
+        val projectionPrompt = protectedCheckpoint.getValue("projectionPrompt").jsonObject
+        assertEquals("automatic_coordinator_reentry", projectionPrompt.string("launch"))
+        assertEquals(
+            "clear_coordinator_owned_external_surfaces_then_deliver_resume",
+            projectionPrompt.string("existingCoordinatorTask"),
+        )
+        assertEquals(
+            "create_resume_coordinator",
+            projectionPrompt.string("missingCoordinatorTask"),
+        )
+        assertEquals(
+            "explicit_immutable_internal_pending_intent_with_platform_bal_opt_in",
+            projectionPrompt.string("backgroundLaunch"),
+        )
+        assertEquals(
+            "retire_when_coordinator_reentry_pending",
+            projectionPrompt.string("staleExternalResult"),
+        )
+        assertEquals(
+            "exact_coordinator_token_ack_then_projection_launcher_dispatch",
+            projectionPrompt.string("launchDispatch"),
+        )
+        assertEquals(
+            "android_activity_result_then_fresh_projection_attach",
+            projectionPrompt.string("completionReceipt"),
+        )
+        assertEquals("ongoing_notification_tap", projectionPrompt.string("fallback"))
+        assertEquals(
+            "discard_transient_checkpoint_then_normal_activation",
+            projectionPrompt.string("processRestart"),
+        )
         assertEquals(
             "explicit_notification_action",
             protectedCheckpoint.string("cancel"),
@@ -114,14 +240,17 @@ class PhoneControlActivationFlowTest {
             "remain_live_and_visually_sealed",
             cancelOutcome.string("runtime"),
         )
-        assertEquals("fresh_media_projection", cancelOutcome.string("nextStep"))
         assertEquals(
-            "attach_fresh_media_projection_to_existing_runtime",
+            "unseal_retained_projection_or_request_fresh_projection",
+            cancelOutcome.string("nextStep"),
+        )
+        assertEquals(
+            "unseal_retained_projection_or_attach_fresh_projection_to_existing_runtime",
             protectedCheckpoint.string("resume"),
         )
         assertFalse(protectedCheckpoint.boolean("providerSetupWhileSealed"))
         assertEquals(
-            "blocked_until_fresh_projection_attached",
+            "blocked_until_retained_projection_unsealed_or_fresh_projection_attached",
             protectedCheckpoint.string("modelVisualEvidence"),
         )
         assertEquals(
@@ -136,7 +265,7 @@ class PhoneControlActivationFlowTest {
         )
         val relayContinuation = protectedCheckpoint.getValue("relayContinuation").jsonObject
         assertEquals(
-            "resume_selected_setup_after_fresh_projection",
+            "resume_selected_setup_after_visual_evidence_restored",
             relayContinuation.string("completed"),
         )
         listOf("needsUserStep", "failed").forEach { outcome ->
@@ -163,8 +292,12 @@ class PhoneControlActivationFlowTest {
         assertFalse(navigation.boolean("mayTogglePermission"))
         val activePlatformSession = navigation.getValue("activePlatformSession").jsonObject
         assertEquals(
+            "os_owned_user_step",
+            activePlatformSession.string("resolvedHandlerFullScreenSurface"),
+        )
+        assertEquals(
             "routine_navigation",
-            activePlatformSession.string("fullScreenSetupSurface"),
+            activePlatformSession.string("sameApplicationOutsideExactSession"),
         )
         assertEquals(
             "os_owned_user_step",
@@ -203,11 +336,22 @@ class PhoneControlActivationFlowTest {
         assertEquals("compact_orb_card", powerPresentation.string("surface"))
         assertFalse(powerPresentation.boolean("explanatoryParagraph"))
         assertEquals("sgt_adb", powerPresentation.string("recommendedNonRoot"))
-        assertEquals("star_icon", powerPresentation.string("recommendedMarker"))
+        assertEquals("purple_fill", powerPresentation.string("selectedMarker"))
+        assertEquals(
+            "star_icon_without_selected_fill",
+            powerPresentation.string("recommendedMarker"),
+        )
+        val forgetPairing = powerPresentation.getValue("forgetPairing").jsonObject
         assertEquals(
             "compact_secondary_action_when_paired",
-            powerPresentation.string("forgetPairing"),
+            forgetPairing.string("visibility"),
         )
+        assertEquals(
+            "delete_client_key_and_pairing_state",
+            forgetPairing.string("credentialOutcome"),
+        )
+        assertEquals("standard", forgetPairing.string("selectionOutcome"))
+        assertEquals("persisted_selection", forgetPairing.string("promptRefresh"))
         assertTrue(powerSelection.boolean("persistBeforeSetup"))
         assertTrue(powerSelection.getValue("standard").jsonArray.isEmpty())
         assertEquals(
@@ -227,6 +371,24 @@ class PhoneControlActivationFlowTest {
             powerSelection.string("unselectedElevatedProviderState"),
         )
         assertTrue(powerSelection.boolean("changingChoiceCancelsPendingSetup"))
+        val readyFeedback = powerSelection.getValue("verifiedReadyFeedback").jsonObject
+        assertEquals(
+            "fresh_provider_probe_ready_after_visual_evidence_restored",
+            readyFeedback.string("trigger"),
+        )
+        assertEquals(
+            "immediate_short_localized_orb_caption_and_toast",
+            readyFeedback.string("visual"),
+        )
+        assertEquals("none", readyFeedback.string("voice"))
+        assertEquals(
+            "once_per_verified_ready_transition",
+            readyFeedback.string("deduplication"),
+        )
+        assertEquals(
+            "clear_pending_setup_without_reopening_or_extra_model_turn",
+            readyFeedback.string("completion"),
+        )
         val protectedChange = powerSelection
             .getValue("changeDuringProtectedCheckpoint")
             .jsonObject
@@ -235,23 +397,26 @@ class PhoneControlActivationFlowTest {
             "remain_live_and_visually_sealed",
             protectedChange.string("runtime"),
         )
-        assertEquals("fresh_media_projection", protectedChange.string("nextStep"))
         assertEquals(
-            "start_only_after_projection_attach",
+            "unseal_retained_projection_or_request_fresh_projection",
+            protectedChange.string("nextStep"),
+        )
+        assertEquals(
+            "start_only_after_visual_evidence_restored",
             protectedChange.string("selectedSetup"),
         )
         assertFalse(protectedChange.boolean("automationWhileToolsBlocked"))
         PhoneControlPowerChoice.entries.forEach { choice ->
             assertEquals(
                 PhoneControlPowerSelectionRoute.RESUME_CAPTURE,
-                phoneControlPowerSelectionRoute(choice, protectedCheckpointActive = true),
+                phoneControlPowerSelectionRoute(choice, freshProjectionRequired = true),
             )
         }
         assertEquals(
             PhoneControlPowerSelectionRoute.NONE,
             phoneControlPowerSelectionRoute(
                 PhoneControlPowerChoice.STANDARD,
-                protectedCheckpointActive = false,
+                freshProjectionRequired = false,
             ),
         )
         PhoneControlPowerChoice.entries
@@ -261,7 +426,7 @@ class PhoneControlActivationFlowTest {
                     PhoneControlPowerSelectionRoute.SETUP,
                     phoneControlPowerSelectionRoute(
                         choice,
-                        protectedCheckpointActive = false,
+                        freshProjectionRequired = false,
                     ),
                 )
             }
@@ -297,6 +462,7 @@ class PhoneControlActivationFlowTest {
             "full_persistent_instruction",
             guidancePresentation.string("ongoingNotification"),
         )
+        assertEquals("short_state_only", guidancePresentation.string("toast"))
         assertEquals("structural_probe_state", shizuku.string("plannerInput"))
         val liveAutomation = shizuku.getValue("liveAutomation").jsonObject
         assertEquals("user_power_authority_selection", liveAutomation.string("trigger"))
@@ -305,6 +471,7 @@ class PhoneControlActivationFlowTest {
             liveAutomation.string("turnBoundary"),
         )
         assertEquals("normal_full_catalog", liveAutomation.string("catalog"))
+        assertEquals("silent_internal_turn", liveAutomation.string("presentation"))
         assertEquals(
             "normal_semantic_and_vision_tools",
             liveAutomation.string("navigation"),
@@ -364,12 +531,20 @@ class PhoneControlActivationFlowTest {
         }
         val firstPartyAdb = invariants.getValue("firstPartyAdbSetup").jsonObject
         assertEquals(
+            "sealed_model_evidence_with_projection_retained",
+            firstPartyAdb.string("captureLifecycle"),
+        )
+        assertEquals(
             "serialize_then_forget_abandoned_client_key_after_terminal_return",
             firstPartyAdb.string("cancelDuringPairing"),
         )
         assertEquals(
             "persist_pairing_then_bounded_reconnect_without_code_reentry",
             firstPartyAdb.string("pairingEstablishedBeforeConnect"),
+        )
+        assertEquals(
+            "unseal_existing_projection_then_fresh_probe",
+            firstPartyAdb.string("postPairingProjectionResume"),
         )
         assertEquals(
             "paired_client_key_and_persisted_adb_mdns_identity_family",
@@ -392,55 +567,6 @@ class PhoneControlActivationFlowTest {
             )
             assertEquals(case.string("name"), case.string("expect"), actual.wireName)
         }
-    }
-
-    @Test
-    fun `accessibility readiness requires configuration and a live binding`() {
-        assertEquals(
-            PhoneControlAccessibilityState.DISABLED,
-            phoneControlAccessibilityState(configured = false, serviceBound = false),
-        )
-        assertEquals(
-            PhoneControlAccessibilityState.DISABLED,
-            phoneControlAccessibilityState(configured = false, serviceBound = true),
-        )
-        assertEquals(
-            PhoneControlAccessibilityState.RECONNECTING,
-            phoneControlAccessibilityState(configured = true, serviceBound = false),
-        )
-        assertEquals(
-            PhoneControlAccessibilityState.READY,
-            phoneControlAccessibilityState(configured = true, serviceBound = true),
-        )
-    }
-
-    @Test
-    fun `Shizuku setup advances on state change without repeating one external step`() {
-        val missing = PhoneControlShizukuSetupAttempt(
-            ShizukuBridgeCondition.PACKAGE_MISSING,
-            PhoneControlShizukuSetupAction.OPEN_STORE,
-        )
-        val installed = PhoneControlShizukuSetupAttempt(
-            ShizukuBridgeCondition.SERVICE_STOPPED,
-            PhoneControlShizukuSetupAction.OPEN_MANAGER,
-        )
-
-        assertEquals(
-            PhoneControlShizukuRepeatDisposition.DISPATCH,
-            phoneControlShizukuRepeatDisposition(missing, previous = null, stepActive = false),
-        )
-        assertEquals(
-            PhoneControlShizukuRepeatDisposition.WAIT_FOR_EVENT,
-            phoneControlShizukuRepeatDisposition(missing, missing, stepActive = true),
-        )
-        assertEquals(
-            PhoneControlShizukuRepeatDisposition.LEAVE_SELECTED_PENDING,
-            phoneControlShizukuRepeatDisposition(missing, missing, stepActive = false),
-        )
-        assertEquals(
-            PhoneControlShizukuRepeatDisposition.DISPATCH,
-            phoneControlShizukuRepeatDisposition(installed, missing, stepActive = false),
-        )
     }
 
     private fun fixtureFile(): File {

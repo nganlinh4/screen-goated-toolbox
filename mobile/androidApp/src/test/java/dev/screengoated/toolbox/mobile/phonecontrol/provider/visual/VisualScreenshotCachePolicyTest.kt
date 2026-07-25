@@ -18,4 +18,24 @@ class VisualScreenshotCachePolicyTest {
         assertFalse(shouldReuseVisualScreenshot(7, 10_000, 8, 10_001, apiLevel = 36))
         assertFalse(shouldReuseVisualScreenshot(7, 10_000, 7, 9_999, apiLevel = 36))
     }
+
+    @Test
+    fun ambientSemanticChurnUsesProjectionWithoutWeakeningHardCaptureFailures() {
+        listOf(
+            "capability_unavailable",
+            "stale_frame",
+            "surface_unavailable",
+            "surface_unstable",
+        ).forEach { code ->
+            assertTrue(shouldUseProjectionOnlyAmbientFrame(code, projectionReady = true))
+            assertFalse(shouldUseProjectionOnlyAmbientFrame(code, projectionReady = false))
+        }
+        listOf(
+            "screenshot_secure_window",
+            "unsupported_display",
+            "screenshot_processing_failed",
+        ).forEach { code ->
+            assertFalse(shouldUseProjectionOnlyAmbientFrame(code, projectionReady = true))
+        }
+    }
 }

@@ -2,10 +2,11 @@ package dev.screengoated.toolbox.mobile.phonecontrol
 
 import android.app.UiAutomation
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.Rect
 import android.os.ParcelFileDescriptor
 import android.provider.Settings
-import android.view.View
 import android.view.WindowManager
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -13,6 +14,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayController
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayExclusion
+import dev.screengoated.toolbox.mobile.phonecontrol.overlay.maskPhoneControlOverlay
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntimeCode
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntimePhase
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
@@ -26,7 +28,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -99,7 +101,7 @@ class PhoneControlOverlayExclusionTest {
     }
 
     @Test
-    fun captureLeaseHidesAndRestoresTheRenderedOverlay() = runBlocking {
+    fun captureBoundsDoNotMutateTheRenderedOverlay() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val targetContext = instrumentation.targetContext
         val packageName = targetContext.packageName
@@ -137,15 +139,30 @@ class PhoneControlOverlayExclusionTest {
                 assertNotNull(controller.orbBounds())
                 val rendererAlpha = windowParams(controller, "orbParams").alpha
                 assertTrue(rendererAlpha > 0f)
-                assertOverlaySuppression(controller, hidden = false, rendererAlpha)
                 assertPowerPromptCanConsumeTouches(controller)
 
-                PhoneControlOverlayExclusion.forCapture {
-                    assertNull(controller.orbBounds())
-                    assertOverlaySuppression(controller, hidden = true, rendererAlpha)
+                val captureBounds = requireNotNull(
+                    PhoneControlOverlayExclusion.currentCaptureBounds(),
+                )
+                val device = UiDevice.getInstance(instrumentation)
+                repeat(CAPTURE_MASK_REPETITIONS) {
+                    val frame = Bitmap.createBitmap(
+                        device.displayWidth,
+                        device.displayHeight,
+                        Bitmap.Config.ARGB_8888,
+                    ).apply { eraseColor(Color.WHITE) }
+                    val masked = maskPhoneControlOverlay(frame)
+                    assertSame("Mutable capture should be masked in place", frame, masked)
+                    val centerX = ((captureBounds.left + captureBounds.right) / 2)
+                        .coerceIn(0, masked.width - 1)
+                    val centerY = ((captureBounds.top + captureBounds.bottom) / 2)
+                        .coerceIn(0, masked.height - 1)
+                    assertEquals(Color.BLACK, masked.getPixel(centerX, centerY))
+                    assertEquals(rendererAlpha, windowParams(controller, "orbParams").alpha, 0f)
+                    masked.recycle()
                 }
                 assertNotNull(controller.orbBounds())
-                assertOverlaySuppression(controller, hidden = false, rendererAlpha)
+                assertEquals(rendererAlpha, windowParams(controller, "orbParams").alpha, 0f)
                 assertRendererWindowCannotConsumeTouches(controller)
             }
         } finally {
@@ -178,39 +195,6 @@ class PhoneControlOverlayExclusionTest {
         )
     }
 
-    private fun assertOverlaySuppression(
-        controller: PhoneControlOverlayController,
-        hidden: Boolean,
-        rendererAlpha: Float,
-    ) {
-        val expectedControlAlpha = if (hidden) 0f else 1f
-        listOf("touchTarget", "powerPrompt").forEach { fieldName ->
-            val field = PhoneControlOverlayController::class.java.getDeclaredField(fieldName)
-            field.isAccessible = true
-            val view = field.get(controller) as View
-            assertEquals("Unexpected $fieldName alpha", expectedControlAlpha, view.alpha, 0f)
-        }
-        assertEquals(
-            "Renderer readiness must not be reset by capture suppression",
-            1f,
-            view(controller, "orb").alpha,
-            0f,
-        )
-        val expectedRendererAlpha = if (hidden) 0f else rendererAlpha
-        assertEquals(expectedRendererAlpha, windowParams(controller, "orbParams").alpha, 0f)
-        listOf("touchParams", "powerPromptParams").forEach { fieldName ->
-            assertEquals(
-                "Unexpected window alpha for $fieldName",
-                expectedControlAlpha,
-                windowParams(controller, fieldName).alpha,
-                0f,
-            )
-        }
-        val params = windowParams(controller, "touchParams")
-        val notTouchable = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE != 0
-        assertEquals("Unexpected touch-target suppression", hidden, notTouchable)
-    }
-
     private fun assertPowerPromptCanConsumeTouches(
         controller: PhoneControlOverlayController,
     ) {
@@ -219,12 +203,6 @@ class PhoneControlOverlayExclusionTest {
             "Visible power prompt must accept a user choice",
             params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE == 0,
         )
-    }
-
-    private fun view(controller: PhoneControlOverlayController, name: String): View {
-        val field = PhoneControlOverlayController::class.java.getDeclaredField(name)
-        field.isAccessible = true
-        return field.get(controller) as View
     }
 
     private fun windowParams(
@@ -267,6 +245,7 @@ class PhoneControlOverlayExclusionTest {
         const val POLL_INTERVAL_MS = 100L
         const val CONDITION_ATTEMPTS = 50
         const val RENDER_SETTLE_MS = 250L
+        const val CAPTURE_MASK_REPETITIONS = 4
         const val DISMISS_SWIPE_STEPS = 30
     }
 }

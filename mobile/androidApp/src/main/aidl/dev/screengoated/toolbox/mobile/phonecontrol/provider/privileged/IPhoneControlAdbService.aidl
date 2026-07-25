@@ -6,4 +6,6 @@ interface IPhoneControlAdbService {
     String runCommand(String operationId, String program, in String[] args, String cwd, long timeoutMs) = 3;
     String cancelCommand(String operationId) = 4;
     String forget() = 5;
+    String openBrowserTunnel(long timeoutMs) = 6;
+    String closeBrowserTunnel(String leaseId) = 7;
 }

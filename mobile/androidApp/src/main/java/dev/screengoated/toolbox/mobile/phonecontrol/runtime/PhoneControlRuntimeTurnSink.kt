@@ -10,6 +10,7 @@ internal class PhoneControlRuntimeTurnSink(
     private val discard: () -> Unit,
     private val inputCaption: (String) -> Unit,
     private val outputCaption: (String) -> Unit,
+    private val assistantContentEnabled: () -> Boolean,
     private val orbPresentation: (String, String?) -> Unit,
     private val phase: (PhoneControlTurnPhase) -> Unit,
     private val refresh: () -> Unit,
@@ -28,6 +29,8 @@ internal class PhoneControlRuntimeTurnSink(
     override fun updateInputCaption(text: String) = inputCaption(text)
 
     override fun updateOutputCaption(text: String) = outputCaption(text)
+
+    override fun surfaceAssistantContent(): Boolean = assistantContentEnabled()
 
     override fun updateOrbPresentation(stateLabel: String, iconOverride: String?) =
         orbPresentation(stateLabel, iconOverride)

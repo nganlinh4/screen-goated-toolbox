@@ -6,6 +6,7 @@ class PlatformUserStepToken internal constructor(internal val id: Long)
 data class PlatformUserStepSnapshot(
     val generation: Long,
     val activeCount: Int,
+    val expectedPackageNames: Set<String>,
 ) {
     val active: Boolean get() = activeCount > 0
 }
@@ -16,26 +17,33 @@ data class PlatformUserStepSnapshot(
  */
 object PlatformUserStepSessionRegistry {
     private val lock = Any()
-    private val activeTokenIds = mutableSetOf<Long>()
+    private val activeSessions = mutableMapOf<Long, Set<String>>()
     private var nextTokenId = 0L
     private var generation = 0L
 
-    fun begin(): PlatformUserStepToken = synchronized(lock) {
+    fun begin(
+        expectedPackageNames: Set<String> = emptySet(),
+    ): PlatformUserStepToken = synchronized(lock) {
+        require(expectedPackageNames.none(String::isBlank))
         val token = PlatformUserStepToken(++nextTokenId)
-        check(activeTokenIds.add(token.id))
+        check(activeSessions.put(token.id, expectedPackageNames.toSet()) == null)
         generation += 1
         token
     }
 
     fun end(token: PlatformUserStepToken): Boolean = synchronized(lock) {
-        if (!activeTokenIds.remove(token.id)) return@synchronized false
+        if (activeSessions.remove(token.id) == null) return@synchronized false
         generation += 1
         true
     }
 
-    fun hasActiveSession(): Boolean = synchronized(lock) { activeTokenIds.isNotEmpty() }
+    fun hasActiveSession(): Boolean = synchronized(lock) { activeSessions.isNotEmpty() }
 
     fun snapshot(): PlatformUserStepSnapshot = synchronized(lock) {
-        PlatformUserStepSnapshot(generation = generation, activeCount = activeTokenIds.size)
+        PlatformUserStepSnapshot(
+            generation = generation,
+            activeCount = activeSessions.size,
+            expectedPackageNames = activeSessions.values.flatten().toSet(),
+        )
     }
 }

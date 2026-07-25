@@ -1,7 +1,9 @@
 param(
     [ValidateSet("Both", "Full", "Play")]
     [string]$Flavor = "Both",
-    [string]$Serial = "emulator-5554",
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Serial,
     [switch]$AllowPhysicalDevice,
     [switch]$IncludeExternalSetupTests,
     [switch]$RetainDebugForProbes,
@@ -55,7 +57,6 @@ function Invoke-OptionalTargetAdb {
 
 . (Join-Path $PSScriptRoot "phone-control-device-state.ps1")
 . (Join-Path $PSScriptRoot "phone-control-package-install.ps1")
-. (Join-Path $PSScriptRoot "phone-control-external-setup.ps1")
 
 function Remove-PhoneControlProbeReceipts {
     Assert-TargetAndroidUser
@@ -265,21 +266,16 @@ function Run-FlavorTests {
     $runState["overlay"]["captured"] = $true
     $runState["overlay"]["mode"] = $originalOverlayMode
     Write-RecoveryState
-    $expectShizukuRoute = $IncludeExternalSetupTests -and
-        -not (Test-PackageInstalledForUser "moe.shizuku.privileged.api" $targetUserId)
-    $shizukuRouteStamp = if ($expectShizukuRoute) {
-        Read-ShizukuInstallRouteTaskStamp
-    } else {
-        0L
-    }
-
     try {
         # Target instrumentation can force-stop a target-hosted AccessibilityService.
         # Keep the bind oracle in the host process; settings alone do not prove readiness.
         $classes = @(
             "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLauncherSmokeTest",
             "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlPackageCapabilityTest",
-            "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlOverlayExclusionTest"
+            "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlOverlayExclusionTest",
+            "dev.screengoated.toolbox.mobile.phonecontrol.SgtAdbBridgeBindingDeviceTest",
+            "dev.screengoated.toolbox.mobile.phonecontrol.SgtAdbKeyStoreDeviceTest",
+            "dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.AuthenticatedBrowserTunnelDeviceTest"
         )
         if ($IncludeExternalSetupTests) {
             $classes +=
@@ -312,9 +308,6 @@ function Run-FlavorTests {
         if ($joined -match "FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed" -or
             $joined -notmatch "OK \([1-9][0-9]* tests?\)") {
             throw "Phone Control $displayFlavor instrumentation did not complete successfully."
-        }
-        if ($expectShizukuRoute) {
-            Assert-NewShizukuInstallRouteTask $shizukuRouteStamp
         }
     } finally {
         Remove-PhoneControlProbeReceipts
@@ -424,7 +417,7 @@ try {
     $qemu = ((Invoke-TargetAdb -AdbArguments @("shell", "getprop", "ro.kernel.qemu")) -join "").Trim()
     $isPhysicalDevice = $qemu -ne "1"
     if ($isPhysicalDevice -and -not $AllowPhysicalDevice) {
-        throw "Phone Control device harness requires a verified emulator unless -AllowPhysicalDevice is set."
+        throw "Phone Control tests on a physical target require explicit -AllowPhysicalDevice authorization."
     }
 
     $stateDirectory = Join-Path $mobileRoot "build\phone-control-device-state"

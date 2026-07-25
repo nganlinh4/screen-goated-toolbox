@@ -24,8 +24,8 @@ import org.junit.runner.RunWith
 /**
  * Intentionally excluded from `run-phone-control-tests.ps1` until a separate driver APK exists.
  * Starting same-target instrumentation force-stops the target-hosted AccessibilityService and
- * prevents a real bind on the API-35 test emulator. The harness uses a host-driven bound-service
- * probe in the meantime.
+ * prevents a real bind in affected instrumentation environments. The harness uses a host-driven
+ * bound-service probe in the meantime.
  */
 @RunWith(AndroidJUnit4::class)
 class PhoneControlAccessibilityProviderTest {

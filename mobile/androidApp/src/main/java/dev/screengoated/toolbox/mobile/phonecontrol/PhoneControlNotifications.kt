@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 
 internal class PhoneControlSessionNotification(
     private val service: Service,
@@ -43,6 +44,7 @@ internal class PhoneControlSessionNotification(
     }
 
     private fun build(message: String): Notification {
+        val localized = service.uiLocalized()
         val open = PendingIntent.getActivity(
             service,
             0,
@@ -58,12 +60,12 @@ internal class PhoneControlSessionNotification(
         val public = publicPhoneControlNotification(service, message)
         return NotificationCompat.Builder(service, PHONE_CONTROL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_qs_tile)
-            .setContentTitle(service.getString(R.string.phone_control_title))
+            .setContentTitle(localized.getString(R.string.phone_control_title))
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPublicVersion(public)
             .setContentIntent(open)
-            .addAction(0, service.getString(R.string.notification_action_stop), stop)
+            .addAction(0, localized.getString(R.string.notification_action_stop), stop)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
@@ -73,6 +75,7 @@ internal class PhoneControlSessionNotification(
 internal object PhoneControlSetupNotification {
     fun show(context: Context, message: String, continueIntent: Intent) {
         ensurePhoneControlNotificationChannel(context)
+        val localized = context.uiLocalized()
         val resume = PendingIntent.getActivity(
             context,
             2,
@@ -88,14 +91,14 @@ internal object PhoneControlSetupNotification {
         val public = publicPhoneControlNotification(context, message)
         val notification = NotificationCompat.Builder(context, PHONE_CONTROL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_qs_tile)
-            .setContentTitle(context.getString(R.string.phone_control_title))
+            .setContentTitle(localized.getString(R.string.phone_control_title))
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPublicVersion(public)
             .setContentIntent(resume)
             .addAction(
                 0,
-                context.getString(R.string.phone_control_action_cancel_setup),
+                localized.getString(R.string.phone_control_action_cancel_setup),
                 cancel,
             )
             .setOngoing(true)
@@ -113,22 +116,25 @@ internal object PhoneControlSetupNotification {
     }
 }
 
-private fun publicPhoneControlNotification(context: Context, message: String): Notification =
-    NotificationCompat.Builder(context, PHONE_CONTROL_CHANNEL_ID)
+private fun publicPhoneControlNotification(context: Context, message: String): Notification {
+    val localized = context.uiLocalized()
+    return NotificationCompat.Builder(context, PHONE_CONTROL_CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_qs_tile)
-        .setContentTitle(context.getString(R.string.phone_control_title))
+        .setContentTitle(localized.getString(R.string.phone_control_title))
         .setContentText(message)
         .setStyle(NotificationCompat.BigTextStyle().bigText(message))
         .build()
+}
 
 private fun ensurePhoneControlNotificationChannel(context: Context) {
+    val localized = context.uiLocalized()
     context.getSystemService(NotificationManager::class.java).createNotificationChannel(
         NotificationChannel(
             PHONE_CONTROL_CHANNEL_ID,
-            context.getString(R.string.phone_control_channel_name),
+            localized.getString(R.string.phone_control_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = context.getString(R.string.phone_control_channel_description)
+            description = localized.getString(R.string.phone_control_channel_description)
         },
     )
 }

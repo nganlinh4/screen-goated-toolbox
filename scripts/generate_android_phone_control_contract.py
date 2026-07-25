@@ -221,6 +221,9 @@ def validate_surface_semantics(matrix: dict[str, Any]) -> None:
         or invalidation.get("everyMutationRevalidatesLiveTargetFingerprint") is not True
         or invalidation.get("hardEventDuringCaptureResult") != "stale_frame"
         or invalidation.get("staleVisualCaptureRetriesAreBounded") is not True
+        or invalidation.get("captureOverlaySuppression")
+        != "post_capture_controller_region_mask"
+        or invalidation.get("captureOverlayMayMutateLiveView") is not False
     ):
         raise ValueError("observation invalidation must separate leases from visual streaming")
     if (
@@ -243,8 +246,25 @@ def validate_surface_semantics(matrix: dict[str, Any]) -> None:
         or visual.get("look") != "clean_current_view_frame_for_same_live_model"
         or visual.get("staleResult") != "stale_frame"
         or visual.get("overlayPolicy") != (
-            "window_capture_excludes_controller_overlay_without_visible_mutation_when_available"
+            "window_capture_excludes_controller_overlay_and_display_capture_masks_"
+            "controller_region_without_live_ui_mutation"
         )
+        or visual.get("ambientCaptureMutatesLiveOverlay") is not False
+        or visual.get("projectionFallbackWithoutAccessibility")
+        != "clean_whole_display_without_semantic_or_coordinate_lease"
+        or visual.get("projectionFallbackMayAuthorizeAccessibilityMutation") is not False
+        or visual.get("ambientSemanticCaptureAttempts") != 1
+        or visual.get("ambientSemanticFailurePolicy")
+        != "immediate_projection_only_without_coordinate_lease"
+        or visual.get("ambientSemanticFailureCodes")
+        != [
+            "capability_unavailable",
+            "stale_frame",
+            "surface_unavailable",
+            "surface_unstable",
+        ]
+        or visual.get("explicitVisualToolStalePolicy")
+        != "bounded_retry_then_typed_failure"
     ):
         raise ValueError("visual observations must use exact generation-bound clean/grid frames")
 

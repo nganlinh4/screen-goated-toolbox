@@ -22,6 +22,7 @@ internal data class PhoneControlToolCompletionEvent(
 internal data class PhoneControlCompletedTool(
     val request: PhoneControlToolRequest,
     val result: PhoneControlToolExecutionResult,
+    val elapsedMs: Long,
 )
 
 internal enum class PhoneControlToolAdmission {
@@ -38,6 +39,7 @@ internal class PhoneControlToolController(
     private data class Pending(
         val token: Long,
         val request: PhoneControlToolRequest,
+        val startedAtNanos: Long = System.nanoTime(),
         var started: Boolean = false,
         var job: PhoneControlToolJob? = null,
         var state: State = State.ACTIVE,
@@ -111,7 +113,9 @@ internal class PhoneControlToolController(
                 ?.takeIf { it.request.id == event.id && it.token == event.token }
                 ?.also { pending = null }
         } ?: return null
-        return PhoneControlCompletedTool(record.request, event.result)
+        val elapsedMs = ((System.nanoTime() - record.startedAtNanos) / 1_000_000L)
+            .coerceAtLeast(0L)
+        return PhoneControlCompletedTool(record.request, event.result, elapsedMs)
     }
 
     fun cancel(ids: Collection<String>): List<PhoneControlEffectCertainty> {

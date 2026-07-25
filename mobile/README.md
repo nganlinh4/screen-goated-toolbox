@@ -2,6 +2,12 @@
 
 Android/Kotlin Multiplatform companion for Screen Goated Toolbox. Windows remains canonical for features covered by `.claude/parity/`; Android ports those contracts into native Compose and Android services.
 
+## Phone Control change gate
+
+`AGENTS.md` is the mandatory Android change gate. It routes Phone Control work
+to the canonical Windows contract, Android parity contract, parity workflow, and
+shared fixtures. Do not restate those contracts here.
+
 ## Layout
 
 - `androidApp/` — Android application, Compose UI, services, overlays, and platform integrations.
@@ -77,7 +83,7 @@ Wireless-debugging ports may change after reconnect/reboot. The helper attempts 
 The Phone Control device harness builds and exercises both distributions by default:
 
 ```powershell
-.\scripts\run-phone-control-tests.ps1 -Flavor Both
+.\scripts\run-phone-control-tests.ps1 -Flavor Both -Serial <serial>
 ```
 
 Phone Control also keeps a bounded, privacy-safe structural event journal so a
@@ -85,12 +91,14 @@ real session can be diagnosed after the fact. Collect it from one exact device
 and package without touching other Android users:
 
 ```powershell
-.\scripts\collect-phone-control-diagnostics.ps1 -Serial 47311FDAQ002H3 -Variant Release
+.\scripts\collect-phone-control-diagnostics.ps1 -Serial <serial> -Variant Release
 ```
 
 Use `-Variant Debug` for the journaled test package. The collector writes the
-current/previous JSONL journal, filtered Phone Control Logcat, and capture
-metadata to a timestamped directory beside the script. It never collects
+current/previous JSONL journal, a compact `timeline.txt` and `summary.json`,
+filtered Phone Control Logcat, and capture metadata to a timestamped directory
+beside the script. Start diagnosis with the summary and timeline; keep the raw
+journal as evidence. It never collects
 transcripts, screen/node text, screenshots, clipboard/file/browser content,
 command output, API keys, or authentication material.
 
@@ -123,7 +131,8 @@ prompt also exposes an explicit pairing-forget action. Its transport uses
 `libadb-android` 3.1.1 and Conscrypt 2.5.3. Upstream states that libadb has not
 received a security audit, so the dependency threat model remains an explicit
 release-review item even though real-device pairing, reconnect, cancellation,
-revoke, and projection-resume checks now support the product recommendation.
+revoke, projection-resume, and credentialed Chrome CDP target
+bind/read/verified-close checks now support the product recommendation.
 
 Use `scripts/invoke-phone-control-probe.ps1` only against an installed debug
 package. Physical targets require `-AllowPhysicalDevice`; registry-classified
@@ -190,8 +199,8 @@ not change Phone Control's catalog, runtime, provider routes, or authority.
 Build or install a locally deliverable Play debug bundle with:
 
 ```powershell
-.\gradlew.bat :androidApp:buildPlayDebugLocalTestingApks -PphoneControlDeviceSerial=emulator-5554 --console=plain
-.\gradlew.bat :androidApp:installPlayDebugLocalTesting -PphoneControlDeviceSerial=emulator-5554 --console=plain
+.\gradlew.bat :androidApp:buildPlayDebugLocalTestingApks -PphoneControlDeviceSerial=<serial> --console=plain
+.\gradlew.bat :androidApp:installPlayDebugLocalTesting -PphoneControlDeviceSerial=<serial> --console=plain
 ```
 
 The serial is mandatory for install and scopes the generated APK set. BundleTool

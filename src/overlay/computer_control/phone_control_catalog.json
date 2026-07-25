@@ -64,12 +64,12 @@
     {
       "name": "type_text",
       "description": "Type literal text into the exact current surface. target must be its observation identity; stale or ambiguous targets fail. press_enter is separate.",
-      "parameters": {"type":"object","properties":{"target":{"type":"string","description":"Current surface target from context or list_windows."},"text":{"type":"string"},"press_enter":{"type":"boolean","description":"Press Enter after typing."},"slow":{"type":"boolean","description":"Paced input; default false."}},"required":["target","text"]}
+      "parameters": {"type":"object","properties":{"target":{"type":"string","description":"Complete exact current surface identity returned by list_windows. If absent, call list_windows first; never substitute an app label or title."},"text":{"type":"string"},"press_enter":{"type":"boolean","description":"Press Enter after typing."},"slow":{"type":"boolean","description":"Paced input; default false."}},"required":["target","text"]}
     },
     {
       "name": "scroll",
-      "description": "Scroll in a direction, optionally at a current grid cell; otherwise use view center.",
-      "parameters": {"type":"object","properties":{"direction":{"type":"string","enum":["up","down","left","right"]},"amount":{"type":"number"},"cell":{"type":"integer"}},"required":["direction"]}
+      "description": "Scroll the focused surface in a direction. Omit cell for normal scrolling. cell is only for a current numbered visual frame and fails closed when that frame is stale; semantic observe IDs are not grid cells.",
+      "parameters": {"type":"object","properties":{"direction":{"type":"string","enum":["up","down","left","right"]},"amount":{"type":"number"},"cell":{"type":"integer","description":"Optional cell from the latest numbered visual frame only."}},"required":["direction"]}
     },
     {
       "name": "drag",
@@ -94,11 +94,11 @@
     {
       "name": "key_combination",
       "description": "Press a key/chord in the exact current surface. target must be its observation identity; hold_seconds is only for timed input.",
-      "parameters": {"type":"object","properties":{"target":{"type":"string","description":"Current surface target from context or list_windows."},"keys":{"type":"string"},"hold_seconds":{"type":"number","description":"Hold duration, 0-10 seconds."}},"required":["target","keys"]}
+      "parameters": {"type":"object","properties":{"target":{"type":"string","description":"Complete exact current surface identity returned by list_windows. If absent, call list_windows first; never substitute an app label or title."},"keys":{"type":"string"},"hold_seconds":{"type":"number","description":"Hold duration, 0-10 seconds."}},"required":["target","keys"]}
     },
     {
       "name": "open_url",
-      "description": "Open an http(s) URL in a persistent user-visible tab; otherwise use the OS shell. Use research_web for disposable browsing.",
+      "description": "Open an absolute http(s) URL in a persistent user-visible tab. Use launch_app for a local path or content URI, and research_web for disposable browsing.",
       "parameters": {"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}
     },
     {
@@ -108,8 +108,8 @@
     },
     {
       "name": "system_query",
-      "description": "Read trusted OS facts without mutation; capabilities.list describes domains.",
-      "parameters": {"type":"object","properties":{"domain":{"type":"string","enum":["capabilities","audio","clipboard","process","storage","window"]},"query":{"type":"string","description":"The query inside the domain, e.g. 'active_sessions', 'list_basic', 'volumes', 'list', or 'text'."},"args":{"type":"object","description":"Optional query filters."}},"required":["domain","query"]}
+      "description": "Read trusted OS facts without mutation. Exact pairs: capabilities.list, audio.active_sessions, clipboard.text, process.list_basic, storage.volumes, window.list.",
+      "parameters": {"type":"object","properties":{"domain":{"type":"string","enum":["capabilities","audio","clipboard","process","storage","window"]},"query":{"type":"string","enum":["list","active_sessions","text","list_basic","volumes"],"description":"Use the one query paired with the selected domain exactly as listed in the tool description."},"args":{"type":"object","description":"Optional query filters."}},"required":["domain","query"]}
     },
     {
       "name": "list_files",
