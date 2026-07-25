@@ -133,7 +133,7 @@
     },
     {
       "name": "run_command",
-      "description": "Run a non-interactive command. Prefer program with literal args/cwd; inline interpreters are rejected. Results prove only that invocation. command is a platform-shell fallback with withheld output. Supply exactly one.",
+      "description": "Run a non-interactive command. Prefer program with literal args/cwd. command is the platform-shell fallback. Results prove only that invocation; supply exactly one.",
       "parameters": {"type":"object","properties":{"program":{"type":"string","description":"Exact executable name/path."},"args":{"type":"array","maxItems":16,"items":{"type":"string"},"description":"Literal argv."},"cwd":{"type":"string","description":"Existing absolute working directory; omit for managed scratch."},"command":{"type":"string","description":"Platform-shell fallback; mutually exclusive with program."}}}
     },
     {

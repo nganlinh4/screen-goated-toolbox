@@ -3,8 +3,6 @@ package dev.screengoated.toolbox.mobile.phonecontrol.tools
 import android.content.Context
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProviderRegistry
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
@@ -120,13 +118,8 @@ internal class AndroidCommandToolBackend(context: Context) : CommandToolBackend 
                 state = CapabilityState.UNSUPPORTED,
                 effectMayHaveOccurred = false,
             )
-        val lease = when (val prepared = PhoneControlAccessibilityProvider.prepareCommandDispatch()) {
-            is AccessibilityProviderResult.Failure -> return prepared.toCommandFailure()
-            is AccessibilityProviderResult.Success -> prepared.value
-        }
         val result = provider.executeAuthorized(
             context,
-            lease,
             job.effectOwner,
             program,
             args,
@@ -149,21 +142,6 @@ internal class AndroidCommandToolBackend(context: Context) : CommandToolBackend 
                 "Select this elevated authority from the Phone Control orb.",
             )
         }
-
-    private fun AccessibilityProviderResult.Failure.toCommandFailure() =
-        CommandProviderExecution.Failure(
-            code = code,
-            message = message,
-            state = if (requiredUserStep != null) {
-                CapabilityState.NEEDS_USER_STEP
-            } else {
-                CapabilityState.DEGRADED
-            },
-            effectMayHaveOccurred = effect.effectMayHaveOccurred == true,
-            requiredUserStep = requiredUserStep
-                ?: if (code == "capability_unavailable") "enable_accessibility" else null,
-            freshObservationRequired = freshObservationRequired,
-        )
 
     private fun PrivilegedCommandResult.toCommandExecution(): CommandProviderExecution = when (this) {
         is PrivilegedCommandResult.Success -> CommandProviderExecution.Receipt(receipt)
@@ -189,26 +167,32 @@ internal suspend fun handleRunCommand(
     if (program != null && command != null) {
         return invalidArgs(job, "run_command", "supply program or command, not both")
     }
-    if (command != null) {
-        if (args["args"] != null || args["cwd"] != null) {
-            return invalidArgs(job, "run_command", "args and cwd require exact program mode")
-        }
-        return unavailableToolResponse(
-            job,
-            "run_command",
-            COMMAND_CAPABILITY,
-            backend.providerIds.firstOrNull() ?: NO_COMMAND_PROVIDER,
-            CapabilityState.UNSUPPORTED,
-        )
+    if (command != null && (args["args"] != null || args["cwd"] != null)) {
+        return invalidArgs(job, "run_command", "args and cwd require exact program mode")
     }
-    val exactProgram = program
+    val exactProgram = if (command != null) SHELL_PROGRAM else program
         ?.takeIf(String::isNotBlank)
-        ?: return invalidArgs(job, "run_command", "run_command requires program")
+        ?: return invalidArgs(job, "run_command", "run_command requires program or command")
     if (exactProgram.utf8Size() > MAX_PROGRAM_BYTES || '\u0000' in exactProgram) {
         return invalidArgs(job, "run_command", "program exceeds its bounded exact-argv contract")
     }
-    val argv = args.stringList("args")
-        ?: return invalidArgs(job, "run_command", "args must be an array of at most $MAX_ARGS strings")
+    val argv = if (command != null) {
+        val maxShellCommandBytes = MAX_TOTAL_ARG_BYTES - SHELL_COMMAND_FLAG.utf8Size()
+        if (command.isBlank() ||
+            command.utf8Size() > maxShellCommandBytes ||
+            '\u0000' in command
+        ) {
+            return invalidArgs(job, "run_command", "command exceeds its bounded shell contract")
+        }
+        listOf(SHELL_COMMAND_FLAG, command)
+    } else {
+        args.stringList("args")
+            ?: return invalidArgs(
+                job,
+                "run_command",
+                "args must be an array of at most $MAX_ARGS strings",
+            )
+    }
     if (argv.size > MAX_ARGS || argv.any { it.utf8Size() > MAX_ARG_BYTES || '\u0000' in it }) {
         return invalidArgs(job, "run_command", "args exceed the bounded exact-argv contract")
     }
@@ -365,6 +349,8 @@ private const val COMMAND_CAPABILITY = "command_execution"
 private const val NO_COMMAND_PROVIDER = "command_provider"
 private const val CONFIGURE_COMMAND_PROVIDER_STEP = "configure_command_provider"
 private const val DEFAULT_COMMAND_CWD = "/data/local/tmp"
+private const val SHELL_PROGRAM = "/system/bin/sh"
+private const val SHELL_COMMAND_FLAG = "-c"
 private const val COMMAND_TIMEOUT_MS = 60_000L
 private const val MAX_ARGS = 16
 private const val MAX_PROGRAM_BYTES = 1_024

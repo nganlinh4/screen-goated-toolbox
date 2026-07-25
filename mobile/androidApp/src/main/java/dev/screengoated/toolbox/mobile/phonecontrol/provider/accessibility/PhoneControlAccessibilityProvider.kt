@@ -191,30 +191,6 @@ internal object PhoneControlAccessibilityProvider {
     ): AccessibilityProviderResult<AccessibilityTextOutcome> =
         performAccessibilityKeySequence(this, target, groups, holdMs)
 
-    suspend fun prepareCommandDispatch(): AccessibilityProviderResult<AccessibilityCommandDispatchLease> =
-        when (val observed = observe(maxElements = 1)) {
-            is AccessibilityProviderResult.Failure -> observed
-            is AccessibilityProviderResult.Success -> {
-                observed.value.commandDispatchAuthorityFailure()
-                    ?: AccessibilityProviderResult.Success(
-                        AccessibilityCommandDispatchLease(observed.value.generation),
-                    )
-            }
-        }
-
-    fun validateCommandDispatch(
-        lease: AccessibilityCommandDispatchLease,
-    ): AccessibilityProviderResult.Failure? {
-        val observation = synchronized(lock) { latestCapture?.observation }
-        if (observation == null ||
-            observation.generation != lease.observationGeneration ||
-            observationGeneration != lease.observationGeneration
-        ) {
-            return staleMutation("The visible surface changed before command dispatch.")
-        }
-        return observation.commandDispatchAuthorityFailure()
-    }
-
     suspend fun click(
         lease: AccessibilitySurfaceLease,
         x: Float,

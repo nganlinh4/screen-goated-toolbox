@@ -42,9 +42,20 @@ class PhoneControlMessagesTest {
             .content
 
         assertTrue(instruction.contains("surface token returned by list_windows"))
-        assertTrue(instruction.contains("stop input attempts on that surface"))
+        assertTrue(instruction.contains("Try the requested capability"))
+        assertTrue(instruction.contains("direct execution power"))
         assertTrue(instruction.contains("a snapshot-local node @id is not a surface target"))
         assertFalse(instruction.contains("element exactly as its observed @id"))
+    }
+
+    @Test
+    fun `canonical contract acts before asking for resolvable device details`() {
+        val prompt = Files.readAllBytes(canonicalPromptPath()).decodeToString()
+
+        assertTrue(prompt.contains("Act first when action is requested."))
+        assertTrue(prompt.contains("Resolve operational details from current evidence and tools"))
+        assertTrue(prompt.contains("Routine requested actions proceed."))
+        assertFalse(prompt.contains("protect your privacy", ignoreCase = true))
     }
 
     @Test
@@ -104,5 +115,15 @@ class PhoneControlMessagesTest {
         )
         return candidates.firstOrNull(Files::exists)
             ?: error("Missing Phone Control model-chain fixture. Tried: $candidates")
+    }
+
+    private fun canonicalPromptPath(): Path {
+        val candidates = listOf(
+            Paths.get("..", "..", "src", "overlay", "computer_control", "uia_task", "prompt_core.txt"),
+            Paths.get("..", "src", "overlay", "computer_control", "uia_task", "prompt_core.txt"),
+            Paths.get("src", "overlay", "computer_control", "uia_task", "prompt_core.txt"),
+        )
+        return candidates.firstOrNull(Files::exists)
+            ?: error("Missing canonical Computer Control prompt. Tried: $candidates")
     }
 }

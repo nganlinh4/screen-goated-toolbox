@@ -30,15 +30,6 @@ internal enum class AccessibilityMutationKind(val canCommitEffect: Boolean) {
     TEXT_EDIT(false),
     TEXT_SUBMIT(true),
     KEY_SEQUENCE(true),
-    COMMAND_EXECUTION(true),
-}
-
-internal data class AccessibilityCommandDispatchLease(
-    val observationGeneration: Long,
-) {
-    init {
-        require(observationGeneration > 0)
-    }
 }
 
 internal fun AccessibilityObservation.surfaceLease(
@@ -121,19 +112,6 @@ internal fun AccessibilityObservation.activeOsOwnedUserStepFailure(
     } else {
         null
     }
-
-internal fun AccessibilityObservation.commandDispatchAuthorityFailure():
-    AccessibilityProviderResult.Failure? {
-    activeOsOwnedUserStepFailure(AccessibilityMutationKind.COMMAND_EXECUTION)?.let { return it }
-    val interactiveWindows = windows.filter { window ->
-        !window.controllerOwned && (window.active || window.focused)
-    }
-    return if (interactiveWindows.isEmpty() || interactiveWindows.any { it.packageName.isNullOrBlank() }) {
-        unknownSurfaceAuthority("The active surface has no platform authority identity.")
-    } else {
-        null
-    }
-}
 
 internal fun validateSurfaceMutationLease(
     observation: AccessibilityObservation?,

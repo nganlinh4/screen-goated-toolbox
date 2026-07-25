@@ -9,12 +9,10 @@ import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProvi
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidFileProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidSafProvider
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.toPrivilegedCommandFailure
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
 import java.io.File
@@ -167,15 +165,8 @@ internal class FileListingToolHandler(
         directory: File,
         request: FileListRequest,
     ): PhoneControlToolExecution {
-        val lease = when (val prepared = PhoneControlAccessibilityProvider.prepareCommandDispatch()) {
-            is AccessibilityProviderResult.Failure -> {
-                return privilegedFailure(job, provider.providerId, prepared.toPrivilegedCommandFailure())
-            }
-            is AccessibilityProviderResult.Success -> prepared.value
-        }
         val result = provider.executeAuthorized(
             context = context,
-            lease = lease,
             effectOwner = job.effectOwner,
             program = SHELL,
             args = listOf("-c", READ_ONLY_LIST_SCRIPT, SCRIPT_NAME, directory.absolutePath),
@@ -188,7 +179,7 @@ internal class FileListingToolHandler(
             is PrivilegedCommandResult.Failure ->
                 privilegedFailure(job, provider.providerId, result)
             is PrivilegedCommandResult.Success ->
-                privilegedReceipt(job, provider.providerId, directory, request, lease.observationGeneration, result)
+                privilegedReceipt(job, provider.providerId, directory, request, 0, result)
         }
     }
 
