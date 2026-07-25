@@ -1,7 +1,11 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 
-import java.net.InetAddress
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
+import java.io.ByteArrayInputStream
+import java.io.InputStream
+import java.net.InetAddress
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -26,6 +30,62 @@ class SgtAdbCommandContractTest {
         assertTrue("'value; touch /data/local/tmp/nope'" in script)
         assertTrue("'one'\\''two'" in script)
         assertFalse("exec touch" in script)
+    }
+
+    @Test
+    fun `complete status marker ends a command without waiting for transport eof`() {
+        val marker = "__SGT_ADB_RC_0123456789abcdef__"
+        val input = ChunkedNonTerminatingInput(
+            listOf(
+                "payload\n$marker",
+                "12",
+                "5",
+                "\n",
+            ),
+        )
+        val output = BoundedAdbOutput()
+
+        assertEquals(125, output.read(input, marker))
+        assertEquals("payload", output.visibleText())
+        assertFalse(input.readPastTerminal)
+    }
+
+    @Test
+    fun `stream eof without the exact complete status line is not terminal success`() {
+        val marker = "__SGT_ADB_RC_0123456789abcdef__"
+        val output = BoundedAdbOutput()
+
+        assertEquals(
+            null,
+            output.read(
+                ByteArrayInputStream("payload\n${marker}12".encodeToByteArray()),
+                marker,
+            ),
+        )
+        assertEquals(null, output.exitCode(marker))
+        val embedded = BoundedAdbOutput()
+        assertEquals(
+            null,
+            embedded.read(
+                ByteArrayInputStream("payload${marker}0\n".encodeToByteArray()),
+                marker,
+            ),
+        )
+    }
+
+    @Test
+    fun `adb authority requires a successful non interrupted terminal receipt`() {
+        val complete = adbAuthorityReceipt()
+        val timedOut = adbAuthorityReceipt(timedOut = true, ok = true)
+        val cancelled = adbAuthorityReceipt(cancelled = true, ok = true)
+
+        assertTrue(isVerifiedAdbShellReceipt(complete))
+        assertFalse(isVerifiedAdbShellReceipt(timedOut))
+        assertFalse(isVerifiedAdbShellReceipt(cancelled))
+        assertFalse(isVerifiedAdbShellReceipt(adbAuthorityReceipt(ok = false)))
+        assertFalse(isVerifiedAdbShellReceipt(adbAuthorityReceipt(processStarted = false)))
+        assertFalse(isVerifiedAdbShellReceipt(adbAuthorityReceipt(code = "process_timed_out")))
+        assertFalse(isVerifiedAdbShellReceipt(adbAuthorityReceipt(authorityUid = 0)))
     }
 
     @Test
@@ -143,5 +203,69 @@ class SgtAdbCommandContractTest {
 
         val incomplete = pending.copy(deviceIdentity = null)
         assertFalse(sgtAdbPairingRelayCompleted(incomplete))
+    }
+
+    @Test
+    fun `cold reconnect failures preserve their structural cause`() {
+        val endpoint = SgtAdbCommandBridge.parseProbe(
+            """{"state":"degraded","code":"connection_endpoint_unavailable"}""",
+        )
+        val rejected = SgtAdbCommandBridge.parseProbe(
+            """{"state":"needs_user_step","code":"pairing_authorization_rejected"}""",
+        )
+        val transport = SgtAdbCommandBridge.parseProbe(
+            """{"state":"degraded","code":"connection_failed"}""",
+        )
+
+        assertEquals(
+            SgtAdbBridgeCondition.CONNECTION_ENDPOINT_UNAVAILABLE,
+            endpoint.condition,
+        )
+        assertEquals(SgtAdbBridgeCondition.AUTHORIZATION_REJECTED, rejected.condition)
+        assertEquals(SgtAdbBridgeCondition.CONNECTION_FAILED, transport.condition)
+        assertTrue(endpoint.requiredUserStep.orEmpty().contains("reconnect"))
+        assertTrue(rejected.requiredUserStep.orEmpty().contains("pair it again"))
+        assertTrue(transport.requiredUserStep.orEmpty().contains("reconnect"))
+    }
+
+    private fun adbAuthorityReceipt(
+        code: String = "process_exited",
+        timedOut: Boolean = false,
+        cancelled: Boolean = false,
+        authorityUid: Int = 2_000,
+        processStarted: Boolean = true,
+        ok: Boolean = !timedOut && !cancelled && code == "process_exited",
+    ) = buildJsonObject {
+        put("ok", ok)
+        put("code", code)
+        put("exit_code", 0)
+        put("timed_out", timedOut)
+        put("cancelled", cancelled)
+        put("process_started", processStarted)
+        put("authority_uid", authorityUid)
+        put("output", "2000")
+    }
+
+    private class ChunkedNonTerminatingInput(chunks: List<String>) : InputStream() {
+        private val chunks = ArrayDeque(chunks.map(String::encodeToByteArray))
+        var readPastTerminal = false
+            private set
+
+        override fun read(): Int = error("single-byte reads are not used")
+
+        override fun read(
+            buffer: ByteArray,
+            offset: Int,
+            length: Int,
+        ): Int {
+            val chunk = chunks.removeFirstOrNull()
+            if (chunk == null) {
+                readPastTerminal = true
+                error("reader waited for transport EOF after the terminal marker")
+            }
+            check(chunk.size <= length)
+            chunk.copyInto(buffer, offset)
+            return chunk.size
+        }
     }
 }

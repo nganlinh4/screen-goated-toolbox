@@ -45,6 +45,9 @@ internal interface CommandToolBackend {
 
     fun probe(providerId: String): CommandProviderAvailability
 
+    suspend fun awaitAvailability(providerId: String): CommandProviderAvailability =
+        probe(providerId)
+
     suspend fun execute(
         job: PhoneControlToolJobContext,
         providerId: String,
@@ -73,6 +76,19 @@ internal class AndroidCommandToolBackend(context: Context) : CommandToolBackend 
         probeSelected(providerId) {
             providersById[providerId]
                 ?.probe(context)
+                ?.let { CommandProviderAvailability(it.state, it.requiredUserStep) }
+                ?: CommandProviderAvailability(
+                    CapabilityState.UNSUPPORTED,
+                    "No command provider implementation is installed.",
+                )
+        }
+
+    override suspend fun awaitAvailability(providerId: String): CommandProviderAvailability =
+        if (!PhoneControlPowerPreferences.enablesProvider(context, providerId)) {
+            probe(providerId)
+        } else {
+            providersById[providerId]
+                ?.awaitReady(context)
                 ?.let { CommandProviderAvailability(it.state, it.requiredUserStep) }
                 ?: CommandProviderAvailability(
                     CapabilityState.UNSUPPORTED,
@@ -204,7 +220,11 @@ internal suspend fun handleRunCommand(
         return invalidArgs(job, "run_command", "cwd must be an absolute bounded directory path")
     }
 
-    val probes = backend.providerIds.associateWith(backend::probe)
+    val probes = buildMap {
+        backend.providerIds.forEach { providerId ->
+            put(providerId, backend.awaitAvailability(providerId))
+        }
+    }
     val selected = backend.providerIds.firstOrNull { providerId ->
         probes.getValue(providerId).state == CapabilityState.READY
     } ?: return commandUnavailable(job, probes)

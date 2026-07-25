@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 4,
+  "feature": "phone-control",
+  "canonical_windows_files": [
+    "docs/COMPUTER_CONTROL_DEVELOPMENT.md",
+    "src/overlay/computer_control/telemetry.rs"
+  ],
+  "journal": {
+    "recordSchemaVersion": 2,
+    "requiredRecordFields": [
+      "schema_version",
+      "session_id",
+      "sequence",
+      "timestamp_ms",
+      "elapsed_ms",
+      "pid",
+      "thread",
+      "level",
+      "tag",
+      "event",
+      "fields"
+    ],
+    "persistsTranscriptText": false,
+    "persistsFreeFormMessage": false,
+    "semanticOnlyPeriodicRecords": false,
+    "fieldAdmission": {
+      "eventMode": "allowlist",
+      "unknownEvent": "diagnostic_event_without_fields",
+      "mode": "typed_allowlist",
+      "unknownField": "omit",
+      "typeMismatch": "omit",
+      "freeFormValue": "omit",
+      "throwableMessage": "omit",
+      "consoleThrowableEvidence": "class_and_bounded_code_locations"
+    },
+    "collectorOutputs": [
+      "capture.json",
+      "events.jsonl",
+      "events.previous.jsonl",
+      "logcat.txt",
+      "summary.json",
+      "timeline.txt"
+    ],
+    "legacyInvalidationCompaction": {
+      "event": "invalidation_summary",
+      "timelineRecords": false,
+      "summaryFields": [
+        "legacy_invalidation_records_compacted",
+        "legacy_hard_invalidation_count",
+        "legacy_semantic_invalidation_count"
+      ]
+    },
+    "timelineTail": {
+      "maximumRecords": 600,
+      "summaryOmittedField": "timeline_omitted_count",
+      "rawEvidenceRetained": true
+    }
+  },
+  "turnEvents": {
+    "started": "turn_started",
+    "completed": "turn_completed",
+    "interrupted": "turn_interrupted",
+    "completionFields": [
+      "turn_id",
+      "elapsed_ms",
+      "user_chars",
+      "assistant_chars"
+    ]
+  },
+  "toolEvents": {
+    "dispatch": "tool_dispatched",
+    "receipt": "tool_receipt",
+    "dispatchFields": [
+      "turn_id",
+      "job_id",
+      "name",
+      "generation",
+      "argument_fields",
+      "argument_bytes",
+      "argument_keys"
+    ],
+    "argumentKeys": "sorted_names_only_no_values",
+    "requiredReceiptFields": [
+      "turn_id",
+      "job_id",
+      "name",
+      "generation",
+      "elapsed_ms",
+      "code",
+      "certainty"
+    ],
+    "optionalFailureRoutingFields": [
+      "failure_class",
+      "provider_route_error"
+    ],
+    "optionalContractFailureFields": [
+      "argument_field",
+      "contract_reason"
+    ]
+  },
+  "invalidArgumentClassification": {
+    "requiredFields": [
+      "argument_field",
+      "contract_reason"
+    ],
+    "contractReasons": [
+      "missing_or_invalid",
+      "invalid_type",
+      "unsupported_value",
+      "out_of_range",
+      "unsupported_path_form"
+    ],
+    "argumentValuesPersisted": false
+  },
+  "captureRouteDiagnostics": {
+    "event": "screen_capture_route",
+    "emission": "provider_transition_only",
+    "fields": [
+      "provider",
+      "route",
+      "overlay_mutated"
+    ],
+    "periodicHeartbeat": false
+  },
+  "elevatedReconnectDiagnostics": {
+    "emission": "terminal_attempt_only",
+    "failureClasses": [
+      "pairing_state_missing",
+      "connection_endpoint_unavailable",
+      "pairing_authorization_rejected",
+      "connection_failed"
+    ],
+    "endpointPersisted": false,
+    "credentialPersisted": false
+  },
+  "sameGenerationTargetRecovery": {
+    "scope": [
+      "snapshot_generation",
+      "display_id",
+      "window_id"
+    ],
+    "match": "full_structural_fingerprint",
+    "traversal": "bounded_complete",
+    "requiredMatchCount": 1,
+    "ambiguousResult": "stale_target",
+    "incompleteResult": "stale_target",
+    "crossGenerationRebind": false
+  },
+  "postconditions": {
+    "providerReadFailureCode": "postcondition_unavailable",
+    "requiredStateMismatchCode": "postcondition_not_verified",
+    "effect": "effect_may_have_occurred",
+    "snapshotInvalidated": true,
+    "freshObservationRequired": true,
+    "mayReportOk": false
+  }
+}

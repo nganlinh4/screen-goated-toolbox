@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -14,6 +13,8 @@ import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlSetupNotification
+import dev.screengoated.toolbox.mobile.phonecontrol.phoneControlString
+import dev.screengoated.toolbox.mobile.phonecontrol.showPhoneControlToast
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PlatformUserStepSlot
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuBridgeCondition
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuCommandBridge
@@ -128,6 +129,14 @@ internal class PhoneControlShizukuSetupCoordinator(
 
     private fun advance(trigger: String) {
         if (closed || activity.isFinishing || activity.isDestroyed) return
+        if (PhoneControlService.captureSuspended) {
+            PhoneControlLog.i(
+                TAG,
+                "authority_setup_deferred provider=shizuku reason=protected_checkpoint",
+            )
+            finishActivity()
+            return
+        }
         if (PhoneControlPowerPreferences.current(activity) != PhoneControlPowerChoice.SHIZUKU) {
             cancelForAuthorityChange()
             return
@@ -161,7 +170,7 @@ internal class PhoneControlShizukuSetupCoordinator(
             else -> null
         }
         PhoneControlService.clearAuthoritySetup(activity, SHIZUKU_PROVIDER_ID)
-        Toast.makeText(activity, R.string.phone_control_shizuku_ready, Toast.LENGTH_SHORT).show()
+        activity.showPhoneControlToast(R.string.phone_control_shizuku_ready_toast)
         PhoneControlLog.i(TAG, "authority_setup_result provider=shizuku ready=true")
         if (continuation != null) {
             if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
@@ -169,7 +178,7 @@ internal class PhoneControlShizukuSetupCoordinator(
             } else {
                 PhoneControlSetupNotification.show(
                     activity,
-                    activity.getString(R.string.phone_control_shizuku_ready_resume),
+                    activity.phoneControlString(R.string.phone_control_shizuku_ready_resume),
                     continuation,
                 )
             }
@@ -208,11 +217,9 @@ internal class PhoneControlShizukuSetupCoordinator(
             requestAutomation = false,
             captureHandoffAfterAutomation = false,
         )
-        Toast.makeText(
-            activity,
-            R.string.phone_control_shizuku_request_permission,
-            Toast.LENGTH_LONG,
-        ).show()
+        activity.showPhoneControlToast(
+            R.string.phone_control_shizuku_request_permission_toast,
+        )
         if (permissionStep.begin() &&
             ShizukuCommandBridge.requestPermission(activity, SHIZUKU_PERMISSION_REQUEST)
         ) {
@@ -259,7 +266,7 @@ internal class PhoneControlShizukuSetupCoordinator(
             PhoneControlShizukuRepeatDisposition.DISPATCH -> Unit
         }
         lastAttempt = attempt
-        Toast.makeText(activity, condition.messageResource(), Toast.LENGTH_LONG).show()
+        activity.showPhoneControlToast(condition.toastResource())
         val intent = when (attempt.action) {
             PhoneControlShizukuSetupAction.OPEN_MANAGER -> shizukuManagerIntent()
             PhoneControlShizukuSetupAction.OPEN_STORE -> shizukuStoreIntent()
@@ -305,11 +312,7 @@ internal class PhoneControlShizukuSetupCoordinator(
             requestAutomation = false,
             captureHandoffAfterAutomation = false,
         )
-        Toast.makeText(
-            activity,
-            R.string.phone_control_shizuku_still_needs_user_step,
-            Toast.LENGTH_LONG,
-        ).show()
+        activity.showPhoneControlToast(R.string.phone_control_shizuku_pending_toast)
         PhoneControlLog.i(
             TAG,
             "authority_setup_result provider=shizuku ready=false pending=true " +
@@ -336,7 +339,7 @@ internal class PhoneControlShizukuSetupCoordinator(
         requestAutomation: Boolean,
         captureHandoffAfterAutomation: Boolean,
     ) {
-        val guidance = activity.getString(messageResource)
+        val guidance = activity.phoneControlString(messageResource)
         PhoneControlSetupNotification.show(
             activity,
             guidance,
@@ -380,6 +383,20 @@ internal class PhoneControlShizukuSetupCoordinator(
             R.string.phone_control_shizuku_restore_permission
         ShizukuBridgeCondition.API_UNSUPPORTED -> R.string.phone_control_shizuku_update
         ShizukuBridgeCondition.PACKAGE_MISSING -> R.string.phone_control_shizuku_install
+        ShizukuBridgeCondition.READY,
+        ShizukuBridgeCondition.PERMISSION_REQUESTABLE,
+        -> error("condition does not own an external Shizuku step")
+    }
+
+    private fun ShizukuBridgeCondition.toastResource(): Int = when (this) {
+        ShizukuBridgeCondition.SERVICE_STOPPED ->
+            R.string.phone_control_shizuku_start_service_toast
+        ShizukuBridgeCondition.PERMISSION_REVOKED ->
+            R.string.phone_control_shizuku_request_permission_toast
+        ShizukuBridgeCondition.API_UNSUPPORTED ->
+            R.string.phone_control_shizuku_update_toast
+        ShizukuBridgeCondition.PACKAGE_MISSING ->
+            R.string.phone_control_shizuku_install_toast
         ShizukuBridgeCondition.READY,
         ShizukuBridgeCondition.PERMISSION_REQUESTABLE,
         -> error("condition does not own an external Shizuku step")

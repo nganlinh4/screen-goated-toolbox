@@ -9,6 +9,7 @@ internal class PhoneControlProtectedCheckpointToken internal constructor(
 internal data class PhoneControlProtectedCheckpointSnapshot(
     val generation: Long,
     val active: Boolean,
+    val freshProjectionRequired: Boolean,
 )
 
 /**
@@ -22,12 +23,16 @@ internal object PhoneControlProtectedCheckpointRegistry {
     private val lock = Any()
     private val nextId = AtomicLong(0L)
     private var activeTokenId: Long? = null
+    private var activeCapturePolicy: PhoneControlProtectedCapturePolicy? = null
     private var generation = 0L
 
-    fun begin(): PhoneControlProtectedCheckpointToken = synchronized(lock) {
+    fun begin(
+        capturePolicy: PhoneControlProtectedCapturePolicy,
+    ): PhoneControlProtectedCheckpointToken = synchronized(lock) {
         check(activeTokenId == null) { "a protected checkpoint is already active" }
         val token = PhoneControlProtectedCheckpointToken(nextId.incrementAndGet())
         activeTokenId = token.id
+        activeCapturePolicy = capturePolicy
         generation += 1
         token
     }
@@ -35,6 +40,7 @@ internal object PhoneControlProtectedCheckpointRegistry {
     fun end(token: PhoneControlProtectedCheckpointToken): Boolean = synchronized(lock) {
         if (activeTokenId != token.id) return@synchronized false
         activeTokenId = null
+        activeCapturePolicy = null
         generation += 1
         true
     }
@@ -45,12 +51,19 @@ internal object PhoneControlProtectedCheckpointRegistry {
 
     fun hasActiveCheckpoint(): Boolean = synchronized(lock) { activeTokenId != null }
 
+    fun freshProjectionRequired(): Boolean = synchronized(lock) {
+        activeTokenId != null &&
+            activeCapturePolicy == PhoneControlProtectedCapturePolicy.RELEASE_PROJECTION
+    }
+
     fun modelToolsAllowed(): Boolean = !hasActiveCheckpoint()
 
     fun snapshot(): PhoneControlProtectedCheckpointSnapshot = synchronized(lock) {
         PhoneControlProtectedCheckpointSnapshot(
             generation = generation,
             active = activeTokenId != null,
+            freshProjectionRequired = activeTokenId != null &&
+                activeCapturePolicy == PhoneControlProtectedCapturePolicy.RELEASE_PROJECTION,
         )
     }
 }

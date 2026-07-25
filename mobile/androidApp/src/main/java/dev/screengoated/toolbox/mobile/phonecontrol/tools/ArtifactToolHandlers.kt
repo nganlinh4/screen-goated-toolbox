@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorizer
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidFileProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidProviderResult
@@ -12,6 +13,7 @@ import kotlinx.serialization.json.JsonObject
 internal class ArtifactToolHandlers(
     private val artifacts: PhoneControlArtifactStore,
     private val files: AndroidFileProvider,
+    private val resourceAuthorization: PhoneControlResourceAuthorizer,
 ) {
     fun info(
         job: PhoneControlToolJobContext,
@@ -141,24 +143,39 @@ internal class ArtifactToolHandlers(
         )
     }
 
-    fun save(
+    suspend fun save(
         job: PhoneControlToolJobContext,
         args: JsonObject,
     ): PhoneControlToolExecution {
         val id = args.string("id")
             ?: return invalidArgs(job, "save_artifact", "save_artifact requires id")
+        if (artifacts.get(id) == null) {
+            return artifactFailure(
+                job,
+                "save_artifact",
+                "artifact_not_found",
+                "The artifact ID is unknown.",
+            )
+        }
         val path = args.string("path")
             ?: return unavailableArtifactPath(job, "save_artifact")
         if (!isAbsolute(path)) return unavailableArtifactPath(job, "save_artifact")
         val overwrite = args.optionalBoolean("overwrite", false)
             ?: return invalidArgs(job, "save_artifact", "overwrite must be boolean")
+        val result = executeResourceScopedMutation(
+            tool = "save_artifact",
+            arguments = args,
+            authorizer = resourceAuthorization,
+        ) { targetLease ->
+            files.saveArtifact(id, path, overwrite, targetLease)
+        }
         return providerResult(
             job,
             "save_artifact",
             ARTIFACT_CAPABILITY,
             APP_PROVIDER,
             mutating = true,
-            result = files.saveArtifact(id, path, overwrite),
+            result = result,
         )
     }
 

@@ -417,7 +417,10 @@ internal class SurfaceToolHandlers(
             snapshotInvalidated = false,
             retryable = failure.retryable,
             requiredUserStep = failure.requiredUserStep,
-            data = buildJsonObject { put("message", failure.message) },
+            data = buildJsonObject {
+                failure.data.forEach { (key, value) -> put(key, value) }
+                put("message", failure.message)
+            },
         ),
         mutating = false,
     )

@@ -522,6 +522,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
+    implementation(libs.jsoup)
     implementation(libs.onnxruntime.android)
     implementation(libs.moonshine.voice)
     implementation(files("libs/sherpa-onnx-static-1.12.35.aar"))

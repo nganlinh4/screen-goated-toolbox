@@ -91,8 +91,8 @@ class PhoneControlToolDispatcherTest {
         ).response
         val unsupported = dispatcher.dispatch(
             JOB,
-            "browser_eval",
-            buildJsonObject { put("expression", "document.title") },
+            "point_at",
+            buildJsonObject { put("description", "visible target") },
         ).response
 
         assertEquals(0, dispatchCount)
@@ -100,8 +100,8 @@ class PhoneControlToolDispatcherTest {
         assertEquals("future_unregistered_tool", unknown.stringValue("requested_tool"))
         assertEquals("unregistered", unknown.stringValue("provider"))
         assertEquals("capability_unavailable", unsupported.stringValue("code"))
-        assertEquals("browser_eval", unsupported.stringValue("requested_tool"))
-        assertEquals("browser_cdp", unsupported.stringValue("provider"))
+        assertEquals("point_at", unsupported.stringValue("requested_tool"))
+        assertEquals("local_ui_detector", unsupported.stringValue("provider"))
     }
 
     @Test
@@ -388,7 +388,7 @@ class PhoneControlToolDispatcherTest {
         val cases = listOf(
             dispatcherReturning(
                 tool = "launch_app",
-                provider = "accessibility",
+                provider = "local_ui_detector",
                 effect = EffectCertainty.PROVEN_NO_EFFECT,
                 code = "dependency_failed",
                 data = buildJsonObject { put("provider_role", "dependency") },

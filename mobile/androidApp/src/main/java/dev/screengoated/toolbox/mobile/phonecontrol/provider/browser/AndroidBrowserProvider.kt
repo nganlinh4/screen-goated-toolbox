@@ -90,7 +90,11 @@ internal class AndroidBrowserProvider(
         )
     }
 
-    suspend fun navigate(url: String, lifetime: String): BrowserProviderOutcome {
+    suspend fun navigate(
+        url: String,
+        lifetime: String,
+        afterDispatch: suspend () -> Unit = {},
+    ): BrowserProviderOutcome {
         if (lifetime != "persistent") {
             return failure(
                 code = "unsupported_tab_lifetime",
@@ -139,6 +143,7 @@ internal class AndroidBrowserProvider(
                 retryable = true,
             )
         }
+        afterDispatch()
         val surface = awaitSurface(probe, packageName, launchedByPhoneControl = true)
         if (surface !is BrowserSurfaceResolution.Success) {
             return BrowserProviderOutcome(

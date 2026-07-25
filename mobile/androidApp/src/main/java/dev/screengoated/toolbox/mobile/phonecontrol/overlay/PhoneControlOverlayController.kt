@@ -38,8 +38,15 @@ internal class PhoneControlOverlayController(
 ) : PhoneControlOverlayStateSink, PhoneControlOverlayExclusionParticipant {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val captureState = OverlayCaptureGate()
     private val relocationState = Mutex()
+    private val powerChoiceObserver = PhoneControlPowerPreferences.observe(context) {
+        mainHandler.post {
+            if (!destroyed) {
+                detachPowerPrompt()
+                if (powerPromptVisible) render()
+            }
+        }
+    }
     private val orbSize = context.dp(128)
     private val edgeMargin = context.dp(12)
     private val dismissBubble = DismissBubbleController(
@@ -64,7 +71,6 @@ internal class PhoneControlOverlayController(
         false,
     )
     private var powerPromptVisible = PhoneControlPowerPreferences.current(context) == null
-    private var appliedCaptureHidden: Boolean? = null
     private var dismissing = false
     private var destroyed = false
 
@@ -97,29 +103,13 @@ internal class PhoneControlOverlayController(
         }
         if (destroyed) return
         destroyed = true
+        powerChoiceObserver.close()
         detachWindows()
     }
 
     override fun orbBounds(): OverlayBounds? = interactionBounds?.let { bounds ->
         OverlayBounds(bounds.left, bounds.top, bounds.right, bounds.bottom)
     }
-
-    override suspend fun <T> withOverlayHidden(block: suspend () -> T): T =
-        captureState.withHidden(
-            onHide = { firstCapture ->
-                withContext(Dispatchers.Main.immediate) {
-                    val wasVisible = firstCapture && orb != null && visual.visible
-                    render()
-                    if (wasVisible) awaitFrames(2)
-                }
-            },
-            onRestore = { lastCapture ->
-                if (lastCapture) {
-                    withContext(Dispatchers.Main.immediate) { render() }
-                }
-            },
-            block = block,
-        )
 
     override suspend fun <T> withOverlayAvoiding(
         bounds: OverlayBounds,
@@ -153,10 +143,8 @@ internal class PhoneControlOverlayController(
                         touchParams?.let { params ->
                             params.x = original.first
                             params.y = original.second
-                            if (!captureState.isHidden) {
-                                params.flags = params.flags and
-                                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-                            }
+                            params.flags = params.flags and
+                                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
                             updateLayouts(persistPosition = false)
                         }
                     }
@@ -177,16 +165,13 @@ internal class PhoneControlOverlayController(
         val promptWasAttached = powerPrompt != null
         ensureWindows()
         if (powerPromptVisible) ensurePowerPrompt() else detachPowerPrompt()
-        val captureHidden = captureState.isHidden
-        val suppressionChanged = appliedCaptureHidden != captureHidden
-        appliedCaptureHidden = captureHidden
-        applyWindowSuppression(if (captureHidden) 0f else 1f)
         val renderedVisual = if (powerPromptVisible) visual.copy(caption = "") else visual
         orb?.render(renderedVisual, currentPlacement())
         val windowSetChanged = !orbWasAttached || promptWasAttached != (powerPrompt != null)
-        if (needsOverlayLayoutUpdate(forceLayout, windowSetChanged, suppressionChanged)) {
+        if (needsOverlayLayoutUpdate(forceLayout, windowSetChanged)) {
             updateLayouts()
         }
+        refreshInteractionBounds()
     }
 
     private fun refreshHost() {
@@ -199,28 +184,6 @@ internal class PhoneControlOverlayController(
         detachWindows()
         host = next
         PhoneControlLog.i(TAG, "overlay_host_changed host=${host.describe()}")
-    }
-
-    private fun applyWindowSuppression(alpha: Float) {
-        orbParams?.alpha = alpha * host.rendererAlpha
-        touchParams?.apply {
-            this.alpha = alpha
-            flags = if (captureState.isHidden) {
-                flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            } else {
-                flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            }
-        }
-        powerPromptParams?.apply {
-            this.alpha = alpha
-            flags = if (captureState.isHidden) {
-                flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            } else {
-                flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            }
-        }
-        touchTarget?.alpha = alpha
-        powerPrompt?.alpha = alpha
     }
 
     private fun ensureWindows() {
@@ -265,6 +228,7 @@ internal class PhoneControlOverlayController(
         if (powerPrompt != null) return
         val prompt = PhoneControlPowerPromptView(
             context = host.context,
+            selectedChoice = PhoneControlPowerPreferences.current(context),
             onChoice = ::selectPowerChoice,
             showForgetSgtAdb = SgtAdbCommandBridge.hasPairing(context),
             onForgetSgtAdb = ::forgetSgtAdb,
@@ -371,16 +335,38 @@ internal class PhoneControlOverlayController(
             runCatching { host.windowManager.updateViewLayout(prompt, params) }
             Rect(params.x, params.y, params.x + params.width, params.y + height)
         }
-        interactionBounds = if (!captureState.isHidden && visual.visible) {
-            Rect(
+        if (visual.visible) {
+            interactionBounds = Rect(
                 targetLayout.x,
                 targetLayout.y,
                 targetLayout.x + targetLayout.width,
                 targetLayout.y + targetLayout.height,
             ).apply { promptBounds?.let(::union) }
-        } else {
-            null
         }
+    }
+
+    private fun refreshInteractionBounds() {
+        if (!visual.visible) {
+            interactionBounds = null
+            return
+        }
+        val targetLayout = touchParams ?: run {
+            interactionBounds = null
+            return
+        }
+        val bounds = Rect(
+            targetLayout.x,
+            targetLayout.y,
+            targetLayout.x + targetLayout.width,
+            targetLayout.y + targetLayout.height,
+        )
+        powerPrompt?.let { prompt ->
+            powerPromptParams?.let { params ->
+                val height = prompt.height.takeIf { it > 0 } ?: context.dp(170)
+                bounds.union(params.x, params.y, params.x + params.width, params.y + height)
+            }
+        }
+        interactionBounds = bounds
     }
 
     private fun currentPlacement(): PhoneControlOrbPlacement {
@@ -415,7 +401,6 @@ internal class PhoneControlOverlayController(
         orbParams = null
         touchParams = null
         interactionBounds = null
-        appliedCaptureHidden = null
         dismissing = false
     }
 

@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.Display
 import android.view.accessibility.AccessibilityNodeInfo
+import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import kotlinx.coroutines.CompletableDeferred
@@ -27,10 +28,27 @@ internal suspend fun performAccessibilityAction(
     val ownedEffect = OwnedAccessibilityEffect.begin()
     var platformSettled = false
     try {
-    val lease = provider.currentLease(targetId) ?: return stale(provider.observationGeneration)
-    if (provider.currentCaptureGeneration() != lease.identity.snapshotGeneration ||
-        provider.observationGeneration != lease.identity.snapshotGeneration
+    provider.currentActiveOsOwnedStepFailure(verb.mutationKind())?.let { return it }
+    val lease = provider.currentLease(targetId) ?: run {
+        Log.d(
+            TAG,
+            "target_lease_missing target_id=$targetId " +
+                "current_generation=${provider.observationGeneration}",
+        )
+        return stale(provider.observationGeneration)
+    }
+    val captureGeneration = provider.currentCaptureGeneration()
+    val currentGeneration = provider.observationGeneration
+    if (captureGeneration != lease.identity.snapshotGeneration ||
+        currentGeneration != lease.identity.snapshotGeneration
     ) {
+        Log.d(
+            TAG,
+            "target_generation_mismatch target_id=$targetId " +
+                "target_generation=${lease.identity.snapshotGeneration} " +
+                "capture_generation=${captureGeneration ?: 0L} " +
+                "current_generation=$currentGeneration",
+        )
         return stale(provider.observationGeneration)
     }
     provider.validateTargetMutation(lease, verb.mutationKind(), confirmed)?.let { return it }
@@ -98,28 +116,57 @@ internal suspend fun performAccessibilityAction(
     provider.invalidate("accessibility_action:$verb")
     val verified = withContext(NonCancellable) {
         delay(POSTCONDITION_DELAY_MS)
-        provider.onServiceMain { service ->
-            val current = resolveAccessibilityNode(service, lease)
+        provider.onServiceMain(failureEffect = EffectCertainty.MAY_HAVE_OCCURRED) { service ->
+            val resolution = resolveAccessibilityNodePath(service, lease)
+            if (resolution.platformReadFailed) {
+                return@onServiceMain AccessibilityProviderResult.Failure(
+                    code = "postcondition_unavailable",
+                    message = "The dispatched action's target could not be read safely.",
+                    retryable = true,
+                    freshObservationRequired = true,
+                    effect = EffectCertainty.MAY_HAVE_OCCURRED,
+                )
+            }
             AccessibilityProviderResult.Success(
-                current?.let { node ->
+                resolution.node?.takeIf { node -> node.matchesStableIdentity(lease) }?.let { node ->
                     verifyPostcondition(node, verb, value, dispatched.before)
                 } == true,
             )
         }
     }
     platformSettled = true
-    val effect = if ((verified as? AccessibilityProviderResult.Success)?.value == true) {
-        EffectCertainty.VERIFIED
-    } else {
-        EffectCertainty.MAY_HAVE_OCCURRED
+    val postconditionVerified = when (verified) {
+        is AccessibilityProviderResult.Failure -> {
+            return verified.copy(
+                code = "postcondition_unavailable",
+                message = "The action was dispatched, but its postcondition could not be read.",
+                retryable = true,
+                freshObservationRequired = true,
+                effect = EffectCertainty.MAY_HAVE_OCCURRED,
+            )
+        }
+        is AccessibilityProviderResult.Success -> verified.value
     }
+    val postconditionCode = accessibilityActionPostconditionCode(
+        verb,
+        postconditionVerified,
+    )
     return AccessibilityProviderResult.Success(
         AccessibilityActionOutcome(
-            code = "ok",
+            code = postconditionCode,
             generation = provider.observationGeneration,
-            effect = effect,
+            effect = if (postconditionVerified) {
+                EffectCertainty.VERIFIED
+            } else {
+                EffectCertainty.MAY_HAVE_OCCURRED
+            },
             snapshotInvalidated = true,
             freshObservationRequired = true,
+            message = if (postconditionCode == "postcondition_not_verified") {
+                "The action was dispatched, but the required state change was not verified."
+            } else {
+                null
+            },
         ),
     )
     } finally {
@@ -366,21 +413,6 @@ private fun gestureBounds(fromX: Float, fromY: Float, toX: Float, toY: Float): T
     return TargetBounds(left, top, right, bottom)
 }
 
-internal fun resolveAccessibilityNode(
-    service: dev.screengoated.toolbox.mobile.service.SgtAccessibilityService,
-    lease: AccessibilityTargetLease,
-): AccessibilityNodeInfo? {
-    var node = findAccessibilityWindowRoot(
-        service,
-        lease.identity.displayId,
-        lease.identity.windowId,
-    ) ?: return null
-    for (index in lease.childPath) {
-        node = node.getChild(index) ?: return null
-    }
-    return node
-}
-
 private fun validateVerb(
     node: AccessibilityNodeInfo,
     verb: AccessibilityActionVerb,
@@ -416,6 +448,26 @@ private fun verifyPostcondition(
     AccessibilityActionVerb.TOGGLE ->
         before.checked != null && node.checkedBoolean() != before.checked
     AccessibilityActionVerb.SELECT -> node.isSelected && !before.selected
+    AccessibilityActionVerb.CLICK,
+    AccessibilityActionVerb.ACTIVATE,
+    AccessibilityActionVerb.SUBMIT,
+    -> false
+}
+
+internal fun accessibilityActionPostconditionCode(
+    verb: AccessibilityActionVerb,
+    verified: Boolean,
+): String = if (!verified && verb.requiresVerifiedPostcondition()) {
+    "postcondition_not_verified"
+} else {
+    "ok"
+}
+
+private fun AccessibilityActionVerb.requiresVerifiedPostcondition(): Boolean = when (this) {
+    AccessibilityActionVerb.FILL,
+    AccessibilityActionVerb.SELECT,
+    AccessibilityActionVerb.TOGGLE,
+    -> true
     AccessibilityActionVerb.CLICK,
     AccessibilityActionVerb.ACTIVATE,
     AccessibilityActionVerb.SUBMIT,
@@ -461,3 +513,4 @@ private val SUPPORTED_GLOBAL_ACTIONS = setOf(
 
 private const val CLICK_DURATION_MS = 80L
 private const val POSTCONDITION_DELAY_MS = 120L
+private const val TAG = "SGTPhoneControlAccessibility"

@@ -43,6 +43,9 @@ internal enum class SgtAdbBridgeCondition {
     NOT_PAIRED,
     CONNECTING,
     WIRELESS_DEBUGGING_UNAVAILABLE,
+    CONNECTION_ENDPOINT_UNAVAILABLE,
+    AUTHORIZATION_REJECTED,
+    CONNECTION_FAILED,
     PAIRING_STATE_PERSIST_FAILED,
     AUTHORITY_VERIFICATION_FAILED,
     BRIDGE_UNAVAILABLE,
@@ -81,8 +84,9 @@ internal object SgtAdbCommandBridge {
             )
         }
         val current = cachedProbe.get()
-        if (current.state != CapabilityState.READY) requestReconnect(context)
-        return current
+        if (current.state == CapabilityState.READY) return current
+        requestReconnect(context)
+        return cachedProbe.get()
     }
 
     fun hasPairing(context: Context): Boolean =
@@ -94,6 +98,12 @@ internal object SgtAdbCommandBridge {
 
     suspend fun reconnect(context: Context): SgtAdbBridgeProbe =
         reconnectRequest(context.applicationContext).await()
+
+    suspend fun awaitReady(context: Context): SgtAdbBridgeProbe {
+        val current = probe(context)
+        if (current.state == CapabilityState.READY || !hasPairing(context)) return current
+        return reconnect(context)
+    }
 
     private fun reconnectRequest(context: Context): Deferred<SgtAdbBridgeProbe> {
         val request = synchronized(lock) {
@@ -161,6 +171,7 @@ internal object SgtAdbCommandBridge {
         args: List<String>,
         cwd: String?,
         timeoutMs: Long,
+        effectMayChangeUserState: Boolean = true,
     ): PrivilegedCommandResult {
         val service = try {
             awaitRemote(context)
@@ -207,7 +218,9 @@ internal object SgtAdbCommandBridge {
             throw CancellationException()
         }
         return try {
-            if (!effectLease.tryReserveAcceptedDispatch()) throw CancellationException()
+            if (!effectLease.tryReserveDispatch(effectMayChangeUserState)) {
+                throw CancellationException()
+            }
             val raw = withContext(Dispatchers.IO) {
                 service.runCommand(
                     operationId,
@@ -221,11 +234,41 @@ internal object SgtAdbCommandBridge {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            bridgeFailure(error, true)
+            bridgeFailure(error, effectMayChangeUserState)
         } finally {
             effectLease.close()
             cancellation.close()
         }
+    }
+
+    suspend fun openBrowserTunnel(context: Context): BrowserTunnelResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val raw = awaitRemote(context).openBrowserTunnel(CONNECT_TIMEOUT_MS)
+                val guidance = parseProbe(raw).requiredUserStep ?: RECONNECT_GUIDANCE
+                parseBrowserTunnelResult(raw, guidance)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                BrowserTunnelResult.Failure(
+                    state = CapabilityState.DEGRADED,
+                    code = "browser_tunnel_unavailable",
+                    requiredUserStep = RECONNECT_GUIDANCE,
+                )
+            }
+        }
+
+    suspend fun closeBrowserTunnel(
+        context: Context,
+        leaseId: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (leaseId.isBlank()) return@withContext false
+        runCatching {
+            val result = json.parseToJsonElement(
+                awaitRemote(context).closeBrowserTunnel(leaseId),
+            ).jsonObject
+            result["ok"]?.jsonPrimitive?.booleanOrNull == true
+        }.getOrDefault(false)
     }
 
     suspend fun forget(context: Context): Boolean = withContext(Dispatchers.IO) {
@@ -330,6 +373,12 @@ internal object SgtAdbCommandBridge {
             "pairing_code_invalid",
             ->
                 SgtAdbBridgeCondition.WIRELESS_DEBUGGING_UNAVAILABLE
+            "connection_endpoint_unavailable" ->
+                SgtAdbBridgeCondition.CONNECTION_ENDPOINT_UNAVAILABLE
+            "pairing_authorization_rejected" ->
+                SgtAdbBridgeCondition.AUTHORIZATION_REJECTED
+            "connection_failed" -> SgtAdbBridgeCondition.CONNECTION_FAILED
+            "pairing_state_missing" -> SgtAdbBridgeCondition.NOT_PAIRED
             "paired_connect_pending" -> SgtAdbBridgeCondition.CONNECTING
             "pairing_state_persist_failed" ->
                 SgtAdbBridgeCondition.PAIRING_STATE_PERSIST_FAILED
@@ -347,7 +396,16 @@ internal object SgtAdbCommandBridge {
         val guidance = when (condition) {
             SgtAdbBridgeCondition.READY -> null
             SgtAdbBridgeCondition.PAIRING_STATE_PERSIST_FAILED,
-            SgtAdbBridgeCondition.AUTHORITY_VERIFICATION_FAILED -> REPAIR_GUIDANCE
+            SgtAdbBridgeCondition.AUTHORITY_VERIFICATION_FAILED,
+            SgtAdbBridgeCondition.AUTHORIZATION_REJECTED,
+            ->
+                REPAIR_GUIDANCE
+            SgtAdbBridgeCondition.CONNECTION_ENDPOINT_UNAVAILABLE,
+            SgtAdbBridgeCondition.CONNECTION_FAILED,
+            SgtAdbBridgeCondition.CONNECTING,
+            SgtAdbBridgeCondition.BRIDGE_UNAVAILABLE,
+            ->
+                RECONNECT_GUIDANCE
             else -> PAIR_GUIDANCE
         }
         return SgtAdbBridgeProbe(

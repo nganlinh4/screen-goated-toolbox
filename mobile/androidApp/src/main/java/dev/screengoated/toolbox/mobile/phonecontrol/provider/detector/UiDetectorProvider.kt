@@ -7,11 +7,12 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.view.Display
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityObservation
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityMutationKind
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityObservation
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilitySurfaceLease
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.activeOsOwnedUserStepFailure
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.surfaceLease
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.visual.mapCaptureCrop
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
@@ -105,6 +106,8 @@ internal class UiDetectorProvider(context: Context) {
                 retryable = true,
                 freshObservationRequired = true,
             )
+        observation.activeOsOwnedUserStepFailure(AccessibilityMutationKind.POINTER_ACTIVATE)
+            ?.let { return it.toDetectorFailure() }
         if (surface.displayId != Display.DEFAULT_DISPLAY) {
             return UiDetectorProviderResult.Failure(
                 "unsupported_display",

@@ -145,10 +145,38 @@ class PhoneControlTurnCoordinatorTranscriptTest {
         }
     }
 
-    private class Harness {
+    @Test
+    fun `silent presentation discards assistant content without disabling tools`() {
+        val harness = Harness(surfaceAssistantContent = false)
+        try {
+            harness.input("internal setup")
+            val call = GeminiLiveFunctionCall("observe-setup", "observe", JsonObject(emptyMap()))
+            harness.coordinator.handleFrame(
+                GeminiLiveServerFrame(
+                    outputTranscript = "private generated output",
+                    toolCalls = listOf(call),
+                    toolCallPresent = true,
+                ),
+                listOf(
+                    GeminiLiveLifecycleEffect.DeliverContent(1),
+                    GeminiLiveLifecycleEffect.DispatchTools(listOf(call.id)),
+                ),
+            )
+
+            assertTrue(harness.sink.outputs.none { "private generated output" in it })
+            assertTrue(harness.recorder.assistants.isEmpty())
+            assertTrue(harness.sink.orbPresentations.isEmpty())
+            assertTrue(harness.sink.phases.isEmpty())
+            assertEquals(1, harness.coordinator.pendingWorkCount)
+        } finally {
+            harness.close()
+        }
+    }
+
+    private class Harness(surfaceAssistantContent: Boolean = true) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val executor = CountingExecutor()
-        val sink = RecordingSink()
+        val sink = RecordingSink(surfaceAssistantContent)
         val recorder = RecordingRecorder()
         val coordinator = PhoneControlTurnCoordinator(executor, scope, sink, recorder)
 
@@ -202,10 +230,14 @@ class PhoneControlTurnCoordinatorTranscriptTest {
         }
     }
 
-    private class RecordingSink : PhoneControlTurnSink {
+    private class RecordingSink(
+        private val surfaceAssistantContent: Boolean,
+    ) : PhoneControlTurnSink {
         val payloads = mutableListOf<String>()
         val inputs = mutableListOf<String>()
         val outputs = mutableListOf<String>()
+        val orbPresentations = mutableListOf<Pair<String, String?>>()
+        val phases = mutableListOf<PhoneControlTurnPhase>()
 
         override fun sendPayload(payload: String): Boolean = payloads.add(payload)
         override fun playAudio(bytes: ByteArray) = Unit
@@ -217,7 +249,13 @@ class PhoneControlTurnCoordinatorTranscriptTest {
         override fun updateOutputCaption(text: String) {
             outputs += text
         }
-        override fun updateTurnPhase(phase: PhoneControlTurnPhase) = Unit
+        override fun surfaceAssistantContent(): Boolean = surfaceAssistantContent
+        override fun updateOrbPresentation(stateLabel: String, iconOverride: String?) {
+            orbPresentations += stateLabel to iconOverride
+        }
+        override fun updateTurnPhase(phase: PhoneControlTurnPhase) {
+            phases += phase
+        }
         override fun requestScreenRefresh() = Unit
     }
 

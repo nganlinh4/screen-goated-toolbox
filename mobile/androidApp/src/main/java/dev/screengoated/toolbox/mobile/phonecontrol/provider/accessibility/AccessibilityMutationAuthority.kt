@@ -105,19 +105,26 @@ internal fun AccessibilityActionVerb.mutationKind(): AccessibilityMutationKind =
     -> AccessibilityMutationKind.SEMANTIC_COMMIT
 }
 
-internal fun AccessibilityObservation.commandDispatchAuthorityFailure():
-    AccessibilityProviderResult.Failure? {
-    val activeWindows = windows.filter { window -> window.active || window.focused }
-    if (activeWindows.any { window ->
-            window.targetAuthority == AccessibilityTargetAuthority.OS_OWNED_USER_STEP
+internal fun AccessibilityObservation.activeOsOwnedUserStepFailure(
+    kind: AccessibilityMutationKind,
+): AccessibilityProviderResult.Failure? =
+    if (windows.any { window ->
+            (window.active || window.focused) &&
+                window.targetAuthority == AccessibilityTargetAuthority.OS_OWNED_USER_STEP
         }
     ) {
-        return authorityFailure(
+        authorityFailure(
             AccessibilityTargetAuthority.OS_OWNED_USER_STEP,
-            AccessibilityMutationKind.COMMAND_EXECUTION,
+            kind,
             confirmed = false,
         )
+    } else {
+        null
     }
+
+internal fun AccessibilityObservation.commandDispatchAuthorityFailure():
+    AccessibilityProviderResult.Failure? {
+    activeOsOwnedUserStepFailure(AccessibilityMutationKind.COMMAND_EXECUTION)?.let { return it }
     val interactiveWindows = windows.filter { window ->
         !window.controllerOwned && (window.active || window.focused)
     }

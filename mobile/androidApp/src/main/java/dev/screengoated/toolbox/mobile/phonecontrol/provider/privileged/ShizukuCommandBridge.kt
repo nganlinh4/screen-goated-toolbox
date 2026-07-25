@@ -18,7 +18,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import rikka.shizuku.Shizuku
 import java.util.concurrent.atomic.AtomicLong
 
@@ -138,6 +140,7 @@ internal object ShizukuCommandBridge {
         args: List<String>,
         cwd: String?,
         timeoutMs: Long,
+        effectMayChangeUserState: Boolean = true,
     ): PrivilegedCommandResult = execute(
         context,
         lease,
@@ -146,6 +149,7 @@ internal object ShizukuCommandBridge {
         args,
         cwd,
         timeoutMs,
+        effectMayChangeUserState,
     )
 
     suspend fun verifyAuthority(context: Context, timeoutMs: Long): PrivilegedCommandResult =
@@ -157,7 +161,50 @@ internal object ShizukuCommandBridge {
             args = listOf(ID_UID_ARGUMENT),
             cwd = null,
             timeoutMs = timeoutMs,
+            effectMayChangeUserState = false,
         )
+
+    suspend fun openBrowserTunnel(context: Context): BrowserTunnelResult =
+        withContext(Dispatchers.IO) {
+            val probe = probe(context)
+            if (probe.state != CapabilityState.READY) {
+                return@withContext BrowserTunnelResult.Failure(
+                    state = probe.state,
+                    code = "capability_unavailable",
+                    requiredUserStep = probe.requiredUserStep,
+                )
+            }
+            try {
+                parseBrowserTunnelResult(
+                    awaitService().openBrowserTunnel(),
+                    "Restart Shizuku and retry after its binder reconnects.",
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                synchronized(lock) { service = null }
+                BrowserTunnelResult.Failure(
+                    state = CapabilityState.DEGRADED,
+                    code = "browser_tunnel_unavailable",
+                    requiredUserStep = "Restart Shizuku and retry after its binder reconnects.",
+                )
+            }
+        }
+
+    suspend fun closeBrowserTunnel(
+        context: Context,
+        leaseId: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (leaseId.isBlank() || probe(context).state != CapabilityState.READY) {
+            return@withContext false
+        }
+        runCatching {
+            val result = json.parseToJsonElement(
+                awaitService().closeBrowserTunnel(leaseId),
+            ).jsonObject
+            result["ok"]?.jsonPrimitive?.booleanOrNull == true
+        }.getOrDefault(false)
+    }
 
     private suspend fun execute(
         context: Context,
@@ -167,6 +214,7 @@ internal object ShizukuCommandBridge {
         args: List<String>,
         cwd: String?,
         timeoutMs: Long,
+        effectMayChangeUserState: Boolean,
     ): PrivilegedCommandResult {
         val probe = probe(context)
         if (probe.state != CapabilityState.READY) {
@@ -206,7 +254,10 @@ internal object ShizukuCommandBridge {
                 withContext(Dispatchers.IO) {
                     PhoneControlAccessibilityProvider.validateCommandDispatch(finalLease)
                         ?.let { return@withContext it.toPrivilegedCommandFailure() }
-                    if (effectLease != null && !effectLease.tryReserveAcceptedDispatch()) {
+                    if (
+                        effectLease != null &&
+                        !effectLease.tryReserveDispatch(effectMayChangeUserState)
+                    ) {
                         throw CancellationException()
                     }
                     dispatchStarted = true
@@ -232,7 +283,7 @@ internal object ShizukuCommandBridge {
                 message = error.message ?: error.javaClass.simpleName,
                 state = CapabilityState.DEGRADED,
                 providerGuidance = "Restart Shizuku and retry after its binder reconnects.",
-                effectMayHaveOccurred = dispatchStarted,
+                effectMayHaveOccurred = dispatchStarted && effectMayChangeUserState,
             )
         }
     }

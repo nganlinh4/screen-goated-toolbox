@@ -42,6 +42,7 @@ class PhoneControlMessagesTest {
             .content
 
         assertTrue(instruction.contains("surface token returned by list_windows"))
+        assertTrue(instruction.contains("stop input attempts on that surface"))
         assertTrue(instruction.contains("a snapshot-local node @id is not a surface target"))
         assertFalse(instruction.contains("element exactly as its observed @id"))
     }

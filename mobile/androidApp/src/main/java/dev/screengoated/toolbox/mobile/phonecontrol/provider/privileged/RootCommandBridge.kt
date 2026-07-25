@@ -58,7 +58,16 @@ internal object RootCommandBridge {
         args: List<String>,
         cwd: String?,
         timeoutMs: Long,
-    ): PrivilegedCommandResult = execute(lease, effectOwner, program, args, cwd, timeoutMs)
+        effectMayChangeUserState: Boolean = true,
+    ): PrivilegedCommandResult = execute(
+        lease,
+        effectOwner,
+        program,
+        args,
+        cwd,
+        timeoutMs,
+        effectMayChangeUserState,
+    )
 
     suspend fun verifyAuthority(timeoutMs: Long): PrivilegedCommandResult =
         execute(
@@ -68,6 +77,7 @@ internal object RootCommandBridge {
             args = listOf(ID_UID_ARGUMENT),
             cwd = null,
             timeoutMs = timeoutMs,
+            effectMayChangeUserState = false,
         )
 
     private suspend fun execute(
@@ -77,6 +87,7 @@ internal object RootCommandBridge {
         args: List<String>,
         cwd: String?,
         timeoutMs: Long,
+        effectMayChangeUserState: Boolean,
     ): PrivilegedCommandResult = withContext(Dispatchers.IO) {
         if (!authorized) {
             return@withContext PrivilegedCommandResult.Failure(
@@ -119,7 +130,9 @@ internal object RootCommandBridge {
                 cwd = cwd,
                 timeoutMs = timeoutMs,
                 authorityUid = 0,
-                onProcessStarted = { effectLease?.markAccepted() },
+                onProcessStarted = {
+                    if (effectMayChangeUserState) effectLease?.markAccepted()
+                },
             )
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
@@ -128,7 +141,7 @@ internal object RootCommandBridge {
                 message = error.message ?: error.javaClass.simpleName,
                 state = CapabilityState.DEGRADED,
                 providerGuidance = "Check root-manager authorization and retry.",
-                effectMayHaveOccurred = true,
+                effectMayHaveOccurred = effectMayChangeUserState,
             )
         } finally {
             effectLease?.close()

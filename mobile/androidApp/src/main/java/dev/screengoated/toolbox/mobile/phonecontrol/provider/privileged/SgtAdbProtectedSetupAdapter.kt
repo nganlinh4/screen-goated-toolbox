@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCapturePolicy
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointToken
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupAdapter
@@ -8,10 +9,23 @@ import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtec
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 
 internal object SgtAdbProtectedSetupAdapter : PhoneControlProtectedSetupAdapter {
+    override val capturePolicy = PhoneControlProtectedCapturePolicy.RETAIN_PROJECTION
+
     override suspend fun complete(
         context: Context,
         token: PhoneControlProtectedCheckpointToken,
     ): PhoneControlProtectedSetupResult {
+        val current = SgtAdbCommandBridge.probe(context)
+        if (sgtAdbPairingRelayCompleted(current)) {
+            return PhoneControlProtectedSetupResult.Completed
+        }
+        if (SgtAdbCommandBridge.hasPairing(context)) {
+            val reconciled = runCatching { SgtAdbCommandBridge.reconnect(context) }
+                .getOrNull()
+            if (reconciled != null && sgtAdbPairingRelayCompleted(reconciled)) {
+                return PhoneControlProtectedSetupResult.Completed
+            }
+        }
         val pairingCode = ProtectedPairingCodeReader.await(
             context = context,
             token = token,

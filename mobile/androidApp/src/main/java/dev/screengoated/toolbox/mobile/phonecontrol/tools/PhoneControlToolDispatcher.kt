@@ -3,6 +3,9 @@ package dev.screengoated.toolbox.mobile.phonecontrol.tools
 import android.content.Context
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorization
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorizer
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlStructuralEditAuthorization
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityRequest
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProviderRegistry
@@ -48,8 +51,8 @@ internal object AndroidPhoneControlToolFailureReporter : PhoneControlToolFailure
     override fun report(requestedTool: String, jobId: String, error: Throwable) {
         Log.e(
             TAG,
-            "provider_failure tool=$requestedTool job_id=$jobId " +
-                "exception=${error.javaClass.name}: ${error.message.orEmpty()}",
+            "provider_failure tool=$requestedTool job_id=$jobId",
+            error,
         )
     }
 
@@ -66,8 +69,18 @@ internal class PhoneControlToolDispatcher(
     private val modelToolAdmission: PhoneControlModelToolAdmission =
         PhoneControlModelToolAdmission { true },
 ) : PhoneControlToolDispatchBoundary {
-    constructor(context: Context) : this(
-        executor = AndroidPhoneControlHandlerExecutor(context),
+    constructor(
+        context: Context,
+        structuralAuthorization: PhoneControlStructuralEditAuthorization =
+            PhoneControlStructuralEditAuthorization(context),
+        resourceAuthorization: PhoneControlResourceAuthorizer =
+            PhoneControlResourceAuthorization(context),
+    ) : this(
+        executor = AndroidPhoneControlHandlerExecutor(
+            context,
+            structuralAuthorization,
+            resourceAuthorization,
+        ),
         providerRouter = PhoneControlProviderRegistry.router(context),
         failureReporter = AndroidPhoneControlToolFailureReporter,
         observationRecovery = AndroidActionableObservationRecovery(),

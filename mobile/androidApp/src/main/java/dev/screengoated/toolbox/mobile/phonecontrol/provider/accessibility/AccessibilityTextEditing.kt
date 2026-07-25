@@ -42,6 +42,7 @@ internal suspend fun findFocusedAccessibilityTextTarget(
         is AccessibilityProviderResult.Failure -> return result
         is AccessibilityProviderResult.Success -> result.value
     }
+    observed.activeOsOwnedUserStepFailure(AccessibilityMutationKind.TEXT_EDIT)?.let { return it }
     if (surface != null) {
         val currentSurface = observed.windows.singleOrNull { window ->
             window.displayId == surface.displayId &&
@@ -410,17 +411,7 @@ private fun writableEditor(
 private fun resolveTextAccessibilityNode(
     service: SgtAccessibilityService,
     lease: AccessibilityTargetLease,
-): AccessibilityNodeInfo? {
-    var node = findAccessibilityWindowRoot(
-        service,
-        lease.identity.displayId,
-        lease.identity.windowId,
-    ) ?: return null
-    for (index in lease.childPath) {
-        node = node.getChild(index) ?: return null
-    }
-    return node
-}
+): AccessibilityNodeInfo? = resolveAccessibilityNodeAtPath(service, lease)
 
 private fun AccessibilityNodeInfo.matchesStableTextTarget(lease: AccessibilityTargetLease): Boolean {
     val fingerprint = lease.fingerprint

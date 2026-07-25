@@ -15,6 +15,8 @@ internal interface PrivilegedCommandProvider {
 
     fun probe(context: Context): PrivilegedCommandProbe
 
+    suspend fun awaitReady(context: Context): PrivilegedCommandProbe = probe(context)
+
     suspend fun executeAuthorized(
         context: Context,
         lease: AccessibilityCommandDispatchLease,
@@ -23,6 +25,7 @@ internal interface PrivilegedCommandProvider {
         args: List<String>,
         cwd: String?,
         timeoutMs: Long,
+        effectMayChangeUserState: Boolean = true,
     ): PrivilegedCommandResult
 }
 
@@ -48,6 +51,11 @@ private object SgtAdbPrivilegedCommandProvider : PrivilegedCommandProvider {
             PrivilegedCommandProbe(it.state, it.requiredUserStep)
         }
 
+    override suspend fun awaitReady(context: Context): PrivilegedCommandProbe =
+        SgtAdbCommandBridge.awaitReady(context).let {
+            PrivilegedCommandProbe(it.state, it.requiredUserStep)
+        }
+
     override suspend fun executeAuthorized(
         context: Context,
         lease: AccessibilityCommandDispatchLease,
@@ -56,6 +64,7 @@ private object SgtAdbPrivilegedCommandProvider : PrivilegedCommandProvider {
         args: List<String>,
         cwd: String?,
         timeoutMs: Long,
+        effectMayChangeUserState: Boolean,
     ): PrivilegedCommandResult = SgtAdbCommandBridge.executeAuthorized(
         context,
         lease,
@@ -64,6 +73,7 @@ private object SgtAdbPrivilegedCommandProvider : PrivilegedCommandProvider {
         args,
         cwd,
         timeoutMs,
+        effectMayChangeUserState,
     )
 }
 
@@ -83,6 +93,7 @@ private object ShizukuPrivilegedCommandProvider : PrivilegedCommandProvider {
         args: List<String>,
         cwd: String?,
         timeoutMs: Long,
+        effectMayChangeUserState: Boolean,
     ): PrivilegedCommandResult = ShizukuCommandBridge.executeAuthorized(
         context,
         lease,
@@ -91,6 +102,7 @@ private object ShizukuPrivilegedCommandProvider : PrivilegedCommandProvider {
         args,
         cwd,
         timeoutMs,
+        effectMayChangeUserState,
     )
 }
 
@@ -110,6 +122,7 @@ private object RootPrivilegedCommandProvider : PrivilegedCommandProvider {
         args: List<String>,
         cwd: String?,
         timeoutMs: Long,
+        effectMayChangeUserState: Boolean,
     ): PrivilegedCommandResult = RootCommandBridge.executeAuthorized(
         lease,
         effectOwner,
@@ -117,5 +130,6 @@ private object RootPrivilegedCommandProvider : PrivilegedCommandProvider {
         args,
         cwd,
         timeoutMs,
+        effectMayChangeUserState,
     )
 }

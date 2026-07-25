@@ -10,9 +10,12 @@ class PhoneControlProtectedCheckpointRegistryTest {
         val before = PhoneControlProtectedCheckpointRegistry.snapshot()
         assertFalse(before.active)
 
-        val owner = PhoneControlProtectedCheckpointRegistry.begin()
+        val owner = PhoneControlProtectedCheckpointRegistry.begin(
+            PhoneControlProtectedCapturePolicy.RELEASE_PROJECTION,
+        )
         val active = PhoneControlProtectedCheckpointRegistry.snapshot()
         assertTrue(active.active)
+        assertTrue(active.freshProjectionRequired)
         assertTrue(active.generation > before.generation)
         assertTrue(PhoneControlProtectedCheckpointRegistry.owns(owner))
         assertFalse(PhoneControlProtectedCheckpointRegistry.modelToolsAllowed())
@@ -30,11 +33,31 @@ class PhoneControlProtectedCheckpointRegistryTest {
 
     @Test(expected = IllegalStateException::class)
     fun `overlapping checkpoints are rejected`() {
-        val owner = PhoneControlProtectedCheckpointRegistry.begin()
+        val owner = PhoneControlProtectedCheckpointRegistry.begin(
+            PhoneControlProtectedCapturePolicy.RETAIN_PROJECTION,
+        )
         try {
-            PhoneControlProtectedCheckpointRegistry.begin()
+            PhoneControlProtectedCheckpointRegistry.begin(
+                PhoneControlProtectedCapturePolicy.RELEASE_PROJECTION,
+            )
         } finally {
             PhoneControlProtectedCheckpointRegistry.end(owner)
         }
+    }
+
+    @Test
+    fun `only release policy requires a fresh projection`() {
+        val retained = PhoneControlProtectedCheckpointRegistry.begin(
+            PhoneControlProtectedCapturePolicy.RETAIN_PROJECTION,
+        )
+        assertFalse(PhoneControlProtectedCheckpointRegistry.freshProjectionRequired())
+        assertFalse(PhoneControlProtectedCheckpointRegistry.snapshot().freshProjectionRequired)
+        assertTrue(PhoneControlProtectedCheckpointRegistry.end(retained))
+
+        val released = PhoneControlProtectedCheckpointRegistry.begin(
+            PhoneControlProtectedCapturePolicy.RELEASE_PROJECTION,
+        )
+        assertTrue(PhoneControlProtectedCheckpointRegistry.freshProjectionRequired())
+        assertTrue(PhoneControlProtectedCheckpointRegistry.end(released))
     }
 }

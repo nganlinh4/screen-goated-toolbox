@@ -1,7 +1,7 @@
 package dev.screengoated.toolbox.mobile.phonecontrol
 
 /**
- * One-shot continuation decision for the fresh projection that closes a protected checkpoint.
+ * One-shot continuation decision after a protected checkpoint restores visual evidence.
  *
  * A relay that made real provider progress may continue automatically. An unresolved relay
  * restores visual evidence but waits for fresh external evidence or an explicit user retry.

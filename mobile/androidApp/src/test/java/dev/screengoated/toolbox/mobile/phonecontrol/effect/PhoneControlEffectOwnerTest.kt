@@ -70,6 +70,25 @@ class PhoneControlEffectOwnerTest {
     }
 
     @Test
+    fun readOnlyDispatchOwnsCancellationWithoutClaimingUserStateMutation() = runBlocking {
+        val owner = owner("read-only-dispatch")
+        val lease = requireNotNull(owner.beginEffect())
+
+        assertTrue(lease.tryReserveDispatch(effectMayChangeUserState = false))
+        assertEquals(PhoneControlEffectCertainty.PROVEN_NO_EFFECT, owner.requestCancellation())
+        val terminal = async { owner.awaitTerminalEffects() }
+        yield()
+        assertFalse(terminal.isCompleted)
+
+        lease.close()
+        terminal.await()
+        assertEquals(
+            PhoneControlEffectCertainty.PROVEN_NO_EFFECT,
+            owner.terminalCertainty(mutatingFallback = true),
+        )
+    }
+
+    @Test
     fun platformDispatchExceptionCannotBeReportedAsNoEffect() {
         val owner = owner("dispatch-exception")
         val lease = requireNotNull(owner.beginEffect())

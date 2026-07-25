@@ -30,6 +30,22 @@ import org.junit.Test
 
 class PhoneControlDebugProbePolicyTest {
     @Test
+    fun hostExecutionDeadlineIsStructurallyBoundedOnDevice() {
+        assertEquals(
+            MIN_DEBUG_PROBE_EXECUTION_TIMEOUT_MS,
+            boundedDebugProbeExecutionTimeoutMs(Long.MIN_VALUE),
+        )
+        assertEquals(
+            DEFAULT_DEBUG_PROBE_EXECUTION_TIMEOUT_MS,
+            boundedDebugProbeExecutionTimeoutMs(DEFAULT_DEBUG_PROBE_EXECUTION_TIMEOUT_MS),
+        )
+        assertEquals(
+            MAX_DEBUG_PROBE_EXECUTION_TIMEOUT_MS,
+            boundedDebugProbeExecutionTimeoutMs(Long.MAX_VALUE),
+        )
+    }
+
+    @Test
     fun mutationAcknowledgementComesOnlyFromTheExactRegistryHandlerContract() {
         PhoneControlToolRegistry.specs.forEach { spec ->
             assertEquals(

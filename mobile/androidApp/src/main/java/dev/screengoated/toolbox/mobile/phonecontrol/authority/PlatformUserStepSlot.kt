@@ -8,9 +8,11 @@ internal class PlatformUserStepSlot {
     val active: Boolean
         get() = synchronized(lock) { token != null }
 
-    fun begin(): Boolean = synchronized(lock) {
+    fun begin(expectedPackageName: String? = null): Boolean = synchronized(lock) {
         if (token != null) return@synchronized false
-        token = PlatformUserStepSessionRegistry.begin()
+        token = PlatformUserStepSessionRegistry.begin(
+            expectedPackageName?.let(::setOf) ?: emptySet(),
+        )
         true
     }
 

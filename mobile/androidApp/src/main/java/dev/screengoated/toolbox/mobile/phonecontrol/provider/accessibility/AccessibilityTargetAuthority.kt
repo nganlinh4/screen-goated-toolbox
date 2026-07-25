@@ -33,6 +33,7 @@ internal data class AccessibilityTargetAuthorityPolicy(
     val osOwnedUserStepPackages: Set<String>,
     val osOwnedOverlayCandidatePackages: Set<String> = emptySet(),
     val platformUserStepActive: Boolean = false,
+    val expectedUserStepPackages: Set<String> = emptySet(),
 ) {
     fun classify(packageName: String): AccessibilityTargetAuthority =
         if (packageName in osOwnedUserStepPackages) {
@@ -50,6 +51,13 @@ internal data class AccessibilityTargetAuthorityPolicy(
         }?.let { return it }
         val packageName = window.packageName?.takeIf(String::isNotBlank)
             ?: return AccessibilityTargetAuthority.ROUTINE
+        if (platformUserStepActive &&
+            packageName in expectedUserStepPackages &&
+            window.type in USER_STEP_WINDOW_TYPES &&
+            (window.active || window.focused)
+        ) {
+            return AccessibilityTargetAuthority.OS_OWNED_USER_STEP
+        }
         val overlaysApplicationDuringUserStep = platformUserStepActive &&
             window.type in USER_STEP_WINDOW_TYPES &&
             (window.active || window.focused) &&
@@ -85,6 +93,7 @@ internal fun resolveAccessibilityTargetAuthorityPolicy(
     context: Context,
 ): AccessibilityTargetAuthorityPolicy {
     val packageManager = context.packageManager
+    val platformSession = PlatformUserStepSessionRegistry.snapshot()
     val dedicatedPackages = platformConfirmationIntents(context)
         .mapNotNull { intent -> resolveUniqueSystemHandler(packageManager, intent) }
         .toSet()
@@ -108,7 +117,8 @@ internal fun resolveAccessibilityTargetAuthorityPolicy(
     return AccessibilityTargetAuthorityPolicy(
         osOwnedUserStepPackages = dedicatedPackages,
         osOwnedOverlayCandidatePackages = overlayCandidatePackages,
-        platformUserStepActive = PlatformUserStepSessionRegistry.hasActiveSession(),
+        platformUserStepActive = platformSession.active,
+        expectedUserStepPackages = platformSession.expectedPackageNames,
     )
 }
 

@@ -24,6 +24,11 @@ internal enum class PhoneControlUiGoalOutcome {
     INTERRUPTED,
 }
 
+internal enum class PhoneControlUiGoalPresentation {
+    CONVERSATIONAL,
+    SILENT,
+}
+
 internal data class PhoneControlUiGoalOfferResult(
     val disposition: PhoneControlUiGoalOffer,
     val id: Long?,
@@ -37,6 +42,7 @@ internal data class PhoneControlUiGoalCompletion(
 private data class PhoneControlQueuedUiGoal(
     val id: Long,
     val text: String,
+    val presentation: PhoneControlUiGoalPresentation,
 )
 
 internal class PhoneControlUserInterfaceGoalQueue(
@@ -54,12 +60,20 @@ internal class PhoneControlUserInterfaceGoalQueue(
     val awaitingSettlement: Boolean
         get() = terminalBoundaryId.get() != NO_GOAL && inFlight.get() != null
 
-    fun offer(text: String, runtimeReady: Boolean): PhoneControlUiGoalOfferResult {
+    val conversationSurfaceSuppressed: Boolean
+        get() = inFlight.get()?.presentation == PhoneControlUiGoalPresentation.SILENT
+
+    fun offer(
+        text: String,
+        runtimeReady: Boolean,
+        presentation: PhoneControlUiGoalPresentation =
+            PhoneControlUiGoalPresentation.CONVERSATIONAL,
+    ): PhoneControlUiGoalOfferResult {
         val goal = text.trim()
         if (!runtimeReady || goal.isEmpty() || goal.length > maximumChars) {
             return PhoneControlUiGoalOfferResult(PhoneControlUiGoalOffer.REJECTED, null)
         }
-        val queued = PhoneControlQueuedUiGoal(nextGoalId(), goal)
+        val queued = PhoneControlQueuedUiGoal(nextGoalId(), goal, presentation)
         val disposition = if (pending.getAndSet(queued) == null) {
             PhoneControlUiGoalOffer.QUEUED
         } else {
@@ -84,12 +98,16 @@ internal class PhoneControlUserInterfaceGoalQueue(
             return PhoneControlUiGoalFlush.WAITING
         }
         val goal = pending.getAndSet(null) ?: return PhoneControlUiGoalFlush.NONE
+        if (!inFlight.compareAndSet(null, goal)) {
+            pending.compareAndSet(null, goal)
+            return PhoneControlUiGoalFlush.WAITING
+        }
+        terminalBoundaryId.set(NO_GOAL)
         if (!send(buildPhoneControlTextPayload(goal.text))) {
+            inFlight.compareAndSet(goal, null)
             pending.compareAndSet(null, goal)
             return PhoneControlUiGoalFlush.REJECTED
         }
-        inFlight.set(goal)
-        terminalBoundaryId.set(NO_GOAL)
         return PhoneControlUiGoalFlush.SENT
     }
 

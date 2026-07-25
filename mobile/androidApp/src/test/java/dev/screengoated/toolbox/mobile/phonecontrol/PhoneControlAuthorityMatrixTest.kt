@@ -1,10 +1,11 @@
 package dev.screengoated.toolbox.mobile.phonecontrol
 
-import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityRoute
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlCapabilityContract
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderDefinition
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderRouter
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProvider
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.result.InputInjectionEvidence
 import dev.screengoated.toolbox.mobile.phonecontrol.result.PhoneControlResultEnvelope
@@ -13,9 +14,6 @@ import dev.screengoated.toolbox.mobile.phonecontrol.result.RequiredUserStep
 import dev.screengoated.toolbox.mobile.phonecontrol.result.ResultScope
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import dev.screengoated.toolbox.mobile.phonecontrol.tools.PhoneControlToolRegistry
-import java.io.File
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -33,7 +31,7 @@ class PhoneControlAuthorityMatrixTest {
         val fixture = PhoneControlAuthorityFixture.load()
         val catalog = fixture.root.getValue("catalog").jsonObject
 
-        assertEquals(14L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(21L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals("phone-control", fixture.root.getValue("feature").jsonPrimitive.content)
         val distribution = fixture.root.getValue("distribution").jsonObject
         assertEquals(
@@ -116,6 +114,11 @@ class PhoneControlAuthorityMatrixTest {
             targetAuthority.getValue("activeOsOwnedStepBlocksElevatedCommandDispatch")
                 .jsonPrimitive.boolean,
         )
+        assertTrue(
+            targetAuthority
+                .getValue("activeOsOwnedStepFailurePrecedenceAfterRequiredFieldValidation")
+                .jsonPrimitive.boolean,
+        )
         assertTrue(targetAuthority.getValue("consequentialRequiresConfirm").jsonPrimitive.boolean)
         assertTrue(
             targetAuthority.getValue("osOwnedConfirmationIsAlwaysUserStep")
@@ -179,6 +182,42 @@ class PhoneControlAuthorityMatrixTest {
         assertTrue(
             privacy.getValue("browserArtifactUsesProtectedSafeCapture").jsonPrimitive.boolean,
         )
+        val browserSelection = fixture.root.getValue("browserSelection").jsonObject
+        assertEquals(
+            listOf("sgt_adb_bridge", "shizuku_shell"),
+            browserSelection.getValue("cdpAuthorityOrder").jsonArray.map {
+                it.jsonPrimitive.content
+            },
+        )
+        assertFalse(
+            browserSelection.getValue("rootCommandAuthorityImpliesCdpStream")
+                .jsonPrimitive.boolean,
+        )
+        assertEquals(
+            "accessibility_fallback_without_cdp_binding",
+            browserSelection.getValue("ambiguousCustomTabTarget").jsonPrimitive.content,
+        )
+        val projectionProvider = fixture.root.getValue("providers")
+            .jsonArray
+            .map { it.jsonObject }
+            .single { it.getValue("id").jsonPrimitive.content == "media_projection" }
+        assertEquals(
+            "ready",
+            projectionProvider.getValue("activeSessionState").jsonPrimitive.content,
+        )
+        assertEquals(
+            "needs_user_step",
+            projectionProvider.getValue("inactiveSessionState").jsonPrimitive.content,
+        )
+        val browserContract = fixture.root.getValue("browserContract").jsonObject
+        assertEquals(
+            "sgt_adb_bridge_or_shizuku_shell",
+            browserContract.getValue("cdpTransportAuthorities").jsonPrimitive.content,
+        )
+        assertEquals(
+            "close_then_verify_absent_before_retiring_ownership",
+            browserContract.getValue("turnOwnedTargetCleanup").jsonPrimitive.content,
+        )
     }
 
     @Test
@@ -196,9 +235,26 @@ class PhoneControlAuthorityMatrixTest {
             assertTrue(spec.dependencyProviderIds.all(providerIds::contains))
         }
         assertTrue("sgt_adb_bridge" in providerIds)
+        val commandRoute = fixture.routes.first { it.capability == "command_execution" }
         assertEquals(
             listOf("sgt_adb_bridge", "shizuku_shell", "root_bridge", "privileged_system"),
-            fixture.routes.first { it.capability == "command_execution" }.providerIds,
+            commandRoute.providerIds,
+        )
+        assertEquals(
+            PrivilegedCommandProviderRegistry.ordered(commandRoute.providerIds)
+                .map(PrivilegedCommandProvider::providerId),
+            PhoneControlToolRegistry.byName.getValue("run_command").providerIds,
+        )
+        val fileRoute = fixture.routes.first { it.capability == "file_resource_access" }
+        assertEquals(
+            listOf(
+                "android_app_api",
+                "sgt_adb_bridge",
+                "shizuku_shell",
+                "root_bridge",
+                "privileged_system",
+            ),
+            fileRoute.providerIds,
         )
         val selection = fixture.root.getValue("providerSelection").jsonObject
         assertEquals(
@@ -318,6 +374,29 @@ class PhoneControlAuthorityMatrixTest {
         )
         assertTrue(
             visual.getValue("successfulFrameClearsCaptureFailure").jsonPrimitive.boolean,
+        )
+        assertEquals(
+            1L,
+            visual.getValue("ambientSemanticCaptureAttempts").jsonPrimitive.long,
+        )
+        assertEquals(
+            "immediate_projection_only_without_coordinate_lease",
+            visual.getValue("ambientSemanticFailurePolicy").jsonPrimitive.content,
+        )
+        assertEquals(
+            listOf(
+                "capability_unavailable",
+                "stale_frame",
+                "surface_unavailable",
+                "surface_unstable",
+            ),
+            visual.getValue("ambientSemanticFailureCodes").jsonArray.map {
+                it.jsonPrimitive.content
+            },
+        )
+        assertEquals(
+            "bounded_retry_then_typed_failure",
+            visual.getValue("explicitVisualToolStalePolicy").jsonPrimitive.content,
         )
         val gesture = fixture.root.getValue("surfaceSemantics")
             .jsonObject
@@ -484,54 +563,5 @@ class PhoneControlAuthorityMatrixTest {
         assertNull(EffectCertainty.MAY_HAVE_OCCURRED.executed)
         assertFalse(EffectCertainty.PROVEN_NO_EFFECT.effectVerified)
         assertTrue(EffectCertainty.VERIFIED.effectVerified)
-    }
-}
-
-internal data class PhoneControlAuthorityFixtureData(
-    val root: JsonObject,
-    val capabilityStates: List<String>,
-    val providers: List<ProviderDefinition>,
-    val routes: List<CapabilityRoute>,
-)
-
-internal object PhoneControlAuthorityFixture {
-    private const val FIXTURE_PATH = "parity-fixtures/phone-control/authority-matrix.json"
-
-    fun load(): PhoneControlAuthorityFixtureData {
-        val root = Json.parseToJsonElement(File(repoRoot(), FIXTURE_PATH).readText()).jsonObject
-        val providers = root.getValue("providers").jsonArray.map { element ->
-            val provider = element.jsonObject
-            ProviderDefinition(
-                id = provider.getValue("id").jsonPrimitive.content,
-                authority = provider.getValue("authority").jsonPrimitive.content,
-                optional = provider.getValue("optional").jsonPrimitive.boolean,
-            )
-        }
-        val routes = root.getValue("routes").jsonArray.map { element ->
-            val route = element.jsonObject
-            CapabilityRoute(
-                capability = route.getValue("capability").jsonPrimitive.content,
-                providerIds = route.getValue("providers").jsonArray.map {
-                    it.jsonPrimitive.content
-                },
-            )
-        }
-        return PhoneControlAuthorityFixtureData(
-            root = root,
-            capabilityStates = root.getValue("capabilityStates").jsonArray.map {
-                it.jsonPrimitive.content
-            },
-            providers = providers,
-            routes = routes,
-        )
-    }
-
-    private fun repoRoot(): File {
-        val workingDirectory = requireNotNull(System.getProperty("user.dir"))
-        return generateSequence(File(workingDirectory).absoluteFile) { current ->
-            current.parentFile ?: return@generateSequence null
-        }.firstOrNull { root ->
-            File(root, FIXTURE_PATH).exists()
-        } ?: error("Could not locate $FIXTURE_PATH from $workingDirectory")
     }
 }

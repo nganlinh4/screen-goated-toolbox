@@ -75,6 +75,28 @@ class CommandToolHandlersTest {
     }
 
     @Test
+    fun selectedProviderColdReconnectIsAwaitedBeforeAvailabilityIsDecided() = runTest {
+        val backend = FakeCommandBackend(
+            shizuku = CommandProviderAvailability(
+                CapabilityState.DEGRADED,
+                "Reconnect is in progress.",
+            ),
+            root = CommandProviderAvailability(CapabilityState.UNAVAILABLE),
+            awaitedShizuku = CommandProviderAvailability(CapabilityState.READY),
+        )
+
+        val execution = handleRunCommand(
+            JOB,
+            buildJsonObject { put("program", "/system/bin/id") },
+            backend,
+        )
+
+        assertEquals(listOf(SHIZUKU_PROVIDER, ROOT_PROVIDER), backend.awaits)
+        assertEquals(SHIZUKU_PROVIDER, backend.calls.single().providerId)
+        assertEquals("ok", execution.response.stringValue("code"))
+    }
+
+    @Test
     fun unavailableAuthoritiesKeepToolNameAndExposeBothAttempts() = runTest {
         val backend = FakeCommandBackend(
             shizuku = CommandProviderAvailability(
@@ -202,14 +224,27 @@ class CommandToolHandlersTest {
         private val root: CommandProviderAvailability,
         private val shizukuResult: CommandProviderExecution = processReceipt(0),
         private val rootResult: CommandProviderExecution = processReceipt(0),
+        private val awaitedShizuku: CommandProviderAvailability? = null,
     ) : CommandToolBackend {
         override val providerIds = listOf(SHIZUKU_PROVIDER, ROOT_PROVIDER)
         val probes = mutableListOf<String>()
+        val awaits = mutableListOf<String>()
         val calls = mutableListOf<CommandCall>()
 
         override fun probe(providerId: String): CommandProviderAvailability {
             probes += providerId
             return if (providerId == SHIZUKU_PROVIDER) shizuku else root
+        }
+
+        override suspend fun awaitAvailability(
+            providerId: String,
+        ): CommandProviderAvailability {
+            awaits += providerId
+            return if (providerId == SHIZUKU_PROVIDER) {
+                awaitedShizuku ?: shizuku
+            } else {
+                root
+            }
         }
 
         override suspend fun execute(

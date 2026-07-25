@@ -12,6 +12,7 @@ import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchStore
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
 import dev.screengoated.toolbox.mobile.preset.PresetPersistence
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
+import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.preset.TextApiClient
 import dev.screengoated.toolbox.mobile.preset.VisionApiClient
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
@@ -114,6 +115,17 @@ class AppContainer(
         toastBus = toastBus,
         historyRecorder = HistoryBackedPresetHistoryRecorder(historyRepository),
     )
+
+    internal fun currentPresetApiKeys() = ApiKeys(
+        geminiKey = repository.currentApiKey(),
+        cerebrasKey = repository.currentCerebrasApiKey(),
+        groqKey = repository.currentGroqApiKey(),
+        openRouterKey = repository.currentOpenRouterApiKey(),
+        ollamaBaseUrl = repository.currentOllamaUrl(),
+    )
+
+    internal fun currentPresetRuntimeSettings(): PresetRuntimeSettings =
+        settingsStore.loadPresetRuntimeSettings()
 
     val geminiLiveSocketClient = GeminiLiveSocketClient(httpClient)
     val geminiS2sClient = GeminiS2sClient(appContext, httpClient)

@@ -4,7 +4,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -13,16 +12,20 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
-import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProviderRegistry
-import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointToken
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorization
+import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProviderRegistry
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlStructuralEditAuthorization
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayController
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayExclusion
 import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProjectionGrant
 import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProjectionProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProjectionStartResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorGroundingFrameStore
+import dev.screengoated.toolbox.mobile.phonecontrol.projection.PROJECTION_DATA_EXTRA
+import dev.screengoated.toolbox.mobile.phonecontrol.projection.PROJECTION_RESULT_CODE_EXTRA
+import dev.screengoated.toolbox.mobile.phonecontrol.projection.phoneControlProjectionGrant
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.browser.PhoneControlBrowserLifecycle
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntime
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntimeCode
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntimeObserver
@@ -37,35 +40,18 @@ import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerSelectio
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.phoneControlPowerSelectionRoute
 import dev.screengoated.toolbox.mobile.service.tryStartForegroundService
 
-internal data class PhoneControlServiceState(
-    val running: Boolean,
-    val phase: PhoneControlRuntimePhase,
-    val code: PhoneControlRuntimeCode,
-    val userMessage: String,
-    val inputCaption: String = "",
-    val outputCaption: String = "",
-    val listeningLevel: Float = 0f,
-    val orbStateLabel: String = GeneratedPhoneControlContract.ORB_STATE_IDLE,
-    val orbIconOverride: String? = null,
-    val authorityGuidance: String = "",
-)
-
-internal fun interface PhoneControlOverlayStateSink {
-    fun onState(state: PhoneControlServiceState)
-}
 class PhoneControlService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var overlayController: PhoneControlOverlayController
     private lateinit var sessionNotification: PhoneControlSessionNotification
     private lateinit var authoritySetup: PhoneControlAuthoritySetupController
     private lateinit var protectedSetup: PhoneControlProtectedSetupCoordinator
+    private val protectedCheckpoint = PhoneControlProtectedCheckpointController()
     private var runtime: PhoneControlRuntime? = null
     private var preserveFailureOnDestroy = false
     private var projectionActive = false
     private var stopReason = "system_destroy"
     private var loggedRuntimeState: Triple<Boolean, PhoneControlRuntimePhase, PhoneControlRuntimeCode>? = null
-    private var protectedCheckpoint: PhoneControlProtectedCheckpointToken? = null
-
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -79,7 +65,11 @@ class PhoneControlService : Service() {
             },
             enterProtectedCheckpoint = ::enterProtectedCheckpoint,
         )
-        protectedSetup = PhoneControlProtectedSetupCoordinator(this)
+        protectedSetup = PhoneControlProtectedSetupCoordinator(
+            this,
+            authoritySetup::replaceGuidance,
+            ::restoreRetainedProjection,
+        )
         overlayController = PhoneControlOverlayController(
             context = this,
             onDismiss = { stopRequested(source = "orb_dismiss") },
@@ -126,9 +116,9 @@ class PhoneControlService : Service() {
         Log.i(TAG, "service_destroyed reason=$stopReason")
         runtime?.stop()
         runtime = null
+        PhoneControlBrowserLifecycle.close()
         releaseProjection()
-        protectedCheckpoint?.let(PhoneControlProtectedCheckpointRegistry::end)
-        protectedCheckpoint = null
+        protectedCheckpoint.close()
         protectedSetup.close()
         if (!preserveFailureOnDestroy) publish(stoppedState())
         PhoneControlOverlayExclusion.unregister(overlayController)
@@ -155,13 +145,15 @@ class PhoneControlService : Service() {
                         running = false,
                         phase = PhoneControlRuntimePhase.ERROR,
                         code = PhoneControlRuntimeCode.API_KEY_REQUIRED,
-                        userMessage = getString(R.string.phone_control_status_api_key_required),
+                        userMessage = phoneControlString(R.string.phone_control_status_api_key_required),
                     ),
                 )
                 stopSelf()
                 return
             }
             lateinit var candidate: PhoneControlRuntime
+            val structuralAuthorization = PhoneControlStructuralEditAuthorization(this)
+            val resourceAuthorization = PhoneControlResourceAuthorization(this)
             candidate = PhoneControlRuntime(
                 context = this,
                 httpClient = container.httpClient,
@@ -171,7 +163,11 @@ class PhoneControlService : Service() {
                 contractAssets = assets,
                 capabilityContext = providerEvidence.modelContext(),
                 memoryRepository = container.phoneControlMemoryRepository,
-                dispatchBoundary = PhoneControlToolDispatcher(this),
+                dispatchBoundary = PhoneControlToolDispatcher(
+                    this,
+                    structuralAuthorization,
+                    resourceAuthorization,
+                ),
                 observer = PhoneControlRuntimeObserver { snapshot ->
                     mainHandler.post {
                         if (runtime === candidate) publishRuntimeSnapshot(snapshot)
@@ -182,6 +178,10 @@ class PhoneControlService : Service() {
                         authoritySetup.onUserInterfaceGoalFinished(completion)
                     }
                 },
+                additionalTurnRecorders = listOf(
+                    structuralAuthorization,
+                    resourceAuthorization,
+                ),
             )
             runtime = candidate
             if (!candidate.start()) {
@@ -201,7 +201,7 @@ class PhoneControlService : Service() {
                     running = false,
                     phase = PhoneControlRuntimePhase.ERROR,
                     code = PhoneControlRuntimeCode.CONFIGURATION_FAILED,
-                    userMessage = getString(R.string.phone_control_status_configuration_failed),
+                    userMessage = phoneControlString(R.string.phone_control_status_configuration_failed),
                 ),
             )
             stopSelf()
@@ -209,7 +209,7 @@ class PhoneControlService : Service() {
     }
 
     private fun startWithProjection(intent: Intent?) {
-        val grant = intent?.projectionGrant()
+        val grant = intent?.phoneControlProjectionGrant()
         if (grant == null) {
             projectionFailure("projection_grant_missing")
             return
@@ -232,7 +232,7 @@ class PhoneControlService : Service() {
                         running = true,
                         phase = PhoneControlRuntimePhase.STARTING,
                         code = PhoneControlRuntimeCode.STARTING,
-                        userMessage = getString(R.string.phone_control_status_starting),
+                        userMessage = phoneControlString(R.string.phone_control_status_starting),
                     ),
                 )
                 startRuntime()
@@ -254,7 +254,7 @@ class PhoneControlService : Service() {
                 running = false,
                 phase = PhoneControlRuntimePhase.ERROR,
                 code = PhoneControlRuntimeCode.SCREEN_SHARE_REQUIRED,
-                userMessage = getString(R.string.phone_control_status_projection_required),
+                userMessage = phoneControlString(R.string.phone_control_status_projection_required),
             ),
         )
         stopSelf()
@@ -269,7 +269,7 @@ class PhoneControlService : Service() {
                 running = false,
                 phase = PhoneControlRuntimePhase.ERROR,
                 code = PhoneControlRuntimeCode.SCREEN_SHARE_REQUIRED,
-                userMessage = getString(R.string.phone_control_status_projection_required),
+                userMessage = phoneControlString(R.string.phone_control_status_projection_required),
             ),
         )
         stopSelf()
@@ -282,30 +282,25 @@ class PhoneControlService : Service() {
 
     private fun enterProtectedCheckpoint(providerId: String): Boolean {
         val candidate = runtime ?: return false
-        if (!projectionActive || protectedCheckpoint != null) return false
-        val token = runCatching(PhoneControlProtectedCheckpointRegistry::begin)
-            .getOrElse {
-                Log.w(TAG, "protected_checkpoint_enter accepted=false reason=already_active")
-                return false
-            }
-        protectedCheckpoint = token
-        candidate.suspendVisualEvidence()
-        PhoneControlAccessibilityProvider.invalidate("protected_checkpoint")
-        UiDetectorGroundingFrameStore.clear()
-        releaseProjection()
-        Log.i(
-            TAG,
-            "protected_checkpoint_enter accepted=true provider=$providerId " +
-                "runtime_alive=true visual_evidence=false",
-        )
+        val policy = protectedSetup.capturePolicy(providerId)
+        if (!projectionActive || protectedCheckpoint.active || policy == null) {
+            Log.w(TAG, "protected_checkpoint_enter accepted=false reason=state_or_adapter")
+            return false
+        }
+        val token = protectedCheckpoint.begin(
+            providerId,
+            policy,
+            candidate,
+            ::releaseProjection,
+        ) ?: return false
         protectedSetup.start(providerId, token)
         return true
     }
 
     private fun attachProjection(intent: Intent) {
         val candidate = runtime
-        val token = protectedCheckpoint
-        val grant = intent.projectionGrant()
+        val token = protectedCheckpoint.activeToken
+        val grant = intent.phoneControlProjectionGrant()
         if (candidate == null || token == null || grant == null) {
             Log.w(
                 TAG,
@@ -325,19 +320,19 @@ class PhoneControlService : Service() {
         ) {
             is PhoneControlProjectionStartResult.Ready -> {
                 projectionActive = true
-                if (!PhoneControlProtectedCheckpointRegistry.end(token)) {
+                if (!protectedCheckpoint.attachFresh(token, candidate)) {
                     releaseProjection()
                     Log.e(TAG, "projection_attach accepted=false reason=checkpoint_owner_lost")
                     return
                 }
-                protectedCheckpoint = null
-                candidate.resumeVisualEvidence()
                 Log.i(
                     TAG,
                     "projection_attach accepted=true runtime_reused=true " +
                         "visual_evidence=true",
                 )
-                protectedSetup.onProjectionAttached(authoritySetup, ::resumeSelectedAuthoritySetup)
+                protectedSetup.onProjectionAttached(authoritySetup) {
+                    resumeSelectedAuthoritySetup()
+                }
             }
             is PhoneControlProjectionStartResult.Failure -> {
                 Log.w(TAG, "projection_attach accepted=false code=${started.code}")
@@ -347,14 +342,20 @@ class PhoneControlService : Service() {
 
     private fun selectPowerChoice(choice: PhoneControlPowerChoice) {
         authoritySetup.onPowerChoiceSelected(choice)
-        val route = phoneControlPowerSelectionRoute(choice, protectedCheckpoint != null)
-        val intent = when (route) {
-            PhoneControlPowerSelectionRoute.RESUME_CAPTURE -> {
-                protectedSetup.cancel(
-                    resumeSelectedSetupAfterCapture = choice.elevatedProviderId != null,
-                )
-                PhoneControlActivity.resumeCaptureIntent(this)
+        val freshProjectionRequired = protectedCheckpoint.freshProjectionRequired
+        if (protectedCheckpoint.active) {
+            protectedSetup.cancel(
+                resumeSelectedSetupAfterCapture =
+                    freshProjectionRequired && choice.elevatedProviderId != null,
+            )
+            if (!freshProjectionRequired) {
+                runtime?.let(protectedCheckpoint::cancelRetained)
             }
+        }
+        val route = phoneControlPowerSelectionRoute(choice, freshProjectionRequired)
+        val intent = when (route) {
+            PhoneControlPowerSelectionRoute.RESUME_CAPTURE ->
+                PhoneControlActivity.resumeCaptureIntent(this)
             PhoneControlPowerSelectionRoute.SETUP ->
                 PhoneControlActivity.optionalPowerIntent(this, choice)
             PhoneControlPowerSelectionRoute.NONE -> null
@@ -363,8 +364,26 @@ class PhoneControlService : Service() {
         if (intent != null) runCatching { startActivity(intent) }
     }
 
-    private fun resumeSelectedAuthoritySetup() {
-        authoritySetup.resumeSelectedAuthoritySetup { choice ->
+    private fun restoreRetainedProjection(
+        providerId: String,
+        token: PhoneControlProtectedCheckpointToken,
+        resumeSelectedSetup: Boolean,
+    ) {
+        val candidate = runtime ?: return
+        if (!projectionActive || !protectedCheckpoint.restoreRetained(token, candidate)) {
+            Log.e(TAG, "protected_checkpoint_exit accepted=false reason=state_or_owner")
+            return
+        }
+        if (!resumeSelectedSetup ||
+            PhoneControlPowerPreferences.current(this)?.elevatedProviderId != providerId
+        ) {
+            return
+        }
+        authoritySetup.clear(reason = "retained_projection_restored")
+        resumeSelectedAuthoritySetup(announceReady = true)
+    }
+    private fun resumeSelectedAuthoritySetup(announceReady: Boolean = false) {
+        authoritySetup.resumeSelectedAuthoritySetup(announceReady) { choice ->
             mainHandler.postDelayed({
                 if (runtime == null ||
                     PhoneControlPowerPreferences.current(this) != choice
@@ -447,10 +466,10 @@ class PhoneControlService : Service() {
     }
 
     private fun enterForeground() {
-        sessionNotification.enterForeground(getString(R.string.phone_control_status_starting))
+        sessionNotification.enterForeground(phoneControlString(R.string.phone_control_status_starting))
     }
 
-    private fun localizedRuntimeMessage(code: PhoneControlRuntimeCode): String = getString(
+    private fun localizedRuntimeMessage(code: PhoneControlRuntimeCode): String = phoneControlString(
         when (code) {
             PhoneControlRuntimeCode.STOPPED -> R.string.phone_control_status_stopped
             PhoneControlRuntimeCode.STARTING -> R.string.phone_control_status_starting
@@ -481,7 +500,7 @@ class PhoneControlService : Service() {
         running = false,
         phase = PhoneControlRuntimePhase.STOPPED,
         code = PhoneControlRuntimeCode.STOPPED,
-        userMessage = getString(R.string.phone_control_status_stopped),
+        userMessage = phoneControlString(R.string.phone_control_status_stopped),
     )
 
     companion object {
@@ -496,19 +515,7 @@ class PhoneControlService : Service() {
         private const val ACTION_AUTHORITY_SETUP_CLEAR =
             "dev.screengoated.toolbox.mobile.phonecontrol.AUTHORITY_SETUP_CLEAR"
         private const val EXTRA_STOP_SOURCE = "dev.screengoated.toolbox.mobile.phonecontrol.STOP_SOURCE"
-        private const val EXTRA_PROJECTION_RESULT_CODE =
-            "dev.screengoated.toolbox.mobile.phonecontrol.PROJECTION_RESULT_CODE"
-        private const val EXTRA_PROJECTION_DATA =
-            "dev.screengoated.toolbox.mobile.phonecontrol.PROJECTION_DATA"
-
-        private val mutableState = mutableStateOf(
-            PhoneControlServiceState(
-                running = false,
-                phase = PhoneControlRuntimePhase.STOPPED,
-                code = PhoneControlRuntimeCode.STOPPED,
-                userMessage = "",
-            ),
-        )
+        private val mutableState = mutableStateOf(stoppedPhoneControlServiceState())
         internal val state: State<PhoneControlServiceState> = mutableState
 
         internal fun start(
@@ -518,8 +525,8 @@ class PhoneControlService : Service() {
             context,
             Intent(context, PhoneControlService::class.java)
                 .setAction(ACTION_START)
-                .putExtra(EXTRA_PROJECTION_RESULT_CODE, grant.resultCode)
-                .putExtra(EXTRA_PROJECTION_DATA, Intent(grant.data)),
+                .putExtra(PROJECTION_RESULT_CODE_EXTRA, grant.resultCode)
+                .putExtra(PROJECTION_DATA_EXTRA, Intent(grant.data)),
             "PhoneControlService",
         )
 
@@ -530,8 +537,8 @@ class PhoneControlService : Service() {
             context.startService(
                 Intent(context, PhoneControlService::class.java)
                     .setAction(ACTION_ATTACH_PROJECTION)
-                    .putExtra(EXTRA_PROJECTION_RESULT_CODE, grant.resultCode)
-                    .putExtra(EXTRA_PROJECTION_DATA, Intent(grant.data)),
+                    .putExtra(PROJECTION_RESULT_CODE_EXTRA, grant.resultCode)
+                    .putExtra(PROJECTION_DATA_EXTRA, Intent(grant.data)),
             )
             true
         }.getOrDefault(false)
@@ -583,18 +590,5 @@ class PhoneControlService : Service() {
             )
         }
 
-        private fun Intent.projectionGrant(): PhoneControlProjectionGrant? {
-            val resultCode = getIntExtra(EXTRA_PROJECTION_RESULT_CODE, Int.MIN_VALUE)
-            val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                getParcelableExtra(EXTRA_PROJECTION_DATA, Intent::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                getParcelableExtra(EXTRA_PROJECTION_DATA)
-            }
-            return PhoneControlProjectionGrant.fromActivityResult(resultCode, data)
-        }
     }
 }
-
-private fun PhoneControlServiceState.notificationMessage(): String =
-    authorityGuidance.ifBlank { userMessage }

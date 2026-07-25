@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider
 
 import android.app.ActivityManager
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -49,13 +50,71 @@ internal class AndroidAppProvider(
     }
 
     fun launchApp(name: String): AndroidProviderResult {
+        return when (val resolved = resolveExactLaunchablePackage(name)) {
+            is AndroidAppPackageResolution.Failure -> AndroidProviderResult.Failure(
+                resolved.code,
+                resolved.message,
+            )
+            is AndroidAppPackageResolution.Resolved -> {
+                val intent = context.packageManager.getLaunchIntentForPackage(resolved.packageName)
+                    ?: return AndroidProviderResult.Failure(
+                        "app_not_launchable",
+                        "The matched app has no launch intent.",
+                    )
+                launchIntent(intent, resolved.packageName)
+            }
+        }
+    }
+
+    fun openResource(
+        uri: Uri,
+        mimeType: String,
+        resourceKind: String,
+        packageName: String? = null,
+    ): AndroidProviderResult {
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, mimeType)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        packageName?.let(intent::setPackage)
+        intent.clipData = ClipData.newRawUri("SGT Phone Control resource", uri)
+        return try {
+            context.startActivity(intent)
+            AndroidProviderResult.Success(
+                buildJsonObject {
+                    put("resource_kind", resourceKind)
+                    put("mime_type", mimeType)
+                },
+                effectMayHaveOccurred = true,
+            )
+        } catch (_: ActivityNotFoundException) {
+            AndroidProviderResult.Failure(
+                "no_handler",
+                "No installed app can open this resource type.",
+            )
+        } catch (_: SecurityException) {
+            AndroidProviderResult.Failure(
+                "resource_permission_denied",
+                "Android did not grant this app access to the resource.",
+            )
+        } catch (_: Throwable) {
+            AndroidProviderResult.Failure(
+                "launch_failed",
+                "Android could not open the resource.",
+            )
+        }
+    }
+
+    fun resolveExactLaunchablePackage(name: String): AndroidAppPackageResolution {
         val requested = name.trim()
         if (requested.isEmpty()) {
-            return AndroidProviderResult.Failure("invalid_request", "App name must not be empty.")
+            return AndroidAppPackageResolution.Failure(
+                "invalid_request",
+                "App name must not be empty.",
+            )
         }
         val packageManager = context.packageManager
-        packageManager.getLaunchIntentForPackage(requested)?.let { exact ->
-            return launchIntent(exact, requested)
+        packageManager.getLaunchIntentForPackage(requested)?.let {
+            return AndroidAppPackageResolution.Resolved(requested)
         }
         val launcherQuery = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val matches = packageManager.queryIntentActivities(launcherQuery, 0).filter { info ->
@@ -64,14 +123,12 @@ internal class AndroidAppProvider(
                 info.activityInfo.packageName.equals(requested, ignoreCase = true)
         }
         return when (matches.size) {
-            0 -> AndroidProviderResult.Failure("app_not_found", "No launchable app exactly matches the request.")
-            1 -> {
-                val packageName = matches.single().activityInfo.packageName
-                val intent = packageManager.getLaunchIntentForPackage(packageName)
-                    ?: return AndroidProviderResult.Failure("app_not_launchable", "The matched app has no launch intent.")
-                launchIntent(intent, packageName)
-            }
-            else -> AndroidProviderResult.Failure(
+            0 -> AndroidAppPackageResolution.Failure(
+                "app_not_found",
+                "No launchable app exactly matches the request.",
+            )
+            1 -> AndroidAppPackageResolution.Resolved(matches.single().activityInfo.packageName)
+            else -> AndroidAppPackageResolution.Failure(
                 "ambiguous_app",
                 "More than one launchable app exactly matches the request.",
             )
@@ -113,7 +170,7 @@ internal class AndroidAppProvider(
     }
 
     private fun capabilityQuery(query: String): AndroidProviderResult {
-        if (query !in setOf("list", "list_basic")) {
+        if (query != "list") {
             return AndroidProviderResult.Failure("unsupported_query", "Unsupported capabilities query.")
         }
         return AndroidProviderResult.Success(
@@ -127,7 +184,7 @@ internal class AndroidAppProvider(
     }
 
     private fun audioQuery(query: String): AndroidProviderResult {
-        if (query !in setOf("active_sessions", "volumes", "list")) {
+        if (query != "active_sessions") {
             return AndroidProviderResult.Failure("unsupported_query", "Unsupported audio query.")
         }
         val manager = context.getSystemService(AudioManager::class.java)
@@ -179,7 +236,7 @@ internal class AndroidAppProvider(
     }
 
     private fun processQuery(query: String): AndroidProviderResult {
-        if (query !in setOf("list", "list_basic")) {
+        if (query != "list_basic") {
             return AndroidProviderResult.Failure("unsupported_query", "Unsupported process query.")
         }
         val manager = context.getSystemService(ActivityManager::class.java)
@@ -201,7 +258,7 @@ internal class AndroidAppProvider(
     }
 
     private fun storageQuery(query: String): AndroidProviderResult {
-        if (query !in setOf("list", "volumes")) {
+        if (query != "volumes") {
             return AndroidProviderResult.Failure("unsupported_query", "Unsupported storage query.")
         }
         val roots = listOfNotNull(context.filesDir, context.cacheDir, context.getExternalFilesDir(null))
@@ -230,6 +287,11 @@ internal class AndroidAppProvider(
 
 }
 
+internal sealed interface AndroidAppPackageResolution {
+    data class Resolved(val packageName: String) : AndroidAppPackageResolution
+    data class Failure(val code: String, val message: String) : AndroidAppPackageResolution
+}
+
 internal sealed interface AndroidProviderResult {
     data class Success(
         val data: JsonObject,
@@ -242,5 +304,6 @@ internal sealed interface AndroidProviderResult {
         val message: String,
         val retryable: Boolean = false,
         val requiredUserStep: String? = null,
+        val data: JsonObject = JsonObject(emptyMap()),
     ) : AndroidProviderResult
 }

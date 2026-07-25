@@ -243,7 +243,12 @@ private fun AccessibilityNodeInfo.hasCheckableDescendant(): Boolean {
     while (pending.isNotEmpty() && visited++ < MAX_DESCENDANT_NODES) {
         val node = pending.removeFirst()
         if (node.isCheckable) return true
-        repeat(node.childCount) { index -> node.getChild(index)?.let(pending::addLast) }
+        val childCount = node.readChildCountSafely() ?: return true
+        repeat(childCount) { index ->
+            val child = node.readChildSafely(index)
+            if (child.failed) return true
+            child.node?.let(pending::addLast)
+        }
     }
     return pending.isNotEmpty()
 }

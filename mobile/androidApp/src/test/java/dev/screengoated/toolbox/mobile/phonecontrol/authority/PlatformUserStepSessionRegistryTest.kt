@@ -22,20 +22,27 @@ class PlatformUserStepSessionRegistryTest {
     @Test
     fun multipleSessionsRemainActiveUntilEveryOwnerEnds() {
         val baseline = PlatformUserStepSessionRegistry.snapshot()
-        val first = PlatformUserStepSessionRegistry.begin()
-        val second = PlatformUserStepSessionRegistry.begin()
+        val first = PlatformUserStepSessionRegistry.begin(setOf("fixture.first"))
+        val second = PlatformUserStepSessionRegistry.begin(setOf("fixture.second"))
         try {
             val active = PlatformUserStepSessionRegistry.snapshot()
             assertTrue(active.active)
             assertEquals(baseline.activeCount + 2, active.activeCount)
+            assertTrue("fixture.first" in active.expectedPackageNames)
+            assertTrue("fixture.second" in active.expectedPackageNames)
 
             assertTrue(PlatformUserStepSessionRegistry.end(first))
             assertTrue(PlatformUserStepSessionRegistry.hasActiveSession())
             assertFalse(PlatformUserStepSessionRegistry.end(first))
+            assertFalse(
+                "fixture.first" in PlatformUserStepSessionRegistry.snapshot().expectedPackageNames,
+            )
         } finally {
             PlatformUserStepSessionRegistry.end(first)
             PlatformUserStepSessionRegistry.end(second)
         }
-        assertEquals(baseline.activeCount, PlatformUserStepSessionRegistry.snapshot().activeCount)
+        val restored = PlatformUserStepSessionRegistry.snapshot()
+        assertEquals(baseline.activeCount, restored.activeCount)
+        assertEquals(baseline.expectedPackageNames, restored.expectedPackageNames)
     }
 }

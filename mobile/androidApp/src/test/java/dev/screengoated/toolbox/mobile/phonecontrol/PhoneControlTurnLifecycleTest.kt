@@ -26,8 +26,9 @@ import org.junit.Test
 class PhoneControlTurnLifecycleTest {
     @Test
     fun `turn lifecycle matches every shared fixture case and invariant`() {
+        val fixtureRoot = phoneControlRepoRoot(FIXTURE_PATH)
         val fixture = Json.parseToJsonElement(
-            File(repoRoot(), FIXTURE_PATH).readText(),
+            File(fixtureRoot, FIXTURE_PATH).readText(),
         ).jsonObject
 
         assertEquals(7L, fixture.requiredLong("schemaVersion"))
@@ -39,7 +40,7 @@ class PhoneControlTurnLifecycleTest {
             },
         )
         assertPhoneControlFixturePolicy(fixture.getValue("invariants").jsonObject)
-        assertTrue(File(repoRoot(), fixture.requiredString("sharedSocketFixture")).isFile)
+        assertTrue(File(fixtureRoot, fixture.requiredString("sharedSocketFixture")).isFile)
 
         fixture.getValue("cases").jsonArray.forEach { caseElement ->
             replayCase(caseElement.jsonObject)
@@ -562,14 +563,6 @@ class PhoneControlTurnLifecycleTest {
 
     private inline fun <reified T : PhoneControlTurnEffect> ReducedStep.effects(): List<T> {
         return transition?.effects?.filterIsInstance<T>().orEmpty()
-    }
-
-    private fun repoRoot(): File {
-        val workingDirectory = requireNotNull(System.getProperty("user.dir"))
-        return generateSequence(File(workingDirectory).absoluteFile) { current ->
-            current.parentFile ?: return@generateSequence null
-        }.firstOrNull { root -> File(root, FIXTURE_PATH).isFile }
-            ?: error("Could not locate $FIXTURE_PATH from $workingDirectory")
     }
 
     private data class ReducedStep(

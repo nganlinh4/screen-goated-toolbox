@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility
 
+import android.view.accessibility.AccessibilityNodeInfo
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,6 +9,70 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AccessibilityTraversalTest {
+    @Test
+    fun ubiquitousSelectActionDoesNotSplitLabelFromRealActivationOwner() {
+        assertFalse(
+            accessibilityActionsSupportSemanticInheritance(
+                setOf(AccessibilityNodeInfo.ACTION_SELECT),
+            ),
+        )
+        assertTrue(
+            accessibilityActionsSupportSemanticInheritance(
+                setOf(
+                    AccessibilityNodeInfo.ACTION_SELECT,
+                    AccessibilityNodeInfo.ACTION_CLICK,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun splitActionOwnerInheritsBoundedLanguageNeutralDescendantSemantics() {
+        assertEquals(
+            "Primary action · Secondary context",
+            inheritedAccessibilityActionLabel(
+                labels = listOf(
+                    "  Primary   action ",
+                    "Secondary context",
+                    "Primary action",
+                ),
+                unsafeDescendant = false,
+                traversalComplete = true,
+            ),
+        )
+    }
+
+    @Test
+    fun splitActionOwnerNeverInheritsFromUnsafeOrIncompleteSubtrees() {
+        assertEquals(
+            null,
+            inheritedAccessibilityActionLabel(
+                labels = listOf("Safe sibling", "secret-canary"),
+                unsafeDescendant = true,
+                traversalComplete = true,
+            ),
+        )
+        assertEquals(
+            null,
+            inheritedAccessibilityActionLabel(
+                labels = listOf("Partial row"),
+                unsafeDescendant = false,
+                traversalComplete = false,
+            ),
+        )
+    }
+
+    @Test
+    fun inheritedActionSemanticsStayWithinTheModelTextBound() {
+        val inherited = inheritedAccessibilityActionLabel(
+            labels = listOf("x".repeat(500)),
+            unsafeDescendant = false,
+            traversalComplete = true,
+        )
+
+        assertEquals(320, requireNotNull(inherited).length)
+    }
+
     @Test
     fun api30AndLaterFlattenEveryDisplayUsingTheDisplayMapKey() {
         listOf(30, 36).forEach { apiLevel ->

@@ -10,6 +10,11 @@ internal sealed interface PhoneControlProtectedSetupResult {
     data class Failed(val code: String) : PhoneControlProtectedSetupResult
 }
 
+internal enum class PhoneControlProtectedCapturePolicy {
+    RETAIN_PROJECTION,
+    RELEASE_PROJECTION,
+}
+
 /**
  * Local-only adapter for a platform-owned setup checkpoint.
  *
@@ -17,7 +22,9 @@ internal sealed interface PhoneControlProtectedSetupResult {
  * owns the process checkpoint. They must not persist, log, caption, trace, or
  * return that secret.
  */
-internal fun interface PhoneControlProtectedSetupAdapter {
+internal interface PhoneControlProtectedSetupAdapter {
+    val capturePolicy: PhoneControlProtectedCapturePolicy
+
     suspend fun complete(
         context: Context,
         token: PhoneControlProtectedCheckpointToken,

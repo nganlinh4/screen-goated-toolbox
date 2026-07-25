@@ -4,4 +4,6 @@ interface IPhoneControlShellService {
     void destroy() = 16777114;
     String runCommand(String operationId, String program, in String[] args, String cwd, long timeoutMs) = 1;
     String cancelCommand(String operationId) = 2;
+    String openBrowserTunnel() = 3;
+    String closeBrowserTunnel(String leaseId) = 4;
 }

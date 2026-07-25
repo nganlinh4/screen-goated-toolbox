@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 13,
+  "schemaVersion": 21,
   "feature": "phone-control-activation",
   "requiredOrder": [
     "gemini_api",
@@ -18,17 +18,58 @@
     "languageContract": {
       "explicitUiLocales": ["default", "ko", "vi"],
       "otherUiLocales": "android_default_resource_fallback",
+      "uiLocaleSource": "in_app_language_setting",
       "liveLanguage": "provider_detected_without_app_locale_override",
       "transcription": ["input", "output"],
       "languageSpecificRouting": false
     },
+    "devicePortability": {
+      "identityBasedBranching": false,
+      "emulatorSpecificRuntimePath": false,
+      "geometrySource": "live_display_window_insets_density_and_rotation",
+      "capabilitySource": "runtime_probe_and_android_api_contract",
+      "unsupportedOutcome": "typed_capability_result"
+    },
     "oneExternalUserStepAtATime": true,
     "reprobeAfterReturn": true,
+    "internalSetupAutomation": {
+      "catalog": "normal_full_catalog",
+      "presentation": "silent",
+      "ownershipBeforeSend": true,
+      "singleFlight": {
+        "scope": "selected_provider",
+        "sameProviderReentry": "coalesce_guidance_and_strengthen_handoff_on_original_goal",
+        "differentProvider": "cannot_inherit_active_goal",
+        "completionOwner": "original_goal_id"
+      },
+      "assistantAudio": "discard",
+      "assistantCaption": "discard",
+      "orbPresentation": "preserve_setup_owned_caption_state_and_icon",
+      "memory": "exclude_entire_internal_turn",
+      "completionFeedback": "localized_structural_state",
+      "userInterruption": "restore_normal_conversation_before_new_turn"
+    },
+    "setupFeedback": {
+      "toast": "localized_short_state_only_max_32_characters",
+      "orbCaption": "localized_compact_status",
+      "ongoingNotification": "localized_full_instruction",
+      "explicitUiLocales": ["default", "ko", "vi"],
+      "otherUiLocales": "android_default_resource_fallback",
+      "uiLocaleSource": "in_app_language_setting"
+    },
     "accessibilityReadiness": {
       "requiredEvidence": ["configured_service", "live_service_binding"],
       "configuredSettingAloneIsReady": false,
       "configuredButUnbound": "bounded_reconnect_wait_then_android_settings_user_step",
       "serviceBoundAfterSettingRemovalIsReady": false
+    },
+    "accessibilitySemantics": {
+      "splitLabelAndAction": "bounded_safe_descendant_labels_on_exact_action_owner",
+      "languageAndDeviceBranching": false,
+      "nestedActionOwner": "semantic_boundary",
+      "editableOrProtectedDescendant": "never_inherit",
+      "incompleteOrDeepSubtree": "never_inherit",
+      "dispatch": "revalidate_exact_published_action_owner"
     },
     "reconciliationWait": {
       "mutationGate": true,
@@ -45,29 +86,50 @@
       "denial": "stop_without_service",
       "protectedUserCheckpoint": {
         "agentNavigation": "complete_before_handoff",
-        "capture": "seal_visual_evidence_drain_then_release",
+        "capture": "seal_visual_evidence_then_apply_provider_capture_policy",
+        "capturePolicy": {
+          "sgt_adb_bridge": "retain_projection",
+          "shizuku_shell": "release_projection"
+        },
         "runtime": "keep_socket_microphone_audio_orb_and_conversation",
         "settleWhen": ["idle", "listening"],
-        "modelVisualEvidence": "blocked_until_fresh_projection_attached",
+        "modelVisualEvidence": "blocked_until_retained_projection_unsealed_or_fresh_projection_attached",
         "localSecretTransfer": "ephemeral_structural_provider_adapter_only",
         "modelSecretAccess": false,
         "secretPersistence": false,
         "relayFailure": "typed_user_step_without_false_success",
         "relayContinuation": {
-          "completed": "resume_selected_setup_after_fresh_projection",
+          "completed": "resume_selected_setup_after_visual_evidence_restored",
           "needsUserStep": "hold_selected_without_republishing_identical_goal",
           "failed": "hold_selected_without_republishing_identical_goal",
           "retry": "explicit_user_action_or_fresh_capability_evidence"
         },
         "guidance": "public_persistent_notification",
+        "guidanceLifecycle": {
+          "preCheckpoint": "replace_with_neutral_progress_before_adapter_wait",
+          "staleExternalProgress": "reject_while_checkpoint_active",
+          "awaitingProjection": "fresh_projection_required_only_after_release",
+          "providerReady": "clear_after_fresh_post_attach_probe"
+        },
+        "projectionPrompt": {
+          "launch": "automatic_coordinator_reentry",
+          "existingCoordinatorTask": "clear_coordinator_owned_external_surfaces_then_deliver_resume",
+          "missingCoordinatorTask": "create_resume_coordinator",
+          "backgroundLaunch": "explicit_immutable_internal_pending_intent_with_platform_bal_opt_in",
+          "staleExternalResult": "retire_when_coordinator_reentry_pending",
+          "launchDispatch": "exact_coordinator_token_ack_then_projection_launcher_dispatch",
+          "completionReceipt": "android_activity_result_then_fresh_projection_attach",
+          "fallback": "ongoing_notification_tap",
+          "processRestart": "discard_transient_checkpoint_then_normal_activation"
+        },
         "cancel": "explicit_notification_action",
         "cancelOutcome": {
           "authority": "standard",
           "adapter": "cancel",
           "runtime": "remain_live_and_visually_sealed",
-          "nextStep": "fresh_media_projection"
+          "nextStep": "unseal_retained_projection_or_request_fresh_projection"
         },
-        "resume": "attach_fresh_media_projection_to_existing_runtime",
+        "resume": "unseal_retained_projection_or_attach_fresh_projection_to_existing_runtime",
         "providerSetupWhileSealed": false,
         "unexpectedProjectionLoss": "stop_phone_control"
       }
@@ -78,7 +140,8 @@
       "mayOpenAppRow": true,
       "mayTogglePermission": false,
       "activePlatformSession": {
-        "fullScreenSetupSurface": "routine_navigation",
+        "resolvedHandlerFullScreenSurface": "os_owned_user_step",
+        "sameApplicationOutsideExactSession": "routine_navigation",
         "liveModalAboveApplication": "os_owned_user_step"
       },
       "returnAfterGrant": "back_only_while_resolved_settings_is_foreground",
@@ -103,8 +166,14 @@
         "surface": "compact_orb_card",
         "explanatoryParagraph": false,
         "recommendedNonRoot": "sgt_adb",
-        "recommendedMarker": "star_icon",
-        "forgetPairing": "compact_secondary_action_when_paired"
+        "selectedMarker": "purple_fill",
+        "recommendedMarker": "star_icon_without_selected_fill",
+        "forgetPairing": {
+          "visibility": "compact_secondary_action_when_paired",
+          "credentialOutcome": "delete_client_key_and_pairing_state",
+          "selectionOutcome": "standard",
+          "promptRefresh": "persisted_selection"
+        }
       },
       "persistBeforeSetup": true,
       "standard": [],
@@ -113,11 +182,18 @@
       "root": ["root_bridge"],
       "unselectedElevatedProviderState": "unavailable",
       "changingChoiceCancelsPendingSetup": true,
+      "verifiedReadyFeedback": {
+        "trigger": "fresh_provider_probe_ready_after_visual_evidence_restored",
+        "visual": "immediate_short_localized_orb_caption_and_toast",
+        "voice": "none",
+        "deduplication": "once_per_verified_ready_transition",
+        "completion": "clear_pending_setup_without_reopening_or_extra_model_turn"
+      },
       "changeDuringProtectedCheckpoint": {
         "oldAdapter": "cancel",
         "runtime": "remain_live_and_visually_sealed",
-        "nextStep": "fresh_media_projection",
-        "selectedSetup": "start_only_after_projection_attach",
+        "nextStep": "unseal_retained_projection_or_request_fresh_projection",
+        "selectedSetup": "start_only_after_visual_evidence_restored",
         "automationWhileToolsBlocked": false
       }
     },
@@ -126,13 +202,15 @@
       "durableFeedbackSurfaces": ["orb_caption", "ongoing_notification"],
       "guidancePresentation": {
         "orbCaption": "compact_non_obscuring_status",
-        "ongoingNotification": "full_persistent_instruction"
+        "ongoingNotification": "full_persistent_instruction",
+        "toast": "short_state_only"
       },
       "plannerInput": "structural_probe_state",
       "liveAutomation": {
         "trigger": "user_power_authority_selection",
         "turnBoundary": "one_bounded_goal_when_idle",
         "catalog": "normal_full_catalog",
+        "presentation": "silent_internal_turn",
         "navigation": "normal_semantic_and_vision_tools",
         "providerSpecificClickScript": false,
         "busyTurn": "remain_pending",
@@ -172,9 +250,10 @@
       "pairingCodeModelVisibility": false,
       "pairingCodePersistence": false,
       "androidOwnedEnablementAndTrust": "user_step",
-      "captureLifecycle": "shared_protected_checkpoint",
+      "captureLifecycle": "sealed_model_evidence_with_projection_retained",
       "cancelDuringPairing": "serialize_then_forget_abandoned_client_key_after_terminal_return",
       "pairingEstablishedBeforeConnect": "persist_pairing_then_bounded_reconnect_without_code_reentry",
+      "postPairingProjectionResume": "unseal_existing_projection_then_fresh_probe",
       "reconnect": "paired_client_key_and_persisted_adb_mdns_identity_family",
       "commandTransport": "bounded_exact_argv_authenticated_adb_stream",
       "lanCommandListener": false,

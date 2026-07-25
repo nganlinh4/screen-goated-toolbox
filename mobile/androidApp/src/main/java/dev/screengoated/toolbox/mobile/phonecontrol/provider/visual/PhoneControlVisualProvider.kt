@@ -45,7 +45,26 @@ internal object PhoneControlVisualProvider {
         ?.asAccessibilityGrid()
 
     suspend fun captureStreamingFrame(): VisualProviderResult<VisualFrame> =
-        captureMutex.withLock { captureLocked(clean = false, resetStaleZoom = true) }
+        captureMutex.withLock {
+            if (!PhoneControlAccessibilityProvider.isReady &&
+                PhoneControlProjectionProvider.isReady
+            ) {
+                latestGrid = null
+                return@withLock captureProjectionOnlyStreamingFrame()
+            }
+            val captured = captureOnce(clean = false, resetStaleZoom = true)
+            if (captured is VisualProviderResult.Failure &&
+                shouldUseProjectionOnlyAmbientFrame(
+                    failureCode = captured.code,
+                    projectionReady = PhoneControlProjectionProvider.isReady,
+                )
+            ) {
+                latestGrid = null
+                captureProjectionOnlyStreamingFrame()
+            } else {
+                captured
+            }
+        }
 
     suspend fun resetView(): VisualProviderResult<VisualFrame> = captureMutex.withLock {
         selection = ViewSelection.ActiveSurface
@@ -203,6 +222,7 @@ internal object PhoneControlVisualProvider {
                     viewKind = view.kind,
                     clean = clean,
                     grid = visualGrid,
+                    captureProvider = screenshot.captureProvider,
                 )
                 if (visualGrid != null &&
                     visualGrid.visualRevision == PhoneControlAccessibilityProvider.currentVisualRevision
@@ -307,6 +327,18 @@ internal fun shouldReuseVisualScreenshot(
 
 internal fun visualScreenshotReuseWindowMs(apiLevel: Int): Long =
     if (apiLevel == Build.VERSION_CODES.R) 1_000L else 333L
+
+internal fun shouldUseProjectionOnlyAmbientFrame(
+    failureCode: String,
+    projectionReady: Boolean,
+): Boolean = projectionReady && failureCode in AMBIENT_SEMANTIC_FAILURE_CODES
+
+private val AMBIENT_SEMANTIC_FAILURE_CODES = setOf(
+    "capability_unavailable",
+    "stale_frame",
+    "surface_unavailable",
+    "surface_unstable",
+)
 
 private sealed interface ViewSelection {
     data object ActiveSurface : ViewSelection

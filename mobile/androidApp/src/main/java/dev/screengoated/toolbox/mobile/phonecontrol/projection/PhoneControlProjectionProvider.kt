@@ -35,6 +35,8 @@ internal sealed interface PhoneControlProjectionFrameResult {
     data class Success(
         val bitmap: Bitmap,
         val capturedAtMs: Long,
+        val rotation: Int,
+        val densityDpi: Int,
     ) : PhoneControlProjectionFrameResult
 
     data class Failure(
@@ -70,6 +72,7 @@ internal object PhoneControlProjectionProvider {
         val candidate = ProjectionSession(
             projection = projection,
             initialDimensions = dimensions,
+            displayMetadata = { projectionDisplayMetadata(context) },
             onProjectionStopped = onProjectionStopped,
         )
         return try {
@@ -116,6 +119,7 @@ internal object PhoneControlProjectionProvider {
 private class ProjectionSession(
     private val projection: MediaProjection,
     initialDimensions: ProjectionDimensions,
+    private val displayMetadata: () -> ProjectionDisplayMetadata,
     private val onProjectionStopped: () -> Unit,
 ) {
     private val resourceLock = Any()
@@ -277,13 +281,14 @@ private class ProjectionSession(
             if (!shouldCopy) return
             val bitmap = image.toBitmap()
             val capturedAtMs = SystemClock.elapsedRealtime()
+            val metadata = displayMetadata()
             val waiting = synchronized(resourceLock) {
                 if (closed.get() || source !== reader) {
                     bitmap.recycle()
                     return@synchronized null
                 }
                 cachedFrame?.bitmap?.recycle()
-                cachedFrame = CachedProjectionFrame(bitmap, capturedAtMs)
+                cachedFrame = CachedProjectionFrame(bitmap, capturedAtMs, metadata)
                 val request = pendingCapture
                 pendingCapture = null
                 if (!firstFrameLogged) {
@@ -294,8 +299,10 @@ private class ProjectionSession(
             }
             waiting?.complete(
                 PhoneControlProjectionFrameResult.Success(
-                    bitmap.copy(Bitmap.Config.ARGB_8888, false),
+                    bitmap.copy(Bitmap.Config.ARGB_8888, true),
                     capturedAtMs,
+                    metadata.rotation,
+                    metadata.densityDpi,
                 ),
             )
         } catch (_: Throwable) {
@@ -326,13 +333,21 @@ private class ProjectionSession(
 private data class CachedProjectionFrame(
     val bitmap: Bitmap,
     val capturedAtMs: Long,
+    val metadata: ProjectionDisplayMetadata,
 ) {
     fun copyForCaller(): PhoneControlProjectionFrameResult.Success =
         PhoneControlProjectionFrameResult.Success(
-            bitmap.copy(Bitmap.Config.ARGB_8888, false),
+            bitmap.copy(Bitmap.Config.ARGB_8888, true),
             capturedAtMs,
+            metadata.rotation,
+            metadata.densityDpi,
         )
 }
+
+private data class ProjectionDisplayMetadata(
+    val rotation: Int,
+    val densityDpi: Int,
+)
 
 private data class ProjectionDimensions(
     val width: Int,
@@ -356,6 +371,20 @@ private fun projectionDimensions(context: Context): ProjectionDimensions {
         width = metrics.widthPixels.coerceAtLeast(1),
         height = metrics.heightPixels.coerceAtLeast(1),
         densityDpi = metrics.densityDpi,
+    )
+}
+
+private fun projectionDisplayMetadata(context: Context): ProjectionDisplayMetadata {
+    val windowManager = context.getSystemService(WindowManager::class.java)
+    @Suppress("DEPRECATION")
+    val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        context.display.rotation
+    } else {
+        windowManager.defaultDisplay.rotation
+    }
+    return ProjectionDisplayMetadata(
+        rotation = rotation,
+        densityDpi = context.resources.configuration.densityDpi.coerceAtLeast(1),
     )
 }
 

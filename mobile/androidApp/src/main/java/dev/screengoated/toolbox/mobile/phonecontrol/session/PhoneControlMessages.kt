@@ -56,7 +56,7 @@ internal fun buildPhoneControlSetupPayload(
         append(
             assets.canonicalPrompt.replace(
                 GeneratedPhoneControlContract.PLATFORM_DEVICE_TOKEN,
-                "Android phone or tablet",
+                "Android device",
             ),
         )
         append("\n\nANDROID PROVIDER CONTRACT\n")
@@ -65,7 +65,9 @@ internal fun buildPhoneControlSetupPayload(
         append("A declared tool can return capability_unavailable; never invent success or silently ")
         append("substitute a different requested effect. System-owned confirmations and credential ")
         append("surfaces remain user-owned. Accessibility targets are valid only for their exact ")
-        append("observation generation.\n")
+        append("observation generation. When a receipt requires a system-owned user step, stop ")
+        append("input attempts on that surface, state the one required step, and wait for fresh ")
+        append("user or observation evidence.\n")
         append("For Android type_text and key_combination, pass the current observation-bound ")
         append("surface token returned by list_windows; a snapshot-local node @id is not a ")
         append("surface target. type_text and editor key chords resolve the one focused editable ")

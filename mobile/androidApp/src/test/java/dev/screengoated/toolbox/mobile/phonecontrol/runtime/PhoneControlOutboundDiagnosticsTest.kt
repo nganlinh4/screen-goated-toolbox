@@ -178,6 +178,80 @@ class PhoneControlOutboundDiagnosticsTest {
     }
 
     @Test
+    fun `silent UI goal suppresses conversation only while it owns the turn`() {
+        val queue = PhoneControlUserInterfaceGoalQueue(maximumChars = 64)
+        val goal = queue.offer(
+            "silent setup",
+            runtimeReady = true,
+            presentation = PhoneControlUiGoalPresentation.SILENT,
+        )
+        assertFalse(queue.conversationSurfaceSuppressed)
+        var suppressedDuringSend = false
+        assertEquals(
+            PhoneControlUiGoalFlush.SENT,
+            queue.flush(
+                phase = PhoneControlTurnPhase.IDLE,
+                pendingWorkCount = 0,
+                userSpeaking = false,
+                send = {
+                    suppressedDuringSend = queue.conversationSurfaceSuppressed
+                    true
+                },
+            ),
+        )
+        assertTrue(suppressedDuringSend)
+        assertTrue(queue.conversationSurfaceSuppressed)
+        assertNull(queue.observeTurnBoundary(interrupted = false))
+        assertTrue(queue.conversationSurfaceSuppressed)
+        assertEquals(
+            goal.id,
+            queue.settle(
+                phase = PhoneControlTurnPhase.IDLE,
+                pendingWorkCount = 0,
+                playbackDrained = true,
+            )?.id,
+        )
+        assertFalse(queue.conversationSurfaceSuppressed)
+    }
+
+    @Test
+    fun `rejected silent goal send rolls back conversation suppression`() {
+        val queue = PhoneControlUserInterfaceGoalQueue(maximumChars = 64)
+        queue.offer(
+            "silent setup",
+            runtimeReady = true,
+            presentation = PhoneControlUiGoalPresentation.SILENT,
+        )
+        var suppressedDuringSend = false
+
+        assertEquals(
+            PhoneControlUiGoalFlush.REJECTED,
+            queue.flush(
+                phase = PhoneControlTurnPhase.IDLE,
+                pendingWorkCount = 0,
+                userSpeaking = false,
+                send = {
+                    suppressedDuringSend = queue.conversationSurfaceSuppressed
+                    false
+                },
+            ),
+        )
+
+        assertTrue(suppressedDuringSend)
+        assertFalse(queue.conversationSurfaceSuppressed)
+        assertEquals(
+            PhoneControlUiGoalFlush.SENT,
+            queue.flush(
+                phase = PhoneControlTurnPhase.IDLE,
+                pendingWorkCount = 0,
+                userSpeaking = false,
+                send = { true },
+            ),
+        )
+        assertTrue(queue.conversationSurfaceSuppressed)
+    }
+
+    @Test
     fun `failure tail is bounded structural metadata without payload content`() {
         var now = 100L
         val diagnostics = PhoneControlOutboundDiagnostics { now }

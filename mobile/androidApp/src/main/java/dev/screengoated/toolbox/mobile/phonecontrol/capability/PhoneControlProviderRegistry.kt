@@ -9,6 +9,8 @@ import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
+import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProjectionProvider
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.browser.AndroidChromeCdpAuthority
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorModelManager
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorReadiness
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
@@ -108,6 +110,7 @@ internal object PhoneControlProviderRegistry {
 
     private fun probeProvider(context: Context, id: String): Probe = when (id) {
         "android_app_api" -> Probe(CapabilityState.READY)
+        "direct_web_research" -> Probe(CapabilityState.READY)
         "accessibility" -> probeAccessibility(context)
         "accessibility_input_method" -> when {
             Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ->
@@ -115,10 +118,14 @@ internal object PhoneControlProviderRegistry {
             SgtAccessibilityService.isAvailable -> Probe(CapabilityState.READY)
             else -> probeAccessibility(context)
         }
-        "media_projection" -> Probe(
-            CapabilityState.NEEDS_USER_STEP,
-            "Approve the Android screen-capture prompt for this session.",
-        )
+        "media_projection" -> if (PhoneControlProjectionProvider.isReady) {
+            Probe(mediaProjectionCapabilityState(isReady = true))
+        } else {
+            Probe(
+                mediaProjectionCapabilityState(isReady = false),
+                "Approve the Android screen-capture prompt for this session.",
+            )
+        }
         "notification_listener" -> Probe(
             CapabilityState.UNAVAILABLE,
             "Notification access is not enabled for Phone Control.",
@@ -128,10 +135,7 @@ internal object PhoneControlProviderRegistry {
             CapabilityState.UNAVAILABLE,
             "No SGT-owned browser surface is active.",
         )
-        "browser_cdp" -> Probe(
-            CapabilityState.UNAVAILABLE,
-            "Connect a verified browser debugging provider.",
-        )
+        "browser_cdp" -> probeBrowserCdp(context)
         "local_ui_detector" -> probeLocalDetector(context)
         "device_owner" -> probeDeviceOwner(context)
         "privileged_system" -> if (Process.myUid() == Process.SYSTEM_UID) {
@@ -181,6 +185,11 @@ internal object PhoneControlProviderRegistry {
         }
     }
 
+    private fun probeBrowserCdp(context: Context): Probe {
+        val authority = AndroidChromeCdpAuthority.probe(context)
+        return Probe(authority.state, authority.requiredUserStep)
+    }
+
     private inline fun probeSelectedAuthority(
         context: Context,
         providerId: String,
@@ -219,3 +228,6 @@ internal object PhoneControlProviderRegistry {
     private const val CUSTOM_TABS_SERVICE_ACTION =
         "android.support.customtabs.action.CustomTabsService"
 }
+
+internal fun mediaProjectionCapabilityState(isReady: Boolean): CapabilityState =
+    if (isReady) CapabilityState.READY else CapabilityState.NEEDS_USER_STEP
