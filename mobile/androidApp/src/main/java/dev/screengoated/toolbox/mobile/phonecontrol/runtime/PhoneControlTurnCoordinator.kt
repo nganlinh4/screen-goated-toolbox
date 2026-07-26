@@ -36,7 +36,6 @@ internal class PhoneControlTurnCoordinator(
     private val assistantTranscript = PhoneControlTranscriptAccumulator()
     private val heldToolRejections = PhoneControlHeldToolRejections()
     private val outbound = PhoneControlTurnOutbound(sink)
-
     private var nextTurn = 0L
     private var nextGeneration = 0L
     private val outputSequencer = PhoneControlOutputSequencer()
@@ -46,16 +45,12 @@ internal class PhoneControlTurnCoordinator(
     private var terminalSummary: String? = null
     private var pendingTerminalDone: PhoneControlCompletedTool? = null
     private var generationAwaitingReconciliation: PhoneControlGenerationId? = null
-
     val pendingWorkCount: Int
         get() = tools.pendingCount
-
     val heldRejectionCount: Int
         get() = heldToolRejections.size
-
     val phase: PhoneControlTurnPhase
         get() = lifecycle.phase
-
     fun handleFrame(
         frame: GeminiLiveServerFrame,
         effects: List<GeminiLiveLifecycleEffect>,
@@ -90,11 +85,9 @@ internal class PhoneControlTurnCoordinator(
             }
         }
     }
-
     fun userSpeechStarted(assistantPlaybackActive: Boolean) {
         if (!assistantPlaybackActive) inputTranscript.beginEpoch()
     }
-
     fun drainToolCompletions() {
         while (true) {
             val event = completionEvents.tryReceive().getOrNull() ?: break
@@ -142,7 +135,6 @@ internal class PhoneControlTurnCoordinator(
         flushHeldToolRejections()
         finishPendingTerminalDone()
     }
-
     fun abandonProtocolSession() {
         outbound.block()
         sink.interruptPlayback()
@@ -152,9 +144,16 @@ internal class PhoneControlTurnCoordinator(
         heldToolRejections.reset()
         pendingTerminalDone = null
     }
-
+    fun retireTransportInterruptedTurn(): Boolean {
+        if (!lifecycle.turnRemainsActive || currentGeneration == null || tools.pendingCount > 0) {
+            return false
+        }
+        sink.interruptPlayback()
+        sink.discardQueuedPlayback()
+        interruptGeneration()
+        return true
+    }
     fun freshProtocolSessionBound() = outbound.reset()
-
     fun freshScreenEvidenceDelivered() {
         if (!lifecycle.reconciliationRequired) return
         lifecycle.reduce(PhoneControlTurnEvent.FreshObservation(stateReconciled = true))
@@ -259,7 +258,6 @@ internal class PhoneControlTurnCoordinator(
         generation: PhoneControlGenerationId?,
     ) {
         val assistantContent = frame.outputTranscript?.isNotBlank() == true ||
-            frame.visibleTextParts.isNotEmpty() ||
             frame.audioParts.isNotEmpty()
         if (!assistantContent || generation == null) return
         if (!sink.surfaceAssistantContent()) return
@@ -272,7 +270,6 @@ internal class PhoneControlTurnCoordinator(
         sink.updateConversationPhase(lifecycle.phase)
 
         val caption = frame.outputTranscript?.takeIf(String::isNotBlank)
-            ?: frame.visibleTextParts.joinToString(separator = "").takeIf(String::isNotBlank)
         caption?.let { text ->
             val chunk = outputSequencer.chunk(generation)
             val transition = lifecycle.reduce(PhoneControlTurnEvent.CaptionReceived(chunk))

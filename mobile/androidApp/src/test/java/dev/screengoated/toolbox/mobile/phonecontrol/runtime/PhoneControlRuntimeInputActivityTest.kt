@@ -42,4 +42,30 @@ class PhoneControlRuntimeInputActivityTest {
         activity.observe(SPEECH_RMS_THRESHOLD, 900L)
         assertEquals(listOf(1L, 2L), starts)
     }
+
+    @Test
+    fun `new burst after an unobserved gap closes the prior epoch first`() {
+        val events = mutableListOf<String>()
+        val activity = PhoneControlRuntimeInputActivity(
+            onSpeechStarted = { epoch -> events += "start:$epoch" },
+            onSpeechEnded = { epoch, elapsedMs, frames ->
+                events += "end:$epoch:$elapsedMs:$frames"
+            },
+            onLevel = {},
+        )
+
+        activity.observe(SPEECH_RMS_THRESHOLD, 100L)
+        activity.observe(SPEECH_RMS_THRESHOLD, 700L)
+        activity.observe(0f, 1_201L)
+
+        assertEquals(
+            listOf(
+                "start:1",
+                "end:1:600:1",
+                "start:2",
+                "end:2:501:2",
+            ),
+            events,
+        )
+    }
 }

@@ -37,7 +37,7 @@ pub(super) const VIEW_SHORT: u32 = 1024;
 
 /// Short-edge size for the CLEAN crop sent to the aux vision reader. Larger than
 /// the Live frame (the reader is not token-capped) so fine detail survives.
-pub(super) const VISION_SHORT: u32 = 1600;
+pub(super) const VISION_SHORT: u32 = super::super::vision_contract::CONTROL_VISION_SHORT_EDGE;
 
 /// Read the current view with the aux vision stack (clean crop, no grid overlay).
 /// `ctx` is task/intent context for disambiguation. Returns the plain answer.

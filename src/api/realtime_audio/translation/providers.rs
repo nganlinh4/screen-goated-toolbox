@@ -2,7 +2,10 @@ use isolang;
 use serde::Deserialize;
 use urlencoding;
 
-use crate::api::client::{UREQ_AGENT, record_groq_json_usage, record_usage_cerebras};
+use crate::api::client::{
+    UREQ_AGENT, UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_cerebras,
+    record_usage_simple,
+};
 use crate::api::realtime_audio::state::TranslationRequest;
 use crate::config::Config;
 
@@ -129,7 +132,7 @@ fn translate_with_google_model(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
         model_name
     );
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "contents": [{
             "role": "user",
             "parts": [{
@@ -140,8 +143,11 @@ fn translate_with_google_model(
             "responseMimeType": "application/json"
         }
     });
+    if let Some(thinking_config) = crate::api::gemini_thinking_config(model_name) {
+        payload["generationConfig"]["thinkingConfig"] = thinking_config;
+    }
 
-    let resp = UREQ_AGENT
+    let resp = UREQ_RESPONSE_AGENT
         .post(&url)
         .header("x-goog-api-key", api_key)
         .send_json(payload)
@@ -178,15 +184,16 @@ fn translate_with_cerebras(
         return None;
     }
 
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "model": model_name,
         "messages": build_chat_messages(request, target_language, history_entries),
         "stream": false,
         "max_completion_tokens": 512,
         "response_format": cerebras_response_format(),
     });
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "cerebras", model_name);
 
-    let resp = UREQ_AGENT
+    let resp = UREQ_RESPONSE_AGENT
         .post("https://api.cerebras.ai/v1/chat/completions")
         .header("Authorization", &format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
@@ -194,6 +201,9 @@ fn translate_with_cerebras(
         .ok()?;
 
     record_usage_cerebras(resp.headers(), stats_key);
+    if !resp.status().is_success() {
+        return None;
+    }
 
     let root: serde_json::Value = resp.into_body().read_json().ok()?;
     let content = root
@@ -244,7 +254,7 @@ fn translate_with_groq(
     }
 
     let schema = cerebras_response_format()["json_schema"]["schema"].clone();
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "model": model_name,
         "messages": build_chat_messages(request, target_language, history_entries),
         "stream": false,
@@ -255,14 +265,19 @@ fn translate_with_groq(
             schema,
         ),
     });
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", model_name);
 
-    let resp = UREQ_AGENT
+    let resp = UREQ_RESPONSE_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")
         .header("Authorization", &format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .send_json(payload)
         .ok()?;
 
+    record_usage_simple(resp.headers(), model_name);
+    if !resp.status().is_success() {
+        return None;
+    }
     let root: serde_json::Value = resp.into_body().read_json().ok()?;
     record_groq_json_usage(model_name, &root);
     let content = root

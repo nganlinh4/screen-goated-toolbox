@@ -95,6 +95,7 @@ pub struct SettingsApp {
 
     // --- TIP UI STATE ---
     pub(crate) show_tips_modal: bool,
+    pub(crate) selected_tips_category: crate::gui::locale::UsageTipCategory,
 
     // --- NODE GRAPH STATE ---
     pub(crate) snarl: Option<Snarl<ChainNode>>,

@@ -20,17 +20,27 @@ pub fn coordinate(
     if !(0.0..=1000.0).contains(&x) || !(0.0..=1000.0).contains(&y) {
         return None;
     }
+    Some(coordinate_point(x, y, width, height, box_px))
+}
+
+pub fn coordinate_point(
+    x: f64,
+    y: f64,
+    width: u32,
+    height: u32,
+    box_px: [f64; 4],
+) -> CoordinateScore {
     let px = x / 1000.0 * f64::from(width);
     let py = y / 1000.0 * f64::from(height);
     let [bx, by, bw, bh] = box_px;
     let center_x = bx + bw / 2.0;
     let center_y = by + bh / 2.0;
-    Some(CoordinateScore {
+    CoordinateScore {
         x_1000: x,
         y_1000: y,
         hit: px >= bx && px <= bx + bw && py >= by && py <= by + bh,
         error_px: ((px - center_x).powi(2) + (py - center_y).powi(2)).sqrt(),
-    })
+    }
 }
 
 pub fn transcription(response: &str) -> String {
@@ -51,10 +61,20 @@ pub fn transcription(response: &str) -> String {
 pub fn text_similarity(actual: &str, expected: &str) -> f64 {
     let actual: Vec<char> = normalize(actual).chars().collect();
     let expected: Vec<char> = normalize(expected).chars().collect();
+    character_similarity(&actual, &expected)
+}
+
+pub fn ocr_similarity(actual: &str, expected: &str) -> f64 {
+    let actual: Vec<char> = normalize_ocr(actual).chars().collect();
+    let expected: Vec<char> = normalize_ocr(expected).chars().collect();
+    character_similarity(&actual, &expected)
+}
+
+fn character_similarity(actual: &[char], expected: &[char]) -> f64 {
     if actual.is_empty() && expected.is_empty() {
         return 1.0;
     }
-    let distance = levenshtein(&actual, &expected);
+    let distance = levenshtein(actual, expected);
     1.0 - distance as f64 / actual.len().max(expected.len()) as f64
 }
 
@@ -79,6 +99,30 @@ pub fn exact_coverage(actual: &str, fragments: &[String]) -> f64 {
         .filter(|fragment| actual.contains(fragment.as_str()))
         .count() as f64
         / fragments.len() as f64
+}
+
+pub fn exact_constraint_coverage(
+    actual: &str,
+    required: &[String],
+    required_any: &[Vec<String>],
+) -> f64 {
+    let total = required.len() + required_any.len();
+    if total == 0 {
+        return 1.0;
+    }
+    let exact = required
+        .iter()
+        .filter(|fragment| actual.contains(fragment.as_str()))
+        .count();
+    let alternatives = required_any
+        .iter()
+        .filter(|group| {
+            group
+                .iter()
+                .any(|fragment| actual.contains(fragment.as_str()))
+        })
+        .count();
+    (exact + alternatives) as f64 / total as f64
 }
 
 pub fn forbidden_avoidance(actual: &str, terms: &[String]) -> f64 {
@@ -117,6 +161,27 @@ fn normalize(value: &str) -> String {
     normalized
 }
 
+fn normalize_ocr(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut pending_space = false;
+    for character in value.nfkc() {
+        if character.is_whitespace() {
+            pending_space = true;
+            continue;
+        }
+        if pending_space && !normalized.is_empty() {
+            normalized.push(' ');
+        }
+        normalized.push(match character {
+            '‘' | '’' => '\'',
+            '“' | '”' => '"',
+            other => other,
+        });
+        pending_space = false;
+    }
+    normalized
+}
+
 fn levenshtein(left: &[char], right: &[char]) -> usize {
     let mut previous: Vec<usize> = (0..=right.len()).collect();
     let mut current = vec![0; right.len() + 1];
@@ -143,8 +208,8 @@ fn parse_json_object(response: &str) -> Option<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        coordinate, exact_coverage, forbidden_avoidance, line_count_matches, term_coverage,
-        text_similarity, transcription,
+        coordinate, exact_constraint_coverage, exact_coverage, forbidden_avoidance,
+        line_count_matches, ocr_similarity, term_coverage, text_similarity, transcription,
     };
 
     #[test]
@@ -158,6 +223,16 @@ mod tests {
             ),
             1.0
         );
+    }
+
+    #[test]
+    fn ocr_scoring_preserves_case_punctuation_and_diacritics() {
+        assert_eq!(
+            ocr_similarity("The  Sun.\n“NOW AT WAR”", "The Sun. \"NOW AT WAR\""),
+            1.0
+        );
+        assert!(ocr_similarity("the Sun", "The Sun.") < 1.0);
+        assert!(ocr_similarity("PRIBRAM II", "PŘÍBRAM II") < 1.0);
     }
 
     #[test]
@@ -186,6 +261,17 @@ mod tests {
             exact_coverage(
                 "Keep ${BUILD_ID} and <draft_id>",
                 &["${BUILD_ID}".into(), "<draft_id>".into()]
+            ),
+            1.0
+        );
+        assert_eq!(
+            exact_constraint_coverage(
+                "Open [Settings] at −2 °C",
+                &["°C".into()],
+                &[
+                    vec!["［Settings］".into(), "[Settings]".into()],
+                    vec!["−2".into(), "-2".into()],
+                ],
             ),
             1.0
         );

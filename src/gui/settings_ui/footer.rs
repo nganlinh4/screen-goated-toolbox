@@ -1,8 +1,10 @@
-use crate::gui::icons::{Icon, paint_icon};
+use crate::gui::icons::Icon;
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use crate::gui::widgets::compact_filled_icon_button;
 use eframe::egui;
+
+use super::tips_entry::render_tips_entry_button;
 
 pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggles<'_>) {
     let FooterToggles {
@@ -23,20 +25,27 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
         } else {
             egui::Color32::WHITE
         };
-        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.spacing_mut().button_padding.x = 3.0;
+        ui.spacing_mut().item_spacing.x = 3.0;
 
-        if compact_filled_icon_button(
+        let computer_control_response = compact_filled_icon_button(
             ui,
             Icon::SmartToy,
             text.shell.computer_control_btn,
             theme.launch_computer_control(),
             btn_text,
             6,
-        )
-        .clicked()
-        {
+        );
+        if computer_control_response.clicked() {
             *show_computer_control = true;
         }
+        #[cfg(test)]
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new("footer_first_launcher_test_rect"),
+                computer_control_response.rect,
+            );
+        });
 
         if compact_filled_icon_button(
             ui,
@@ -163,7 +172,7 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
         });
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if tips_button(ui, text).clicked() {
+            if render_tips_entry_button(ui, &text.workspace).clicked() {
                 *show_modal = true;
             }
         });
@@ -179,83 +188,21 @@ pub struct FooterToggles<'a> {
     pub show_download: &'a mut bool,
 }
 
-fn tips_button(ui: &mut egui::Ui, text: &LocaleText) -> egui::Response {
-    let text_color = ui.visuals().text_color();
-    let label_galley = ui.painter().layout_no_wrap(
-        text.workspace.tips_btn.to_owned(),
-        egui::TextStyle::Button.resolve(ui.style()),
-        text_color,
-    );
-    let icon_size = crate::gui::icons::ICON_SM;
-    let icon_gap = 4.0;
-    let horizontal_padding = 6.0;
-    let button_size = egui::vec2(
-        horizontal_padding * 2.0 + icon_size + icon_gap + label_galley.rect.width(),
-        ui.spacing()
-            .interact_size
-            .y
-            .max(label_galley.rect.height() + ui.spacing().button_padding.y * 2.0),
-    );
-    let (rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
-
-    let state_fill = if response.is_pointer_button_down_on() {
-        ui.visuals().widgets.active.weak_bg_fill
-    } else if response.hovered() {
-        ui.visuals().widgets.hovered.weak_bg_fill
-    } else {
-        egui::Color32::TRANSPARENT
-    };
-    if state_fill != egui::Color32::TRANSPARENT {
-        ui.painter().rect_filled(rect, 6.0, state_fill);
-    }
-
-    let icon_rect = egui::Rect::from_min_size(
-        egui::pos2(
-            rect.left() + horizontal_padding,
-            rect.center().y - icon_size / 2.0,
-        ),
-        egui::vec2(icon_size, icon_size),
-    );
-    paint_icon(
-        ui.painter(),
-        icon_rect,
-        Icon::Lightbulb,
-        AppTheme::from_ui(ui).warning(),
-    );
-    ui.painter().galley(
-        egui::pos2(
-            icon_rect.right() + icon_gap,
-            rect.center().y - label_galley.rect.height() / 2.0,
-        ),
-        label_galley,
-        text_color,
-    );
-
-    let response = response
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(text.workspace.tips_click_hint);
-    #[cfg(test)]
-    ui.ctx().data_mut(|data| {
-        data.insert_temp(egui::Id::new("footer_tips_test_rect"), response.rect);
-    });
-    response
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn compact_tips_action_stays_on_the_launcher_row_in_every_locale() {
+    fn all_localized_launchers_stay_expanded_on_one_row_at_minimum_width() {
         let screen =
             egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(crate::MIN_WINDOW_WIDTH, 100.0));
+        let mut overflows = Vec::new();
 
-        for (language, expected_label) in [("en", "Tips"), ("vi", "Mẹo"), ("ko", "팁")] {
+        for language in ["en", "vi", "ko"] {
             let context = egui::Context::default();
             crate::gui::configure_fonts(&context);
             AppTheme::apply_global_style(&context, false);
             let text = LocaleText::get(language);
-            assert_eq!(text.workspace.tips_btn, expected_label);
             let mut show_modal = false;
             let mut show_computer_control = false;
             let mut show_pointer_gallery = false;
@@ -288,26 +235,53 @@ mod tests {
                 },
             );
 
+            let first_launcher_rect = context
+                .data(|data| {
+                    data.get_temp::<egui::Rect>(egui::Id::new("footer_first_launcher_test_rect"))
+                })
+                .expect("first footer launcher rect should be captured");
             let last_launcher_rect = context
                 .data(|data| {
                     data.get_temp::<egui::Rect>(egui::Id::new("footer_last_launcher_test_rect"))
                 })
                 .expect("last footer launcher rect should be captured");
             let tips_rect = context
-                .data(|data| data.get_temp::<egui::Rect>(egui::Id::new("footer_tips_test_rect")))
-                .expect("tips action rect should be captured");
+                .data(|data| {
+                    data.get_temp::<egui::Rect>(egui::Id::new("footer_tips_entry_test_rect"))
+                })
+                .expect("footer Tips entry rect should be captured");
             assert!(
-                last_launcher_rect.right() + 6.0 <= tips_rect.left(),
-                "{language} tips action overlapped the launchers: last={last_launcher_rect:?}, tips={tips_rect:?}"
+                first_launcher_rect.width()
+                    > crate::gui::icons::ICON_MD + ui_horizontal_button_chrome(),
+                "{language} first launcher collapsed to an icon: {first_launcher_rect:?}"
+            );
+            assert!(
+                (first_launcher_rect.center().y - last_launcher_rect.center().y).abs() <= 1.0,
+                "{language} launchers left one row: first={first_launcher_rect:?}, last={last_launcher_rect:?}"
+            );
+            assert!(
+                last_launcher_rect.right() + 3.0 <= tips_rect.left(),
+                "{language} Tips entry overlaps the launchers: last={last_launcher_rect:?}, tips={tips_rect:?}"
             );
             assert!(
                 (last_launcher_rect.center().y - tips_rect.center().y).abs() <= 1.0,
-                "{language} tips action left the launcher row: last={last_launcher_rect:?}, tips={tips_rect:?}"
+                "{language} Tips entry left the launcher row: last={last_launcher_rect:?}, tips={tips_rect:?}"
             );
-            assert!(
-                screen.contains_rect(tips_rect),
-                "{language} tips action overflowed the minimum viewport: {tips_rect:?}"
-            );
+            if !screen.contains_rect(tips_rect) {
+                overflows.push(format!(
+                    "{language}: {:.1}px",
+                    tips_rect.right() - screen.right()
+                ));
+            }
         }
+        assert!(
+            overflows.is_empty(),
+            "footer row overflowed the minimum viewport: {}",
+            overflows.join(", ")
+        );
+    }
+
+    const fn ui_horizontal_button_chrome() -> f32 {
+        3.0 * 2.0
     }
 }

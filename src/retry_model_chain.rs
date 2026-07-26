@@ -1,7 +1,8 @@
 use crate::config::Config;
 use crate::model_config::{
     ModelConfig, ModelType, get_all_models_with_custom, get_model_by_id_with_custom,
-    model_is_non_llm, model_supports_search_by_id_with_custom, model_supports_search_by_name,
+    model_is_non_llm, model_supports_search_by_id_with_custom,
+    model_supports_search_by_provider_and_name,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
@@ -72,10 +73,17 @@ impl RetryChainKind {
 
 pub fn provider_is_available(provider: &str, config: &Config) -> bool {
     match provider {
-        "groq" => config.use_groq && !config.api_key.trim().is_empty(),
-        "google" | "gemini-live" => config.use_gemini && !config.gemini_api_key.trim().is_empty(),
-        "openrouter" => config.use_openrouter && !config.openrouter_api_key.trim().is_empty(),
-        "cerebras" => config.use_cerebras && !config.cerebras_api_key.trim().is_empty(),
+        "groq" => config.use_groq && credential_present("GROQ_API_KEY", &config.api_key),
+        "google" | "gemini-live" => {
+            config.use_gemini && credential_present("GEMINI_API_KEY", &config.gemini_api_key)
+        }
+        "openrouter" => {
+            config.use_openrouter
+                && credential_present("OPENROUTER_API_KEY", &config.openrouter_api_key)
+        }
+        "cerebras" => {
+            config.use_cerebras && credential_present("CEREBRAS_API_KEY", &config.cerebras_api_key)
+        }
         "ollama" => config.use_ollama,
         "google-gtx" | "qrserver" | "parakeet" | "taalas" => true,
         _ => false,
@@ -87,7 +95,7 @@ fn provider_preflight_skip_reason(provider: &str, config: &Config) -> Option<Str
         "groq" => {
             if !config.use_groq {
                 Some("PROVIDER_DISABLED:groq".to_string())
-            } else if config.api_key.trim().is_empty() {
+            } else if !credential_present("GROQ_API_KEY", &config.api_key) {
                 Some("NO_API_KEY:groq".to_string())
             } else {
                 None
@@ -96,7 +104,7 @@ fn provider_preflight_skip_reason(provider: &str, config: &Config) -> Option<Str
         "google" | "gemini-live" => {
             if !config.use_gemini {
                 Some(format!("PROVIDER_DISABLED:{provider}"))
-            } else if config.gemini_api_key.trim().is_empty() {
+            } else if !credential_present("GEMINI_API_KEY", &config.gemini_api_key) {
                 Some(format!("NO_API_KEY:{provider}"))
             } else {
                 None
@@ -105,7 +113,7 @@ fn provider_preflight_skip_reason(provider: &str, config: &Config) -> Option<Str
         "openrouter" => {
             if !config.use_openrouter {
                 Some("PROVIDER_DISABLED:openrouter".to_string())
-            } else if config.openrouter_api_key.trim().is_empty() {
+            } else if !credential_present("OPENROUTER_API_KEY", &config.openrouter_api_key) {
                 Some("NO_API_KEY:openrouter".to_string())
             } else {
                 None
@@ -114,7 +122,7 @@ fn provider_preflight_skip_reason(provider: &str, config: &Config) -> Option<Str
         "cerebras" => {
             if !config.use_cerebras {
                 Some("PROVIDER_DISABLED:cerebras".to_string())
-            } else if config.cerebras_api_key.trim().is_empty() {
+            } else if !credential_present("CEREBRAS_API_KEY", &config.cerebras_api_key) {
                 Some("NO_API_KEY:cerebras".to_string())
             } else {
                 None
@@ -124,6 +132,10 @@ fn provider_preflight_skip_reason(provider: &str, config: &Config) -> Option<Str
         "google-gtx" | "qrserver" | "parakeet" | "taalas" => None,
         _ => Some(format!("Provider {provider} is disabled.")),
     }
+}
+
+fn credential_present(environment: &str, saved: &str) -> bool {
+    !crate::api::provider_credentials::resolve(environment, saved).is_empty()
 }
 
 pub fn preflight_skip_reason(
@@ -266,9 +278,9 @@ fn is_retry_candidate_compatible(
         && !blocked_providers.contains(&model.provider)
         && provider_is_available(&model.provider, config)
         && (!must_support_search
-            || model
-                .supports_search_override
-                .unwrap_or_else(|| model_supports_search_by_name(&model.full_name)))
+            || model.supports_search_override.unwrap_or_else(|| {
+                model_supports_search_by_provider_and_name(&model.provider, &model.full_name)
+            }))
 }
 
 #[cfg(test)]
@@ -320,6 +332,8 @@ mod tests {
         )
         .expect("image chain should produce a next model");
 
-        assert_eq!(next.id, "google-gemini-3-6-flash-vision");
+        assert_eq!(next.id, "google-gemini-3-1-flash-lite-vision");
+        assert!(crate::model_config::model_supports_search_by_id_with_custom(&next.id, &[]));
+        assert_ne!(next.id, "google-gemma-4-31b-vision");
     }
 }

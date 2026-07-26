@@ -277,7 +277,7 @@ private fun buildGeminiAudioPayload(
         ),
     )
 
-    PresetModelCatalog.geminiThinkingConfig(model.fullName)?.let { thinking ->
+    PresetModelCatalog.geminiThinkingConfig(model.provider, model.fullName)?.let { thinking ->
         val thinkingConfig = JSONObject().apply {
             thinking.forEach { (key, value) ->
                 when (value) {

@@ -20,6 +20,12 @@ use crate::api::{TranslateImageRequest, translate_image_streaming};
 use crate::config::Config;
 use crate::model_config::{get_model_by_id_with_custom, model_is_non_llm};
 
+use super::vision_contract::{
+    GROUNDING_STREAMING_ENABLED, VerificationDecision, context_prefix, parse_point,
+    parse_string_field, parse_verification, point_request, response_reports_not_visible,
+    verification_request,
+};
+
 mod candidates;
 mod circuit;
 mod mark_labels;
@@ -27,7 +33,7 @@ mod schemas;
 mod text_candidates;
 pub(super) use candidates::{CandidateAttempt, CandidateReport};
 pub(super) use mark_labels::label_clickable_marks;
-use schemas::{box_schema, point_schema, points_schema, verification_schema};
+use schemas::{box_schema, points_schema};
 pub(super) use text_candidates::read_text_pref_where;
 
 /// Per-provider API key, preferring the repo `.env` overrides (so the headless
@@ -197,8 +203,7 @@ fn run_chain_where(
             provider: mc.provider.clone(),
             image: img.clone(),
             original_bytes: Some(jpeg.to_vec()),
-            streaming_enabled: false,
-            use_json_format: false,
+            streaming_enabled: GROUNDING_STREAMING_ENABLED,
             response_schema: schema.clone(),
             cancel_token: cancel_token.clone(),
             request_timeout,
@@ -252,22 +257,7 @@ pub(super) struct Located {
     pub note: Option<String>,
 }
 
-pub(super) struct Verification {
-    pub matches: bool,
-    pub confidence: u64,
-    pub note: Option<String>,
-}
-
-/// Optional disambiguation context (task + agent intent) prepended to a vision
-/// prompt — gives the otherwise-stateless vision model the "why".
-fn ctx_prefix(ctx: &str) -> String {
-    let ctx = ctx.trim();
-    if ctx.is_empty() {
-        String::new()
-    } else {
-        format!("Context (for disambiguation only; do not echo it): {ctx}\n")
-    }
-}
+pub(super) type Verification = VerificationDecision;
 
 /// Read a question about one immutable image. A candidate reply is usable only
 /// when `accept` validates the caller's output contract. Every candidate sees
@@ -286,7 +276,7 @@ pub(super) fn read_image_pref_where(
     let mut attempts = Vec::new();
     let answer = run_chain_where(
         jpeg,
-        &format!("{}{question}", ctx_prefix(ctx)),
+        &format!("{}{question}", context_prefix(ctx)),
         prefer,
         None,
         ChainRun {
@@ -303,22 +293,19 @@ pub(super) fn read_image_pref_where(
 
 /// Ask the vision stack for the click point of `description` (+ what's there).
 pub(super) fn locate_point(jpeg: &[u8], description: &str, ctx: &str) -> Result<Located> {
-    let prompt = format!(
-        "{}Find this target in the image: {description}. Output ONLY JSON \
-{{\"x\": <int>, \"y\": <int>, \"what\": \"<2-4 words: what is AT that location, e.g. empty cell, an X, a button>\"}} \
-- x,y are the CENTER on a 0-1000 grid (x: 0 left to 1000 right; y: 0 top to 1000 bottom). If the target is not \
-visible, output {{\"error\": \"not visible\"}}.",
-        ctx_prefix(ctx)
-    );
-    let answer = run_grounding_chain(jpeg, &prompt, Some(point_schema()), |response| {
-        parse_point(response).is_some() || response_reports_not_visible(response)
-    })?;
+    let request = point_request(description, ctx);
+    let answer = run_grounding_chain(
+        jpeg,
+        &request.prompt,
+        Some(request.response_schema),
+        |response| parse_point(response).is_some() || response_reports_not_visible(response),
+    )?;
     let (x, y) = parse_point(&answer)
         .ok_or_else(|| anyhow!("could not parse a point from vision answer: {answer}"))?;
     Ok(Located {
         x,
         y,
-        note: parse_str_field(&answer, "what"),
+        note: parse_string_field(&answer, "what"),
     })
 }
 
@@ -326,34 +313,14 @@ visible, output {{\"error\": \"not visible\"}}.",
 /// click point. A localization is authorization to click only when this check
 /// confirms that the crosshair itself lies inside the requested target.
 pub(super) fn verify_target(jpeg: &[u8], description: &str, ctx: &str) -> Result<Verification> {
-    let prompt = format!(
-        "{}The red crosshair marks a proposed click. Requested target: {description}. \
-Output ONLY JSON {{\"matches\": <bool>, \"confidence\": <0-100 int>, \"what\": \"<what the crosshair is on>\"}}. \
-matches is true only if the CROSSHAIR CENTER is visibly inside the requested target; merely seeing the target \
-elsewhere in the crop is false.",
-        ctx_prefix(ctx)
-    );
-    let answer = run_grounding_chain(jpeg, &prompt, Some(verification_schema()), |response| {
-        parse_verification(response).is_some()
-    })?;
+    let request = verification_request(description, ctx);
+    let answer = run_grounding_chain(
+        jpeg,
+        &request.prompt,
+        Some(request.response_schema),
+        |response| parse_verification(response).is_some(),
+    )?;
     parse_verification(&answer).ok_or_else(|| anyhow!("verification JSON invalid: {answer}"))
-}
-
-fn parse_verification(answer: &str) -> Option<Verification> {
-    let start = answer.find('{')?;
-    let end = answer.rfind('}')?;
-    let value: serde_json::Value = serde_json::from_str(&answer[start..=end]).ok()?;
-    Some(Verification {
-        matches: value.get("matches").and_then(serde_json::Value::as_bool)?,
-        confidence: value
-            .get("confidence")
-            .and_then(serde_json::Value::as_u64)?
-            .min(100),
-        note: value
-            .get("what")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string),
-    })
 }
 
 /// Ask the vision stack for the target's bounding BOX (Gemini `box_2d`) and
@@ -364,7 +331,7 @@ pub(super) fn locate_box(jpeg: &[u8], description: &str, ctx: &str) -> Result<Lo
         "{}Find this target in the image: {description}. Output ONLY JSON {{\"box_2d\": [ymin, xmin, ymax, xmax]}} \
 - integer coordinates 0-1000 (y from top, x from left) for the target's TIGHT bounding box. If the target is not \
 visible, output {{\"error\": \"not visible\"}}.",
-        ctx_prefix(ctx)
+        context_prefix(ctx)
     );
     let answer = run_grounding_chain(jpeg, &prompt, Some(box_schema()), |response| {
         parse_box(response).is_some() || response_reports_not_visible(response)
@@ -387,7 +354,7 @@ pub(super) fn locate_points(jpeg: &[u8], description: &str, ctx: &str) -> Result
         "{}Find EVERY target matching: {description}. Output ONLY a JSON array, one object per target, in reading \
 order (top row left-to-right, then next row): [{{\"x\": <int>, \"y\": <int>, \"what\": \"<2-4 words at that spot>\"}}, ...] \
 - x,y are the CENTER on a 0-1000 grid (x 0 left..1000 right, y 0 top..1000 bottom). Output [] if none. Cap at 30.",
-        ctx_prefix(ctx)
+        context_prefix(ctx)
     );
     let answer = run_grounding_chain(jpeg, &prompt, Some(points_schema()), |response| {
         parse_points(response).is_some()
@@ -450,29 +417,6 @@ fn parse_points(s: &str) -> Option<Vec<Located>> {
     Some(unique)
 }
 
-/// Extract a JSON string field `"key": "value"` from a vision answer.
-fn parse_str_field(s: &str, key: &str) -> Option<String> {
-    let lower = s.to_ascii_lowercase();
-    let k = lower.find(&format!("\"{key}\""))?;
-    let after = &s[k..];
-    let colon = after.find(':')?;
-    let rest = &after[colon + 1..];
-    let q1 = rest.find('"')?;
-    let q2 = rest[q1 + 1..].find('"')?;
-    let v = rest[q1 + 1..q1 + 1 + q2].trim();
-    (!v.is_empty()).then(|| v.to_string())
-}
-
-fn response_reports_not_visible(response: &str) -> bool {
-    let (Some(start), Some(end)) = (response.find('{'), response.rfind('}')) else {
-        return false;
-    };
-    serde_json::from_str::<serde_json::Value>(&response[start..=end])
-        .ok()
-        .and_then(|value| value.get("error")?.as_str().map(str::to_string))
-        .is_some_and(|error| !error.trim().is_empty())
-}
-
 /// Parse a `box_2d` [ymin, xmin, ymax, xmax] from a vision answer. Reads numbers
 /// AFTER the `box_2d` key (so the `2` in the key isn't mistaken for a value),
 /// else from the first `[`.
@@ -504,50 +448,6 @@ fn first_numbers(s: &str, max: usize) -> Vec<f64> {
         }
     }
     out
-}
-
-/// Pull an (x, y) 0-1000 point out of a vision answer, tolerating code fences,
-/// prose, and `x`/`y` in either order (matched by key, not position). Returns
-/// None if either key is absent (e.g. an "not visible" answer).
-fn parse_point(s: &str) -> Option<(f64, f64)> {
-    let x = num_after_key(s, b'x')?;
-    let y = num_after_key(s, b'y')?;
-    Some((x.clamp(0.0, 1000.0), y.clamp(0.0, 1000.0)))
-}
-
-/// Find `<key>` (a JSON key letter) followed by `:`/`=` then a number, e.g.
-/// `"x": 420`, `x=420`. Skips the letter when it's part of a word (e.g. "max").
-fn num_after_key(s: &str, key: u8) -> Option<f64> {
-    let lc = s.to_ascii_lowercase();
-    let b = lc.as_bytes();
-    let key = key.to_ascii_lowercase();
-    let mut i = 0;
-    let mut found = None;
-    while i < b.len() {
-        if b[i] == key && (i == 0 || !b[i - 1].is_ascii_alphanumeric()) {
-            let mut j = i + 1;
-            while j < b.len() && matches!(b[j], b'"' | b'\'' | b' ' | b'\t') {
-                j += 1;
-            }
-            if j < b.len() && (b[j] == b':' || b[j] == b'=') {
-                j += 1;
-                while j < b.len() && matches!(b[j], b'"' | b'\'' | b' ' | b'\t') {
-                    j += 1;
-                }
-                let start = j;
-                while j < b.len() && (b[j].is_ascii_digit() || b[j] == b'.') {
-                    j += 1;
-                }
-                if j > start
-                    && let Ok(v) = lc[start..j].parse::<f64>()
-                {
-                    found = Some(v);
-                }
-            }
-        }
-        i += 1;
-    }
-    found
 }
 
 #[cfg(test)]

@@ -1,4 +1,7 @@
 use crate::config::ProcessingBlock;
+use crate::model_config::{
+    DEFAULT_IMAGE_MODEL_ID, DEFAULT_TEXT_MODEL_ID, PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
+};
 use egui_snarl::Snarl;
 
 use super::super::node_graph::{ChainNode, blocks_to_snarl, snarl_to_graph};
@@ -8,7 +11,7 @@ pub(super) fn create_default_block_for_type(preset_type: &str) -> ProcessingBloc
     match preset_type {
         "audio" => ProcessingBlock {
             block_type: "audio".to_string(),
-            model: "groq-whisper-large-v3-audio".to_string(),
+            model: PRESET_AUDIO_TRANSCRIBE_MODEL_ID.to_string(),
             prompt: "Transcribe this audio.".to_string(),
             selected_language: "Vietnamese".to_string(),
             auto_copy: true,
@@ -16,7 +19,7 @@ pub(super) fn create_default_block_for_type(preset_type: &str) -> ProcessingBloc
         },
         "text" => ProcessingBlock {
             block_type: "text".to_string(),
-            model: "google-gemma-4-26b-a4b-text".to_string(),
+            model: DEFAULT_TEXT_MODEL_ID.to_string(),
             prompt: "Process this text.".to_string(),
             selected_language: "Vietnamese".to_string(),
             auto_copy: true,
@@ -24,7 +27,7 @@ pub(super) fn create_default_block_for_type(preset_type: &str) -> ProcessingBloc
         },
         _ => ProcessingBlock {
             block_type: "image".to_string(),
-            model: crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string(),
+            model: DEFAULT_IMAGE_MODEL_ID.to_string(),
             prompt: "Extract text from this image.".to_string(),
             selected_language: "Vietnamese".to_string(),
             show_overlay: true,

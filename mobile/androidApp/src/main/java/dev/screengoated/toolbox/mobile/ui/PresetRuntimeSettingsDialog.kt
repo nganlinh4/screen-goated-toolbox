@@ -469,6 +469,8 @@ private fun ModelPill(
         Spacer(Modifier.width(6.dp))
         Box(modifier = Modifier.weight(1f)) {
             TextButton(onClick = { showDropdown = true }, modifier = Modifier.fillMaxWidth()) {
+                ModelPerformancePrefix(descriptor)
+                Spacer(Modifier.width(4.dp))
                 if (descriptor != null) {
                     Icon(painterResource(providerIconRes(descriptor.provider)), null, modifier = Modifier.size(16.dp), tint = accent)
                     Spacer(Modifier.width(4.dp))

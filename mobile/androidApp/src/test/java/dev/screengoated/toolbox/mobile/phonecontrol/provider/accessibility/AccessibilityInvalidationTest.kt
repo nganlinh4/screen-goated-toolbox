@@ -22,15 +22,51 @@ class AccessibilityInvalidationTest {
 
     @Test
     fun `only window topology events retire every target lease`() {
-        val eventTypes = listOf(
-            AccessibilityEvent.TYPE_WINDOWS_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+        val hardWindowChanges = listOf(
+            AccessibilityEvent.WINDOWS_CHANGE_ADDED,
+            AccessibilityEvent.WINDOWS_CHANGE_REMOVED,
+            AccessibilityEvent.WINDOWS_CHANGE_BOUNDS,
+            AccessibilityEvent.WINDOWS_CHANGE_LAYER,
+            AccessibilityEvent.WINDOWS_CHANGE_ACTIVE,
+            AccessibilityEvent.WINDOWS_CHANGE_FOCUSED,
+            AccessibilityEvent.WINDOWS_CHANGE_PARENT,
+            AccessibilityEvent.WINDOWS_CHANGE_CHILDREN,
+            AccessibilityEvent.WINDOWS_CHANGE_PIP,
         )
 
-        eventTypes.forEach { eventType ->
+        hardWindowChanges.forEach { windowChanges ->
             assertTrue(
-                accessibilityInvalidationImpact(eventType, 0) ==
+                accessibilityInvalidationImpact(
+                    AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+                    0,
+                    windowChanges,
+                ) ==
                     AccessibilityInvalidationImpact.HARD,
+            )
+        }
+        assertEquals(
+            AccessibilityInvalidationImpact.HARD,
+            accessibilityInvalidationImpact(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, 0),
+        )
+        assertEquals(
+            AccessibilityInvalidationImpact.HARD,
+            accessibilityInvalidationImpact(AccessibilityEvent.TYPE_WINDOWS_CHANGED, 0, 0),
+        )
+    }
+
+    @Test
+    fun `window title and accessibility focus churn preserve semantic leases`() {
+        listOf(
+            AccessibilityEvent.WINDOWS_CHANGE_TITLE,
+            AccessibilityEvent.WINDOWS_CHANGE_ACCESSIBILITY_FOCUSED,
+        ).forEach { windowChanges ->
+            assertEquals(
+                AccessibilityInvalidationImpact.SEMANTIC_ONLY,
+                accessibilityInvalidationImpact(
+                    AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+                    0,
+                    windowChanges,
+                ),
             )
         }
     }
@@ -88,6 +124,15 @@ class AccessibilityInvalidationTest {
         assertFalse(isKnownControllerOverlayEvent(13, SGT, SGT, windows))
         assertFalse(isKnownControllerOverlayEvent(-1, SGT, SGT, windows))
         assertFalse(isKnownControllerOverlayEvent(99, SGT, SGT, windows))
+        assertTrue(
+            isKnownControllerOverlayEvent(
+                eventWindowId = 31,
+                eventPackage = null,
+                servicePackage = SGT,
+                windows = emptyList(),
+                knownControllerWindowIds = setOf(31),
+            ),
+        )
     }
 
     @Test

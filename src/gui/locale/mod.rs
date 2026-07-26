@@ -32,6 +32,7 @@ pub use preset_editor::PresetEditorLocaleText;
 pub use realtime::RealtimeLocaleText;
 pub use shell::ShellLocaleText;
 pub use text::LocaleText;
+pub use tips::{UsageTip, UsageTipCategory, UsageTipSection};
 pub use tool_runtime::ToolRuntimeLocaleText;
 pub use translation_gummy::TranslationGummyLocaleText;
 pub use tts_advanced::TtsAdvancedLocaleText;

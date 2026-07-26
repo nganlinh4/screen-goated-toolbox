@@ -1,8 +1,32 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility
 
+import android.graphics.Bitmap
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.result.PhoneControlTargetIdentity
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
+
+internal sealed interface AccessibilityProviderResult<out T> {
+    data class Success<T>(val value: T) : AccessibilityProviderResult<T>
+
+    data class Failure(
+        val code: String,
+        val message: String,
+        val retryable: Boolean,
+        val freshObservationRequired: Boolean = false,
+        val effect: EffectCertainty = EffectCertainty.PROVEN_NO_EFFECT,
+        val requiredUserStep: String? = null,
+    ) : AccessibilityProviderResult<Nothing>
+}
+
+internal data class AccessibilityScreenshot(
+    val generation: Long,
+    val visualRevision: Long,
+    val capturedAtMs: Long,
+    val bitmap: Bitmap,
+    val captureBounds: TargetBounds,
+    val windowId: Long?,
+    val captureProvider: String = "accessibility",
+)
 
 internal data class AccessibilityElement(
     val id: Int,

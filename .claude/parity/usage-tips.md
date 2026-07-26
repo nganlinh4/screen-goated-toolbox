@@ -3,34 +3,68 @@
 ## Canonical Source
 
 - Windows compact entry and localized short labels: [src/gui/settings_ui/footer.rs](../../src/gui/settings_ui/footer.rs)
-- Windows full-list popup and bold-marker rendering: [src/gui/app/rendering/footer.rs](../../src/gui/app/rendering/footer.rs)
+- Windows categorized modal: [src/gui/settings_ui/tips.rs](../../src/gui/settings_ui/tips.rs)
 - Windows localized tip catalog: [src/gui/locale/tips.rs](../../src/gui/locale/tips.rs)
-- Windows localized title, label, and hint fields: [src/gui/locale/workspace.rs](../../src/gui/locale/workspace.rs)
+- Windows localized shell fields: [src/gui/locale/workspace.rs](../../src/gui/locale/workspace.rs)
+- Android categorized dialog: [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/UsageTipsUi.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/UsageTipsUi.kt)
+
+## Editorial Contract
+
+Usage Tips are actionable surprises, not a feature catalog, onboarding checklist,
+release notes, or a promotion surface. Include a tip only when it teaches shipped,
+stable behavior that is difficult to infer from visible controls:
+
+- a hidden gesture or shortcut
+- a prerequisite, constraint, or state invariant
+- a recovery or persistence path
+- an implicit icon or default meaning
+- a useful cross-surface or background interaction
+
+Exclude generic "Open/Use X" copy, visible control inventories, documentation
+pointers, transient provider/site claims, and instructions already printed beside
+the relevant control. Each tip teaches one behavior, uses current localized UI
+labels, and has a stable semantic ID. Re-audit or remove a tip when the product UI
+makes its behavior obvious. Every catalog addition or rewrite must be checked
+against implementation or test evidence; a plausible description is not enough.
+
+## Category Contract
+
+Both platforms use these stable categories in this order:
+
+1. `capture_shortcuts`
+2. `presets_automation`
+3. `results_recovery`
+4. `models_search`
+5. `creative_tools`
+
+Category and tip IDs are semantic metadata, never localized display text. Within
+one platform, English, Vietnamese, and Korean keep identical category IDs, tip
+IDs, order, and meaning. Android filters out desktop-only behavior and omits any
+category left empty by that filtering.
 
 ## Behavior Contract
 
-- Usage tips have two states: closed and full list open.
 - The entry is static. It has no current-tip index, timer, random selection, fade,
   scrolling preview, or animation-driven repaint.
 - Windows renders a warning-yellow lightbulb with the short active-locale label:
   `Tips` (`en`), `Mẹo` (`vi`), or `팁` (`ko`).
-- Activating the entry opens the complete localized list in catalog order.
-- `**bold**` markers are presentation metadata and must render as emphasized text
+- Activating the entry opens the categorized localized catalog.
+- Tips are unnumbered because they are independent discoveries, not a sequence.
+- `**bold**` markers are presentation metadata and render as emphasized text
   without showing the marker characters.
-- The English, Vietnamese, and Korean catalogs keep matching count, order, and
-  semantic meaning.
-- Android content is filtered parity:
-  - tips valid on Android keep the Windows meaning or the closest Android wording
-  - tips describing a shipped Android equivalent use Android interaction language
-  - desktop-only tips with no Android equivalent are omitted
+- Windows remembers the selected category for the app session and falls back to
+  the first non-empty category if that selection is unavailable.
+- Closing the dialog never changes catalog content or starts automatic rotation.
 
-## Deliberate Deviation
+## Deliberate Presentation Deviations
 
-- Windows places a compact entry in the footer.
-- Android places a static lightbulb entry card in Settings and opens the full list
-  in a dialog.
+- Windows places a compact trailing entry in the footer after the mini-app
+  launchers and uses a fixed category rail with one focused reading pane.
+- Android places a static lightbulb card in Settings and uses stacked categorized
+  sections suited to a narrow screen.
 - The Android card may show a localized hint because it has more room than the
-  Windows footer. It must not restore an automatically changing tip preview.
+  Windows footer entry. It must not restore an automatically changing tip
+  preview.
 
 ## Fixtures
 
@@ -38,7 +72,9 @@
 
 ## Failure And Recovery
 
-- Empty tip lists render an inert entry and never crash either settings surface.
-- Unbalanced `**` markers fail catalog validation instead of leaking marker text.
-- Closing the full list returns to the same static entry without retaining
-  animation or selection state.
+- An empty catalog renders an inert entry and never crashes either settings
+  surface.
+- Empty categories are omitted.
+- Duplicate semantic IDs, locale order drift, and unbalanced `**` markers fail
+  catalog validation.
+- Closing the full catalog returns to the same static entry.

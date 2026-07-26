@@ -1,13 +1,13 @@
 use crate::config::get_all_languages;
 use crate::gui::theme::AppTheme;
 use crate::gui::widgets::filled_button;
-use crate::model_config::model_supports_search_by_id;
+use crate::model_config::model_search_tool_enabled_by_default_by_id;
 use eframe::egui;
 use std::collections::HashMap;
 
-/// Check if a model supports search capabilities (grounding/web search)
-pub fn model_supports_search(model_id: &str) -> bool {
-    model_supports_search_by_id(model_id)
+/// Whether normal selection of this model actually invokes search.
+pub fn model_shows_search_marker(model_id: &str) -> bool {
+    model_search_tool_enabled_by_default_by_id(model_id)
 }
 
 /// Request a node graph view reset (scale=1.0, centered)

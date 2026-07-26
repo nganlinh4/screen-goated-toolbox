@@ -18,6 +18,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetector
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorTargetSelector
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorTargetVerification
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
+import kotlin.time.TimeSource
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -46,7 +47,13 @@ internal class UiDetectorToolHandlers(
         }
         return when (val result = backend.mapCurrentSurface()) {
             is UiDetectorProviderResult.Failure ->
-                detectorFailure(job, "map_targets", result, backend.observationGeneration)
+                detectorFailure(
+                    job,
+                    "map_targets",
+                    result,
+                    backend.observationGeneration,
+                    stage = "mapping",
+                )
             is UiDetectorProviderResult.Success -> mappingExecution(
                 job,
                 requestedTool = "map_targets",
@@ -73,7 +80,13 @@ internal class UiDetectorToolHandlers(
         }
         val mapping = when (val result = backend.mapCurrentSurface()) {
             is UiDetectorProviderResult.Failure ->
-                return detectorFailure(job, "click_target", result, backend.observationGeneration)
+                return detectorFailure(
+                    job,
+                    "click_target",
+                    result,
+                    backend.observationGeneration,
+                    stage = "mapping",
+                )
             is UiDetectorProviderResult.Success -> result.value
         }
         if (mapping.marks.marks.isEmpty()) {
@@ -86,6 +99,7 @@ internal class UiDetectorToolHandlers(
                 requestedButton = button,
             )
         }
+        val selectionStartedAt = TimeSource.Monotonic.markNow()
         val selected = try {
             targetSelector.select(description, mapping)
         } catch (error: Throwable) {
@@ -99,6 +113,7 @@ internal class UiDetectorToolHandlers(
             }
             is UiDetectorTargetSelection.Success -> selected
         }
+        val targetSelectionMs = selectionStartedAt.elapsedNow().inWholeMilliseconds
         val refreshResult = try {
             backend.refreshMark(selection.mark)
         } catch (error: Throwable) {
@@ -108,10 +123,17 @@ internal class UiDetectorToolHandlers(
         val refreshed = when (val result = refreshResult) {
             is UiDetectorProviderResult.Failure -> {
                 backend.clearMarks()
-                return detectorFailure(job, "click_target", result, backend.observationGeneration)
+                return detectorFailure(
+                    job,
+                    "click_target",
+                    result,
+                    backend.observationGeneration,
+                    stage = "refresh",
+                )
             }
             is UiDetectorProviderResult.Success -> result.value
         }
+        val verificationStartedAt = TimeSource.Monotonic.markNow()
         val verified = try {
             targetSelector.verify(description, refreshed)
         } catch (error: Throwable) {
@@ -125,13 +147,45 @@ internal class UiDetectorToolHandlers(
             }
             is UiDetectorTargetVerification.Success -> verified
         }
+        val targetVerificationMs = verificationStartedAt.elapsedNow().inWholeMilliseconds
+        val finalSet = when (val result = backend.revalidateMarks(listOf(refreshed))) {
+            is UiDetectorProviderResult.Failure -> {
+                backend.clearMarks()
+                return detectorFailure(
+                    job,
+                    "click_target",
+                    result,
+                    backend.observationGeneration,
+                    stage = "pixel_revalidation",
+                )
+            }
+            is UiDetectorProviderResult.Success -> result.value
+        }
+        val finalMark = finalSet.mark(refreshed.mark.id) ?: run {
+            backend.clearMarks()
+            return detectorFailure(
+                job,
+                "click_target",
+                UiDetectorProviderResult.Failure(
+                    code = "detector_contract_invalid",
+                    message = "The final visual lease omitted the verified target.",
+                    retryable = true,
+                    freshObservationRequired = true,
+                ),
+                backend.observationGeneration,
+                stage = "pixel_revalidation",
+            )
+        }
         return executeRefreshedMark(
             job,
             "click_target",
             button,
-            refreshed,
+            finalMark,
             selection,
             verification,
+            mappingInferenceMs = mapping.inferenceMs,
+            targetSelectionMs = targetSelectionMs,
+            targetVerificationMs = targetVerificationMs,
         )
     }
 
@@ -160,7 +214,13 @@ internal class UiDetectorToolHandlers(
         val refreshed = when (val result = refreshResult) {
             is UiDetectorProviderResult.Failure -> {
                 backend.clearMarks()
-                return detectorFailure(job, "click_mark", result, backend.observationGeneration)
+                return detectorFailure(
+                    job,
+                    "click_mark",
+                    result,
+                    backend.observationGeneration,
+                    stage = "refresh",
+                )
             }
             is UiDetectorProviderResult.Success -> result.value
         }
@@ -174,6 +234,9 @@ internal class UiDetectorToolHandlers(
         refreshed: UiDetectorRefreshedMark,
         selection: UiDetectorTargetSelection.Success? = null,
         verification: UiDetectorTargetVerification.Success? = null,
+        mappingInferenceMs: Long? = null,
+        targetSelectionMs: Long? = null,
+        targetVerificationMs: Long? = null,
     ): PhoneControlToolExecution {
         val id = refreshed.mark.id
         val point = refreshed.mark.box
@@ -189,6 +252,7 @@ internal class UiDetectorToolHandlers(
                     freshObservationRequired = true,
                 ),
                 backend.observationGeneration,
+                stage = "pre_dispatch",
             )
         }
         val action = try {
@@ -216,7 +280,11 @@ internal class UiDetectorToolHandlers(
                 put("screen_x", point.centerX)
                 put("screen_y", point.centerY)
                 put("fresh_overlap", refreshed.overlap)
-                put("verification_inference_ms", refreshed.inferenceMs)
+                put("refresh_inference_ms", refreshed.inferenceMs)
+                put("pixel_revalidation_ms", refreshed.pixelRevalidationMs)
+                mappingInferenceMs?.let { put("mapping_inference_ms", it) }
+                targetSelectionMs?.let { put("target_selection_ms", it) }
+                targetVerificationMs?.let { put("target_verification_ms", it) }
                 selection?.let {
                     put("target_selection_model", it.modelId)
                     put("target_selection_confidence", it.confidence)
@@ -240,6 +308,10 @@ internal interface UiDetectorToolBackend {
     suspend fun refreshMark(id: Int): UiDetectorProviderResult<UiDetectorRefreshedMark>
 
     suspend fun refreshMarks(ids: List<Int>): UiDetectorProviderResult<UiDetectorRefreshedMarkSet>
+
+    suspend fun revalidateMarks(
+        marks: List<UiDetectorRefreshedMark>,
+    ): UiDetectorProviderResult<UiDetectorRefreshedMarkSet>
 
     suspend fun activate(
         refreshed: UiDetectorRefreshedMark,
@@ -270,6 +342,10 @@ private class AndroidUiDetectorToolBackend(context: Context) : UiDetectorToolBac
     override suspend fun refreshMarks(
         ids: List<Int>,
     ): UiDetectorProviderResult<UiDetectorRefreshedMarkSet> = detector.refreshMarks(ids)
+
+    override suspend fun revalidateMarks(
+        marks: List<UiDetectorRefreshedMark>,
+    ): UiDetectorProviderResult<UiDetectorRefreshedMarkSet> = detector.revalidateMarks(marks)
 
     override suspend fun activate(
         refreshed: UiDetectorRefreshedMark,
@@ -409,7 +485,7 @@ private fun targetVerificationFailure(
             put("message", failure.message)
             put("mark", refreshed.mark.id)
             put("fresh_overlap", refreshed.overlap)
-            put("verification_inference_ms", refreshed.inferenceMs)
+            put("refresh_inference_ms", refreshed.inferenceMs)
         },
     ),
     mutating = false,
@@ -481,65 +557,4 @@ private fun mappingExecution(
     ),
     mutating = false,
     refreshScreenFrame = true,
-)
-
-internal fun detectorFailure(
-    job: PhoneControlToolJobContext,
-    requestedTool: String,
-    failure: UiDetectorProviderResult.Failure,
-    observationGeneration: Long,
-): PhoneControlToolExecution = PhoneControlToolExecution(
-    response = toolResponse(
-        job = job,
-        requestedTool = requestedTool,
-        capability = if (
-            requestedTool == "click_target" || requestedTool == "click_mark" ||
-            requestedTool == "drag_target"
-        ) {
-            DETECTOR_POINTER_CAPABILITY
-        } else {
-            GROUNDING_CAPABILITY
-        },
-        provider = DETECTOR_PROVIDER,
-        providerState = when {
-            failure.requiredUserStep != null -> CapabilityState.NEEDS_USER_STEP
-            failure.code == "structured_surface_available" -> CapabilityState.DEGRADED
-            else -> CapabilityState.UNAVAILABLE
-        },
-        code = failure.code,
-        observationGeneration = observationGeneration,
-        effect = EffectCertainty.PROVEN_NO_EFFECT,
-        snapshotInvalidated = false,
-        retryable = failure.retryable,
-        requiredUserStep = failure.requiredUserStep,
-        freshObservationRequired = failure.freshObservationRequired,
-        data = buildJsonObject { put("message", failure.message) },
-    ),
-    mutating = false,
-    refreshScreenFrame = failure.freshObservationRequired,
-)
-
-internal const val DETECTOR_PROVIDER = "local_ui_detector"
-private const val GROUNDING_CAPABILITY = "blind_surface_grounding"
-internal const val DETECTOR_POINTER_CAPABILITY = "ui.pointer_action"
-internal const val MAX_DESCRIPTION_CHARS = 480
-private const val LONG_PRESS_MS = 650L
-private val SUPPORTED_BUTTONS = setOf("left", "right")
-
-internal fun detectorGestureIsMutating(effect: EffectCertainty): Boolean =
-    effect.effectMayHaveOccurred != false
-
-internal fun detectorInputProviderState(
-    failure: AccessibilityProviderResult.Failure,
-): CapabilityState = when {
-    failure.requiredUserStep != null -> CapabilityState.NEEDS_USER_STEP
-    failure.code == "capability_unavailable" -> CapabilityState.UNAVAILABLE
-    else -> CapabilityState.DEGRADED
-}
-
-private fun staleDetectorGesture(message: String) = AccessibilityProviderResult.Failure(
-    code = "stale_target",
-    message = message,
-    retryable = true,
-    freshObservationRequired = true,
 )

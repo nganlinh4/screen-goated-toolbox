@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.helpassistant
 
+import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -60,6 +61,19 @@ class HelpAssistantClientTest {
         assertEquals(FALLBACK_MODEL, modelChain.getValue("fallback").jsonPrimitive.content)
         assertEquals(MAX_OUTPUT_TOKENS, modelChain.getValue("max_output_tokens").jsonPrimitive.content.toInt())
         assertEquals(0.7, modelChain.getValue("temperature").jsonPrimitive.double, 0.0)
+        val thinking = modelChain.getValue("thinking_config").jsonObject
+        for (modelId in listOf(PRIMARY_MODEL, FALLBACK_MODEL)) {
+            val apiModel = requireNotNull(PresetModelCatalog.getById(modelId))
+            assertEquals(
+                thinking.getValue(modelId).jsonObject
+                    .mapValues { it.value.jsonPrimitive.content },
+                PresetModelCatalog.geminiImportantTaskThinkingConfig(
+                    apiModel.provider,
+                    apiModel.fullName,
+                )
+                    ?.mapValues { it.value.toString() },
+            )
+        }
 
         val prompt = cases.getValue("prompt_contract")
         assertTrue(prompt.getValue("question_language_answer").jsonPrimitive.boolean)

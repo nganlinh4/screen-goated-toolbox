@@ -306,6 +306,7 @@ impl SettingsApp {
 
             // --- TIP INIT ---
             show_tips_modal: false,
+            selected_tips_category: crate::gui::locale::UsageTipCategory::default(),
             // ---------------
 
             // --- USAGE MODAL INIT ---

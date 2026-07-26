@@ -28,7 +28,7 @@ class PhoneControlDiagnosticsContractTest {
         val recovery = root.getValue("sameGenerationTargetRecovery").jsonObject
         val postconditions = root.getValue("postconditions").jsonObject
 
-        assertEquals(6L, root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(7L, root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals(
             PhoneControlLog.RECORD_SCHEMA_VERSION.toLong(),
             journal.getValue("recordSchemaVersion").jsonPrimitive.long,
@@ -84,6 +84,19 @@ class PhoneControlDiagnosticsContractTest {
         assertEquals(
             listOf("argument_field", "contract_reason"),
             toolEvents.getValue("optionalContractFailureFields").jsonArray.map {
+                it.jsonPrimitive.content
+            },
+        )
+        assertEquals(
+            listOf(
+                "detector_stage",
+                "mapping_inference_ms",
+                "target_selection_ms",
+                "refresh_inference_ms",
+                "target_verification_ms",
+                "pixel_revalidation_ms",
+            ),
+            toolEvents.getValue("optionalDetectorFields").jsonArray.map {
                 it.jsonPrimitive.content
             },
         )

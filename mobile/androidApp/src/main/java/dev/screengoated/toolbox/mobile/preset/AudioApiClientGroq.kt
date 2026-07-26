@@ -33,6 +33,7 @@ internal fun AudioApiClient.transcribeWithGroq(
             .build()
 
         httpClient.newCall(request).execute().use { response ->
+            ModelUsageStats.update(model.provider, model.fullName, response.headers)
             if (!response.isSuccessful) {
                 val code = response.code
                 if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("groq"))

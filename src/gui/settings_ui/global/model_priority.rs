@@ -3,10 +3,12 @@ use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use crate::model_config::{
     ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
-    model_supports_search_by_id,
+    model_search_tool_enabled_by_default_by_id,
 };
 use crate::retry_model_chain::RetryChainKind;
 use eframe::egui;
+
+const MODEL_SELECTOR_WIDTH: f32 = 240.0 - crate::gui::model_performance::PREFIX_WIDTH;
 
 pub fn render_model_priority_modal(
     ui: &mut egui::Ui,
@@ -142,18 +144,22 @@ fn render_chain_section(
             ui.horizontal(|ui| {
                 ui.label(format!("{}.", row_idx + 2));
 
-                if let Some(model) = get_model_by_id(&chain[row_idx]) {
+                let selected_model = get_model_by_id(&chain[row_idx]);
+                if let Some(model) = selected_model.as_ref() {
+                    crate::gui::model_performance::render_prefix(ui, model);
                     crate::gui::icons::draw_icon_static(
                         ui,
                         crate::gui::icons::provider_icon(&model.provider),
                         Some(crate::gui::icons::ICON_MD),
                     );
+                } else {
+                    crate::gui::model_performance::render_unknown_prefix(ui);
                 }
 
                 let selected_text = model_short_label(&chain[row_idx], ui_language);
                 crate::gui::widgets::combo((section_id, "combo", row_idx))
                     .selected_text(selected_text)
-                    .width(240.0)
+                    .width(MODEL_SELECTOR_WIDTH)
                     .show_ui(ui, |ui| {
                         for model in &available_models {
                             let label = model_option_label(model, ui_language);
@@ -169,7 +175,7 @@ fn render_chain_section(
                                     chain[row_idx] = model.id.clone();
                                     changed = true;
                                 }
-                                if model_supports_search_by_id(&model.id) {
+                                if model_search_tool_enabled_by_default_by_id(&model.id) {
                                     crate::gui::icons::draw_icon_static(
                                         ui,
                                         crate::gui::icons::Icon::Search,

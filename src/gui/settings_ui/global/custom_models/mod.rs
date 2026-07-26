@@ -140,7 +140,8 @@ fn render_provider_section(
     let dark = ui.visuals().dark_mode;
     let theme = AppTheme::from_ui(ui);
     let accent = provider_accent(provider, dark);
-    let all_models = get_all_models_with_custom(&config.custom_models);
+    let mut all_models = get_all_models_with_custom(&config.custom_models);
+    crate::model_config::sort_models_for_display(&mut all_models);
     let provider_models: Vec<ModelConfig> = all_models
         .into_iter()
         .filter(|model| model.provider == provider)

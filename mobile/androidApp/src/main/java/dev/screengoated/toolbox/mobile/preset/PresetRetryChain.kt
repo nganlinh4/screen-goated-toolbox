@@ -188,7 +188,7 @@ internal fun resolveNextRetryModel(
         }
     }?.let { return it }
 
-    PresetModelCatalog.dialogModels()
+    PresetModelCatalog.runtimeModels()
         .filter { it.provider == current.provider }
         .lastOrNull { candidate ->
             candidate.id != currentModelId &&
@@ -196,7 +196,7 @@ internal fun resolveNextRetryModel(
                 isRetryCandidateCompatible(candidate, targetType, mustSupportSearch, blockedProviders, apiKeys, settings)
         }?.let { return it }
 
-    return PresetModelCatalog.dialogModels()
+    return PresetModelCatalog.runtimeModels()
         .filter { it.provider != current.provider }
         .lastOrNull { candidate ->
             candidate.id !in failedModelIds &&
@@ -216,7 +216,7 @@ private fun isRetryCandidateCompatible(
         !model.isNonLlm &&
         model.provider !in blockedProviders &&
         providerIsAvailable(model.provider, apiKeys, settings) &&
-        (!mustSupportSearch || PresetModelCatalog.supportsSearchByName(model.fullName))
+        (!mustSupportSearch || PresetModelCatalog.supportsSearchById(model.id))
 }
 
 private fun providerKey(provider: PresetModelProvider): String = when (provider) {

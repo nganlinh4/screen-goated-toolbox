@@ -39,6 +39,6 @@ pub use streaming::{
     init_gridjs, reset_stream_counter, set_body_opacity, stream_markdown_content,
 };
 pub use webview::{
-    create_markdown_webview, destroy_markdown_webview, has_markdown_webview, hide_markdown_webview,
+    create_markdown_webview, destroy_markdown_webview, has_markdown_webview,
     resize_markdown_webview, show_markdown_webview,
 };

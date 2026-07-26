@@ -27,6 +27,8 @@ pub struct TextCase {
     #[serde(default)]
     pub required_exact: Vec<String>,
     #[serde(default)]
+    pub required_exact_any: Vec<Vec<String>>,
+    #[serde(default)]
     pub forbidden_terms: Vec<String>,
     #[serde(default)]
     pub expected_line_count: Option<usize>,
@@ -39,6 +41,7 @@ pub struct CoordinateCase {
     pub difficulty: u8,
     pub image: String,
     pub target: String,
+    pub context: String,
     pub box_px: [f64; 4],
 }
 
@@ -47,12 +50,31 @@ pub struct OcrCase {
     pub id: String,
     pub difficulty: u8,
     pub image: String,
+    pub input_mode: OcrInputMode,
     #[serde(default)]
     pub crop_px: Option<[u32; 4]>,
     pub instruction: String,
     pub reference: String,
     #[serde(default)]
     pub accepted_references: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OcrInputMode {
+    /// A Windows selection or clipboard image, normalized to PNG by the app.
+    ScreenCropPng,
+    /// A dropped image file, whose original bytes are retained for providers.
+    OriginalFile,
+}
+
+impl OcrInputMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ScreenCropPng => "screen-crop-png",
+            Self::OriginalFile => "original-file",
+        }
+    }
 }
 
 impl Manifest {
@@ -70,8 +92,9 @@ impl Manifest {
     }
 
     pub fn validate(&self) -> Result<()> {
+        let latency_policy = super::history::vision_latency_policy()?;
         ensure!(
-            self.version == 2,
+            self.version == 3,
             "unsupported manifest version {}",
             self.version
         );
@@ -98,12 +121,44 @@ impl Manifest {
                 .map(|case| (&case.id, case.difficulty)),
         )?;
 
+        for case in &self.text_cases {
+            ensure!(
+                !case.input.trim().is_empty(),
+                "{} has no text input",
+                case.id
+            );
+            ensure!(
+                !case.reference.trim().is_empty(),
+                "{} has no text reference",
+                case.id
+            );
+            ensure!(
+                case.required_exact_any.iter().all(|alternatives| {
+                    !alternatives.is_empty()
+                        && alternatives
+                            .iter()
+                            .all(|alternative| !alternative.is_empty())
+                }),
+                "{} has an empty exact-alternative group",
+                case.id
+            );
+        }
+
+        let mut representative_coordinate_cases = 0;
         for case in &self.coordinate_cases {
             let path = self.image_path(&case.image);
             let image = image::open(&path).with_context(|| format!("decode {}", path.display()))?;
+            if image.width().max(image.height()) <= latency_policy.max_edge_px {
+                representative_coordinate_cases += 1;
+            }
+            ensure!(
+                !case.target.trim().is_empty() && !case.context.trim().is_empty(),
+                "{} needs both a target and realistic task context",
+                case.id
+            );
             let [x, y, width, height] = case.box_px;
             ensure!(
-                x >= 0.0 && y >= 0.0 && width > 0.0 && height > 0.0,
+                x >= 0.0 && y >= 0.0 && width >= 2.0 && height >= 2.0,
                 "{} has an invalid box",
                 case.id
             );
@@ -115,9 +170,29 @@ impl Manifest {
                 image.height()
             );
         }
+        let mut representative_ocr_cases = 0;
+        let mut screen_crop_cases = 0;
+        let mut original_file_cases = 0;
         for case in &self.ocr_cases {
             let path = self.image_path(&case.image);
             let image = image::open(&path).with_context(|| format!("decode {}", path.display()))?;
+            ensure!(
+                case.input_mode != OcrInputMode::OriginalFile || case.crop_px.is_none(),
+                "{} cannot crop an original-file input; app crops are screen-crop PNG inputs",
+                case.id
+            );
+            match case.input_mode {
+                OcrInputMode::ScreenCropPng => screen_crop_cases += 1,
+                OcrInputMode::OriginalFile => original_file_cases += 1,
+            }
+            let (effective_width, effective_height) = case
+                .crop_px
+                .map_or((image.width(), image.height()), |[_, _, width, height]| {
+                    (width, height)
+                });
+            if effective_width.max(effective_height) <= latency_policy.max_edge_px {
+                representative_ocr_cases += 1;
+            }
             if let Some([x, y, width, height]) = case.crop_px {
                 ensure!(width > 0 && height > 0, "{} has an empty OCR crop", case.id);
                 ensure!(
@@ -142,6 +217,22 @@ impl Manifest {
                 case.id
             );
         }
+        ensure!(
+            representative_coordinate_cases >= latency_policy.minimum_cases_per_suite,
+            "coordinate suite needs at least {} representative images at or below {}px",
+            latency_policy.minimum_cases_per_suite,
+            latency_policy.max_edge_px
+        );
+        ensure!(
+            representative_ocr_cases >= latency_policy.minimum_cases_per_suite,
+            "OCR suite needs at least {} representative images at or below {}px after cropping",
+            latency_policy.minimum_cases_per_suite,
+            latency_policy.max_edge_px
+        );
+        ensure!(
+            screen_crop_cases >= 5 && original_file_cases >= 3,
+            "OCR suite must retain a daily-use mix of screen crops and original files"
+        );
         let preset_cases: Vec<_> = self
             .ocr_cases
             .iter()

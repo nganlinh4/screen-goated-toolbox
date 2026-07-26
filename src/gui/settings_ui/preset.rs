@@ -537,18 +537,8 @@ pub fn render_preset_editor(
                 .inner_margin(6.0)
                 .corner_radius(10.0)
                 .show(ui, |ui| {
-                    if render_node_graph(
-                        ui,
-                        snarl,
-                        &config.ui_language,
-                        config.use_groq,
-                        config.use_gemini,
-                        config.use_openrouter,
-                        config.use_ollama,
-                        &preset.preset_type,
-                        text,
-                        graph_min_h,
-                    ) {
+                    if render_node_graph(ui, snarl, config, &preset.preset_type, text, graph_min_h)
+                    {
                         changed = true;
                     }
                 });

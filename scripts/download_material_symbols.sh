@@ -1,9 +1,11 @@
 #!/bin/bash
-# Download Material Symbols as Android vector drawables from Iconify API
-# Converts SVG path data into Android VectorDrawable XML format
+# Download filled, rounded Material Symbols from Iconify for Android and offline web UIs.
+# Converts SVG path data into Android VectorDrawable XML and keeps the source SVG.
 
 DRAWABLE_DIR="mobile/androidApp/src/main/res/drawable"
+WEB_ICON_DIR="ui-shared/material-symbols"
 mkdir -p "$DRAWABLE_DIR"
+mkdir -p "$WEB_ICON_DIR"
 
 # Map: compose_name -> material_symbols_name
 declare -A ICONS=(
@@ -21,6 +23,7 @@ declare -A ICONS=(
   ["camera_alt"]="photo_camera"
   ["check"]="check"
   ["close"]="close"
+  ["compare_arrows"]="compare_arrows"
   ["computer"]="computer"
   ["content_copy"]="content_copy"
   ["content_cut"]="content_cut"
@@ -40,6 +43,7 @@ declare -A ICONS=(
   ["gamepad"]="gamepad"
   ["graphic_eq"]="graphic_eq"
   ["grid_view"]="grid_view"
+  ["grid_on"]="grid_on"
   ["g_translate"]="g_translate"
   ["help_outline"]="help_outline"
   ["history"]="history"
@@ -58,6 +62,8 @@ declare -A ICONS=(
   ["note"]="note"
   ["open_in_full"]="open_in_full"
   ["open_in_new"]="open_in_new"
+  ["outline"]="border_style"
+  ["palette"]="palette"
   ["photo_camera"]="photo_camera"
   ["play_arrow"]="play_arrow"
   ["potted_plant"]="potted_plant"
@@ -69,6 +75,7 @@ declare -A ICONS=(
   ["remove"]="remove"
   ["remove_red_eye"]="remove_red_eye"
   ["restart_alt"]="restart_alt"
+  ["rotate_360"]="360"
   ["school"]="school"
   ["search"]="search"
   ["send"]="send"
@@ -92,25 +99,43 @@ declare -A ICONS=(
   ["videocam"]="videocam"
   ["visibility"]="visibility"
   ["visibility_off"]="visibility_off"
+  ["view_in_ar"]="view_in_ar"
   ["voice_chat"]="voice_chat"
   ["volume_off"]="volume_off"
   ["volume_up"]="volume_up"
+  ["fit_screen"]="fit_screen"
+  ["redo"]="redo"
+  ["save"]="save"
+  ["select_all"]="select_all"
+  ["texture"]="texture"
+  ["undo"]="undo"
+  ["zoom_in"]="zoom_in"
+  ["zoom_out"]="zoom_out"
 )
 
 count=0
 total=${#ICONS[@]}
+declare -A REQUESTED=()
+for requested in "$@"; do
+  REQUESTED["$requested"]=1
+done
 
 for key in "${!ICONS[@]}"; do
+  if [ "$#" -gt 0 ] && [ -z "${REQUESTED[$key]+x}" ]; then
+    continue
+  fi
   symbol="${ICONS[$key]}"
+  symbol_url="${symbol//_/-}"
   outfile="$DRAWABLE_DIR/ms_${key}.xml"
+  webfile="$WEB_ICON_DIR/${key}.svg"
 
-  if [ -f "$outfile" ]; then
+  if [ -f "$outfile" ] && [ -f "$webfile" ]; then
     echo "SKIP $key (exists)"
     continue
   fi
 
   # Download SVG from Iconify
-  svg=$(curl -s "https://api.iconify.design/material-symbols:${symbol}-rounded.svg" 2>/dev/null)
+  svg=$(curl -s "https://api.iconify.design/material-symbols:${symbol_url}-rounded.svg" 2>/dev/null)
 
   if [ -z "$svg" ] || echo "$svg" | grep -q "404"; then
     echo "FAIL $key ($symbol) — not found"
@@ -125,8 +150,9 @@ for key in "${!ICONS[@]}"; do
     continue
   fi
 
-  # Write Android VectorDrawable XML
-  cat > "$outfile" << EOF
+  if [ ! -f "$outfile" ]; then
+    # Write Android VectorDrawable XML
+    cat > "$outfile" << EOF
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -137,10 +163,15 @@ for key in "${!ICONS[@]}"; do
       android:pathData="$path_data"/>
 </vector>
 EOF
+  fi
+
+  if [ ! -f "$webfile" ]; then
+    printf '%s\n' "$svg" > "$webfile"
+  fi
 
   count=$((count + 1))
   echo "OK   $key ($count/$total)"
 done
 
 echo ""
-echo "Downloaded $count icons to $DRAWABLE_DIR"
+echo "Downloaded $count icons to $DRAWABLE_DIR and $WEB_ICON_DIR"

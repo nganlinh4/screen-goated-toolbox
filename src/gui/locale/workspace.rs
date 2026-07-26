@@ -1,3 +1,5 @@
+use super::UsageTipSection;
+
 pub struct WorkspaceLocaleText {
     pub history_btn: &'static str,
     pub history_title: &'static str,
@@ -10,7 +12,8 @@ pub struct WorkspaceLocaleText {
     pub view_text_btn: &'static str,
     pub tips_title: &'static str,
     pub tips_btn: &'static str,
-    pub tips_list: Vec<&'static str>,
+    pub tips_intro: &'static str,
+    pub tips_sections: &'static [UsageTipSection],
     pub tips_click_hint: &'static str,
     pub restore_preset_btn: &'static str,
     pub restore_preset_tooltip: &'static str,

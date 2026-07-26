@@ -1,6 +1,6 @@
 use crate::api::cerebras;
-use crate::api::gemini_generate::stream_gemini_generate;
-use crate::api::openai_compat::stream_openai_compat_chat;
+use crate::api::gemini_generate::{GeminiGenerateRequest, stream_gemini_generate};
+use crate::api::openai_compat::stream_openai_compat_payload;
 use anyhow::Result;
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Duration;
@@ -25,16 +25,20 @@ where
     let parts = serde_json::json!([{ "text": prompt }]);
 
     stream_gemini_generate(
-        parts,
-        model,
-        gemini_api_key,
-        transport.streaming_enabled,
-        transport.ui_language,
-        transport.cancel_token,
-        Some("Gemini Text API Error"),
-        true,
-        transport.request_timeout,
-        None,
+        GeminiGenerateRequest {
+            parts,
+            model,
+            api_key: gemini_api_key,
+            streaming: transport.streaming_enabled,
+            ui_language: transport.ui_language,
+            cancel_token: transport.cancel_token,
+            error_label: Some("Gemini Text API Error"),
+            map_auth_errors: true,
+            request_timeout: transport.request_timeout,
+            response_schema: None,
+            media_resolution: None,
+            retry_observer: None,
+        },
         on_chunk,
     )
 }
@@ -121,13 +125,17 @@ where
         return Err(anyhow::anyhow!("NO_API_KEY:openrouter"));
     }
 
-    let messages = serde_json::json!([{ "role": "user", "content": prompt }]);
+    let mut payload = serde_json::json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": prompt }],
+        "stream": transport.streaming_enabled
+    });
+    crate::api::apply_ordinary_openrouter_reasoning_policy(&mut payload, model);
 
-    stream_openai_compat_chat(
+    stream_openai_compat_payload(
         "https://openrouter.ai/api/v1/chat/completions",
         openrouter_api_key,
-        model,
-        messages,
+        payload,
         transport.streaming_enabled,
         false,
         transport.ui_language,
@@ -135,6 +143,8 @@ where
         transport.request_timeout,
         "OpenRouter API Error",
         true,
+        false,
+        |headers| crate::api::client::record_usage_headers("openrouter", model, headers),
         |_| {},
         on_chunk,
     )

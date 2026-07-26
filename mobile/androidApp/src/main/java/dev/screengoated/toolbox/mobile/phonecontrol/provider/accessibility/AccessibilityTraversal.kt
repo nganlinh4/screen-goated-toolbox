@@ -8,6 +8,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import android.view.Display
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayExclusion
 import dev.screengoated.toolbox.mobile.phonecontrol.result.PhoneControlTargetIdentity
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
@@ -110,7 +111,14 @@ internal fun captureAccessibilitySurface(
     val defaultDisplayDensity = defaultDisplay?.let { display ->
         service.createDisplayContext(display).resources.displayMetrics.densityDpi
     } ?: service.resources.displayMetrics.densityDpi
-    val windowSnapshots = snapshotAccessibilityWindows(windows, service.packageName)
+    val controllerBounds = PhoneControlOverlayExclusion.currentInteractionBounds()?.let { bounds ->
+        TargetBounds(bounds.left, bounds.top, bounds.right, bounds.bottom)
+    }
+    val windowSnapshots = snapshotAccessibilityWindows(
+        windows,
+        service.packageName,
+        controllerBounds,
+    )
     val elements = mutableListOf<AccessibilityElement>()
     val leases = linkedMapOf<Int, AccessibilityTargetLease>()
     val surfaceLeases = windowSnapshots.associate { window ->
@@ -463,7 +471,7 @@ private fun actionName(id: Int): String? = when (id) {
     else -> null
 }
 
-private fun windowTypeName(type: Int): String = when (type) {
+internal fun windowTypeName(type: Int): String = when (type) {
     AccessibilityWindowInfo.TYPE_APPLICATION -> "application"
     AccessibilityWindowInfo.TYPE_INPUT_METHOD -> "input_method"
     AccessibilityWindowInfo.TYPE_SYSTEM -> "system"
@@ -472,7 +480,7 @@ private fun windowTypeName(type: Int): String = when (type) {
     else -> "unknown"
 }
 
-private fun Rect.toTargetBoundsOrNull(): TargetBounds? = validPlatformTargetBounds(
+internal fun Rect.toTargetBoundsOrNull(): TargetBounds? = validPlatformTargetBounds(
     left = left,
     top = top,
     right = right,

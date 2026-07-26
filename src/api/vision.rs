@@ -1,6 +1,9 @@
-use super::client::{UREQ_AGENT, UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple};
-use super::gemini_generate::stream_gemini_generate;
-use super::openai_compat::stream_openai_compat_chat;
+use super::client::{
+    UREQ_AGENT, UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_headers,
+    record_usage_simple,
+};
+use super::gemini_generate::{GeminiGenerateRequest, stream_gemini_generate};
+use super::openai_compat::stream_openai_compat_payload;
 use super::types::ChatCompletionResponse;
 use crate::api::providers::Provider;
 use anyhow::Result;
@@ -13,10 +16,11 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 mod image_payload;
+mod request_policy;
+mod telemetry;
 use image_payload::{GROQ_SAFE_REQUEST_BYTES, prepare_image_payload};
 
-const QWEN_VISION_MAX_COMPLETION_TOKENS: u64 = 2_048;
-const GROQ_MAX_RATE_LIMIT_WAIT_SECS: u64 = 30;
+const GROQ_MAX_RATE_LIMIT_WAIT_SECS: u64 = 2;
 
 pub struct TranslateImageRequest<'a> {
     pub groq_api_key: &'a str,
@@ -27,10 +31,8 @@ pub struct TranslateImageRequest<'a> {
     pub image: ImageBuffer<Rgba<u8>, Vec<u8>>,
     pub original_bytes: Option<Vec<u8>>,
     pub streaming_enabled: bool,
-    pub use_json_format: bool,
-    /// When `Some` and the model is Gemma 4, sent as `responseJsonSchema` so Gemma
-    /// emits clean structured JSON (it ignores `responseMimeType` alone). Ignored
-    /// for other models / providers.
+    /// Optional structured-output contract. Each provider applies it only when
+    /// the selected model documents support for constrained JSON.
     pub response_schema: Option<serde_json::Value>,
     pub cancel_token: Option<Arc<AtomicBool>>,
     pub request_timeout: Option<Duration>,
@@ -44,28 +46,75 @@ fn groq_vision_payload(
     streaming: bool,
     response_schema: Option<&serde_json::Value>,
 ) -> serde_json::Value {
+    let profile = crate::model_config::vision_request_profile("groq", model);
+    let content = request_policy::openai_content(profile, prompt, mime_type, b64_image);
     let mut payload = serde_json::json!({
         "model": model,
         "messages": [
             {
                 "role": "user",
-                "content": [
-                    { "type": "text", "text": prompt },
-                    { "type": "image_url", "image_url": { "url": format!("data:{mime_type};base64,{b64_image}") } }
-                ]
+                "content": content
             }
         ],
         "temperature": 0.1,
         "stream": streaming
     });
-    if model.starts_with("qwen/") {
+    if profile.sampling == crate::model_config::VisionSamplingPolicy::Qwen3GroqNonThinking {
         payload["reasoning_format"] = "hidden".into();
-        payload["max_completion_tokens"] = QWEN_VISION_MAX_COMPLETION_TOKENS.into();
     }
+    if let Some(limit) = profile.max_output_tokens {
+        payload["max_completion_tokens"] = limit.into();
+    }
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", model);
+    request_policy::apply_sampling_policy(&mut payload, profile);
     if let Some(schema) = response_schema {
         payload["response_format"] =
             crate::api::groq::structured_response_format(model, "image_result", schema.clone());
     }
+    payload
+}
+
+fn openrouter_vision_payload(
+    model: &str,
+    prompt: &str,
+    mime_type: &str,
+    b64_image: &str,
+    streaming: bool,
+    response_schema: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let profile = crate::model_config::vision_request_profile("openrouter", model);
+    let content = request_policy::openai_content(profile, prompt, mime_type, b64_image);
+    let mut payload = serde_json::json!({
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": content
+        }],
+        "stream": streaming
+    });
+    if let Some(limit) = profile.max_output_tokens {
+        payload["max_completion_tokens"] = limit.into();
+    }
+    if let Some(schema) = response_schema {
+        match profile.structured_output {
+            crate::model_config::StructuredOutputPolicy::JsonObject => {
+                payload["response_format"] = serde_json::json!({ "type": "json_object" });
+            }
+            crate::model_config::StructuredOutputPolicy::StrictJsonSchema => {
+                payload["response_format"] = serde_json::json!({
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "image_result",
+                        "strict": true,
+                        "schema": schema
+                    }
+                });
+            }
+            crate::model_config::StructuredOutputPolicy::Unsupported
+            | crate::model_config::StructuredOutputPolicy::PromptOnly => {}
+        }
+    }
+    crate::api::apply_ordinary_openrouter_reasoning_policy(&mut payload, model);
     payload
 }
 
@@ -78,6 +127,17 @@ fn retry_after_seconds(headers: &ureq::http::HeaderMap) -> Option<u64> {
         .ok()
         .map(f64::ceil)
         .map(|seconds| seconds as u64)
+}
+
+fn groq_rate_limit_retry_delay(
+    status: u16,
+    rate_attempt: u8,
+    retry_after: Option<u64>,
+) -> Option<u64> {
+    (status == 429 && rate_attempt == 0)
+        .then_some(retry_after)
+        .flatten()
+        .filter(|seconds| *seconds <= GROQ_MAX_RATE_LIMIT_WAIT_SECS)
 }
 
 fn wait_for_groq_retry(seconds: u64, cancel_token: &Option<Arc<AtomicBool>>) -> bool {
@@ -112,6 +172,27 @@ pub fn translate_image_streaming<F>(
 where
     F: FnMut(&str),
 {
+    let mut trace = telemetry::VisionCallTrace::start(&request);
+    let mut output_observer = trace.output_observer();
+    let result = {
+        let mut observed_chunk = |chunk: &str| {
+            output_observer.observe(chunk);
+            on_chunk(chunk);
+        };
+        translate_image_streaming_inner(request, &mut trace, &mut observed_chunk)
+    };
+    trace.finish(&result, &output_observer);
+    result
+}
+
+fn translate_image_streaming_inner<F>(
+    request: TranslateImageRequest<'_>,
+    trace: &mut telemetry::VisionCallTrace,
+    on_chunk: &mut F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
     let TranslateImageRequest {
         groq_api_key,
         gemini_api_key,
@@ -121,7 +202,6 @@ where
         image,
         original_bytes,
         streaming_enabled,
-        use_json_format,
         response_schema,
         cancel_token,
         request_timeout,
@@ -142,6 +222,7 @@ where
     let cerebras_api_key =
         super::provider_credentials::resolve("CEREBRAS_API_KEY", &saved_cerebras_key);
 
+    let prepare_started = Instant::now();
     let prepared_image = prepare_image_payload(
         provider.as_str(),
         &model,
@@ -149,6 +230,13 @@ where
         original_bytes,
         prompt.len(),
     )?;
+    trace.record_prepared(
+        prepared_image.width,
+        prepared_image.height,
+        prepared_image.image_data.len(),
+        &prepared_image.mime_type,
+        prepare_started.elapsed(),
+    );
     let b64_image = prepared_image.b64_image;
     let image_data = prepared_image.image_data;
     let mime_type = prepared_image.mime_type;
@@ -170,6 +258,7 @@ where
         // Reload image from PNG data
         let ollama_image = image::load_from_memory(&image_data)?.to_rgba8();
 
+        trace.mark_provider_started();
         return super::ollama::ollama_generate_vision(
             &ollama_base_url,
             &model,
@@ -187,6 +276,7 @@ where
             .unwrap_or_else(|| "en".to_string());
         let live_image_bytes = original_bytes.unwrap_or(image_data);
 
+        trace.mark_provider_started();
         return crate::api::gemini_live::gemini_live_generate(
             crate::api::gemini_live::GeminiLiveGenerateRequest {
                 model,
@@ -233,6 +323,7 @@ where
         // End boundary
         body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
 
+        trace.mark_provider_started();
         let resp = UREQ_AGENT
             .post("http://api.qrserver.com/v1/read-qr-code/")
             .header(
@@ -283,28 +374,27 @@ where
             .map(|app| app.config.ui_language.clone())
             .unwrap_or_else(|| "en".to_string());
 
-        let parts = serde_json::json!([
-            { "text": prompt },
-            {
-                "inline_data": {
-                    "mime_type": mime_type,
-                    "data": b64_image
-                }
-            }
-        ]);
+        let profile = crate::model_config::vision_request_profile("google", &model);
+        let parts = request_policy::gemini_parts(profile, &prompt, &mime_type, &b64_image);
 
+        trace.mark_provider_started();
+        let mut retry_observer = |delay| trace.record_retry(delay);
         full_content = stream_gemini_generate(
-            parts,
-            &model,
-            gemini_api_key,
-            streaming_enabled,
-            &ui_language,
-            &cancel_token,
-            None,
-            true,
-            request_timeout,
-            response_schema.as_ref(),
-            &mut on_chunk,
+            GeminiGenerateRequest {
+                parts,
+                model: &model,
+                api_key: gemini_api_key,
+                streaming: streaming_enabled,
+                ui_language: &ui_language,
+                cancel_token: &cancel_token,
+                error_label: None,
+                map_auth_errors: true,
+                request_timeout,
+                response_schema: response_schema.as_ref(),
+                media_resolution: request_policy::media_resolution(profile),
+                retry_observer: Some(&mut retry_observer),
+            },
+            on_chunk,
         )?;
     } else if Provider::from_wire(&provider) == Some(Provider::Cerebras) {
         let ui_language = crate::APP
@@ -312,17 +402,16 @@ where
             .ok()
             .map(|app| app.config.ui_language.clone())
             .unwrap_or_else(|| "en".to_string());
+        let profile = crate::model_config::vision_request_profile("cerebras", &model);
+        let content = request_policy::openai_content(profile, &prompt, &mime_type, &b64_image);
         let messages = serde_json::json!([{
             "role": "user",
-            "content": [
-                { "type": "text", "text": prompt },
-                { "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", mime_type, b64_image) } }
-            ]
+            "content": content
         }]);
-        let response_format = response_schema
-            .filter(|_| crate::api::cerebras::supports_structured_outputs(&model))
-            .map(|schema| crate::api::cerebras::strict_json_schema("image_result", schema))
-            .or_else(|| use_json_format.then(|| serde_json::json!({ "type": "json_object" })));
+        let response_format = response_schema.as_ref().and_then(|schema| {
+            crate::api::cerebras::structured_response_format(&model, "image_result", schema)
+        });
+        trace.mark_provider_started();
         full_content = crate::api::cerebras::stream_chat(
             crate::api::cerebras::StreamChatRequest {
                 api_key: &cerebras_api_key,
@@ -336,7 +425,7 @@ where
                 prediction: None,
                 request_timeout,
             },
-            &mut on_chunk,
+            on_chunk,
         )?;
     } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {
         // --- OPENROUTER API ---
@@ -351,38 +440,7 @@ where
             .map(|app| app.config.ui_language.clone())
             .unwrap_or_else(|| "en".to_string());
 
-        let messages = serde_json::json!([
-            {
-                "role": "user",
-                "content": [
-                    { "type": "text", "text": prompt },
-                    { "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", mime_type, b64_image) } }
-                ]
-            }
-        ]);
-
-        full_content = stream_openai_compat_chat(
-            "https://openrouter.ai/api/v1/chat/completions",
-            &openrouter_api_key,
-            &model,
-            messages,
-            streaming_enabled,
-            false,
-            &ui_language,
-            &cancel_token,
-            request_timeout,
-            "OpenRouter API Error",
-            true,
-            |_| {},
-            &mut on_chunk,
-        )?;
-    } else {
-        // Groq API (default)
-        if groq_api_key.trim().is_empty() {
-            return Err(anyhow::anyhow!("NO_API_KEY:groq"));
-        }
-
-        let mut payload = groq_vision_payload(
+        let payload = openrouter_vision_payload(
             &model,
             &prompt,
             &mime_type,
@@ -391,7 +449,39 @@ where
             response_schema.as_ref(),
         );
 
-        let mut payload_bytes = serde_json::to_vec(&payload)
+        trace.mark_provider_started();
+        full_content = stream_openai_compat_payload(
+            "https://openrouter.ai/api/v1/chat/completions",
+            &openrouter_api_key,
+            payload,
+            streaming_enabled,
+            false,
+            &ui_language,
+            &cancel_token,
+            request_timeout,
+            "OpenRouter API Error",
+            true,
+            false,
+            |headers| record_usage_headers("openrouter", &model, headers),
+            |_| {},
+            on_chunk,
+        )?;
+    } else {
+        // Groq API (default)
+        if groq_api_key.trim().is_empty() {
+            return Err(anyhow::anyhow!("NO_API_KEY:groq"));
+        }
+
+        let payload = groq_vision_payload(
+            &model,
+            &prompt,
+            &mime_type,
+            &b64_image,
+            streaming_enabled,
+            response_schema.as_ref(),
+        );
+
+        let payload_bytes = serde_json::to_vec(&payload)
             .map_err(|e| anyhow::anyhow!("Failed to encode Groq vision request: {e}"))?;
         println!(
             "[vision] Groq request model={model} mime={mime_type} image_bytes={} request_bytes={} limit={GROQ_SAFE_REQUEST_BYTES}",
@@ -406,121 +496,54 @@ where
             ));
         }
 
+        trace.mark_provider_started();
         let mut rate_attempt = 0;
-        let mut empty_recovery_attempt = 0;
-        let root = loop {
-            let resp = loop {
-                let request = UREQ_RESPONSE_AGENT
-                    .post("https://api.groq.com/openai/v1/chat/completions")
-                    .header("Authorization", &format!("Bearer {}", groq_api_key))
-                    .header("Content-Type", "application/json");
-                let response = super::client::with_request_timeout(request, request_timeout)
-                    .send(payload_bytes.as_slice())
-                    .map_err(|error| anyhow::anyhow!("Groq vision transport error: {error}"))?;
-                let status = response.status().as_u16();
-                if response.status().is_success() {
-                    break response;
-                }
-
-                let retry_after = retry_after_seconds(response.headers());
-                let body = response.into_body().read_to_string().unwrap_or_default();
-                let message = groq_error_message(status, &body);
-                if status == 429
-                    && rate_attempt == 0
-                    && retry_after.is_some_and(|seconds| seconds <= GROQ_MAX_RATE_LIMIT_WAIT_SECS)
-                {
-                    let seconds = retry_after.unwrap_or_default();
-                    crate::log_info!(
-                        "[vision] Groq token limit reached; retrying once in {seconds}s"
-                    );
-                    if !wait_for_groq_retry(seconds, &cancel_token) {
-                        return Err(anyhow::anyhow!("Groq vision request cancelled"));
-                    }
-                    rate_attempt += 1;
-                    continue;
-                }
-                if status == 401 || status == 403 {
-                    return Err(anyhow::anyhow!("INVALID_API_KEY"));
-                }
-                return Err(anyhow::anyhow!("Groq vision API HTTP {status}: {message}"));
-            };
-
-            record_usage_simple(resp.headers(), &model);
-
-            if streaming_enabled {
-                let reader = BufReader::new(resp.into_body().into_reader());
-                full_content = crate::api::openai_compat::consume_content_stream(
-                    reader,
-                    &cancel_token,
-                    &mut on_chunk,
-                )?;
-                if model.starts_with("qwen/")
-                    && full_content.trim().is_empty()
-                    && empty_recovery_attempt == 0
-                {
-                    crate::log_info!(
-                        "[vision] Qwen stream used its completion without final content; retrying without reasoning"
-                    );
-                    payload["reasoning_effort"] = "none".into();
-                    payload_bytes = serde_json::to_vec(&payload).map_err(|e| {
-                        anyhow::anyhow!("Failed to encode Groq vision recovery request: {e}")
-                    })?;
-                    empty_recovery_attempt += 1;
-                    rate_attempt = 0;
-                    continue;
-                }
-                break serde_json::Value::Null;
+        let resp = loop {
+            let request = UREQ_RESPONSE_AGENT
+                .post("https://api.groq.com/openai/v1/chat/completions")
+                .header("Authorization", &format!("Bearer {}", groq_api_key))
+                .header("Content-Type", "application/json");
+            let response = super::client::with_request_timeout(request, request_timeout)
+                .send(payload_bytes.as_slice())
+                .map_err(|error| anyhow::anyhow!("Groq vision transport error: {error}"))?;
+            record_usage_simple(response.headers(), &model);
+            let status = response.status().as_u16();
+            if response.status().is_success() {
+                break response;
             }
+
+            let retry_after = retry_after_seconds(response.headers());
+            let body = response.into_body().read_to_string().unwrap_or_default();
+            let message = groq_error_message(status, &body);
+            if let Some(seconds) = groq_rate_limit_retry_delay(status, rate_attempt, retry_after) {
+                trace.record_retry(Duration::from_secs(seconds));
+                crate::log_info!("[vision] Groq token limit reached; retrying once in {seconds}s");
+                if !wait_for_groq_retry(seconds, &cancel_token) {
+                    return Err(anyhow::anyhow!("Groq vision request cancelled"));
+                }
+                rate_attempt += 1;
+                continue;
+            }
+            if status == 401 || status == 403 {
+                return Err(anyhow::anyhow!("INVALID_API_KEY"));
+            }
+            return Err(anyhow::anyhow!("Groq vision API HTTP {status}: {message}"));
+        };
+        if streaming_enabled {
+            let reader = BufReader::new(resp.into_body().into_reader());
+            full_content =
+                crate::api::openai_compat::consume_content_stream(reader, &cancel_token, on_chunk)?;
+        } else {
             let root: serde_json::Value = resp
                 .into_body()
                 .read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
             record_groq_json_usage(&model, &root);
-            let content = root
-                .pointer("/choices/0/message/content")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            if model.starts_with("qwen/")
-                && content.trim().is_empty()
-                && empty_recovery_attempt == 0
-            {
-                crate::log_info!(
-                    "[vision] Qwen used its completion without final content; retrying without reasoning"
-                );
-                payload["reasoning_effort"] = "none".into();
-                payload_bytes = serde_json::to_vec(&payload).map_err(|e| {
-                    anyhow::anyhow!("Failed to encode Groq vision recovery request: {e}")
-                })?;
-                empty_recovery_attempt += 1;
-                rate_attempt = 0;
-                continue;
-            }
-            break root;
-        };
-
-        if !streaming_enabled {
             let chat_resp: ChatCompletionResponse = serde_json::from_value(root)
                 .map_err(|e| anyhow::anyhow!("Failed to decode non-streaming response: {}", e))?;
 
             if let Some(choice) = chat_resp.choices.first() {
-                let content_str = &choice.message.content;
-
-                if use_json_format {
-                    if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
-                        if let Some(translation) =
-                            json_obj.get("translation").and_then(|v| v.as_str())
-                        {
-                            full_content = translation.to_string();
-                        } else {
-                            full_content = content_str.clone();
-                        }
-                    } else {
-                        full_content = content_str.clone();
-                    }
-                } else {
-                    full_content = content_str.clone();
-                }
-
+                full_content = choice.message.content.clone();
                 on_chunk(&full_content);
             }
         }

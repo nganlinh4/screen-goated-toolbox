@@ -21,6 +21,44 @@ const MAX_GEMINI_ERROR_CHARS: usize = 2_048;
 const MAX_GEMINI_RETRIES: usize = 2;
 const MAX_GEMINI_RETRY_DELAY: Duration = Duration::from_secs(8);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GeminiMediaResolution {
+    Low,
+    Medium,
+    High,
+}
+
+impl GeminiMediaResolution {
+    fn wire_value(self) -> &'static str {
+        match self {
+            Self::Low => "MEDIA_RESOLUTION_LOW",
+            Self::Medium => "MEDIA_RESOLUTION_MEDIUM",
+            Self::High => "MEDIA_RESOLUTION_HIGH",
+        }
+    }
+}
+
+pub struct GeminiGenerateRequest<'a> {
+    pub parts: serde_json::Value,
+    pub model: &'a str,
+    pub api_key: &'a str,
+    pub streaming: bool,
+    pub ui_language: &'a str,
+    pub cancel_token: &'a Option<Arc<AtomicBool>>,
+    pub error_label: Option<&'a str>,
+    pub map_auth_errors: bool,
+    pub request_timeout: Option<Duration>,
+    pub response_schema: Option<&'a serde_json::Value>,
+    pub media_resolution: Option<GeminiMediaResolution>,
+    pub retry_observer: Option<&'a mut dyn FnMut(Duration)>,
+}
+
+pub(crate) struct GeminiGenerateOutput {
+    pub content: String,
+    #[cfg(test)]
+    pub usage_metadata: Option<serde_json::Value>,
+}
+
 /// Build the `generateContent` URL for `model`, selecting the SSE streaming
 /// variant when `streaming` is `true`.
 pub fn gemini_content_url(model: &str, streaming: bool) -> String {
@@ -40,39 +78,41 @@ pub fn gemini_content_url(model: &str, streaming: bool) -> String {
 /// POST a Gemini `generateContent` request whose user content is `parts`, then
 /// stream (or parse) the thinking-aware response, invoking `on_chunk`.
 ///
-/// * `parts` — the `contents[0].parts` array (text / text+image / text+audio).
-/// * `model` — model id.
-/// * `api_key` — sent as `x-goog-api-key`.
-/// * `streaming` — request + consume an SSE stream when `true`.
-/// * `ui_language` — locale for the "thinking" indicator string.
-/// * `cancel_token` — cooperative cancellation flag.
-/// * `error_label` — when `Some(label)`, non-auth errors become
-///   `"{label}: {err}"`; when `None`, the raw error string is used.
-/// * `map_auth_errors` — when `true`, map HTTP 401/403 to `INVALID_API_KEY`.
-/// * `response_schema` — when `Some` and the model is Gemma 4, sent as
-///   `responseJsonSchema` (Gemma needs a full schema to emit JSON reliably;
-///   ignored for other models, which comply from the prompt).
 /// * `on_chunk` — invoked with each content chunk / thinking indicator.
-#[allow(clippy::too_many_arguments)]
 pub fn stream_gemini_generate<F>(
-    parts: serde_json::Value,
-    model: &str,
-    api_key: &str,
-    streaming: bool,
-    ui_language: &str,
-    cancel_token: &Option<Arc<AtomicBool>>,
-    error_label: Option<&str>,
-    map_auth_errors: bool,
-    request_timeout: Option<Duration>,
-    response_schema: Option<&serde_json::Value>,
+    request: GeminiGenerateRequest<'_>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
+    Ok(stream_gemini_generate_detailed(request, on_chunk)?.content)
+}
+
+pub(crate) fn stream_gemini_generate_detailed<F>(
+    request: GeminiGenerateRequest<'_>,
+    on_chunk: &mut F,
+) -> Result<GeminiGenerateOutput>
+where
+    F: FnMut(&str),
+{
+    let GeminiGenerateRequest {
+        parts,
+        model,
+        api_key,
+        streaming,
+        ui_language,
+        cancel_token,
+        error_label,
+        map_auth_errors,
+        request_timeout,
+        response_schema,
+        media_resolution,
+        mut retry_observer,
+    } = request;
     let url = gemini_content_url(model, streaming);
 
-    let payload = gemini_payload(parts, model, response_schema);
+    let payload = gemini_payload(parts, model, response_schema, media_resolution);
 
     // Optional provider tools are deliberately absent. Supporting a tool is a
     // capability, not consent to invoke its separate quota/cost on every request.
@@ -106,6 +146,9 @@ where
                 .is_none_or(|delay| delay <= MAX_GEMINI_RETRY_DELAY)
         {
             let delay = gemini_retry_delay(retry_attempt, error.retry_after);
+            if let Some(observer) = retry_observer.as_deref_mut() {
+                observer(delay);
+            }
             crate::log_info!(
                 "[Gemini] transient HTTP {} for model={}; retry {}/{} in {}ms",
                 status,
@@ -124,6 +167,8 @@ where
     };
 
     let mut full_content = String::new();
+    #[cfg(test)]
+    let mut usage_metadata = None;
 
     if streaming {
         let reader = BufReader::new(resp.into_body().into_reader());
@@ -143,37 +188,42 @@ where
                     break;
                 }
 
-                if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
-                    && let Some(candidates) =
+                if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    #[cfg(test)]
+                    if let Some(usage) = chunk_resp.get("usageMetadata") {
+                        usage_metadata = Some(usage.clone());
+                    }
+                    if let Some(candidates) =
                         chunk_resp.get("candidates").and_then(|c| c.as_array())
-                    && let Some(first_candidate) = candidates.first()
-                    && let Some(parts) = first_candidate
-                        .get("content")
-                        .and_then(|c| c.get("parts"))
-                        .and_then(|p| p.as_array())
-                {
-                    for part in parts {
-                        let is_thought = part
-                            .get("thought")
-                            .and_then(|t| t.as_bool())
-                            .unwrap_or(false);
+                        && let Some(first_candidate) = candidates.first()
+                        && let Some(parts) = first_candidate
+                            .get("content")
+                            .and_then(|c| c.get("parts"))
+                            .and_then(|p| p.as_array())
+                    {
+                        for part in parts {
+                            let is_thought = part
+                                .get("thought")
+                                .and_then(|t| t.as_bool())
+                                .unwrap_or(false);
 
-                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                            if is_thought {
-                                if !thinking_shown && !content_started {
-                                    on_chunk(locale.global_settings.model_thinking);
-                                    thinking_shown = true;
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                if is_thought {
+                                    if !thinking_shown && !content_started {
+                                        on_chunk(locale.global_settings.model_thinking);
+                                        thinking_shown = true;
+                                    }
+                                } else if !content_started && thinking_shown {
+                                    content_started = true;
+                                    full_content.push_str(text);
+                                    let wipe_content =
+                                        format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
+                                    on_chunk(&wipe_content);
+                                } else {
+                                    content_started = true;
+                                    full_content.push_str(text);
+                                    on_chunk(text);
                                 }
-                            } else if !content_started && thinking_shown {
-                                content_started = true;
-                                full_content.push_str(text);
-                                let wipe_content =
-                                    format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
-                                on_chunk(&wipe_content);
-                            } else {
-                                content_started = true;
-                                full_content.push_str(text);
-                                on_chunk(text);
                             }
                         }
                     }
@@ -185,6 +235,10 @@ where
             .into_body()
             .read_json()
             .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+        #[cfg(test)]
+        {
+            usage_metadata = chat_resp.get("usageMetadata").cloned();
+        }
 
         if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array())
             && let Some(first_choice) = candidates.first()
@@ -202,13 +256,18 @@ where
         }
     }
 
-    Ok(full_content)
+    Ok(GeminiGenerateOutput {
+        content: full_content,
+        #[cfg(test)]
+        usage_metadata,
+    })
 }
 
 fn gemini_payload(
     parts: serde_json::Value,
     model: &str,
     response_schema: Option<&serde_json::Value>,
+    media_resolution: Option<GeminiMediaResolution>,
 ) -> serde_json::Value {
     let mut payload = serde_json::json!({
         "contents": [{
@@ -220,12 +279,17 @@ fn gemini_payload(
     if let Some(thinking_config) = crate::api::gemini_thinking_config(model) {
         gen_config.insert("thinkingConfig".to_string(), thinking_config);
     }
-    // Gemma 4 ignores `responseMimeType` alone and free-rambles; it only emits
-    // reliable structured JSON when handed a full `responseJsonSchema`. Other Gemini
-    // models comply straight from the prompt, so attach it for Gemma only (forcing a
-    // schema on the others can derail their tuned output).
+    if let Some(resolution) = media_resolution {
+        gen_config.insert(
+            "mediaResolution".to_string(),
+            serde_json::json!(resolution.wire_value()),
+        );
+    }
+    // Structured output is opt-in twice: the caller supplies a schema and the
+    // catalog confirms that the exact endpoint supports constrained decoding.
     if let Some(schema) = response_schema
-        && model.contains("gemma-4")
+        && crate::model_config::vision_request_profile("google", model).structured_output
+            == crate::model_config::StructuredOutputPolicy::StrictJsonSchema
     {
         gen_config.insert(
             "responseMimeType".to_string(),
@@ -389,8 +453,54 @@ mod tests {
             serde_json::json!([{"text": "plain request"}]),
             "gemini-future-model",
             None,
+            None,
         );
         assert!(payload.get("tools").is_none());
+    }
+
+    #[test]
+    fn media_resolution_is_an_explicit_generation_policy() {
+        let payload = gemini_payload(
+            serde_json::json!([{"text": "plain request"}]),
+            "gemini-3.5-flash-lite",
+            None,
+            Some(GeminiMediaResolution::Low),
+        );
+        assert_eq!(
+            payload["generationConfig"]["mediaResolution"],
+            "MEDIA_RESOLUTION_LOW"
+        );
+    }
+
+    #[test]
+    fn structured_output_requires_both_schema_and_catalog_support() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "text": { "type": "string" } },
+            "required": ["text"]
+        });
+        let gemma = gemini_payload(
+            serde_json::json!([{"text": "extract"}]),
+            "gemma-4-31b-it",
+            Some(&schema),
+            None,
+        );
+        let flash = gemini_payload(
+            serde_json::json!([{"text": "extract"}]),
+            "gemini-3.5-flash-lite",
+            Some(&schema),
+            None,
+        );
+        assert_eq!(
+            gemma["generationConfig"]["responseMimeType"],
+            "application/json"
+        );
+        assert_eq!(gemma["generationConfig"]["responseJsonSchema"], schema);
+        assert!(
+            flash["generationConfig"]
+                .get("responseJsonSchema")
+                .is_none()
+        );
     }
 
     #[test]

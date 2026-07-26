@@ -406,7 +406,7 @@ internal fun NodeGraphSection(
                                 showAddMenu = false
                                 val newBlock =
                                     dev.screengoated.toolbox.mobile.shared.preset.textBlock(
-                                        "google-gemma-4-26b-a4b-text",
+                                        DEFAULT_TEXT_MODEL_ID,
                                         "Translate to {language1}. Output ONLY the translation.",
                                         "language1" to "Vietnamese",
                                     )

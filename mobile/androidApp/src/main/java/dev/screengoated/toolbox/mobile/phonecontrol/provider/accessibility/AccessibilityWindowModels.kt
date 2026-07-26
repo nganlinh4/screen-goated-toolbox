@@ -73,6 +73,7 @@ internal fun <T> selectAccessibilityWindows(
 internal fun <T> snapshotAccessibilityWindows(
     windows: List<CapturedAccessibilityWindow<T>>,
     servicePackage: String,
+    controllerBounds: TargetBounds? = null,
 ): List<AccessibilityWindowSnapshot> = windows.map { window ->
     AccessibilityWindowSnapshot(
         id = window.id,
@@ -90,6 +91,8 @@ internal fun <T> snapshotAccessibilityWindows(
             packageName = window.packageName,
             type = window.type,
             servicePackage = servicePackage,
+            windowBounds = window.bounds,
+            controllerBounds = controllerBounds,
         ),
         pictureInPicture = window.pictureInPicture,
         targetAuthority = window.targetAuthority,
@@ -173,5 +176,11 @@ internal fun isControllerOwnedWindow(
     packageName: String?,
     type: String,
     servicePackage: String,
-): Boolean = accessibilityOverlay ||
-    (packageName == servicePackage && !isApplicationContentWindowType(type))
+    windowBounds: TargetBounds,
+    controllerBounds: TargetBounds?,
+): Boolean =
+    (packageName == servicePackage && !isApplicationContentWindowType(type)) ||
+        (
+            accessibilityOverlay &&
+                controllerBounds?.contains(windowBounds) == true
+            )

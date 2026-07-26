@@ -211,8 +211,8 @@ pub struct SubtitleTranslationModelCapability {
     #[serde(rename = "modelName")]
     pub model_name: String,
     pub provider: String,
-    #[serde(rename = "qualityTier")]
-    pub quality_tier: Option<u8>,
+    #[serde(rename = "intelligenceTier")]
+    pub intelligence_tier: Option<u8>,
     #[serde(rename = "typicalLatencyMs")]
     pub typical_latency_ms: Option<u32>,
     #[serde(rename = "performanceSource")]

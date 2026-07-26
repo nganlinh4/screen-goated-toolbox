@@ -1,7 +1,7 @@
 // --- TITLE BAR RENDERING ---
 // Window title bar: theme/language/history/settings on the left; admin status &
-// version painted in the draggable gap; branding + window controls on the right.
-// (The mini-app launch buttons live in the footer.)
+// version painted in the draggable gap; branding + window controls on the
+// right. (The mini-app launch buttons and Tips entry live in the footer.)
 
 use super::super::types::{DetailPane, SettingsApp};
 use crate::gui::locale::LocaleText;
@@ -275,6 +275,7 @@ impl SettingsApp {
                 self.view_mode = ViewMode::Global;
             }
         }
+
         ui.spacing_mut().item_spacing.x = 6.0;
     }
 

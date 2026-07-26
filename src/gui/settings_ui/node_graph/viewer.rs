@@ -1,5 +1,6 @@
 use super::body::show_body;
 use super::node::ChainNode;
+use crate::config::Config;
 use crate::gui::icons::{Icon, draw_icon_static};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
@@ -17,29 +18,23 @@ pub struct ChainViewer<'a> {
     pub use_groq: bool,
     pub use_gemini: bool,
     pub use_openrouter: bool,
+    pub use_cerebras: bool,
     pub use_ollama: bool,
     pub preset_type: String, // "image", "audio", "text"
 }
 
 impl<'a> ChainViewer<'a> {
-    pub fn new(
-        text: &'a LocaleText,
-        ui_language: &str,
-        use_groq: bool,
-        use_gemini: bool,
-        use_openrouter: bool,
-        use_ollama: bool,
-        preset_type: &str,
-    ) -> Self {
+    pub fn new(text: &'a LocaleText, config: &Config, preset_type: &str) -> Self {
         Self {
             text,
-            ui_language: ui_language.to_string(),
+            ui_language: config.ui_language.clone(),
             changed: false,
             language_search: String::new(),
-            use_groq,
-            use_gemini,
-            use_openrouter,
-            use_ollama,
+            use_groq: config.use_groq,
+            use_gemini: config.use_gemini,
+            use_openrouter: config.use_openrouter,
+            use_cerebras: config.use_cerebras,
+            use_ollama: config.use_ollama,
             preset_type: preset_type.to_string(),
         }
     }
@@ -50,6 +45,7 @@ impl<'a> ChainViewer<'a> {
             "groq" => self.use_groq,
             "google" | "gemini-live" => self.use_gemini,
             "openrouter" => self.use_openrouter,
+            "cerebras" => self.use_cerebras,
             "ollama" => self.use_ollama,
             _ => true, // Unknown providers are enabled by default
         }

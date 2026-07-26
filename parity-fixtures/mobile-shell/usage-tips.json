@@ -1,18 +1,91 @@
 {
-  "version": 2,
+  "version": 5,
+  "catalog_contract": {
+    "ordinal_markers": false,
+    "stable_tip_ids": true,
+    "empty_categories": "omit",
+    "categories": [
+      {
+        "id": "capture_shortcuts",
+        "labels": {
+          "en": "Capture & shortcuts",
+          "vi": "Chụp & phím tắt",
+          "ko": "캡처 및 단축키"
+        }
+      },
+      {
+        "id": "presets_automation",
+        "labels": {
+          "en": "Presets & automation",
+          "vi": "Preset & tự động hóa",
+          "ko": "프리셋 및 자동화"
+        }
+      },
+      {
+        "id": "results_recovery",
+        "labels": {
+          "en": "Results & recovery",
+          "vi": "Kết quả & khôi phục",
+          "ko": "결과 및 복구"
+        }
+      },
+      {
+        "id": "models_search",
+        "labels": {
+          "en": "Models & search",
+          "vi": "Mô hình & tìm kiếm",
+          "ko": "모델 및 검색"
+        }
+      },
+      {
+        "id": "creative_tools",
+        "labels": {
+          "en": "Creative tools",
+          "vi": "Công cụ sáng tạo",
+          "ko": "창작 도구"
+        }
+      }
+    ]
+  },
   "cases": [
     {
       "name": "windows_static_entry_contract",
       "entry_surface": "footer_button",
+      "entry_placement": "after_mini_app_launchers",
       "icon": "lightbulb",
       "icon_tone": "warning",
       "rotating_preview": false,
       "full_list_on_activate": true,
+      "full_list_surface": "categorized_modal",
+      "category_navigation": "fixed_rail",
       "labels": {
         "en": "Tips",
         "vi": "Mẹo",
         "ko": "팁"
-      }
+      },
+      "required_tip_ids": [
+        "selection_cancel",
+        "selection_hidden_gestures",
+        "selected_text_hotkey",
+        "mouse_button_hotkeys",
+        "continuous_mode_entry",
+        "continuous_mode_image_gestures",
+        "smart_input_routing",
+        "input_history_navigation",
+        "audio_auto_stop_semantics",
+        "graph_navigation",
+        "auto_copy_ownership",
+        "profile_clone_active",
+        "continuous_input_replaces_group",
+        "restore_closed_batches",
+        "refine_revision_history",
+        "result_geometry_memory",
+        "history_pruning",
+        "tray_close_keeps_running",
+        "search_marker_default",
+        "fallback_cooldown_search",
+        "promptdj_midi_learn"
+      ]
     },
     {
       "name": "android_settings_surface",
@@ -20,32 +93,27 @@
       "entry_surface": "static_card",
       "icon": "lightbulb",
       "rotating_preview": false,
-      "full_list_surface": "dialog"
+      "full_list_surface": "categorized_dialog",
+      "category_navigation": "stacked_sections"
     },
     {
       "name": "android_filtered_parity_content",
-      "required_concepts": [
-        "quick settings bubble favorites",
-        "dimmed screen selection cancel",
-        "history cleanup",
-        "single auto-copy step",
-        "auto-paste accessibility",
-        "audio auto-stop",
-        "live translate auto speed",
-        "model priority fallback",
-        "phone control screen sharing",
-        "translation gummy",
-        "creation tools background jobs",
-        "continuous mode"
+      "required_tip_ids": [
+        "continuous_mode_entry",
+        "custom_preset_rename",
+        "auto_paste_prerequisites",
+        "creation_background_results",
+        "search_marker_default",
+        "fallback_cooldown_search",
+        "dj_background_playback"
       ],
-      "excluded_desktop_only_concepts": [
-        "result overlay mouse scopes",
-        "middle-click mouse hotkey",
-        "preset MASTER wheel",
-        "desktop system tray",
-        "preset profiles",
-        "desktop file drop",
-        "record screen footer"
+      "excluded_tip_ids": [
+        "auto_copy_ownership",
+        "auto_copy_exclusivity",
+        "desktop_file_routing",
+        "desktop_mouse_hotkeys",
+        "desktop_result_mouse_scopes",
+        "desktop_tray_restore"
       ]
     }
   ]

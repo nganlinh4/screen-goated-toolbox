@@ -75,6 +75,14 @@ class HelpAssistantClient(
         require(apiModel.provider == PresetModelProvider.GOOGLE) {
             "Help Assistant model $modelId is not a Gemini REST model"
         }
+        val thinkingConfig = requireNotNull(
+            PresetModelCatalog.geminiImportantTaskThinkingConfig(
+                apiModel.provider,
+                apiModel.fullName,
+            ),
+        ) {
+            "Help Assistant model ${apiModel.fullName} has no important-task thinking policy"
+        }
         val userMessage = "$SYSTEM_PROMPT\n\n---\nSource Code Context:\n$context\n---\n\nUser Question: $question"
         val payload = JSONObject()
             .put(
@@ -91,7 +99,7 @@ class HelpAssistantClient(
                 JSONObject()
                     .put("maxOutputTokens", MAX_OUTPUT_TOKENS)
                     .put("temperature", 0.7)
-                    .put("thinkingConfig", JSONObject().put("thinkingLevel", "MINIMAL")),
+                    .put("thinkingConfig", JSONObject(thinkingConfig)),
             )
 
         val url = "https://generativelanguage.googleapis.com/v1beta/models/${apiModel.fullName}:generateContent"

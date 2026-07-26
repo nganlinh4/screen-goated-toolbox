@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::model_config::DEFAULT_TEXT_MODEL_ID;
+
 // ============================================================================
 // PROCESSING BLOCK
 // ============================================================================
@@ -80,7 +82,7 @@ impl Default for ProcessingBlock {
         Self {
             id: generate_block_id(),
             block_type: "text".to_string(),
-            model: "google-gemma-4-26b-a4b-text".to_string(),
+            model: DEFAULT_TEXT_MODEL_ID.to_string(),
             prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
@@ -101,7 +103,7 @@ impl Default for ProcessingBlock {
 ///
 /// # Example
 /// ```
-/// let block = BlockBuilder::text("google-gemma-4-26b-a4b-text")
+/// let block = BlockBuilder::text(crate::model_config::DEFAULT_TEXT_MODEL_ID)
 ///     .prompt("Translate to {language1}.")
 ///     .language("Vietnamese")
 ///     .streaming(true)

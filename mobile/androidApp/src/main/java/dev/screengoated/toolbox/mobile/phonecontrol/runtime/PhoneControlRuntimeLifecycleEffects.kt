@@ -8,6 +8,7 @@ internal class PhoneControlRuntimeLifecycleEffects(
     private val transportReady: AtomicBoolean,
     private val statusPublisher: PhoneControlRuntimeStatusPublisher,
     private val prepareReconnect: () -> Boolean,
+    private val retireTransportInterruptedTurn: () -> Boolean,
     private val abandonProtocolSession: () -> Unit,
     private val purgeSessionOutbound: () -> Unit,
     private val discardUntilFreshConnection: AtomicBoolean,
@@ -51,7 +52,9 @@ internal class PhoneControlRuntimeLifecycleEffects(
     }
 
     private fun reconnect(effect: GeminiLiveLifecycleEffect.ScheduleReconnect) {
-        if (!prepareReconnect()) {
+        val resumable = prepareReconnect()
+        val retiredTurn = if (resumable) retireTransportInterruptedTurn() else false
+        if (!resumable) {
             discardUntilFreshConnection.set(true)
             abandonProtocolSession()
             purgeSessionOutbound()
@@ -59,7 +62,8 @@ internal class PhoneControlRuntimeLifecycleEffects(
         Log.w(
             TAG,
             "transport_reconnect generation=${effect.generation} " +
-                "attempt=${effect.attempt} reason=${effect.reason.fixtureName}",
+                "attempt=${effect.attempt} reason=${effect.reason.fixtureName} " +
+                "resumable=$resumable retired_turn=$retiredTurn",
         )
         statusPublisher.publish(
             phase = PhoneControlRuntimePhase.RECONNECTING,

@@ -21,6 +21,64 @@ pub enum LiveThinkingConfig {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OrdinaryReasoningPolicy {
+    NotApplicable,
+    GeminiBudget(u32),
+    GeminiLevel(&'static str),
+    OpenAiEffort(&'static str),
+    ProviderManaged,
+    LiveProfile,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VisionInputOrder {
+    TextFirst,
+    ImageFirst,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VisionMediaResolutionPolicy {
+    ProviderDefault,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VisionSamplingPolicy {
+    ProviderDefault,
+    Qwen3GroqNonThinking,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StructuredOutputPolicy {
+    Unsupported,
+    PromptOnly,
+    JsonObject,
+    StrictJsonSchema,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct VisionRequestProfile {
+    pub input_order: VisionInputOrder,
+    pub media_resolution: VisionMediaResolutionPolicy,
+    pub sampling: VisionSamplingPolicy,
+    pub max_output_tokens: Option<u32>,
+    pub structured_output: StructuredOutputPolicy,
+}
+
+impl VisionRequestProfile {
+    const SAFE_DEFAULT: Self = Self {
+        input_order: VisionInputOrder::TextFirst,
+        media_resolution: VisionMediaResolutionPolicy::ProviderDefault,
+        sampling: VisionSamplingPolicy::ProviderDefault,
+        max_output_tokens: None,
+        structured_output: StructuredOutputPolicy::Unsupported,
+    };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LiveEndpointProfile {
     pub lifecycle: &'static str,
     pub thinking: Option<LiveThinkingConfig>,
@@ -44,7 +102,8 @@ pub struct ModelConfig {
     pub quota_limit_en: String,
     pub source: ModelSource,
     pub supports_search_override: Option<bool>,
-    pub quality_tier: Option<u8>,
+    pub search_tool_enabled_by_default: bool,
+    pub intelligence_tier: Option<u8>,
     pub typical_latency_ms: Option<u32>,
     pub performance_source: Option<String>,
 }
@@ -66,7 +125,9 @@ impl ModelConfig {
         quota_limit_vi: &str,
         quota_limit_ko: &str,
         quota_limit_en: &str,
-        quality_tier: u8,
+        supports_search: bool,
+        search_tool_enabled_by_default: bool,
+        intelligence_tier: u8,
         typical_latency_ms: u32,
         performance_source: &str,
     ) -> Self {
@@ -83,8 +144,9 @@ impl ModelConfig {
             quota_limit_ko: quota_limit_ko.to_string(),
             quota_limit_en: quota_limit_en.to_string(),
             source: ModelSource::BuiltIn,
-            supports_search_override: None,
-            quality_tier: Some(quality_tier),
+            supports_search_override: Some(supports_search),
+            search_tool_enabled_by_default,
+            intelligence_tier: Some(intelligence_tier),
             typical_latency_ms: Some(typical_latency_ms),
             performance_source: Some(performance_source.to_string()),
         }
@@ -110,6 +172,13 @@ impl ModelConfig {
 }
 
 include!(concat!(env!("OUT_DIR"), "/model_catalog_generated.rs"));
+
+mod presentation;
+pub use presentation::sort_models_for_display;
+#[cfg(test)]
+mod realtime_routing_tests;
+#[cfg(test)]
+mod tests;
 
 /// Check if a model is a non-LLM model (doesn't use prompts).
 pub fn model_is_non_llm(model_id: &str) -> bool {
@@ -155,6 +224,15 @@ pub fn live_endpoint_profile(api_model: &str) -> Option<LiveEndpointProfile> {
     generated_live_endpoint_profile(api_model)
 }
 
+pub fn ordinary_reasoning_policy(provider: &str, api_model: &str) -> OrdinaryReasoningPolicy {
+    generated_ordinary_reasoning_policy(provider, api_model)
+}
+
+pub fn vision_request_profile(provider: &str, api_model: &str) -> VisionRequestProfile {
+    generated_vision_request_profile(provider, api_model)
+        .unwrap_or(VisionRequestProfile::SAFE_DEFAULT)
+}
+
 fn live_thinking_json(config: Option<LiveThinkingConfig>) -> Option<serde_json::Value> {
     match config {
         Some(LiveThinkingConfig::Budget(value)) => {
@@ -190,8 +268,10 @@ pub fn normalize_realtime_transcription_model_id(model_id: &str) -> String {
 
 pub fn realtime_transcription_api_model(model_id: &str) -> String {
     let normalized = normalize_realtime_transcription_model_id(model_id);
-    get_model_by_id(&normalized)
-        .map(|model| model.full_name)
+    get_all_models()
+        .iter()
+        .find(|model| model.id == normalized)
+        .map(|model| model.full_name.clone())
         .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string())
 }
 
@@ -239,7 +319,9 @@ pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
         .ok()
         .map(|app| app.config.custom_models.clone())
         .unwrap_or_default();
-    get_all_models_with_custom(&custom_models)
+    let mut models = get_all_models_with_custom(&custom_models);
+    sort_models_for_display(&mut models);
+    models
 }
 
 pub fn get_all_models_with_custom(
@@ -295,42 +377,20 @@ pub fn custom_model_definition_to_config(
         quota_limit_en: custom.quota_en.clone(),
         source: ModelSource::User,
         supports_search_override: custom.supports_search,
-        quality_tier: None,
+        search_tool_enabled_by_default: false,
+        intelligence_tier: None,
         typical_latency_ms: None,
         performance_source: None,
     })
 }
 
-/// Check if a model supports search capabilities by its Full Name (API Name).
-pub fn model_supports_search_by_name(full_name: &str) -> bool {
-    if GENERATED_SEARCH_DISABLED_FULL_NAMES
+/// Check if a provider endpoint supports search capabilities.
+pub fn model_supports_search_by_provider_and_name(provider: &str, full_name: &str) -> bool {
+    get_all_models()
         .iter()
-        .any(|blocked| full_name.contains(blocked))
-    {
-        return false;
-    }
-
-    if full_name.contains("gemini") {
-        return true;
-    }
-    if full_name.contains("gemma") {
-        return false;
-    }
-    if full_name.contains("compound") {
-        return true;
-    }
-
-    false
-}
-
-/// Check if a model supports search capabilities by its Internal ID.
-pub fn model_supports_search_by_id(id: &str) -> bool {
-    let custom_models = crate::APP
-        .lock()
-        .ok()
-        .map(|app| app.config.custom_models.clone())
-        .unwrap_or_default();
-    model_supports_search_by_id_with_custom(id, &custom_models)
+        .find(|model| model.provider == provider && model.full_name == full_name)
+        .and_then(|model| model.supports_search_override)
+        .unwrap_or(false)
 }
 
 pub fn model_supports_search_by_id_with_custom(
@@ -341,14 +401,31 @@ pub fn model_supports_search_by_id_with_custom(
         if let Some(supports_search) = conf.supports_search_override {
             return supports_search;
         }
-        return model_supports_search_by_name(&conf.full_name);
-    }
-
-    if id.contains("compound") {
-        return true;
+        return model_supports_search_by_provider_and_name(&conf.provider, &conf.full_name);
     }
 
     false
+}
+
+/// Whether normal selection of this model actually enables its search tool.
+///
+/// This is intentionally separate from provider capability: an endpoint may
+/// support quota-bearing search while ordinary requests keep the tool off.
+pub fn model_search_tool_enabled_by_default_by_id(id: &str) -> bool {
+    let custom_models = crate::APP
+        .lock()
+        .ok()
+        .map(|app| app.config.custom_models.clone())
+        .unwrap_or_default();
+    model_search_tool_enabled_by_default_by_id_with_custom(id, &custom_models)
+}
+
+pub fn model_search_tool_enabled_by_default_by_id_with_custom(
+    id: &str,
+    custom_models: &[crate::config::types::CustomModelDefinition],
+) -> bool {
+    get_model_by_id_with_custom(id, custom_models)
+        .is_some_and(|model| model.search_tool_enabled_by_default)
 }
 
 // === OLLAMA MODEL CACHE ===
@@ -443,7 +520,8 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_en: "Unlimited".to_string(),
                         source: ModelSource::Discovered,
                         supports_search_override: None,
-                        quality_tier: None,
+                        search_tool_enabled_by_default: false,
+                        intelligence_tier: None,
                         typical_latency_ms: None,
                         performance_source: None,
                     });
@@ -462,7 +540,8 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_en: "Unlimited".to_string(),
                         source: ModelSource::Discovered,
                         supports_search_override: None,
-                        quality_tier: None,
+                        search_tool_enabled_by_default: false,
+                        intelligence_tier: None,
                         typical_latency_ms: None,
                         performance_source: None,
                     });
@@ -481,7 +560,8 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_en: "Unlimited".to_string(),
                         source: ModelSource::Discovered,
                         supports_search_override: None,
-                        quality_tier: None,
+                        search_tool_enabled_by_default: false,
+                        intelligence_tier: None,
                         typical_latency_ms: None,
                         performance_source: None,
                     });
@@ -494,98 +574,4 @@ pub fn trigger_ollama_model_scan() {
 
         OLLAMA_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
     });
-}
-
-#[cfg(test)]
-mod lifecycle_tests {
-    use super::*;
-
-    #[test]
-    fn benchmark_winner_is_default_and_first_vision_fallback() {
-        assert_eq!(
-            DEFAULT_IMAGE_MODEL_ID,
-            "google-gemini-3-5-flash-lite-vision"
-        );
-        assert_eq!(
-            default_image_to_text_priority_chain_ids().first().copied(),
-            Some(DEFAULT_IMAGE_MODEL_ID)
-        );
-        let model = get_model_by_id(DEFAULT_IMAGE_MODEL_ID).expect("default vision model exists");
-        assert_eq!(model.provider, "google");
-        assert_eq!(model.full_name, "gemini-3.5-flash-lite");
-        assert_eq!(model.quality_tier, Some(5));
-        assert_eq!(model.typical_latency_ms, Some(1500));
-        assert_eq!(
-            model.performance_source.as_deref(),
-            Some("benchmark-2026-07-23:vision")
-        );
-    }
-
-    #[test]
-    fn live_thinking_schema_follows_exact_endpoint() {
-        assert_eq!(
-            live_endpoint_profile(GEMINI_LIVE_API_MODEL_2_5).and_then(|profile| profile.thinking),
-            Some(LiveThinkingConfig::Budget(0))
-        );
-        assert_eq!(
-            live_endpoint_profile(GEMINI_LIVE_API_MODEL_3_1).and_then(|profile| profile.thinking),
-            Some(LiveThinkingConfig::Level("minimal"))
-        );
-    }
-
-    #[test]
-    fn live_output_limits_match_shared_parity_fixture() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/parity-fixtures/preset-system/gemini-live-socket-protocol.json"
-        )))
-        .expect("Gemini Live socket fixture parses");
-        let limits = fixture["modelOutputLimits"]
-            .as_object()
-            .expect("modelOutputLimits must be an object");
-        assert!(!limits.is_empty(), "modelOutputLimits must not be empty");
-
-        for (api_model, expected) in limits {
-            let expected = u32::try_from(
-                expected
-                    .as_u64()
-                    .expect("model output limit must be an unsigned integer"),
-            )
-            .expect("model output limit must fit u32");
-            assert_eq!(
-                live_endpoint_profile(api_model).and_then(|profile| profile.max_output_tokens),
-                Some(expected),
-                "catalog output limit drifted for {api_model}"
-            );
-        }
-    }
-
-    #[test]
-    fn tts_model_normalization_uses_catalog_default() {
-        for persisted in ["", "gemini", "unknown-live-model"] {
-            assert_eq!(
-                normalize_tts_gemini_model(persisted),
-                DEFAULT_GEMINI_LIVE_TTS_MODEL,
-                "legacy or invalid TTS model must use the catalog default"
-            );
-        }
-
-        for (api_model, _) in tts_gemini_model_options() {
-            assert_eq!(normalize_tts_gemini_model(api_model), *api_model);
-        }
-    }
-
-    #[test]
-    fn live_translate_routing_comes_from_the_endpoint_profile() {
-        assert_eq!(
-            realtime_transcription_live_protocol(GEMINI_LIVE_TRANSLATE_MODEL_ID),
-            Some("live-translate")
-        );
-        assert!(is_gemini_live_translate_model_id(
-            GEMINI_LIVE_TRANSLATE_MODEL_ID
-        ));
-        assert!(!is_gemini_live_translate_model_id(
-            GEMINI_LIVE_AUDIO_MODEL_ID_3_1
-        ));
-    }
 }

@@ -30,7 +30,7 @@ class PhoneControlOverlayControllerTest {
                 return block()
             }
 
-            override fun orbBounds() = OverlayBounds(0, 0, 10, 10)
+            override fun interactionBounds() = OverlayBounds(0, 0, 10, 10)
         }
         PhoneControlOverlayExclusion.register(participant)
         try {
@@ -59,16 +59,20 @@ class PhoneControlOverlayControllerTest {
     @Test
     fun captureMaskReadsBoundsWithoutMutatingTheLiveOverlay() = runTest {
         var hidden = false
+        var relocated = false
         val participant = object : PhoneControlOverlayExclusionParticipant {
             override suspend fun <T> withOverlayAvoiding(
                 bounds: OverlayBounds,
                 block: suspend () -> T,
             ): T {
                 hidden = true
+                relocated = true
                 return block()
             }
 
-            override fun orbBounds() = OverlayBounds(20, 40, 120, 140)
+            override fun interactionBounds() = OverlayBounds(80, 100, 120, 140)
+
+            override fun captureBounds() = OverlayBounds(20, 40, 120, 140)
         }
         PhoneControlOverlayExclusion.register(participant)
         try {
@@ -78,9 +82,28 @@ class PhoneControlOverlayControllerTest {
             )
             assertFalse(hidden)
             assertFalse(PhoneControlOverlayExclusion.controllerTransitionActive)
+            PhoneControlOverlayExclusion.forPoint(40f, 60f) {}
+            assertFalse("Caption pixels must not consume touch", relocated)
         } finally {
             PhoneControlOverlayExclusion.unregister(participant)
         }
+    }
+
+    @Test
+    fun canonicalRendererRegionScalesFromCssViewportIntoDisplayPixels() {
+        assertEquals(
+            OverlayBounds(20, 40, 240, 320),
+            scaleRendererRegion(
+                x = 10.0,
+                y = 20.0,
+                regionWidth = 110.0,
+                regionHeight = 140.0,
+                viewportWidth = 540.0,
+                viewportHeight = 1_212.0,
+                viewWidth = 1_080,
+                viewHeight = 2_424,
+            ),
+        )
     }
 
     @Test
@@ -117,7 +140,7 @@ class PhoneControlOverlayControllerTest {
                 return block()
             }
 
-            override fun orbBounds() = OverlayBounds(0, 0, 10, 10)
+            override fun interactionBounds() = OverlayBounds(0, 0, 10, 10)
         }
         PhoneControlOverlayExclusion.register(participant)
         try {

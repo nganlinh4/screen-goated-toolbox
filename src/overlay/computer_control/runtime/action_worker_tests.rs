@@ -70,12 +70,8 @@ fn turn_retirement_is_one_way_and_never_returns_a_model_result() {
         })
         .unwrap();
 
-    assert_eq!(
-        cleanup_rx.recv_timeout(std::time::Duration::from_secs(5)),
-        Ok(7)
-    );
-    assert!(done_rx.try_recv().is_err());
-    stop.store(true, Ordering::SeqCst);
     drop(job_tx);
     worker.join().unwrap();
+    assert_eq!(cleanup_rx.recv(), Ok(7));
+    assert!(done_rx.try_recv().is_err());
 }

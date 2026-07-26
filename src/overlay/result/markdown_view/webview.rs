@@ -328,17 +328,6 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, _is_hovered: bool) {
     }
 }
 
-/// Hide the WebView (toggle back to plain text)
-pub fn hide_markdown_webview(parent_hwnd: HWND) {
-    let hwnd_key = parent_hwnd.0 as isize;
-
-    WEBVIEWS.with(|webviews| {
-        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
-            let _ = webview.set_visible(false);
-        }
-    });
-}
-
 /// Show the WebView (toggle to markdown mode)
 pub fn show_markdown_webview(parent_hwnd: HWND) {
     let hwnd_key = parent_hwnd.0 as isize;

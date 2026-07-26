@@ -136,6 +136,36 @@ interface MobileProviderText {
     val voiceSettingsButton: String
 }
 
+enum class MobileUsageTipCategoryId(val stableId: String) {
+    CAPTURE_SHORTCUTS("capture_shortcuts"),
+    PRESETS_AUTOMATION("presets_automation"),
+    RESULTS_RECOVERY("results_recovery"),
+    MODELS_SEARCH("models_search"),
+    CREATIVE_TOOLS("creative_tools"),
+}
+
+enum class MobileUsageTipId(val stableId: String) {
+    CONTINUOUS_MODE_ENTRY("continuous_mode_entry"),
+    CUSTOM_PRESET_RENAME("custom_preset_rename"),
+    AUTO_PASTE_PREREQUISITES("auto_paste_prerequisites"),
+    CREATION_BACKGROUND_RESULTS("creation_background_results"),
+    SEARCH_MARKER_DEFAULT("search_marker_default"),
+    FALLBACK_COOLDOWN_SEARCH("fallback_cooldown_search"),
+    DJ_BACKGROUND_PLAYBACK("dj_background_playback"),
+}
+
+data class MobileUsageTipText(
+    val id: MobileUsageTipId,
+    val text: String,
+)
+
+data class MobileUsageTipCategoryText(
+    val id: MobileUsageTipCategoryId,
+    val title: String,
+    val description: String,
+    val tips: List<MobileUsageTipText>,
+)
+
 interface MobilePresetRuntimeText {
     val presetRuntimeTitle: String
     val presetRuntimeDescription: String
@@ -143,14 +173,20 @@ interface MobilePresetRuntimeText {
     val presetRuntimeSettingsAction: String
     val usageStatsButton: String
     val usageStatsTitle: String
-    val usageStatsModel: String
-    val usageStatsRemaining: String
-    val usageStatsUnlimited: String
     val usageStatsNoData: String
     val usageStatsSettingsAction: String
+    val usageStatsSessionHint: String
+    val usageStatsEndpointCount: String
+    val usageStatsSharedQuota: String
+    val usageStatsUpdatedNow: String
+    val usageStatsMinutesAgo: String
+    val usageStatsStale: String
+    val usageStatsReset: String
+    val usageStatsCheckUsage: String
     val usageTipsTitle: String
     val usageTipsClickHint: String
-    val usageTipsList: List<String>
+    val usageTipsDescription: String
+    val usageTipsCategories: List<MobileUsageTipCategoryText>
     val resetDefaultsButton: String
     val resetDefaultsAction: String
     val resetDefaultsConfirmTitle: String

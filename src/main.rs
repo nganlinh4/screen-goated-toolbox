@@ -31,6 +31,7 @@ mod source_contract_tests;
 mod startup_launch;
 mod unpack_dlls;
 mod updater;
+mod usage_stats;
 pub mod win_types;
 
 pub use app_activation::RESTORE_EVENT;

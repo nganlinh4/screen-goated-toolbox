@@ -1,44 +1,8 @@
 //! Second-pass visual authorization for coordinate-based pointer actions.
 
+use super::super::vision_contract::{MIN_VERIFICATION_CONFIDENCE, crosshair_crop};
 use super::super::vision_reader::Located;
 use super::*;
-use std::io::Cursor;
-
-const MIN_VERIFY_CONFIDENCE: u64 = 70;
-
-fn crosshair_crop(jpeg: &[u8], loc: &Located) -> Result<Vec<u8>> {
-    let source = image::load_from_memory(jpeg)?.to_rgb8();
-    let (width, height) = source.dimensions();
-    let target_x = (loc.x / 1000.0 * f64::from(width)).round() as i64;
-    let target_y = (loc.y / 1000.0 * f64::from(height)).round() as i64;
-    let crop_w = (width / 4).max(240).min(width);
-    let crop_h = (height / 4).max(180).min(height);
-    let left =
-        (target_x - i64::from(crop_w) / 2).clamp(0, i64::from(width.saturating_sub(crop_w))) as u32;
-    let top = (target_y - i64::from(crop_h) / 2).clamp(0, i64::from(height.saturating_sub(crop_h)))
-        as u32;
-    let mut crop = image::imageops::crop_imm(&source, left, top, crop_w, crop_h).to_image();
-    let cx = (target_x - i64::from(left)).clamp(0, i64::from(crop_w.saturating_sub(1))) as u32;
-    let cy = (target_y - i64::from(top)).clamp(0, i64::from(crop_h.saturating_sub(1))) as u32;
-    let red = image::Rgb([255, 32, 32]);
-    for offset in 4..=14 {
-        if let Some(x) = cx.checked_sub(offset) {
-            crop.put_pixel(x, cy, red);
-        }
-        if cx + offset < crop_w {
-            crop.put_pixel(cx + offset, cy, red);
-        }
-        if let Some(y) = cy.checked_sub(offset) {
-            crop.put_pixel(cx, y, red);
-        }
-        if cy + offset < crop_h {
-            crop.put_pixel(cx, cy + offset, red);
-        }
-    }
-    let mut output = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgb8(crop).write_to(&mut output, image::ImageFormat::Jpeg)?;
-    Ok(output.into_inner())
-}
 
 pub(super) fn verify_located(
     fresh_jpeg: &[u8],
@@ -50,12 +14,12 @@ pub(super) fn verify_located(
     if super::harness_options::skip_locate_verification_requested() {
         return Ok(loc);
     }
-    let crop = crosshair_crop(fresh_jpeg, &loc)?;
+    let crop = crosshair_crop(fresh_jpeg, loc.x, loc.y)?;
     let (description, ctx) = (description.to_string(), ctx.to_string());
     let verification = run_cancellable(cancel, move || {
         super::super::vision_reader::verify_target(&crop, &description, &ctx)
     })?;
-    if !verification.matches || verification.confidence < MIN_VERIFY_CONFIDENCE {
+    if !verification.matches || verification.confidence < MIN_VERIFICATION_CONFIDENCE {
         anyhow::bail!(
             "visual click verification rejected the point (confidence {}, saw {:?})",
             verification.confidence,
@@ -81,8 +45,7 @@ mod tests {
             .write_to(&mut bytes, image::ImageFormat::Jpeg)
             .unwrap();
         for (x, y) in [(0.0, 0.0), (1000.0, 1000.0)] {
-            let crop = crosshair_crop(&bytes.get_ref().clone(), &Located { x, y, note: None })
-                .expect("edge crop");
+            let crop = crosshair_crop(bytes.get_ref(), x, y).expect("edge crop");
             assert!(!crop.is_empty());
         }
     }

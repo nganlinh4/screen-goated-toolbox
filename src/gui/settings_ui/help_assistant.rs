@@ -160,7 +160,7 @@ fn ask_gemini(
             "temperature": 0.7
         }
     });
-    if let Some(thinking) = crate::api::gemini_thinking_config(model_id) {
+    if let Some(thinking) = crate::api::gemini_important_task_thinking_config(&model.full_name) {
         body["generationConfig"]["thinkingConfig"] = thinking;
     }
 
@@ -368,5 +368,14 @@ mod tests {
         assert_eq!(model_chain["primary"], PRIMARY_MODEL);
         assert_eq!(model_chain["fallback"], FALLBACK_MODEL);
         assert_eq!(model_chain["max_output_tokens"], MAX_OUTPUT_TOKENS);
+        for model_id in [PRIMARY_MODEL, FALLBACK_MODEL] {
+            let api_model = crate::model_config::get_model_by_id(model_id)
+                .unwrap()
+                .full_name;
+            assert_eq!(
+                crate::api::gemini_important_task_thinking_config(&api_model).unwrap(),
+                model_chain["thinking_config"][model_id]
+            );
+        }
     }
 }

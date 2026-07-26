@@ -109,7 +109,6 @@ private val toolCategories = listOf(
         acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE),
         presets = listOf(
             ToolPresetItem("translate", "Translate region", "Dịch vùng", "영역 번역", R.drawable.ms_translate),
-            ToolPresetItem("extract_retranslate", "Trans (ACCURATE)", "Dịch vùng (CHUẨN)", "영역 번역 (정확)", R.drawable.ms_verified),
             ToolPresetItem("translate_auto_paste", "Trans (Auto paste)", "Dịch vùng (Tự dán)", "영역 번역 (자동 붙.)", R.drawable.ms_content_paste_go),
             ToolPresetItem("extract_table", "Extract Table", "Trích bảng", "표 추출", R.drawable.ms_table_chart),
             ToolPresetItem("translate_retranslate", "Trans+Retrans", "Dịch vùng+Dịch lại", "번역+재번역", R.drawable.ms_translate),

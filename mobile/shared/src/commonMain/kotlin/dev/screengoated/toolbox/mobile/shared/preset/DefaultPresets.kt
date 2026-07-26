@@ -18,7 +18,7 @@ package dev.screengoated.toolbox.mobile.shared.preset
  */
 object DefaultPresets {
 
-    /** Image presets (16). See `DefaultPresetsImage.kt`. */
+    /** Image presets (15). See `DefaultPresetsImage.kt`. */
     val imagePresets: List<Preset> = defaultImagePresets
 
     /** Text-selection presets (13). See `DefaultPresetsTextSelect.kt`. */

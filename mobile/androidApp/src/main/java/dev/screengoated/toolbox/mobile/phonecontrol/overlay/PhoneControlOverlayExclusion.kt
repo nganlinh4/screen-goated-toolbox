@@ -23,7 +23,9 @@ internal data class OverlayBounds(
 internal interface PhoneControlOverlayExclusionParticipant {
     suspend fun <T> withOverlayAvoiding(bounds: OverlayBounds, block: suspend () -> T): T
 
-    fun orbBounds(): OverlayBounds?
+    fun interactionBounds(): OverlayBounds?
+
+    fun captureBounds(): OverlayBounds? = interactionBounds()
 }
 
 internal object PhoneControlOverlayExclusion {
@@ -42,7 +44,9 @@ internal object PhoneControlOverlayExclusion {
         participant.compareAndSet(candidate, null)
     }
 
-    fun currentCaptureBounds(): OverlayBounds? = participant.get()?.orbBounds()
+    fun currentInteractionBounds(): OverlayBounds? = participant.get()?.interactionBounds()
+
+    fun currentCaptureBounds(): OverlayBounds? = participant.get()?.captureBounds()
 
     suspend fun <T> forPoint(
         x: Float,
@@ -50,7 +54,7 @@ internal object PhoneControlOverlayExclusion {
         block: suspend () -> T,
     ): T {
         val current = participant.get()
-        val needsExclusion = current?.orbBounds()?.contains(x.toInt(), y.toInt()) == true
+        val needsExclusion = current?.interactionBounds()?.contains(x.toInt(), y.toInt()) == true
         val point = OverlayBounds(x.toInt(), y.toInt(), x.toInt() + 1, y.toInt() + 1)
         return if (needsExclusion) withControllerOverlayAvoiding(current, point, block) else block()
     }
@@ -63,7 +67,7 @@ internal object PhoneControlOverlayExclusion {
         block: suspend () -> T,
     ): T {
         val current = participant.get()
-        val bounds = current?.orbBounds()
+        val bounds = current?.interactionBounds()
         val pathBounds = OverlayBounds(
             minOf(fromX, toX).toInt(),
             minOf(fromY, toY).toInt(),

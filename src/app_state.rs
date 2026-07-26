@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::config::{Config, load_config};
@@ -11,7 +10,7 @@ pub struct AppState {
     pub screenshot_handle: Option<GdiCapture>,
     pub hotkeys_updated: bool,
     pub registered_hotkey_ids: Vec<i32>,
-    pub model_usage_stats: HashMap<String, String>,
+    pub model_usage_stats: crate::usage_stats::UsageStore,
     pub history: Arc<HistoryManager>,
     pub last_active_window: Option<SendHwnd>,
 }
@@ -25,7 +24,7 @@ pub static APP: LazyLock<Arc<Mutex<AppState>>> = LazyLock::new(|| {
             screenshot_handle: None,
             hotkeys_updated: false,
             registered_hotkey_ids: Vec::new(),
-            model_usage_stats: HashMap::new(),
+            model_usage_stats: crate::usage_stats::UsageStore::new(),
             history,
             last_active_window: None,
         }

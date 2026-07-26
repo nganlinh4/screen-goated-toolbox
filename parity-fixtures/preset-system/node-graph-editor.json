@@ -1,5 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
+  "default_models": {
+    "text": "cerebras-zai-glm-4-7-text",
+    "image": "google-gemini-3-5-flash-lite-vision",
+    "audio": "groq-whisper-large-v3-audio"
+  },
   "cases": [
     {
       "name": "inline_node_editor_chrome_comes_from_language",

@@ -20,8 +20,24 @@ use crate::config::types::{
 // SERDE DEFAULT FUNCTIONS
 // ============================================================================
 
-fn default_true() -> bool {
-    true
+fn default_use_groq() -> bool {
+    crate::model_config::DEFAULT_USE_GROQ
+}
+
+fn default_use_gemini() -> bool {
+    crate::model_config::DEFAULT_USE_GEMINI
+}
+
+fn default_use_openrouter() -> bool {
+    crate::model_config::DEFAULT_USE_OPENROUTER
+}
+
+fn default_use_cerebras() -> bool {
+    crate::model_config::DEFAULT_USE_CEREBRAS
+}
+
+fn default_use_ollama() -> bool {
+    crate::model_config::DEFAULT_USE_OLLAMA
 }
 
 fn default_history_limit() -> usize {
@@ -235,23 +251,23 @@ pub struct Config {
     // API Provider Toggles
     // -------------------------------------------------------------------------
     /// Enable Groq models
-    #[serde(default = "default_true")]
+    #[serde(default = "default_use_groq")]
     pub use_groq: bool,
 
     /// Enable Google Gemini models
-    #[serde(default = "default_true")]
+    #[serde(default = "default_use_gemini")]
     pub use_gemini: bool,
 
     /// Enable OpenRouter models
-    #[serde(default)]
+    #[serde(default = "default_use_openrouter")]
     pub use_openrouter: bool,
 
     /// Enable Cerebras AI models
-    #[serde(default = "default_true")]
+    #[serde(default = "default_use_cerebras")]
     pub use_cerebras: bool,
 
     /// Enable local Ollama models
-    #[serde(default)]
+    #[serde(default = "default_use_ollama")]
     pub use_ollama: bool,
 
     // -------------------------------------------------------------------------
@@ -472,11 +488,11 @@ impl Default for Config {
             authorized_startup_path: String::new(),
 
             // API Providers
-            use_groq: true,
-            use_gemini: true,
-            use_openrouter: false,
-            use_cerebras: true,
-            use_ollama: false,
+            use_groq: crate::model_config::DEFAULT_USE_GROQ,
+            use_gemini: crate::model_config::DEFAULT_USE_GEMINI,
+            use_openrouter: crate::model_config::DEFAULT_USE_OPENROUTER,
+            use_cerebras: crate::model_config::DEFAULT_USE_CEREBRAS,
+            use_ollama: crate::model_config::DEFAULT_USE_OLLAMA,
             model_priority_chains: ModelPriorityChains::default(),
 
             // Ollama

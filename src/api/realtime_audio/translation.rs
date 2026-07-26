@@ -148,9 +148,18 @@ pub fn run_translation_loop(
             let (keys, translation_model, text_chain, config_snapshot, history_entries) = {
                 let app = APP.lock().unwrap();
                 let keys = TranslationKeys {
-                    gemini: app.config.gemini_api_key.clone(),
-                    cerebras: app.config.cerebras_api_key.clone(),
-                    groq: app.config.api_key.clone(),
+                    gemini: crate::api::provider_credentials::resolve(
+                        "GEMINI_API_KEY",
+                        &app.config.gemini_api_key,
+                    ),
+                    cerebras: crate::api::provider_credentials::resolve(
+                        "CEREBRAS_API_KEY",
+                        &app.config.cerebras_api_key,
+                    ),
+                    groq: crate::api::provider_credentials::resolve(
+                        "GROQ_API_KEY",
+                        &app.config.api_key,
+                    ),
                 };
                 let model = app.config.realtime_translation_model.clone();
                 let chain = app.config.model_priority_chains.text_to_text.clone();

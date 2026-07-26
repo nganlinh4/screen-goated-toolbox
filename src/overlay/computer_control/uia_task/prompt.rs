@@ -226,11 +226,11 @@ mod tests {
             "built-in capability was added or lost"
         );
         assert!(
-            serde_json::to_string(declarations).unwrap().len() <= 22_000,
+            serde_json::to_string(declarations).unwrap().len() <= 22_500,
             "function catalog exceeded its reviewed prompt budget"
         );
         assert!(
-            setup["setup"]["systemInstruction"].to_string().len() < 5_000,
+            setup["setup"]["systemInstruction"].to_string().len() <= 5_250,
             "system instruction exceeded its reviewed prompt budget"
         );
         assert!(

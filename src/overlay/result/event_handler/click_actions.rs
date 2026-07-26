@@ -1,13 +1,9 @@
-use std::mem::size_of;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use windows::Win32::Graphics::Gdi::InvalidateRect;
-use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
 use windows::core::PCWSTR;
-
-use super::misc::WM_CREATE_WEBVIEW;
 
 use crate::overlay::result::state::{InteractionMode, WINDOW_STATES};
 use crate::overlay::result::{button_canvas, markdown_view};
@@ -164,69 +160,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                 }
                 SetTimer(Some(hwnd), 1, 1500, None);
             } else if is_markdown_click {
-                // Only allow markdown toggle when NOT refining AND NOT streaming
-                let can_toggle = {
-                    let states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                        !state.is_refining && !state.is_streaming_active
-                    } else {
-                        false
-                    }
-                };
-
-                if can_toggle {
-                    // Toggle markdown mode
-                    let (toggle_on, _full_text) = {
-                        let mut states = WINDOW_STATES.lock().unwrap();
-                        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                            state.is_markdown_mode = !state.is_markdown_mode;
-                            (state.is_markdown_mode, state.full_text.clone())
-                        } else {
-                            (false, String::new())
-                        }
-                    };
-
-                    if toggle_on {
-                        // Switch TO Markdown:
-                        // window.rs now creates window without WS_CLIPCHILDREN by default
-
-                        // DEFER WebView creation to after this handler returns
-                        let _ = PostMessageW(Some(hwnd), WM_CREATE_WEBVIEW, WPARAM(0), LPARAM(0));
-                        SetTimer(Some(hwnd), 2, 30, None);
-                    } else {
-                        // Switch TO Plain Text:
-                        // 1. Destroy the WebView completely
-                        markdown_view::destroy_markdown_webview(hwnd);
-
-                        // 2. Add WS_CLIPCHILDREN back
-                        // Force style update (WS_CLIPCHILDREN is permanently off)
-                        let _ = SetWindowPos(
-                            hwnd,
-                            Some(HWND::default()),
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_FRAMECHANGED
-                                | SWP_NOMOVE
-                                | SWP_NOSIZE
-                                | SWP_NOZORDER
-                                | SWP_NOACTIVATE,
-                        );
-
-                        // 3. Cleanup timers and restore event tracking
-                        let _ = KillTimer(Some(hwnd), 2);
-
-                        let mut tme = TRACKMOUSEEVENT {
-                            cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
-                            dwFlags: TME_LEAVE,
-                            hwndTrack: hwnd,
-                            dwHoverTime: 0,
-                        };
-                        let _ = TrackMouseEvent(&mut tme);
-                    }
-                    let _ = InvalidateRect(Some(hwnd), None, false);
-                }
+                crate::overlay::result::trigger_markdown_toggle(hwnd);
             } else if is_download_click {
                 // Download as HTML file
                 let full_text = {

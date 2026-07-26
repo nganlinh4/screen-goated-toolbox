@@ -101,22 +101,24 @@ private fun VisionApiClient.generateGeminiVisionBlocking(request: Request): Stri
     }
 }
 
-private fun buildGeminiVisionPayload(
+internal fun buildGeminiVisionPayload(
     model: PresetModelDescriptor,
     prompt: String,
     imageBase64: String,
     mimeType: String,
 ): JSONObject {
+    val textPart = JSONObject().put("text", prompt)
+    val imagePart = JSONObject().put(
+        "inline_data",
+        JSONObject()
+            .put("mime_type", mimeType)
+            .put("data", imageBase64),
+    )
     val parts = JSONArray()
-        .put(JSONObject().put("text", prompt))
-        .put(
-            JSONObject().put(
-                "inline_data",
-                JSONObject()
-                    .put("mime_type", mimeType)
-                    .put("data", imageBase64),
-            ),
-        )
+    when (model.visionInputOrder) {
+        PresetVisionInputOrder.TEXT_FIRST -> parts.put(textPart).put(imagePart)
+        PresetVisionInputOrder.IMAGE_FIRST -> parts.put(imagePart).put(textPart)
+    }
 
     val payload = JSONObject().put(
         "contents",
@@ -127,7 +129,8 @@ private fun buildGeminiVisionPayload(
         ),
     )
 
-    PresetModelCatalog.geminiThinkingConfig(model.fullName)?.let { thinking ->
+    val generationConfig = JSONObject()
+    PresetModelCatalog.geminiThinkingConfig(model.provider, model.fullName)?.let { thinking ->
         val thinkingConfig = JSONObject().apply {
             thinking.forEach { (key, value) ->
                 when (value) {
@@ -137,10 +140,13 @@ private fun buildGeminiVisionPayload(
                 }
             }
         }
-        payload.put(
-            "generationConfig",
-            JSONObject().put("thinkingConfig", thinkingConfig),
-        )
+        generationConfig.put("thinkingConfig", thinkingConfig)
+    }
+    when (model.visionMediaResolution) {
+        PresetVisionMediaResolution.PROVIDER_DEFAULT -> Unit
+    }
+    if (generationConfig.length() > 0) {
+        payload.put("generationConfig", generationConfig)
     }
 
     return payload

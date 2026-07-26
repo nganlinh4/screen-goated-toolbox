@@ -31,6 +31,34 @@ import org.junit.Test
 
 class PhoneControlSingleFlightRuntimeTest {
     @Test
+    fun `resumable transport loss retires an orphaned generation`() {
+        fixture().use { test ->
+            test.dispatch(beginTurn = true)
+
+            assertEquals(PhoneControlTurnPhase.WORKING, test.coordinator.phase)
+            assertTrue(test.coordinator.retireTransportInterruptedTurn())
+            assertEquals(PhoneControlTurnPhase.LISTENING, test.coordinator.phase)
+            assertFalse(test.coordinator.retireTransportInterruptedTurn())
+        }
+    }
+
+    @Test
+    fun `transport loss preserves a tool effect until its terminal receipt`() {
+        fixture().use { test ->
+            test.dispatch(beginTurn = true, call("owner", "observe"))
+            test.executor.awaitRequest("owner")
+
+            assertFalse(test.coordinator.retireTransportInterruptedTurn())
+            assertEquals(PhoneControlTurnPhase.WORKING, test.coordinator.phase)
+
+            test.executor.complete("owner", result())
+            test.coordinator.drainToolCompletions()
+            assertTrue(test.coordinator.retireTransportInterruptedTurn())
+            assertEquals(PhoneControlTurnPhase.LISTENING, test.coordinator.phase)
+        }
+    }
+
+    @Test
     fun `duplicate owner id is absorbed without a second function response`() {
         fixture().use { test ->
             test.dispatch(

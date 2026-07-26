@@ -40,6 +40,7 @@ pub fn chat_payload(
         "stream": streaming,
         "max_completion_tokens": MAX_COMPLETION_TOKENS
     });
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "cerebras", model);
     if let Some(format) = response_format {
         payload["response_format"] = format;
     }
@@ -95,8 +96,12 @@ pub fn supports_predicted_outputs(model: &str) -> bool {
 }
 
 /// Models for which Cerebras documents constrained JSON-schema decoding.
-/// Vision-capable Gemma is deliberately absent: it rejects `response_format`.
 pub fn supports_structured_outputs(model: &str) -> bool {
+    if crate::model_config::vision_request_profile("cerebras", model).structured_output
+        == crate::model_config::StructuredOutputPolicy::StrictJsonSchema
+    {
+        return true;
+    }
     matches!(
         model,
         "gpt-oss-120b"
@@ -109,17 +114,47 @@ pub fn supports_structured_outputs(model: &str) -> bool {
 }
 
 /// Strict schema shape required by Cerebras constrained decoding.
-pub fn strict_json_schema(name: &str, schema: Value) -> Value {
+pub fn strict_json_schema(name: &str, mut schema: Value) -> Value {
+    require_closed_objects(&mut schema);
     json!({
         "type": "json_schema",
         "json_schema": { "name": name, "strict": true, "schema": schema }
     })
 }
 
+fn require_closed_objects(schema: &mut Value) {
+    match schema {
+        Value::Array(values) => {
+            for value in values {
+                require_closed_objects(value);
+            }
+        }
+        Value::Object(object) => {
+            for value in object.values_mut() {
+                require_closed_objects(value);
+            }
+            if object.get("type").and_then(Value::as_str) == Some("object") {
+                object
+                    .entry("additionalProperties")
+                    .or_insert_with(|| Value::Bool(false));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Return a constrained response format only for models that document it.
+///
+/// Schema-less JSON mode is intentionally unsupported: callers that need
+/// structured output must state the contract they will parse.
+pub fn structured_response_format(model: &str, name: &str, schema: &Value) -> Option<Value> {
+    supports_structured_outputs(model).then(|| strict_json_schema(name, schema.clone()))
+}
+
 /// Build a tool-calling request. Tools and `response_format` are deliberately
 /// separate entry points because Cerebras rejects using them together.
 pub fn tool_chat_payload(model: &str, messages: Value, tools: Value, streaming: bool) -> Value {
-    json!({
+    let mut payload = json!({
         "model": model,
         "messages": messages,
         "tools": tools,
@@ -127,7 +162,9 @@ pub fn tool_chat_payload(model: &str, messages: Value, tools: Value, streaming: 
         "parallel_tool_calls": true,
         "stream": streaming,
         "max_completion_tokens": MAX_COMPLETION_TOKENS
-    })
+    });
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "cerebras", model);
+    payload
 }
 
 /// Execute the provider-neutral part of a Cerebras tool loop. The caller owns
@@ -206,11 +243,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn payload_sets_realistic_output_ceiling_without_reasoning_override() {
+    fn payload_sets_realistic_output_ceiling_and_lowest_reasoning_effort() {
         let payload = chat_payload("gpt-oss-120b", json!([]), false, None, None);
         assert_eq!(payload["max_completion_tokens"], 8_192);
-        assert!(payload.get("reasoning_effort").is_none());
+        assert_eq!(payload["reasoning_effort"], "low");
         assert!(payload.get("disable_reasoning").is_none());
+
+        let glm = chat_payload("zai-glm-4.7", json!([]), false, None, None);
+        let gemma = chat_payload("gemma-4-31b", json!([]), false, None, None);
+        assert_eq!(glm["reasoning_effort"], "none");
+        assert_eq!(gemma["reasoning_effort"], "none");
     }
 
     #[test]
@@ -222,10 +264,48 @@ mod tests {
     }
 
     #[test]
-    fn gemma_vision_does_not_receive_unsupported_structured_output() {
-        assert!(!supports_structured_outputs("gemma-4-31b"));
+    fn current_gemma_vision_receives_a_strict_schema_only_when_requested() {
+        assert!(supports_structured_outputs("gemma-4-31b"));
         assert!(supports_structured_outputs("gpt-oss-120b"));
         assert!(supports_structured_outputs("zai-glm-4.7"));
+
+        let schema = json!({
+            "type": "object",
+            "properties": { "text": { "type": "string" } },
+            "required": ["text"],
+            "additionalProperties": false
+        });
+        assert_eq!(
+            structured_response_format("gemma-4-31b", "image", &schema)
+                .as_ref()
+                .and_then(|value| value.pointer("/json_schema/schema")),
+            Some(&schema)
+        );
+        assert!(structured_response_format("future-model", "image", &schema).is_none());
+    }
+
+    #[test]
+    fn strict_schema_closes_every_object_for_cerebras() {
+        let format = strict_json_schema(
+            "nested",
+            json!({
+                "type": "object",
+                "properties": {
+                    "point": {
+                        "type": "object",
+                        "properties": {"x": {"type": "integer"}}
+                    }
+                }
+            }),
+        );
+        assert_eq!(
+            format.pointer("/json_schema/schema/additionalProperties"),
+            Some(&Value::Bool(false))
+        );
+        assert_eq!(
+            format.pointer("/json_schema/schema/properties/point/additionalProperties"),
+            Some(&Value::Bool(false))
+        );
     }
 
     #[test]

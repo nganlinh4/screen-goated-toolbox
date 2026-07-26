@@ -146,5 +146,6 @@ internal fun screenCaptureRoute(
 ): String = when {
     captureProvider == "media_projection" && !hasCoordinateLease -> "projection_only"
     captureProvider == "media_projection" -> "whole_display"
+    captureProvider == "accessibility_window_lease_free" -> "window_lease_free"
     else -> "semantic_visual"
 }

@@ -41,7 +41,7 @@ internal val defaultDeviceAudioPresets: List<Preset> = listOf(
         blocks = listOf(
             audioBlock(PRESET_AUDIO_TRANSCRIBE_MODEL_ID),
             textBlock(
-                "google-gemma-4-26b-a4b-text",
+                DEFAULT_TEXT_MODEL_ID,
                 "",
                 "language1" to "Vietnamese",
             ),

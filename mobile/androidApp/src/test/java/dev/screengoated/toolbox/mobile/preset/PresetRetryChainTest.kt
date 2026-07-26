@@ -1,5 +1,17 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_TEXT_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_CONTINUOUS_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_TRANSCRIBE_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_IMAGE_ACCURATE_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_SEARCH_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_TEXT_ARENA_FAST_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_TEXT_GAME_MODEL_ID
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
@@ -85,7 +97,10 @@ class PresetRetryChainTest {
         )
 
         assertNotNull(next)
-        assertEquals("google-gemma-4-31b-text", next?.id)
+        assertEquals(
+            GeneratedPresetModelCatalogData.modelPriorityChains.textToText.first(),
+            next?.id,
+        )
     }
 
     @Test
@@ -108,9 +123,58 @@ class PresetRetryChainTest {
     fun generatedDefaultsMatchWindowsRetryFixture() {
         val root = json.parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString()).jsonObject
         val providerSettings = root.getValue("provider_settings").jsonObject
+        val recommendedModels = root.getValue("recommended_model_defaults").jsonObject
         val chains = root.getValue("model_priority_chains").jsonObject
         val defaults = PresetRuntimeSettings()
 
+        assertEquals(
+            recommendedModels.getValue("generic_image").jsonPrimitive.content,
+            DEFAULT_IMAGE_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("accurate_image").jsonPrimitive.content,
+            PRESET_IMAGE_ACCURATE_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("image_translate").jsonPrimitive.content,
+            PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("image_ask").jsonPrimitive.content,
+            DEFAULT_IMAGE_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("generic_text").jsonPrimitive.content,
+            DEFAULT_TEXT_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("text_arena_fast").jsonPrimitive.content,
+            PRESET_TEXT_ARENA_FAST_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("text_game").jsonPrimitive.content,
+            PRESET_TEXT_GAME_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("search").jsonPrimitive.content,
+            PRESET_SEARCH_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("audio_transcribe").jsonPrimitive.content,
+            PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("audio_continuous").jsonPrimitive.content,
+            PRESET_AUDIO_CONTINUOUS_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("audio_direct_translate").jsonPrimitive.content,
+            PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID,
+        )
+        assertEquals(
+            recommendedModels.getValue("audio_offline_transcribe").jsonPrimitive.content,
+            PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID,
+        )
         assertEquals(
             providerSettings.getValue("use_groq").jsonPrimitive.boolean,
             defaults.providerSettings.useGroq,
@@ -141,6 +205,58 @@ class PresetRetryChainTest {
         )
     }
 
+    @Test
+    fun imagePresetDefaultsKeepSpeedAndAccuracyPoliciesSeparate() {
+        val byId = DefaultPresets.all.associateBy { it.id }
+
+        listOf(
+            "preset_translate",
+            "preset_translate_auto_paste",
+            "preset_translate_retranslate",
+        ).forEach { id ->
+            assertEquals(
+                PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
+                byId.getValue(id).blocks.first().model,
+            )
+        }
+
+        listOf(
+            "preset_ocr",
+            "preset_ocr_read",
+            "preset_summarize",
+            "preset_desc",
+            "preset_ask_image",
+        ).forEach { id ->
+            assertEquals(DEFAULT_IMAGE_MODEL_ID, byId.getValue(id).blocks.first().model)
+        }
+
+        listOf(
+            "preset_extract_retrans_retrans",
+            "preset_extract_table",
+            "preset_fact_check",
+            "preset_omniscient_god",
+        ).forEach { id ->
+            assertEquals(PRESET_IMAGE_ACCURATE_MODEL_ID, byId.getValue(id).blocks.first().model)
+        }
+    }
+
+    @Test
+    fun retiredImagePresetAndWindowsOnlyHotkeyMatchSharedContract() {
+        val root = json.parseToJsonElement(
+            Files.readAllBytes(catalogFixturePath()).decodeToString(),
+        ).jsonObject
+        val retirement = root.getValue("retired_builtins").jsonArray.single().jsonObject
+        val retiredId = retirement.getValue("preset_id").jsonPrimitive.content
+        val replacementId = retirement.getValue("replacement_id").jsonPrimitive.content
+
+        assertFalse(
+            retirement.getValue("android_copies_hotkey_metadata").jsonPrimitive.boolean,
+        )
+        assertFalse(DefaultPresets.all.any { it.id == retiredId })
+        assertTrue(DefaultPresets.all.single { it.id == replacementId }.hotkeys.isEmpty())
+        assertEquals(15, DefaultPresets.imagePresets.size)
+    }
+
     private fun fixturePath(): Path {
         val candidates = listOf(
             Paths.get("..", "parity-fixtures", "preset-system", "retry-runtime.json"),
@@ -149,5 +265,15 @@ class PresetRetryChainTest {
         )
         return candidates.firstOrNull(Files::exists)
             ?: error("Could not locate retry-runtime parity fixture.")
+    }
+
+    private fun catalogFixturePath(): Path {
+        val candidates = listOf(
+            Paths.get("..", "parity-fixtures", "preset-system", "catalog-overrides.json"),
+            Paths.get("..", "..", "parity-fixtures", "preset-system", "catalog-overrides.json"),
+            Paths.get("parity-fixtures", "preset-system", "catalog-overrides.json"),
+        )
+        return candidates.firstOrNull(Files::exists)
+            ?: error("Could not locate catalog-overrides parity fixture.")
     }
 }

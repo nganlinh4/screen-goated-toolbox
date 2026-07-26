@@ -18,10 +18,21 @@ use windows::core::w;
 
 static PENDING_REALTIME_START_PRESET: AtomicIsize = AtomicIsize::new(-1);
 
+fn session_transition_in_progress(pending_preset: isize, stopping: bool) -> bool {
+    pending_preset >= 0 || stopping
+}
+
 pub fn is_realtime_overlay_active() -> bool {
     if crate::overlay::realtime_egui::MINIMAL_ACTIVE.load(Ordering::SeqCst)
         || crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst)
     {
+        return true;
+    }
+
+    if session_transition_in_progress(
+        PENDING_REALTIME_START_PRESET.load(Ordering::SeqCst),
+        REALTIME_SESSION_STOPPING.load(Ordering::SeqCst),
+    ) {
         return true;
     }
 
@@ -49,6 +60,7 @@ pub fn stop_realtime_overlay() {
         return;
     }
 
+    PENDING_REALTIME_START_PRESET.store(-1, Ordering::SeqCst);
     super::controller::stop_runtime_flags();
 
     unsafe {
@@ -475,4 +487,17 @@ fn resize_webview(hwnd: HWND, width: i32, height: i32) {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_transition_in_progress;
+
+    #[test]
+    fn pending_or_stopping_session_remains_available_to_the_toggle() {
+        assert!(session_transition_in_progress(0, false));
+        assert!(session_transition_in_progress(42, false));
+        assert!(session_transition_in_progress(-1, true));
+        assert!(!session_transition_in_progress(-1, false));
+    }
 }

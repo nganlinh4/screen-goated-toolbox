@@ -17,6 +17,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetector
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorTargetSelection
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorTargetSelector
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorTargetVerification
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorVisualSignature
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import kotlinx.coroutines.test.runTest
@@ -29,6 +30,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UiDetectorToolHandlersTest {
+    @Test
+    fun requestFreshnessDoesNotMisreportDetectorAvailability() {
+        val stale = UiDetectorProviderResult.Failure(
+            code = "stale_target",
+            message = "frame moved",
+            retryable = true,
+            freshObservationRequired = true,
+        )
+        val inference = UiDetectorProviderResult.Failure(
+            code = "detector_inference_failed",
+            message = "runtime failed",
+            retryable = true,
+        )
+        val missing = UiDetectorProviderResult.Failure(
+            code = "capability_unavailable",
+            message = "model missing",
+            retryable = true,
+        )
+
+        assertEquals("ready", detectorProviderState(stale).wireName)
+        assertEquals("degraded", detectorProviderState(inference).wireName)
+        assertEquals("unavailable", detectorProviderState(missing).wireName)
+    }
+
     @Test
     fun clickTargetSelectsRefreshesAndActivatesInsideTheSameTool() = runTest {
         val mapping = mapping()
@@ -55,6 +80,7 @@ class UiDetectorToolHandlersTest {
         assertTrue(selector.selectionImage.contentEquals(mapping.groundingImageBytes))
         assertTrue(selector.verificationImage.contentEquals(byteArrayOf(4, 5, 6)))
         assertEquals(listOf(7), backend.refreshedMarks)
+        assertEquals(listOf(7), backend.revalidatedMarks)
         assertEquals(listOf("right"), backend.activatedButtons)
         assertTrue(backend.cleared)
         assertEquals("click_target", execution.response.value("requested_tool"))
@@ -186,6 +212,7 @@ private class FakeDetectorBackend(
     private val refreshFailure: UiDetectorProviderResult.Failure? = null,
 ) : UiDetectorToolBackend {
     val refreshedMarks = mutableListOf<Int>()
+    val revalidatedMarks = mutableListOf<Int>()
     val activatedButtons = mutableListOf<String>()
     var cleared = false
 
@@ -213,6 +240,7 @@ private class FakeDetectorBackend(
                 observationGeneration = GENERATION,
                 surfaceLease = mapping.marks.frame.surfaceLease,
                 verificationImageBytes = byteArrayOf(4, 5, 6),
+                visualSignature = visualSignature(),
             )
         }
         return UiDetectorProviderResult.Success(
@@ -221,6 +249,21 @@ private class FakeDetectorBackend(
                 inferenceMs = 4,
                 observationGeneration = GENERATION,
                 surfaceLease = mapping.marks.frame.surfaceLease,
+            ),
+        )
+    }
+
+    override suspend fun revalidateMarks(
+        marks: List<UiDetectorRefreshedMark>,
+    ): UiDetectorProviderResult<UiDetectorRefreshedMarkSet> {
+        revalidatedMarks += marks.map { it.mark.id }
+        return UiDetectorProviderResult.Success(
+            UiDetectorRefreshedMarkSet(
+                marks = marks,
+                inferenceMs = marks.maxOf(UiDetectorRefreshedMark::inferenceMs),
+                observationGeneration = GENERATION,
+                surfaceLease = mapping.marks.frame.surfaceLease,
+                pixelRevalidationMs = 2,
             ),
         )
     }
@@ -328,6 +371,8 @@ private fun mapping(): UiDetectorMapping {
 }
 
 private fun job() = PhoneControlToolJobContext(1, "detector-job", 2)
+
+private fun visualSignature() = UiDetectorVisualSignature(ByteArray(16 * 16 * 3))
 
 private fun kotlinx.serialization.json.JsonObject.value(key: String): String =
     getValue(key).jsonPrimitive.content

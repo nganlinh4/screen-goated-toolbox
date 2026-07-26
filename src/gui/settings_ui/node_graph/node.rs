@@ -1,4 +1,5 @@
 use crate::config::ProcessingBlock;
+use crate::model_config::DEFAULT_TEXT_MODEL_ID;
 use std::collections::HashMap;
 
 /// Node type for the processing chain
@@ -52,7 +53,7 @@ impl Default for ChainNode {
                     .as_nanos()
             ),
             block_type: "text".to_string(),
-            model: "google-gemma-4-26b-a4b-text".to_string(),
+            model: DEFAULT_TEXT_MODEL_ID.to_string(),
             prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
             language_vars: HashMap::new(),
             show_overlay: true,

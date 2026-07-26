@@ -315,6 +315,7 @@ class AccessibilityTraversalTest {
                 ),
             ),
             servicePackage = "controller.package",
+            controllerBounds = TargetBounds(0, 0, 100, 200),
         )
 
         assertEquals(4, snapshots.size)

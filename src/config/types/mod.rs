@@ -28,8 +28,8 @@ pub use hotkey::Hotkey;
 
 pub use model_priority::ModelPriorityChains;
 
-pub use preset_model_update::PendingPresetModelUpdate;
 pub(crate) use preset_model_update::PresetModelDefaults;
+pub use preset_model_update::{PendingPresetModelUpdate, RecommendedProviderDefaults};
 
 pub use profile::PresetProfile;
 

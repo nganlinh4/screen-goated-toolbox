@@ -49,7 +49,9 @@ internal data class UiDetectorRefreshedMark(
     val observationGeneration: Long,
     val surfaceLease: AccessibilitySurfaceLease,
     val verificationImageBytes: ByteArray,
+    val visualSignature: UiDetectorVisualSignature,
     val visualRevision: Long = 1L,
+    val pixelRevalidationMs: Long = 0L,
 )
 
 internal data class UiDetectorRefreshedMarkSet(
@@ -57,6 +59,7 @@ internal data class UiDetectorRefreshedMarkSet(
     val inferenceMs: Long,
     val observationGeneration: Long,
     val surfaceLease: AccessibilitySurfaceLease,
+    val pixelRevalidationMs: Long = 0L,
 ) {
     fun mark(id: Int): UiDetectorRefreshedMark? = marks.singleOrNull { it.mark.id == id }
 }
@@ -293,9 +296,6 @@ internal class UiDetectorProvider(context: Context) {
             if (PhoneControlAccessibilityProvider.observationGeneration != installed.frame.observationGeneration) {
                 return staleMark("The surface changed during mark verification.")
             }
-            if (PhoneControlAccessibilityProvider.currentVisualRevision != screenshot.visualRevision) {
-                return staleMark("The visual content changed during mark verification.")
-            }
             val matches = matchUiDetectorMarks(requested, inference.output.boxes, MIN_REFRESH_IOU)
                 ?: return staleMark(
                     "Every requested mark must independently overlap a fresh clickable region.",
@@ -314,6 +314,11 @@ internal class UiDetectorProvider(context: Context) {
                     observationGeneration = installed.frame.observationGeneration,
                     surfaceLease = installed.frame.surfaceLease,
                     visualRevision = screenshot.visualRevision,
+                    visualSignature = captureUiDetectorVisualSignature(
+                        screenshot.bitmap,
+                        screenshot.captureBounds,
+                        match.refreshed.bounds,
+                    ) ?: return staleMark("The refreshed target is outside the current capture."),
                     verificationImageBytes = screenshot.captureBounds
                         .mapPointToBitmap(
                             match.refreshed.centerX,
@@ -325,14 +330,19 @@ internal class UiDetectorProvider(context: Context) {
                         },
                 )
             }
-            return UiDetectorProviderResult.Success(
-                UiDetectorRefreshedMarkSet(
-                    marks = refreshedMarks,
-                    inferenceMs = inference.durationMs,
-                    observationGeneration = installed.frame.observationGeneration,
-                    surfaceLease = installed.frame.surfaceLease,
-                ),
+            val refreshedSet = UiDetectorRefreshedMarkSet(
+                marks = refreshedMarks,
+                inferenceMs = inference.durationMs,
+                observationGeneration = installed.frame.observationGeneration,
+                surfaceLease = installed.frame.surfaceLease,
             )
+            return if (
+                PhoneControlAccessibilityProvider.currentVisualRevision == screenshot.visualRevision
+            ) {
+                UiDetectorProviderResult.Success(refreshedSet)
+            } else {
+                revalidateMarks(refreshedSet.marks)
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
@@ -345,6 +355,40 @@ internal class UiDetectorProvider(context: Context) {
         } finally {
             screenshot.bitmap.recycle()
         }
+    }
+
+    suspend fun revalidateMarks(
+        marks: List<UiDetectorRefreshedMark>,
+    ): UiDetectorProviderResult<UiDetectorRefreshedMarkSet> {
+        if (marks.isEmpty()) {
+            return UiDetectorProviderResult.Failure(
+                code = "invalid_detector_request",
+                message = "At least one verified detector mark is required.",
+                retryable = false,
+            )
+        }
+        val installed = synchronized(markLock) { currentMarks }
+            ?: return staleMark("There is no current detector mark set.")
+        val installedIds = installed.marks.mapTo(hashSetOf(), UiDetectorMark::id)
+        if (marks.any {
+                it.mark.id !in installedIds ||
+                    it.observationGeneration != installed.frame.observationGeneration ||
+                    it.surfaceLease != installed.frame.surfaceLease
+            }
+        ) {
+            return staleMark("The verified marks do not belong to the current detector frame.")
+        }
+        var lastFailure: UiDetectorProviderResult.Failure? = null
+        repeat(PIXEL_REVALIDATION_ATTEMPTS) {
+            when (val result = revalidateUiDetectorVisualLease(installed.frame, marks)) {
+                is UiDetectorProviderResult.Success -> return result
+                is UiDetectorProviderResult.Failure -> {
+                    if (result.code != "stale_frame") return result
+                    lastFailure = result
+                }
+            }
+        }
+        return requireNotNull(lastFailure)
     }
 
     fun clearMarks() {
@@ -390,9 +434,11 @@ private fun preparationFailure(prepared: UiDetectorPreparation): UiDetectorProvi
         is UiDetectorPreparation.Ready -> error("ready preparation cannot fail")
     }
 
-private fun staleFrame() = UiDetectorProviderResult.Failure(
+private fun staleFrame(
+    message: String = "The surface changed while detector marks were being created.",
+) = UiDetectorProviderResult.Failure(
     "stale_frame",
-    "The surface changed while detector marks were being created.",
+    message,
     retryable = true,
     freshObservationRequired = true,
 )
@@ -497,3 +543,4 @@ private fun encodeVerificationCrop(source: Bitmap, centerX: Int, centerY: Int): 
 }
 
 private const val MIN_REFRESH_IOU = 0.35f
+private const val PIXEL_REVALIDATION_ATTEMPTS = 2

@@ -5,7 +5,7 @@ use crate::config::preset::Preset;
 use crate::config::preset::{BlockBuilder, PresetBuilder};
 use crate::config::types::Hotkey;
 use crate::model_config::{
-    DEFAULT_IMAGE_MODEL_ID, DEFAULT_TEXT_MODEL_ID, PRESET_IMAGE_ASK_MODEL_ID,
+    DEFAULT_IMAGE_MODEL_ID, DEFAULT_TEXT_MODEL_ID, PRESET_IMAGE_ACCURATE_MODEL_ID,
     PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID, PRESET_SEARCH_MODEL_ID,
 };
 
@@ -17,37 +17,19 @@ pub fn create_image_presets() -> Vec<Preset> {
         // =====================================================================
 
         // Translate - Basic image-to-text translation
-        PresetBuilder::new("preset_translate", "Translate")
-            .image()
-            .blocks(vec![
-                BlockBuilder::image(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
+        {
+            let mut preset = PresetBuilder::new("preset_translate", "Translate")
+                .image()
+                .blocks(vec![
+                    BlockBuilder::image(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Vietnamese")
                     .markdown() // Pretty only
                     .build(),
-            ])
-            .build(),
-
-        // Translate (High accuracy) - OCR then translate
-        {
-            let mut p = PresetBuilder::new("preset_extract_retranslate", "Translate (High accuracy)")
-            .image()
-            .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
-                    .prompt(OCR_EXTRACTION_PROMPT)
-                    .language("English")
-                    .show_overlay(false)
-                    .build(),
-                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
-                    .prompt("Translate to {language1}. Output ONLY the translation.")
-                    .language("Vietnamese")
-                    .markdown() // Upgraded: Thường -> Đẹp (Special: keeping non-streaming as requested by original logic for this specific preset)
-                    .streaming(false)
-                    .build(),
-            ])
-            .build();
-            p.hotkeys.push(Hotkey::new(192, "` / ~", 0));
-            p
+                ])
+                .build();
+            preset.hotkeys.push(Hotkey::new(192, "` / ~", 0));
+            preset
         },
 
         // Translate (Auto paste) - Hidden overlay, auto-paste
@@ -55,7 +37,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Vietnamese")
                     .show_overlay(false)
@@ -69,7 +51,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_translate_retranslate", "Translate+Retranslate")
             .image()
             .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Korean")
                     .markdown() // Đẹp
@@ -87,7 +69,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_extract_retrans_retrans", "Translate (Accurate)+Retranslate")
             .image()
             .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
                     .prompt(OCR_EXTRACTION_PROMPT)
                     .language("English")
                     .show_overlay(false)
@@ -152,7 +134,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_extract_table", "Extract Table")
             .image()
             .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
                     .prompt("Extract all data from any tables, forms, or structured content in this image. Format the output as a markdown table. Output ONLY the table, no explanations.")
                     .language("Vietnamese")
                     .markdown()
@@ -220,7 +202,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .dynamic_prompt()
             .blocks(vec![
-                BlockBuilder::image(PRESET_IMAGE_ASK_MODEL_ID)
+                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
                     .prompt("")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
@@ -236,7 +218,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_fact_check", "Kiểm chứng thông tin")
             .image()
             .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
                     .prompt("Extract and describe all text, claims, statements, and information visible in this image. Include any context that might be relevant for fact-checking. Output the content clearly.")
                     .language("Vietnamese")
                     .show_overlay(false)
@@ -254,7 +236,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .blocks(vec![
                 // Node 0: Extract from image
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
                     .prompt("Analyze this image and extract all text, claims, and key information. Be detailed and comprehensive.")
                     .language("English")
                     .markdown()
@@ -298,4 +280,77 @@ pub fn create_image_presets() -> Vec<Preset> {
             ])
             .build(),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_image_presets;
+    use crate::config::preset::Preset;
+    use crate::model_config::{
+        DEFAULT_IMAGE_MODEL_ID, PRESET_IMAGE_ACCURATE_MODEL_ID,
+        PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
+    };
+
+    fn first_model<'a>(presets: &'a [Preset], id: &str) -> &'a str {
+        presets
+            .iter()
+            .find(|preset| preset.id == id)
+            .and_then(|preset| preset.blocks.first())
+            .map(|block| block.model.as_str())
+            .unwrap_or_else(|| panic!("missing first block for {id}"))
+    }
+
+    #[test]
+    fn image_presets_keep_speed_and_accuracy_defaults_separate() {
+        let presets = create_image_presets();
+
+        for id in [
+            "preset_translate",
+            "preset_translate_auto_paste",
+            "preset_translate_retranslate",
+        ] {
+            assert_eq!(
+                first_model(&presets, id),
+                PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
+                "{id}"
+            );
+        }
+
+        for id in [
+            "preset_ocr",
+            "preset_ocr_read",
+            "preset_summarize",
+            "preset_desc",
+            "preset_ask_image",
+        ] {
+            assert_eq!(first_model(&presets, id), DEFAULT_IMAGE_MODEL_ID, "{id}");
+        }
+
+        for id in [
+            "preset_extract_retrans_retrans",
+            "preset_extract_table",
+            "preset_fact_check",
+            "preset_omniscient_god",
+        ] {
+            assert_eq!(
+                first_model(&presets, id),
+                PRESET_IMAGE_ACCURATE_MODEL_ID,
+                "{id}"
+            );
+        }
+
+        let translate = presets
+            .iter()
+            .find(|preset| preset.id == "preset_translate")
+            .unwrap();
+        assert_eq!(
+            translate.hotkeys,
+            vec![crate::config::Hotkey::new(192, "` / ~", 0)]
+        );
+        assert!(
+            presets
+                .iter()
+                .all(|preset| preset.id != "preset_extract_retranslate")
+        );
+    }
 }

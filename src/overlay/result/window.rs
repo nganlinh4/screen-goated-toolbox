@@ -47,6 +47,85 @@ pub fn get_chain_color(visible_index: usize) -> u32 {
 
 static REGISTER_RESULT_CLASS: Once = Once::new();
 
+fn result_window_styles(is_markdown_mode: bool) -> (WINDOW_EX_STYLE, WINDOW_STYLE) {
+    let ex_style = WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+    let base_style = result_window_style_for_mode(WS_POPUP, is_markdown_mode);
+
+    (ex_style, base_style)
+}
+
+fn result_window_style_for_mode(
+    current_style: WINDOW_STYLE,
+    is_markdown_mode: bool,
+) -> WINDOW_STYLE {
+    if is_markdown_mode {
+        // The markdown WebView is a child HWND. The parent is invalidated by the
+        // animation timer, so its GDI paint must exclude the child surface.
+        current_style | WS_CLIPCHILDREN
+    } else {
+        // Native text painting owns the full client area.
+        WINDOW_STYLE(current_style.0 & !WS_CLIPCHILDREN.0)
+    }
+}
+
+pub(super) unsafe fn set_markdown_parent_clipping(hwnd: HWND, enabled: bool) {
+    unsafe {
+        let current_style = WINDOW_STYLE(GetWindowLongW(hwnd, GWL_STYLE) as u32);
+        let updated_style = result_window_style_for_mode(current_style, enabled);
+        if updated_style == current_style {
+            return;
+        }
+
+        SetWindowLongW(hwnd, GWL_STYLE, updated_style.0 as i32);
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+}
+
+fn rgb_to_colorref(rgb_color: u32) -> COLORREF {
+    COLORREF(
+        ((rgb_color & 0x0000_00ff) << 16)
+            | (rgb_color & 0x0000_ff00)
+            | ((rgb_color & 0x00ff_0000) >> 16),
+    )
+}
+
+unsafe fn prime_markdown_background(hwnd: HWND, rgb_color: u32) {
+    unsafe {
+        let window_dc = GetDC(Some(hwnd));
+        if window_dc.is_invalid() {
+            return;
+        }
+
+        let mut client_rect = RECT::default();
+        let _ = GetClientRect(hwnd, &mut client_rect);
+        let brush = CreateSolidBrush(rgb_to_colorref(rgb_color));
+        if !brush.is_invalid() {
+            FillRect(window_dc, &client_rect, brush);
+            let _ = DeleteObject(brush.into());
+        }
+        let _ = ReleaseDC(Some(hwnd), window_dc);
+    }
+}
+
+pub(super) unsafe fn prepare_markdown_parent(hwnd: HWND, rgb_color: u32) {
+    unsafe {
+        // A transparent WebView exposes whatever the parent last painted. Clear
+        // the native text while the full client area is still writable, then
+        // exclude the child from all later parent paints.
+        set_markdown_parent_clipping(hwnd, false);
+        prime_markdown_background(hwnd, rgb_color);
+        set_markdown_parent_clipping(hwnd, true);
+    }
+}
+
 pub struct ResultWindowParams<'a> {
     pub target_rect: RECT,
     pub win_type: WindowType,
@@ -108,23 +187,8 @@ pub fn create_result_window(params: ResultWindowParams<'_>) -> HWND {
         // WindowType logic essentially just sets color now, but we override it via custom_bg_color usually
         let (x, y) = (target_rect.left, target_rect.top);
 
-        // WS_CLIPCHILDREN prevents parent from drawing over child (Fixes Blinking)
-        // WS_EX_NOACTIVATE prevents stealing focus when window appears
-        // NOTE: For markdown modes, we match text_input's working configuration exactly
-        let is_any_markdown_mode = render_mode == "markdown" || render_mode == "markdown_stream";
-        let (ex_style, base_style) = if is_any_markdown_mode {
-            // Markdown mode: Now including WS_EX_NOACTIVATE to prevent focus stealing
-            (
-                WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                WS_POPUP,
-            )
-        } else {
-            // Plain text mode: prevent focus stealing, use clip children
-            (
-                WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                WS_POPUP, // Removed WS_CLIPCHILDREN to fix ghost text artifacts
-            )
-        };
+        let markdown_requested = render_mode == "markdown" || render_mode == "markdown_stream";
+        let (ex_style, base_style) = result_window_styles(markdown_requested);
 
         let hwnd = CreateWindowExW(
             ex_style,
@@ -144,11 +208,21 @@ pub fn create_result_window(params: ResultWindowParams<'_>) -> HWND {
 
         // Markdown windows create their WebView before later window messages can race
         // initialization; the shared WebView context/mutex owns serialization.
-        if is_any_markdown_mode {
+        let markdown_webview_created = if markdown_requested {
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
-            let _ = super::markdown_view::create_markdown_webview(hwnd, &initial_text, false);
+            // The WebView is transparent. Seed the full parent surface before the
+            // child exists; later WS_CLIPCHILDREN paints preserve this background.
+            prime_markdown_background(hwnd, custom_bg_color);
+            let created = super::markdown_view::create_markdown_webview(hwnd, &initial_text, false);
             let _ =
                 SetLayeredWindowAttributes(hwnd, COLORREF(0), favorite_overlay_alpha, LWA_ALPHA);
+            created
+        } else {
+            false
+        };
+        let is_any_markdown_mode = markdown_requested && markdown_webview_created;
+        if markdown_requested && !markdown_webview_created {
+            set_markdown_parent_clipping(hwnd, false);
         }
 
         let mut physics = CursorPhysics::default();
@@ -277,5 +351,39 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
     if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
         state.pending_text = Some(text.to_string());
         state.full_text = text.to_string();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markdown_parent_paint_excludes_webview_child() {
+        let (_, style) = result_window_styles(true);
+
+        assert_ne!(style.0 & WS_CLIPCHILDREN.0, 0);
+    }
+
+    #[test]
+    fn plain_text_parent_keeps_full_client_painting() {
+        let (_, style) = result_window_styles(false);
+
+        assert_eq!(style.0 & WS_CLIPCHILDREN.0, 0);
+    }
+
+    #[test]
+    fn mode_transition_preserves_unrelated_window_styles() {
+        let original = WS_POPUP | WS_VISIBLE;
+        let markdown = result_window_style_for_mode(original, true);
+        let plain = result_window_style_for_mode(markdown, false);
+
+        assert_ne!(markdown.0 & WS_CLIPCHILDREN.0, 0);
+        assert_eq!(plain, original);
+    }
+
+    #[test]
+    fn markdown_background_rgb_is_converted_to_colorref() {
+        assert_eq!(rgb_to_colorref(0x0011_2233).0, 0x0033_2211);
     }
 }

@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.tools
 import android.content.Context
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProviderRegistry
+import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayExclusion
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityGestureOutcome
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityMutationKind
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
@@ -112,7 +113,9 @@ internal class AndroidElevatedPointerInput(context: Context) : ElevatedPointerIn
                 holdMs.toString(),
             )
         }
-        return execute(job, lease, kind, bounds, expectedVisualRevision, args)
+        return PhoneControlOverlayExclusion.forPoint(x, y) {
+            execute(job, lease, kind, bounds, expectedVisualRevision, args)
+        }
     }
 
     override suspend fun swipe(
@@ -125,21 +128,28 @@ internal class AndroidElevatedPointerInput(context: Context) : ElevatedPointerIn
         durationMs: Long,
         kind: AccessibilityMutationKind,
         expectedVisualRevision: Long?,
-    ): PointerInputOutcome? = execute(
-        job = job,
-        lease = lease,
-        kind = kind,
-        affectedBounds = gestureBounds(fromX, fromY, toX, toY),
-        expectedVisualRevision = expectedVisualRevision,
-        args = listOf(
-            "swipe",
-            fromX.roundToInt().toString(),
-            fromY.roundToInt().toString(),
-            toX.roundToInt().toString(),
-            toY.roundToInt().toString(),
-            durationMs.toString(),
-        ),
-    )
+    ): PointerInputOutcome? = PhoneControlOverlayExclusion.forSegment(
+        fromX,
+        fromY,
+        toX,
+        toY,
+    ) {
+        execute(
+            job = job,
+            lease = lease,
+            kind = kind,
+            affectedBounds = gestureBounds(fromX, fromY, toX, toY),
+            expectedVisualRevision = expectedVisualRevision,
+            args = listOf(
+                "swipe",
+                fromX.roundToInt().toString(),
+                fromY.roundToInt().toString(),
+                toX.roundToInt().toString(),
+                toY.roundToInt().toString(),
+                durationMs.toString(),
+            ),
+        )
+    }
 
     private suspend fun execute(
         job: PhoneControlToolJobContext,

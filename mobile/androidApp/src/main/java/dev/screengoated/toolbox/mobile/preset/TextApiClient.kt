@@ -131,8 +131,11 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
             modelId = model.id,
             provider = model.provider,
             apiModel = model.fullName,
-            supportsSearch = PresetModelCatalog.supportsSearchByName(model.fullName),
-            geminiThinkingConfig = PresetModelCatalog.geminiThinkingConfig(model.fullName),
+            supportsSearch = PresetModelCatalog.supportsSearch(model.provider, model.fullName),
+            geminiThinkingConfig = PresetModelCatalog.geminiThinkingConfig(
+                model.provider,
+                model.fullName,
+            ),
         )
     }
 
@@ -160,6 +163,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     )
                 } else {
                     buildOpenAiCompatibleDebugPayload(
+                        provider = model.provider,
                         fullName = model.fullName,
                         prompt = prompt,
                         inputText = inputText,
@@ -175,6 +179,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
             ).toString()
 
             else -> buildOpenAiCompatibleDebugPayload(
+                provider = model.provider,
                 fullName = model.fullName,
                 prompt = prompt,
                 inputText = inputText,

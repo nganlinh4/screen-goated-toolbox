@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "feature": "phone-control",
   "canonical_windows_files": [
     "docs/COMPUTER_CONTROL_DEVELOPMENT.md",
@@ -96,6 +96,14 @@
     "optionalContractFailureFields": [
       "argument_field",
       "contract_reason"
+    ],
+    "optionalDetectorFields": [
+      "detector_stage",
+      "mapping_inference_ms",
+      "target_selection_ms",
+      "refresh_inference_ms",
+      "target_verification_ms",
+      "pixel_revalidation_ms"
     ]
   },
   "invalidArgumentClassification": {

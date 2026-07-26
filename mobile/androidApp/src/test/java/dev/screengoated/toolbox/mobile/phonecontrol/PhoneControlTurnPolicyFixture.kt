@@ -49,6 +49,7 @@ internal fun assertPhoneControlFixturePolicy(expected: JsonObject) {
         put("speechOnsetRequestsFreshScreenWhenAssistantSilent", true)
         put("localVoiceActivityCannotRetirePlayingGeneration", true)
         put("providerInterruptionRetiresPlayingGeneration", true)
+        put("transportInterruptionRetiresOrphanedGeneration", true)
         put("transportFailureTailContainsPayloadContent", false)
         put(
             "equivalentStructuredFailureRetryLimit",
@@ -70,6 +71,10 @@ internal fun assertPhoneControlFixturePolicy(expected: JsonObject) {
         )
         put("terminalGenerationCannotPublishLateToolsOrSpeech", true)
         put("internalToolOrTransportErrorsAreNotAssistantOutput", true)
+        put("audioModeModelTextIsInternal", true)
+        put("voiceBurstStartsAndEndsPair", true)
+        put("detectorRequestFreshnessDoesNotDowngradeProvider", true)
+        put("visualGroundingUsesTargetLocalFinalLease", true)
     }
     assertEquals("Phone Control invariant policy drifted", expected, actual)
 }

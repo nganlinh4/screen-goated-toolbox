@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "feature": "phone-control-orb",
   "canonicalAsset": "src/overlay/computer_control/orb/orb.html",
   "androidAsset": "phone_control/orb.html",
@@ -15,6 +15,12 @@
     "captionPlacement": "above_orb_growing_toward_screen_center",
     "androidVisualHost": "trusted_accessibility_overlay_with_non_obscuring_fallback",
     "visualOverlayDoesNotConsumeUnderlyingTouches": true,
+    "captureRegionOwner": "canonical_renderer_orb_region",
+    "captureRegionIncludes": "orb_glow_and_caption",
+    "interactionRegion": "orb_touch_shim_only",
+    "captionGrowthDoesNotExpandTouchSurface": true,
+    "allPointerProvidersRelocateBeforeIntersectingDispatch": true,
+    "controllerOverlayEventsDoNotInvalidateExternalLeases": true,
     "dragDismissOwner": "shared_android_dismiss_bubble",
     "dragDismissTargets": "single_bottom_target",
     "dragDismissCommit": "stop_phone_control_service",
@@ -137,6 +143,7 @@
   },
   "captureRoutes": {
     "activeWindowApi34Plus": "window_scoped_without_overlay_mutation",
+    "ambientFallbackApi34Plus": "lease_free_window_scoped_before_projection",
     "wholeDisplayOrLegacy": "display_scoped_with_bounded_overlay_suppression"
   }
 }

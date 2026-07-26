@@ -3,6 +3,8 @@ package dev.screengoated.toolbox.mobile.phonecontrol.overlay
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
+import kotlin.math.ceil
+import kotlin.math.floor
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -22,6 +24,7 @@ internal data class PhoneControlOrbPlacement(
 internal class PhoneControlOrbView(
     context: Context,
     private val onRendererGone: (PhoneControlOrbView, Boolean) -> Unit,
+    private val onVisibleRegionChanged: (PhoneControlOrbView, OverlayBounds?) -> Unit,
 ) : WebView(context) {
     private var ready = false
     private var disposed = false
@@ -95,6 +98,7 @@ internal class PhoneControlOrbView(
         if (disposed) return
         disposed = true
         ready = false
+        onVisibleRegionChanged(this, null)
         removeJavascriptInterface(IPC_BRIDGE)
         stopLoading()
         destroy()
@@ -155,20 +159,68 @@ internal class PhoneControlOrbView(
     private inner class OrbBridge {
         @JavascriptInterface
         fun postMessage(payload: String) {
-            val type = runCatching { JSONObject(payload).optString("type") }.getOrNull()
-            if (type != "orbReady") return
-            post {
-                if (disposed) return@post
-                ready = true
-                alpha = 1f
-                val nextVisual = visual
-                val nextPlacement = placement
-                if (nextVisual != null && nextPlacement != null) {
-                    applyVisual(nextVisual, nextPlacement)
+            val message = runCatching { JSONObject(payload) }.getOrNull() ?: return
+            when (message.optString("type")) {
+                "orbReady" -> post {
+                    if (disposed) return@post
+                    ready = true
+                    alpha = 1f
+                    val nextVisual = visual
+                    val nextPlacement = placement
+                    if (nextVisual != null && nextPlacement != null) {
+                        applyVisual(nextVisual, nextPlacement)
+                    }
+                    PhoneControlLog.i(
+                        TAG,
+                        "renderer_ready source=canonical_windows surface=full_display",
+                    )
                 }
-                PhoneControlLog.i(TAG, "renderer_ready source=canonical_windows surface=full_display")
+                "orbRegion" -> publishVisibleRegion(message)
             }
         }
+
+        private fun publishVisibleRegion(message: JSONObject) {
+            val region = rendererRegionInView(message) ?: return
+            post {
+                if (!disposed) onVisibleRegionChanged(this@PhoneControlOrbView, region)
+            }
+        }
+    }
+
+    private fun rendererRegionInView(message: JSONObject): OverlayBounds? {
+        val viewportWidth = message.optDouble("viewportW")
+        val viewportHeight = message.optDouble("viewportH")
+        val x = message.optDouble("x")
+        val y = message.optDouble("y")
+        val regionWidth = message.optDouble("w")
+        val regionHeight = message.optDouble("h")
+        if (!listOf(
+                viewportWidth,
+                viewportHeight,
+                x,
+                y,
+                regionWidth,
+                regionHeight,
+            ).all(Double::isFinite) ||
+            viewportWidth <= 0.0 ||
+            viewportHeight <= 0.0 ||
+            regionWidth <= 0.0 ||
+            regionHeight <= 0.0 ||
+            width <= 0 ||
+            height <= 0
+        ) {
+            return null
+        }
+        return scaleRendererRegion(
+            x = x,
+            y = y,
+            regionWidth = regionWidth,
+            regionHeight = regionHeight,
+            viewportWidth = viewportWidth,
+            viewportHeight = viewportHeight,
+            viewWidth = width,
+            viewHeight = height,
+        )
     }
 
     private companion object {
@@ -180,5 +232,39 @@ internal class PhoneControlOrbView(
             #c{pointer-events:none!important}
             #cmd{display:none!important}
         """
+    }
+}
+
+internal fun scaleRendererRegion(
+    x: Double,
+    y: Double,
+    regionWidth: Double,
+    regionHeight: Double,
+    viewportWidth: Double,
+    viewportHeight: Double,
+    viewWidth: Int,
+    viewHeight: Int,
+): OverlayBounds? {
+    if (viewportWidth <= 0.0 ||
+        viewportHeight <= 0.0 ||
+        regionWidth <= 0.0 ||
+        regionHeight <= 0.0 ||
+        viewWidth <= 0 ||
+        viewHeight <= 0
+    ) {
+        return null
+    }
+    val left = floor(x * viewWidth / viewportWidth).toInt().coerceIn(0, viewWidth)
+    val top = floor(y * viewHeight / viewportHeight).toInt().coerceIn(0, viewHeight)
+    val right = ceil((x + regionWidth) * viewWidth / viewportWidth)
+        .toInt()
+        .coerceIn(0, viewWidth)
+    val bottom = ceil((y + regionHeight) * viewHeight / viewportHeight)
+        .toInt()
+        .coerceIn(0, viewHeight)
+    return if (right > left && bottom > top) {
+        OverlayBounds(left, top, right, bottom)
+    } else {
+        null
     }
 }

@@ -17,6 +17,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetector
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorTargetSelection
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorTargetSelector
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorTargetVerification
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorVisualSignature
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import kotlinx.coroutines.test.runTest
@@ -52,6 +53,7 @@ class UiDetectorDragToolHandlerTest {
         assertEquals(1, selector.dragSelections)
         assertTrue(selector.selectionImage.contentEquals(mapping.groundingImageBytes))
         assertEquals(listOf(listOf(FROM_MARK, TO_MARK)), backend.refreshBatches)
+        assertEquals(listOf(listOf(FROM_MARK, TO_MARK)), backend.revalidationBatches)
         assertEquals(0, backend.singleRefreshCalls)
         assertEquals(listOf("source handle", "destination area"), selector.verificationDescriptions)
         assertEquals(listOf(FROM_MARK, TO_MARK), selector.verificationImages.map { it.single().toInt() })
@@ -158,6 +160,7 @@ private class DragBackend(
         ),
 ) : UiDetectorToolBackend {
     val refreshBatches = mutableListOf<List<Int>>()
+    val revalidationBatches = mutableListOf<List<Int>>()
     var singleRefreshCalls = 0
     var dragCalls = 0
     var clearCalls = 0
@@ -181,6 +184,21 @@ private class DragBackend(
                 inferenceMs = 5,
                 observationGeneration = GENERATION,
                 surfaceLease = mapping.marks.frame.surfaceLease,
+            ),
+        )
+    }
+
+    override suspend fun revalidateMarks(
+        marks: List<UiDetectorRefreshedMark>,
+    ): UiDetectorProviderResult<UiDetectorRefreshedMarkSet> {
+        revalidationBatches += marks.map { it.mark.id }
+        return UiDetectorProviderResult.Success(
+            UiDetectorRefreshedMarkSet(
+                marks = marks,
+                inferenceMs = marks.maxOf(UiDetectorRefreshedMark::inferenceMs),
+                observationGeneration = GENERATION,
+                surfaceLease = mapping.marks.frame.surfaceLease,
+                pixelRevalidationMs = 2,
             ),
         )
     }
@@ -215,6 +233,7 @@ private class DragBackend(
         observationGeneration = GENERATION,
         surfaceLease = mapping.marks.frame.surfaceLease,
         verificationImageBytes = byteArrayOf(id.toByte()),
+        visualSignature = dragVisualSignature(),
     )
 }
 
@@ -304,11 +323,14 @@ private fun refreshedMark(id: Int, visualRevision: Long): UiDetectorRefreshedMar
         observationGeneration = GENERATION,
         surfaceLease = mapping.marks.frame.surfaceLease,
         verificationImageBytes = byteArrayOf(id.toByte()),
+        visualSignature = dragVisualSignature(),
         visualRevision = visualRevision,
     )
 }
 
 private fun job() = PhoneControlToolJobContext(1, "drag-job", 2)
+
+private fun dragVisualSignature() = UiDetectorVisualSignature(ByteArray(16 * 16 * 3))
 
 private fun kotlinx.serialization.json.JsonObject.value(key: String): String =
     getValue(key).jsonPrimitive.content

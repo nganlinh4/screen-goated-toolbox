@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.ui.i18n
 
-import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 
 /** Korean locale text. Dispatched from [MobileLocaleText.forLanguage]. */
@@ -59,6 +58,12 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 queued = "대기 중",
                 providerQueued = "서비스 대기열에 있음",
                 working = "생성 중",
+                progress = CreationProgressLocale(
+                    almostThere = "거의 완료되었습니다",
+                    lessThanMinute = "1분 이내",
+                    aboutMinutes = "약 {count}분 남음",
+                    takingLonger = "예상보다 조금 더 걸리고 있습니다",
+                ),
                 done = "완료",
                 failed = "실패",
                 saveTo = "저장 위치",
@@ -238,38 +243,101 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
             presetRuntimeDescription = "비활성 공급자, 누락된 키, 잘못된 키, 지원되지 않는 모델은 재시도 시 즉시 건너뜁니다.",
             presetRuntimeButton = "모델 우선",
             presetRuntimeSettingsAction = "설정",
-            usageStatsButton = "모델 통계",
-            usageStatsTitle = "사용 통계",
-            usageStatsModel = "모델",
-            usageStatsRemaining = "남은 / 전체",
-            usageStatsUnlimited = "무제한",
-            usageStatsNoData = "데이터를 보려면 모델을 한 번 이상 사용하세요",
-            usageStatsSettingsAction = "보기",
+            usageStats = MobileUsageStatsLocale(
+                button = "모델 통계",
+                title = "사용 통계",
+                noData = "아직 실제 사용량이 기록되지 않았습니다. Groq, Cerebras 또는 OpenRouter 모델을 사용하면 표시됩니다.",
+                settingsAction = "보기",
+                sessionHint = "이 앱 세션에서 관찰한 최신 사용량 제한 헤더입니다. 공급자 대시보드가 최종 기준입니다.",
+                endpointCount = "엔드포인트",
+                sharedQuota = "공유 할당량",
+                updatedNow = "방금 업데이트",
+                minutesAgo = "분 전",
+                stale = "오래됨",
+                reset = "재설정",
+                checkUsage = "사용량 확인 ↗",
+            ),
             usageTipsTitle = "사용 팁",
-            usageTipsClickHint = "탭해서 전체 팁 목록 보기",
-            usageTipsList = listOfNotNull(
-                "Quick Settings에 **SGT 버블 타일**을 추가하고 오버레이 권한을 허용한 뒤, ★로 도구를 즐겨찾기에 추가하면 플로팅 버블에서 바로 열 수 있습니다.",
-                "**어두워진 화면**에서 영역을 선택할 때는 **취소**를 누르거나 시스템 뒤로 가기 동작으로 중단할 수 있습니다.",
-                "기본 프리셋은 이름을 바꿀 수 없지만 **사용자 프리셋**은 자유롭게 이름을 바꿀 수 있습니다.",
-                "**기록**은 최신 항목을 우선 보관하고 한도를 넘으면 가장 오래된 파일부터 자동으로 삭제합니다.",
-                "프리셋 처리 체인에서는 **한 단계만 자동 복사**를 켤 수 있으며, 모든 단계에서 꺼도 됩니다.",
-                "**출력 자동 붙여넣기**를 사용하려면 SGT 접근성 서비스가 켜져 있고 편집 가능한 텍스트 필드에 포커스가 있어야 합니다.",
-                "**줄 바꿈 추가**는 출력 자동 붙여넣기를 켠 뒤에 표시됩니다.",
-                "오디오 프리셋에서 **자동 녹음 중지**를 켜면 말이 끝난 뒤 녹음을 자동으로 마칩니다.",
-                "TTS 설정에서 **표준 (Gemini Live)**을 사용하고 **언어별 말투**를 원하는 대로 조정해 보세요.",
-                "**라이브 번역**에서 TTS 속도를 자동으로 설정하면 화자의 속도에 맞춰 읽기 속도를 조절합니다.",
-                "결과 오버레이의 **마크다운 토글**을 눌러 일반 텍스트와 서식 있는 보기 사이를 전환하세요.",
-                "**돋보기 아이콘**이 있는 모델은 웹 검색으로 최신 정보와 출처를 찾습니다.",
-                "**모델 우선순위**에서 선호 모델을 먼저 두고 자동을 남겨 스마트 폴백을 계속하세요.",
-                "**사용자 모델**에서 OpenRouter 또는 Ollama를 검색하세요.",
-                "사용법이 궁금하면 **사용법 문의**를 열어 AI 도우미에게 물어보세요.",
-                "**휴대폰 제어**는 Gemini API 키와 전체 화면 공유가 필요합니다. 앱 카드의 스위치로 시작하거나 중지하세요.",
-                "**통역 곤약**에서 두 언어를 설정한 뒤 한쪽 언어로 말하면 다른 언어의 번역을 들을 수 있습니다.",
-                "**이미지를 3D로** 또는 **이미지를 SVG로**에 이미지를 추가하세요. 작업은 백그라운드에서 실행되고 완료된 결과는 결과 탭에 남습니다.",
-                "**DJ 되기**에서 만든 배경 음악은 다른 앱을 사용하는 동안에도 계속 재생할 수 있습니다.",
-                "**비디오 다운로드**를 사용해 지원되는 사이트의 비디오와 자막을 저장할 수 있습니다."
-                    .takeIf { BuildConfig.DOWNLOADER_SUPPORTED },
-                "플로팅 버블에서 **이미지 프리셋을 길게 누르면** 연속 모드로 실행됩니다. 다시 길게 누르면 종료됩니다.",
+            usageTipsClickHint = "숨은 동작과 규칙을 살펴보려면 탭하세요",
+            usageTipsDescription =
+                "알아두면 유용한 숨은 동작, 규칙, 복구 경로입니다.",
+            usageTipsCategories = listOf(
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.CAPTURE_SHORTCUTS,
+                    title = "캡처 및 단축키",
+                    description = "캡처 작업을 빠르게 열고 반복하는 숨은 동작입니다.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.CONTINUOUS_MODE_ENTRY,
+                            text = "플로팅 버블에서 **이미지 프리셋을 길게 누르면** 연속 " +
+                                "모드가 켜집니다. 결과가 끝날 때마다 자동으로 다시 " +
+                                "준비되며, 같은 프리셋을 다시 길게 누르면 종료됩니다.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.PRESETS_AUTOMATION,
+                    title = "프리셋 및 자동화",
+                    description = "프리셋을 편집하거나 실행할 때만 드러나는 규칙입니다.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.CUSTOM_PRESET_RENAME,
+                            text = "기본 제공 프리셋의 이름은 고정되어 있습니다. 편집 " +
+                                "화면에서 **사용자 프리셋 제목을 탭하면** 이름을 바꿀 " +
+                                "수 있습니다.",
+                        ),
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.AUTO_PASTE_PREREQUISITES,
+                            text = "**출력 자동 붙여넣기**는 SGT 접근성 서비스가 켜져 " +
+                                "있고 대상 앱의 편집 가능한 텍스트 입력칸에 포커스가 " +
+                                "남아 있을 때만 동작합니다.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.RESULTS_RECOVERY,
+                    title = "결과 및 복구",
+                    description = "시간이 걸리는 작업이 계속되고 결과가 돌아오는 위치입니다.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.CREATION_BACKGROUND_RESULTS,
+                            text = "**이미지를 3D로**와 **이미지를 SVG로** 작업은 해당 " +
+                                "화면을 벗어나도 백그라운드에서 계속되며, 완료된 파일은 " +
+                                "각 도구의 결과 탭에 저장됩니다.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.MODELS_SEARCH,
+                    title = "모델 및 검색",
+                    description = "모델 선택에 숨은 표시와 폴백 동작입니다.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.SEARCH_MARKER_DEFAULT,
+                            text = "모델 옆 **돋보기**는 웹 검색 도구가 기본으로 켜진다는 " +
+                                "뜻입니다.",
+                        ),
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.FALLBACK_COOLDOWN_SEARCH,
+                            text = "**스마트 폴백**은 비활성 또는 미설정 공급자를 " +
+                                "건너뜁니다. 요청 제한에 걸린 모델은 5분간 쉬며, 검색 " +
+                                "지원 모델은 검색을 지원하는 모델로만 폴백합니다.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.CREATIVE_TOOLS,
+                    title = "창작 도구",
+                    description = "앱 화면 밖에서도 이어지는 재생 동작입니다.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.DJ_BACKGROUND_PLAYBACK,
+                            text = "**DJ 되기**는 다른 앱으로 전환해도 계속 재생되며, " +
+                                "알림 창과 잠금 화면에서 재생·일시정지·중지를 제어할 " +
+                                "수 있습니다.",
+                        ),
+                    ),
+                ),
             ),
             resetDefaultsButton = "기본값 복원",
             resetDefaultsAction = "복원",

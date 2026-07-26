@@ -1,6 +1,6 @@
 # Catalog benchmark fixture sources
 
-The benchmark keeps the downloaded source image unchanged apart from source-provided thumbnail scaling. Ground-truth overlays live in `review.html`; they are not baked into model inputs. OCR cases 3 and 4 define deterministic runtime crops in `manifest.json`; no generative image editing is used.
+The benchmark keeps the downloaded source image unchanged apart from source-provided thumbnail scaling. Ground-truth overlays live in `review.html`; they are not baked into model inputs. OCR fixture files 03 and 04 define deterministic runtime crops in `manifest.json` (difficulty levels 4 and 5); no generative image editing is used. Each OCR manifest entry also declares whether runtime bytes match a PNG screen selection or an unchanged dropped file.
 
 | Fixture | Source | License / status | Local treatment |
 | --- | --- | --- | --- |

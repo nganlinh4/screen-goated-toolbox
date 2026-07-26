@@ -138,7 +138,13 @@ internal data class VisualFrameIdentity(
         require(captureWidth > 0 && captureHeight > 0)
         require(capturedAtMs >= 0)
         require(clean == (grid == null)) { "clean frames must not carry grid identity" }
-        require(captureProvider in setOf("accessibility", "media_projection"))
+        require(
+            captureProvider in setOf(
+                "accessibility",
+                "accessibility_window_lease_free",
+                "media_projection",
+            ),
+        )
     }
 
     val wireIdentity: String

@@ -1,4 +1,62 @@
 {
+  "ordinary_llm_profiles": {
+    "source": "catalog/model_catalog.json#vision_request_profiles",
+    "ocr_transport": "non-streaming",
+    "cases": [
+      {
+        "provider": "google",
+        "api_model": "gemma-4-31b-it",
+        "input_order": "image-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": null,
+        "structured_output": "strict-json-schema"
+      },
+      {
+        "provider": "google",
+        "api_model": "gemini-3.5-flash-lite",
+        "input_order": "text-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": null,
+        "structured_output": "prompt-only"
+      },
+      {
+        "provider": "cerebras",
+        "api_model": "gemma-4-31b",
+        "input_order": "text-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": null,
+        "structured_output": "strict-json-schema"
+      },
+      {
+        "provider": "groq",
+        "api_model": "qwen/qwen3.6-27b",
+        "input_order": "text-first",
+        "media_resolution": "provider-default",
+        "sampling": "qwen3-groq-non-thinking",
+        "max_output_tokens": 512,
+        "structured_output": "json-object"
+      },
+      {
+        "provider": "openrouter",
+        "api_model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "input_order": "text-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": null,
+        "structured_output": "prompt-only"
+      }
+    ],
+    "rules": [
+      "reasoning_uses_the_catalog_owned_minimum_policy",
+      "plain_ocr_never_requests_json_or_a_schema",
+      "structured_output_requires_an_explicit_caller_schema_and_endpoint_support",
+      "media_resolution_stays_provider_default_until_a_comparable_probe_proves_a_better_policy",
+      "openrouter_reasoning_policy_uses_nested_reasoning_effort_none"
+    ]
+  },
   "groq": {
     "safe_request_bytes": 3800000,
     "json_reserve_bytes": 16384,
@@ -8,20 +66,27 @@
     "resize_dimensions": [2048, 1792, 1536, 1280, 1024, 768],
     "qwen_portable_tpm": {
       "limit": 8000,
-      "completion_token_reserve": 2048,
+      "completion_token_reserve": 512,
       "image_and_envelope_token_reserve": 3072,
       "estimated_prompt_bytes_per_token": 3
     },
+    "short_retry_after_max_seconds": 2,
     "rules": [
       "keep_png_when_within_budget",
       "otherwise_encode_jpeg_until_within_budget",
       "send_the_actual_mime_type",
-      "qwen_max_completion_tokens_2048",
+      "qwen_max_completion_tokens_512_for_small_image_latency_and_tpd_admission",
       "other_groq_models_omit_max_completion_tokens",
       "qwen_reasoning_format_hidden",
+      "qwen_reasoning_effort_none",
+      "qwen_temperature_0_7",
+      "qwen_top_p_0_8",
+      "qwen_presence_penalty_1_5",
+      "qwen_top_k_omitted_current_endpoint_rejects_it",
+      "qwen_min_p_omitted_current_endpoint_rejects_it",
       "reject_qwen_requests_locally_when_the_prompt_cannot_fit_the_portable_tpm_budget",
-      "retry_qwen_once_without_reasoning_when_final_content_is_empty",
-      "retry_one_token_rate_limit_when_retry_after_is_at_most_30_seconds",
+      "blank_final_content_advances_the_normal_model_fallback_chain",
+      "retry_one_token_rate_limit_when_retry_after_is_at_most_2_seconds",
       "cool_down_a_rate_limited_vision_model_for_300_seconds",
       "preserve_provider_error_details_after_retry"
     ]

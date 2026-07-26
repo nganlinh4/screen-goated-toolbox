@@ -1,4 +1,4 @@
-use crate::api::client::{UREQ_AGENT, record_groq_json_usage, record_usage_simple};
+use crate::api::client::{UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple};
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
 use anyhow::Result;
@@ -40,13 +40,20 @@ where
         context_quote, locale.workspace.search_doing, locale.workspace.search_searching
     ));
 
-    let resp = UREQ_AGENT
+    let resp = UREQ_RESPONSE_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")
         .header("Authorization", &format!("Bearer {}", groq_api_key))
         .send_json(payload)
-        .map_err(|e| anyhow::anyhow!("Groq Compound Refine Error: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Groq Compound Refine transport error: {}", e))?;
 
     record_usage_simple(resp.headers(), p_model);
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.into_body().read_to_string().unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Groq Compound Refine HTTP {status}: {body}"
+        ));
+    }
 
     let json: serde_json::Value = resp.into_body().read_json()?;
     record_groq_json_usage(p_model, &json);

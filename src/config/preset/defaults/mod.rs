@@ -40,7 +40,6 @@ pub fn get_default_presets() -> Vec<Preset> {
         // COLUMN 1: IMAGE PRESETS
         // =====================================================================
         find(&image, "preset_translate"),
-        find(&image, "preset_extract_retranslate"),
         find(&image, "preset_translate_auto_paste"),
         find(&image, "preset_extract_table"),
         find(&image, "preset_translate_retranslate"),

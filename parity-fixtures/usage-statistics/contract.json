@@ -1,0 +1,161 @@
+{
+  "version": 7,
+  "identity": [
+    "provider",
+    "full_name"
+  ],
+  "representative_order": [
+    "typical_latency_ms",
+    "id"
+  ],
+  "freshness": {
+    "fresh_through_seconds": 300,
+    "aging_through_seconds": 900,
+    "otherwise": "stale"
+  },
+  "metric_order": [
+    "requests_day",
+    "requests_minute",
+    "tokens_minute",
+    "tokens_day",
+    "audio_seconds_hour",
+    "audio_seconds_day"
+  ],
+  "header_profiles": {
+    "groq": {
+      "requests_day": [
+        "x-ratelimit-remaining-requests",
+        "x-ratelimit-limit-requests",
+        "x-ratelimit-reset-requests"
+      ],
+      "tokens_minute": [
+        "x-ratelimit-remaining-tokens",
+        "x-ratelimit-limit-tokens",
+        "x-ratelimit-reset-tokens"
+      ]
+    },
+    "cerebras": {
+      "requests_day": [
+        "x-ratelimit-remaining-requests-day",
+        "x-ratelimit-limit-requests-day",
+        "x-ratelimit-reset-requests-day"
+      ],
+      "requests_minute": [
+        "x-ratelimit-remaining-requests-minute",
+        "x-ratelimit-limit-requests-minute",
+        "x-ratelimit-reset-requests-minute"
+      ],
+      "tokens_minute": [
+        "x-ratelimit-remaining-tokens-minute",
+        "x-ratelimit-limit-tokens-minute",
+        "x-ratelimit-reset-tokens-minute"
+      ],
+      "tokens_day": [
+        "x-ratelimit-remaining-tokens-day",
+        "x-ratelimit-limit-tokens-day",
+        "x-ratelimit-reset-tokens-day"
+      ]
+    },
+    "openrouter": {
+      "requests_day": [
+        "x-ratelimit-remaining",
+        "x-ratelimit-limit",
+        "x-ratelimit-reset"
+      ]
+    }
+  },
+  "provider_scope": {
+    "openrouter": "provider",
+    "default": "endpoint"
+  },
+  "provider_groups": {
+    "google": [
+      "google",
+      "gemini-live"
+    ]
+  },
+  "observed_usage_providers": [
+    "groq",
+    "cerebras",
+    "openrouter"
+  ],
+  "local_runtime_providers": [
+    "ollama",
+    "parakeet",
+    "qwen3",
+    "moonshine"
+  ],
+  "presentation": {
+    "desktop_preferred_columns": 2,
+    "desktop_minimum_wide_width": 900,
+    "desktop_maximum_dialog_width": 1170,
+    "desktop_maximum_body_height": 570,
+    "desktop_wide_status_column_width": 190,
+    "desktop_localized_name_column_width": 118,
+    "desktop_provider_name_column_width": 110,
+    "provider_endpoint_count_visibility": "hidden",
+    "desktop_cell_gap": 6,
+    "desktop_borderless_table": true,
+    "desktop_endpoint_columns": [
+      "intelligence",
+      "latency",
+      "localized_name",
+      "full_name",
+      "quota_or_live_usage"
+    ],
+    "desktop_dense_endpoint_rows": true,
+    "model_id_visibility": "always",
+    "model_id_placement": "inline",
+    "endpoint_identity_lines": 1,
+    "desktop_localized_name_font_size": 11.5,
+    "desktop_model_id_font_size": 9.5,
+    "missing_snapshot_marker": "none",
+    "android_touch_sections": true
+  },
+  "presentation_cases": [
+    {
+      "name": "roles-sharing-an-endpoint-collapse",
+      "models": [
+        {
+          "id": "demo-text",
+          "provider": "demo",
+          "full_name": "vendor/model",
+          "typical_latency_ms": 900
+        },
+        {
+          "id": "demo-vision",
+          "provider": "demo",
+          "full_name": "vendor/model",
+          "typical_latency_ms": 700
+        }
+      ],
+      "expected_rows": 1,
+      "expected_representative_id": "demo-vision"
+    },
+    {
+      "name": "same-slug-across-providers-stays-distinct",
+      "models": [
+        {
+          "id": "alpha-text",
+          "provider": "alpha",
+          "full_name": "vendor/model",
+          "typical_latency_ms": 700
+        },
+        {
+          "id": "beta-text",
+          "provider": "beta",
+          "full_name": "vendor/model",
+          "typical_latency_ms": 700
+        }
+      ],
+      "expected_rows": 2
+    },
+    {
+      "name": "provider-scoped-quota-renders-once",
+      "provider": "openrouter",
+      "endpoint_rows": 3,
+      "expected_provider_quota_labels": 1,
+      "expected_endpoint_quota_labels": 0
+    }
+  ]
+}

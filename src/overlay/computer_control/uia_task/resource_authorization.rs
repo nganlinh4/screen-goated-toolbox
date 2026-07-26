@@ -231,9 +231,9 @@ fn target_proposal(tool: &str, args: &Value) -> Result<Value, String> {
         "edit_text_file" | "edit_text_file_structure" => ("modify_existing_text_file", true),
         "save_artifact" => (
             if existed_before {
-                "replace_existing_text_file"
+                "replace_existing_file"
             } else {
-                "create_text_file"
+                "create_file"
             },
             false,
         ),
@@ -262,7 +262,7 @@ fn target_proposal(tool: &str, args: &Value) -> Result<Value, String> {
     }
     let canonical = canonical_target(&cleaned)?;
     Ok(json!({
-        "capability_class": "dedicated_local_text_write",
+        "capability_class": "dedicated_local_file_write",
         "operation": operation,
         "requested_path": requested,
         "canonical_target": canonical.to_string_lossy(),

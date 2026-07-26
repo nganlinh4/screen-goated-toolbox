@@ -31,7 +31,7 @@ class PhoneControlTurnLifecycleTest {
             File(fixtureRoot, FIXTURE_PATH).readText(),
         ).jsonObject
 
-        assertEquals(10L, fixture.requiredLong("schemaVersion"))
+        assertEquals(12L, fixture.requiredLong("schemaVersion"))
         assertEquals("phone-control", fixture.requiredString("feature"))
         assertEquals(
             PhoneControlTurnPhase.entries.map(PhoneControlTurnPhase::contractValue),
