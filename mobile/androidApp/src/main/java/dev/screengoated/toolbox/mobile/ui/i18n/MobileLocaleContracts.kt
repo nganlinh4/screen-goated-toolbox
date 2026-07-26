@@ -43,6 +43,7 @@ interface MobileShellText {
 interface MobileCreationAppsText {
     val appImageTo3dTitle: String
     val appImageToSvgTitle: String
+    val appImageCreatorTitle: String
 }
 
 interface MobileHistoryText {

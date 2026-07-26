@@ -42,7 +42,7 @@ fn now_ms() -> u64 {
 }
 
 fn validate_tool(tool: &str) -> Result<(), String> {
-    if matches!(tool, "3d" | "svg") {
+    if matches!(tool, "3d" | "svg" | "image") {
         Ok(())
     } else {
         Err("Unknown result history tool.".to_string())

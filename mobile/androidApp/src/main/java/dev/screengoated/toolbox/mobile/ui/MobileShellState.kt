@@ -68,5 +68,6 @@ internal data class ShellNavActions(
     val onTranslationGummyClick: () -> Unit,
     val onImageTo3dClick: () -> Unit,
     val onImageToSvgClick: () -> Unit,
+    val onImageCreatorClick: () -> Unit,
     val onPresetClick: (String) -> Unit,
 )

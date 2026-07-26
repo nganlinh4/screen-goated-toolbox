@@ -117,6 +117,7 @@ impl SettingsApp {
         crate::overlay::screen_record::update_settings();
         crate::overlay::three_d_generator::update_settings();
         crate::overlay::image_to_svg::update_settings();
+        crate::overlay::image_creator::update_settings();
 
         unsafe {
             let class = w!("HotkeyListenerClass");

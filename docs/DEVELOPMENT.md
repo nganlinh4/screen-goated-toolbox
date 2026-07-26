@@ -22,10 +22,16 @@ Useful options:
 ```powershell
 .\run-dev.ps1 -SkipFrontendBuild
 .\run-dev.ps1 -SkipNpmInstall
+.\run-dev.ps1 -SkipCreationRuntimeBuild
 .\run-dev.ps1 -CargoCommand test
 ```
 
-`run-dev.ps1` writes Cargo output under `target/dev-run-logs/`.
+When the separately tracked private creation-runtime checkout is present,
+`run-dev.ps1` builds its debug sidecar before launching the desktop host. The
+script stops if a running process keeps that executable locked, preventing a
+stale sidecar from being selected silently. Use
+`-SkipCreationRuntimeBuild` only when the private runtime was already built
+from the current source. Cargo output is written under `target/dev-run-logs/`.
 
 ## Rust validation
 
@@ -35,7 +41,11 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-After frontend assets exist, direct `cargo run` is valid. Do not use a release build as routine validation; release packaging enables LTO/stripping and rebuilds every packaged frontend.
+After frontend assets exist, direct `cargo run` is valid for a checkout without
+the private creation runtime. When that private checkout is present, prefer
+`run-dev.ps1` so its sidecar stays synchronized. Do not use a release build as
+routine validation; release packaging enables LTO/stripping and rebuilds every
+packaged frontend.
 
 ## Frontend development
 

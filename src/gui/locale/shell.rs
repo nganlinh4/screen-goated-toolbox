@@ -43,4 +43,6 @@ pub struct ShellLocaleText {
     pub three_d_generator_title: &'static str,
     pub image_to_svg_btn: &'static str,
     pub image_to_svg_title: &'static str,
+    pub image_creator_btn: &'static str,
+    pub image_creator_title: &'static str,
 }

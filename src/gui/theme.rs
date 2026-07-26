@@ -120,6 +120,14 @@ impl AppTheme {
         )
     }
 
+    /// Image creator launcher accent — coral, tied to the before/after seam.
+    pub fn accent_image_creator(&self) -> Color32 {
+        self.pick(
+            Color32::from_rgb(255, 123, 101),
+            Color32::from_rgb(224, 89, 70),
+        )
+    }
+
     /// Help Assistant launcher accent — teal (distinct from PromptDJ's violet).
     pub fn accent_help(&self) -> Color32 {
         self.pick(

@@ -43,6 +43,7 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
         creationApps = MobileCreationAppsLocale(
             appImageTo3dTitle = "Image to 3D",
             appImageToSvgTitle = "Image to SVG",
+            appImageCreatorTitle = "Create/edit image",
             common = CreationCommonLocale(
                 jobs = "Jobs",
                 results = "Results",
@@ -71,9 +72,9 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 selectedImages = "{} images",
                 interrupted = "Creation could not finish.",
                 previewTools = "Creation previews",
-                creationRuntime = "Creation tools runtime",
+                creationRuntime = "Creation tools",
                 creationRuntimeDescription =
-                    "Runs Image to 3D and Image to SVG jobs in the background.",
+                    "Create 3D models, SVGs, and images from your references.",
                 depthPreviewModel = "Depth Anything 3 Small",
                 depthPreviewDescription =
                     "Adds animated depth previews while 3D and SVG results are being created.",
@@ -119,6 +120,24 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 undo = "Undo",
                 redo = "Redo",
                 saveEdits = "Save edits",
+            ),
+            image = CreationImageLocale(
+                newImage = "New image",
+                references = "References",
+                addReferences = "Add references",
+                noReferences = "No references — create from text",
+                referenceCount = "{} references",
+                removeReference = "Remove reference",
+                textOnlyTitle = "Create from your description",
+                textOnlyHint = "References are optional",
+                instruction = "Instructions",
+                instructionHint = "Describe the image to create or what should change",
+                generate = "Create image",
+                generateAgain = "Create again",
+                imageReady = "Image ready",
+                before = "Before",
+                after = "After",
+                promptRequired = "Write the image instructions first",
             ),
         ),
         history = MobileHistoryLocale(

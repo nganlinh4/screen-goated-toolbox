@@ -46,5 +46,7 @@ pub(super) fn get() -> ShellLocaleText {
         three_d_generator_title: "Image to 3D",
         image_to_svg_btn: "Image to SVG",
         image_to_svg_title: "Image to SVG",
+        image_creator_btn: "Create/edit image",
+        image_creator_title: "Create/edit image",
     }
 }
