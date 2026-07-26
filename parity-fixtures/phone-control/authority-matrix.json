@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 22,
+  "schemaVersion": 24,
   "feature": "phone-control",
   "canonicalFeature": "computer-control",
   "distribution": {
@@ -38,7 +38,9 @@
     "readyProviderMeansExecutionAuthority": true,
     "setupCapabilitySummaryMayVetoDeclaredTool": false,
     "unselectedOptionalProvidersListedAsBlockers": false,
-    "selectedReadyShellAdvertisesDirectRunCommand": true
+    "selectedReadyShellAdvertisesDirectRunCommand": true,
+    "explicitGroundingToolChoiceHonoredOnStructuredSurfaces": true,
+    "elevatedEffectAuthorityDoesNotReplaceSemanticOrVisualGrounding": true
   },
   "effectCancellation": {
     "operationIdentityFields": ["turn_id", "response_generation", "job_id"],
@@ -166,6 +168,7 @@
   "providerSelection": {
     "rule": "narrowest_ready_provider_with_full_requested_semantics",
     "dispatchPlan": "exact_tool_provider_subset_of_exact_capability_route",
+    "toolCapabilityResolution": "structured_arguments_before_provider_plan",
     "registrySnapshotPreGate": false,
     "liveSelectionOwner": "provider_specific_handler",
     "successfulOrEffectfulReceiptMustMatchPlan": true,
@@ -393,15 +396,15 @@
     },
     {
       "capability": "ui.pointer_action",
-      "providers": ["owned_webview_bridge", "browser_cdp", "accessibility", "local_ui_detector", "shizuku_shell", "root_bridge"]
+      "providers": ["owned_webview_bridge", "browser_cdp", "accessibility", "local_ui_detector", "sgt_adb_bridge", "shizuku_shell", "root_bridge"]
     },
     {
       "capability": "ui.text_edit",
-      "providers": ["owned_webview_bridge", "browser_cdp", "accessibility", "accessibility_input_method", "shizuku_shell", "root_bridge"]
+      "providers": ["owned_webview_bridge", "browser_cdp", "accessibility", "accessibility_input_method", "sgt_adb_bridge", "shizuku_shell", "root_bridge"]
     },
     {
       "capability": "ui.key_action",
-      "providers": ["accessibility", "accessibility_input_method", "shizuku_shell", "root_bridge"]
+      "providers": ["accessibility", "accessibility_input_method", "sgt_adb_bridge", "shizuku_shell", "root_bridge"]
     },
     {
       "capability": "app_and_task_control",
@@ -526,7 +529,10 @@
     },
     "observationInvalidation": {
       "backgroundVisualCaptureMayReplaceActionLeases": false,
-      "windowTopologyAndUserMutationEventsInvalidateImmediately": true,
+      "windowTopologyEventsInvalidateImmediately": true,
+      "ambientViewClickScrollAndTextEventsInvalidateImmediately": false,
+      "ambientViewClickScrollAndTextEventsAdvanceVisualRevision": true,
+      "controllerAcceptedMutationInvalidatesImmediately": true,
       "semanticOnlyAccessibilityChurnInvalidatesImmediately": false,
       "windowContentChangedRetiresSemanticLeases": false,
       "windowContentChangedAdvancesVisualRevision": true,
@@ -583,6 +589,10 @@
       ]
     },
     "gestureDispatch": {
+      "groundingOrder": ["dom_or_accessibility_semantics", "explicit_current_frame_detector_or_vision"],
+      "effectFallbackOrder": ["accessibility", "sgt_adb_bridge", "shizuku_shell", "root_bridge"],
+      "elevatedFallbackRequiresNarrowerProviderProvenNoEffect": true,
+      "elevatedFallbackReusesExactCurrentObservationLease": true,
       "rejectedBeforePlatformAcceptance": "proven_no_effect",
       "acceptedThenCompleted": "effect_may_have_occurred",
       "acceptedThenCallbackCancelled": "effect_may_have_occurred",
@@ -668,6 +678,7 @@
       "provider": "accessibility_then_media_projection",
       "requiredSessionProviders": ["accessibility", "media_projection"],
       "projectionRole": "whole_display_and_accessibility_pixel_fallback",
+      "projectionPixelCopy": "visible_width_per_row_without_requiring_trailing_row_padding",
       "projectionConsent": "fresh_single_use_grant_per_session",
       "projectionLoss": "stop_phone_control",
       "plannedProtectedCheckpoint": {
@@ -682,6 +693,11 @@
       "zoom": "current_generation_grid_cell_plus_quarter_cell_context",
       "resetView": "fresh_active_surface_view",
       "look": "clean_current_view_frame_for_same_live_model",
+      "explicitDetectorOrVisionToolOnStructuredSurface": "execute_requested_grounding_tool",
+      "detectorSurfaceRequiresAccessibilityRoot": false,
+      "rootlessSurfaceAttribution": "exact_window_accessibility_event_in_current_generation",
+      "rootlessSurfaceAuthorityHeuristics": false,
+      "unattributedRootlessMutation": "surface_authority_unknown",
       "frameIdentityFields": [
         "observation_generation",
         "display_id",

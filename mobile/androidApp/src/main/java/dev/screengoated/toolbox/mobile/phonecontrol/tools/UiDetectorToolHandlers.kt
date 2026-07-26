@@ -26,10 +26,12 @@ import kotlinx.serialization.json.put
 internal class UiDetectorToolHandlers(
     private val backend: UiDetectorToolBackend,
     private val targetSelector: UiDetectorTargetSelector,
+    private val elevatedInput: ElevatedPointerInput = NoElevatedPointerInput,
 ) {
     constructor(context: Context) : this(
         backend = AndroidUiDetectorToolBackend(context),
         targetSelector = AndroidUiDetectorTargetSelector(context),
+        elevatedInput = AndroidElevatedPointerInput(context),
     )
 
     suspend fun mapTargets(
@@ -137,7 +139,7 @@ internal class UiDetectorToolHandlers(
         job: PhoneControlToolJobContext,
         args: JsonObject,
     ): PhoneControlToolExecution =
-        UiDetectorDragToolHandler(backend, targetSelector).dragTarget(job, args)
+        UiDetectorDragToolHandler(backend, targetSelector, elevatedInput).dragTarget(job, args)
 
     suspend fun clickMark(
         job: PhoneControlToolJobContext,
@@ -190,71 +192,43 @@ internal class UiDetectorToolHandlers(
             )
         }
         val action = try {
-            backend.activate(refreshed, button)
+            val accessibility = backend.activate(refreshed, button)
+            routePointerInput(accessibility, { backend.observationGeneration }) {
+                elevatedInput.tap(
+                    job = job,
+                    lease = refreshed.surfaceLease,
+                    x = point.centerX.toFloat(),
+                    y = point.centerY.toFloat(),
+                    expectedVisualRevision = refreshed.visualRevision,
+                    holdMs = LONG_PRESS_MS.takeIf { button == "right" },
+                )
+            }
         } finally {
             backend.clearMarks()
         }
-        return when (action) {
-            is AccessibilityProviderResult.Failure -> PhoneControlToolExecution(
-                response = toolResponse(
-                    job = job,
-                    requestedTool = requestedTool,
-                    capability = DETECTOR_POINTER_CAPABILITY,
-                    provider = DETECTOR_PROVIDER,
-                    providerState = CapabilityState.READY,
-                    code = action.code,
-                    observationGeneration = backend.observationGeneration,
-                    effect = action.effect,
-                    snapshotInvalidated = action.effect != EffectCertainty.PROVEN_NO_EFFECT,
-                    retryable = action.retryable,
-                    requiredUserStep = action.requiredUserStep,
-                    freshObservationRequired = action.freshObservationRequired,
-                    data = buildJsonObject {
-                        put("message", action.message)
-                        put("input_provider", "accessibility")
-                        put("input_provider_state", detectorInputProviderState(action).wireName)
-                    },
-                ),
-                mutating = detectorGestureIsMutating(action.effect),
-                refreshScreenFrame = detectorGestureIsMutating(action.effect),
-            )
-            is AccessibilityProviderResult.Success -> PhoneControlToolExecution(
-                response = toolResponse(
-                    job = job,
-                    requestedTool = requestedTool,
-                    capability = DETECTOR_POINTER_CAPABILITY,
-                    provider = DETECTOR_PROVIDER,
-                    providerState = CapabilityState.READY,
-                    code = action.value.code,
-                    observationGeneration = action.value.generation,
-                    effect = action.value.effect,
-                    snapshotInvalidated = action.value.snapshotInvalidated,
-                    freshObservationRequired = action.value.snapshotInvalidated,
-                    data = buildJsonObject {
-                        put("clicked_mark", id)
-                        put("button", button)
-                        put("screen_x", point.centerX)
-                        put("screen_y", point.centerY)
-                        put("fresh_overlap", refreshed.overlap)
-                        put("verification_inference_ms", refreshed.inferenceMs)
-                        put("input_provider", "accessibility")
-                        put("input_provider_state", CapabilityState.READY.wireName)
-                        selection?.let {
-                            put("target_selection_model", it.modelId)
-                            put("target_selection_confidence", it.confidence)
-                            it.what?.let { what -> put("saw_at_target", what) }
-                        }
-                        verification?.let {
-                            put("target_verification_model", it.modelId)
-                            put("target_verification_confidence", it.confidence)
-                            it.what?.let { what -> put("verified_at_target", what) }
-                        }
-                    },
-                ),
-                mutating = detectorGestureIsMutating(action.value.effect),
-                refreshScreenFrame = action.value.snapshotInvalidated,
-            )
-        }
+        return detectorPointerExecution(
+            job = job,
+            requestedTool = requestedTool,
+            input = action,
+            evidence = buildJsonObject {
+                put("clicked_mark", id)
+                put("button", button)
+                put("screen_x", point.centerX)
+                put("screen_y", point.centerY)
+                put("fresh_overlap", refreshed.overlap)
+                put("verification_inference_ms", refreshed.inferenceMs)
+                selection?.let {
+                    put("target_selection_model", it.modelId)
+                    put("target_selection_confidence", it.confidence)
+                    it.what?.let { what -> put("saw_at_target", what) }
+                }
+                verification?.let {
+                    put("target_verification_model", it.modelId)
+                    put("target_verification_confidence", it.confidence)
+                    it.what?.let { what -> put("verified_at_target", what) }
+                }
+            },
+        )
     }
 }
 

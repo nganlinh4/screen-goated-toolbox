@@ -85,6 +85,15 @@ internal fun captureAccessibilitySurface(
         }
     }
     val windowCandidates = supplementMissingActiveRoot(capturedWindows, activeRootDescriptor)
+        .map { window ->
+            if (!window.packageName.isNullOrBlank()) {
+                window
+            } else {
+                window.copy(
+                    packageName = AccessibilityWindowAttribution.resolve(window.id, generation),
+                )
+            }
+        }
     val authorityPolicy = resolveAccessibilityTargetAuthorityPolicy(service)
     val windows = windowCandidates
         .map { window ->

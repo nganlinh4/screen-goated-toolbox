@@ -18,6 +18,7 @@ import kotlinx.serialization.json.put
 internal class UiDetectorDragToolHandler(
     private val backend: UiDetectorToolBackend,
     private val targetSelector: UiDetectorTargetSelector,
+    private val elevatedInput: ElevatedPointerInput = NoElevatedPointerInput,
 ) {
     suspend fun dragTarget(
         job: PhoneControlToolJobContext,
@@ -108,6 +109,21 @@ internal class UiDetectorDragToolHandler(
                 backend.observationGeneration,
             )
         }
+        val accessibility = backend.drag(from, to, DRAG_DURATION_MS)
+        val action = routePointerInput(accessibility, { backend.observationGeneration }) {
+            elevatedInput.swipe(
+                job = job,
+                lease = from.surfaceLease,
+                fromX = from.mark.box.centerX.toFloat(),
+                fromY = from.mark.box.centerY.toFloat(),
+                toX = to.mark.box.centerX.toFloat(),
+                toY = to.mark.box.centerY.toFloat(),
+                durationMs = DRAG_DURATION_MS,
+                kind = dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility
+                    .AccessibilityMutationKind.POINTER_ACTIVATE,
+                expectedVisualRevision = from.visualRevision,
+            )
+        }
         return dragExecution(
             job,
             refreshedSet,
@@ -116,8 +132,7 @@ internal class UiDetectorDragToolHandler(
             selection,
             fromVerification,
             toVerification,
-            backend.drag(from, to, DRAG_DURATION_MS),
-            backend.observationGeneration,
+            action,
         )
     }
 }
@@ -197,56 +212,17 @@ private fun dragExecution(
     selection: UiDetectorDragSelection.Success,
     fromVerification: UiDetectorTargetVerification.Success,
     toVerification: UiDetectorTargetVerification.Success,
-    action: AccessibilityProviderResult<dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityGestureOutcome>,
-    observationGeneration: Long,
-): PhoneControlToolExecution = when (action) {
-    is AccessibilityProviderResult.Failure -> PhoneControlToolExecution(
-        response = toolResponse(
-            job = job,
-            requestedTool = TOOL_NAME,
-            capability = DETECTOR_POINTER_CAPABILITY,
-            provider = DETECTOR_PROVIDER,
-            providerState = CapabilityState.READY,
-            code = action.code,
-            observationGeneration = observationGeneration,
-            effect = action.effect,
-            snapshotInvalidated = action.effect != EffectCertainty.PROVEN_NO_EFFECT,
-            retryable = action.retryable,
-            requiredUserStep = action.requiredUserStep,
-            freshObservationRequired = action.freshObservationRequired,
-            data = buildJsonObject {
-                put("message", action.message)
-                put("input_provider", "accessibility")
-                put("input_provider_state", detectorInputProviderState(action).wireName)
-            },
-        ),
-        mutating = detectorGestureIsMutating(action.effect),
-        refreshScreenFrame = detectorGestureIsMutating(action.effect),
-    )
-    is AccessibilityProviderResult.Success -> PhoneControlToolExecution(
-        response = toolResponse(
-            job = job,
-            requestedTool = TOOL_NAME,
-            capability = DETECTOR_POINTER_CAPABILITY,
-            provider = DETECTOR_PROVIDER,
-            providerState = CapabilityState.READY,
-            code = action.value.code,
-            observationGeneration = action.value.generation,
-            effect = action.value.effect,
-            snapshotInvalidated = action.value.snapshotInvalidated,
-            freshObservationRequired = action.value.snapshotInvalidated,
-            data = buildJsonObject {
-                putEndpoint("from", from, selection.from, fromVerification)
-                putEndpoint("to", to, selection.to, toVerification)
-                put("verification_inference_ms", refreshedSet.inferenceMs)
-                put("input_provider", "accessibility")
-                put("input_provider_state", CapabilityState.READY.wireName)
-            },
-        ),
-        mutating = detectorGestureIsMutating(action.value.effect),
-        refreshScreenFrame = action.value.snapshotInvalidated,
-    )
-}
+    action: PointerInputOutcome,
+): PhoneControlToolExecution = detectorPointerExecution(
+    job = job,
+    requestedTool = TOOL_NAME,
+    input = action,
+    evidence = buildJsonObject {
+        putEndpoint("from", from, selection.from, fromVerification)
+        putEndpoint("to", to, selection.to, toVerification)
+        put("verification_inference_ms", refreshedSet.inferenceMs)
+    },
+)
 
 private fun kotlinx.serialization.json.JsonObjectBuilder.putEndpoint(
     prefix: String,

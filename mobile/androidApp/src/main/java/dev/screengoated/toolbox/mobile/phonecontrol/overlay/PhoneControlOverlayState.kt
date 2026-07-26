@@ -34,7 +34,7 @@ internal fun phoneControlOverlayVisual(
         PhoneControlRuntimePhase.WORKING,
         PhoneControlRuntimePhase.FINALIZING,
         -> state.orbStateLabel
-        PhoneControlRuntimePhase.DEGRADED -> GeneratedPhoneControlContract.ORB_STATE_ERROR
+        PhoneControlRuntimePhase.DEGRADED -> state.orbStateLabel
         PhoneControlRuntimePhase.ERROR,
         PhoneControlRuntimePhase.STOPPED,
         -> GeneratedPhoneControlContract.ORB_STATE_IDLE
@@ -47,8 +47,9 @@ internal fun phoneControlOverlayVisual(
         PhoneControlRuntimePhase.STARTING,
         PhoneControlRuntimePhase.CONNECTING,
         PhoneControlRuntimePhase.RECONNECTING,
-        PhoneControlRuntimePhase.DEGRADED,
         -> state.userMessage
+        PhoneControlRuntimePhase.DEGRADED ->
+            compactPhoneControlGuidance(state.authorityGuidance)
         PhoneControlRuntimePhase.ERROR,
         PhoneControlRuntimePhase.STOPPED,
         -> ""

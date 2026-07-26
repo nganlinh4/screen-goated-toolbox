@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 7,
+  "schemaVersion": 9,
   "feature": "phone-control",
   "sharedSocketFixture": "parity-fixtures/gemini-live-session/lifecycle.json",
   "states": ["idle", "listening", "working", "finalizing"],
@@ -34,7 +34,19 @@
     "toolReceiptPrecedesToolOwnedScreenEvidence": true,
     "ambientScreenBlockedWhileToolResponseOutstanding": true,
     "microphoneAudioBlockedByTools": false,
-    "transportFailureTailContainsPayloadContent": false
+    "transportFailureTailContainsPayloadContent": false,
+    "equivalentStructuredFailureRetryLimit": 2,
+    "repeatFailureGuardUsesSemanticText": false,
+    "repeatFailureContextFields": [
+      "turn_id",
+      "tool",
+      "canonical_arguments",
+      "observation_generation",
+      "visual_revision",
+      "failure_code"
+    ],
+    "terminalGenerationCannotPublishLateToolsOrSpeech": true,
+    "internalToolOrTransportErrorsAreNotAssistantOutput": true
   },
   "cases": [
     {
@@ -293,6 +305,21 @@
         "terminalCancellationAcknowledgedAfterProviderTerminal": true,
         "reconciliationRequired": true,
         "freshObservationRequiredBeforeNewMutation": true
+      }
+    },
+    {
+      "name": "equivalent failures stop before an unbounded loop",
+      "start": "working",
+      "events": [
+        {"type": "toolFailure", "tool": "act", "requestFingerprint": "same", "code": "stale_target"},
+        {"type": "toolFailure", "tool": "act", "requestFingerprint": "same", "code": "stale_target"},
+        {"type": "toolCall", "tool": "act", "requestFingerprint": "same"}
+      ],
+      "expect": {
+        "thirdDispatch": false,
+        "resultCode": "repeated_failure",
+        "effectMayHaveOccurred": false,
+        "semanticPhraseMatchingUsed": false
       }
     }
   ]

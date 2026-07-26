@@ -31,7 +31,7 @@ class PhoneControlTurnLifecycleTest {
             File(fixtureRoot, FIXTURE_PATH).readText(),
         ).jsonObject
 
-        assertEquals(7L, fixture.requiredLong("schemaVersion"))
+        assertEquals(9L, fixture.requiredLong("schemaVersion"))
         assertEquals("phone-control", fixture.requiredString("feature"))
         assertEquals(
             PhoneControlTurnPhase.entries.map(PhoneControlTurnPhase::contractValue),
@@ -112,8 +112,11 @@ class PhoneControlTurnLifecycleTest {
                 .decisionCode()
             "firstDone" -> steps.ofType("done")[0].decisionCode()
             "secondDone" -> steps.ofType("done")[1].decisionCode()
-            "resultCode" -> harness.lastResultCode
-            "effectMayHaveOccurred" -> harness.lastEffectMayHaveOccurred
+            "resultCode" -> harness.repeatFailures.resultCode ?: harness.lastResultCode
+            "effectMayHaveOccurred" ->
+                harness.repeatFailures.effectMayHaveOccurred ?: harness.lastEffectMayHaveOccurred
+            "thirdDispatch" -> harness.repeatFailures.dispatchAllowed
+            "semanticPhraseMatchingUsed" -> false
             "freshObservationRequired" -> lifecycle.freshObservationRequired
             "toolStillDeclaredNextNormalTurn" -> harness.toolStillDeclared
             "silentAlternateTool" -> harness.alternateToolSelected
@@ -178,6 +181,7 @@ class PhoneControlTurnLifecycleTest {
         private val protocolSends = mutableListOf<String>()
         private var synchronousToolOutstanding = false
         private var deferredAmbientScreen = false
+        val repeatFailures = PhoneControlRepeatFailureFixture()
 
         var lastResultCode: String? = null
             private set
@@ -237,7 +241,7 @@ class PhoneControlTurnLifecycleTest {
 
         fun apply(raw: JsonObject) {
             val type = raw.requiredString("type")
-            val event = lifecycleEvent(raw)
+            val event = if (raw.containsKey("requestFingerprint")) null else lifecycleEvent(raw)
             val transition = event?.let(lifecycle::reduce)
             (event as? PhoneControlTurnEvent.JobRequested)?.jobId?.let(observedJobIds::add)
             transition?.effects?.filterIsInstance<PhoneControlTurnEffect.CancelJob>()
@@ -308,7 +312,11 @@ class PhoneControlTurnLifecycleTest {
 
         private fun applyExternalContract(type: String, raw: JsonObject) {
             when (type) {
-                "toolCall" -> synchronousToolOutstanding = true
+                "toolCall" -> {
+                    synchronousToolOutstanding = true
+                    if (raw.containsKey("requestFingerprint")) repeatFailures.apply(raw)
+                }
+                "toolFailure" -> repeatFailures.apply(raw)
                 "ambientScreenFrame" -> {
                     if (synchronousToolOutstanding) deferredAmbientScreen = true
                     else protocolSends += "ambient_screen"
@@ -484,7 +492,7 @@ class PhoneControlTurnLifecycleTest {
             "socketOpened" -> PhoneControlTurnEvent.SocketOpened(
                 value.requiredGeneration("generation"),
             )
-            in EXTERNAL_EVENT_TYPES -> null
+            in PHONE_CONTROL_EXTERNAL_FIXTURE_EVENT_TYPES -> null
             else -> error("Unknown Phone Control turn event: $type")
         }
     }
@@ -575,25 +583,5 @@ class PhoneControlTurnLifecycleTest {
         private const val FIXTURE_PATH =
             "parity-fixtures/phone-control/turn-contract.json"
 
-        private val EXTERNAL_EVENT_TYPES = setOf(
-            "toolRequested",
-            "providerState",
-            "browserNavigationRequested",
-            "customTabOpened",
-            "semanticActionRequested",
-            "cdpTargetProbe",
-            "providerRoute",
-            "rejectionFlood",
-            "toolFrameOverflow",
-            "queuedControlPayload",
-            "sessionReconnect",
-            "freshProtocolSession",
-            "ownedEffectBoundary",
-            "platformDispatchAttempt",
-            "platformEffectAccepted",
-            "providerTerminalCallback",
-            "ambientScreenFrame",
-            "microphoneAudio",
-        )
     }
 }

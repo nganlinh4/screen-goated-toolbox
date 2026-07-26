@@ -1,6 +1,10 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import java.util.Locale
 
 internal enum class PhoneControlHandler(
     val mutating: Boolean,
@@ -96,7 +100,12 @@ internal object PhoneControlToolRegistry {
         real("observe", "ui.semantic_observe", "accessibility", PhoneControlHandler.OBSERVE),
         real("act", "ui.pointer_action", "accessibility", PhoneControlHandler.ACT),
         real("do_steps", "ui.pointer_action", "accessibility", PhoneControlHandler.DO_STEPS),
-        real("click_at", "ui.pointer_action", "accessibility", PhoneControlHandler.CLICK_AT),
+        realWithProviders(
+            "click_at",
+            "ui.pointer_action",
+            POINTER_EFFECT_PROVIDERS,
+            PhoneControlHandler.CLICK_AT,
+        ),
         real("zoom", "ui.visual_observe", "accessibility", PhoneControlHandler.ZOOM),
         real("reset_view", "ui.visual_observe", "accessibility", PhoneControlHandler.RESET_VIEW),
         real(
@@ -106,9 +115,21 @@ internal object PhoneControlToolRegistry {
             PhoneControlHandler.SEE_WHOLE_SCREEN,
         ),
         real("look", "ui.visual_observe", "accessibility", PhoneControlHandler.LOOK),
-        real("click_target", "ui.pointer_action", "local_ui_detector", PhoneControlHandler.CLICK_TARGET),
+        realWithProviders(
+            "click_target",
+            "ui.pointer_action",
+            listOf("local_ui_detector"),
+            PhoneControlHandler.CLICK_TARGET,
+            dependencyProviders = POINTER_EFFECT_PROVIDERS.toSet(),
+        ),
         real("map_targets", "blind_surface_grounding", "local_ui_detector", PhoneControlHandler.MAP_TARGETS),
-        real("click_mark", "ui.pointer_action", "local_ui_detector", PhoneControlHandler.CLICK_MARK),
+        realWithProviders(
+            "click_mark",
+            "ui.pointer_action",
+            listOf("local_ui_detector"),
+            PhoneControlHandler.CLICK_MARK,
+            dependencyProviders = POINTER_EFFECT_PROVIDERS.toSet(),
+        ),
         real("wait", "local_completion_and_cleanup", "android_app_api", PhoneControlHandler.WAIT),
         realWithProviders(
             "type_text",
@@ -116,9 +137,25 @@ internal object PhoneControlToolRegistry {
             listOf("accessibility", "accessibility_input_method"),
             PhoneControlHandler.TYPE_TEXT,
         ),
-        real("scroll", "ui.pointer_action", "accessibility", PhoneControlHandler.SCROLL),
-        real("drag", "ui.pointer_action", "accessibility", PhoneControlHandler.DRAG),
-        real("drag_target", "ui.pointer_action", "local_ui_detector", PhoneControlHandler.DRAG_TARGET),
+        realWithProviders(
+            "scroll",
+            "ui.pointer_action",
+            POINTER_EFFECT_PROVIDERS,
+            PhoneControlHandler.SCROLL,
+        ),
+        realWithProviders(
+            "drag",
+            "ui.pointer_action",
+            POINTER_EFFECT_PROVIDERS,
+            PhoneControlHandler.DRAG,
+        ),
+        realWithProviders(
+            "drag_target",
+            "ui.pointer_action",
+            listOf("local_ui_detector"),
+            PhoneControlHandler.DRAG_TARGET,
+            dependencyProviders = POINTER_EFFECT_PROVIDERS.toSet(),
+        ),
         unsupported("click_here", "ui.pointer_action", "accessibility"),
         unavailable("point_at", "ui.pointer_action", "local_ui_detector"),
         realWithProviders(
@@ -351,6 +388,22 @@ internal object PhoneControlToolRegistry {
         require(byName.size == specs.size) { "Phone Control tool registry names must be unique" }
     }
 
+    fun resolve(name: String, arguments: JsonObject): PhoneControlToolSpec? {
+        val spec = byName[name] ?: return null
+        if (name != "act") return spec
+        val verb = (arguments["verb"] as? JsonPrimitive)
+            ?.contentOrNull
+            ?.lowercase(Locale.ROOT)
+        return if (verb == "fill") {
+            spec.copy(
+                capability = "ui.text_edit",
+                providerIds = listOf("accessibility"),
+            )
+        } else {
+            spec
+        }
+    }
+
     private fun real(
         name: String,
         capability: String,
@@ -404,3 +457,10 @@ internal object PhoneControlToolRegistry {
     )
 
 }
+
+private val POINTER_EFFECT_PROVIDERS = listOf(
+    "accessibility",
+    "sgt_adb_bridge",
+    "shizuku_shell",
+    "root_bridge",
+)

@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.runtime
 import android.content.Context
 import android.os.SystemClock
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
+import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.phonecontrol.memory.PhoneControlMemoryRepository
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.browser.PhoneControlBrowserLifecycle
@@ -111,6 +112,16 @@ internal class PhoneControlRuntime(
         observer = observer,
         isTransportReady = transportReady::get,
     )
+    private val orbEmotion = PhoneControlOrbEmotionController(
+        scope = scope,
+        classifier = TaalasPhoneControlEmotionClassifier(httpClient),
+        publishIcon = { icon ->
+            statusPublisher.updateOrbPresentation(
+                GeneratedPhoneControlContract.ORB_STATE_RESPONDING,
+                icon,
+            )
+        },
+    )
     @Volatile
     private var resumptionHandle: String? = null
     private val memoryTurnRecorder = PhoneControlMemoryTurnRecorder(memoryRepository)
@@ -143,9 +154,20 @@ internal class PhoneControlRuntime(
             inputCaption = { text ->
                 if (!userInterfaceGoals.conversationSurfaceSuppressed) statusPublisher.updateCaption(input = text)
             },
-            outputCaption = { text -> statusPublisher.updateCaption(output = text) },
+            outputCaption = { text ->
+                orbEmotion.observeReply(text)
+                statusPublisher.updateCaption(output = text)
+            },
             assistantContentEnabled = { !userInterfaceGoals.conversationSurfaceSuppressed },
-            orbPresentation = statusPublisher::updateOrbPresentation,
+            orbPresentation = { stateLabel, iconOverride ->
+                orbEmotion.observePresentation(stateLabel)
+                statusPublisher.updateOrbPresentation(
+                    stateLabel,
+                    iconOverride,
+                    preserveCurrentIconOnNull =
+                        stateLabel == GeneratedPhoneControlContract.ORB_STATE_RESPONDING,
+                )
+            },
             phase = statusPublisher::publishTurnPhase,
             refresh = { screenRefreshRequests.trySend(Unit) },
             abortProtocol = { protocolAbortRequested.set(true) },

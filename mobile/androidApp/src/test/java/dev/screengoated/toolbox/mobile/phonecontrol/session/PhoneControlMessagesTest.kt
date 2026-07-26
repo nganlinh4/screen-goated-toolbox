@@ -45,6 +45,8 @@ class PhoneControlMessagesTest {
         assertTrue(instruction.contains("Try the requested capability"))
         assertTrue(instruction.contains("direct execution power"))
         assertTrue(instruction.contains("a snapshot-local node @id is not a surface target"))
+        assertTrue(instruction.contains("ROUTING: highest-fidelity evidence."))
+        assertTrue(instruction.contains("Interpret communicative intent, not grammatical form."))
         assertFalse(instruction.contains("element exactly as its observed @id"))
     }
 
@@ -80,6 +82,10 @@ class PhoneControlMessagesTest {
         assertEquals(
             fixture.getValue("thinking_config"),
             setup.getValue("generationConfig").jsonObject.getValue("thinkingConfig"),
+        )
+        assertEquals(
+            fixture.getValue("realtime_input_config"),
+            setup.getValue("realtimeInputConfig"),
         )
     }
 

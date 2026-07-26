@@ -216,14 +216,27 @@ def validate_surface_semantics(matrix: dict[str, Any]) -> None:
     if (
         not isinstance(invalidation, dict)
         or invalidation.get("backgroundVisualCaptureMayReplaceActionLeases") is not False
-        or invalidation.get("windowTopologyAndUserMutationEventsInvalidateImmediately") is not True
+        or invalidation.get("windowTopologyEventsInvalidateImmediately") is not True
+        or invalidation.get(
+            "ambientViewClickScrollAndTextEventsInvalidateImmediately"
+        ) is not False
+        or invalidation.get(
+            "ambientViewClickScrollAndTextEventsAdvanceVisualRevision"
+        ) is not True
+        or invalidation.get("controllerAcceptedMutationInvalidatesImmediately") is not True
         or invalidation.get("semanticOnlyAccessibilityChurnInvalidatesImmediately") is not False
+        or invalidation.get("windowContentChangedRetiresSemanticLeases") is not False
+        or invalidation.get("windowContentChangedAdvancesVisualRevision") is not True
+        or invalidation.get("semanticLeaseSafetyAfterContentChurn")
+        != "live_node_path_and_fingerprint_revalidation"
         or invalidation.get("everyMutationRevalidatesLiveTargetFingerprint") is not True
         or invalidation.get("hardEventDuringCaptureResult") != "stale_frame"
         or invalidation.get("staleVisualCaptureRetriesAreBounded") is not True
         or invalidation.get("captureOverlaySuppression")
         != "post_capture_controller_region_mask"
         or invalidation.get("captureOverlayMayMutateLiveView") is not False
+        or invalidation.get("captureOverlayMayUpdateWindowManagerLayout") is not False
+        or invalidation.get("captureOverlayMaySelfInvalidateGeneration") is not False
     ):
         raise ValueError("observation invalidation must separate leases from visual streaming")
     if (
@@ -286,7 +299,7 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
     }
     if not isinstance(contract, dict) or set(contract) != expected_fields:
         raise ValueError("orb contract has unsupported top-level fields")
-    if contract["schemaVersion"] != 1 or contract["feature"] != "phone-control-orb":
+    if contract["schemaVersion"] != 2 or contract["feature"] != "phone-control-orb":
         raise ValueError("orb contract identity is invalid")
     if contract["canonicalAsset"] != "src/overlay/computer_control/orb/orb.html":
         raise ValueError("orb contract must point at the Windows canonical renderer")
@@ -300,6 +313,35 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
         raise ValueError("window-scoped capture must not mutate the visible orb")
     if invariants.get("freshReceiptPostconditionDoesNotPublishTransientWarning") is not True:
         raise ValueError("fresh receipts must not publish transient reconciliation warnings")
+    if invariants.get("unchangedVisualStateDoesNotRerender") is not True:
+        raise ValueError("unchanged orb state must not trigger renderer churn")
+    if invariants.get("internalOrProviderErrorTextNeverBecomesCaption") is not True:
+        raise ValueError("internal failures must remain outside the orb caption")
+    if invariants.get("degradedStatePresentation") != (
+        "preserve_current_conversation_state"
+    ):
+        raise ValueError("degraded runtime state must not flash a system-error glyph")
+    if invariants.get("degradedStateCaption") != (
+        "empty_unless_explicit_user_step_guidance"
+    ):
+        raise ValueError("degraded captions must contain only explicit user guidance")
+    if invariants.get("conversationCaptionOwner") != (
+        "current_generation_transcription_only"
+    ):
+        raise ValueError("orb conversation captions must be generation-correlated")
+    emotion = invariants.get("respondingEmotionClassifier")
+    if (
+        not isinstance(emotion, dict)
+        or emotion.get("provider") != "taalas"
+        or emotion.get("cadenceMs") != 1000
+        or emotion.get("maximumInputCharacters") != 600
+        or emotion.get("failurePresentation") != "keep_current_icon_silently"
+        or emotion.get("doesNotBlockSpeechOrTools") is not True
+        or not isinstance(emotion.get("labels"), list)
+        or len(emotion["labels"]) != 13
+        or len(set(emotion["labels"])) != 13
+    ):
+        raise ValueError("responding emotion classifier contract is incomplete")
     if (
         invariants.get("sameCaptionRenderer") is not True
         or invariants.get("sameIncrementalCaptionMotion") is not True

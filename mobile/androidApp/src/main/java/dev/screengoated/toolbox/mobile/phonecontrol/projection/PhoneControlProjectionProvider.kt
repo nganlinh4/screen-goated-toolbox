@@ -132,6 +132,7 @@ private class ProjectionSession(
     private var pendingCapture: CompletableDeferred<PhoneControlProjectionFrameResult>? = null
     private var cachedFrame: CachedProjectionFrame? = null
     private var firstFrameLogged = false
+    private var consecutiveDecodeFailures = 0
 
     val isReady: Boolean
         get() = !closed.get() && synchronized(resourceLock) {
@@ -280,6 +281,7 @@ private class ProjectionSession(
             }
             if (!shouldCopy) return
             val bitmap = image.toBitmap()
+            consecutiveDecodeFailures = 0
             val capturedAtMs = SystemClock.elapsedRealtime()
             val metadata = displayMetadata()
             val waiting = synchronized(resourceLock) {
@@ -305,7 +307,23 @@ private class ProjectionSession(
                     metadata.densityDpi,
                 ),
             )
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            consecutiveDecodeFailures += 1
+            if (
+                consecutiveDecodeFailures == 1 ||
+                consecutiveDecodeFailures % DECODE_FAILURE_SUMMARY_INTERVAL == 0
+            ) {
+                val plane = image.planes.firstOrNull()
+                Log.e(
+                    TAG,
+                    "projection_frame_decode_failed width=${image.width} height=${image.height} " +
+                        "pixel_stride=${plane?.pixelStride ?: 0} " +
+                        "row_stride=${plane?.rowStride ?: 0} " +
+                        "buffer_bytes=${plane?.buffer?.remaining() ?: 0} " +
+                        "consecutive_failures=$consecutiveDecodeFailures",
+                    error,
+                )
+            }
             val waiting = synchronized(resourceLock) {
                 val request = pendingCapture
                 pendingCapture = null
@@ -327,6 +345,7 @@ private class ProjectionSession(
         const val DISPLAY_NAME = "SGT Phone Control"
         const val MAX_IMAGES = 2
         const val FRESH_FRAME_WAIT_MS = 650L
+        const val DECODE_FAILURE_SUMMARY_INTERVAL = 30
     }
 }
 
@@ -390,13 +409,14 @@ private fun projectionDisplayMetadata(context: Context): ProjectionDisplayMetada
 
 private fun Image.toBitmap(): Bitmap {
     val plane = planes.firstOrNull() ?: error("Projection image has no pixel plane")
-    val pixelStride = plane.pixelStride
-    val rowStride = plane.rowStride
-    require(pixelStride > 0 && rowStride >= width * pixelStride)
-    val paddedWidth = rowStride / pixelStride
-    val padded = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888)
-    plane.buffer.rewind()
-    padded.copyPixelsFromBuffer(plane.buffer)
-    if (paddedWidth == width) return padded
-    return Bitmap.createBitmap(padded, 0, 0, width, height).also { padded.recycle() }
+    val visiblePixels = copyVisibleRgbaBytes(
+        source = plane.buffer,
+        width = width,
+        height = height,
+        pixelStride = plane.pixelStride,
+        rowStride = plane.rowStride,
+    )
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+        it.copyPixelsFromBuffer(visiblePixels)
+    }
 }

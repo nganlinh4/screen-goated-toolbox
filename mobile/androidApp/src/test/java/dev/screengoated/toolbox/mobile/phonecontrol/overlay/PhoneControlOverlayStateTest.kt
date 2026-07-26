@@ -87,19 +87,25 @@ class PhoneControlOverlayStateTest {
     }
 
     @Test
-    fun `connecting and degraded states keep actionable status with bounded level`() {
+    fun `system failures never become orb captions while explicit guidance remains visible`() {
         val connecting = visual(PhoneControlRuntimePhase.CONNECTING, message = "Connecting")
         val degraded = visual(
             PhoneControlRuntimePhase.DEGRADED,
-            message = "Reconnect Accessibility",
+            message = "HTTP 500: internal provider failure",
             level = 4f,
+        )
+        val guided = visual(
+            PhoneControlRuntimePhase.DEGRADED,
+            message = "binder exception",
+            guidance = "Confirm the Android-owned prompt.",
         )
 
         assertEquals("Connecting", connecting.caption)
-        assertEquals(GeneratedPhoneControlContract.ORB_STATE_ERROR, degraded.stateLabel)
-        assertEquals("Reconnect Accessibility", degraded.caption)
+        assertEquals(GeneratedPhoneControlContract.ORB_STATE_THINKING, degraded.stateLabel)
+        assertEquals("", degraded.caption)
         assertEquals(1f, degraded.listeningLevel)
         assertTrue(degraded.visible)
+        assertEquals("Confirm the Android-owned prompt.", guided.caption)
     }
 
     private fun visual(

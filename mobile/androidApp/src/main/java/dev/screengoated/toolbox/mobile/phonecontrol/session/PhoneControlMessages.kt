@@ -59,6 +59,10 @@ internal fun buildPhoneControlSetupPayload(
                 "Android device",
             ),
         )
+        append('\n')
+        append(CONTROLLER_RULES)
+        append('\n')
+        append(SESSION_RULES)
         append("\n\nANDROID PROVIDER CONTRACT\n")
         append("Use the declared tool directly. Live receipts, not this setup snapshot, report ")
         append("the provider, readiness, effect certainty, and current observation. A selected ")
@@ -102,7 +106,24 @@ internal fun buildPhoneControlSetupPayload(
                 )
                 put(
                     "realtimeInputConfig",
-                    buildJsonObject { put("activityHandling", "START_OF_ACTIVITY_INTERRUPTS") },
+                    buildJsonObject {
+                        put(
+                            "automaticActivityDetection",
+                            buildJsonObject {
+                                put(
+                                    "startOfSpeechSensitivity",
+                                    "START_SENSITIVITY_HIGH",
+                                )
+                                put(
+                                    "endOfSpeechSensitivity",
+                                    "END_SENSITIVITY_HIGH",
+                                )
+                                put("prefixPaddingMs", 30)
+                                put("silenceDurationMs", 250)
+                            },
+                        )
+                        put("activityHandling", "START_OF_ACTIVITY_INTERRUPTS")
+                    },
                 )
             },
         ),
@@ -233,3 +254,10 @@ private const val MAX_SCREEN_JPEG_BYTES = 640 * 1_024
 private const val SCREEN_JPEG_QUALITY = 82
 private const val MIN_SCREEN_JPEG_QUALITY = 42
 private const val SCREEN_JPEG_QUALITY_STEP = 10
+private const val CONTROLLER_RULES =
+    "ROUTING: highest-fidelity evidence. Accessible: observe, then act on current @id. " +
+        "Pixel-only: vision targets/marks. Prefer direct browser/system/file/integration " +
+        "providers. Raw input needs known focus/effect. Change route after typed failure."
+private const val SESSION_RULES =
+    "Interpret communicative intent, not grammatical form. If the requested outcome is too " +
+        "uncertain to choose an effect safely, ask one concise clarification and do not act."
