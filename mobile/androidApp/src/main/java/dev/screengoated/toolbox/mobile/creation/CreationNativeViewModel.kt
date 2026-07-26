@@ -20,6 +20,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -53,10 +55,15 @@ internal class CreationNativeViewModel(
                 refreshHistoryNow()
             }
         }
+        if (tool == CreationTool.IMAGE_CREATOR) addImageSession()
     }
 
     fun addImages(paths: List<String>) {
         if (paths.isEmpty()) return
+        if (tool == CreationTool.IMAGE_CREATOR) {
+            addImageReferences(paths)
+            return
+        }
         val existing = mutableState.value.items.map { it.sourcePath.lowercase() }.toMutableSet()
         val batchId = "batch_${UUID.randomUUID()}"
         val additions = paths.filter { existing.add(it.lowercase()) }.map { path ->
@@ -77,6 +84,29 @@ internal class CreationNativeViewModel(
                 transientError = null,
             )
         }
+    }
+
+    fun addImageSession() {
+        if (tool != CreationTool.IMAGE_CREATOR) return
+        val item = CreationImageSessions.new()
+        mutableState.update {
+            it.copy(
+                tab = CreationNativeTab.JOBS,
+                items = it.items + item,
+                selectedItemId = item.id,
+                selectedHistoryId = null,
+                transientError = null,
+            )
+        }
+    }
+
+    fun removeImageReference(index: Int) {
+        val selected = mutableState.value.selectedItem ?: return
+        if (tool != CreationTool.IMAGE_CREATOR ||
+            selected.submitted ||
+            selected.stage != CreationNativeStage.DRAFT
+        ) return
+        updateItem(selected.id) { CreationImageSessions.removeReference(it, index) }
     }
 
     fun selectItem(id: String) {
@@ -146,10 +176,22 @@ internal class CreationNativeViewModel(
         it.copy(model = if (model == "detail") "detail" else "simple")
     }
 
+    fun setPrompt(prompt: String) = updateSelectedConfigurable {
+        it.copy(prompt = prompt.take(CreationContract.IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS))
+    }
+
     fun submitSelected() {
         val selected = mutableState.value.selectedItem ?: return
+        if (tool == CreationTool.IMAGE_CREATOR && selected.prompt.isBlank()) {
+            showError(IllegalArgumentException("Describe the image you want to create"))
+            return
+        }
         mutableState.update { current ->
-            val ids = if (!selected.submitted && selected.stage == CreationNativeStage.DRAFT) {
+            val ids = if (
+                tool != CreationTool.IMAGE_CREATOR &&
+                !selected.submitted &&
+                selected.stage == CreationNativeStage.DRAFT
+            ) {
                 current.items.filter { it.batchId == selected.batchId && !it.submitted }.map { it.id }.toSet()
             } else {
                 setOf(selected.id)
@@ -305,7 +347,9 @@ internal class CreationNativeViewModel(
     private fun schedule() {
         viewModelScope.launch(Dispatchers.IO) {
             schedulerMutex.withLock {
-                while (mutableState.value.runningCount < CreationContract.MAXIMUM_PARALLEL_JOBS) {
+                while (
+                    mutableState.value.runningCount < CreationContract.maximumParallelJobs(tool)
+                ) {
                     val next = mutableState.value.items.firstOrNull {
                         it.submitted && it.stage == CreationNativeStage.QUEUED
                     } ?: break
@@ -320,12 +364,22 @@ internal class CreationNativeViewModel(
                         }
                     }
                     val args = buildJsonObject {
-                        put("imagePath", routed.sourcePath)
+                        if (tool == CreationTool.IMAGE_CREATOR) {
+                            put(
+                                "imagePaths",
+                                JsonArray(routed.referencePaths.map(::JsonPrimitive)),
+                            )
+                        } else {
+                            put("imagePath", routed.sourcePath)
+                        }
                         put("generationMode", routed.generationMode)
                         put("polycount", routed.polycount)
                         put("autoSegment", routed.autoSegment)
                         put("segmentationMode", if (routed.autoSegment) "parts" else "none")
                         put("model", routed.model)
+                        routed.prompt.takeIf { tool == CreationTool.IMAGE_CREATOR }?.let {
+                            put("prompt", it.trim())
+                        }
                     }
                     val status = runCatching { manager.startJob(tool, args) }.getOrElse { error ->
                         if (error.message.orEmpty().contains("busy", ignoreCase = true)) {
@@ -343,6 +397,13 @@ internal class CreationNativeViewModel(
                                     progressText = "Could not create result.",
                                     error = error.message,
                                     sourceImagePath = routed.sourcePath,
+                                    sourceImagePaths = routed.referencePaths,
+                                    operation = CreationContract.IMAGE_CREATOR_OPERATION.takeIf {
+                                        tool == CreationTool.IMAGE_CREATOR
+                                    },
+                                    prompt = routed.prompt.takeIf {
+                                        tool == CreationTool.IMAGE_CREATOR
+                                    },
                                     generationMode = routed.generationMode,
                                     polycount = routed.polycount,
                                     autoSegment = routed.autoSegment,
@@ -359,7 +420,7 @@ internal class CreationNativeViewModel(
                             autoSegment = status.autoSegment ?: routed.autoSegment,
                         )
                     }
-                    startDepthPreview(next.id)
+                    if (tool != CreationTool.IMAGE_CREATOR) startDepthPreview(next.id)
                     monitor(next.id, status)
                 }
             }
@@ -394,11 +455,17 @@ internal class CreationNativeViewModel(
     private fun recoverRunningJobs() {
         viewModelScope.launch(Dispatchers.IO) {
             val recovered = manager.statuses(tool).filter {
-                it.sourceImagePath != null && it.toNativeStage() == CreationNativeStage.RUNNING
+                it.toNativeStage() == CreationNativeStage.RUNNING &&
+                    (tool == CreationTool.IMAGE_CREATOR || !it.sourceImagePath.isNullOrBlank())
             }
             if (recovered.isEmpty()) return@launch
             val items = recovered.map { status ->
-                val path = requireNotNull(status.sourceImagePath)
+                val references = if (tool == CreationTool.IMAGE_CREATOR) {
+                    CreationImageSessions.statusReferences(status)
+                } else {
+                    listOf(requireNotNull(status.sourceImagePath))
+                }
+                val path = references.firstOrNull().orEmpty()
                 val polycount = status.polycount ?: CreationContract.DEFAULT_POLYCOUNT
                 val autoSegment = status.autoSegment ?: false
                 val generationMode = CreationGenerationMode
@@ -407,10 +474,12 @@ internal class CreationNativeViewModel(
                     id = status.jobId ?: "recovered_${UUID.randomUUID()}",
                     batchId = "recovered_${status.jobId}",
                     sourcePath = path,
-                    sourceName = File(path).name,
+                    sourceName = path.takeIf(String::isNotBlank)?.let(::File)?.name.orEmpty(),
+                    referencePaths = references,
                     generationMode = generationMode.wireName,
                     polycount = polycount,
                     model = status.model ?: "simple",
+                    prompt = status.prompt.orEmpty(),
                     autoSegment = autoSegment,
                     submitted = true,
                     stage = CreationNativeStage.RUNNING,
@@ -426,7 +495,9 @@ internal class CreationNativeViewModel(
                 )
             }
             items.forEach { item -> item.status?.let { monitor(item.id, it) } }
-            items.forEach { startDepthPreview(it.id) }
+            if (tool != CreationTool.IMAGE_CREATOR) {
+                items.forEach { startDepthPreview(it.id) }
+            }
         }
     }
 
@@ -471,6 +542,10 @@ internal class CreationNativeViewModel(
         mutableState.update { current ->
             current.copy(items = current.items.map { if (it.id == id) transform(it) else it })
         }
+    }
+
+    private fun addImageReferences(paths: List<String>) {
+        mutableState.update { CreationImageSessions.addReferences(it, paths) }
     }
 
     private fun route3dItem(item: CreationNativeItem): CreationNativeItem {

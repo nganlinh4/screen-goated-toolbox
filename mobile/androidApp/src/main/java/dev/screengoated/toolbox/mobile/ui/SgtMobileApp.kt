@@ -323,6 +323,11 @@ internal fun SgtMobileApp(
                                 CreationMiniAppActivity.intent(appContext, CreationTool.IMAGE_TO_SVG),
                             )
                         },
+                        onImageCreatorClick = {
+                            appContext.startActivity(
+                                CreationMiniAppActivity.intent(appContext, CreationTool.IMAGE_CREATOR),
+                            )
+                        },
                         onPresetClick = { presetId -> activePresetId = presetId },
                     ),
                     uiPreferences = uiPreferences,

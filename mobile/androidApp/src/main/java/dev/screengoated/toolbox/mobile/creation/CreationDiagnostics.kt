@@ -23,8 +23,9 @@ internal class CreationDiagnostics(context: Context, private val scope: String) 
         failureMessage: String? = failure?.message,
         generationMode: String? = null,
         provider: String? = null,
+        failureCategoryOverride: String? = null,
     ) {
-        val category = failureMessage?.let(::failureCategory)
+        val category = failureCategoryOverride ?: failureMessage?.let(::failureCategory)
         val summary = buildString {
             append(scope).append(' ').append(name)
             tool?.let { append(" tool=").append(it) }
@@ -88,8 +89,6 @@ internal class CreationDiagnostics(context: Context, private val scope: String) 
                 "rate limit" in normalized || "too many" in normalized -> "rate_limit"
                 "timed out" in normalized || "timeout" in normalized -> "timeout"
                 "cooling down" in normalized -> "cooldown"
-                "mailbox" in normalized || "email" in normalized -> "mailbox"
-                "credit" in normalized -> "credits"
                 "upload" in normalized || "image" in normalized -> "upload"
                 "control" in normalized || "selector" in normalized ||
                     "onboarding" in normalized || "smart mesh" in normalized ||

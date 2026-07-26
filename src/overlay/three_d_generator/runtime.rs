@@ -15,8 +15,6 @@ mod provider;
 use process::{CommandNoWindowExt as _, run_runtime_operation};
 use provider::{GenerationMode, ModelProvider};
 
-#[cfg(debug_assertions)]
-pub(super) const RUNTIME_EXE_NAME: &str = "sgt_creation_runtime.exe";
 const MAX_ASSET_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_PARALLEL_JOBS: usize = 2;
 
@@ -61,8 +59,8 @@ pub(super) struct JobStatus {
 
 #[derive(Debug, Clone)]
 struct Continuation {
-    task_id: String,
-    profile_dir: String,
+    token: String,
+    group: String,
     image_path: String,
     output_dir: PathBuf,
     previous_output_path: PathBuf,
@@ -100,11 +98,11 @@ impl RuntimeState {
             .find_map(|job_id| self.jobs.get(job_id).cloned())
     }
 
-    fn invalidate_profile_continuations(&mut self, profile_dir: &str) {
+    fn invalidate_continuation_group(&mut self, group: &str) {
         let continuation_ids = self
             .continuations
             .iter()
-            .filter(|(_, continuation)| continuation.profile_dir == profile_dir)
+            .filter(|(_, continuation)| continuation.group == group)
             .map(|(job_id, _)| job_id.clone())
             .collect::<Vec<_>>();
         for job_id in continuation_ids {
@@ -159,10 +157,6 @@ impl RuntimeOperation {
 static STATE: LazyLock<Mutex<RuntimeState>> = LazyLock::new(|| Mutex::new(RuntimeState::default()));
 static JOB_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-pub(super) fn runtime_exe_path() -> PathBuf {
-    crate::overlay::creation_runtime::runtime_exe_path()
-}
-
 pub(super) fn prepare_runtime() -> String {
     preparation::prepare_runtime()
 }
@@ -175,51 +169,15 @@ pub(super) fn start_preparation_maintainer(install_if_missing: bool) {
     preparation::start_preparation_maintainer(install_if_missing);
 }
 
-#[cfg(debug_assertions)]
-fn newest_dev_runtime_candidate(
-    candidates: impl IntoIterator<Item = (PathBuf, std::time::SystemTime)>,
-) -> Option<PathBuf> {
-    candidates
-        .into_iter()
-        .max_by_key(|(_, modified)| *modified)
-        .map(|(path, _)| path)
-}
-
-#[cfg(debug_assertions)]
-fn dev_runtime_exe_path() -> Option<PathBuf> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("native")
-        .join("sgt_3d_generator_runtime")
-        .join("target");
-    newest_dev_runtime_candidate(["debug", "release"].into_iter().filter_map(|profile| {
-        let path = root.join(profile).join(RUNTIME_EXE_NAME);
-        let modified = path.metadata().ok()?.modified().ok()?;
-        Some((path, modified))
-    }))
-}
-
-#[cfg(not(debug_assertions))]
-fn dev_runtime_exe_path() -> Option<PathBuf> {
-    None
-}
-
 fn runtime_command() -> Option<Command> {
-    #[cfg(debug_assertions)]
-    if let Some(path) = dev_runtime_exe_path() {
-        return Some(Command::new(path));
-    }
-    if crate::overlay::creation_runtime::is_runtime_installed() {
-        Some(Command::new(runtime_exe_path()))
-    } else {
-        dev_runtime_exe_path().map(Command::new)
-    }
+    crate::overlay::creation_runtime::shared_runtime_path().map(Command::new)
 }
 
 fn runtime_status_label() -> String {
-    if crate::overlay::creation_runtime::is_runtime_installed() {
-        "installed".to_string()
-    } else if dev_runtime_exe_path().is_some() {
+    if crate::overlay::creation_runtime::development_runtime_path().is_some() {
         "dev-native".to_string()
+    } else if crate::overlay::creation_runtime::is_runtime_installed() {
+        "installed".to_string()
     } else {
         "missing".to_string()
     }
@@ -425,7 +383,7 @@ pub(super) fn start_segmentation(continuation_id: &str) -> Result<JobStatus, Str
         if let Some(status) = state.jobs.get_mut(continuation_id) {
             status.can_segment = false;
         }
-        state.invalidate_profile_continuations(&continuation.profile_dir);
+        state.invalidate_continuation_group(&continuation.group);
         let preview_path = continuation.preview_path.clone();
         (continuation, preview_path, runtime_status_label())
     };

@@ -9,7 +9,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{HSTRING, PCWSTR, w};
+use windows::core::{HSTRING, PCWSTR};
 use wry::{DragDropEvent, Rect, WebContext, WebViewBuilder};
 
 const MIN_WINDOW_WIDTH: i32 = 760;
@@ -164,7 +164,7 @@ unsafe extern "system" fn window_proc(
 
 unsafe fn internal_create_loop() {
     let instance = unsafe { GetModuleHandleW(None).unwrap() };
-    let class_name = w!("ImageToSvgWindowClass");
+    let class_name = super::window_class_name();
 
     super::REGISTER_CLASS.call_once(|| unsafe {
         let wc = WNDCLASSW {
@@ -195,11 +195,7 @@ unsafe fn internal_create_loop() {
     let x = (screen_w - width) / 2;
     let y = (screen_h - height) / 2;
 
-    let title = HSTRING::from(
-        crate::gui::locale::LocaleText::get(&super::current_ui_language())
-            .shell
-            .image_to_svg_title,
-    );
+    let title = HSTRING::from(super::window_title());
 
     let hwnd = unsafe {
         CreateWindowExW(
@@ -352,11 +348,7 @@ fn internal_create_loop_entry() {
 fn refresh_window_chrome(hwnd: HWND) {
     let is_dark = crate::overlay::is_dark_mode();
     crate::gui::utils::set_window_icon(hwnd, is_dark);
-    let title = HSTRING::from(
-        crate::gui::locale::LocaleText::get(&super::current_ui_language())
-            .shell
-            .image_to_svg_title,
-    );
+    let title = HSTRING::from(super::window_title());
     unsafe {
         let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));
     }
@@ -372,7 +364,7 @@ fn refresh_window_chrome(hwnd: HWND) {
 }
 
 fn window_size_path() -> std::path::PathBuf {
-    crate::paths::app_local_data_dir().join("image-to-svg-window.json")
+    crate::paths::app_local_data_dir().join(super::WINDOW_SIZE_FILE)
 }
 
 fn load_window_size() -> Option<SavedWindowSize> {

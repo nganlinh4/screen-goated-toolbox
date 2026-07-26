@@ -116,3 +116,4 @@ local-runtime-bundles/
 /target-codex-verify/
 /temp-*.md
 /cc-golden-runs/
+/work/

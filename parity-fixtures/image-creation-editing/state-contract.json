@@ -1,0 +1,121 @@
+{
+  "schema": "sgt.creation.image",
+  "fixtureVersion": 14,
+  "tool": "image",
+  "jobIdPrefix": "image_",
+  "operation": "create_image_from_reference",
+  "maximumParallelJobs": 2,
+  "preparedWorkspaces": 4,
+  "maximumConcurrentPreparations": 1,
+  "request": {
+    "required": [
+      "jobId",
+      "tool",
+      "operation",
+      "imagePaths",
+      "prompt",
+      "outputPath",
+      "outputName"
+    ],
+    "prompt": {
+      "trimmed": true,
+      "minimumCharacters": 1,
+      "maximumCharacters": 4000
+    },
+    "references": {
+      "minimum": 0,
+      "maximum": 20,
+      "ordered": true,
+      "frozenBeforeQueue": true
+    },
+    "frozenBeforeQueue": true,
+    "multipleInputsCreateIndependentJobs": false,
+    "oneSessionCreatesOneJob": true,
+    "plusCreatesEmptySession": true
+  },
+  "publicStages": [
+    "queued",
+    "preparing",
+    "uploading",
+    "generating",
+    "finalizing",
+    "done",
+    "failed",
+    "cancelled"
+  ],
+  "publicCopyPolicy": {
+    "vocabulary": "feature_only",
+    "implementationDetailsVisible": false,
+    "rawImplementationErrorsVisible": false
+  },
+  "artifact": {
+    "extensions": [
+      "png",
+      "webp"
+    ],
+    "mimeTypes": [
+      "image/png",
+      "image/webp"
+    ],
+    "minimumBytes": 32,
+    "requiresDecodedDimensions": true,
+    "requiresPositiveWidth": true,
+    "requiresPositiveHeight": true,
+    "atomicWrite": true
+  },
+  "historyFields": [
+    "tool",
+    "operation",
+    "sourceImagePath",
+    "sourceImagePaths",
+    "prompt",
+    "outputPath",
+    "outputName",
+    "mimeType",
+    "width",
+    "height",
+    "createdAtMs"
+  ],
+  "presentation": {
+    "windowsShell": "image_to_svg_creation_shell",
+    "androidShell": "native_compose_m3e",
+    "fontFamily": "Google Sans Flex",
+    "fontRoundedAxis": 100,
+    "iconFamily": "Material Symbols Rounded",
+    "iconFill": 1,
+    "appSpecificTheme": false,
+    "lightAndDark": true,
+    "reducedMotion": true,
+    "transparentCanvas": true,
+    "preserveSourceIntrinsicRatio": true,
+    "textOnlyResultUsesOutputOnlyLayout": true,
+    "multipleReferencesUseOrderedReferenceLayout": true,
+    "focusedInputSurvivesStatusPolling": true,
+    "imeCompositionSurvivesStatusPolling": true,
+    "previewMemory": {
+      "webviewRetainsOriginalImageBytes": false,
+      "thumbnailMaximumEdgePixels": 128,
+      "stageMaximumEdgePixels": 1600,
+      "hydrationBlocksSessionActions": false
+    }
+  },
+  "behavior": {
+    "cancellationIsMonotonic": true,
+    "lateSuccessCannotPublishAfterCancellation": true,
+    "acceptedRequestIsNotRepeatedDuringRecovery": true,
+    "retryCreatesNewJob": true,
+    "retryPreservesPreviousResult": true,
+    "closingUiKeepsQueuedJobs": true,
+    "failureRemainsBoundToJob": true
+  },
+  "androidSurface": {
+    "resultRenderer": "adaptive_image_session_result",
+    "isolatedWorkers": 4,
+    "implementationDetailsVisible": false
+  },
+  "locales": {
+    "en": "Create/edit image",
+    "ko": "이미지 생성/편집",
+    "vi": "Tạo/edit ảnh"
+  }
+}

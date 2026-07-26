@@ -16,10 +16,12 @@ internal data class CreationNativeItem(
     val batchId: String,
     val sourcePath: String,
     val sourceName: String,
+    val referencePaths: List<String> = sourcePath.takeIf(String::isNotBlank)?.let(::listOf).orEmpty(),
     val generationMode: String = CreationGenerationMode.QUALITY.wireName,
     val polycount: Int = CreationContract.DEFAULT_POLYCOUNT,
     val autoSegment: Boolean = false,
     val model: String = "simple",
+    val prompt: String = "",
     val submitted: Boolean = false,
     val stage: CreationNativeStage = CreationNativeStage.DRAFT,
     val status: CreationJobStatus? = null,
@@ -50,7 +52,8 @@ internal fun CreationJobStatus.toNativeStage(): CreationNativeStage = when (stag
     "done" -> CreationNativeStage.DONE
     "failed" -> CreationNativeStage.FAILED
     "cancelled" -> CreationNativeStage.CANCELLED
-    "preparing", "visualizing", "generating", "segmenting", "finalizing" ->
+    "preparing", "authenticating", "verifying", "profiling", "uploading",
+    "visualizing", "generating", "segmenting", "finalizing" ->
         CreationNativeStage.RUNNING
     else -> CreationNativeStage.QUEUED
 }

@@ -31,18 +31,22 @@ internal fun CreationBottomActions(
     if (state.tab != CreationNativeTab.JOBS || state.selectedItem == null) return
     val item = requireNotNull(state.selectedItem)
     val common = locale.creationApps.common
+    val generate = when (tool) {
+        CreationTool.IMAGE_TO_3D -> locale.creationApps.model3d.generate
+        CreationTool.IMAGE_TO_SVG -> locale.creationApps.svg.generate
+        CreationTool.IMAGE_CREATOR -> locale.creationApps.image.generate
+    }
+    val generateAgain = when (tool) {
+        CreationTool.IMAGE_TO_3D -> locale.creationApps.model3d.generateAgain
+        CreationTool.IMAGE_TO_SVG -> locale.creationApps.svg.generateAgain
+        CreationTool.IMAGE_CREATOR -> locale.creationApps.image.generateAgain
+    }
     val label = when {
         item.stage == CreationNativeStage.FAILED || item.stage == CreationNativeStage.CANCELLED ->
             common.retry
         item.stage == CreationNativeStage.RUNNING -> common.cancel
-        item.stage == CreationNativeStage.DONE ->
-            if (tool == CreationTool.IMAGE_TO_3D) locale.creationApps.model3d.generateAgain
-            else locale.creationApps.svg.generateAgain
-        else -> if (tool == CreationTool.IMAGE_TO_3D) {
-            locale.creationApps.model3d.generate
-        } else {
-            locale.creationApps.svg.generate
-        }
+        item.stage == CreationNativeStage.DONE -> generateAgain
+        else -> generate
     }
     val action = if (item.stage == CreationNativeStage.RUNNING) {
         viewModel::cancelSelected
@@ -74,7 +78,10 @@ internal fun CreationBottomActions(
                 label = label,
                 accent = accent,
                 onClick = action,
-                enabled = item.stage != CreationNativeStage.QUEUED,
+                enabled = item.stage != CreationNativeStage.QUEUED &&
+                    (tool != CreationTool.IMAGE_CREATOR ||
+                        item.prompt.isNotBlank() ||
+                        item.stage == CreationNativeStage.RUNNING),
                 cancel = item.stage == CreationNativeStage.RUNNING,
                 modifier = Modifier.weight(1f),
             )

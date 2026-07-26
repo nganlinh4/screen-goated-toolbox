@@ -38,7 +38,7 @@ type StartJobRequest = {
   segmentationMode: "parts" | "none";
 };
 
-type AssetPayload = { dataUrl: string; sizeBytes: number };
+type AssetPayload = { dataUrl: string; sizeBytes?: number };
 type HostContext = { theme?: "light" | "dark"; language?: string };
 type HistoryEntry = {
   id: string; tool: "3d"; sourcePath: string; outputPath: string; outputName: string;
@@ -51,7 +51,7 @@ type QueueItem = {
   path: string;
   name: string;
   extension: string;
-  assetUrl: string;
+  thumbnailUrl?: string;
   generationMode: GenerationMode;
   polycount: number;
   autoSegment: boolean;
@@ -337,13 +337,9 @@ async function openReferencePreview(item: QueueItem) {
   nodes.referencePreviewImage.alt = t("referenceImageAlt", { name: stripExtension(item.name) });
   nodes.referencePreview.hidden = false;
   try {
-    if (!item.assetUrl) {
-      item.assetUrl = (await readAsset(item.path)).dataUrl;
-      renderedQueueSignature = "";
-      renderQueue();
-    }
+    const previewUrl = (await readImagePreview(item.path, 1_600)).dataUrl;
     if (token !== state.referencePreviewToken || state.referencePreviewItemId !== item.id) return;
-    nodes.referencePreviewImage.src = item.assetUrl;
+    nodes.referencePreviewImage.src = previewUrl;
   } catch {
     if (token !== state.referencePreviewToken) return;
     closeReferencePreview();
@@ -384,7 +380,7 @@ function queueRenderSignature() {
       item.submitted,
       item.historyId || "",
       item.result?.outputName || "",
-      Boolean(item.assetUrl),
+      Boolean(item.thumbnailUrl),
     ]),
   });
 }
@@ -423,7 +419,7 @@ function renderQueue() {
     const thumb = document.createElement("button");
     thumb.type = "button";
     thumb.className = "queue-thumb";
-    thumb.innerHTML = item.assetUrl ? `<img alt="" src="${item.assetUrl}">` : ICONS.image;
+    thumb.innerHTML = item.thumbnailUrl ? `<img alt="" src="${item.thumbnailUrl}">` : ICONS.image;
     thumb.title = t("viewReference");
     thumb.setAttribute("aria-label", t("viewReference"));
     thumb.addEventListener("click", () => void openReferencePreview(item));
@@ -499,6 +495,24 @@ async function deleteHistoryItem(item: QueueItem) {
 }
 
 async function readAsset(path: string) { return invoke<AssetPayload>("read_asset", { path }); }
+async function readImagePreview(path: string, maxEdge: number) {
+  return invoke<AssetPayload>("read_image_preview", { path, maxEdge });
+}
+
+let thumbnailHydration = Promise.resolve();
+function hydrateThumbnails(items: QueueItem[]) {
+  thumbnailHydration = thumbnailHydration.then(async () => {
+    for (const item of items) {
+      if (item.thumbnailUrl || !state.items.includes(item) || !item.path) continue;
+      try {
+        item.thumbnailUrl = (await readImagePreview(item.path, 128)).dataUrl;
+        renderedQueueSignature = "";
+        renderQueue();
+        updateUi();
+      } catch { /* Preview failure does not affect the creation job. */ }
+    }
+  }).catch(() => undefined);
+}
 
 function readModelAsset(item: QueueItem, path: string) {
   if (item.modelAssetPath !== path || !item.modelAssetPromise) {
@@ -536,12 +550,10 @@ async function refreshHistory() {
         continue;
       }
       const sourcePath = entry.sourcePath;
-      let assetUrl = "";
-      try { if (sourcePath) assetUrl = (await readAsset(sourcePath)).dataUrl; } catch { /* Source thumbnails are optional. */ }
       const name = pathLeaf(sourcePath || entry.outputName);
       item = {
         id: `history_${entry.id}`, batchId: `history_${entry.id}`, path: sourcePath, name,
-        extension: name.split(".").pop()?.toUpperCase() || t("image"), assetUrl,
+        extension: name.split(".").pop()?.toUpperCase() || t("image"),
         generationMode: entry.metadata?.generationMode || "quality", polycount: 5000,
         autoSegment: Boolean(entry.metadata?.isSegmented), submitted: true, state: "done", historyId: entry.id,
         createdAtMs: entry.createdAtMs,
@@ -552,6 +564,7 @@ async function refreshHistory() {
         },
       };
       state.items.push(item);
+      hydrateThumbnails([item]);
     }
     const selectedBefore = state.selectedId;
     state.items = state.items.filter((item) => !item.historyId || validIds.has(item.historyId));
@@ -578,21 +591,20 @@ async function addImagePaths(paths: string[]) {
   });
   if (!unique.length) return;
   const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const items = await Promise.all(unique.map(async (path): Promise<QueueItem> => {
-    let assetUrl = "";
-    try { assetUrl = (await readAsset(path)).dataUrl; } catch { /* The runtime validates the source again. */ }
+  const items = unique.map((path): QueueItem => {
     const name = pathLeaf(path);
     return {
       id: `image_${Date.now()}_${Math.random().toString(36).slice(2)}`, batchId, path, name,
-      extension: name.split(".").pop()?.toUpperCase() || t("image"), assetUrl,
+      extension: name.split(".").pop()?.toUpperCase() || t("image"),
       generationMode: "quality", polycount: 5000, autoSegment: false, submitted: false, state: "queued",
     };
-  }));
+  });
   closeReferencePreview();
   state.items.push(...items);
   state.selectedId = items[0].id;
   renderQueue(); updateUi();
-  await displayItem(items[0]);
+  hydrateThumbnails(items);
+  void displayItem(items[0]);
 }
 
 async function addImages() {
@@ -647,9 +659,9 @@ function displayItem(item: QueueItem): Promise<void> {
         updateUi();
         return;
       }
-      if (!item.assetUrl) item.assetUrl = (await readAsset(item.path)).dataUrl;
+      const sourcePreview = (await readImagePreview(item.path, 1_600)).dataUrl;
       if (token !== state.displayToken || state.selectedId !== item.id) return;
-      await viewer.setSource(item.assetUrl);
+      await viewer.setSource(sourcePreview);
       if (token !== state.displayToken || state.selectedId !== item.id) return;
       state.displayedItemId = item.id;
       state.displayedModelPath = "";
@@ -673,7 +685,7 @@ function displayItem(item: QueueItem): Promise<void> {
 async function loadDepthFor(item: QueueItem, path: string) {
   if (!path || item.loadedDepthPath === path || state.selectedId !== item.id) return;
   item.loadedDepthPath = path;
-  try { await viewer.setDepth((await readAsset(path)).dataUrl); } catch { item.loadedDepthPath = ""; }
+  try { await viewer.setDepth((await readImagePreview(path, 1_024)).dataUrl); } catch { item.loadedDepthPath = ""; }
 }
 
 function friendlyError(message: string) {
@@ -784,7 +796,7 @@ function updateUi() {
   nodes.sourceMeta.textContent = item
     ? selectedBatchSize > 1 ? t("sharedSettings", { count: selectedBatchSize }) : item.extension
     : t("formats");
-  nodes.sourceThumb.innerHTML = item?.assetUrl ? `<img alt="" src="${item.assetUrl}">` : ICONS.image;
+  nodes.sourceThumb.innerHTML = item?.thumbnailUrl ? `<img alt="" src="${item.thumbnailUrl}">` : ICONS.image;
   nodes.folderName.textContent = state.outputDir || t("defaultFolder");
   nodes.folderName.title = state.outputDir;
   const settings = item
@@ -984,26 +996,25 @@ async function restoreCurrentJobs() {
         recoverable.set(status.sourceImagePath, status);
       }
     }
-    const items = await Promise.all([...recoverable.values()].map(async (status, index): Promise<QueueItem> => {
+    const items = [...recoverable.values()].map((status, index): QueueItem => {
       const path = status.sourceImagePath!;
-      let assetUrl = ""; try { assetUrl = (await readAsset(path)).dataUrl; } catch { /* Status remains recoverable. */ }
       const name = pathLeaf(path);
       const running = BUSY_STAGES.has(status.stage);
       return {
         id: `recovered_${Date.now()}_${index}`, batchId: `recovered_batch_${Date.now()}_${index}`, path, name,
-        extension: name.split(".").pop()?.toUpperCase() || t("image"), assetUrl,
+        extension: name.split(".").pop()?.toUpperCase() || t("image"),
         generationMode: status.generationMode || "quality", polycount: 5000,
         autoSegment: Boolean(status.isSegmented), submitted: true, state: running ? "running" : "done", result: status,
         operationStartedAt: running ? Date.now() - Math.max(0, status.elapsedMs || 0) : undefined,
         estimatedTotalMs: status.estimatedTotalMs || 240_000, displayedProgress: status.progressRatio || 0,
       };
-    }));
+    });
     if (!items.length) { updateUi(); return; }
     const latest = items[items.length - 1];
     state.items.push(...items); state.selectedId = latest.id;
     state.backendStatus = latest.result!;
     for (const item of items) if (item.state === "running") state.runningIds.add(item.id);
-    updateUi(); await displayItem(latest);
+    updateUi(); hydrateThumbnails(items); await displayItem(latest);
     await Promise.all(items.filter((item) => item.state === "running").map(async (item) => {
       try {
         const final = await waitForJob(item, item.result!);
@@ -1028,7 +1039,7 @@ async function loadDevModelPreview(modelUrl: string) {
     const objectUrl = URL.createObjectURL(await response.blob());
     const name = pathLeaf(modelUrl);
     const item: QueueItem = {
-      id: "dev_model", batchId: "dev_batch", path: modelUrl, name, extension: "GLB", assetUrl: "", polycount: 5000,
+      id: "dev_model", batchId: "dev_batch", path: modelUrl, name, extension: "GLB", polycount: 5000,
       generationMode: "quality",
       autoSegment: devParams?.get("segmented") === "1", submitted: true, state: "done",
       result: { stage: "done", progressText: "", outputPath: modelUrl, outputName: name, isSegmented: devParams?.get("segmented") === "1", canSegment: false },
@@ -1053,7 +1064,7 @@ function loadDevBatchPreview() {
     itemState: QueueState,
     submitted: boolean,
   ): QueueItem => ({
-    id, batchId, path: name, name, extension: "PNG", assetUrl: "",
+    id, batchId, path: name, name, extension: "PNG",
     generationMode: batchId === "batch_2" ? "fast" : "quality",
     polycount: batchId === "batch_2" ? 8200 : 5000,
     autoSegment: batchId === "batch_2", submitted, state: itemState,
@@ -1125,8 +1136,8 @@ function loadDevParallelHarness() {
   };
   const batchId = "parallel_batch";
   state.items.push(
-    { id: "parallel_a", batchId, path: "parallel-a.png", name: "parallel-a.png", extension: "PNG", assetUrl: "", generationMode: "quality", polycount: 5000, autoSegment: false, submitted: true, state: "queued" },
-    { id: "parallel_b", batchId, path: "parallel-b.png", name: "parallel-b.png", extension: "PNG", assetUrl: "", generationMode: "fast", polycount: 5000, autoSegment: false, submitted: true, state: "queued" },
+    { id: "parallel_a", batchId, path: "parallel-a.png", name: "parallel-a.png", extension: "PNG", generationMode: "quality", polycount: 5000, autoSegment: false, submitted: true, state: "queued" },
+    { id: "parallel_b", batchId, path: "parallel-b.png", name: "parallel-b.png", extension: "PNG", generationMode: "fast", polycount: 5000, autoSegment: false, submitted: true, state: "queued" },
   );
   state.selectedId = "parallel_a";
   updateUi();

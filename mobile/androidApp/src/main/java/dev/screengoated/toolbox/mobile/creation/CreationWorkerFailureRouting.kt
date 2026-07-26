@@ -10,6 +10,33 @@ internal fun publicCreationText(value: String): String = value
     .replace("Meshy", "creation service", ignoreCase = true)
     .replace("Tripo", "creation service", ignoreCase = true)
 
+internal fun publicImageCreationStage(value: String): String = when (value) {
+    "queued",
+    "preparing",
+    "uploading",
+    "generating",
+    "finalizing",
+    "done",
+    "failed",
+    "cancelled",
+    -> value
+    else -> "preparing"
+}
+
+internal fun publicImageCreationText(stage: String): String = when (stage) {
+    "queued" -> "Queued"
+    "uploading" -> "Adding reference image"
+    "generating" -> "Creating image"
+    "finalizing" -> "Finishing image"
+    "done" -> "Image ready"
+    "failed" -> "Could not create image"
+    "cancelled" -> "Cancelled"
+    else -> "Getting ready"
+}
+
+internal fun publicImageCreationFailure(): String =
+    "Image creation could not finish. Try again."
+
 internal fun routeCreationWorkerFailure(
     provider: String?,
     error: String,

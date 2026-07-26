@@ -43,9 +43,11 @@ data class MobileShellLocale(
 data class MobileCreationAppsLocale(
     override val appImageTo3dTitle: String,
     override val appImageToSvgTitle: String,
+    override val appImageCreatorTitle: String,
     val common: CreationCommonLocale,
     val model3d: Creation3dLocale,
     val svg: CreationSvgLocale,
+    val image: CreationImageLocale,
 ) : MobileCreationAppsText
 
 data class CreationCommonLocale(
@@ -124,6 +126,25 @@ data class CreationSvgLocale(
     val undo: String,
     val redo: String,
     val saveEdits: String,
+)
+
+data class CreationImageLocale(
+    val newImage: String,
+    val references: String,
+    val addReferences: String,
+    val noReferences: String,
+    val referenceCount: String,
+    val removeReference: String,
+    val textOnlyTitle: String,
+    val textOnlyHint: String,
+    val instruction: String,
+    val instructionHint: String,
+    val generate: String,
+    val generateAgain: String,
+    val imageReady: String,
+    val before: String,
+    val after: String,
+    val promptRequired: String,
 )
 
 data class MobileHistoryLocale(

@@ -3,10 +3,13 @@ package dev.screengoated.toolbox.mobile.creation
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CreationParityContractTest {
@@ -53,11 +56,70 @@ class CreationParityContractTest {
             limits.int("minimumPreparationIntervalSeconds"),
         )
         assertEquals(CreationContract.IMAGE_TO_SVG_WORKSPACES, limits.int("preparedWorkspaces"))
-        assertEquals(CreationContract.SVG_MINIMUM_REUSABLE_CREDITS, limits.int("minimumReusableCredits"))
-        assertEquals(CreationContract.svgRemoteModel("simple"), models.modelString("simple", "remoteModel"))
-        assertEquals(CreationContract.svgCreditCost("simple"), models.modelInt("simple", "creditCost"))
-        assertEquals(CreationContract.svgRemoteModel("detail"), models.modelString("detail", "remoteModel"))
-        assertEquals(CreationContract.svgCreditCost("detail"), models.modelInt("detail", "creditCost"))
+        assertEquals(setOf("simple", "detail"), models.keys)
+        assertTrue(models.getValue("simple").jsonObject.boolean("selectable"))
+        assertTrue(models.getValue("detail").jsonObject.boolean("selectable"))
+    }
+
+    @Test
+    fun `image creator Android contract matches shared fixture`() {
+        val fixture = fixture("image-creation-editing")
+        val prompt = fixture["request"]!!.jsonObject["prompt"]!!.jsonObject
+        val references = fixture["request"]!!.jsonObject["references"]!!.jsonObject
+        val locales = fixture["locales"]!!.jsonObject
+        val presentation = fixture["presentation"]!!.jsonObject
+        val surface = fixture["androidSurface"]!!.jsonObject
+        val behavior = fixture["behavior"]!!.jsonObject
+        val copyPolicy = fixture["publicCopyPolicy"]!!.jsonObject
+
+        assertEquals("image", fixture.string("tool"))
+        assertEquals(CreationContract.IMAGE_CREATOR_OPERATION, fixture.string("operation"))
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS,
+            fixture.int("maximumParallelJobs"),
+        )
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_WORKSPACES,
+            fixture.int("preparedWorkspaces"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_CONCURRENT_PREPARATIONS,
+            fixture.int("maximumConcurrentPreparations"),
+        )
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS,
+            prompt.int("maximumCharacters"),
+        )
+        assertEquals(0, references.int("minimum"))
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES,
+            references.int("maximum"),
+        )
+        assertEquals("Google Sans Flex", presentation.string("fontFamily"))
+        assertEquals(100, presentation.int("fontRoundedAxis"))
+        assertEquals("Material Symbols Rounded", presentation.string("iconFamily"))
+        assertEquals(1, presentation.int("iconFill"))
+        assertFalse(presentation.boolean("appSpecificTheme"))
+        assertTrue(presentation.boolean("focusedInputSurvivesStatusPolling"))
+        assertTrue(presentation.boolean("imeCompositionSurvivesStatusPolling"))
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_WORKSPACES,
+            surface.int("isolatedWorkers"),
+        )
+        assertFalse(surface.boolean("implementationDetailsVisible"))
+        assertEquals("feature_only", copyPolicy.string("vocabulary"))
+        assertFalse(copyPolicy.boolean("implementationDetailsVisible"))
+        assertFalse(copyPolicy.boolean("rawImplementationErrorsVisible"))
+        assertTrue(behavior.boolean("cancellationIsMonotonic"))
+        assertTrue(behavior.boolean("lateSuccessCannotPublishAfterCancellation"))
+        assertTrue(behavior.boolean("acceptedRequestIsNotRepeatedDuringRecovery"))
+        assertTrue(behavior.boolean("retryCreatesNewJob"))
+        assertTrue(behavior.boolean("retryPreservesPreviousResult"))
+        assertTrue(behavior.boolean("closingUiKeepsQueuedJobs"))
+        assertTrue(behavior.boolean("failureRemainsBoundToJob"))
+        assertEquals(locales.string("en"), MobileLocaleText.forLanguage("en").appImageCreatorTitle)
+        assertEquals(locales.string("ko"), MobileLocaleText.forLanguage("ko").appImageCreatorTitle)
+        assertEquals(locales.string("vi"), MobileLocaleText.forLanguage("vi").appImageCreatorTitle)
     }
 
     private fun fixture(tool: String) = json.parseToJsonElement(
@@ -79,8 +141,5 @@ private fun kotlinx.serialization.json.JsonObject.int(key: String): Int =
 private fun kotlinx.serialization.json.JsonObject.string(key: String): String =
     this[key]!!.jsonPrimitive.content
 
-private fun kotlinx.serialization.json.JsonObject.modelString(model: String, key: String): String =
-    this[model]!!.jsonObject.string(key)
-
-private fun kotlinx.serialization.json.JsonObject.modelInt(model: String, key: String): Int =
-    this[model]!!.jsonObject.int(key)
+private fun kotlinx.serialization.json.JsonObject.boolean(key: String): Boolean =
+    this[key]!!.jsonPrimitive.boolean

@@ -1,9 +1,9 @@
 use super::*;
 
-fn continuation(profile_dir: &str) -> Continuation {
+fn continuation(group: &str) -> Continuation {
     Continuation {
-        task_id: "task".to_string(),
-        profile_dir: profile_dir.to_string(),
+        token: "opaque-token".to_string(),
+        group: group.to_string(),
         image_path: "image.png".to_string(),
         output_dir: PathBuf::from("output"),
         previous_output_path: PathBuf::from("model.glb"),
@@ -12,24 +12,10 @@ fn continuation(profile_dir: &str) -> Continuation {
     }
 }
 
-#[cfg(debug_assertions)]
 #[test]
-fn development_runtime_uses_the_newest_binary() {
-    let older = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1);
-    let newer = std::time::UNIX_EPOCH + std::time::Duration::from_secs(2);
-
-    let selected = newest_dev_runtime_candidate([
-        (PathBuf::from("debug.exe"), older),
-        (PathBuf::from("release.exe"), newer),
-    ]);
-
-    assert_eq!(selected, Some(PathBuf::from("release.exe")));
-}
-
-#[test]
-fn consuming_separation_invalidates_every_model_on_the_profile() {
+fn consuming_separation_invalidates_every_model_in_the_group() {
     let mut state = RuntimeState::default();
-    for (job_id, profile_dir) in [
+    for (job_id, group) in [
         ("first", "shared"),
         ("second", "shared"),
         ("other", "other"),
@@ -39,10 +25,10 @@ fn consuming_separation_invalidates_every_model_on_the_profile() {
         state.jobs.insert(job_id.to_string(), status);
         state
             .continuations
-            .insert(job_id.to_string(), continuation(profile_dir));
+            .insert(job_id.to_string(), continuation(group));
     }
 
-    state.invalidate_profile_continuations("shared");
+    state.invalidate_continuation_group("shared");
 
     assert!(!state.continuations.contains_key("first"));
     assert!(!state.continuations.contains_key("second"));

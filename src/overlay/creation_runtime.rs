@@ -1,11 +1,14 @@
 //! Managed native sidecar shared by creation mini apps.
 
-use std::io::Read as _;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 const RUNTIME_ASSET: &str = "sgt-creation-runtime-windows-x64.exe";
@@ -103,6 +106,148 @@ pub(crate) fn update_installed_runtime_in_background() {
         }
     });
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SharedMaintenanceResult {
+    Ready,
+    Refilled,
+    Deferred,
+}
+
+#[cfg(debug_assertions)]
+fn newest_development_runtime_candidate(
+    candidates: impl IntoIterator<Item = (PathBuf, std::time::SystemTime)>,
+) -> Option<PathBuf> {
+    candidates
+        .into_iter()
+        .max_by_key(|(_, modified)| *modified)
+        .map(|(path, _)| path)
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn development_runtime_path() -> Option<PathBuf> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("native")
+        .join("sgt_3d_generator_runtime")
+        .join("target");
+    newest_development_runtime_candidate(["debug", "release"].into_iter().filter_map(|profile| {
+        let path = root.join(profile).join("sgt_creation_runtime.exe");
+        let modified = path.metadata().ok()?.modified().ok()?;
+        Some((path, modified))
+    }))
+}
+
+#[cfg(not(debug_assertions))]
+pub(crate) fn development_runtime_path() -> Option<PathBuf> {
+    None
+}
+
+pub(crate) fn shared_runtime_path() -> Option<PathBuf> {
+    development_runtime_path().or_else(|| is_runtime_installed().then(runtime_exe_path))
+}
+
+pub(crate) struct RuntimePreparationStatus {
+    pub(crate) state: String,
+    pub(crate) needs_preparation: bool,
+}
+
+pub(crate) fn query_preparation_status(tool: &str) -> Option<RuntimePreparationStatus> {
+    if !matches!(tool, "3d" | "svg" | "image") {
+        return None;
+    }
+    let mut command = Command::new(shared_runtime_path()?);
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    hide_command_window(&mut command);
+    let mut child = command.spawn().ok()?;
+    let request = json!({
+        "id": "preparation-status",
+        "cmd": "preparation_status",
+        "args": { "tool": tool },
+    });
+    writeln!(child.stdin.take()?, "{request}").ok()?;
+    let output = child.wait_with_output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())
+        .and_then(|value| {
+            let result = value.get("result")?;
+            Some(RuntimePreparationStatus {
+                state: result.get("state")?.as_str()?.to_string(),
+                needs_preparation: result.get("needsPreparation")?.as_bool()?,
+            })
+        })
+}
+
+fn parse_shared_maintenance(output: &[u8]) -> SharedMaintenanceResult {
+    String::from_utf8_lossy(output)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())
+        .and_then(|value| {
+            let result = value.get("result")?;
+            if result.get("ready").and_then(Value::as_bool) == Some(true) {
+                Some(SharedMaintenanceResult::Ready)
+            } else if result.get("refilled").and_then(Value::as_bool) == Some(true) {
+                Some(SharedMaintenanceResult::Refilled)
+            } else {
+                Some(SharedMaintenanceResult::Deferred)
+            }
+        })
+        .unwrap_or(SharedMaintenanceResult::Deferred)
+}
+
+fn run_shared_maintenance(path: &Path) -> SharedMaintenanceResult {
+    let mut command = Command::new(path);
+    command
+        .arg("--maintain-shared-preparation-headless")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(Stdio::piped());
+    hide_command_window(&mut command);
+    command
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| parse_shared_maintenance(&output.stdout))
+        .unwrap_or(SharedMaintenanceResult::Deferred)
+}
+
+pub(crate) fn start_shared_preparation_maintainer() {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    if STARTED.set(()).is_err() {
+        return;
+    }
+    std::thread::spawn(|| {
+        loop {
+            let (result, runtime_available) = shared_runtime_path()
+                .map(|path| (run_shared_maintenance(&path), true))
+                .unwrap_or((SharedMaintenanceResult::Deferred, false));
+            let delay = match (result, runtime_available) {
+                (SharedMaintenanceResult::Ready, _) => Duration::from_secs(15 * 60),
+                (SharedMaintenanceResult::Refilled, _) => Duration::from_secs(15),
+                (SharedMaintenanceResult::Deferred, true) => Duration::from_secs(15 * 60),
+                (SharedMaintenanceResult::Deferred, false) => Duration::from_secs(60),
+            };
+            std::thread::sleep(delay);
+        }
+    });
+}
+
+#[cfg(windows)]
+fn hide_command_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt as _;
+    command.creation_flags(0x0800_0000);
+}
+
+#[cfg(not(windows))]
+fn hide_command_window(_command: &mut Command) {}
 
 pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
     use crate::overlay::auto_copy_badge::{
@@ -203,4 +348,42 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_runtime_uses_the_newest_binary() {
+        let older = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        let newer = std::time::UNIX_EPOCH + std::time::Duration::from_secs(2);
+
+        let selected = newest_development_runtime_candidate([
+            (PathBuf::from("debug.exe"), older),
+            (PathBuf::from("release.exe"), newer),
+        ]);
+
+        assert_eq!(selected, Some(PathBuf::from("release.exe")));
+    }
+
+    #[test]
+    fn shared_maintenance_parser_distinguishes_ready_refill_and_failure() {
+        assert_eq!(
+            parse_shared_maintenance(br#"{"ok":true,"result":{"ready":true,"refilled":false}}"#,),
+            SharedMaintenanceResult::Ready
+        );
+        assert_eq!(
+            parse_shared_maintenance(
+                br#"{"event":"progress"}
+{"ok":true,"result":{"ready":false,"refilled":true}}"#,
+            ),
+            SharedMaintenanceResult::Refilled
+        );
+        assert_eq!(
+            parse_shared_maintenance(br#"{"ok":false,"error":"unavailable"}"#),
+            SharedMaintenanceResult::Deferred
+        );
+    }
 }

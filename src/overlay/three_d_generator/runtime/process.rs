@@ -44,10 +44,8 @@ fn command_for_operation(operation: &RuntimeOperation) -> Option<Command> {
         RuntimeOperation::Segment { continuation } => {
             command
                 .arg("--segment-job")
-                .arg("--task-id")
-                .arg(&continuation.task_id)
-                .arg("--profile-dir")
-                .arg(&continuation.profile_dir)
+                .arg("--continuation")
+                .arg(&continuation.token)
                 .arg("--image")
                 .arg(&continuation.image_path)
                 .arg("--output-dir")
@@ -378,10 +376,10 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 if is_segmented
-                    && let Some(profile_dir) = result.get("profileDir").and_then(Value::as_str)
+                    && let Some(group) = result.get("continuationGroup").and_then(Value::as_str)
                     && let Ok(mut state) = STATE.lock()
                 {
-                    state.invalidate_profile_continuations(profile_dir);
+                    state.invalidate_continuation_group(group);
                 }
                 let can_segment = result
                     .get("canSegment")
@@ -390,24 +388,21 @@ pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation)
                 let continuation =
                     if super::provider::can_offer_continuation(provider, is_segmented, can_segment)
                     {
-                        let task_id = result.get("taskId").and_then(Value::as_str);
-                        let profile_dir = result.get("profileDir").and_then(Value::as_str);
+                        let token = result.get("continuationToken").and_then(Value::as_str);
+                        let group = result.get("continuationGroup").and_then(Value::as_str);
                         let output_dir = result.get("outputDir").and_then(Value::as_str);
-                        match (task_id, profile_dir, output_dir, output_path.as_deref()) {
-                            (
-                                Some(task_id),
-                                Some(profile_dir),
-                                Some(output_dir),
-                                Some(output_path),
-                            ) => Some(Continuation {
-                                task_id: task_id.to_string(),
-                                profile_dir: profile_dir.to_string(),
-                                image_path: source_image_path.clone(),
-                                output_dir: PathBuf::from(output_dir),
-                                previous_output_path: PathBuf::from(output_path),
-                                preview_path: preview_path.clone(),
-                                provider,
-                            }),
+                        match (token, group, output_dir, output_path.as_deref()) {
+                            (Some(token), Some(group), Some(output_dir), Some(output_path)) => {
+                                Some(Continuation {
+                                    token: token.to_string(),
+                                    group: group.to_string(),
+                                    image_path: source_image_path.clone(),
+                                    output_dir: PathBuf::from(output_dir),
+                                    previous_output_path: PathBuf::from(output_path),
+                                    preview_path: preview_path.clone(),
+                                    provider,
+                                })
+                            }
                             _ => None,
                         }
                     } else {

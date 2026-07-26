@@ -11,11 +11,8 @@ use serde_json::{Value, json};
 mod asset_io;
 pub(super) use asset_io::{open_output, read_asset, save_svg_edits};
 
-#[cfg(debug_assertions)]
-const RUNTIME_EXE_NAME: &str = "sgt_creation_runtime.exe";
 const MAX_PARALLEL_JOBS: usize = 2;
 const READY_TARGET: usize = 2;
-const READY_TTL_MS: u128 = 48 * 60 * 60 * 1_000;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +38,6 @@ pub(super) struct JobStatus {
     pub preview_path: Option<String>,
     pub source_image_path: String,
     pub model: String,
-    pub credits_remaining: Option<u64>,
     pub error: Option<String>,
 }
 
@@ -69,36 +65,11 @@ impl RuntimeState {
 static STATE: LazyLock<Mutex<RuntimeState>> = LazyLock::new(|| Mutex::new(RuntimeState::default()));
 static JOB_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static WARM_RUNNING: AtomicBool = AtomicBool::new(false);
-
-#[cfg(debug_assertions)]
-fn dev_runtime_exe_path() -> Option<PathBuf> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("native")
-        .join("sgt_3d_generator_runtime")
-        .join("target");
-    ["debug", "release"]
-        .into_iter()
-        .map(|profile| root.join(profile).join(RUNTIME_EXE_NAME))
-        .find(|path| path.is_file())
-}
-
-#[cfg(not(debug_assertions))]
-fn dev_runtime_exe_path() -> Option<PathBuf> {
-    None
-}
+static PREPARATION_STATUS: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new("idle".to_string()));
 
 fn runtime_command() -> Option<Command> {
-    #[cfg(debug_assertions)]
-    if let Some(path) = dev_runtime_exe_path() {
-        return Some(Command::new(path));
-    }
-    if crate::overlay::creation_runtime::is_runtime_installed() {
-        Some(Command::new(
-            crate::overlay::creation_runtime::runtime_exe_path(),
-        ))
-    } else {
-        dev_runtime_exe_path().map(Command::new)
-    }
+    crate::overlay::creation_runtime::shared_runtime_path().map(Command::new)
 }
 
 pub(super) fn default_output_dir() -> PathBuf {
@@ -157,7 +128,6 @@ pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, Strin
         preview_path: None,
         source_image_path: request.image_path.clone(),
         model: request.model.clone(),
-        credits_remaining: None,
         error: None,
     };
     state.order.push(job_id.clone());
@@ -297,15 +267,15 @@ fn finish(job_id: &str, result: Result<Value, String>) {
                         .get("outputName")
                         .and_then(Value::as_str)
                         .map(str::to_string);
-                    job.credits_remaining = value.get("creditsRemaining").and_then(Value::as_u64);
                     completed = Some(job.clone());
                 }
-                Err(error) => {
+                Err(_error) => {
                     job.stage = "failed".to_string();
                     job.progress_text = "Could not create vector".to_string();
                     job.progress_key = Some("svg.failed".to_string());
                     job.phase = Some("failed".to_string());
-                    job.error = Some(error);
+                    job.error =
+                        Some("Vector creation could not finish. Retry this image.".to_string());
                 }
             }
         }
@@ -447,56 +417,30 @@ pub(super) fn cancel_job(job_id: Option<&str>) -> Vec<JobStatus> {
     job_statuses()
 }
 
-fn accounts_dir() -> PathBuf {
-    crate::paths::app_local_data_dir()
-        .join("3d-generator-runtime")
-        .join("svg-accounts")
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReadyAccount {
-    profile_dir: PathBuf,
-    credits: u32,
-    created_at: u128,
-}
-
-fn ready_slot(slot: usize) -> bool {
-    let marker = accounts_dir().join(format!("ready-{slot}.json"));
-    let account = std::fs::read_to_string(&marker)
-        .ok()
-        .and_then(|text| serde_json::from_str::<ReadyAccount>(&text).ok());
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let valid = account.as_ref().is_some_and(|value| {
-        value.credits >= 4
-            && value.profile_dir.is_dir()
-            && now.saturating_sub(value.created_at) <= READY_TTL_MS
-    });
-    if !valid {
-        let _ = std::fs::remove_file(marker);
-    }
-    valid
-}
-
-fn ready_count() -> usize {
-    (0..READY_TARGET).filter(|slot| ready_slot(*slot)).count()
+fn refresh_preparation_status() -> bool {
+    let Some(status) = crate::overlay::creation_runtime::query_preparation_status("svg") else {
+        return true;
+    };
+    *PREPARATION_STATUS
+        .lock()
+        .unwrap_or_else(|value| value.into_inner()) = status.state;
+    status.needs_preparation
 }
 
 pub(super) fn runtime_preparation_status() -> String {
-    let ready = ready_count();
-    if ready >= READY_TARGET {
-        "ready".to_string()
-    } else if ready > 0 {
-        "partial".to_string()
+    if runtime_command().is_none() {
+        return "missing".to_string();
+    }
+    let status = PREPARATION_STATUS
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_else(|value| value.into_inner().clone());
+    if status == "ready" || status == "partial" {
+        status
     } else if WARM_RUNNING.load(Ordering::SeqCst) {
         "preparing".to_string()
-    } else if runtime_command().is_some() {
-        "idle".to_string()
     } else {
-        "missing".to_string()
+        status
     }
 }
 
@@ -513,12 +457,11 @@ fn start_preparation() {
                 let stop = Arc::new(AtomicBool::new(false));
                 let _ = crate::overlay::creation_runtime::download_runtime(stop, true);
             }
-            let missing = READY_TARGET.saturating_sub(ready_count());
-            if missing == 0 {
+            if !refresh_preparation_status() {
                 break;
             }
-            let mut workers = Vec::with_capacity(missing);
-            for _ in 0..missing {
+            let mut workers = Vec::with_capacity(READY_TARGET);
+            for _ in 0..READY_TARGET {
                 workers.push(std::thread::spawn(|| {
                     let Some(mut command) = runtime_command() else {
                         return;
@@ -535,7 +478,7 @@ fn start_preparation() {
             for worker in workers {
                 let _ = worker.join();
             }
-            if ready_count() >= READY_TARGET || attempt == 2 {
+            if !refresh_preparation_status() || attempt == 2 {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_secs(5 * 60));

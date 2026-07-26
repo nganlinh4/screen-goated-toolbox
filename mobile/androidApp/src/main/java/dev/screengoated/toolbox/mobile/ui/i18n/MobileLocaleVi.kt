@@ -43,6 +43,7 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
         creationApps = MobileCreationAppsLocale(
             appImageTo3dTitle = "Ảnh sang 3D",
             appImageToSvgTitle = "Ảnh sang SVG",
+            appImageCreatorTitle = "Tạo/edit ảnh",
             common = CreationCommonLocale(
                 jobs = "Công việc",
                 results = "Kết quả",
@@ -71,9 +72,9 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 selectedImages = "{} ảnh",
                 interrupted = "Không thể hoàn tất việc tạo.",
                 previewTools = "Xem trước khi tạo",
-                creationRuntime = "Bộ chạy công cụ sáng tạo",
+                creationRuntime = "Công cụ sáng tạo",
                 creationRuntimeDescription =
-                    "Chạy tác vụ Ảnh sang 3D và Ảnh sang SVG trong nền.",
+                    "Tạo mô hình 3D, SVG và ảnh mới từ ảnh tham chiếu.",
                 depthPreviewModel = "Depth Anything 3 Small",
                 depthPreviewDescription =
                     "Hiện hiệu ứng chiều sâu động trong lúc tạo kết quả 3D và SVG.",
@@ -119,6 +120,24 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 undo = "Hoàn tác",
                 redo = "Làm lại",
                 saveEdits = "Lưu chỉnh sửa",
+            ),
+            image = CreationImageLocale(
+                newImage = "Ảnh mới",
+                references = "Ảnh tham chiếu",
+                addReferences = "Thêm ảnh tham chiếu",
+                noReferences = "Không có ảnh tham chiếu — tạo từ mô tả",
+                referenceCount = "{} ảnh tham chiếu",
+                removeReference = "Xóa ảnh tham chiếu",
+                textOnlyTitle = "Tạo ảnh từ mô tả",
+                textOnlyHint = "Ảnh tham chiếu là tùy chọn",
+                instruction = "Yêu cầu",
+                instructionHint = "Mô tả ảnh cần tạo hoặc nội dung cần thay đổi",
+                generate = "Tạo ảnh",
+                generateAgain = "Tạo lại",
+                imageReady = "Ảnh đã sẵn sàng",
+                before = "Trước",
+                after = "Sau",
+                promptRequired = "Hãy viết yêu cầu cho ảnh trước",
             ),
         ),
         history = MobileHistoryLocale(

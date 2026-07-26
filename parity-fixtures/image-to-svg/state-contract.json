@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "tool": "image-to-svg",
   "states": [
     "draft",
@@ -13,26 +13,34 @@
   ],
   "models": {
     "simple": {
-      "remoteModel": "Classic",
-      "creditCost": 2
+      "selectable": true
     },
     "detail": {
-      "remoteModel": "Ultra",
-      "creditCost": 4
+      "selectable": true
     }
   },
   "limits": {
     "maximumParallelJobs": 2,
     "maximumConcurrentPreparations": 1,
     "minimumPreparationIntervalSeconds": 60,
-    "preparedWorkspaces": 2,
-    "minimumReusableCredits": 4
+    "preparedWorkspaces": 2
+  },
+  "input": {
+    "minimumImagesPerJob": 1,
+    "maximumImagesPerJob": 1,
+    "multiplePickerImagesCreateIndependentJobs": true
   },
   "viewer": {
     "preserveIntrinsicRatio": true,
     "animateAllPaths": true,
     "adaptiveOverlappingAnimation": true,
     "editableShapes": ["path", "rect", "circle", "ellipse", "polygon", "polyline", "line"]
+  },
+  "previewMemory": {
+    "webviewRetainsOriginalImageBytes": false,
+    "thumbnailMaximumEdgePixels": 128,
+    "stageMaximumEdgePixels": 1600,
+    "hydrationBlocksSessionActions": false
   },
   "history": {
     "requireExistingOutput": true,

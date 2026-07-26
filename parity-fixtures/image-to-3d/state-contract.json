@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 6,
+  "schemaVersion": 8,
   "tool": "image-to-3d",
   "names": {
     "en": "Image to 3D",
@@ -23,7 +23,6 @@
     "autoSegment": false,
     "segmentationMode": "none",
     "generationMode": "quality",
-    "provider": "tripo",
     "topologyMode": "topology_mesh",
     "outputFormat": "glb_plain"
   },
@@ -34,39 +33,22 @@
     "maximumConcurrentPreparations": 1,
     "minimumPreparationIntervalSeconds": 60,
     "preparedWorkspaces": 4,
-    "preparedMeshyWorkspaces": 2,
-    "reuseWindowHours": 24
+    "continuationWindowHours": 24
   },
-  "providers": {
-    "meshy": {
-      "model": "meshy_t2",
-      "modelType": "smart_topology",
-      "minimumPolycount": 100,
-      "maximumPolycount": 15000,
-      "generationCreditCost": 5,
-      "nativeSegmentation": true,
-      "lazyPreparation": true,
-      "reuseWhileCreditsAtLeast": 5
-    },
-    "tripo": {
-      "minimumPolycount": 500,
-      "maximumPolycount": 20000,
-      "generationCreditCost": 35,
-      "nativeSegmentation": false,
-      "allowContinuationAfterGeneration": true,
-      "reuseWindowHours": 24
-    }
+  "input": {
+    "minimumImagesPerJob": 1,
+    "maximumImagesPerJob": 1,
+    "multiplePickerImagesCreateIndependentJobs": true
   },
   "generationModes": {
     "default": "quality",
     "selectionVisible": true,
-    "providerNamesVisible": false,
+    "implementationBrandingVisible": false,
     "cases": [
       {
         "mode": "fast",
         "polycount": 100,
         "autoSegment": false,
-        "provider": "meshy",
         "effectiveAutoSegment": false,
         "showAutoSegment": false,
         "resultSegmented": true,
@@ -76,7 +58,6 @@
         "mode": "fast",
         "polycount": 15000,
         "autoSegment": true,
-        "provider": "meshy",
         "effectiveAutoSegment": false,
         "showAutoSegment": false,
         "resultSegmented": true,
@@ -86,7 +67,6 @@
         "mode": "quality",
         "polycount": 501,
         "autoSegment": false,
-        "provider": "tripo",
         "effectiveAutoSegment": false,
         "showAutoSegment": true,
         "resultSegmented": false,
@@ -96,7 +76,6 @@
         "mode": "quality",
         "polycount": 501,
         "autoSegment": true,
-        "provider": "tripo",
         "effectiveAutoSegment": true,
         "showAutoSegment": true,
         "resultSegmented": true,
@@ -106,7 +85,6 @@
         "mode": "quality",
         "polycount": 20000,
         "autoSegment": false,
-        "provider": "tripo",
         "effectiveAutoSegment": false,
         "showAutoSegment": true,
         "resultSegmented": false,
@@ -120,7 +98,6 @@
         "normalizedPolycount": 15000,
         "autoSegment": true,
         "effectiveAutoSegment": false,
-        "provider": "meshy",
         "showAutoSegment": false,
         "resultSegmented": true,
         "canSegmentAfterGeneration": false
@@ -130,7 +107,6 @@
         "polycount": 100,
         "normalizedPolycount": 500,
         "autoSegment": false,
-        "provider": "tripo",
         "effectiveAutoSegment": false,
         "showAutoSegment": true,
         "resultSegmented": false,
@@ -138,32 +114,16 @@
       }
     ]
   },
-  "paidRecovery": {
-    "generationIntentBeforeSubmit": true,
-    "generationCostReserved": 5,
+  "recovery": {
+    "intentRecordedBeforeSubmit": true,
     "jobIdentityUsesSourceContent": true,
     "jobIdentityIgnoresSourcePathAndTimestamps": true,
-    "jobIdentityIncludesProviderAndMode": true,
-    "jobIdentityIncludesPromptPolycountAndModel": true,
+    "jobIdentityIncludesProductSettings": true,
     "matchingJobSerializedAcrossWorkers": true,
-    "acceptedTaskResumedWithoutResubmit": true,
+    "acceptedJobResumedWithoutResubmit": true,
     "unknownSubmissionFailsClosed": true,
-    "qualityControlReadyBeforeSubmit": true,
-    "qualityControlRequiresPointerEvents": true,
-    "qualityControlRequiresTopmostHitTarget": true,
-    "qualityAttemptPersistedBeforeClick": true,
-    "qualityConfirmationPersistedSeparately": true,
-    "qualityRecoveryUsesOwningAccount": true,
-    "qualityTaskUrlConfirmsStart": true,
-    "qualityGeneratingStateConfirmsStart": true,
-    "qualityCreditDebitConfirmsStart": true,
-    "qualityNativeClickFallback": "dom_click_while_control_remains_ready",
-    "qualityUnknownSubmissionFailsClosed": true,
-    "qualityRetryScope": "before_submission_only",
-    "completionReceiptBeforeHostSuccess": true,
-    "androidCompletionReceiptUsesPrivateRuntimeArtifact": true,
-    "recoveryRetentionHours": 168,
-    "androidOwnerWorkerRedirect": true
+    "artifactCommittedBeforeHostSuccess": true,
+    "recoveryRetentionHours": 168
   },
   "segmentation": {
     "selection": "detailed_15_plus",
@@ -172,15 +132,10 @@
       "automaticSeparation": "validated_artifact_and_terminal_success",
       "continuation": "validated_artifact_and_terminal_success"
     },
-    "retireWorkspaceAfterUse": true,
     "allowContinuationAfterGeneration": true,
-    "continuationRequiresGenerationCredits": false,
-    "continuationRequiresGenerationReadiness": false,
-    "continuationUsesOwningWorkspace": true,
-    "insufficientCreditsDoNotResetContinuationOwner": true,
-    "newGenerationInvalidatesReusedWorkspaceContinuation": true,
-    "continuationProvider": "tripo",
-    "meshyResultIsNativeSegmented": true,
+    "continuationWindowHours": 24,
+    "newGenerationMayInvalidatePriorContinuation": true,
+    "fastResultIsSegmented": true,
     "requireRenderableNormals": true,
     "expandDisconnectedComponentsForSingleMesh": true,
     "preserveExistingPartNodes": true,
@@ -191,17 +146,22 @@
     "renameMutatesOutput": true,
     "deleteMutatesOutput": true,
     "freezeGenerationMode": true,
-    "freezeProvider": true,
     "retainCurrentSessionResultUntilHistoryPersists": true,
     "doneStatusTransitionsDirectlyToModel": true,
     "terminalItemCanBeReconfiguredAndRerun": true,
     "rerunPreservesPreviousOutput": true
   },
   "presentation": {
-    "showProviderBranding": false,
-    "showProviderSelection": false,
+    "showImplementationBranding": false,
+    "showImplementationSelection": false,
     "showGenerationModeSelection": true,
-    "sanitizeProviderBrandedRuntimeText": true
+    "normalizeImplementationText": true,
+    "previewMemory": {
+      "webviewRetainsOriginalImageBytes": false,
+      "thumbnailMaximumEdgePixels": 128,
+      "stageMaximumEdgePixels": 1600,
+      "hydrationBlocksSessionActions": false
+    }
   },
   "androidSurface": {
     "shell": "native_compose_m3e",

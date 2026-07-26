@@ -40,6 +40,7 @@ internal object CreationContract {
     const val FAST_MAXIMUM_POLYCOUNT = 15_000
     const val QUALITY_MINIMUM_POLYCOUNT = 500
     const val MAXIMUM_PARALLEL_JOBS = 2
+    const val IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS = 2
     const val MAXIMUM_CONCURRENT_PREPARATIONS = 1
     const val MINIMUM_PREPARATION_INTERVAL_SECONDS = 60
     const val IMAGE_TO_3D_WORKSPACES = 4
@@ -47,11 +48,17 @@ internal object CreationContract {
     const val MESHY_RECOVERY_OWNER_PREFIX = "meshy-recovery-owner:"
     const val TRIPO_RECOVERY_OWNER_PREFIX = "quality-recovery-owner:"
     const val IMAGE_TO_SVG_WORKSPACES = 2
-    const val SVG_MINIMUM_REUSABLE_CREDITS = 4
+    const val IMAGE_CREATOR_WORKSPACES = 4
+    const val IMAGE_CREATOR_OPERATION = "create_image_from_reference"
+    const val IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS = 4_000
+    const val IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES = 20
 
-    fun svgRemoteModel(model: String): String = if (model == "detail") "Ultra" else "Classic"
-
-    fun svgCreditCost(model: String): Int = if (model == "detail") 4 else 2
+    fun maximumParallelJobs(tool: CreationTool): Int = when (tool) {
+        CreationTool.IMAGE_CREATOR -> IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS
+        CreationTool.IMAGE_TO_3D,
+        CreationTool.IMAGE_TO_SVG,
+        -> MAXIMUM_PARALLEL_JOBS
+    }
 
     fun route3dProvider(
         mode: CreationGenerationMode,

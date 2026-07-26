@@ -114,6 +114,18 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .ok_or_else(|| "path is required".to_string())?;
             super::runtime::read_asset(path)
         }
+        "read_image_preview" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "path is required".to_string())?;
+            let max_edge = args
+                .get("maxEdge")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok());
+            crate::overlay::creation_preview::read_image_preview(path, max_edge)
+                .map_err(|error| error.to_string())
+        }
         "open_output" => {
             let kind = args.get("kind").and_then(Value::as_str).unwrap_or("folder");
             let path = args.get("path").and_then(Value::as_str);

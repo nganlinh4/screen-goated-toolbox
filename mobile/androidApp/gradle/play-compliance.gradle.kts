@@ -176,11 +176,8 @@ tasks.register("verifyPlayReleaseCompliance") {
             "browser_download_url",
             "YoutubeDLUpdater",
             "updateYoutubeDL",
-            "studio.tripo3d.ai",
-            "api.tripo3d.ai",
-            "temp-mail.org/en/",
-            "www.svgai.org/",
-            "Depth preview model has no depth output",
+            "CreationAutomationEngine",
+            "MeshoptNative",
         )
         val allowedFeatureModules = setOf(
             "feature_asr_ort",
@@ -226,11 +223,7 @@ tasks.register("verifyPlayReleaseCompliance") {
             "6520b51e703b953ffed3509310f693c68ceb107b37908dfac4c44eb9f42c55cc"
         val creationRuntimeSignatures = listOf(
             "AndroidCreationRuntimeFactory",
-            "studio.tripo3d.ai",
-            "api.tripo3d.ai",
-            "temp-mail.org/en/",
-            "www.svgai.org/",
-            "Depth preview model has no depth output",
+            "CreationAutomationEngine",
             "MeshoptNative",
         )
 

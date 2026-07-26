@@ -59,13 +59,15 @@ internal fun CreationQueueStrip(
     onSelect: (String) -> Unit,
     onRemove: (String) -> Unit,
     onAdd: () -> Unit,
+    addLabel: String,
+    itemLabel: (CreationNativeItem) -> String,
 ) {
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item(key = "add") {
-            AddImageTile(common = common, accent = accent, onClick = onAdd)
+            AddImageTile(label = addLabel, accent = accent, onClick = onAdd)
         }
         items(items, key = { it.id }) { item ->
             QueueItemTile(
@@ -73,6 +75,7 @@ internal fun CreationQueueStrip(
                 selected = item.id == selectedId,
                 accent = accent,
                 common = common,
+                displayName = itemLabel(item),
                 onClick = { onSelect(item.id) },
                 onRemove = { onRemove(item.id) },
             )
@@ -165,7 +168,7 @@ internal fun CreationHistoryStrip(
 
 @Composable
 private fun AddImageTile(
-    common: CreationCommonLocale,
+    label: String,
     accent: Color,
     onClick: () -> Unit,
 ) {
@@ -188,7 +191,7 @@ private fun AddImageTile(
                 modifier = Modifier.size(20.dp),
             )
             Text(
-                common.addImages,
+                label,
                 style = MaterialTheme.typography.labelSmall,
                 color = accent,
                 maxLines = 1,
@@ -203,6 +206,7 @@ private fun QueueItemTile(
     selected: Boolean,
     accent: Color,
     common: CreationCommonLocale,
+    displayName: String,
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -226,16 +230,32 @@ private fun QueueItemTile(
                 .padding(7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CreationImageThumbnail(
-                path = item.sourcePath,
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(MaterialTheme.shapes.small),
-            )
+            if (item.sourcePath.isNotBlank()) {
+                CreationImageThumbnail(
+                    path = item.sourcePath,
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clip(MaterialTheme.shapes.small),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ms_auto_awesome),
+                        contentDescription = null,
+                        tint = accent,
+                    )
+                }
+            }
             Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    item.sourceName,
+                    displayName,
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -261,7 +281,11 @@ private fun QueueItemTile(
 }
 
 @Composable
-internal fun CreationImageThumbnail(path: String, modifier: Modifier = Modifier) {
+internal fun CreationImageThumbnail(
+    path: String,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+) {
     val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, path) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -285,7 +309,7 @@ internal fun CreationImageThumbnail(path: String, modifier: Modifier = Modifier)
                 bitmap = requireNotNull(bitmap),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
+                contentScale = contentScale,
             )
         } else {
             Icon(

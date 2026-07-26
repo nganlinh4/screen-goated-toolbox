@@ -43,6 +43,7 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
         creationApps = MobileCreationAppsLocale(
             appImageTo3dTitle = "이미지를 3D로",
             appImageToSvgTitle = "이미지를 SVG로",
+            appImageCreatorTitle = "이미지 생성/편집",
             common = CreationCommonLocale(
                 jobs = "작업",
                 results = "결과",
@@ -71,9 +72,9 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 selectedImages = "이미지 {}개",
                 interrupted = "생성을 완료하지 못했습니다.",
                 previewTools = "생성 미리보기",
-                creationRuntime = "제작 도구 런타임",
+                creationRuntime = "제작 도구",
                 creationRuntimeDescription =
-                    "이미지를 3D 및 SVG로 변환하는 작업을 백그라운드에서 실행합니다.",
+                    "참조 이미지로 3D 모델, SVG 및 새 이미지를 만듭니다.",
                 depthPreviewModel = "Depth Anything 3 Small",
                 depthPreviewDescription =
                     "3D와 SVG 결과를 생성하는 동안 움직이는 깊이 미리보기를 표시합니다.",
@@ -119,6 +120,24 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 undo = "실행 취소",
                 redo = "다시 실행",
                 saveEdits = "편집 저장",
+            ),
+            image = CreationImageLocale(
+                newImage = "새 이미지",
+                references = "참조",
+                addReferences = "참조 추가",
+                noReferences = "참조 없음 — 텍스트로 생성",
+                referenceCount = "참조 {}개",
+                removeReference = "참조 삭제",
+                textOnlyTitle = "설명으로 이미지 만들기",
+                textOnlyHint = "참조 이미지는 선택 사항입니다",
+                instruction = "지시",
+                instructionHint = "만들 이미지 또는 바꿀 내용을 설명하세요",
+                generate = "이미지 만들기",
+                generateAgain = "다시 만들기",
+                imageReady = "이미지 준비 완료",
+                before = "이전",
+                after = "이후",
+                promptRequired = "먼저 이미지 지시를 작성하세요",
             ),
         ),
         history = MobileHistoryLocale(

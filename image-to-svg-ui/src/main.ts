@@ -4,7 +4,7 @@ import { setLanguage, t, type MessageKey } from "./i18n";
 type Model = "simple" | "detail";
 type Stage = "draft" | "queued" | "preparing" | "generating" | "finalizing" | "done" | "failed" | "cancelled";
 type HostContext = { theme?: "light" | "dark"; language?: string };
-type Asset = { dataUrl?: string; text?: string; sizeBytes: number };
+type Asset = { dataUrl?: string; text?: string; sizeBytes?: number };
 type HistoryEntry = {
   id: string; tool: "svg"; sourcePath: string; outputPath: string; outputName: string;
   createdAtMs: number; metadata?: { model?: Model };
@@ -12,12 +12,12 @@ type HistoryEntry = {
 type JobStatus = {
   jobId: string; stage: Stage; progressText: string; elapsedMs?: number; estimatedTotalMs?: number;
   progressRatio?: number; outputPath?: string; outputName?: string; sourceImagePath: string;
-  model: Model; creditsRemaining?: number; error?: string; progressKey?: string; phase?: string; previewPath?: string;
+  model: Model; error?: string; progressKey?: string; phase?: string; previewPath?: string;
 };
 type Item = {
   id: string; batchId: string; path: string; name: string; model: Model; outputDir: string;
   stage: Stage; jobId?: string; progress?: number; progressText?: string; outputPath?: string;
-  outputName?: string; error?: string; sourceUrl?: string; svgText?: string; pathCount?: number;
+  outputName?: string; error?: string; thumbnailUrl?: string; sourceUrl?: string; svgText?: string; pathCount?: number;
   progressKey?: string; phase?: string; previewPath?: string; depthUrl?: string;
   operationStartedAt?: number; estimatedTotalMs?: number; displayedProgress?: number;
   dirty?: boolean; saveError?: boolean; undoStack?: string[]; redoStack?: string[]; savedSvgText?: string;
@@ -262,9 +262,25 @@ function updateProgressUi() {
 
 async function loadSource(item: Item) {
   if (item.sourceUrl) return item.sourceUrl;
-  const asset = await invoke<Asset>("read_asset", { path: item.path });
+  const asset = await invoke<Asset>("read_image_preview", { path: item.path, maxEdge: 1_600 });
   item.sourceUrl = asset.dataUrl;
   return item.sourceUrl || "";
+}
+
+let thumbnailHydration = Promise.resolve();
+function hydrateThumbnails(candidates: Item[]) {
+  thumbnailHydration = thumbnailHydration.then(async () => {
+    for (const item of candidates) {
+      if (item.thumbnailUrl || !items.includes(item) || !item.path) continue;
+      try {
+        item.thumbnailUrl = (await invoke<Asset>("read_image_preview", {
+          path: item.path,
+          maxEdge: 128,
+        })).dataUrl;
+        render();
+      } catch { /* Preview failure does not affect the creation job. */ }
+    }
+  }).catch(() => undefined);
 }
 
 function sanitizeSvg(text: string): SVGSVGElement {
@@ -632,9 +648,15 @@ async function showItem(item?: Item, animateSvg = true) {
   const isCurrent = () => version === displayVersion && selectedId === item.id;
   sourceName.textContent = item.name;
   sourceMeta.textContent = item.model === "detail" ? t("detail") : t("simple");
+  sourceThumb.innerHTML = item.thumbnailUrl ? `<img src="${item.thumbnailUrl}" alt="" />` : I.image;
   const source = await loadSource(item).catch(() => "");
-  if (!isCurrent()) return;
-  sourceThumb.innerHTML = source ? `<img src="${source}" alt="" />` : I.image;
+  if (!isCurrent()) {
+    item.sourceUrl = undefined;
+    return;
+  }
+  items.forEach((candidate) => {
+    if (candidate !== item) candidate.sourceUrl = undefined;
+  });
   if (item.stage === "done" && item.outputPath) {
     if (!item.svgText) {
       const asset = await invoke<Asset>("read_asset", { path: item.outputPath });
@@ -695,7 +717,7 @@ function renderQueue() {
     const row = document.createElement("div"); row.className = `queue-item ${item.id === selectedId ? "selected" : ""}`;
     const main = document.createElement("div"); main.className = "queue-item-main"; main.tabIndex = 0; main.setAttribute("role", "button");
     const thumb = document.createElement("span"); thumb.className = "queue-thumb";
-    thumb.innerHTML = item.sourceUrl ? `<img src="${item.sourceUrl}" alt=""/>` : I.image;
+    thumb.innerHTML = item.thumbnailUrl ? `<img src="${item.thumbnailUrl}" alt=""/>` : I.image;
     const copy = document.createElement("span"); copy.className = "queue-copy";
     const strong = document.createElement("strong"); strong.textContent = item.outputName || item.name;
     const small = document.createElement("small"); small.textContent = item.historyId ? t("savedResult") : stageLabel(item.stage);
@@ -807,8 +829,8 @@ async function refreshHistory() {
         stage: "done", outputPath: entry.outputPath, outputName: entry.outputName,
         historyId: entry.id, createdAtMs: entry.createdAtMs,
       };
-      try { item.sourceUrl = (await invoke<Asset>("read_asset", { path: entry.sourcePath })).dataUrl; } catch { /* Source thumbnails are optional. */ }
       items.push(item);
+      hydrateThumbnails([item]);
     }
     const selectedBefore = selectedId;
     items = items.filter((item) => {
@@ -834,8 +856,8 @@ async function restoreCurrentJobs() {
         previewPath: status.previewPath, operationStartedAt: Date.now() - Math.max(0, status.elapsedMs || 0),
         estimatedTotalMs: status.estimatedTotalMs,
       };
-      try { item.sourceUrl = (await invoke<Asset>("read_asset", { path: item.path })).dataUrl; } catch { /* Source may have moved. */ }
       items.push(item);
+      hydrateThumbnails([item]);
     }
     if (!selectedId && items.length) selectedId = items[0].id;
   } catch { /* No running jobs to recover. */ }
@@ -859,8 +881,9 @@ async function addImagePaths(paths: string[]) {
     outputDir, stage: "draft",
   }));
   items.push(...created); selectedId = created[0].id; renderedOutput = "";
-  await Promise.all(created.map((item) => loadSource(item).catch(() => "")));
-  render(); await showItem(selected());
+  render();
+  hydrateThumbnails(created);
+  void showItem(selected());
 }
 
 async function addImages() { await addImagePaths(await invoke<string[]>("pick_images")); }
@@ -869,7 +892,7 @@ async function loadDepthFor(item: Item, path: string) {
   if (!path || item.previewPath === path && item.depthUrl) return;
   item.previewPath = path;
   try {
-    item.depthUrl = (await invoke<Asset>("read_asset", { path })).dataUrl;
+    item.depthUrl = (await invoke<Asset>("read_image_preview", { path, maxEdge: 1_024 })).dataUrl;
     if (item.id === selectedId && busy(item)) {
       renderedOutput = "";
       await showItem(item);

@@ -9,6 +9,8 @@ import dev.screengoated.toolbox.mobile.creation.CreationDiagnostics
 import dev.screengoated.toolbox.mobile.creation.CreationTool
 import dev.screengoated.toolbox.mobile.creation.CreationWorkerEvent
 import dev.screengoated.toolbox.mobile.creation.CreationWorkerRequest
+import dev.screengoated.toolbox.mobile.creation.publicImageCreationFailure
+import dev.screengoated.toolbox.mobile.creation.publicImageCreationStage
 import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeEngine
 import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeEventSink
 import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeManager
@@ -46,15 +48,13 @@ internal abstract class CreationWorkerService : Service() {
                             name = if (event.event == "ready") "prepare_ready" else "prepare_progress",
                             tool = workerTool.wireName,
                             slot = workerSlot,
-                            stage = event.progressKey ?: event.stage,
+                            stage = diagnosticStage(event),
                             provider = event.provider,
                         )
                     })
                 }
                     .onFailure {
-                        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-                            Log.e(DEBUG_TAG, "Preparation failed for ${workerTool.wireName}-$workerSlot", it)
-                        }
+                        logFailure("Preparation failed", it)
                         activeEngine.destroy()
                         if (engine === activeEngine) engine = null
                         diagnostics.event(
@@ -62,12 +62,13 @@ internal abstract class CreationWorkerService : Service() {
                             workerTool.wireName,
                             workerSlot,
                             failure = it,
+                            failureCategoryOverride = diagnosticFailureCategory(),
                         )
                         callback.emit(
                             CreationWorkerEvent(
                                 event = "failure",
                                 ready = false,
-                                error = it.message ?: "Workspace preparation failed",
+                                error = publicFailure(it, preparation = true),
                             ),
                         )
                     }
@@ -107,7 +108,7 @@ internal abstract class CreationWorkerService : Service() {
                 var lastStage: String? = null
                 try {
                     activeEngine.runJob(requestJson, eventSink(callback, request.provider) { event ->
-                        val stage = event.progressKey ?: event.stage ?: event.event
+                        val stage = diagnosticStage(event)
                         if (stage != lastStage) {
                             lastStage = stage
                             diagnostics.event(
@@ -122,9 +123,7 @@ internal abstract class CreationWorkerService : Service() {
                         }
                     })
                 } catch (error: TimeoutCancellationException) {
-                    if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-                        Log.e(DEBUG_TAG, "Job timed out for ${workerTool.wireName}-$workerSlot", error)
-                    }
+                    logFailure("Job timed out", error)
                     diagnostics.event(
                         "job_failed",
                         workerTool.wireName,
@@ -134,6 +133,7 @@ internal abstract class CreationWorkerService : Service() {
                         error,
                         generationMode = request.generationMode,
                         provider = request.provider,
+                        failureCategoryOverride = diagnosticFailureCategory(),
                     )
                     callback.emit(
                         CreationWorkerEvent(
@@ -141,7 +141,7 @@ internal abstract class CreationWorkerService : Service() {
                             generationMode = request.generationMode,
                             provider = request.provider,
                             event = "failure",
-                            error = error.message ?: "Creation timed out",
+                            error = publicFailure(error),
                         ),
                     )
                 } catch (_: CancellationException) {
@@ -162,9 +162,7 @@ internal abstract class CreationWorkerService : Service() {
                         ),
                     )
                 } catch (error: Throwable) {
-                    if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-                        Log.e(DEBUG_TAG, "Job failed for ${workerTool.wireName}-$workerSlot", error)
-                    }
+                    logFailure("Job failed", error)
                     diagnostics.event(
                         "job_failed",
                         workerTool.wireName,
@@ -174,6 +172,7 @@ internal abstract class CreationWorkerService : Service() {
                         error,
                         generationMode = request.generationMode,
                         provider = request.provider,
+                        failureCategoryOverride = diagnosticFailureCategory(),
                     )
                     callback.emit(
                         CreationWorkerEvent(
@@ -181,7 +180,7 @@ internal abstract class CreationWorkerService : Service() {
                             generationMode = request.generationMode,
                             provider = request.provider,
                             event = "failure",
-                            error = error.message ?: "Creation failed",
+                            error = publicFailure(error),
                         ),
                     )
                 } finally {
@@ -196,6 +195,41 @@ internal abstract class CreationWorkerService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
+
+    private fun publicFailure(error: Throwable, preparation: Boolean = false): String {
+        if (workerTool != CreationTool.IMAGE_CREATOR) {
+            return error.message ?: if (preparation) {
+                "Workspace preparation failed"
+            } else {
+                "Creation failed"
+            }
+        }
+        return if (preparation) {
+            "Image creation is not ready yet. Retry later."
+        } else {
+            publicImageCreationFailure()
+        }
+    }
+
+    private fun logFailure(label: String, error: Throwable) {
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+        val context = "$label for ${workerTool.wireName}-$workerSlot"
+        if (workerTool == CreationTool.IMAGE_CREATOR) {
+            Log.e(DEBUG_TAG, "$context category=image_creation")
+        } else {
+            Log.e(DEBUG_TAG, context, error)
+        }
+    }
+
+    private fun diagnosticStage(event: CreationWorkerEvent): String {
+        if (workerTool != CreationTool.IMAGE_CREATOR) {
+            return event.progressKey ?: event.stage ?: event.event
+        }
+        return "image.${publicImageCreationStage(event.stage ?: event.event)}"
+    }
+
+    private fun diagnosticFailureCategory(): String? =
+        IMAGE_CREATION_FAILURE_CATEGORY.takeIf { workerTool == CreationTool.IMAGE_CREATOR }
 
     override fun onDestroy() {
         engine?.destroy()
@@ -237,6 +271,7 @@ internal abstract class CreationWorkerService : Service() {
 
     private companion object {
         const val DEBUG_TAG = "CreationRuntimeDebug"
+        private const val IMAGE_CREATION_FAILURE_CATEGORY = "image_creation"
     }
 }
 
@@ -268,4 +303,24 @@ internal class ImageToSvgWorker0Service : CreationWorkerService() {
 internal class ImageToSvgWorker1Service : CreationWorkerService() {
     override val workerTool = CreationTool.IMAGE_TO_SVG
     override val workerSlot = 1
+}
+
+internal class ImageCreatorWorker0Service : CreationWorkerService() {
+    override val workerTool = CreationTool.IMAGE_CREATOR
+    override val workerSlot = 0
+}
+
+internal class ImageCreatorWorker1Service : CreationWorkerService() {
+    override val workerTool = CreationTool.IMAGE_CREATOR
+    override val workerSlot = 1
+}
+
+internal class ImageCreatorWorker2Service : CreationWorkerService() {
+    override val workerTool = CreationTool.IMAGE_CREATOR
+    override val workerSlot = 2
+}
+
+internal class ImageCreatorWorker3Service : CreationWorkerService() {
+    override val workerTool = CreationTool.IMAGE_CREATOR
+    override val workerSlot = 3
 }

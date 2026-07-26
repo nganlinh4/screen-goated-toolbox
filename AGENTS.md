@@ -16,6 +16,9 @@
 - Use `anyhow::Result`. Remove dead code. Never add `#[allow(dead_code)]`.
 - No warnings. No incident-, app-, site-, person-, game-, model-run-, or language-specific hacks in reusable code, prompts, comments, or tests.
 - Prefer general capability/state invariants. Unknown future integrations must keep working.
+- Public creation code, docs, fixtures, and tests contain only product behavior,
+  stable public contracts, and delivery invariants. Do not document non-public
+  implementation details, compatibility evidence, or real-run artifacts.
 - Use `rg`. Use `apply_patch`. Keep git operations non-destructive.
 - Never run `cargo build --release`; owner runs release builds.
 

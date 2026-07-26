@@ -1,147 +1,52 @@
-use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, LazyLock, Mutex};
 use std::time::Duration;
 
-use serde::Deserialize;
-
 use super::process::CommandNoWindowExt as _;
 use super::runtime_command;
 
-const SESSION_TTL_MS: u64 = 2 * 60 * 60 * 1000;
-const SESSION_REFRESH_AHEAD_MS: u64 = 20 * 60 * 1000;
-const SESSION_TARGET: usize = 4;
 const MAX_PARALLEL_WARMERS: usize = 1;
 const MAINTENANCE_IDLE_INTERVAL: Duration = Duration::from_secs(60);
 const MAINTENANCE_BATCH_GAP: Duration = Duration::from_secs(15);
-const MAINTENANCE_REFRESH_GAP: Duration = Duration::from_secs(5 * 60);
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PreparedSessionMarker {
-    profile_dir: String,
-    created_at: u64,
-}
 
 static WARM_RUNNING: AtomicBool = AtomicBool::new(false);
 static MAINTAINER_STARTED: AtomicBool = AtomicBool::new(false);
 static INSTALL_ALLOWED: AtomicBool = AtomicBool::new(false);
 static MAINTENANCE_SIGNAL: LazyLock<(Mutex<bool>, Condvar)> =
     LazyLock::new(|| (Mutex::new(false), Condvar::new()));
-
-fn prepared_sessions_dir() -> PathBuf {
-    crate::paths::app_local_data_dir()
-        .join("3d-generator-runtime")
-        .join("prepared-sessions")
-}
-
-fn prepared_ready_paths() -> Vec<PathBuf> {
-    let dir = prepared_sessions_dir();
-    (0..SESSION_TARGET)
-        .map(|slot| dir.join(format!("ready-{slot}.json")))
-        .collect()
-}
-
-fn prepared_lock_paths() -> Vec<PathBuf> {
-    let dir = prepared_sessions_dir();
-    (0..SESSION_TARGET)
-        .map(|slot| dir.join(format!("warming-{slot}.lock")))
-        .collect()
-}
+static PREPARATION_STATUS: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new("not_ready".to_string()));
 
 pub(super) fn runtime_preparation_status() -> String {
-    if prepared_session_count() >= SESSION_TARGET {
-        "ready".to_string()
-    } else if WARM_RUNNING.load(Ordering::SeqCst)
-        || prepared_lock_is_active()
-        || MAINTAINER_STARTED.load(Ordering::SeqCst)
-    {
+    if runtime_command().is_none() {
+        return "missing".to_string();
+    }
+    let status = PREPARATION_STATUS
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_else(|value| value.into_inner().clone());
+    if status == "ready" {
+        status
+    } else if WARM_RUNNING.load(Ordering::SeqCst) || MAINTAINER_STARTED.load(Ordering::SeqCst) {
         "preparing".to_string()
-    } else if runtime_command().is_none() {
-        "missing".to_string()
     } else {
-        "not_ready".to_string()
+        status
     }
 }
 
-fn prepared_lock_is_active() -> bool {
-    prepared_lock_paths().into_iter().any(|lock_path| {
-        let age = std::fs::metadata(&lock_path)
-            .ok()
-            .and_then(|metadata| metadata.modified().ok())
-            .and_then(|modified| modified.elapsed().ok());
-        if age.is_some_and(|value| value <= Duration::from_secs(3 * 60)) {
-            return true;
-        }
-        if lock_path.exists() {
-            let _ = std::fs::remove_file(lock_path);
-        }
-        false
-    })
+fn refresh_preparation_status() -> bool {
+    let Some(status) = crate::overlay::creation_runtime::query_preparation_status("3d") else {
+        return true;
+    };
+    *PREPARATION_STATUS
+        .lock()
+        .unwrap_or_else(|value| value.into_inner()) = status.state;
+    status.needs_preparation
 }
 
-fn prepared_marker(ready_path: &Path) -> Option<PreparedSessionMarker> {
-    std::fs::read_to_string(ready_path)
-        .ok()
-        .and_then(|contents| serde_json::from_str::<PreparedSessionMarker>(&contents).ok())
-}
-
-fn prepared_marker_age_ms(marker: &PreparedSessionMarker, now_ms: u64) -> Option<u64> {
-    (!marker.profile_dir.trim().is_empty()
-        && Path::new(&marker.profile_dir).is_dir()
-        && marker.created_at <= now_ms)
-        .then(|| now_ms.saturating_sub(marker.created_at))
-}
-
-fn prepared_marker_is_valid(ready_path: &Path) -> bool {
-    let marker = prepared_marker(ready_path);
-    let now_ms = now_ms();
-    marker
-        .as_ref()
-        .and_then(|marker| prepared_marker_age_ms(marker, now_ms))
-        .is_some_and(|age_ms| age_ms <= SESSION_TTL_MS)
-}
-
-fn prepared_marker_is_healthy(ready_path: &Path) -> bool {
-    let marker = prepared_marker(ready_path);
-    let now_ms = now_ms();
-    marker
-        .as_ref()
-        .and_then(|marker| prepared_marker_age_ms(marker, now_ms))
-        .is_some_and(|age_ms| age_ms <= SESSION_TTL_MS.saturating_sub(SESSION_REFRESH_AHEAD_MS))
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-fn prepared_session_count() -> usize {
-    prepared_ready_paths()
-        .into_iter()
-        .filter(|path| prepared_marker_is_valid(path))
-        .count()
-}
-
-fn healthy_prepared_session_count() -> usize {
-    prepared_ready_paths()
-        .into_iter()
-        .filter(|path| prepared_marker_is_healthy(path))
-        .count()
-}
-
-fn warm_batch_size(valid_count: usize, healthy_count: usize) -> usize {
-    let needed = SESSION_TARGET.saturating_sub(healthy_count);
-    if needed == 0 {
-        0
-    } else if valid_count >= SESSION_TARGET {
-        1
-    } else {
-        needed.min(MAX_PARALLEL_WARMERS)
-    }
+fn warm_batch_size(needs_preparation: bool) -> usize {
+    usize::from(needs_preparation).min(MAX_PARALLEL_WARMERS)
 }
 
 fn retry_delay(failure_streak: u32) -> Duration {
@@ -222,9 +127,8 @@ fn preparation_maintainer() {
             failure_streak = 0;
         }
 
-        let valid_count = prepared_session_count();
-        let healthy_count = healthy_prepared_session_count();
-        let batch_size = warm_batch_size(valid_count, healthy_count);
+        let needs_preparation = refresh_preparation_status();
+        let batch_size = warm_batch_size(needs_preparation);
         if batch_size == 0 {
             failure_streak = 0;
             wait_for_maintenance(MAINTENANCE_IDLE_INTERVAL);
@@ -242,12 +146,8 @@ fn preparation_maintainer() {
             std::thread::sleep(delay);
         } else {
             failure_streak = 0;
-            let delay = if successes > 0 && healthy_prepared_session_count() < SESSION_TARGET {
-                if prepared_session_count() >= SESSION_TARGET {
-                    MAINTENANCE_REFRESH_GAP
-                } else {
-                    MAINTENANCE_BATCH_GAP
-                }
+            let delay = if successes > 0 && refresh_preparation_status() {
+                MAINTENANCE_BATCH_GAP
             } else {
                 MAINTENANCE_IDLE_INTERVAL
             };
@@ -281,11 +181,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mailbox_backed_warmups_are_serial_but_keep_four_ready_slots() {
-        assert_eq!(warm_batch_size(0, 0), 1);
-        assert_eq!(warm_batch_size(3, 3), 1);
-        assert_eq!(warm_batch_size(4, 3), 1);
-        assert_eq!(warm_batch_size(4, 4), 0);
+    fn warmups_are_serial_and_stop_when_preparation_is_complete() {
+        assert_eq!(warm_batch_size(true), 1);
+        assert_eq!(warm_batch_size(false), 0);
     }
 
     #[test]

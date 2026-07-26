@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.creation
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
@@ -8,13 +9,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 internal class CreationJobManager private constructor(context: Context) {
@@ -40,48 +38,19 @@ internal class CreationJobManager private constructor(context: Context) {
     fun removeRuntime() = workers.removeRuntime()
 
     fun startJob(tool: CreationTool, args: JsonObject): CreationJobStatus {
-        val source = args.string("imagePath") ?: error("Pick an image first")
-        require(files.exists(source)) { "Image does not exist" }
         synchronized(lock) {
-            require(runningCount(tool) < CreationContract.MAXIMUM_PARALLEL_JOBS) {
-                "Both creation workers are busy"
+            require(runningCount(tool) < CreationContract.maximumParallelJobs(tool)) {
+                if (tool == CreationTool.IMAGE_CREATOR) {
+                    "Two images are already being created"
+                } else {
+                    "Both creation workers are busy"
+                }
             }
         }
         val jobId = nextJobId(tool)
-        val extension = if (tool == CreationTool.IMAGE_TO_3D) "glb" else "svg"
-        val model = if (args.string("model") == "detail") "detail" else "simple"
-        val polycount = (args.int("polycount") ?: CreationContract.DEFAULT_POLYCOUNT).coerceIn(
-            CreationContract.MINIMUM_POLYCOUNT,
-            CreationContract.MAXIMUM_POLYCOUNT,
-        )
-        val requestedAutoSegment = args.boolean("autoSegment") == true &&
-            args.string("segmentationMode") != "none"
-        val requestedMode = CreationGenerationMode.fromWireName(args.string("generationMode"))
-        val providerRoute = if (tool == CreationTool.IMAGE_TO_3D) {
-            CreationContract.validate3dProvider(
-                requestedMode,
-                polycount,
-                requestedAutoSegment,
-                args.string("provider"),
-            )
-        } else {
-            null
-        }
-        val output = files.stagingFile(tool, source, extension)
-        val request = CreationWorkerRequest(
-            jobId = jobId,
-            tool = tool.wireName,
-            generationMode = providerRoute?.mode?.wireName,
-            provider = providerRoute?.provider?.wireName,
-            operation = "generate",
-            imagePath = source,
-            outputPath = output.absolutePath,
-            outputName = output.name,
-            polycount = providerRoute?.polycount ?: polycount,
-            autoSegment = providerRoute?.autoSegment ?: requestedAutoSegment,
-            model = model,
-        )
-        val status = initialStatus(tool, request)
+        val draft = CreationJobFactory.create(tool, args, files, jobId)
+        val request = draft.request
+        val status = draft.status
         synchronized(lock) {
             jobs[jobId] = status
             requests[jobId] = request
@@ -122,10 +91,10 @@ internal class CreationJobManager private constructor(context: Context) {
             outputPath = output.absolutePath,
             outputName = output.name,
             autoSegment = true,
-            taskId = continuation.taskId,
+            continuationToken = continuation.token,
             previousOutputPath = continuation.outputPath,
         )
-        val status = initialStatus(CreationTool.IMAGE_TO_3D, request).copy(
+        val status = CreationJobFactory.initialStatus(CreationTool.IMAGE_TO_3D, request).copy(
             stage = "segmenting",
             progressText = "Separating model parts.",
             phase = "separation",
@@ -159,7 +128,7 @@ internal class CreationJobManager private constructor(context: Context) {
     fun status(tool: CreationTool, jobId: String?): CreationJobStatus = synchronized(lock) {
         val current = jobId?.let(jobs::get)
             ?: jobs.values.lastOrNull { requestTool(it.jobId) == tool }
-            ?: idleStatus(tool)
+            ?: CreationJobFactory.idleStatus(tool)
         withElapsed(current)
     }
 
@@ -293,6 +262,11 @@ internal class CreationJobManager private constructor(context: Context) {
                 "success" -> finish(workerKey, jobId, event)
                 "failure" -> {
                     val error = event.error ?: "Creation failed"
+                    val publicError = if (expectedRequest?.tool == CreationTool.IMAGE_CREATOR.wireName) {
+                        publicImageCreationFailure()
+                    } else {
+                        error
+                    }
                     val route = runCatching {
                         routeCreationWorkerFailure(expectedProvider, error)
                     }.getOrElse { invalidOwner ->
@@ -300,7 +274,7 @@ internal class CreationJobManager private constructor(context: Context) {
                         return@launch
                     }
                     when (route) {
-                        CreationWorkerFailureRoute.Fail -> fail(jobId, error)
+                        CreationWorkerFailureRoute.Fail -> fail(jobId, publicError)
                         is CreationWorkerFailureRoute.Redispatch -> {
                             val request = synchronized(lock) { requests[jobId] }
                                 ?: return@launch
@@ -330,16 +304,28 @@ internal class CreationJobManager private constructor(context: Context) {
         val tool = synchronized(lock) {
             val current = jobs[jobId] ?: return@synchronized null
             if (current.stage == "cancelled") return@synchronized null
-            val nextStage = event.stage ?: current.stage
+            val requestTool = requests[jobId]?.tool
+            val isImageCreator = requestTool == CreationTool.IMAGE_CREATOR.wireName
+            val observedStage = event.stage ?: current.stage
+            val nextStage = if (isImageCreator) {
+                publicImageCreationStage(observedStage)
+            } else {
+                observedStage
+            }
             if (nextStage != current.stage || event.progressKey != null) {
-                changedStage = event.progressKey ?: nextStage
+                changedStage = if (isImageCreator) "image.$nextStage" else event.progressKey ?: nextStage
             }
             jobs[jobId] = current.copy(
                 stage = nextStage,
-                progressText = event.progressText?.let(::publicCreationText)
-                    ?: current.progressText,
-                phase = event.phase ?: current.phase,
-                workspaceState = event.workspaceState ?: current.workspaceState,
+                progressText = if (isImageCreator) {
+                    publicImageCreationText(nextStage)
+                } else {
+                    event.progressText?.let(::publicCreationText) ?: current.progressText
+                },
+                phase = if (isImageCreator) nextStage else event.phase ?: current.phase,
+                workspaceState = if (isImageCreator) null else {
+                    event.workspaceState ?: current.workspaceState
+                },
                 progressRatio = event.progressRatio ?: current.progressRatio,
                 estimatedTotalMs = event.estimatedTotalMs ?: current.estimatedTotalMs,
                 timingSampleCount = event.timingSampleCount ?: current.timingSampleCount,
@@ -347,12 +333,15 @@ internal class CreationJobManager private constructor(context: Context) {
                 provider = event.provider ?: current.provider,
                 outputPath = event.outputPath ?: current.outputPath,
                 outputName = event.outputName ?: current.outputName,
+                mimeType = event.mimeType ?: current.mimeType,
+                width = event.width ?: current.width,
+                height = event.height ?: current.height,
                 isSegmented = event.isSegmented ?: current.isSegmented,
                 canSegment = event.canSegment ?: current.canSegment,
                 faces = event.faces ?: current.faces,
                 vertices = event.vertices ?: current.vertices,
             )
-            requests[jobId]?.tool
+            requestTool
         }
         changedStage?.let { stage ->
             diagnostics.event(
@@ -371,23 +360,55 @@ internal class CreationJobManager private constructor(context: Context) {
             synchronized(lock) {
                 val request = requests[jobId] ?: return
                 val current = jobs[jobId] ?: error("Creation job disappeared")
-                if (!creationStageIsBusy(current.stage)) return
-                val staging = File(event.outputPath ?: request.outputPath)
+                if (!creationStageIsBusy(current.stage)) {
+                    if (current.stage == "cancelled") File(request.outputPath).delete()
+                    return
+                }
+                val staging = File(request.outputPath)
+                require(
+                    event.outputPath == null ||
+                        File(event.outputPath).canonicalFile == staging.canonicalFile,
+                ) { "Creation runtime returned a conflicting output path" }
                 require(staging.isFile && staging.length() > 0L) {
                     "Creation ended without an output file"
                 }
-                val mime = if (request.tool == "3d") "model/gltf-binary" else "image/svg+xml"
+                val mime = when (request.tool) {
+                    CreationTool.IMAGE_TO_3D.wireName -> "model/gltf-binary"
+                    CreationTool.IMAGE_TO_SVG.wireName -> "image/svg+xml"
+                    CreationTool.IMAGE_CREATOR.wireName -> {
+                        require(event.mimeType == null || event.mimeType == "image/png") {
+                            "Creation runtime returned an unsupported image type"
+                        }
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(staging.absolutePath, bounds)
+                        require(bounds.outWidth > 0 && bounds.outHeight > 0) {
+                            "Creation runtime returned an invalid image"
+                        }
+                        require(
+                            event.width == bounds.outWidth && event.height == bounds.outHeight,
+                        ) { "Creation runtime returned conflicting image dimensions" }
+                        "image/png"
+                    }
+                    else -> error("Unsupported creation tool")
+                }
                 val published = files.publish(staging, request.outputName, mime)
                 request.previousOutputPath?.takeIf(files::exists)?.let(files::delete)
                 val segmented = request.provider == CreationProvider.MESHY.wireName ||
                     (event.isSegmented ?: request.autoSegment)
                 val updated = current.copy(
                     stage = "done",
-                    progressText = if (request.tool == "3d") "Model ready." else "Vector ready",
+                    progressText = when (request.tool) {
+                        CreationTool.IMAGE_TO_3D.wireName -> "Model ready."
+                        CreationTool.IMAGE_TO_SVG.wireName -> "Vector ready"
+                        else -> "Image ready"
+                    },
                     phase = "complete",
                     progressRatio = 1.0,
                     outputPath = published,
                     outputName = request.outputName,
+                    mimeType = mime,
+                    width = event.width,
+                    height = event.height,
                     generationMode = request.generationMode,
                     provider = request.provider,
                     isSegmented = segmented,
@@ -398,16 +419,15 @@ internal class CreationJobManager private constructor(context: Context) {
                             segmented,
                             event.canSegment != false,
                         ),
-                    creditsRemaining = event.creditsRemaining,
                     faces = event.faces,
                     vertices = event.vertices,
                     error = null,
                 )
                 jobs[jobId] = updated
-                if (updated.canSegment && event.taskId != null) {
+                if (updated.canSegment && event.continuationToken != null) {
                     continuations[jobId] = Continuation(
                         workerKey,
-                        event.taskId,
+                        event.continuationToken,
                         request.imagePath,
                         published,
                         request.outputName,
@@ -429,8 +449,15 @@ internal class CreationJobManager private constructor(context: Context) {
                 request.provider?.let { put("provider", it) }
                 event.faces?.let { put("faces", it) }
                 event.vertices?.let { put("vertices", it) }
-            } else {
+            } else if (tool == CreationTool.IMAGE_TO_SVG) {
                 put("model", request.model)
+            } else {
+                put("operation", request.operation)
+                put("prompt", requireNotNull(request.prompt))
+                put("sourceImagePaths", JsonArray(request.imagePaths.map(::JsonPrimitive)))
+                put("mimeType", "image/png")
+                event.width?.let { put("width", it) }
+                event.height?.let { put("height", it) }
             }
         }
         runCatching {
@@ -463,66 +490,39 @@ internal class CreationJobManager private constructor(context: Context) {
     }
 
     private fun fail(jobId: String, message: String) {
-        val publicMessage = publicCreationText(message)
-        val tool = synchronized(lock) {
-            val current = jobs[jobId] ?: return@synchronized null
-            if (current.stage == "cancelled") return@synchronized null
-            requests[jobId]?.outputPath?.let(::File)?.delete()
+        val failure = synchronized(lock) {
+            val current = jobs[jobId] ?: return
+            if (current.stage == "cancelled") return
+            val request = requests[jobId]
+            val publicMessage = if (request?.tool == CreationTool.IMAGE_CREATOR.wireName) {
+                publicImageCreationFailure()
+            } else {
+                publicCreationText(message)
+            }
+            request?.outputPath?.let(::File)?.delete()
             jobs[jobId] = current.copy(
                 stage = "failed",
                 progressText = "Could not create result.",
                 phase = "failed",
                 error = publicMessage,
             )
-            requests[jobId]?.tool
+            FailureRecord(
+                request?.tool,
+                publicMessage,
+                request?.generationMode,
+                request?.provider,
+            )
         }
         diagnostics.event(
             "job_failed",
-            tool,
+            failure.tool,
             jobId = jobId,
             stage = "failed",
-            failureMessage = publicMessage,
-            generationMode = synchronized(lock) { requests[jobId]?.generationMode },
-            provider = synchronized(lock) { requests[jobId]?.provider },
+            failureMessage = failure.message,
+            generationMode = failure.generationMode,
+            provider = failure.provider,
         )
     }
-
-    private fun initialStatus(tool: CreationTool, request: CreationWorkerRequest) = CreationJobStatus(
-        jobId = request.jobId,
-        generationMode = request.generationMode,
-        provider = request.provider,
-        polycount = request.polycount.takeIf { tool == CreationTool.IMAGE_TO_3D },
-        autoSegment = request.autoSegment.takeIf { tool == CreationTool.IMAGE_TO_3D },
-        stage = "preparing",
-        progressText = "Preparing creation.",
-        phase = "preparing",
-        workspaceState = "checking",
-        elapsedMs = 0,
-        estimatedTotalMs = when {
-            tool == CreationTool.IMAGE_TO_SVG && request.model == "detail" -> 70_000
-            tool == CreationTool.IMAGE_TO_SVG -> 45_000
-            request.provider == CreationProvider.MESHY.wireName -> 90_000
-            request.autoSegment -> 360_000
-            else -> 240_000
-        },
-        timingSampleCount = 0,
-        progressRatio = 0.0,
-        sourceImagePath = request.imagePath,
-        model = request.model.takeIf { tool == CreationTool.IMAGE_TO_SVG },
-    )
-
-    private fun idleStatus(tool: CreationTool) = CreationJobStatus(
-        generationMode = CreationGenerationMode.QUALITY.wireName.takeIf {
-            tool == CreationTool.IMAGE_TO_3D
-        },
-        provider = CreationProvider.TRIPO.wireName.takeIf {
-            tool == CreationTool.IMAGE_TO_3D
-        },
-        stage = if (tool == CreationTool.IMAGE_TO_3D) "idle" else "draft",
-        progressText = "Ready to create.",
-        sourceImagePath = if (tool == CreationTool.IMAGE_TO_SVG) "" else null,
-        model = if (tool == CreationTool.IMAGE_TO_SVG) "simple" else null,
-    )
 
     private fun withElapsed(status: CreationJobStatus): CreationJobStatus {
         val id = status.jobId ?: return status
@@ -547,7 +547,7 @@ internal class CreationJobManager private constructor(context: Context) {
 
     private data class Continuation(
         val workerKey: String,
-        val taskId: String,
+        val token: String,
         val sourcePath: String,
         val outputPath: String,
         val outputName: String,
@@ -558,6 +558,13 @@ internal class CreationJobManager private constructor(context: Context) {
         val request: CreationWorkerRequest,
         val segmented: Boolean,
         val publishedPath: String,
+    )
+
+    private data class FailureRecord(
+        val tool: String?,
+        val message: String,
+        val generationMode: String?,
+        val provider: String?,
     )
 
     companion object {
@@ -574,12 +581,9 @@ internal class CreationJobManager private constructor(context: Context) {
 
 internal fun creationStageIsBusy(stage: String): Boolean = stage in setOf(
     "preparing",
+    "uploading",
     "visualizing",
     "generating",
     "segmenting",
     "finalizing",
 )
-
-private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
-private fun JsonObject.int(key: String): Int? = this[key]?.jsonPrimitive?.intOrNull
-private fun JsonObject.boolean(key: String): Boolean? = this[key]?.jsonPrimitive?.booleanOrNull

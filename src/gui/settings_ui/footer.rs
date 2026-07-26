@@ -105,6 +105,19 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
 
         if compact_filled_icon_button(
             ui,
+            Icon::Image,
+            text.shell.image_creator_btn,
+            theme.accent_image_creator(),
+            btn_text,
+            6,
+        )
+        .clicked()
+        {
+            crate::overlay::image_creator::show_image_creator();
+        }
+
+        if compact_filled_icon_button(
+            ui,
             Icon::Album,
             text.shell.prompt_dj_btn,
             theme.accent_prompt_dj(),

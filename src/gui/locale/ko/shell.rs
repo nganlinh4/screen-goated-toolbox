@@ -46,5 +46,7 @@ pub(super) fn get() -> ShellLocaleText {
         three_d_generator_title: "이미지를 3D로",
         image_to_svg_btn: "SVG 변환",
         image_to_svg_title: "이미지를 SVG로 변환",
+        image_creator_btn: "이미지 생성/편집",
+        image_creator_title: "이미지 생성/편집",
     }
 }

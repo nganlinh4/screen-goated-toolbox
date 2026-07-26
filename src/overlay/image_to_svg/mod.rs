@@ -9,12 +9,14 @@ use std::sync::Once;
 
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::{PCWSTR, w};
 use wry::WebContext;
 
 use crate::win_types::SendHwnd;
 
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 471;
 pub(super) const WM_APP_SYNC: u32 = WM_USER + 472;
+pub(super) const WINDOW_SIZE_FILE: &str = "image-to-svg-window.json";
 
 pub(super) static REGISTER_CLASS: Once = Once::new();
 pub(super) static mut WINDOW_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
@@ -36,6 +38,17 @@ pub fn show_image_to_svg() {
     }
     let _ = runtime::prepare_runtime();
     window::show();
+}
+
+pub(super) fn window_class_name() -> PCWSTR {
+    w!("ImageToSvgWindowClass")
+}
+
+pub(super) fn window_title() -> String {
+    crate::gui::locale::LocaleText::get(&current_ui_language())
+        .shell
+        .image_to_svg_title
+        .to_string()
 }
 
 pub(super) fn current_ui_language() -> String {

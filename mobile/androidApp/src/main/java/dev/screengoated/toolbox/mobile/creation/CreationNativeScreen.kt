@@ -12,12 +12,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -32,28 +29,17 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
-import dev.screengoated.toolbox.mobile.ui.UtilityStatusChip
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
-import kotlinx.coroutines.launch
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.longOrNull
-import kotlinx.serialization.json.jsonPrimitive
 
 private val ModelAccent = Color(0xff008f7a)
 private val VectorAccent = Color(0xff3568d4)
@@ -69,11 +55,15 @@ internal fun CreationNativeScreen(
     onPickOutputDirectory: () -> Unit,
 ) {
     val common = locale.creationApps.common
-    val accent = if (tool == CreationTool.IMAGE_TO_3D) ModelAccent else VectorAccent
-    val title = if (tool == CreationTool.IMAGE_TO_3D) {
-        locale.creationApps.appImageTo3dTitle
-    } else {
-        locale.creationApps.appImageToSvgTitle
+    val accent = when (tool) {
+        CreationTool.IMAGE_TO_3D -> ModelAccent
+        CreationTool.IMAGE_TO_SVG -> VectorAccent
+        CreationTool.IMAGE_CREATOR -> VectorAccent
+    }
+    val title = when (tool) {
+        CreationTool.IMAGE_TO_3D -> locale.creationApps.appImageTo3dTitle
+        CreationTool.IMAGE_TO_SVG -> locale.creationApps.appImageToSvgTitle
+        CreationTool.IMAGE_CREATOR -> locale.creationApps.appImageCreatorTitle
     }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.transientError) {
@@ -132,6 +122,7 @@ internal fun CreationNativeScreen(
                 } else {
                     CreationTabs(state, common.jobs, common.results, accent, viewModel::showTab)
                     CreationItemRail(
+                        tool = tool,
                         state = state,
                         locale = locale,
                         accent = accent,
@@ -197,6 +188,7 @@ private fun CreationTabs(
 
 @Composable
 private fun CreationItemRail(
+    tool: CreationTool,
     state: CreationNativeUiState,
     locale: MobileLocaleText,
     accent: Color,
@@ -215,7 +207,25 @@ private fun CreationItemRail(
                 accent = accent,
                 onSelect = viewModel::selectItem,
                 onRemove = viewModel::removeDraft,
-                onAdd = onPickImages,
+                onAdd = if (tool == CreationTool.IMAGE_CREATOR) {
+                    viewModel::addImageSession
+                } else {
+                    onPickImages
+                },
+                addLabel = if (tool == CreationTool.IMAGE_CREATOR) {
+                    locale.creationApps.image.newImage
+                } else {
+                    locale.creationApps.common.addImages
+                },
+                itemLabel = { item ->
+                    when {
+                        tool != CreationTool.IMAGE_CREATOR -> item.sourceName
+                        item.referencePaths.isEmpty() -> locale.creationApps.image.newImage
+                        item.referencePaths.size == 1 -> item.sourceName
+                        else -> locale.creationApps.image.referenceCount
+                            .replace("{}", item.referencePaths.size.toString())
+                    }
+                },
             )
         } else {
             CreationHistoryStrip(
@@ -247,7 +257,9 @@ private fun CreationPhoneBody(
         item {
             CreationActiveWorkbench(tool, state, locale, accent, viewModel, onPickImages)
         }
-        item { CreationActiveSettings(tool, state, locale, accent, viewModel) }
+        item {
+            CreationActiveSettings(tool, state, locale, accent, viewModel, onPickImages)
+        }
         item {
             CreationOutputSettings(
                 outputDirectory = state.outputDirectory,
@@ -285,6 +297,7 @@ private fun CreationWideBody(
                 compact = true,
             )
             CreationItemRail(
+                tool,
                 state,
                 locale,
                 accent,
@@ -301,7 +314,9 @@ private fun CreationWideBody(
                 ),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                item { CreationActiveSettings(tool, state, locale, accent, viewModel) }
+                item {
+                    CreationActiveSettings(tool, state, locale, accent, viewModel, onPickImages)
+                }
                 item {
                     CreationOutputSettings(
                         outputDirectory = state.outputDirectory,
@@ -324,248 +339,4 @@ private fun CreationWideBody(
             )
         }
     }
-}
-
-@Composable
-private fun CreationActiveSettings(
-    tool: CreationTool,
-    state: CreationNativeUiState,
-    locale: MobileLocaleText,
-    accent: Color,
-    viewModel: CreationNativeViewModel,
-) {
-    val item = state.selectedItem
-    if (state.tab != CreationNativeTab.JOBS || item == null) return
-    val enabled = item.isConfigurable()
-    if (tool == CreationTool.IMAGE_TO_3D) {
-        Creation3dSettings(
-            item = item,
-            strings = locale.creationApps.model3d,
-            accent = accent,
-            enabled = enabled,
-            onGenerationMode = viewModel::setGenerationMode,
-            onPolycount = viewModel::setPolycount,
-            onAutoSegment = viewModel::setAutoSegment,
-        )
-    } else {
-        CreationSvgSettings(
-            item = item,
-            strings = locale.creationApps.svg,
-            accent = accent,
-            enabled = enabled,
-            onModel = viewModel::setModel,
-        )
-    }
-}
-
-@Composable
-private fun CreationActiveWorkbench(
-    tool: CreationTool,
-    state: CreationNativeUiState,
-    locale: MobileLocaleText,
-    accent: Color,
-    viewModel: CreationNativeViewModel,
-    onPickImages: () -> Unit,
-    fillAvailable: Boolean = false,
-) {
-    val item = state.selectedItem
-    val history = state.selectedHistory
-    val outputPath = if (state.tab == CreationNativeTab.RESULTS) {
-        history?.outputPath
-    } else {
-        item?.status?.outputPath
-    }
-    val outputName = if (state.tab == CreationNativeTab.RESULTS) {
-        history?.outputName
-    } else {
-        item?.status?.outputName
-    }
-    val controller = remember(outputPath) { CreationSvgDocumentController() }
-    val scope = rememberCoroutineScope()
-
-    Column(
-        modifier = if (fillAvailable) Modifier.fillMaxSize() else Modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        CreationWorkbench(
-            modifier = if (fillAvailable) Modifier.weight(1f) else Modifier,
-            accent = accent,
-            fillAvailable = fillAvailable,
-        ) {
-            when {
-                outputPath != null && tool == CreationTool.IMAGE_TO_3D -> {
-                    Box(Modifier.fillMaxSize()) {
-                        CreationModelViewer(
-                            outputPath = outputPath,
-                            viewModel = viewModel,
-                            strings = locale.creationApps.model3d,
-                            accent = accent,
-                        )
-                        if (item?.stage in setOf(
-                                CreationNativeStage.QUEUED,
-                                CreationNativeStage.RUNNING,
-                            )
-                        ) {
-                            CreationProgressOverlay(
-                                status = item?.status,
-                                common = locale.creationApps.common,
-                                accent = accent,
-                                hasDepthPreview = true,
-                            )
-                        }
-                    }
-                }
-                outputPath != null -> {
-                    CreationSvgDocument(outputPath, viewModel, controller)
-                }
-                item != null -> {
-                    CreationSourceWorkbench(tool, item)
-                    if (item.stage in setOf(CreationNativeStage.QUEUED, CreationNativeStage.RUNNING)) {
-                        CreationProgressOverlay(
-                            status = item.status,
-                            common = locale.creationApps.common,
-                            accent = accent,
-                            hasDepthPreview = item.depthPreviewPath != null,
-                        )
-                    }
-                }
-                else -> CreationEmptyWorkbench(locale.creationApps.common, accent, onPickImages)
-            }
-        }
-        if (outputPath != null && tool == CreationTool.IMAGE_TO_SVG) {
-            CreationSvgEditorControls(
-                controller = controller,
-                common = locale.creationApps.common,
-                strings = locale.creationApps.svg,
-                accent = accent,
-                onSave = {
-                    scope.launch {
-                        val updated = controller.serialize()
-                        if (updated.isNotBlank()) viewModel.saveSvg(outputPath, updated)
-                    }
-                },
-            )
-        }
-        if (outputPath != null) {
-            CreationResultSummary(
-                tool = tool,
-                state = state,
-                name = outputName.orEmpty(),
-                accent = accent,
-                locale = locale,
-                viewModel = viewModel,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CreationResultSummary(
-    tool: CreationTool,
-    state: CreationNativeUiState,
-    name: String,
-    accent: Color,
-    locale: MobileLocaleText,
-    viewModel: CreationNativeViewModel,
-) {
-    val item = state.selectedItem
-    val history = state.selectedHistory
-    val common = locale.creationApps.common
-    var rename by remember(history?.id) { mutableStateOf(false) }
-    var delete by remember(history?.id) { mutableStateOf(false) }
-    val faces = item?.status?.faces ?: history?.metadata?.get("faces")?.jsonPrimitive?.longOrNull
-    val vertices = item?.status?.vertices ?: history?.metadata?.get("vertices")?.jsonPrimitive?.longOrNull
-    val segmented = item?.status?.isSegmented
-        ?: history?.metadata?.get("isSegmented")?.jsonPrimitive?.booleanOrNull
-        ?: false
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                if (tool == CreationTool.IMAGE_TO_3D && (faces != null || vertices != null)) {
-                    Text(
-                        geometryStatsText(
-                            locale.creationApps.model3d.geometryStats,
-                            vertices,
-                            faces,
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            UtilityStatusChip(
-                text = if (tool == CreationTool.IMAGE_TO_3D) {
-                    if (segmented) locale.creationApps.model3d.partsReady
-                    else locale.creationApps.model3d.modelReady
-                } else locale.creationApps.svg.vectorReady,
-                accent = accent,
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val path = history?.outputPath ?: item?.status?.outputPath
-            TextButton(onClick = { path?.let(viewModel::openOutput) }) { Text(common.open) }
-            if (history != null) {
-                TextButton(onClick = { rename = true }) { Text(common.rename) }
-                TextButton(onClick = { delete = true }) { Text(common.delete) }
-            }
-        }
-    }
-    if (rename && history != null) {
-        RenameResultDialog(
-            initialName = history.outputName,
-            common = common,
-            onDismiss = { rename = false },
-            onRename = { viewModel.renameHistory(history.id, it); rename = false },
-        )
-    }
-    if (delete && history != null) {
-        AlertDialog(
-            onDismissRequest = { delete = false },
-            title = { Text(common.delete) },
-            text = { Text(common.deleteConfirm) },
-            confirmButton = {
-                TextButton(onClick = { viewModel.deleteHistory(history.id); delete = false }) {
-                    Text(common.delete)
-                }
-            },
-            dismissButton = { TextButton(onClick = { delete = false }) { Text(common.dismiss) } },
-        )
-    }
-}
-
-private fun geometryStatsText(template: String, vertices: Long?, faces: Long?): String =
-    template.replaceFirst("{}", vertices?.toString() ?: "-")
-        .replaceFirst("{}", faces?.toString() ?: "-")
-
-@Composable
-private fun RenameResultDialog(
-    initialName: String,
-    common: dev.screengoated.toolbox.mobile.ui.i18n.CreationCommonLocale,
-    onDismiss: () -> Unit,
-    onRename: (String) -> Unit,
-) {
-    var value by remember(initialName) { mutableStateOf(initialName) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(common.rename) },
-        text = {
-            androidx.compose.material3.OutlinedTextField(
-                value = value,
-                onValueChange = { value = it },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onRename(value) }, enabled = value.isNotBlank()) {
-                Text(common.rename)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(common.dismiss) } },
-    )
 }

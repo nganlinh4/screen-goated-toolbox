@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.creation
 
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -21,6 +22,7 @@ class CreationStateContractTest {
         val fixture = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
         val defaults = fixture.objectAt("defaults")
         val limits = fixture.objectAt("limits")
+        val input = fixture.objectAt("input")
         val presentation = fixture.objectAt("presentation")
         val segmentation = fixture.objectAt("segmentation")
         val history = fixture.objectAt("history")
@@ -36,19 +38,20 @@ class CreationStateContractTest {
         assertEquals(CreationContract.MINIMUM_POLYCOUNT, limits.intAt("minimumPolycount"))
         assertEquals(CreationContract.MAXIMUM_POLYCOUNT, limits.intAt("maximumPolycount"))
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.intAt("maximumParallelJobs"))
-        assertFalse(presentation.booleanAt("showProviderBranding"))
-        assertFalse(presentation.booleanAt("showProviderSelection"))
+        assertEquals(1, input.intAt("minimumImagesPerJob"))
+        assertEquals(1, input.intAt("maximumImagesPerJob"))
+        assertTrue(input.booleanAt("multiplePickerImagesCreateIndependentJobs"))
+        assertFalse(presentation.booleanAt("showImplementationBranding"))
+        assertFalse(presentation.booleanAt("showImplementationSelection"))
         assertTrue(presentation.booleanAt("showGenerationModeSelection"))
-        assertTrue(presentation.booleanAt("sanitizeProviderBrandedRuntimeText"))
+        assertTrue(presentation.booleanAt("normalizeImplementationText"))
         assertTrue(segmentation.booleanAt("requireRenderableNormals"))
         assertTrue(segmentation.booleanAt("expandDisconnectedComponentsForSingleMesh"))
         assertTrue(segmentation.booleanAt("preserveExistingPartNodes"))
         assertTrue(segmentation.booleanAt("windowsViewerRepairsLegacySegmentedOutputs"))
-        assertFalse(segmentation.booleanAt("continuationRequiresGenerationCredits"))
-        assertFalse(segmentation.booleanAt("continuationRequiresGenerationReadiness"))
-        assertTrue(segmentation.booleanAt("continuationUsesOwningWorkspace"))
-        assertTrue(segmentation.booleanAt("insufficientCreditsDoNotResetContinuationOwner"))
-        assertTrue(segmentation.booleanAt("newGenerationInvalidatesReusedWorkspaceContinuation"))
+        assertEquals(24, segmentation.intAt("continuationWindowHours"))
+        assertTrue(segmentation.booleanAt("newGenerationMayInvalidatePriorContinuation"))
+        assertTrue(segmentation.booleanAt("fastResultIsSegmented"))
         assertEquals(
             "validated_artifact",
             generationPrerequisite.stringAt("unsegmentedResult"),
@@ -64,7 +67,6 @@ class CreationStateContractTest {
         assertTrue(history.booleanAt("retainCurrentSessionResultUntilHistoryPersists"))
         assertTrue(history.booleanAt("doneStatusTransitionsDirectlyToModel"))
         assertTrue(history.booleanAt("freezeGenerationMode"))
-        assertTrue(history.booleanAt("freezeProvider"))
         assertTrue(history.booleanAt("terminalItemCanBeReconfiguredAndRerun"))
         assertTrue(history.booleanAt("rerunPreservesPreviousOutput"))
         assertEquals("native_compose_m3e", surface.stringAt("shell"))
@@ -91,12 +93,17 @@ class CreationStateContractTest {
     fun `image to svg native shell preserves canonical limits`() {
         val fixture = loadFixture("parity-fixtures/image-to-svg/state-contract.json")
         val limits = fixture.objectAt("limits")
+        val input = fixture.objectAt("input")
         val models = fixture.objectAt("models")
         val surface = fixture.objectAt("androidSurface")
 
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.intAt("maximumParallelJobs"))
-        assertEquals(2, models.objectAt("simple").intAt("creditCost"))
-        assertEquals(4, models.objectAt("detail").intAt("creditCost"))
+        assertEquals(1, input.intAt("minimumImagesPerJob"))
+        assertEquals(1, input.intAt("maximumImagesPerJob"))
+        assertTrue(input.booleanAt("multiplePickerImagesCreateIndependentJobs"))
+        assertEquals(setOf("simple", "detail"), models.keys)
+        assertTrue(models.objectAt("simple").booleanAt("selectable"))
+        assertTrue(models.objectAt("detail").booleanAt("selectable"))
         assertEquals("native_compose_m3e", surface.stringAt("shell"))
         assertEquals("sandboxed_svg_document", surface.stringAt("resultRenderer"))
         assertEquals("depth_anything_3_six_bins", surface.stringAt("progressPreview"))
@@ -106,6 +113,110 @@ class CreationStateContractTest {
         assertEquals(18, surface.intAt("preparationProgressMaximumPercent"))
         assertEquals("bounded_privacy_safe_journal", surface.stringAt("diagnostics"))
         assertFalse(surface.booleanAt("backgroundAutomationVisible"))
+    }
+
+    @Test
+    fun `image creator native shell preserves canonical product contract`() {
+        val fixture = loadFixture(
+            "parity-fixtures/image-creation-editing/state-contract.json",
+        )
+        val request = fixture.objectAt("request")
+        val prompt = request.objectAt("prompt")
+        val references = request.objectAt("references")
+        val copyPolicy = fixture.objectAt("publicCopyPolicy")
+        val artifact = fixture.objectAt("artifact")
+        val locales = fixture.objectAt("locales")
+        val presentation = fixture.objectAt("presentation")
+        val behavior = fixture.objectAt("behavior")
+        val surface = fixture.objectAt("androidSurface")
+        val stages = fixture.getValue("publicStages").jsonArray
+            .map { it.jsonPrimitive.content }
+            .toSet()
+
+        assertEquals("image", fixture.stringAt("tool"))
+        assertEquals("image_", fixture.stringAt("jobIdPrefix"))
+        assertEquals(CreationContract.IMAGE_CREATOR_OPERATION, fixture.stringAt("operation"))
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS,
+            fixture.intAt("maximumParallelJobs"),
+        )
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_WORKSPACES,
+            fixture.intAt("preparedWorkspaces"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_CONCURRENT_PREPARATIONS,
+            fixture.intAt("maximumConcurrentPreparations"),
+        )
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS,
+            prompt.intAt("maximumCharacters"),
+        )
+        assertEquals(1, prompt.intAt("minimumCharacters"))
+        assertTrue(prompt.booleanAt("trimmed"))
+        assertEquals(0, references.intAt("minimum"))
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES,
+            references.intAt("maximum"),
+        )
+        assertTrue(references.booleanAt("ordered"))
+        assertTrue(request.booleanAt("frozenBeforeQueue"))
+        assertFalse(request.booleanAt("multipleInputsCreateIndependentJobs"))
+        assertTrue(request.booleanAt("oneSessionCreatesOneJob"))
+        assertTrue(request.booleanAt("plusCreatesEmptySession"))
+        assertEquals("feature_only", copyPolicy.stringAt("vocabulary"))
+        assertFalse(copyPolicy.booleanAt("implementationDetailsVisible"))
+        assertFalse(copyPolicy.booleanAt("rawImplementationErrorsVisible"))
+        assertTrue(artifact.booleanAt("requiresDecodedDimensions"))
+        assertTrue(artifact.booleanAt("requiresPositiveWidth"))
+        assertTrue(artifact.booleanAt("requiresPositiveHeight"))
+        assertTrue(artifact.booleanAt("atomicWrite"))
+        assertEquals("image_to_svg_creation_shell", presentation.stringAt("windowsShell"))
+        assertEquals("native_compose_m3e", presentation.stringAt("androidShell"))
+        assertEquals("Google Sans Flex", presentation.stringAt("fontFamily"))
+        assertEquals(100, presentation.intAt("fontRoundedAxis"))
+        assertEquals("Material Symbols Rounded", presentation.stringAt("iconFamily"))
+        assertEquals(1, presentation.intAt("iconFill"))
+        assertFalse(presentation.booleanAt("appSpecificTheme"))
+        assertTrue(behavior.booleanAt("cancellationIsMonotonic"))
+        assertTrue(behavior.booleanAt("lateSuccessCannotPublishAfterCancellation"))
+        assertTrue(behavior.booleanAt("acceptedRequestIsNotRepeatedDuringRecovery"))
+        assertTrue(behavior.booleanAt("retryCreatesNewJob"))
+        assertTrue(behavior.booleanAt("retryPreservesPreviousResult"))
+        assertTrue(behavior.booleanAt("closingUiKeepsQueuedJobs"))
+        assertTrue(behavior.booleanAt("failureRemainsBoundToJob"))
+        assertEquals("adaptive_image_session_result", surface.stringAt("resultRenderer"))
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_WORKSPACES,
+            surface.intAt("isolatedWorkers"),
+        )
+        assertFalse(surface.booleanAt("implementationDetailsVisible"))
+        assertEquals(
+            setOf(
+                "queued",
+                "preparing",
+                "uploading",
+                "generating",
+                "finalizing",
+                "done",
+                "failed",
+                "cancelled",
+            ),
+            stages,
+        )
+        assertEquals(locales.stringAt("en"), MobileLocaleText.forLanguage("en").appImageCreatorTitle)
+        assertEquals(locales.stringAt("ko"), MobileLocaleText.forLanguage("ko").appImageCreatorTitle)
+        assertEquals(locales.stringAt("vi"), MobileLocaleText.forLanguage("vi").appImageCreatorTitle)
+    }
+
+    @Test
+    fun `image creator exposes only normal product progress and failures`() {
+        assertEquals("preparing", publicImageCreationStage("unknown"))
+        assertEquals("Getting ready", publicImageCreationText("preparing"))
+        assertEquals(
+            "Image creation could not finish. Try again.",
+            publicImageCreationFailure(),
+        )
     }
 
     @Test
@@ -119,16 +230,6 @@ class CreationStateContractTest {
         assertTrue(windowsSource.replace("_", "").contains(DepthPreviewContract.MODEL_BYTES.toString()))
         assertTrue(windowsSource.contains(DepthPreviewContract.MODEL_SHA256))
         assertTrue(windowsSource.contains("const SIDE: u32 = ${DepthPreviewContract.INPUT_SIDE};"))
-    }
-
-    @Test
-    fun `mailbox preparation uses patient capped retries`() {
-        assertEquals(4, CreationContract.IMAGE_TO_3D_WORKSPACES)
-        assertEquals(1, CreationContract.MAXIMUM_CONCURRENT_PREPARATIONS)
-        assertEquals(5 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(1))
-        assertEquals(10 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(2))
-        assertEquals(15 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(3))
-        assertEquals(15 * 60_000L, CreationPreparationCooldown.mailboxFailureBackoffMs(20))
     }
 
     @Test
@@ -189,40 +290,19 @@ class CreationStateContractTest {
     }
 
     @Test
-    fun `paid generation recovery remains durable and fail closed`() {
+    fun `creation recovery remains durable and fail closed`() {
         val fixture = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
-        val recovery = fixture.objectAt("paidRecovery")
+        val recovery = fixture.objectAt("recovery")
 
-        assertTrue(recovery.booleanAt("generationIntentBeforeSubmit"))
-        assertEquals(5, recovery.intAt("generationCostReserved"))
+        assertTrue(recovery.booleanAt("intentRecordedBeforeSubmit"))
         assertTrue(recovery.booleanAt("jobIdentityUsesSourceContent"))
         assertTrue(recovery.booleanAt("jobIdentityIgnoresSourcePathAndTimestamps"))
-        assertTrue(recovery.booleanAt("jobIdentityIncludesProviderAndMode"))
-        assertTrue(recovery.booleanAt("jobIdentityIncludesPromptPolycountAndModel"))
+        assertTrue(recovery.booleanAt("jobIdentityIncludesProductSettings"))
         assertTrue(recovery.booleanAt("matchingJobSerializedAcrossWorkers"))
-        assertTrue(recovery.booleanAt("acceptedTaskResumedWithoutResubmit"))
+        assertTrue(recovery.booleanAt("acceptedJobResumedWithoutResubmit"))
         assertTrue(recovery.booleanAt("unknownSubmissionFailsClosed"))
-        assertTrue(recovery.booleanAt("qualityControlReadyBeforeSubmit"))
-        assertTrue(recovery.booleanAt("qualityControlRequiresPointerEvents"))
-        assertTrue(recovery.booleanAt("qualityControlRequiresTopmostHitTarget"))
-        assertTrue(recovery.booleanAt("qualityAttemptPersistedBeforeClick"))
-        assertTrue(recovery.booleanAt("qualityConfirmationPersistedSeparately"))
-        assertTrue(recovery.booleanAt("qualityRecoveryUsesOwningAccount"))
-        assertTrue(recovery.booleanAt("qualityTaskUrlConfirmsStart"))
-        assertTrue(recovery.booleanAt("qualityGeneratingStateConfirmsStart"))
-        assertTrue(recovery.booleanAt("qualityCreditDebitConfirmsStart"))
-        assertEquals(
-            "dom_click_while_control_remains_ready",
-            recovery.stringAt("qualityNativeClickFallback"),
-        )
-        assertTrue(recovery.booleanAt("qualityUnknownSubmissionFailsClosed"))
-        assertEquals("before_submission_only", recovery.stringAt("qualityRetryScope"))
-        assertTrue(recovery.booleanAt("completionReceiptBeforeHostSuccess"))
-        assertTrue(recovery.booleanAt("androidCompletionReceiptUsesPrivateRuntimeArtifact"))
+        assertTrue(recovery.booleanAt("artifactCommittedBeforeHostSuccess"))
         assertEquals(7 * 24, recovery.intAt("recoveryRetentionHours"))
-        assertTrue(recovery.booleanAt("androidOwnerWorkerRedirect"))
-        assertEquals("meshy-recovery-owner:", CreationContract.MESHY_RECOVERY_OWNER_PREFIX)
-        assertEquals("quality-recovery-owner:", CreationContract.TRIPO_RECOVERY_OWNER_PREFIX)
     }
 
     @Test

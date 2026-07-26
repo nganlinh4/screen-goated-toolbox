@@ -23,12 +23,6 @@ class CreationProviderRoutingTest {
     fun `explicit generation modes match every shared case`() {
         val fixture = fixture()
         val routing = fixture.getValue("generationModes").jsonObject
-        val limits = fixture.getValue("limits").jsonObject
-
-        assertEquals(
-            CreationContract.IMAGE_TO_3D_MESHY_WORKSPACES,
-            limits.getValue("preparedMeshyWorkspaces").jsonPrimitive.int,
-        )
 
         routing.getValue("cases").jsonArray.forEach { element ->
             val case = element.jsonObject
@@ -40,7 +34,6 @@ class CreationProviderRoutingTest {
 
             assertEquals(mode, route.mode)
             assertEquals(polycount, route.polycount)
-            assertEquals(case.string("provider"), route.provider.wireName)
             assertEquals(
                 case.getValue("effectiveAutoSegment").jsonPrimitive.boolean,
                 route.autoSegment,
@@ -68,7 +61,6 @@ class CreationProviderRoutingTest {
                 case.getValue("autoSegment").jsonPrimitive.boolean,
             )
             assertEquals(case.getValue("normalizedPolycount").jsonPrimitive.int, route.polycount)
-            assertEquals(case.string("provider"), route.provider.wireName)
             assertEquals(
                 case.getValue("effectiveAutoSegment").jsonPrimitive.boolean,
                 route.autoSegment,

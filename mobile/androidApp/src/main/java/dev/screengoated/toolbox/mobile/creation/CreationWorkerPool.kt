@@ -10,6 +10,10 @@ import android.os.RemoteException
 import android.util.Log
 import dev.screengoated.toolbox.mobile.creation.worker.ICreationWorker
 import dev.screengoated.toolbox.mobile.creation.worker.ICreationWorkerCallback
+import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker0Service
+import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker1Service
+import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker2Service
+import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker3Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker0Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker1Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker2Service
@@ -30,10 +34,6 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     private val diagnostics = CreationDiagnostics(context, "pool")
     private val runtime = CreationRuntimeManager.get(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val preparationPreferences = context.getSharedPreferences(
-        PREPARATION_PREFERENCES,
-        Context.MODE_PRIVATE,
-    )
     private val workers = listOf(
         Worker("3d-0", CreationTool.IMAGE_TO_3D, ImageTo3dWorker0Service::class.java, slot = 0),
         Worker("3d-1", CreationTool.IMAGE_TO_3D, ImageTo3dWorker1Service::class.java, slot = 1),
@@ -41,15 +41,15 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         Worker("3d-3", CreationTool.IMAGE_TO_3D, ImageTo3dWorker3Service::class.java, slot = 3),
         Worker("svg-0", CreationTool.IMAGE_TO_SVG, ImageToSvgWorker0Service::class.java),
         Worker("svg-1", CreationTool.IMAGE_TO_SVG, ImageToSvgWorker1Service::class.java),
+        Worker("image-0", CreationTool.IMAGE_CREATOR, ImageCreatorWorker0Service::class.java, slot = 0),
+        Worker("image-1", CreationTool.IMAGE_CREATOR, ImageCreatorWorker1Service::class.java, slot = 1),
+        Worker("image-2", CreationTool.IMAGE_CREATOR, ImageCreatorWorker2Service::class.java, slot = 2),
+        Worker("image-3", CreationTool.IMAGE_CREATOR, ImageCreatorWorker3Service::class.java, slot = 3),
     )
     private val handler = Handler(context.mainLooper)
     private val jobWorkers = ConcurrentHashMap<String, String>()
     private val pendingBindings = mutableMapOf<String, Runnable>()
     @Volatile private var preferredPreparationTool: CreationTool? = null
-    @Volatile private var preparationCooldownUntilMs = maxOf(
-        preparationPreferences.getLong(PREPARATION_COOLDOWN_KEY, 0L),
-        CreationPreparationCooldown.read(context),
-    ).also { CreationPreparationCooldown.recordUntil(context, it) }
     @Volatile private var nextPreparationStartAtMs = 0L
     @Volatile private var runtimeAwaiting = false
 
@@ -60,6 +60,11 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                 (0 until CreationContract.IMAGE_TO_3D_WORKSPACES).toSet(),
         )
         check(workers.count { it.tool == CreationTool.IMAGE_TO_SVG } == CreationContract.IMAGE_TO_SVG_WORKSPACES)
+        check(workers.count { it.tool == CreationTool.IMAGE_CREATOR } == CreationContract.IMAGE_CREATOR_WORKSPACES)
+        check(
+            workers.filter { it.tool == CreationTool.IMAGE_CREATOR }.mapNotNull { it.slot }.toSet() ==
+                (0 until CreationContract.IMAGE_CREATOR_WORKSPACES).toSet(),
+        )
     }
 
     fun startPreparation(priority: CreationTool? = null) {
@@ -108,10 +113,14 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         }
         val matching = workers.filter { it.tool == tool }
         val ready = matching.count { it.ready }
+        val now = System.currentTimeMillis()
         return when {
             ready == matching.size -> "ready"
             ready > 0 -> "partial"
-            matching.any { it.preparing || it.binding || it.prepareScheduled } -> "preparing"
+            matching.any {
+                it.preparing || it.binding ||
+                    (it.prepareScheduled && it.prepareNotBeforeMs <= now)
+            } -> "preparing"
             else -> "idle"
         }
     }
@@ -281,13 +290,9 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         val binder = worker.binder ?: return
         val waitMs = synchronized(workers) {
             val now = System.currentTimeMillis()
-            preparationCooldownUntilMs = maxOf(
-                preparationCooldownUntilMs,
-                CreationPreparationCooldown.read(context),
-            )
             val preparationNotBefore = maxOf(
-                if (worker.mailboxBlocked) preparationCooldownUntilMs else 0L,
                 nextPreparationStartAtMs,
+                worker.prepareNotBeforeMs,
             )
             when {
                 worker.preparing || worker.busy || worker.ready || worker.ownedJobReady -> null
@@ -316,13 +321,20 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                             synchronized(workers) {
                                 worker.ready = event.ready != false
                                 worker.ownedJobReady = event.ownedJobReady == true
+                                worker.availableModels = event.availableModels
+                                worker.prepareNotBeforeMs = event.retryAfterMs ?: 0L
                                 worker.preparing = false
                                 worker.preparationFailures = 0
-                                worker.mailboxBlocked = false
-                                CreationPreparationCooldown.recordPreparationSucceeded(context)
                             }
                             Log.i(TAG, "Creation worker ${worker.key} is ready")
                             diagnostics.event("worker_ready", worker.tool.wireName, stage = worker.key)
+                            if (event.ready == false && event.retryAfterMs != null) {
+                                requestPrepare(
+                                    worker,
+                                    (event.retryAfterMs - System.currentTimeMillis())
+                                        .coerceAtLeast(PREPARATION_HANDOFF_GAP_MS),
+                                )
+                            }
                             requestNextPreparation(PREPARATION_HANDOFF_GAP_MS)
                         } else if (event.event == "failure") {
                             val error = event.error.orEmpty()
@@ -331,19 +343,24 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                                 worker.ownedJobReady = false
                                 worker.preparing = false
                                 worker.preparationFailures += 1
-                                val mailboxFailure = isMailboxFailure(error)
-                                worker.mailboxBlocked = mailboxFailure
-                                if (mailboxFailure && !isExistingMailboxCooldown(error)) {
-                                    recordMailboxFailureCooldown()
-                                }
+                                worker.prepareNotBeforeMs = maxOf(
+                                    worker.prepareNotBeforeMs,
+                                    event.retryAfterMs ?: 0L,
+                                )
                             }
-                            val category = CreationDiagnostics.failureCategory(error)
+                            val imageFailure = worker.tool == CreationTool.IMAGE_CREATOR
+                            val category = if (imageFailure) {
+                                IMAGE_CREATION_FAILURE_CATEGORY
+                            } else {
+                                CreationDiagnostics.failureCategory(error)
+                            }
                             Log.w(TAG, "Creation worker ${worker.key} preparation failed: $category")
                             diagnostics.event(
                                 "worker_prepare_failed",
                                 worker.tool.wireName,
                                 stage = worker.key,
-                                failureMessage = error,
+                                failureMessage = error.takeUnless { imageFailure },
+                                failureCategoryOverride = category.takeIf { imageFailure },
                             )
                             schedulePrepare(worker)
                             requestNextPreparation(PREPARATION_HANDOFF_GAP_MS)
@@ -445,33 +462,10 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         val delay = RETRY_DELAYS_MS[
             worker.preparationFailures.coerceIn(0, RETRY_DELAYS_MS.lastIndex)
         ]
-        preparationCooldownUntilMs = maxOf(
-            preparationCooldownUntilMs,
-            CreationPreparationCooldown.read(context),
-        )
-        val cooldown = if (worker.mailboxBlocked) {
-            (preparationCooldownUntilMs - System.currentTimeMillis()).coerceAtLeast(0L)
-        } else {
-            0L
-        }
-        requestPrepare(worker, maxOf(delay, cooldown))
+        val retryAfterDelay =
+            (worker.prepareNotBeforeMs - System.currentTimeMillis()).coerceAtLeast(0L)
+        requestPrepare(worker, maxOf(delay, retryAfterDelay))
     }
-
-    private fun recordMailboxFailureCooldown() {
-        preparationCooldownUntilMs = CreationPreparationCooldown.recordMailboxFailure(context)
-        preparationPreferences.edit()
-            .putLong(PREPARATION_COOLDOWN_KEY, preparationCooldownUntilMs)
-            .apply()
-    }
-
-    private fun isMailboxFailure(message: String): Boolean {
-        return message.contains("mailbox", ignoreCase = true) ||
-            message.contains("waiting for verification code", ignoreCase = true) ||
-            message.contains("waiting for account confirmation", ignoreCase = true)
-    }
-
-    private fun isExistingMailboxCooldown(message: String): Boolean =
-        message.contains("mailbox preparation is cooling down", ignoreCase = true)
 
     private data class Worker(
         val key: String,
@@ -485,14 +479,18 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         @Volatile var preparing: Boolean = false,
         @Volatile var ready: Boolean = false,
         @Volatile var ownedJobReady: Boolean = false,
+        @Volatile var availableModels: List<String>? = null,
+        @Volatile var prepareNotBeforeMs: Long = 0L,
         @Volatile var busy: Boolean = false,
         val assignment: CreationWorkerAssignmentGuard = CreationWorkerAssignmentGuard(),
         @Volatile var connectionEpoch: Long = 0,
         @Volatile var preparationFailures: Int = 0,
-        @Volatile var mailboxBlocked: Boolean = false,
     ) {
         fun canRun(request: CreationWorkerRequest): Boolean {
             if (tool != CreationTool.fromWireName(request.tool)) return false
+            if (tool == CreationTool.IMAGE_TO_SVG) {
+                return availableModels?.contains(request.model) != false
+            }
             return tool != CreationTool.IMAGE_TO_3D ||
                 CreationContract.canUse3dWorker(request.provider, requireNotNull(slot))
         }
@@ -505,8 +503,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
 
     companion object {
         private const val TAG = "CreationWorkerPool"
-        private const val PREPARATION_PREFERENCES = "creation_worker_pool"
-        private const val PREPARATION_COOLDOWN_KEY = "mailbox_cooldown_until_ms"
+        private const val IMAGE_CREATION_FAILURE_CATEGORY = "image_creation"
         private const val STARTUP_GRACE_MS = 8_000L
         private const val PREPARATION_STAGGER_MS = 25_000L
         private const val PREPARATION_QUEUE_POLL_MS = 10_000L

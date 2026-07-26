@@ -2,6 +2,7 @@
 param(
     [switch]$SkipFrontendBuild,
     [switch]$SkipNpmInstall,
+    [switch]$SkipCreationRuntimeBuild,
     [string]$CargoCommand = "run",
     [string[]]$CargoArgs = @(),
     [int]$Tail = 120
@@ -43,7 +44,8 @@ function Sync-Frontend {
     param(
         [string]$Name,
         [string]$SourceRelative,
-        [string]$TargetRelative
+        [string]$TargetRelative,
+        [switch]$BuildsDirectlyToTarget
     )
 
     $source = Join-Path $repoRoot $SourceRelative
@@ -55,6 +57,14 @@ function Sync-Frontend {
         Run-Npm $source @("install")
     }
     Run-Npm $source @("run", "build")
+
+    if ($BuildsDirectlyToTarget) {
+        if (-not (Test-Path -LiteralPath $target)) {
+            throw "$Name build did not create $target"
+        }
+        Write-Host "$Name assets built directly into $target" -ForegroundColor Green
+        return
+    }
 
     if (-not (Test-Path $dist)) {
         throw "$dist was not created"
@@ -68,6 +78,45 @@ function Sync-Frontend {
     Write-Host "$Name assets copied to $target" -ForegroundColor Green
 }
 
+function Build-CreationRuntime {
+    $runtimeRoot = Join-Path $repoRoot "native\sgt_3d_generator_runtime"
+    $runtimeManifest = Join-Path $runtimeRoot "Cargo.toml"
+    if (-not (Test-Path -LiteralPath $runtimeManifest)) {
+        Write-Host "Private creation runtime checkout not present; using managed delivery." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Section "Building Creation Runtime"
+    Push-Location $runtimeRoot
+    try {
+        & cargo.exe build --locked
+        if ($LASTEXITCODE -ne 0) {
+            throw "Creation runtime debug build failed. Close any running development app and retry."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
+    $runtimeExe = Join-Path $runtimeRoot "target\debug\sgt_creation_runtime.exe"
+    if (-not (Test-Path -LiteralPath $runtimeExe -PathType Leaf)) {
+        throw "Creation runtime build did not produce $runtimeExe"
+    }
+
+    $sourceFiles = @(
+        Get-ChildItem -LiteralPath (Join-Path $runtimeRoot "src") -File -Recurse
+        Get-Item -LiteralPath $runtimeManifest
+        Get-Item -LiteralPath (Join-Path $runtimeRoot "Cargo.lock")
+    )
+    $newestSource = $sourceFiles | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    $runtimeFile = Get-Item -LiteralPath $runtimeExe
+    if ($runtimeFile.LastWriteTimeUtc -lt $newestSource.LastWriteTimeUtc) {
+        throw "Creation runtime executable is older than $($newestSource.FullName)"
+    }
+
+    Write-Host "Creation runtime is current: $runtimeExe" -ForegroundColor Green
+}
+
 function Quote-CmdArg {
     param([string]$Value)
 
@@ -79,12 +128,17 @@ function Quote-CmdArg {
 
 Push-Location $repoRoot
 try {
+    if (-not $SkipCreationRuntimeBuild) {
+        Build-CreationRuntime
+    }
+
     if (-not $SkipFrontendBuild) {
         Sync-Frontend "PromptDJ" "promptdj-midi" "src\overlay\prompt_dj\dist"
         Sync-Frontend "Translation Gummy" "translation-gummy-ui" "src\overlay\translation_gummy\dist"
         Sync-Frontend "Screen Record" "screen-record" "src\overlay\screen_record\dist"
         Sync-Frontend "3D Generator" "3d-generator-ui" "src\overlay\three_d_generator\dist"
         Sync-Frontend "Image to SVG" "image-to-svg-ui" "src\overlay\image_to_svg\dist"
+        Sync-Frontend "Image Creator" "image-creator-ui" "src\overlay\image_creator\dist" -BuildsDirectlyToTarget
         Sync-Frontend "TTS Playground" "tts-playground-ui" "src\overlay\tts_playground\dist"
     }
 
