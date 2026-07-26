@@ -45,12 +45,13 @@ internal fun encodeCerebrasJson(payload: JSONObject): EncodedJsonRequest {
 }
 
 internal fun openAiPayload(
+    provider: PresetModelProvider,
     fullName: String,
     prompt: String,
     inputText: String,
     stream: Boolean = true,
 ): JSONObject {
-    return JSONObject()
+    val payload = JSONObject()
         .put("model", fullName)
         .put(
             "messages",
@@ -61,6 +62,7 @@ internal fun openAiPayload(
             ),
         )
         .put("stream", stream)
+    return applyFastReasoningPolicy(payload, provider, fullName)
 }
 
 internal fun cerebrasPayload(
@@ -80,6 +82,7 @@ internal fun cerebrasPayload(
         )
         .put("stream", stream)
         .put("max_completion_tokens", 8192)
+    applyFastReasoningPolicy(payload, PresetModelProvider.CEREBRAS, fullName)
     if (!predictionContent.isNullOrEmpty() &&
         (fullName == "gpt-oss-120b" || fullName == "zai-glm-4.7")
     ) {
@@ -87,6 +90,22 @@ internal fun cerebrasPayload(
             "prediction",
             JSONObject().put("type", "content").put("content", predictionContent),
         )
+    }
+    return payload
+}
+
+internal fun applyFastReasoningPolicy(
+    payload: JSONObject,
+    provider: PresetModelProvider,
+    fullName: String,
+): JSONObject {
+    val effort = PresetModelCatalog.openAiReasoningEffort(provider, fullName)
+    if (effort != null) {
+        if (provider == PresetModelProvider.OPENROUTER) {
+            payload.put("reasoning", JSONObject().put("effort", effort))
+        } else {
+            payload.put("reasoning_effort", effort)
+        }
     }
     return payload
 }

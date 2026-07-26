@@ -96,6 +96,10 @@ export class ModelViewer {
   private outline = true;
   private wireframe = false;
   private contentRevision = 0;
+  private lastFrameAt = 0;
+  private interacting = false;
+  private interactionEndedAt = 0;
+  private interactionListener?: (active: boolean) => void;
   private theme: "light" | "dark" = "dark";
   private hemisphere = new THREE.HemisphereLight(0xe5fbf5, 0x1a2524, 2.15);
   private key = new THREE.DirectionalLight(0xf5fff9, 3.2);
@@ -114,6 +118,15 @@ export class ModelViewer {
     this.controls.maxDistance = 10;
     this.controls.autoRotateSpeed = 1.15;
     this.controls.enabled = false;
+    this.controls.addEventListener("start", () => {
+      this.interacting = true;
+      this.interactionListener?.(true);
+    });
+    this.controls.addEventListener("end", () => {
+      this.interacting = false;
+      this.interactionEndedAt = performance.now();
+      this.interactionListener?.(false);
+    });
 
     this.key.position.set(3, 4, 5);
     this.rim.position.set(-4, 1, -2);
@@ -123,7 +136,7 @@ export class ModelViewer {
     this.scene.add(this.grid);
 
     const renderTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: true });
-    renderTarget.samples = Math.min(4, this.renderer.capabilities.maxSamples);
+    renderTarget.samples = Math.min(2, this.renderer.capabilities.maxSamples);
     this.composer = new EffectComposer(this.renderer, renderTarget);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.edgePass = new ShaderPass(EdgeShader);
@@ -175,8 +188,12 @@ export class ModelViewer {
     this.animate();
   }
 
+  onInteractionChange(listener: (active: boolean) => void) {
+    this.interactionListener = listener;
+  }
+
   private pixelRatio() {
-    return Math.min(2, Math.max(1, window.devicePixelRatio));
+    return Math.min(1.5, Math.max(1, window.devicePixelRatio));
   }
 
   private createIdleObject() {
@@ -246,8 +263,14 @@ export class ModelViewer {
     }
     texture.colorSpace = THREE.NoColorSpace;
     const surface = relief.children.find((child) => child instanceof THREE.Mesh) as THREE.Mesh | undefined;
-    if (!surface) return;
+    if (!surface) {
+      texture.dispose();
+      return;
+    }
     const material = surface.material as THREE.MeshStandardMaterial;
+    if (material.displacementMap && material.displacementMap !== material.map) {
+      material.displacementMap.dispose();
+    }
     material.displacementMap = texture;
     material.displacementBias = -0.1;
     material.displacementScale = 0;
@@ -311,6 +334,7 @@ export class ModelViewer {
     this.applyMaterials();
     this.modelBlend = 0;
     this.controls.enabled = true;
+    this.resize();
     this.fitView();
     return stats;
   }
@@ -364,6 +388,7 @@ export class ModelViewer {
   setOutline(enabled: boolean) {
     this.outline = enabled;
     this.edgePass.uniforms.uStrength.value = enabled ? 0.92 : 0;
+    this.resize();
   }
 
   setAutoRotate(enabled: boolean) { this.controls.autoRotate = enabled; }
@@ -412,12 +437,15 @@ export class ModelViewer {
     this.hasSegmentedParts = false;
     this.grid.visible = false;
     this.modelBlend = 0;
+    this.resize();
   }
 
   private disposeGroup(group: THREE.Group | null) {
     if (!group) return;
     this.scene.remove(group);
     const disposed = new Set<THREE.Material>();
+    const disposedTextures = new Set<THREE.Texture>();
+    const sharedGradient = this.scene.userData.toonGradient as THREE.Texture | undefined;
     group.traverse((child) => {
       if (!(child instanceof THREE.Mesh || child instanceof THREE.Points)) return;
       child.geometry?.dispose();
@@ -428,6 +456,16 @@ export class ModelViewer {
       materials.forEach((material) => {
         if (!disposed.has(material)) {
           disposed.add(material);
+          Object.values(material).forEach((value) => {
+            if (
+              value instanceof THREE.Texture &&
+              value !== sharedGradient &&
+              !disposedTextures.has(value)
+            ) {
+              disposedTextures.add(value);
+              value.dispose();
+            }
+          });
           material.dispose();
         }
       });
@@ -442,7 +480,12 @@ export class ModelViewer {
     this.renderer.setSize(width, height, false);
     this.composer.setPixelRatio(pixelRatio);
     this.composer.setSize(width, height);
-    this.metadataTarget.setSize(width * pixelRatio, height * pixelRatio);
+    const edgeEnabled = this.outline && Boolean(this.result);
+    this.edgePass.enabled = edgeEnabled;
+    this.metadataTarget.setSize(
+      edgeEnabled ? width * pixelRatio : 1,
+      edgeEnabled ? height * pixelRatio : 1,
+    );
     this.edgePass.uniforms.uTexel.value.set(0.78 / (width * pixelRatio), 0.78 / (height * pixelRatio));
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
@@ -465,38 +508,44 @@ export class ModelViewer {
     this.edgePass.uniforms.tDepth.value = this.metadataTarget.depthTexture;
   }
 
-  private animate = () => {
+  private animate = (now = performance.now()) => {
     requestAnimationFrame(this.animate);
-    const time = (performance.now() - this.startedAt) / 1000;
+    const responsive = this.interacting || now - this.interactionEndedAt < 360;
+    const frameInterval = 1000 / (responsive ? 60 : 30);
+    if (document.visibilityState !== "visible" || now - this.lastFrameAt < frameInterval) return;
+    const frameScale = this.lastFrameAt ? Math.min(2, (now - this.lastFrameAt) / (1000 / 60)) : 1;
+    this.lastFrameAt = now;
+    const time = (now - this.startedAt) / 1000;
     this.idleObject.rotation.x = time * 0.08;
     this.idleObject.rotation.y = time * 0.14;
     this.idleObject.position.y = 0.1 + Math.sin(time * 0.9) * 0.025;
-    if (this.relief) {
+    if (this.relief?.visible) {
       const targetY = this.result ? -0.42 : this.pointer.x * 0.22;
       const targetX = this.result ? -0.06 : -0.08 - this.pointer.y * 0.1;
-      this.relief.rotation.y = THREE.MathUtils.lerp(this.relief.rotation.y, targetY, 0.035);
-      this.relief.rotation.x = THREE.MathUtils.lerp(this.relief.rotation.x, targetX, 0.035);
+      const reliefBlend = 1 - Math.pow(1 - 0.035, frameScale);
+      this.relief.rotation.y = THREE.MathUtils.lerp(this.relief.rotation.y, targetY, reliefBlend);
+      this.relief.rotation.x = THREE.MathUtils.lerp(this.relief.rotation.x, targetX, reliefBlend);
       this.relief.position.y = Math.sin(time * 1.2) * 0.016;
       if (this.hasDepth) {
-        this.depthBlend = Math.min(1, this.depthBlend + 0.012);
+        this.depthBlend = Math.min(1, this.depthBlend + 0.012 * frameScale);
         const surface = this.relief.children.find((child) => child instanceof THREE.Mesh) as THREE.Mesh | undefined;
         if (surface) (surface.material as THREE.MeshStandardMaterial).displacementScale = this.depthBlend * 0.48;
       }
-      if (this.result) {
-        this.relief.scale.multiplyScalar(0.985);
+      if (this.result && this.relief.visible) {
+        this.relief.scale.multiplyScalar(Math.pow(0.985, frameScale));
         this.relief.traverse((child) => {
           if (!(child instanceof THREE.Mesh || child instanceof THREE.Points)) return;
           const materials = Array.isArray(child.material) ? child.material : [child.material];
           materials.forEach((material) => {
             material.transparent = true;
-            material.opacity = Math.max(0, material.opacity - 0.025);
+            material.opacity = Math.max(0, material.opacity - 0.025 * frameScale);
           });
         });
         if (this.relief.scale.x < 0.18) this.relief.visible = false;
       }
     }
-    if (this.result) {
-      this.modelBlend = Math.min(1, this.modelBlend + 0.025);
+    if (this.result && this.modelBlend < 1) {
+      this.modelBlend = Math.min(1, this.modelBlend + 0.025 * frameScale);
       const eased = 1 - Math.pow(1 - this.modelBlend, 3);
       this.result.scale.setScalar(0.82 + eased * 0.18);
       this.result.traverse((child) => {
@@ -506,7 +555,9 @@ export class ModelViewer {
       });
     }
     this.controls.update();
-    this.renderMetadata();
+    const edgeEnabled = this.outline && Boolean(this.result);
+    this.edgePass.enabled = edgeEnabled;
+    if (edgeEnabled) this.renderMetadata();
     this.composer.render();
   };
 }

@@ -21,21 +21,7 @@ internal object CreationJobFactory {
     ): CreationJobDraft {
         val requestedPaths = args.strings("imagePaths")
         val legacyPath = args.string("imagePath")
-        val sources = when (tool) {
-            CreationTool.IMAGE_CREATOR -> (requestedPaths + listOfNotNull(legacyPath))
-                .distinctBy(String::lowercase)
-                .also {
-                    require(it.size <= CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES) {
-                        "Too many reference images"
-                    }
-                }
-            CreationTool.IMAGE_TO_3D,
-            CreationTool.IMAGE_TO_SVG,
-            -> {
-                require(requestedPaths.size <= 1) { "This tool accepts exactly one image" }
-                listOf(legacyPath ?: requestedPaths.singleOrNull() ?: error("Pick an image first"))
-            }
-        }
+        val sources = normalizeCreationImagePaths(tool, requestedPaths, legacyPath)
         require(sources.all(files::exists)) { "Image does not exist" }
         val source = sources.firstOrNull().orEmpty()
         val prompt = args.string("prompt")?.trim().orEmpty().takeIf {
@@ -150,3 +136,26 @@ private fun JsonObject.strings(key: String): List<String> =
     this[key]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
 private fun JsonObject.int(key: String): Int? = this[key]?.jsonPrimitive?.intOrNull
 private fun JsonObject.boolean(key: String): Boolean? = this[key]?.jsonPrimitive?.booleanOrNull
+
+internal fun normalizeCreationImagePaths(
+    tool: CreationTool,
+    requestedPaths: List<String>,
+    legacyPath: String?,
+): List<String> {
+    val sources = (requestedPaths + listOfNotNull(legacyPath))
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinctBy { it.lowercase() }
+    return when (tool) {
+        CreationTool.IMAGE_CREATOR -> sources.also {
+            require(it.size <= CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES) {
+                "Too many reference images"
+            }
+        }
+        CreationTool.IMAGE_TO_3D,
+        CreationTool.IMAGE_TO_SVG,
+        -> sources.also {
+            require(it.size == 1) { "This tool accepts exactly one image" }
+        }
+    }
+}

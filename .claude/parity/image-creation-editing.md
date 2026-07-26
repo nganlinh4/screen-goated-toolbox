@@ -23,10 +23,19 @@
 - Submission freezes the session's ordered reference list, instruction, and
   output destination as exactly one queued job. Multiple sessions may be queued
   and run independently.
+- The primary action submits only the selected session. No action on one
+  session may submit another session implicitly.
 - Four isolated execution slots are maintained and at most two image jobs run
   simultaneously. Image work does not consume a 3D or SVG job slot.
 - Public progress uses only `queued`, `preparing`, `uploading`, `generating`,
   `finalizing`, `done`, `failed`, and `cancelled`.
+- `uploading` and reference-upload copy are valid only when the frozen request
+  contains at least one reference. A text-only request remains `preparing`
+  while its creation workspace is activated.
+- Busy progress combines the runtime's measured duration estimate and reported
+  ratio with the same monotonic elapsed-time curve used by the 3D and SVG apps.
+  It refreshes between status polls, shows localized remaining-time copy, and
+  never exceeds 94% before terminal success.
 - Cancellation is monotonic. A late event cannot revive a cancelled job or
   publish an artifact for it.
 - Recovery never duplicates an accepted request. A user retry creates a new job
@@ -47,7 +56,8 @@
 - Typography uses the shared locally served Google Sans Flex variable font with
   its rounded axis. No app-specific display face is introduced.
 - Icons use filled Material Symbols Rounded through the established Windows and
-  Android asset conventions.
+  Android asset conventions and shared SGT icon catalog. The mini app does not
+  carry a separate hand-authored icon set.
 - Android uses the existing native Material 3 Expressive creation components,
   shared typography, shared shapes, and adaptive result layout.
 - The image stage has no white paper layer. Empty space remains transparent over
@@ -55,7 +65,21 @@
   aspect ratio instead of being forced into a fixed canvas ratio.
 - Thumbnail and stage previews are bounded derivatives. Original image bytes
   are never retained by the WebView, preview hydration is nonblocking, and the
-  session action remains available while previews load.
+  session action remains available while previews load. Preview decoding never
+  blocks the WebView message thread. Only selected or near-visible queue,
+  reference-grid, and history previews hydrate; off-screen references wait
+  until they approach the viewport.
+- An unchanged poll or thumbnail completion preserves existing queue DOM.
+  Pointer hover, focus, active IME composition, and the first selection click
+  cannot be invalidated by background reconciliation. A pointer sequence is
+  atomic with respect to polling, so background state cannot replace a button
+  between pointer-down and click.
+- Submission locks the action synchronously on the first click before any
+  asynchronous host work begins, providing immediate feedback and preventing a
+  second click from duplicating the request.
+- The image status strip uses the shared estimated-progress presentation from
+  the 3D and SVG apps: measured estimate when available, monotonic time-based
+  interpolation, localized ETA, and 100% only after success.
 
 ## Public Boundary
 
@@ -72,7 +96,10 @@
   job, stale callback, or exhausted bounded recovery fails closed. An empty
   reference list is valid for image creation.
 - Failures remain attached to the exact job that produced them.
-- Closing the UI does not cancel or corrupt queued work.
+- Closing the mini app cancels all of its queued and running jobs, terminates
+  their tracked process trees, destroys the WebView, and prevents a late
+  completion from publishing. Shared proactive preparation remains app-owned
+  and is not mistaken for a mini-app job.
 - Output extraction may retry only for the already-created result; it does not
   repeat the user's creation request.
 

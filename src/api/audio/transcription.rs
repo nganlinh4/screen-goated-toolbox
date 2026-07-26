@@ -8,10 +8,13 @@ use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
 
 use super::utils::extract_pcm_from_wav;
-use crate::api::client::{UREQ_AGENT, is_auth_error, record_usage_simple};
+use crate::api::client::{UREQ_AGENT, is_auth_error};
 use crate::api::providers::Provider;
 use crate::config::Preset;
 use crate::model_config::{get_model_by_id, is_gemini_live_translate_model_id, model_is_non_llm};
+
+mod groq;
+use groq::upload_audio_to_whisper;
 
 /// Borrow a prefix of `s` up to `max` bytes without splitting a UTF-8 char.
 /// Slicing on a raw byte index (`&s[..max]`) panics when `max` lands inside a
@@ -69,13 +72,8 @@ where
         });
     }
 
-    // Gemma-family models do not use the grounding tools path here.
-    if !model.contains("gemma") {
-        payload["tools"] = serde_json::json!([
-            { "url_context": {} },
-            { "google_search": {} }
-        ]);
-    }
+    // Search support is capability metadata, not consent to spend grounding
+    // quota on an audio transcription request.
 
     let resp = UREQ_AGENT
         .post(&url)
@@ -419,76 +417,6 @@ fn transcribe_with_gemini_live(
     } else {
         Ok(accumulated_text)
     }
-}
-
-/// Upload audio to Whisper API (Groq)
-pub fn upload_audio_to_whisper(
-    api_key: &str,
-    model: &str,
-    audio_data: Vec<u8>,
-) -> anyhow::Result<String> {
-    // Create multipart form data
-    let boundary = format!(
-        "----SGTBoundary{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
-
-    let mut body = Vec::new();
-
-    // Add model field
-    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-    body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
-    body.extend_from_slice(model.as_bytes());
-    body.extend_from_slice(b"\r\n");
-
-    // Add file field
-    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-    body.extend_from_slice(
-        b"Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n",
-    );
-    body.extend_from_slice(b"Content-Type: audio/wav\r\n\r\n");
-    body.extend_from_slice(&audio_data);
-    body.extend_from_slice(b"\r\n");
-
-    // End boundary
-    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
-
-    // Make API request
-    let response = UREQ_AGENT
-        .post("https://api.groq.com/openai/v1/audio/transcriptions")
-        .header("Authorization", &format!("Bearer {}", api_key))
-        .header(
-            "Content-Type",
-            &format!("multipart/form-data; boundary={}", boundary),
-        )
-        .send(&body);
-
-    let response = match response {
-        Ok(resp) => resp,
-        Err(e) => {
-            let err_str = e.to_string();
-            return Err(anyhow::anyhow!("API request failed: {}", err_str));
-        }
-    };
-
-    // Capture rate limits
-    record_usage_simple(response.headers(), model);
-
-    // Parse response
-    let json: serde_json::Value = response
-        .into_body()
-        .read_json()
-        .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
-
-    let text = json
-        .get("text")
-        .and_then(|t| t.as_str())
-        .ok_or_else(|| anyhow::anyhow!("No text in response"))?;
-
-    Ok(text.to_string())
 }
 
 /// Shared logic to process audio data based on a preset's configuration.

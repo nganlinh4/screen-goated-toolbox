@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 10,
+  "schemaVersion": 12,
   "feature": "phone-control",
   "sharedSocketFixture": "parity-fixtures/gemini-live-session/lifecycle.json",
   "states": ["idle", "listening", "working", "finalizing"],
@@ -38,6 +38,7 @@
     "speechOnsetRequestsFreshScreenWhenAssistantSilent": true,
     "localVoiceActivityCannotRetirePlayingGeneration": true,
     "providerInterruptionRetiresPlayingGeneration": true,
+    "transportInterruptionRetiresOrphanedGeneration": true,
     "transportFailureTailContainsPayloadContent": false,
     "equivalentStructuredFailureRetryLimit": 2,
     "repeatFailureGuardUsesSemanticText": false,
@@ -50,7 +51,11 @@
       "failure_code"
     ],
     "terminalGenerationCannotPublishLateToolsOrSpeech": true,
-    "internalToolOrTransportErrorsAreNotAssistantOutput": true
+    "internalToolOrTransportErrorsAreNotAssistantOutput": true,
+    "audioModeModelTextIsInternal": true,
+    "voiceBurstStartsAndEndsPair": true,
+    "detectorRequestFreshnessDoesNotDowngradeProvider": true,
+    "visualGroundingUsesTargetLocalFinalLease": true
   },
   "cases": [
     {

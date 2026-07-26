@@ -25,7 +25,10 @@ internal fun buildGeminiDebugPayload(
                 },
             )
         }
-        PresetModelCatalog.geminiThinkingConfig(fullName)?.let { thinking ->
+        PresetModelCatalog.geminiThinkingConfig(
+            PresetModelProvider.GOOGLE,
+            fullName,
+        )?.let { thinking ->
             putJsonObject("generationConfig") {
                 putJsonObject("thinkingConfig") {
                     thinking.forEach { (key, value) ->
@@ -36,12 +39,6 @@ internal fun buildGeminiDebugPayload(
                         }
                     }
                 }
-            }
-        }
-        if (PresetModelCatalog.supportsSearchByName(fullName)) {
-            putJsonArray("tools") {
-                add(buildJsonObject { putJsonObject("url_context") {} })
-                add(buildJsonObject { putJsonObject("google_search") {} })
             }
         }
         put("stream", streamingEnabled)
@@ -89,21 +86,10 @@ internal fun buildGroqCompoundDebugPayload(
 }
 
 internal fun buildOpenAiCompatibleDebugPayload(
+    provider: PresetModelProvider,
     fullName: String,
     prompt: String,
     inputText: String,
 ): String {
-    val payload = buildJsonObject {
-        put("model", fullName)
-        putJsonArray("messages") {
-            add(
-                buildJsonObject {
-                    put("role", "user")
-                    put("content", "$prompt\n\n$inputText")
-                },
-            )
-        }
-        put("stream", true)
-    }
-    return debugJson.encodeToString(JsonObject.serializer(), payload)
+    return openAiPayload(provider, fullName, prompt, inputText).toString()
 }

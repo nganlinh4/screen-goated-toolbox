@@ -63,9 +63,8 @@ where
     let resp = crate::api::client::with_request_timeout(request, request_timeout)
         .send_json(payload)
         .map_err(|error| anyhow::anyhow!("Groq transport error: {error}"))?;
-    let resp = require_success(resp)?;
-
     record_usage_simple(resp.headers(), model);
+    let resp = require_success(resp)?;
 
     let json: serde_json::Value = resp
         .into_body()
@@ -229,7 +228,7 @@ pub(super) fn translate_groq_standard<F>(
 where
     F: FnMut(&str),
 {
-    let payload = if transport.streaming_enabled {
+    let mut payload = if transport.streaming_enabled {
         serde_json::json!({
             "model": model,
             "messages": [
@@ -261,6 +260,7 @@ where
 
         payload_obj
     };
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", model);
 
     let request = UREQ_RESPONSE_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")
@@ -268,9 +268,8 @@ where
     let resp = crate::api::client::with_request_timeout(request, transport.request_timeout)
         .send_json(payload)
         .map_err(|error| anyhow::anyhow!("Groq transport error: {error}"))?;
-    let resp = require_success(resp)?;
-
     record_usage_simple(resp.headers(), model);
+    let resp = require_success(resp)?;
 
     let mut full_content = String::new();
 

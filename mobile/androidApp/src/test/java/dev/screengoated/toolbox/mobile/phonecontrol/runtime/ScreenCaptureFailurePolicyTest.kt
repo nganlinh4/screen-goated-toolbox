@@ -44,5 +44,9 @@ class ScreenCaptureFailurePolicyTest {
         assertEquals("projection_only", screenCaptureRoute("media_projection", false))
         assertEquals("whole_display", screenCaptureRoute("media_projection", true))
         assertEquals("semantic_visual", screenCaptureRoute("accessibility", true))
+        assertEquals(
+            "window_lease_free",
+            screenCaptureRoute("accessibility_window_lease_free", false),
+        )
     }
 }

@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility
 
-import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -19,29 +18,6 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
-internal sealed interface AccessibilityProviderResult<out T> {
-    data class Success<T>(val value: T) : AccessibilityProviderResult<T>
-
-    data class Failure(
-        val code: String,
-        val message: String,
-        val retryable: Boolean,
-        val freshObservationRequired: Boolean = false,
-        val effect: EffectCertainty = EffectCertainty.PROVEN_NO_EFFECT,
-        val requiredUserStep: String? = null,
-    ) : AccessibilityProviderResult<Nothing>
-}
-
-internal data class AccessibilityScreenshot(
-    val generation: Long,
-    val visualRevision: Long,
-    val capturedAtMs: Long,
-    val bitmap: Bitmap,
-    val captureBounds: TargetBounds,
-    val windowId: Long?,
-    val captureProvider: String = "accessibility",
-)
-
 internal object PhoneControlAccessibilityProvider {
     private val generation = AtomicLong(1L)
     private val visualRevision = AtomicLong(1L)
@@ -50,6 +26,7 @@ internal object PhoneControlAccessibilityProvider {
     private val loggedWindowCapture = AtomicBoolean(false)
     private val loggedDisplayCapture = AtomicBoolean(false)
     private val loggedInvalidWindowFallback = AtomicBoolean(false)
+    private val knownControllerWindowIds = linkedSetOf<Int>()
 
     @Volatile
     private var service: SgtAccessibilityService? = null
@@ -73,6 +50,7 @@ internal object PhoneControlAccessibilityProvider {
 
     fun attach(candidate: SgtAccessibilityService) {
         AccessibilityWindowAttribution.clear()
+        synchronized(lock) { knownControllerWindowIds.clear() }
         service = candidate
         invalidate("service_connected")
     }
@@ -80,6 +58,7 @@ internal object PhoneControlAccessibilityProvider {
     fun detach(candidate: SgtAccessibilityService) {
         if (service === candidate) {
             AccessibilityWindowAttribution.clear()
+            synchronized(lock) { knownControllerWindowIds.clear() }
             service = null
             invalidate("service_destroyed")
         }
@@ -90,17 +69,25 @@ internal object PhoneControlAccessibilityProvider {
         event: AccessibilityEvent?,
     ) {
         if (service !== candidate || event == null) return
-        val impact = accessibilityInvalidationImpact(event.eventType, event.contentChangeTypes)
+        val impact = accessibilityInvalidationImpact(
+            event.eventType,
+            event.contentChangeTypes,
+            event.windowChanges,
+        )
         val sourcePackage = event.packageName?.toString()?.takeIf(String::isNotBlank)
         val source = sourcePackage ?: "unknown"
-        val windows = synchronized(lock) {
-            latestCapture?.observation?.windows.orEmpty()
+        val eventContext = synchronized(lock) {
+            ControllerEventContext(
+                windows = latestCapture?.observation?.windows.orEmpty(),
+                knownWindowIds = knownControllerWindowIds.toSet(),
+            )
         }
         if (shouldIgnoreControllerOverlayEvent(
                 eventWindowId = event.windowId,
-                eventPackage = source,
+                eventPackage = sourcePackage,
                 servicePackage = candidate.packageName,
-                windows = windows,
+                windows = eventContext.windows,
+                knownControllerWindowIds = eventContext.knownWindowIds,
                 controllerTransitionActive = PhoneControlOverlayExclusion.controllerTransitionActive,
             )
         ) {
@@ -114,6 +101,7 @@ internal object PhoneControlAccessibilityProvider {
             impact = impact,
             eventType = event.eventType,
             contentChangeTypes = event.contentChangeTypes,
+            windowChanges = event.windowChanges,
             windowId = event.windowId,
             sourcePackage = source,
             generation = observationGeneration,
@@ -161,7 +149,19 @@ internal object PhoneControlAccessibilityProvider {
                     latestCapture = capture
                 }
             }
+            rememberControllerWindows(capture.observation.windows)
             AccessibilityProviderResult.Success(capture.observation)
+        }
+    }
+
+    private fun rememberControllerWindows(windows: List<AccessibilityWindowSnapshot>) {
+        synchronized(lock) {
+            knownControllerWindowIds.clear()
+            windows.asSequence()
+                .filter { window ->
+                    window.controllerOwned && !isApplicationContentWindowType(window.type)
+                }
+                .mapTo(knownControllerWindowIds, AccessibilityWindowSnapshot::id)
         }
     }
 
@@ -280,6 +280,31 @@ internal object PhoneControlAccessibilityProvider {
             }
         } else {
             captureDisplayScreenshot(activeService)
+        }
+    }
+
+    internal suspend fun screenshotWindowOnly(
+        windowId: Long,
+        windowBounds: TargetBounds,
+    ): AccessibilityProviderResult<AccessibilityScreenshot> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            return AccessibilityProviderResult.Failure(
+                code = "window_screenshot_unsupported",
+                message = "Window-scoped screenshots require Android 14 or newer.",
+                retryable = false,
+            )
+        }
+        val activeService = service ?: return unavailable()
+        if (windowId !in Int.MIN_VALUE..Int.MAX_VALUE) {
+            return AccessibilityProviderResult.Failure(
+                code = INVALID_WINDOW_SCREENSHOT_CODE,
+                message = "The current window id is outside the platform range.",
+                retryable = true,
+                freshObservationRequired = true,
+            )
+        }
+        return captureScreenshot(windowBounds, windowId) { callback ->
+            activeService.captureWindowScreenshot(windowId.toInt(), callback)
         }
     }
 
@@ -532,32 +557,7 @@ internal fun visualRevisionFailure(
     )
 }
 
-internal fun isKnownControllerOverlayEvent(
-    eventWindowId: Int,
-    eventPackage: String?,
-    servicePackage: String,
-    windows: List<AccessibilityWindowSnapshot>,
-): Boolean {
-    if (eventWindowId < 0 || eventPackage != servicePackage) return false
-    return windows.any { window ->
-        window.id == eventWindowId &&
-            window.packageName == servicePackage &&
-            window.controllerOwned &&
-            !isApplicationContentWindowType(window.type)
-    }
-}
-
-internal fun shouldIgnoreControllerOverlayEvent(
-    eventWindowId: Int,
-    eventPackage: String?,
-    servicePackage: String,
-    windows: List<AccessibilityWindowSnapshot>,
-    controllerTransitionActive: Boolean,
-): Boolean {
-    if (isKnownControllerOverlayEvent(eventWindowId, eventPackage, servicePackage, windows)) {
-        return true
-    }
-    return controllerTransitionActive &&
-        eventWindowId < 0 &&
-        eventPackage == servicePackage
-}
+private data class ControllerEventContext(
+    val windows: List<AccessibilityWindowSnapshot>,
+    val knownWindowIds: Set<Int>,
+)

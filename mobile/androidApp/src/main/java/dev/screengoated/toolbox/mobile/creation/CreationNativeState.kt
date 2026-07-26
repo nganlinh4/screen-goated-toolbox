@@ -66,3 +66,36 @@ internal fun CreationNativeStage.isTerminal(): Boolean = this in setOf(
 
 internal fun CreationNativeItem.isConfigurable(): Boolean =
     (!submitted && stage == CreationNativeStage.DRAFT) || stage.isTerminal()
+
+internal fun CreationNativeUiState.submitSelectedItem(): CreationNativeUiState {
+    val selected = selectedItem ?: return this
+    if (selected.stage == CreationNativeStage.RUNNING ||
+        selected.submitted && !selected.stage.isTerminal()
+    ) {
+        return this
+    }
+    return copy(
+        items = items.map { item ->
+            if (item.id == selected.id) {
+                item.copy(
+                    submitted = true,
+                    stage = CreationNativeStage.QUEUED,
+                    status = null,
+                    depthPreviewPath = null,
+                )
+            } else {
+                item
+            }
+        },
+        transientError = null,
+    )
+}
+
+internal fun CreationNativeUiState.cancelActiveItems(): CreationNativeUiState = copy(
+    items = items.map { item ->
+        if (item.stage == CreationNativeStage.QUEUED ||
+            item.stage == CreationNativeStage.RUNNING
+        ) item.copy(stage = CreationNativeStage.CANCELLED, submitted = true)
+        else item
+    },
+)

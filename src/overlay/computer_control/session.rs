@@ -2,9 +2,7 @@
 //! probe: API-key loading, WebSocket connect (endpoint version overridable via
 //! `CC_WS_BASE`), JSON send, and screenshot capture.
 
-use std::io::Cursor;
-
-use anyhow::{Context, Result};
+use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
 use tungstenite::Message;
 
@@ -81,7 +79,7 @@ pub(super) fn capture_frame_jpeg() -> Result<(Vec<u8>, FrameGeometry)> {
         frame_w: dynimg.width(),
         frame_h: dynimg.height(),
     };
-    Ok((encode_jpeg(&dynimg)?, geom))
+    Ok((super::vision_contract::encode_jpeg(&dynimg)?, geom))
 }
 
 /// The whole virtual screen as RGB, with its top-left origin in screen pixels.
@@ -330,14 +328,10 @@ pub(super) fn encode_view(
     };
     let sub =
         image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
-    let mut dynimg = image::DynamicImage::ImageRgb8(sub);
-    let short = dynimg.width().min(dynimg.height());
-    if short > max_short {
-        let scale = max_short as f32 / short as f32;
-        let nw = (dynimg.width() as f32 * scale).round().max(1.0) as u32;
-        let nh = (dynimg.height() as f32 * scale).round().max(1.0) as u32;
-        dynimg = dynimg.resize(nw, nh, image::imageops::FilterType::Triangle);
-    }
+    let dynimg = super::vision_contract::resize_to_short_edge(
+        image::DynamicImage::ImageRgb8(sub),
+        max_short,
+    );
     let mut rgb = dynimg.to_rgb8();
     if let Some(g) = grid {
         g.draw(&mut rgb);
@@ -364,7 +358,10 @@ pub(super) fn encode_view(
             super::grid::draw_click_marker(&mut rgb, fx, fy);
         }
     }
-    Ok((encode_jpeg(&image::DynamicImage::ImageRgb8(rgb))?, clamped))
+    Ok((
+        super::vision_contract::encode_jpeg(&image::DynamicImage::ImageRgb8(rgb))?,
+        clamped,
+    ))
 }
 
 /// A tiny 32x32 grayscale fingerprint of the CLEAN view region (no grid/marker
@@ -422,13 +419,6 @@ pub(super) fn fingerprint_change(a: &[u8], b: &[u8]) -> u32 {
         .zip(b)
         .filter(|(x, y)| x.abs_diff(**y) > 24)
         .count() as u32
-}
-
-fn encode_jpeg(img: &image::DynamicImage) -> Result<Vec<u8>> {
-    let mut buf = Cursor::new(Vec::new());
-    img.write_to(&mut buf, image::ImageFormat::Jpeg)
-        .context("jpeg encode")?;
-    Ok(buf.into_inner())
 }
 
 #[cfg(test)]

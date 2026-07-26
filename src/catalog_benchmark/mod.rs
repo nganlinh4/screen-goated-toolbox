@@ -1,8 +1,11 @@
+mod history;
 mod manifest;
+mod reasoning;
 mod report;
 mod runner;
 mod scoring;
 mod setup;
+mod transport_probe;
 
 #[test]
 fn catalog_benchmark_fixtures_are_valid() {
@@ -38,4 +41,30 @@ fn catalog_benchmark_merge_reports() {
         .map(std::path::PathBuf::from)
         .expect("set CATALOG_BENCH_OUTPUT for the merged report");
     report::merge_reports(&inputs, &output).expect("merge catalog benchmark reports");
+}
+
+#[test]
+#[ignore = "reads completed local benchmark runs without calling providers"]
+fn catalog_benchmark_refresh_latest_history() {
+    history::refresh_current_history().expect("refresh latest benchmark history");
+}
+
+#[test]
+#[ignore = "requires CATALOG_BENCH_REGISTER_OUTPUT for one complete logical live run"]
+fn catalog_benchmark_register_history_run() {
+    let output = std::env::var_os("CATALOG_BENCH_REGISTER_OUTPUT")
+        .map(std::path::PathBuf::from)
+        .expect("set CATALOG_BENCH_REGISTER_OUTPUT to a complete live run directory");
+    history::register_existing_live_run(&output).expect("register existing live benchmark run");
+}
+
+#[test]
+#[ignore = "requires CATALOG_BENCH_TRANSPORT_PROBE=1 and a real Gemini credential"]
+fn catalog_benchmark_transport_probe() {
+    assert_eq!(
+        std::env::var("CATALOG_BENCH_TRANSPORT_PROBE").as_deref(),
+        Ok("1"),
+        "set CATALOG_BENCH_TRANSPORT_PROBE=1 for the non-history transport experiment"
+    );
+    transport_probe::run().expect("run catalog benchmark transport probe");
 }

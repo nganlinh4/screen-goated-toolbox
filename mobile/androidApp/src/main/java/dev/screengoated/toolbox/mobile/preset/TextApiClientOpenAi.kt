@@ -38,7 +38,11 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
-        .post(openAiPayload(model.fullName, prompt, inputText).toString().toRequestBody(jsonMediaType))
+        .post(
+            openAiPayload(model.provider, model.fullName, prompt, inputText)
+                .toString()
+                .toRequestBody(jsonMediaType),
+        )
         .build()
 
     val fullContent = StringBuilder()
@@ -48,18 +52,12 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
         (model.fullName.contains("gpt-oss") || model.fullName.contains("zai-glm"))
 
     httpClient.newCall(request).execute().use { response ->
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
             throw IOException("$providerName request failed with $code")
         }
-
-        // Capture rate limit headers
-        val rlRemaining = response.header("x-ratelimit-remaining-requests")
-            ?: response.header("x-ratelimit-remaining-requests-day")
-        val rlLimit = response.header("x-ratelimit-limit-requests")
-            ?: response.header("x-ratelimit-limit-requests-day")
-        ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
 
         val body = response.body
         body.charStream().buffered().useLines { lines ->
@@ -132,6 +130,7 @@ internal suspend fun TextApiClient.streamCerebras(
     val reasoningFallback = model.fullName.contains("gpt-oss") || model.fullName.contains("zai-glm")
 
     httpClient.newCall(request).execute().use { response ->
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             val errorBody = response.body.string().orEmpty()
@@ -142,8 +141,6 @@ internal suspend fun TextApiClient.streamCerebras(
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("cerebras"))
             throw IOException("Cerebras request failed with $code")
         }
-        ModelUsageStats.updateCerebras(model.fullName, response.headers)
-
         val body = response.body
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
@@ -241,6 +238,7 @@ internal fun TextApiClient.runGroqCompound(
         .build()
 
     httpClient.newCall(request).execute().use { response ->
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("groq"))
@@ -287,21 +285,20 @@ private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
-        .post(openAiPayload(model.fullName, prompt, inputText, stream = false).toString().toRequestBody(jsonMediaType))
+        .post(
+            openAiPayload(model.provider, model.fullName, prompt, inputText, stream = false)
+                .toString()
+                .toRequestBody(jsonMediaType),
+        )
         .build()
 
     httpClient.newCall(request).execute().use { response ->
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
             throw IOException("$providerName request failed with $code")
         }
-
-        val rlRemaining = response.header("x-ratelimit-remaining-requests")
-            ?: response.header("x-ratelimit-remaining-requests-day")
-        val rlLimit = response.header("x-ratelimit-limit-requests")
-            ?: response.header("x-ratelimit-limit-requests-day")
-        ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
 
         val content = try {
             JSONObject(response.body.string().orEmpty())
@@ -347,6 +344,7 @@ private suspend fun TextApiClient.generateCerebrasBlocking(
     val request = requestBuilder.build()
 
     httpClient.newCall(request).execute().use { response ->
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             val errorBody = response.body.string().orEmpty()
@@ -357,8 +355,6 @@ private suspend fun TextApiClient.generateCerebrasBlocking(
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("cerebras"))
             throw IOException("Cerebras request failed with $code")
         }
-        ModelUsageStats.updateCerebras(model.fullName, response.headers)
-
         val content = try {
             JSONObject(response.body.string().orEmpty())
                 .optJSONArray("choices")

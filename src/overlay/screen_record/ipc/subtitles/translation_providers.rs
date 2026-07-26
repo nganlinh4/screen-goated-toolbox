@@ -1,9 +1,10 @@
-use crate::api::client::{UREQ_AGENT, record_groq_json_usage};
+use crate::api::client::UREQ_AGENT;
 use crate::api::gemini_live::{GeminiLiveGenerateRequest, gemini_live_generate};
 use crate::api::ollama::ollama_generate_text;
 use crate::config::Config;
 use crate::model_config::ModelConfig;
 
+use super::translation_openai::post_openai_compat_chat;
 use super::types::{SubtitleTranslationItemRequest, SubtitleTranslationResultItem};
 
 #[derive(Clone, Debug)]
@@ -57,7 +58,7 @@ pub fn translate_subtitle_chunk(
             &user_payload,
             history,
         )?,
-        "cerebras" => translate_with_cerebras(
+        "cerebras" => translate_with_hosted_openai(
             config,
             model,
             target_language,
@@ -81,7 +82,7 @@ pub fn translate_subtitle_chunk(
             &user_payload,
             history,
         )?,
-        _ => translate_with_groq(
+        "groq" => translate_with_groq(
             config,
             model,
             target_language,
@@ -89,6 +90,11 @@ pub fn translate_subtitle_chunk(
             &user_payload,
             history,
         )?,
+        provider => {
+            return Err(format!(
+                "Unsupported subtitle translation provider: {provider}"
+            ));
+        }
     };
     let validated = validate_translation_payload(&assistant_payload, items)?;
     Ok(ValidatedSubtitleTranslationResponse {
@@ -299,7 +305,7 @@ fn translate_with_google(
         "parts": [{ "text": user_payload }],
     }));
 
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "systemInstruction": {
             "parts": [{ "text": build_system_instruction(target_language, instructions) }]
         },
@@ -308,6 +314,9 @@ fn translate_with_google(
             "responseMimeType": "application/json"
         }
     });
+    if let Some(thinking_config) = crate::api::gemini_thinking_config(&model.full_name) {
+        payload["generationConfig"]["thinkingConfig"] = thinking_config;
+    }
 
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
@@ -339,43 +348,6 @@ fn translate_with_google(
     Ok(json_text)
 }
 
-/// POST a prepared OpenAI-compatible chat payload and extract
-/// `choices[0].message.content`. `label` names the provider in error messages,
-/// `extra_headers` carries per-provider headers beyond `Authorization`.
-fn post_openai_compat_chat(
-    url: &str,
-    api_key: &str,
-    label: &str,
-    payload: serde_json::Value,
-    extra_headers: &[(&str, &str)],
-    groq_stats_key: Option<&str>,
-) -> Result<String, String> {
-    let mut request = UREQ_AGENT
-        .post(url)
-        .header("Authorization", &format!("Bearer {api_key}"));
-    for (name, value) in extra_headers {
-        request = request.header(*name, *value);
-    }
-    let response = request
-        .send_json(payload)
-        .map_err(|error| format!("{label} subtitle translation failed: {error}"))?;
-    let root: serde_json::Value = response
-        .into_body()
-        .read_json()
-        .map_err(|error| format!("{label} subtitle translation JSON failed: {error}"))?;
-    if let Some(stats_key) = groq_stats_key {
-        record_groq_json_usage(stats_key, &root);
-    }
-    root.get("choices")
-        .and_then(|value| value.as_array())
-        .and_then(|items| items.first())
-        .and_then(|value| value.get("message"))
-        .and_then(|value| value.get("content"))
-        .and_then(|value| value.as_str())
-        .map(ToString::to_string)
-        .ok_or_else(|| format!("{label} subtitle translation returned no content"))
-}
-
 fn translate_with_groq(
     config: &Config,
     model: &ModelConfig,
@@ -388,7 +360,7 @@ fn translate_with_groq(
         return Err("NO_API_KEY:groq".to_string());
     }
     let schema = cerebras_response_format()["json_schema"]["schema"].clone();
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "model": model.full_name,
         "messages": build_chat_messages(target_language, instructions, user_payload, history),
         "stream": false,
@@ -398,13 +370,14 @@ fn translate_with_groq(
             schema,
         ),
     });
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", &model.full_name);
     post_openai_compat_chat(
         "https://api.groq.com/openai/v1/chat/completions",
         &config.api_key,
         "Groq",
         payload,
         &[],
-        Some(&model.full_name),
+        Some(("groq", &model.full_name)),
     )
 }
 
@@ -437,7 +410,7 @@ fn cerebras_response_format() -> serde_json::Value {
     })
 }
 
-fn translate_with_cerebras(
+fn translate_with_hosted_openai(
     config: &Config,
     model: &ModelConfig,
     target_language: &str,
@@ -445,22 +418,36 @@ fn translate_with_cerebras(
     user_payload: &str,
     history: &[TranslationConversationTurn],
 ) -> Result<String, String> {
-    if config.cerebras_api_key.trim().is_empty() {
-        return Err("NO_API_KEY:cerebras".to_string());
+    let (endpoint, api_key, label) = match model.provider.as_str() {
+        "cerebras" => (
+            "https://api.cerebras.ai/v1/chat/completions",
+            &config.cerebras_api_key,
+            "Cerebras",
+        ),
+        provider => return Err(format!("Unsupported hosted provider: {provider}")),
+    };
+    if api_key.trim().is_empty() {
+        return Err(format!("NO_API_KEY:{}", model.provider));
     }
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "model": model.full_name,
         "messages": build_chat_messages(target_language, instructions, user_payload, history),
         "stream": false,
+        "max_completion_tokens": 8192,
         "response_format": cerebras_response_format(),
     });
+    crate::api::apply_ordinary_openai_reasoning_policy(
+        &mut payload,
+        &model.provider,
+        &model.full_name,
+    );
     post_openai_compat_chat(
-        "https://api.cerebras.ai/v1/chat/completions",
-        &config.cerebras_api_key,
-        "Cerebras",
+        endpoint,
+        api_key,
+        label,
         payload,
         &[("Content-Type", "application/json")],
-        None,
+        Some((&model.provider, &model.full_name)),
     )
 }
 
@@ -475,12 +462,22 @@ fn translate_with_openrouter(
     if config.openrouter_api_key.trim().is_empty() {
         return Err("NO_API_KEY:openrouter".to_string());
     }
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "model": model.full_name,
         "messages": build_chat_messages(target_language, instructions, user_payload, history),
         "stream": false,
-        "response_format": { "type": "json_object" },
     });
+    let structured_output =
+        crate::model_config::vision_request_profile("openrouter", &model.full_name)
+            .structured_output;
+    if matches!(
+        structured_output,
+        crate::model_config::StructuredOutputPolicy::JsonObject
+            | crate::model_config::StructuredOutputPolicy::StrictJsonSchema
+    ) {
+        payload["response_format"] = serde_json::json!({ "type": "json_object" });
+    }
+    crate::api::apply_ordinary_openrouter_reasoning_policy(&mut payload, &model.full_name);
     post_openai_compat_chat(
         "https://openrouter.ai/api/v1/chat/completions",
         &config.openrouter_api_key,
@@ -490,7 +487,7 @@ fn translate_with_openrouter(
             ("HTTP-Referer", "https://screen-goated-toolbox.local"),
             ("X-Title", "Screen Goated Toolbox"),
         ],
-        None,
+        Some(("openrouter", &model.full_name)),
     )
 }
 

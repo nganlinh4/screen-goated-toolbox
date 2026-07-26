@@ -3,8 +3,6 @@ package dev.screengoated.toolbox.mobile.creation
 import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import java.io.File
 import java.util.UUID
@@ -31,6 +29,7 @@ internal class CreationNativeViewModel(
 ) : AndroidViewModel(application) {
     private val manager = CreationJobManager.get(application)
     private val depthPreviewManager = DepthPreviewModelManager.get(application)
+    private val lifetime = CreationMiniAppLifetime()
     private val schedulerMutex = Mutex()
     private val monitors = ConcurrentHashMap<String, Job>()
     private val depthPreviewJobs = ConcurrentHashMap<String, Job>()
@@ -186,30 +185,7 @@ internal class CreationNativeViewModel(
             showError(IllegalArgumentException("Describe the image you want to create"))
             return
         }
-        mutableState.update { current ->
-            val ids = if (
-                tool != CreationTool.IMAGE_CREATOR &&
-                !selected.submitted &&
-                selected.stage == CreationNativeStage.DRAFT
-            ) {
-                current.items.filter { it.batchId == selected.batchId && !it.submitted }.map { it.id }.toSet()
-            } else {
-                setOf(selected.id)
-            }
-            current.copy(
-                items = current.items.map { item ->
-                    if (item.id in ids) {
-                        item.copy(
-                            submitted = true,
-                            stage = CreationNativeStage.QUEUED,
-                            status = null,
-                            depthPreviewPath = null,
-                        )
-                    } else item
-                },
-                transientError = null,
-            )
-        }
+        mutableState.update(CreationNativeUiState::submitSelectedItem)
         schedule()
     }
 
@@ -224,6 +200,17 @@ internal class CreationNativeViewModel(
             it.copy(stage = CreationNativeStage.CANCELLED, submitted = true)
         }
         schedule()
+    }
+
+    fun closeMiniApp() {
+        lifetime.close {
+            monitors.values.forEach(Job::cancel)
+            monitors.clear()
+            depthPreviewJobs.values.forEach(Job::cancel)
+            depthPreviewJobs.clear()
+            mutableState.update(CreationNativeUiState::cancelActiveItems)
+            manager.cancel(tool, null)
+        }
     }
 
     fun segmentSelected() {
@@ -348,6 +335,7 @@ internal class CreationNativeViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             schedulerMutex.withLock {
                 while (
+                    !lifetime.isClosed &&
                     mutableState.value.runningCount < CreationContract.maximumParallelJobs(tool)
                 ) {
                     val next = mutableState.value.items.firstOrNull {
@@ -381,7 +369,10 @@ internal class CreationNativeViewModel(
                             put("prompt", it.trim())
                         }
                     }
-                    val status = runCatching { manager.startJob(tool, args) }.getOrElse { error ->
+                    val attempt = lifetime.computeIfOpen {
+                        runCatching { manager.startJob(tool, args) }
+                    } ?: break
+                    val status = attempt.getOrElse { error ->
                         if (error.message.orEmpty().contains("busy", ignoreCase = true)) {
                             viewModelScope.launch {
                                 delay(1_000)
@@ -412,16 +403,20 @@ internal class CreationNativeViewModel(
                         }
                         continue
                     }
-                    updateItem(next.id) {
-                        it.copy(
-                            stage = CreationNativeStage.RUNNING,
-                            status = status,
-                            generationMode = status.generationMode ?: routed.generationMode,
-                            autoSegment = status.autoSegment ?: routed.autoSegment,
-                        )
+                    val published = lifetime.computeIfOpen {
+                        updateItem(next.id) {
+                            it.copy(
+                                stage = CreationNativeStage.RUNNING,
+                                status = status,
+                                generationMode = status.generationMode ?: routed.generationMode,
+                                autoSegment = status.autoSegment ?: routed.autoSegment,
+                            )
+                        }
+                        if (tool != CreationTool.IMAGE_CREATOR) startDepthPreview(next.id)
+                        monitor(next.id, status)
+                        true
                     }
-                    if (tool != CreationTool.IMAGE_CREATOR) startDepthPreview(next.id)
-                    monitor(next.id, status)
+                    if (published == null) break
                 }
             }
         }
@@ -429,10 +424,13 @@ internal class CreationNativeViewModel(
 
     private fun monitor(itemId: String, initial: CreationJobStatus) {
         val jobId = initial.jobId ?: return
+        if (lifetime.isClosed) return
         monitors.remove(jobId)?.cancel()
         monitors[jobId] = viewModelScope.launch(Dispatchers.IO) {
             var status = initial
-            while (status.toNativeStage() == CreationNativeStage.RUNNING) {
+            while (!lifetime.isClosed &&
+                status.toNativeStage() == CreationNativeStage.RUNNING
+            ) {
                 delay(1_000)
                 status = manager.status(tool, jobId)
                 updateItem(itemId) {
@@ -539,6 +537,7 @@ internal class CreationNativeViewModel(
     }
 
     private fun updateItem(id: String, transform: (CreationNativeItem) -> CreationNativeItem) {
+        if (lifetime.isClosed) return
         mutableState.update { current ->
             current.copy(items = current.items.map { if (it.id == id) transform(it) else it })
         }
@@ -563,15 +562,12 @@ internal class CreationNativeViewModel(
     }
 
     private fun showError(error: Throwable) {
+        if (lifetime.isClosed) return
         mutableState.update { it.copy(transientError = error.message ?: "Creation failed") }
     }
 
-    internal class Factory(
-        private val application: Application,
-        private val tool: CreationTool,
-    ) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            CreationNativeViewModel(application, tool) as T
+    override fun onCleared() {
+        closeMiniApp()
+        super.onCleared()
     }
 }

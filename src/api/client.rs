@@ -61,29 +61,27 @@ pub fn is_auth_error(e: &ureq::Error) -> bool {
     matches!(e, ureq::Error::StatusCode(401 | 403))
 }
 
-/// Read a response header as a `&str`, if present and valid UTF-8.
-fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers.get(name).and_then(|v| v.to_str().ok())
-}
-
-/// Store a `remaining / limit` usage string for `stats_key` in the shared app state.
-fn store_usage(stats_key: &str, usage_str: String) {
-    if let Ok(mut app) = APP.lock() {
-        app.model_usage_stats
-            .insert(stats_key.to_string(), usage_str);
-    }
-}
-
-/// Record model usage from the common Groq/Whisper rate-limit headers.
+/// Capture the provider's latest typed rate-limit snapshot for one API endpoint.
 ///
-/// Reads `x-ratelimit-remaining-requests` and (when present)
-/// `x-ratelimit-limit-requests`. Only updates the store when the remaining
-/// header is present; a missing limit header falls back to `"?"`.
-pub fn record_usage_simple(headers: &HeaderMap, stats_key: &str) {
-    if let Some(remaining) = header_str(headers, "x-ratelimit-remaining-requests") {
-        let limit = header_str(headers, "x-ratelimit-limit-requests").unwrap_or("?");
-        store_usage(stats_key, format!("{} / {}", remaining, limit));
+/// Call this before converting an exposed HTTP error response into an error so
+/// useful 429 headers are retained. Providers with shared quota scopes are
+/// normalized by `usage_key_for_response`.
+pub fn record_usage_headers(provider: &str, full_name: &str, headers: &HeaderMap) {
+    let Some(snapshot) = crate::usage_stats::snapshot_from_headers(
+        provider,
+        headers,
+        crate::usage_stats::now_unix_seconds(),
+    ) else {
+        return;
+    };
+    let key = crate::usage_stats::usage_key_for_response(provider, full_name);
+    if let Ok(mut app) = APP.lock() {
+        app.model_usage_stats.insert(key, snapshot);
     }
+}
+
+pub fn record_usage_simple(headers: &HeaderMap, stats_key: &str) {
+    record_usage_headers("groq", stats_key, headers);
 }
 
 /// Log Groq's automatic prompt-cache contribution without changing quota UI.
@@ -118,40 +116,7 @@ pub fn record_groq_json_usage(stats_key: &str, root: &serde_json::Value) {
 /// model catalog's `quota_limit_en` value. The store is updated whenever
 /// either remaining or limit is known.
 pub fn record_usage_cerebras(headers: &HeaderMap, stats_key: &str) {
-    let remaining = header_str(headers, "x-ratelimit-remaining-requests-day")
-        .or_else(|| header_str(headers, "x-ratelimit-remaining-requests"))
-        .unwrap_or("?");
-
-    let mut limit = header_str(headers, "x-ratelimit-limit-requests-day")
-        .or_else(|| header_str(headers, "x-ratelimit-limit-requests"))
-        .unwrap_or("?")
-        .to_string();
-
-    if limit == "?"
-        && let Some(conf) = crate::model_config::get_model_by_id(stats_key)
-        && let Some(val) = conf.quota_limit_en.split_whitespace().next()
-    {
-        limit = val.to_string();
-    }
-
-    let token_remaining = header_str(headers, "x-ratelimit-remaining-tokens-minute");
-    let token_limit = header_str(headers, "x-ratelimit-limit-tokens-minute");
-    let token_reset = header_str(headers, "x-ratelimit-reset-tokens-minute");
-
-    if remaining != "?" || limit != "?" || token_remaining.is_some() {
-        let mut usage = format!("day {} / {}", remaining, limit);
-        if let Some(value) = token_remaining {
-            usage.push_str(&format!(
-                " · TPM {} / {}",
-                value,
-                token_limit.unwrap_or("?")
-            ));
-        }
-        if let Some(value) = token_reset {
-            usage.push_str(&format!(" · reset {}", value));
-        }
-        store_usage(stats_key, usage);
-    }
+    record_usage_headers("cerebras", stats_key, headers);
 }
 
 /// Log Cerebras automatic prompt-cache and predicted-output contribution.
@@ -176,17 +141,5 @@ pub fn record_cerebras_json_usage(stats_key: &str, root: &serde_json::Value) {
             accepted,
             rejected
         );
-    }
-}
-
-/// Record model usage from the realtime-audio token rate-limit headers.
-///
-/// Reads `x-ratelimit-remaining-requests-tokens` and (when present)
-/// `x-ratelimit-limit-tokens`. Only updates the store when the remaining
-/// header is present; a missing limit header falls back to `"?"`.
-pub fn record_usage_tokens(headers: &HeaderMap, stats_key: &str) {
-    if let Some(remaining) = header_str(headers, "x-ratelimit-remaining-requests-tokens") {
-        let limit = header_str(headers, "x-ratelimit-limit-tokens").unwrap_or("?");
-        store_usage(stats_key, format!("{} / {}", remaining, limit));
     }
 }

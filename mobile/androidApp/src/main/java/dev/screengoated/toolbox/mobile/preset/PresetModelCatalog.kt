@@ -30,6 +30,37 @@ enum class PresetModelSource {
     DISCOVERED,
 }
 
+enum class PresetReasoningPolicy {
+    NOT_APPLICABLE,
+    GEMINI_DISABLED,
+    GEMINI_MINIMAL,
+    OPENAI_NONE,
+    OPENAI_LOW,
+    PROVIDER_MANAGED,
+    LIVE_PROFILE,
+}
+
+enum class PresetVisionInputOrder {
+    TEXT_FIRST,
+    IMAGE_FIRST,
+}
+
+enum class PresetVisionMediaResolution {
+    PROVIDER_DEFAULT,
+}
+
+enum class PresetVisionSamplingPolicy {
+    PROVIDER_DEFAULT,
+    QWEN3_GROQ_NON_THINKING,
+}
+
+enum class PresetStructuredOutputPolicy {
+    UNSUPPORTED,
+    PROMPT_ONLY,
+    JSON_OBJECT,
+    STRICT_JSON_SCHEMA,
+}
+
 @Serializable
 data class CustomPresetModelDefinition(
     val id: String,
@@ -58,7 +89,17 @@ data class PresetModelDescriptor(
     val quotaKo: String = "",
     val source: PresetModelSource = PresetModelSource.BUILT_IN,
     val supportsSearchOverride: Boolean? = null,
-    val qualityTier: Int? = null,
+    val searchToolEnabledByDefault: Boolean = false,
+    val reasoningPolicy: PresetReasoningPolicy = PresetReasoningPolicy.NOT_APPLICABLE,
+    val visionInputOrder: PresetVisionInputOrder = PresetVisionInputOrder.TEXT_FIRST,
+    val visionMediaResolution: PresetVisionMediaResolution =
+        PresetVisionMediaResolution.PROVIDER_DEFAULT,
+    val visionSamplingPolicy: PresetVisionSamplingPolicy =
+        PresetVisionSamplingPolicy.PROVIDER_DEFAULT,
+    val visionMaxOutputTokens: Int? = null,
+    val structuredOutputPolicy: PresetStructuredOutputPolicy =
+        PresetStructuredOutputPolicy.UNSUPPORTED,
+    val intelligenceTier: Int? = null,
     val typicalLatencyMs: Int? = null,
     val performanceSource: String? = null,
 ) {
@@ -111,8 +152,10 @@ object PresetModelCatalog {
     private val builtInModels: List<PresetModelDescriptor> = GeneratedPresetModelCatalogData.models
     private val allModels: List<PresetModelDescriptor>
         get() = builtInModels + PresetCustomModelRegistry.descriptors()
-    val models: List<PresetModelDescriptor>
+    private val selectableModels: List<PresetModelDescriptor>
         get() = allModels.filter { it.provider != PresetModelProvider.PARAKEET }
+    val models: List<PresetModelDescriptor>
+        get() = selectableModels.sortedWith(displayComparator)
 
     private val byId: Map<String, PresetModelDescriptor>
         get() = allModels.associateBy { it.id }
@@ -132,45 +175,68 @@ object PresetModelCatalog {
     }
 
     fun dialogModels(): List<PresetModelDescriptor> = models
+    fun runtimeModels(): List<PresetModelDescriptor> = selectableModels
 
     fun isNonLlm(id: String): Boolean = getById(id)?.isNonLlm == true
 
     fun supportsSearchById(id: String): Boolean = getById(id)?.let {
-        it.supportsSearchOverride ?: supportsSearchByName(it.fullName)
+        it.supportsSearchOverride ?: false
     } ?: false
 
-    fun supportsSearchByName(fullName: String): Boolean {
-        if (fullName in GeneratedPresetModelCatalogData.searchDisabledFullNames) {
-            return false
-        }
-        if (fullName.contains("gemini")) {
-            return true
-        }
-        if (fullName.contains("gemma")) {
-            return false
-        }
-        if (fullName.contains("compound")) {
-            return true
-        }
-        return false
-    }
+    fun searchToolEnabledByDefaultById(id: String): Boolean =
+        getById(id)?.searchToolEnabledByDefault == true
 
-    fun geminiThinkingConfig(fullName: String): Map<String, Any>? {
-        if (fullName.contains("gemini-3.1-flash-lite") ||
-            fullName.contains("gemini-3.5-flash-lite") ||
-            fullName.contains("gemma-4-")
-        ) {
-            return mapOf("thinkingLevel" to "MINIMAL")
+    fun supportsSearch(
+        provider: PresetModelProvider,
+        fullName: String,
+    ): Boolean = modelProfile(provider, fullName)?.supportsSearchOverride ?: false
+
+    fun geminiThinkingConfig(
+        provider: PresetModelProvider,
+        fullName: String,
+    ): Map<String, Any>? =
+        when (reasoningPolicy(provider, fullName)) {
+            PresetReasoningPolicy.GEMINI_DISABLED -> mapOf("thinkingBudget" to 0)
+            PresetReasoningPolicy.GEMINI_MINIMAL -> mapOf("thinkingLevel" to "MINIMAL")
+            else -> null
         }
 
-        val supportsThinking = (fullName.contains("gemini-2.5-flash") && !fullName.contains("lite")) ||
-            fullName.contains("gemini-3-flash-preview") ||
-            fullName.contains("gemini-robotics")
-
-        return if (supportsThinking) {
-            mapOf("includeThoughts" to true)
+    fun geminiImportantTaskThinkingConfig(
+        provider: PresetModelProvider,
+        fullName: String,
+    ): Map<String, Any>? =
+        if (reasoningPolicy(provider, fullName) == PresetReasoningPolicy.GEMINI_MINIMAL) {
+            mapOf("thinkingLevel" to "LOW")
         } else {
             null
         }
-    }
+
+    fun openAiReasoningEffort(
+        provider: PresetModelProvider,
+        fullName: String,
+    ): String? =
+        when (reasoningPolicy(provider, fullName)) {
+            PresetReasoningPolicy.OPENAI_NONE -> "none"
+            PresetReasoningPolicy.OPENAI_LOW -> "low"
+            else -> null
+        }
+
+    private fun reasoningPolicy(
+        provider: PresetModelProvider,
+        fullName: String,
+    ): PresetReasoningPolicy =
+        modelProfile(provider, fullName)?.reasoningPolicy
+            ?: PresetReasoningPolicy.NOT_APPLICABLE
+
+    private fun modelProfile(
+        provider: PresetModelProvider,
+        fullName: String,
+    ): PresetModelDescriptor? =
+        allModels.firstOrNull { it.provider == provider && it.fullName == fullName }
+
+    private val displayComparator =
+        compareBy<PresetModelDescriptor>(
+            { it.typicalLatencyMs ?: Int.MAX_VALUE },
+            PresetModelDescriptor::id,
+        )
 }

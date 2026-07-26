@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.ui.i18n
 
-import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 
 /** English locale text. Dispatched from [MobileLocaleText.forLanguage]. */
@@ -59,6 +58,12 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 queued = "Queued",
                 providerQueued = "In service queue",
                 working = "Creating",
+                progress = CreationProgressLocale(
+                    almostThere = "Almost there",
+                    lessThanMinute = "Less than a minute",
+                    aboutMinutes = "About {count} min left",
+                    takingLonger = "Taking a little longer",
+                ),
                 done = "Done",
                 failed = "Failed",
                 saveTo = "Save to",
@@ -238,38 +243,101 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
             presetRuntimeDescription = "Unavailable providers, missing keys, invalid keys, and unsupported models are skipped immediately during retry.",
             presetRuntimeButton = "Priority",
             presetRuntimeSettingsAction = "Settings",
-            usageStatsButton = "Model stats",
-            usageStatsTitle = "Usage Statistics",
-            usageStatsModel = "Model",
-            usageStatsRemaining = "Remaining / Total",
-            usageStatsUnlimited = "Unlimited",
-            usageStatsNoData = "Use a model at least once for data",
-            usageStatsSettingsAction = "View",
+            usageStats = MobileUsageStatsLocale(
+                button = "Model stats",
+                title = "Usage Statistics",
+                noData = "No actual usage recorded yet. Use a model from Groq, Cerebras, or OpenRouter to show it.",
+                settingsAction = "View",
+                sessionHint = "Latest rate-limit headers observed in this app session. Provider dashboards remain the source of truth.",
+                endpointCount = "endpoints",
+                sharedQuota = "Shared quota",
+                updatedNow = "Updated now",
+                minutesAgo = "min ago",
+                stale = "Stale",
+                reset = "reset",
+                checkUsage = "Check usage ↗",
+            ),
             usageTipsTitle = "Usage Tips",
-            usageTipsClickHint = "Tap to view the full tip list",
-            usageTipsList = listOfNotNull(
-                "Add the **SGT bubble tile** to Quick Settings, grant overlay permission, then mark tools with ★ so they appear in the floating bubble.",
-                "While selecting on the **dimmed screen**, tap **Cancel** or use the system back gesture to stop.",
-                "Default presets cannot be renamed, but **custom presets** can be renamed freely.",
-                "**History** keeps the newest entries and automatically removes the oldest files when the retention limit is exceeded.",
-                "In a preset processing chain, only **one step can enable Auto-copy**; it may also be off on every step.",
-                "**Auto-paste output** needs SGT Accessibility Service and a focused editable text field.",
-                "**Append newline** appears after you enable Auto-paste output.",
-                "For audio presets, enable **Auto-stop recording** to finish after you stop speaking.",
-                "In TTS Settings, try **Standard (Gemini Live)** and tune the Per-language Accent for each language.",
-                "In **Live Translate**, set TTS speed to Auto so reading speed follows the speaker's pace.",
-                "Tap **Toggle Markdown** in a result overlay to switch between plain text and formatted views.",
-                "Models with a **magnifying glass icon** use web search for current information and sources.",
-                "In **Model Priority**, put preferred models first and leave Auto to continue through smart fallbacks.",
-                "Use **Custom Models** to scan OpenRouter or Ollama.",
-                "Open **How to use** whenever you want the AI assistant to guide you through SGT.",
-                "**Phone Control** needs a Gemini API key and full-screen sharing; use its app-card switch to start or stop it.",
-                "In **Translation Gummy**, configure two languages, then speak either one to hear the translation in the other.",
-                "Add images to **Image to 3D** or **Image to SVG**; jobs run in the background and completed work stays in Results.",
-                "Open **Be a DJ** to create background music that can keep playing while you use other apps.",
-                "Use **Download Video** to save videos and subtitles from supported sites."
-                    .takeIf { BuildConfig.DOWNLOADER_SUPPORTED },
-                "**Press and hold an image preset** in the floating bubble to enter Continuous Mode; press and hold it again to stop.",
+            usageTipsClickHint = "Tap to browse hidden shortcuts and behaviors",
+            usageTipsDescription =
+                "Hidden gestures, rules, and recovery paths worth knowing.",
+            usageTipsCategories = listOf(
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.CAPTURE_SHORTCUTS,
+                    title = "Capture & shortcuts",
+                    description = "Hidden ways to launch and repeat capture workflows.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.CONTINUOUS_MODE_ENTRY,
+                            text = "In the floating bubble, **press and hold an image preset** " +
+                                "to arm Continuous Mode. It rearms after each result; press and " +
+                                "hold the same preset again to exit.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.PRESETS_AUTOMATION,
+                    title = "Presets & automation",
+                    description = "Rules that appear only while editing or running a preset.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.CUSTOM_PRESET_RENAME,
+                            text = "Built-in preset names are fixed, but you can rename a " +
+                                "**custom preset by tapping its title** in the editor.",
+                        ),
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.AUTO_PASTE_PREREQUISITES,
+                            text = "**Auto-paste output** can target another app only while " +
+                                "SGT Accessibility is enabled and that app still has an " +
+                                "editable text field in focus.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.RESULTS_RECOVERY,
+                    title = "Results & recovery",
+                    description = "Where longer work continues and reappears.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.CREATION_BACKGROUND_RESULTS,
+                            text = "**Image to 3D** and **Image to SVG** jobs keep running in " +
+                                "the background after you leave their screen; completed files " +
+                                "are saved in each tool's Results tab.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.MODELS_SEARCH,
+                    title = "Models & search",
+                    description = "Signals and fallback behavior behind model choices.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.SEARCH_MARKER_DEFAULT,
+                            text = "A **magnifying glass** beside a model means its web-search " +
+                                "tool is enabled by default.",
+                        ),
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.FALLBACK_COOLDOWN_SEARCH,
+                            text = "**Smart fallback** skips disabled or unconfigured " +
+                                "providers. A rate-limited model cools down for five minutes, " +
+                                "and search-capable models fall back only to another " +
+                                "search-capable model.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.CREATIVE_TOOLS,
+                    title = "Creative tools",
+                    description = "Playback behavior that continues beyond the app screen.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.DJ_BACKGROUND_PLAYBACK,
+                            text = "**Be a DJ** keeps its audio alive when you switch apps " +
+                                "and exposes play, pause, and stop controls in the notification " +
+                                "shade and on the lock screen.",
+                        ),
+                    ),
+                ),
             ),
             resetDefaultsButton = "Reset",
             resetDefaultsAction = "Reset",

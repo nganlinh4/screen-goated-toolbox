@@ -3,7 +3,7 @@ use std::io::Cursor;
 use std::sync::atomic::Ordering;
 
 use crate::APP;
-use crate::api::client::{UREQ_AGENT, record_usage_simple};
+use crate::api::client::{UREQ_RESPONSE_AGENT, record_usage_simple};
 use crate::model_config::get_model_by_id;
 use crate::overlay::screen_record::ipc::subtitles::types::SubtitleGenerationMethod;
 
@@ -338,7 +338,7 @@ fn transcribe_with_groq_verbose(
     body.extend_from_slice(b"\r\n");
     body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
 
-    let response = UREQ_AGENT
+    let response = UREQ_RESPONSE_AGENT
         .post(GROQ_AUDIO_TRANSCRIPT_URL)
         .header("Authorization", &format!("Bearer {}", api_key))
         .header(
@@ -349,6 +349,18 @@ fn transcribe_with_groq_verbose(
         .map_err(map_groq_request_error)?;
 
     record_usage_simple(response.headers(), model_name);
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.into_body().read_to_string().unwrap_or_default();
+        if status == 413 {
+            return Err(GroqRequestError::TooLarge(format!(
+                "Groq subtitle request failed: HTTP {status}: {body}"
+            )));
+        }
+        return Err(GroqRequestError::Other(format!(
+            "Groq subtitle request failed: HTTP {status}: {body}"
+        )));
+    }
 
     let json: serde_json::Value = response
         .into_body()

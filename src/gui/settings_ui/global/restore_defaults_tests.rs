@@ -451,6 +451,7 @@ fn non_default_config() -> Config {
             target_version: "99.0.0".to_string(),
             previous_models: Default::default(),
             previous_model_priority_chains: Some(Default::default()),
+            previous_recommended_provider_defaults: Some(Default::default()),
         }),
         start_in_tray: true,
         run_as_admin_on_startup: true,

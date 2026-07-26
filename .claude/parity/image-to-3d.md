@@ -25,6 +25,9 @@
 - Every job has exactly one source image. Picking or dropping several images
   creates independent one-image sessions; references are never combined into a
   single 3D job.
+- The primary action submits only the selected session. Other sessions from the
+  same import remain drafts; parallel work requires an explicit submission for
+  each session.
 - At most two jobs run simultaneously. Four isolated execution slots are
   maintained without consuming SVG or image-editing job slots.
 - Progress preserves `preparing`, `generating`, `segmenting`, `finalizing`,
@@ -33,7 +36,10 @@
   a creation job into a failure.
 - Queue thumbnails and the selected source use bounded preview derivatives.
   Original image bytes are never retained by the WebView, session creation is
-  immediate, and generation remains available while previews load.
+  immediate, generation remains available while previews load, and preview
+  decoding never blocks the WebView message thread. Only the selected or
+  near-visible queue entries hydrate; off-screen history waits until it
+  approaches the viewport, and hydration yields to model interaction.
 - A successful result is a validated GLB with site-neutral naming. Geometry
   metadata is reported when known.
 - Fast results and quality results completed with automatic separation are
@@ -56,6 +62,12 @@
   as Windows.
 - Viewer controls cover orbit, zoom, pan, grid, wireframe, auto-rotate, toon,
   and outline. Wireframe and outline remain independent.
+- Filled Material Symbols Rounded come from the shared SGT icon catalog; the
+  mini app does not carry a separate hand-authored icon set.
+- An unchanged poll or thumbnail completion preserves existing queue DOM.
+  Pointer hover, focus, and the first selection click cannot be invalidated by
+  background reconciliation. Interactive orbit renders at full input cadence
+  even when the history contains many items.
 
 ## Public Boundary
 
@@ -74,7 +86,10 @@
   newer worker assignment.
 - A success event is emitted only after the output has been validated and
   committed.
-- Closing the UI does not cancel or corrupt queued work.
+- Closing the mini app cancels all of its queued and running jobs, terminates
+  their tracked process trees, destroys the WebView, and prevents a late
+  completion from publishing. Shared proactive preparation remains app-owned
+  and is not mistaken for a mini-app job.
 
 ## Verification
 

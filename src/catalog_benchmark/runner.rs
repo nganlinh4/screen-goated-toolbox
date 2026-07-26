@@ -4,8 +4,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use serde_json::json;
 
-use super::manifest::{CoordinateCase, Manifest, OcrCase, TextCase};
-use super::report::{Attempt, Recorder};
+use super::manifest::{Manifest, OcrCase, OcrInputMode, TextCase};
+use super::reasoning::reasoning_policy_label;
+use super::report::Attempt;
 use super::scoring;
 use super::setup::{Credentials, Pacer, Suites};
 use crate::api::{
@@ -13,6 +14,9 @@ use crate::api::{
     translate_text_streaming,
 };
 use crate::model_config::{ModelConfig, ModelType};
+mod coordinate;
+mod ordering;
+use ordering::{case_at_difficulty, rotated};
 
 pub fn run() -> Result<()> {
     let manifest = Manifest::load()?;
@@ -33,8 +37,8 @@ pub fn run() -> Result<()> {
         crate::api::gemini_live::init_gemini_live();
     }
 
-    let output = super::setup::output_dir();
-    let mut recorder = Recorder::new(&output)?;
+    let mut recorder =
+        super::history::live_recorder(&manifest, suites, &text_models, &vision_models)?;
     let completed = super::report::successful_attempt_keys(&super::setup::resume_inputs())?;
     let mut pacer = Pacer::from_env()?;
     let timeout = super::setup::request_timeout()?;
@@ -57,13 +61,14 @@ pub fn run() -> Result<()> {
                     continue;
                 }
                 pacer.wait(&model.provider);
-                recorder.push(run_coordinate(
+                recorder.push(coordinate::run(
                     model,
                     case,
                     round,
                     &manifest,
                     &credentials,
                     timeout,
+                    &mut pacer,
                 ))?;
             }
         }
@@ -100,6 +105,7 @@ fn run_text(
         case.source_language, case.target_language
     );
     let started = Instant::now();
+    let mut callback_events = Vec::new();
     let result = translate_text_streaming(
         TranslateTextRequest {
             groq_api_key: &credentials.groq,
@@ -108,7 +114,7 @@ fn run_text(
             instruction,
             model: model.full_name.clone(),
             provider: model.provider.clone(),
-            streaming_enabled: false,
+            streaming_enabled: true,
             use_json_format: false,
             search_label: None,
             ui_language: "en",
@@ -116,14 +122,19 @@ fn run_text(
             request_timeout: timeout,
             target_language: Some(case.target_language.clone()),
         },
-        |_| {},
+        |chunk| callback_events.push((started.elapsed().as_millis(), chunk.to_string())),
     );
     let latency_ms = started.elapsed().as_millis();
     match result {
         Ok(response) if !response.trim().is_empty() => {
+            let timing = TimingMetrics::for_response(latency_ms, &callback_events, &response);
             let similarity = scoring::text_similarity(&response, &case.reference);
             let term_coverage = scoring::term_coverage(&response, &case.required_terms);
-            let exact_coverage = scoring::exact_coverage(&response, &case.required_exact);
+            let exact_coverage = scoring::exact_constraint_coverage(
+                &response,
+                &case.required_exact,
+                &case.required_exact_any,
+            );
             let forbidden_avoidance =
                 scoring::forbidden_avoidance(&response, &case.forbidden_terms);
             let line_count = scoring::line_count_matches(response.trim(), case.expected_line_count);
@@ -135,7 +146,7 @@ fn run_text(
                 case.id.clone(),
                 case.difficulty,
                 round,
-                latency_ms,
+                timing,
             )
             .success(
                 0.65 * similarity + 0.35 * constraint_score,
@@ -145,9 +156,11 @@ fn run_text(
                     "reference_similarity": similarity,
                     "required_term_coverage": term_coverage,
                     "required_exact_coverage": exact_coverage,
+                    "required_exact_alternatives": case.required_exact_any,
                     "forbidden_term_avoidance": forbidden_avoidance,
                     "line_count_match": line_count,
                     "constraint_score": constraint_score,
+                    "input_chars": case.input.chars().count(),
                 }),
                 Some(case.reference.clone()),
                 case.rubric.clone(),
@@ -160,7 +173,7 @@ fn run_text(
             case.id.clone(),
             case.difficulty,
             round,
-            latency_ms,
+            TimingMetrics::for_response(latency_ms, &callback_events, ""),
         )
         .failure("empty", "provider returned an empty response"),
         Err(error) => base_attempt(
@@ -169,79 +182,9 @@ fn run_text(
             case.id.clone(),
             case.difficulty,
             round,
-            latency_ms,
+            TimingMetrics::failure(latency_ms),
         )
         .failure("request_error", error.to_string()),
-    }
-}
-
-fn run_coordinate(
-    model: &ModelConfig,
-    case: &CoordinateCase,
-    round: u8,
-    manifest: &Manifest,
-    credentials: &Credentials,
-    timeout: Option<Duration>,
-) -> Attempt {
-    let prompt = format!(
-        "Find this target in the image: {}. Output ONLY JSON {{\"x\": <number>, \"y\": <number>}}. x and y are the target center on a 0-1000 grid (left to right, top to bottom).",
-        case.target
-    );
-    let image_path = manifest.image_path(&case.image);
-    let loaded = load_image(&image_path);
-    let (image, original_bytes) = match loaded {
-        Ok(value) => value,
-        Err(error) => {
-            return base_attempt(
-                "coordinate",
-                model,
-                case.id.clone(),
-                case.difficulty,
-                round,
-                0,
-            )
-            .failure("fixture_error", error.to_string());
-        }
-    };
-    let width = image.width();
-    let height = image.height();
-    let started = Instant::now();
-    let result = translate_image_streaming(
-        TranslateImageRequest {
-            groq_api_key: &credentials.groq,
-            gemini_api_key: &credentials.gemini,
-            prompt,
-            model: model.full_name.clone(),
-            provider: model.provider.clone(),
-            image,
-            original_bytes: Some(original_bytes),
-            streaming_enabled: false,
-            use_json_format: true,
-            response_schema: Some(coordinate_schema()),
-            cancel_token: None,
-            request_timeout: timeout,
-        },
-        |_| {},
-    );
-    let latency_ms = started.elapsed().as_millis();
-    match result {
-        Ok(response) => match scoring::coordinate(&response, width, height, case.box_px) {
-            Some(score) => base_attempt("coordinate", model, case.id.clone(), case.difficulty, round, latency_ms)
-                .success(
-                    f64::from(score.hit),
-                    Some(score.hit),
-                    response,
-                    json!({"x_1000": score.x_1000, "y_1000": score.y_1000, "error_px": score.error_px, "box_px": case.box_px}),
-                    None,
-                    Vec::new(),
-                    false,
-                ),
-            None => base_attempt("coordinate", model, case.id.clone(), case.difficulty, round, latency_ms)
-                .with_response(response)
-                .failure("malformed", "response did not contain valid 0-1000 x/y coordinates"),
-        },
-        Err(error) => base_attempt("coordinate", model, case.id.clone(), case.difficulty, round, latency_ms)
-            .failure("request_error", error.to_string()),
     }
 }
 
@@ -254,15 +197,26 @@ fn run_ocr(
     timeout: Option<Duration>,
 ) -> Attempt {
     let image_path = manifest.image_path(&case.image);
-    let (image, original_bytes) = match load_ocr_image(&image_path, case.crop_px) {
+    let (image, original_bytes) = match load_ocr_image(&image_path, case.crop_px, case.input_mode) {
         Ok(value) => value,
         Err(error) => {
-            return base_attempt("ocr", model, case.id.clone(), case.difficulty, round, 0)
-                .failure("fixture_error", error.to_string());
+            return base_attempt(
+                "ocr",
+                model,
+                case.id.clone(),
+                case.difficulty,
+                round,
+                TimingMetrics::default(),
+            )
+            .failure("fixture_error", error.to_string());
         }
     };
+    let image_bytes = original_bytes.len();
+    let image_width = image.width();
+    let image_height = image.height();
     let prompt = case.instruction.clone();
     let started = Instant::now();
+    let mut callback_events = Vec::new();
     let result = translate_image_streaming(
         TranslateImageRequest {
             groq_api_key: &credentials.groq,
@@ -273,12 +227,11 @@ fn run_ocr(
             image,
             original_bytes: Some(original_bytes),
             streaming_enabled: false,
-            use_json_format: false,
             response_schema: None,
             cancel_token: None,
             request_timeout: timeout,
         },
-        |_| {},
+        |chunk| callback_events.push((started.elapsed().as_millis(), chunk.to_string())),
     );
     let latency_ms = started.elapsed().as_millis();
     match result {
@@ -286,19 +239,38 @@ fn run_ocr(
             let transcription = scoring::transcription(&response);
             let similarity = std::iter::once(&case.reference)
                 .chain(&case.accepted_references)
-                .map(|reference| scoring::text_similarity(&transcription, reference))
+                .map(|reference| scoring::ocr_similarity(&transcription, reference))
                 .max_by(f64::total_cmp)
                 .expect("OCR cases always have a primary reference");
-            base_attempt("ocr", model, case.id.clone(), case.difficulty, round, latency_ms)
-                .success(
-                    similarity,
-                    Some(similarity >= 0.98),
-                    response,
-                    json!({"normalized_character_similarity": similarity, "transcription": transcription}),
-                    Some(case.reference.clone()),
-                    Vec::new(),
-                    false,
-                )
+            base_attempt(
+                "ocr",
+                model,
+                case.id.clone(),
+                case.difficulty,
+                round,
+                TimingMetrics::for_response(latency_ms, &callback_events, &response),
+            )
+            .success(
+                similarity,
+                Some(similarity >= 0.98),
+                response,
+                json!({
+                    "normalized_character_similarity": similarity,
+                    "transcription": transcription,
+                    "input_image_bytes": image_bytes,
+                    "input_image_width": image_width,
+                    "input_image_height": image_height,
+                    "input_mode": case.input_mode.as_str(),
+                    "vision_request_profile":
+                        crate::model_config::vision_request_profile(
+                            &model.provider,
+                            &model.full_name,
+                        ),
+                }),
+                Some(case.reference.clone()),
+                Vec::new(),
+                false,
+            )
         }
         Ok(_) => base_attempt(
             "ocr",
@@ -306,7 +278,7 @@ fn run_ocr(
             case.id.clone(),
             case.difficulty,
             round,
-            latency_ms,
+            TimingMetrics::for_response(latency_ms, &callback_events, ""),
         )
         .failure("empty", "provider returned an empty response"),
         Err(error) => base_attempt(
@@ -315,10 +287,77 @@ fn run_ocr(
             case.id.clone(),
             case.difficulty,
             round,
-            latency_ms,
+            TimingMetrics::failure(latency_ms),
         )
         .failure("request_error", error.to_string()),
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct TimingMetrics {
+    total_ms: u128,
+    time_to_first_output_ms: Option<u128>,
+    generation_duration_ms: Option<u128>,
+    output_chars: Option<usize>,
+    end_to_end_chars_per_second: Option<f64>,
+    generation_chars_per_second: Option<f64>,
+}
+
+impl TimingMetrics {
+    fn failure(total_ms: u128) -> Self {
+        Self {
+            total_ms,
+            ..Self::default()
+        }
+    }
+
+    fn for_response(total_ms: u128, events: &[(u128, String)], response: &str) -> Self {
+        let output_chars = response.chars().count();
+        if output_chars == 0 {
+            return Self {
+                total_ms,
+                output_chars: Some(0),
+                ..Self::default()
+            };
+        }
+
+        let first = events.iter().find_map(|(elapsed_ms, chunk)| {
+            let content = chunk
+                .strip_prefix(crate::api::WIPE_SIGNAL)
+                .unwrap_or(chunk)
+                .trim_end_matches('\0');
+            (!content.is_empty() && response.starts_with(content))
+                .then(|| (*elapsed_ms, content.chars().count()))
+        });
+        let (first_output_ms, first_output_chars) = first.unwrap_or((total_ms, output_chars));
+        let generation_ms = total_ms.saturating_sub(first_output_ms);
+        let remaining_chars = output_chars.saturating_sub(first_output_chars);
+
+        Self {
+            total_ms,
+            time_to_first_output_ms: Some(first_output_ms),
+            generation_duration_ms: Some(generation_ms),
+            output_chars: Some(output_chars),
+            end_to_end_chars_per_second: rate(output_chars, total_ms),
+            generation_chars_per_second: rate(remaining_chars, generation_ms),
+        }
+    }
+
+    fn for_non_streaming_pipeline(total_ms: u128, output_chars: usize) -> Self {
+        Self {
+            total_ms,
+            time_to_first_output_ms: None,
+            generation_duration_ms: None,
+            output_chars: Some(output_chars),
+            end_to_end_chars_per_second: rate(output_chars, total_ms),
+            generation_chars_per_second: None,
+        }
+    }
+}
+
+fn rate(characters: usize, milliseconds: u128) -> Option<f64> {
+    (characters > 0 && milliseconds > 0)
+        .then(|| characters as f64 / (milliseconds as f64 / 1_000.0))
 }
 
 fn base_attempt(
@@ -327,7 +366,7 @@ fn base_attempt(
     case_id: String,
     difficulty: u8,
     round: u8,
-    latency_ms: u128,
+    timing: TimingMetrics,
 ) -> AttemptBuilder {
     AttemptBuilder(Attempt {
         suite: suite.to_string(),
@@ -337,8 +376,14 @@ fn base_attempt(
         model_id: model.id.clone(),
         model_name: model.full_name.clone(),
         provider: model.provider.clone(),
+        reasoning_policy: reasoning_policy_label(model),
         status: "pending".to_string(),
-        latency_ms,
+        latency_ms: timing.total_ms,
+        time_to_first_output_ms: timing.time_to_first_output_ms,
+        generation_duration_ms: timing.generation_duration_ms,
+        output_chars: timing.output_chars,
+        end_to_end_chars_per_second: timing.end_to_end_chars_per_second,
+        generation_chars_per_second: timing.generation_chars_per_second,
         score: None,
         strict_pass: None,
         response: None,
@@ -412,82 +457,31 @@ fn load_image(path: &std::path::Path) -> Result<(image::RgbaImage, Vec<u8>)> {
     Ok((image, bytes))
 }
 
-fn load_ocr_image(
+pub(super) fn load_ocr_image(
     path: &std::path::Path,
     crop_px: Option<[u32; 4]>,
+    input_mode: OcrInputMode,
 ) -> Result<(image::RgbaImage, Vec<u8>)> {
     let (image, original_bytes) = load_image(path)?;
-    let Some([x, y, width, height]) = crop_px else {
+    if input_mode == OcrInputMode::OriginalFile {
+        anyhow::ensure!(
+            crop_px.is_none(),
+            "original-file OCR inputs cannot apply an app crop"
+        );
         return Ok((image, original_bytes));
+    }
+    let effective = match crop_px {
+        Some([x, y, width, height]) => {
+            image::imageops::crop_imm(&image, x, y, width, height).to_image()
+        }
+        None => image,
     };
-    let cropped = image::imageops::crop_imm(&image, x, y, width, height).to_image();
     let mut encoded = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgba8(cropped.clone())
+    image::DynamicImage::ImageRgba8(effective.clone())
         .write_to(&mut encoded, image::ImageFormat::Png)
-        .context("encode OCR crop")?;
-    Ok((cropped, encoded.into_inner()))
-}
-
-fn coordinate_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {"x": {"type": "number"}, "y": {"type": "number"}},
-        "required": ["x", "y"],
-        "additionalProperties": false
-    })
-}
-
-fn case_at_difficulty<T>(cases: &[T], difficulty: u8) -> &T
-where
-    T: Difficulty,
-{
-    cases
-        .iter()
-        .find(|case| case.difficulty() == difficulty)
-        .expect("validated difficulty")
-}
-
-trait Difficulty {
-    fn difficulty(&self) -> u8;
-}
-
-impl Difficulty for TextCase {
-    fn difficulty(&self) -> u8 {
-        self.difficulty
-    }
-}
-impl Difficulty for CoordinateCase {
-    fn difficulty(&self) -> u8 {
-        self.difficulty
-    }
-}
-impl Difficulty for OcrCase {
-    fn difficulty(&self) -> u8 {
-        self.difficulty
-    }
-}
-
-fn rotated(models: &[ModelConfig], round: u8) -> impl Iterator<Item = &ModelConfig> {
-    let skip = usize::from(round.saturating_sub(1)) % models.len();
-    models.iter().cycle().skip(skip).take(models.len())
+        .context("encode OCR screen-crop input")?;
+    Ok((effective, encoded.into_inner()))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::load_ocr_image;
-    use crate::catalog_benchmark::manifest::Manifest;
-
-    #[test]
-    fn ocr_runtime_inputs_apply_manifest_crops() {
-        let manifest = Manifest::load().unwrap();
-        for case in &manifest.ocr_cases {
-            let (image, encoded) =
-                load_ocr_image(&manifest.image_path(&case.image), case.crop_px).unwrap();
-            if let Some([_, _, width, height]) = case.crop_px {
-                assert_eq!((image.width(), image.height()), (width, height));
-                let decoded = image::load_from_memory(&encoded).unwrap();
-                assert_eq!((decoded.width(), decoded.height()), (width, height));
-            }
-        }
-    }
-}
+mod tests;

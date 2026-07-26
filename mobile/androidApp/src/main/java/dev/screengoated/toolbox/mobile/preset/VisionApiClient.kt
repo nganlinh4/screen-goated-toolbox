@@ -137,9 +137,7 @@ private const val GROQ_MAX_IMAGE_BYTES = 2_500_000
 private const val GROQ_MIN_IMAGE_BYTES = 262_144
 private val GROQ_JPEG_QUALITIES = intArrayOf(90, 82, 74, 66, 58)
 private val GROQ_RESIZE_DIMENSIONS = intArrayOf(2048, 1792, 1536, 1280, 1024, 768)
-private const val QWEN_VISION_MODEL = "qwen/qwen3.6-27b"
 private const val QWEN_PORTABLE_TPM_LIMIT = 8_000
-private const val QWEN_COMPLETION_TOKEN_RESERVE = 2_048
 private const val QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE = 3_072
 private const val QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN = 3
 
@@ -149,8 +147,18 @@ internal fun prepareImage(
     modelFullName: String,
     promptBytes: Int,
 ): PreparedImage {
-    if (provider == PresetModelProvider.GROQ && modelFullName == QWEN_VISION_MODEL) {
-        ensureQwenPromptFitsPortableTpm(promptBytes)
+    val requestProfile = PresetModelCatalog.runtimeModels().firstOrNull {
+        it.provider == provider && it.fullName == modelFullName
+    }
+    if (
+        provider == PresetModelProvider.GROQ &&
+        requestProfile?.visionSamplingPolicy ==
+            PresetVisionSamplingPolicy.QWEN3_GROQ_NON_THINKING
+    ) {
+        val completionReserve = requireNotNull(requestProfile.visionMaxOutputTokens) {
+            "Qwen Groq vision request profile has no output-token limit"
+        }
+        ensureQwenPromptFitsPortableTpm(promptBytes, completionReserve)
     }
     val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
         ?: throw IOException("Failed to decode image bytes")
@@ -195,13 +203,16 @@ internal fun groqImageByteBudget(promptBytes: Int): Int {
     return minOf(rawBudget, GROQ_MAX_IMAGE_BYTES)
 }
 
-internal fun ensureQwenPromptFitsPortableTpm(promptBytes: Int) {
+internal fun ensureQwenPromptFitsPortableTpm(
+    promptBytes: Int,
+    completionTokenReserve: Int,
+) {
     val estimatedPromptTokens =
         (promptBytes + QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN - 1) /
             QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN
     val estimatedRequestTokens =
         estimatedPromptTokens +
-            QWEN_COMPLETION_TOKEN_RESERVE +
+            completionTokenReserve +
             QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE
     if (estimatedRequestTokens > QWEN_PORTABLE_TPM_LIMIT) {
         throw IOException(

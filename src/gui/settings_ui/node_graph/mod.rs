@@ -9,6 +9,7 @@ pub use node::ChainNode;
 pub use utils::request_node_graph_view_reset;
 pub use viewer::ChainViewer;
 
+use crate::config::Config;
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 use egui_snarl::ui::{SnarlStyle, SnarlWidget};
@@ -21,31 +22,15 @@ use std::collections::HashMap;
 /// sizes its canvas from `available_size_before_wrap().max(min_size)`, so this
 /// is the only reliable way to make the graph fill the remaining space —
 /// `ui.set_min_height` grows the min rect, which snarl's sizing ignores.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "node graph rendering depends on multiple independent capability flags and editing handles"
-)]
 pub fn render_node_graph(
     ui: &mut egui::Ui,
     snarl: &mut Snarl<ChainNode>,
-    ui_language: &str,
-    use_groq: bool,
-    use_gemini: bool,
-    use_openrouter: bool,
-    use_ollama: bool,
+    config: &Config,
     preset_type: &str,
     text: &LocaleText,
     min_height: f32,
 ) -> bool {
-    let mut viewer = ChainViewer::new(
-        text,
-        ui_language,
-        use_groq,
-        use_gemini,
-        use_openrouter,
-        use_ollama,
-        preset_type,
-    );
+    let mut viewer = ChainViewer::new(text, config, preset_type);
     // Flatten snarl's own canvas frame — its default `Frame::canvas` draws a
     // separate fill + border, which (inside the wrapping card frame) produced a
     // nested border and a mismatched padded band. With it transparent, the card

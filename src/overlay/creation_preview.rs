@@ -1,11 +1,17 @@
+use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 use std::path::Path;
+use std::sync::{Condvar, LazyLock, Mutex, Once};
 
 use anyhow::{Context, Result, bail};
 use base64::{Engine as _, engine::general_purpose};
 use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageReader};
 use serde_json::{Value, json};
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
+
+use crate::win_types::SendHwnd;
 
 const DEFAULT_MAX_EDGE: u32 = 1_600;
 const MIN_MAX_EDGE: u32 = 64;
@@ -15,6 +21,178 @@ const MAX_SOURCE_DIMENSION: u32 = 32_768;
 const MAX_SOURCE_PIXELS: u64 = 64 * 1024 * 1024;
 const MAX_DECODE_BYTES: u64 = 320 * 1024 * 1024;
 const JPEG_QUALITY: u8 = 82;
+const PREVIEW_WORKERS: usize = 2;
+const MAX_PENDING_PREVIEWS: usize = 256;
+
+struct PreviewRequest {
+    hwnd: SendHwnd,
+    generation: u64,
+    reply_message: u32,
+    id: String,
+    path: String,
+    max_edge: Option<u32>,
+}
+
+#[derive(Default)]
+struct AsyncPreviewState {
+    next_generation: u64,
+    active_targets: HashMap<isize, u64>,
+    replies: HashMap<(isize, u64), Vec<String>>,
+}
+
+static ASYNC_PREVIEW_STATE: LazyLock<Mutex<AsyncPreviewState>> =
+    LazyLock::new(|| Mutex::new(AsyncPreviewState::default()));
+static PREVIEW_QUEUE: LazyLock<(Mutex<VecDeque<PreviewRequest>>, Condvar)> =
+    LazyLock::new(|| (Mutex::new(VecDeque::new()), Condvar::new()));
+static START_PREVIEW_WORKERS: Once = Once::new();
+
+pub fn register_async_target(hwnd: HWND) {
+    let key = hwnd.0 as isize;
+    let mut state = ASYNC_PREVIEW_STATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    state.next_generation = state.next_generation.wrapping_add(1).max(1);
+    let generation = state.next_generation;
+    state.active_targets.insert(key, generation);
+    state.replies.retain(|(target, _), _| *target != key);
+}
+
+pub fn unregister_async_target(hwnd: HWND) {
+    let key = hwnd.0 as isize;
+    {
+        let mut state = ASYNC_PREVIEW_STATE
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        state.active_targets.remove(&key);
+        state.replies.retain(|(target, _), _| *target != key);
+    }
+    let (queue, _) = &*PREVIEW_QUEUE;
+    queue
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .retain(|request| request.hwnd.as_isize() != key);
+}
+
+pub fn request_async_preview(
+    hwnd: HWND,
+    reply_message: u32,
+    id: String,
+    path: String,
+    max_edge: Option<u32>,
+) -> std::result::Result<(), String> {
+    if id.is_empty() {
+        return Ok(());
+    }
+    let key = hwnd.0 as isize;
+    let generation = ASYNC_PREVIEW_STATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .active_targets
+        .get(&key)
+        .copied()
+        .ok_or_else(|| "Preview target is no longer available.".to_string())?;
+
+    START_PREVIEW_WORKERS.call_once(|| {
+        for _ in 0..PREVIEW_WORKERS {
+            std::thread::spawn(preview_worker);
+        }
+    });
+
+    let (queue, signal) = &*PREVIEW_QUEUE;
+    let mut queue = queue.lock().unwrap_or_else(|error| error.into_inner());
+    if queue.len() >= MAX_PENDING_PREVIEWS {
+        return Err("Too many image previews are waiting.".to_string());
+    }
+    queue.push_back(PreviewRequest {
+        hwnd: SendHwnd(hwnd),
+        generation,
+        reply_message,
+        id,
+        path,
+        max_edge,
+    });
+    signal.notify_one();
+    Ok(())
+}
+
+pub fn take_async_replies(hwnd: HWND) -> Vec<String> {
+    let key = hwnd.0 as isize;
+    let mut state = ASYNC_PREVIEW_STATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let Some(generation) = state.active_targets.get(&key).copied() else {
+        return Vec::new();
+    };
+    state.replies.remove(&(key, generation)).unwrap_or_default()
+}
+
+fn preview_worker() {
+    loop {
+        let request = {
+            let (queue, signal) = &*PREVIEW_QUEUE;
+            let mut queue = queue.lock().unwrap_or_else(|error| error.into_inner());
+            while queue.is_empty() {
+                queue = signal
+                    .wait(queue)
+                    .unwrap_or_else(|error| error.into_inner());
+            }
+            queue.pop_front()
+        };
+        let Some(request) = request else {
+            continue;
+        };
+        if !async_target_is_current(&request) {
+            continue;
+        }
+        let result =
+            read_image_preview(&request.path, request.max_edge).map_err(|error| error.to_string());
+        queue_async_reply(request, result);
+    }
+}
+
+fn async_target_is_current(request: &PreviewRequest) -> bool {
+    ASYNC_PREVIEW_STATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .active_targets
+        .get(&request.hwnd.as_isize())
+        .is_some_and(|generation| *generation == request.generation)
+}
+
+fn queue_async_reply(request: PreviewRequest, result: std::result::Result<Value, String>) {
+    let payload = match result {
+        Ok(value) => json!({ "id": request.id, "result": value }),
+        Err(error) => json!({ "id": request.id, "error": error }),
+    };
+    let script =
+        format!("window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {payload} }}));");
+    let key = request.hwnd.as_isize();
+    {
+        let mut state = ASYNC_PREVIEW_STATE
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if state.active_targets.get(&key) != Some(&request.generation) {
+            return;
+        }
+        state
+            .replies
+            .entry((key, request.generation))
+            .or_default()
+            .push(script);
+    }
+    if unsafe {
+        PostMessageW(
+            Some(request.hwnd.0),
+            request.reply_message,
+            WPARAM(0),
+            LPARAM(0),
+        )
+    }
+    .is_err()
+    {
+        unregister_async_target(request.hwnd.0);
+    }
+}
 
 pub fn read_image_preview(path: &str, max_edge: Option<u32>) -> Result<Value> {
     let source = Path::new(path);
@@ -27,12 +205,11 @@ pub fn read_image_preview(path: &str, max_edge: Option<u32>) -> Result<Value> {
         bail!("Image size is outside the supported range.");
     }
 
-    let bytes = std::fs::read(source)
-        .with_context(|| format!("Could not read image: {}", source.display()))?;
-    let (width, height) = image_dimensions(&bytes)?;
+    let (width, height) = image_dimensions(source)?;
     validate_dimensions(width, height)?;
 
-    let mut reader = ImageReader::new(Cursor::new(&bytes))
+    let mut reader = ImageReader::open(source)
+        .with_context(|| format!("Could not open image: {}", source.display()))?
         .with_guessed_format()
         .context("Could not identify the image format.")?;
     let mut limits = image::Limits::default();
@@ -41,14 +218,11 @@ pub fn read_image_preview(path: &str, max_edge: Option<u32>) -> Result<Value> {
     limits.max_alloc = Some(MAX_DECODE_BYTES);
     reader.limits(limits);
     let image = reader.decode().context("Could not decode the image.")?;
-    let preview = image.thumbnail(
-        max_edge
-            .unwrap_or(DEFAULT_MAX_EDGE)
-            .clamp(MIN_MAX_EDGE, MAX_MAX_EDGE),
-        max_edge
-            .unwrap_or(DEFAULT_MAX_EDGE)
-            .clamp(MIN_MAX_EDGE, MAX_MAX_EDGE),
-    );
+    validate_dimensions(image.width(), image.height())?;
+    let edge = max_edge
+        .unwrap_or(DEFAULT_MAX_EDGE)
+        .clamp(MIN_MAX_EDGE, MAX_MAX_EDGE);
+    let preview = image.thumbnail(edge, edge);
 
     let (mime, encoded) = if preview.color().has_alpha() {
         let mut encoded = Cursor::new(Vec::new());
@@ -84,8 +258,9 @@ pub fn read_image_preview(path: &str, max_edge: Option<u32>) -> Result<Value> {
     }))
 }
 
-fn image_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
-    ImageReader::new(Cursor::new(bytes))
+fn image_dimensions(source: &Path) -> Result<(u32, u32)> {
+    ImageReader::open(source)
+        .with_context(|| format!("Could not open image: {}", source.display()))?
         .with_guessed_format()
         .context("Could not identify the image format.")?
         .into_dimensions()

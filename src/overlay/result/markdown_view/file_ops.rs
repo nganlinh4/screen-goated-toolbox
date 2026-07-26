@@ -6,16 +6,25 @@ use super::conversion::markdown_to_html;
 pub fn generate_filename(content: &str) -> String {
     let default_name = "result.html".to_string();
 
-    // Get API Key
-    let cerebras_key = if let Ok(app) = crate::APP.lock() {
+    let Some(default_model) =
+        crate::model_config::get_model_by_id(crate::model_config::DEFAULT_TEXT_MODEL_ID)
+    else {
+        return default_name;
+    };
+    if default_model.provider != "cerebras" {
+        return default_name;
+    }
+    let saved_cerebras_key = if let Ok(app) = crate::APP.lock() {
         app.config.cerebras_api_key.clone()
     } else {
         return default_name;
     };
-
+    let cerebras_key =
+        crate::api::provider_credentials::resolve("CEREBRAS_API_KEY", &saved_cerebras_key);
     if cerebras_key.is_empty() {
         return default_name;
     }
+    let api_model = default_model.full_name;
 
     // Truncate to avoid token limits (first 4000 chars is enough for context).
     // Slice by chars, not bytes — a byte cut would panic mid-UTF-8 on ko/vi content.
@@ -29,14 +38,15 @@ pub fn generate_filename(content: &str) -> String {
         prompt_content
     );
 
-    let payload = serde_json::json!({
-        "model": crate::model_config::DEFAULT_TEXT_API_MODEL,
+    let mut payload = serde_json::json!({
+        "model": api_model,
         "messages": [
             { "role": "user", "content": prompt }
         ],
         "temperature": 0.3,
         "max_tokens": 60
     });
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "cerebras", &api_model);
 
     match crate::api::client::UREQ_AGENT
         .post("https://api.cerebras.ai/v1/chat/completions")

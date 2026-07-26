@@ -12,6 +12,29 @@ fn legacy_config_with_presets(presets: Vec<Preset>) -> Config {
 }
 
 #[test]
+fn openrouter_is_enabled_for_new_and_missing_field_configs() {
+    let defaults = Config::default();
+    assert_eq!(defaults.use_groq, crate::model_config::DEFAULT_USE_GROQ);
+    assert_eq!(defaults.use_gemini, crate::model_config::DEFAULT_USE_GEMINI);
+    assert_eq!(
+        defaults.use_openrouter,
+        crate::model_config::DEFAULT_USE_OPENROUTER
+    );
+    assert_eq!(
+        defaults.use_cerebras,
+        crate::model_config::DEFAULT_USE_CEREBRAS
+    );
+    assert_eq!(defaults.use_ollama, crate::model_config::DEFAULT_USE_OLLAMA);
+    assert!(defaults.use_openrouter);
+
+    let mut serialized = serde_json::to_value(defaults).unwrap();
+    serialized.as_object_mut().unwrap().remove("use_openrouter");
+    let restored: Config = serde_json::from_value(serialized).unwrap();
+
+    assert!(restored.use_openrouter);
+}
+
+#[test]
 fn migrate_config_falls_back_for_missing_block_models() {
     let builtin = Preset {
         id: "preset_translate".to_string(),
@@ -344,6 +367,107 @@ fn default_presets_do_not_include_computer_control() {
         crate::config::preset::get_default_presets()
             .iter()
             .all(|preset| preset.id != "preset_computer_control")
+    );
+}
+
+#[test]
+fn retired_builtin_migrates_to_its_replacement_in_every_profile() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/preset-system/catalog-overrides.json"
+    )))
+    .unwrap();
+    let retirement = &fixture["retired_builtins"][0];
+    let retired_id = retirement["preset_id"].as_str().unwrap();
+    let replacement_id = retirement["replacement_id"].as_str().unwrap();
+    let default_code = retirement["windows_default_hotkey"]["code"]
+        .as_u64()
+        .unwrap() as u32;
+    let default_modifiers = retirement["windows_default_hotkey"]["modifiers"]
+        .as_u64()
+        .unwrap() as u32;
+    assert!(retirement["transfer_unique_hotkeys"].as_bool().unwrap());
+    assert!(retirement["transfer_favorite"].as_bool().unwrap());
+    assert!(retirement["redirect_active_selection"].as_bool().unwrap());
+
+    let preset = |id: &str, hotkeys: Vec<Hotkey>, is_favorite: bool| Preset {
+        id: id.to_string(),
+        name: id.to_string(),
+        hotkeys,
+        is_favorite,
+        ..Default::default()
+    };
+    let duplicate = Hotkey::new(0x70, "F1", 0);
+    let backtick = Hotkey::new(default_code, "Backtick", default_modifiers);
+    let first = PresetProfile::new_default(
+        vec![
+            preset(replacement_id, vec![duplicate.clone()], false),
+            preset(retired_id, vec![backtick.clone(), duplicate.clone()], true),
+        ],
+        1,
+    );
+    let second_key = Hotkey::new(0x71, "F2", 0);
+    let second = PresetProfile::new_default(
+        vec![
+            preset("before", Vec::new(), false),
+            preset(retired_id, vec![second_key.clone()], false),
+            preset(replacement_id, Vec::new(), false),
+        ],
+        1,
+    );
+    let mut config = Config {
+        presets: first.presets.clone(),
+        active_preset_idx: first.active_preset_idx,
+        preset_profiles: vec![first, second],
+        ..Default::default()
+    };
+    let priority_chains = config.model_priority_chains.clone();
+
+    migrate_config(&mut config);
+
+    assert_eq!(config.model_priority_chains, priority_chains);
+    assert!(config.presets.iter().all(|preset| preset.id != retired_id));
+    assert!(
+        config
+            .preset_profiles
+            .iter()
+            .all(|profile| { profile.presets.iter().all(|preset| preset.id != retired_id) })
+    );
+    assert_eq!(config.presets[config.active_preset_idx].id, replacement_id);
+    assert_eq!(
+        config.preset_profiles[0].presets[config.preset_profiles[0].active_preset_idx].id,
+        replacement_id
+    );
+    assert_eq!(
+        config.preset_profiles[1].presets[config.preset_profiles[1].active_preset_idx].id,
+        replacement_id
+    );
+
+    let translated = config
+        .presets
+        .iter()
+        .find(|preset| preset.id == replacement_id)
+        .unwrap();
+    assert!(translated.is_favorite);
+    assert_eq!(translated.hotkeys, vec![duplicate, backtick]);
+    let second_translated = config.preset_profiles[1]
+        .presets
+        .iter()
+        .find(|preset| preset.id == replacement_id)
+        .unwrap();
+    assert_eq!(second_translated.hotkeys, vec![second_key]);
+
+    let defaults = crate::config::preset::get_default_presets();
+    assert!(defaults.iter().all(|preset| preset.id != retired_id));
+    let translated_default = defaults
+        .iter()
+        .find(|preset| preset.id == replacement_id)
+        .unwrap();
+    assert!(
+        translated_default
+            .hotkeys
+            .iter()
+            .any(|hotkey| { hotkey.code == default_code && hotkey.modifiers == default_modifiers })
     );
 }
 

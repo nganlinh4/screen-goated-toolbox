@@ -34,6 +34,10 @@ export interface Copy {
   uploading: string;
   generating: string;
   finalizing: string;
+  almostThere: string;
+  lessMinute: string;
+  aboutMinutes: (count: number) => string;
+  takingLonger: string;
   ready: string;
   failed: string;
   cancelled: string;
@@ -87,6 +91,10 @@ const copies: Record<Language, Copy> = {
     uploading: "Adding reference image",
     generating: "Creating image",
     finalizing: "Finishing image",
+    almostThere: "Almost there",
+    lessMinute: "Less than a minute",
+    aboutMinutes: (count) => `About ${count} min left`,
+    takingLonger: "Taking a little longer",
     ready: "Image ready",
     failed: "Could not create image",
     cancelled: "Cancelled",
@@ -138,6 +146,10 @@ const copies: Record<Language, Copy> = {
     uploading: "참조 이미지 추가 중",
     generating: "이미지 생성 중",
     finalizing: "이미지 마무리 중",
+    almostThere: "거의 완료되었습니다",
+    lessMinute: "1분 이내",
+    aboutMinutes: (count) => `약 ${count}분 남음`,
+    takingLonger: "예상보다 조금 더 걸리고 있습니다",
     ready: "이미지 준비 완료",
     failed: "이미지를 만들지 못했습니다",
     cancelled: "취소됨",
@@ -189,6 +201,10 @@ const copies: Record<Language, Copy> = {
     uploading: "Đang thêm ảnh tham chiếu",
     generating: "Đang tạo ảnh",
     finalizing: "Đang hoàn thiện ảnh",
+    almostThere: "Sắp xong",
+    lessMinute: "Còn dưới một phút",
+    aboutMinutes: (count) => `Còn khoảng ${count} phút`,
+    takingLonger: "Đang mất thêm một chút thời gian",
     ready: "Ảnh đã sẵn sàng",
     failed: "Không thể tạo ảnh",
     cancelled: "Đã hủy",

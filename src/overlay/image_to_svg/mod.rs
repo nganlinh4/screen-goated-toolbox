@@ -16,6 +16,7 @@ use crate::win_types::SendHwnd;
 
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 471;
 pub(super) const WM_APP_SYNC: u32 = WM_USER + 472;
+pub(super) const WM_APP_PREVIEW_REPLY: u32 = WM_USER + 473;
 pub(super) const WINDOW_SIZE_FILE: &str = "image-to-svg-window.json";
 
 pub(super) static REGISTER_CLASS: Once = Once::new();

@@ -44,7 +44,13 @@ internal class UiDetectorDragToolHandler(
         }
         val mapping = when (val result = backend.mapCurrentSurface()) {
             is UiDetectorProviderResult.Failure ->
-                return detectorFailure(job, TOOL_NAME, result, backend.observationGeneration)
+                return detectorFailure(
+                    job,
+                    TOOL_NAME,
+                    result,
+                    backend.observationGeneration,
+                    stage = "mapping",
+                )
             is UiDetectorProviderResult.Success -> result.value
         }
         if (mapping.marks.marks.isEmpty()) {
@@ -68,7 +74,13 @@ internal class UiDetectorDragToolHandler(
             val result = backend.refreshMarks(listOf(selection.from.mark, selection.to.mark))
         ) {
             is UiDetectorProviderResult.Failure ->
-                return detectorFailure(job, TOOL_NAME, result, backend.observationGeneration)
+                return detectorFailure(
+                    job,
+                    TOOL_NAME,
+                    result,
+                    backend.observationGeneration,
+                    stage = "refresh",
+                )
             is UiDetectorProviderResult.Success -> result.value
         }
         val from = refreshedSet.mark(selection.from.mark)
@@ -84,6 +96,7 @@ internal class UiDetectorDragToolHandler(
                     freshObservationRequired = true,
                 ),
                 backend.observationGeneration,
+                stage = "refresh",
             )
         }
         val fromVerification = when (val result = targetSelector.verify(fromDescription, from)) {
@@ -96,7 +109,34 @@ internal class UiDetectorDragToolHandler(
                 return dragVerificationFailure(job, "to", to, result)
             is UiDetectorTargetVerification.Success -> result
         }
-        if (backend.observationGeneration != refreshedSet.observationGeneration) {
+        val finalSet = when (val result = backend.revalidateMarks(listOf(from, to))) {
+            is UiDetectorProviderResult.Failure ->
+                return detectorFailure(
+                    job,
+                    TOOL_NAME,
+                    result,
+                    backend.observationGeneration,
+                    stage = "pixel_revalidation",
+                )
+            is UiDetectorProviderResult.Success -> result.value
+        }
+        val finalFrom = finalSet.mark(selection.from.mark)
+        val finalTo = finalSet.mark(selection.to.mark)
+        if (finalFrom == null || finalTo == null) {
+            return detectorFailure(
+                job,
+                TOOL_NAME,
+                UiDetectorProviderResult.Failure(
+                    code = "detector_contract_invalid",
+                    message = "The final visual lease omitted a verified drag endpoint.",
+                    retryable = true,
+                    freshObservationRequired = true,
+                ),
+                backend.observationGeneration,
+                stage = "pixel_revalidation",
+            )
+        }
+        if (backend.observationGeneration != finalSet.observationGeneration) {
             return detectorFailure(
                 job,
                 TOOL_NAME,
@@ -107,28 +147,29 @@ internal class UiDetectorDragToolHandler(
                     freshObservationRequired = true,
                 ),
                 backend.observationGeneration,
+                stage = "pre_dispatch",
             )
         }
-        val accessibility = backend.drag(from, to, DRAG_DURATION_MS)
+        val accessibility = backend.drag(finalFrom, finalTo, DRAG_DURATION_MS)
         val action = routePointerInput(accessibility, { backend.observationGeneration }) {
             elevatedInput.swipe(
                 job = job,
-                lease = from.surfaceLease,
-                fromX = from.mark.box.centerX.toFloat(),
-                fromY = from.mark.box.centerY.toFloat(),
-                toX = to.mark.box.centerX.toFloat(),
-                toY = to.mark.box.centerY.toFloat(),
+                lease = finalFrom.surfaceLease,
+                fromX = finalFrom.mark.box.centerX.toFloat(),
+                fromY = finalFrom.mark.box.centerY.toFloat(),
+                toX = finalTo.mark.box.centerX.toFloat(),
+                toY = finalTo.mark.box.centerY.toFloat(),
                 durationMs = DRAG_DURATION_MS,
                 kind = dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility
                     .AccessibilityMutationKind.POINTER_ACTIVATE,
-                expectedVisualRevision = from.visualRevision,
+                expectedVisualRevision = finalFrom.visualRevision,
             )
         }
         return dragExecution(
             job,
-            refreshedSet,
-            from,
-            to,
+            finalSet,
+            finalFrom,
+            finalTo,
             selection,
             fromVerification,
             toVerification,
@@ -220,7 +261,8 @@ private fun dragExecution(
     evidence = buildJsonObject {
         putEndpoint("from", from, selection.from, fromVerification)
         putEndpoint("to", to, selection.to, toVerification)
-        put("verification_inference_ms", refreshedSet.inferenceMs)
+        put("refresh_inference_ms", refreshedSet.inferenceMs)
+        put("pixel_revalidation_ms", refreshedSet.pixelRevalidationMs)
     },
 )
 

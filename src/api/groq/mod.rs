@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::api::client::{UREQ_AGENT, record_groq_json_usage, record_usage_simple};
+use crate::api::client::{UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple};
 
 pub const CHAT_COMPLETIONS_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -25,7 +25,11 @@ pub fn supports_strict_structured_output(model: &str) -> bool {
 
 /// Select the strongest schema mode the requested model officially supports.
 pub fn structured_response_format(model: &str, name: &str, schema: Value) -> Value {
-    if supports_strict_structured_output(model) {
+    let vision_policy = crate::model_config::vision_request_profile("groq", model);
+    if supports_strict_structured_output(model)
+        || vision_policy.structured_output
+            == crate::model_config::StructuredOutputPolicy::StrictJsonSchema
+    {
         serde_json::json!({
             "type": "json_schema",
             "json_schema": {
@@ -40,45 +44,47 @@ pub fn structured_response_format(model: &str, name: &str, schema: Value) -> Val
 }
 
 /// Sends an arbitrary chat payload, including caller-defined local tool schemas.
-/// Reasoning fields are deliberately left untouched so Groq uses model defaults.
 pub fn send_chat_completion(
     api_key: &str,
     mut payload: Value,
     stats_key: &str,
     tier: ServiceTier,
 ) -> Result<Value> {
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", stats_key);
     if tier == ServiceTier::Flex {
         payload["service_tier"] = Value::String("flex".to_string());
     }
 
     let max_attempts = if tier == ServiceTier::Flex { 4 } else { 1 };
     for attempt in 0..max_attempts {
-        match UREQ_AGENT
+        let response = UREQ_RESPONSE_AGENT
             .post(CHAT_COMPLETIONS_URL)
             .header("Authorization", &format!("Bearer {api_key}"))
             .send_json(&payload)
-        {
-            Ok(response) => {
-                record_usage_simple(response.headers(), stats_key);
-                let root: Value = response
-                    .into_body()
-                    .read_json()
-                    .context("Parse Groq chat response")?;
-                record_groq_json_usage(stats_key, &root);
-                return Ok(root);
-            }
-            Err(ureq::Error::StatusCode(498)) if attempt + 1 < max_attempts => {
-                let delay = flex_retry_delay(attempt);
-                crate::log_info!(
-                    "[Groq] flex capacity unavailable; retry {}/{} in {}ms",
-                    attempt + 1,
-                    max_attempts - 1,
-                    delay.as_millis()
-                );
-                std::thread::sleep(delay);
-            }
-            Err(error) => return Err(anyhow!("Groq chat request failed: {error}")),
+            .map_err(|error| anyhow!("Groq chat transport failed: {error}"))?;
+        record_usage_simple(response.headers(), stats_key);
+        let status = response.status().as_u16();
+        if status == 498 && attempt + 1 < max_attempts {
+            let delay = flex_retry_delay(attempt);
+            crate::log_info!(
+                "[Groq] flex capacity unavailable; retry {}/{} in {}ms",
+                attempt + 1,
+                max_attempts - 1,
+                delay.as_millis()
+            );
+            std::thread::sleep(delay);
+            continue;
         }
+        if !response.status().is_success() {
+            let body = response.into_body().read_to_string().unwrap_or_default();
+            return Err(anyhow!("Groq chat HTTP {status}: {body}"));
+        }
+        let root: Value = response
+            .into_body()
+            .read_json()
+            .context("Parse Groq chat response")?;
+        record_groq_json_usage(stats_key, &root);
+        return Ok(root);
     }
     Err(anyhow!("Groq Flex capacity remained unavailable"))
 }

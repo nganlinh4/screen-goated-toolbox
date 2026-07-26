@@ -4,14 +4,18 @@ const EDITABLE_SELECTOR =
 export function guardPollRendering(root: HTMLElement, render: () => void): () => void {
   let composing = false;
   let deferred = false;
+  let pointerActive = false;
 
-  const editing = () => {
+  const protectedInteraction = () => {
     const active = root.ownerDocument.activeElement;
-    return composing || (active instanceof HTMLElement && active.matches(EDITABLE_SELECTOR));
+    return pointerActive
+      || composing
+      || (active instanceof HTMLElement && active.matches(EDITABLE_SELECTOR))
+      || Boolean(root.querySelector(".queue-rail:hover"));
   };
 
   const flush = () => {
-    if (!deferred || editing()) return;
+    if (!deferred || protectedInteraction()) return;
     deferred = false;
     render();
   };
@@ -26,9 +30,25 @@ export function guardPollRendering(root: HTMLElement, render: () => void): () =>
   root.addEventListener("focusout", () => {
     window.setTimeout(flush, 0);
   });
+  root.addEventListener("pointerout", () => {
+    window.setTimeout(flush, 0);
+  });
+  root.addEventListener("pointerdown", () => {
+    pointerActive = true;
+  }, true);
+  root.addEventListener("pointerup", () => {
+    window.setTimeout(() => {
+      pointerActive = false;
+      flush();
+    }, 0);
+  }, true);
+  root.addEventListener("pointercancel", () => {
+    pointerActive = false;
+    window.setTimeout(flush, 0);
+  }, true);
 
   return () => {
-    if (editing()) {
+    if (protectedInteraction()) {
       deferred = true;
       return;
     }

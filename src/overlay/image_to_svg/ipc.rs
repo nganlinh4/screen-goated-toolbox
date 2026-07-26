@@ -20,7 +20,44 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             return;
         }
     };
+    if envelope.cmd == "read_image_preview" {
+        if let Err(error) = request_image_preview(hwnd, &envelope) {
+            send_reply(&envelope.id, Err(error));
+        }
+        return;
+    }
     send_reply(&envelope.id, dispatch(hwnd, &envelope.cmd, &envelope.args));
+}
+
+fn request_image_preview(hwnd: HWND, envelope: &IpcEnvelope) -> Result<(), String> {
+    let path = envelope
+        .args
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "path is required".to_string())?;
+    let max_edge = envelope
+        .args
+        .get("maxEdge")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok());
+    crate::overlay::creation_preview::request_async_preview(
+        hwnd,
+        super::WM_APP_PREVIEW_REPLY,
+        envelope.id.clone(),
+        path.to_string(),
+        max_edge,
+    )
+}
+
+pub(super) fn flush_preview_replies(hwnd: HWND) {
+    let replies = crate::overlay::creation_preview::take_async_replies(hwnd);
+    super::WEBVIEW.with(|slot| {
+        if let Some(webview) = slot.borrow().as_ref() {
+            for script in replies {
+                let _ = webview.evaluate_script(&script);
+            }
+        }
+    });
 }
 
 fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
@@ -102,18 +139,6 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .ok_or_else(|| "path is required".to_string())?;
             super::runtime::read_asset(path)
-        }
-        "read_image_preview" => {
-            let path = args
-                .get("path")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "path is required".to_string())?;
-            let max_edge = args
-                .get("maxEdge")
-                .and_then(Value::as_u64)
-                .and_then(|value| u32::try_from(value).ok());
-            crate::overlay::creation_preview::read_image_preview(path, max_edge)
-                .map_err(|error| error.to_string())
         }
         "save_svg_edits" => {
             let path = args

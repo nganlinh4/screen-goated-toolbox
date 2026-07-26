@@ -6,6 +6,7 @@ mod postprocess;
 mod providers;
 mod qwen_local;
 mod translation;
+mod translation_openai;
 mod translation_providers;
 pub(crate) mod types;
 

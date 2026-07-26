@@ -70,7 +70,6 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
 
     let groq_key = config.api_key.clone();
     let gemini_key = config.gemini_api_key.clone();
-    let use_json = block_idx == 0 && blocks.len() == 1 && blocks[0].block_type == "image";
 
     let actual_streaming_enabled = if block.render_mode == "markdown" {
         false
@@ -157,7 +156,6 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 model_full_name: &current_model_full_name,
                 provider: &current_provider,
                 streaming_enabled: actual_streaming_enabled,
-                use_json,
                 accumulated: acc_clone,
                 my_hwnd,
                 window_shown: window_shown_clone,
@@ -245,7 +243,6 @@ struct ExecuteImageBlockRequest<'a> {
     model_full_name: &'a str,
     provider: &'a str,
     streaming_enabled: bool,
-    use_json: bool,
     accumulated: Arc<Mutex<String>>,
     my_hwnd: Option<HWND>,
     window_shown: Arc<Mutex<bool>>,
@@ -262,7 +259,6 @@ fn execute_image_block(request: ExecuteImageBlockRequest<'_>) -> anyhow::Result<
         model_full_name,
         provider,
         streaming_enabled,
-        use_json,
         accumulated,
         my_hwnd,
         window_shown,
@@ -289,7 +285,6 @@ fn execute_image_block(request: ExecuteImageBlockRequest<'_>) -> anyhow::Result<
                 image: img,
                 original_bytes: Some(img_data.clone()),
                 streaming_enabled,
-                use_json_format: use_json,
                 response_schema: None,
                 cancel_token: Some(api_cancel),
                 request_timeout: None,

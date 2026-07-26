@@ -4,7 +4,6 @@ use crate::gui::locale::LocaleText;
 use crate::updater::{UpdateStatus, Updater};
 use auto_launch::AutoLaunch;
 use eframe::egui;
-use std::collections::HashMap;
 
 mod api_keys;
 mod custom_models;
@@ -38,7 +37,7 @@ pub fn render_global_settings(
     show_gemini_api_key: &mut bool,
     show_openrouter_api_key: &mut bool,
     show_cerebras_api_key: &mut bool,
-    usage_stats: &HashMap<String, String>,
+    usage_stats: &crate::usage_stats::UsageStore,
     updater: &Option<Updater>,
     update_status: &UpdateStatus,
     run_at_startup: &mut bool,
@@ -195,6 +194,7 @@ pub fn render_global_settings(
         ui,
         usage_stats,
         text,
+        &config.ui_language,
         show_usage_modal,
         config.use_groq,
         config.use_gemini,

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 7,
   "id_rule": {
     "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-(?:text|vision|audio|search)$",
     "forbidden_lifecycle_segments": [
@@ -16,6 +16,7 @@
       "gemini-live": "google-",
       "groq": "groq-",
       "cerebras": "cerebras-",
+      "openrouter": "openrouter-",
       "taalas": "taalas-",
       "qrserver": "qrserver-",
       "parakeet": "local-",
@@ -28,14 +29,49 @@
     "gemini-live": "GG ",
     "groq": "G ",
     "cerebras": "C ",
+    "openrouter": "O ",
     "taalas": "T ",
     "qrserver": "QR ",
     "parakeet": "L ",
     "qwen3": "L "
   },
+  "localized_name_cases": [
+    {
+      "model_id": "google-gemini-2-5-live-transcribe-audio",
+      "vi": "GG Live cũ (Chép)",
+      "ko": "GG 구형 Live (받아쓰기)",
+      "en": "GG Older Live (Transcribe)"
+    },
+    {
+      "model_id": "google-gemini-2-5-live-custom-audio",
+      "vi": "GG Live cũ",
+      "ko": "GG 구형 Live",
+      "en": "GG Older Live"
+    },
+    {
+      "model_id": "google-gemini-3-1-live-transcribe-audio",
+      "vi": "GG Live (Chép)",
+      "ko": "GG Live (받아쓰기)",
+      "en": "GG Live (Transcribe)"
+    },
+    {
+      "model_id": "google-gemini-3-1-live-custom-audio",
+      "vi": "GG Live",
+      "ko": "GG Live",
+      "en": "GG Live"
+    }
+  ],
   "performance": {
-    "brain_min": 1,
-    "brain_max": 5,
+    "intelligence_tier_min": 1,
+    "intelligence_tier_max": 6,
+    "intelligence_stat_icons": [
+      "stat_minus_3",
+      "stat_minus_2",
+      "stat_minus_1",
+      "stat_1",
+      "stat_2",
+      "stat_3"
+    ],
     "unknown_label": "—",
     "latency_format_cases": [
       {
@@ -52,8 +88,33 @@
       }
     ]
   },
+  "display_sort": [
+    "typical_latency_ms",
+    "id"
+  ],
+  "performance_columns": {
+    "intelligence_width": 15,
+    "inter_column_gap": 2,
+    "latency_width": 32,
+    "latency_alignment": "end",
+    "numeric_style": "tabular"
+  },
+  "performance_prefix_visibility": {
+    "expanded_model_options": true,
+    "priority_chain_rows": true,
+    "general_collapsed_selectors": false
+  },
+  "search_marker": {
+    "source_field": "search_tool_enabled_by_default",
+    "requires_provider_capability": true,
+    "capability_alone_never_draws_marker": true,
+    "built_in_model_ids": [
+      "groq-compound-mini-search",
+      "groq-compound-search"
+    ]
+  },
   "row_order": [
-    "brain",
+    "intelligence_stat",
     "latency",
     "provider_icon",
     "localized_name",

@@ -156,7 +156,7 @@ internal fun buildGeminiPayload(
                 ),
         ),
     )
-    PresetModelCatalog.geminiThinkingConfig(model.fullName)?.let { thinking ->
+    PresetModelCatalog.geminiThinkingConfig(model.provider, model.fullName)?.let { thinking ->
         val thinkingConfig = JSONObject().apply {
             thinking.forEach { (key, value) ->
                 when (value) {
@@ -171,14 +171,8 @@ internal fun buildGeminiPayload(
             JSONObject().put("thinkingConfig", thinkingConfig),
         )
     }
-    if (PresetModelCatalog.supportsSearchByName(model.fullName)) {
-        payload.put(
-            "tools",
-            JSONArray()
-                .put(JSONObject().put("url_context", JSONObject()))
-                .put(JSONObject().put("google_search", JSONObject())),
-        )
-    }
+    // Search support is catalog capability metadata. Ordinary generation must
+    // not spend grounding quota unless a caller uses an explicit search path.
     return payload
 }
 

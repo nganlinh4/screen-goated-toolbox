@@ -1,52 +1,245 @@
 package dev.screengoated.toolbox.mobile.preset
 
-import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.Headers
 
 /**
- * Tracks per-model rate limit data from API response headers.
- * Thread-safe — updated from API call threads, read from UI thread.
+ * Latest rate-limit response observed for each provider endpoint in this app
+ * session. Role IDs never participate in identity because text, vision, audio,
+ * and search descriptors can point at the same API endpoint.
  */
 object ModelUsageStats {
-    data class UsageEntry(
-        val remaining: String,
-        val total: String,
+    const val FRESH_THROUGH_SECONDS = 300L
+    const val AGING_THROUGH_SECONDS = 900L
+    private val localRuntimeProviders = setOf(
+        PresetModelProvider.OLLAMA,
+        PresetModelProvider.PARAKEET,
+        PresetModelProvider.MOONSHINE,
     )
 
-    private val stats = ConcurrentHashMap<String, UsageEntry>()
+    enum class UsageScope {
+        PROVIDER,
+        ENDPOINT,
+    }
 
-    /** Called after a successful API response to record rate limit headers. */
-    fun update(modelFullName: String, remaining: String?, total: String?) {
-        if (remaining == null && total == null) return
-        stats[modelFullName] = UsageEntry(
-            remaining = remaining ?: "?",
-            total = total ?: "?",
+    data class UsageKey(
+        val provider: PresetModelProvider,
+        val scope: UsageScope,
+        val fullName: String? = null,
+    )
+
+    enum class MetricKind(val label: String) {
+        REQUESTS_DAY("RPD"),
+        REQUESTS_MINUTE("RPM"),
+        TOKENS_MINUTE("TPM"),
+        TOKENS_DAY("TPD"),
+        AUDIO_SECONDS_HOUR("ASH"),
+        AUDIO_SECONDS_DAY("ASD"),
+    }
+
+    data class UsageMetric(
+        val kind: MetricKind,
+        val remaining: String?,
+        val limit: String?,
+        val reset: String?,
+    )
+
+    data class UsageSnapshot(
+        val metrics: List<UsageMetric>,
+        val observedAtUnixSeconds: Long,
+    )
+
+    enum class Freshness {
+        FRESH,
+        AGING,
+        STALE,
+    }
+
+    private val mutableSnapshots = MutableStateFlow<Map<UsageKey, UsageSnapshot>>(emptyMap())
+    val snapshots: StateFlow<Map<UsageKey, UsageSnapshot>> = mutableSnapshots.asStateFlow()
+
+    @Synchronized
+    fun update(
+        provider: PresetModelProvider,
+        fullName: String,
+        headers: Headers,
+        observedAtUnixSeconds: Long = nowUnixSeconds(),
+    ) {
+        val snapshot = snapshotFromHeaders(provider, headers, observedAtUnixSeconds) ?: return
+        mutableSnapshots.value = mutableSnapshots.value + (keyForResponse(provider, fullName) to snapshot)
+    }
+
+    fun endpointKey(provider: PresetModelProvider, fullName: String): UsageKey =
+        UsageKey(
+            provider = provider,
+            scope = UsageScope.ENDPOINT,
+            fullName = fullName.trim(),
+        )
+
+    fun providerKey(provider: PresetModelProvider): UsageKey =
+        UsageKey(provider = provider, scope = UsageScope.PROVIDER)
+
+    fun providerHasUsageStatistics(provider: PresetModelProvider): Boolean =
+        provider !in localRuntimeProviders
+
+    fun keyForResponse(provider: PresetModelProvider, fullName: String): UsageKey =
+        if (provider == PresetModelProvider.OPENROUTER) {
+            providerKey(provider)
+        } else {
+            endpointKey(provider, fullName)
+        }
+
+    fun freshnessAt(observedAtUnixSeconds: Long, nowUnixSeconds: Long): Freshness {
+        val age = (nowUnixSeconds - observedAtUnixSeconds).coerceAtLeast(0)
+        return when {
+            age <= FRESH_THROUGH_SECONDS -> Freshness.FRESH
+            age <= AGING_THROUGH_SECONDS -> Freshness.AGING
+            else -> Freshness.STALE
+        }
+    }
+
+    fun nowUnixSeconds(): Long = System.currentTimeMillis() / 1_000L
+
+    @Synchronized
+    fun clear() {
+        mutableSnapshots.value = emptyMap()
+    }
+
+    internal fun snapshotFromHeaders(
+        provider: PresetModelProvider,
+        headers: Headers,
+        observedAtUnixSeconds: Long,
+    ): UsageSnapshot? {
+        val metrics = mutableListOf<UsageMetric>()
+        when (provider) {
+            PresetModelProvider.CEREBRAS -> {
+                metrics.addMetric(
+                    headers,
+                    MetricKind.REQUESTS_DAY,
+                    HeaderTriple(
+                        "x-ratelimit-remaining-requests-day",
+                        "x-ratelimit-limit-requests-day",
+                        "x-ratelimit-reset-requests-day",
+                    ),
+                )
+                metrics.addMetric(
+                    headers,
+                    MetricKind.REQUESTS_MINUTE,
+                    HeaderTriple(
+                        "x-ratelimit-remaining-requests-minute",
+                        "x-ratelimit-limit-requests-minute",
+                        "x-ratelimit-reset-requests-minute",
+                    ),
+                )
+                metrics.addMetric(
+                    headers,
+                    MetricKind.TOKENS_MINUTE,
+                    HeaderTriple(
+                        "x-ratelimit-remaining-tokens-minute",
+                        "x-ratelimit-limit-tokens-minute",
+                        "x-ratelimit-reset-tokens-minute",
+                    ),
+                )
+                metrics.addMetric(
+                    headers,
+                    MetricKind.TOKENS_DAY,
+                    HeaderTriple(
+                        "x-ratelimit-remaining-tokens-day",
+                        "x-ratelimit-limit-tokens-day",
+                        "x-ratelimit-reset-tokens-day",
+                    ),
+                )
+                if (metrics.isEmpty()) metrics.addCommonMetrics(headers)
+            }
+            PresetModelProvider.OPENROUTER -> {
+                metrics.addMetric(
+                    headers,
+                    MetricKind.REQUESTS_DAY,
+                    HeaderTriple(
+                        "x-ratelimit-remaining",
+                        "x-ratelimit-limit",
+                        "x-ratelimit-reset",
+                    ),
+                )
+            }
+            else -> metrics.addCommonMetrics(headers)
+        }
+
+        metrics.addMetric(
+            headers,
+            MetricKind.AUDIO_SECONDS_HOUR,
+            HeaderTriple(
+                "x-ratelimit-remaining-audio-seconds-hour",
+                "x-ratelimit-limit-audio-seconds-hour",
+                "x-ratelimit-reset-audio-seconds-hour",
+            ),
+        )
+        metrics.addMetric(
+            headers,
+            MetricKind.AUDIO_SECONDS_DAY,
+            HeaderTriple(
+                "x-ratelimit-remaining-audio-seconds-day",
+                "x-ratelimit-limit-audio-seconds-day",
+                "x-ratelimit-reset-audio-seconds-day",
+            ),
+        )
+
+        return metrics
+            .takeIf { it.isNotEmpty() }
+            ?.sortedBy { it.kind.ordinal }
+            ?.let { UsageSnapshot(it, observedAtUnixSeconds) }
+    }
+
+    private data class HeaderTriple(
+        val remaining: String,
+        val limit: String,
+        val reset: String,
+    )
+
+    private fun MutableList<UsageMetric>.addCommonMetrics(headers: Headers) {
+        addMetric(
+            headers,
+            MetricKind.REQUESTS_DAY,
+            HeaderTriple(
+                "x-ratelimit-remaining-requests",
+                "x-ratelimit-limit-requests",
+                "x-ratelimit-reset-requests",
+            ),
+        )
+        addMetric(
+            headers,
+            MetricKind.TOKENS_MINUTE,
+            HeaderTriple(
+                "x-ratelimit-remaining-tokens",
+                "x-ratelimit-limit-tokens",
+                "x-ratelimit-reset-tokens",
+            ),
         )
     }
 
-    fun updateCerebras(modelFullName: String, headers: Headers) {
-        val requestRemaining = headers["x-ratelimit-remaining-requests-day"] ?: "?"
-        val requestLimit = headers["x-ratelimit-limit-requests-day"] ?: "?"
-        val tokenRemaining = headers["x-ratelimit-remaining-tokens-minute"]
-        val tokenLimit = headers["x-ratelimit-limit-tokens-minute"]
-        val reset = headers["x-ratelimit-reset-tokens-minute"]
-        val remaining = buildString {
-            append("day ").append(requestRemaining)
-            if (tokenRemaining != null) append(" · TPM ").append(tokenRemaining)
-            if (reset != null) append(" · reset ").append(reset)
-        }
-        val total = buildString {
-            append(requestLimit)
-            if (tokenLimit != null) append(" · ").append(tokenLimit)
-        }
-        update(modelFullName, remaining, total)
+    private fun MutableList<UsageMetric>.addMetric(
+        headers: Headers,
+        kind: MetricKind,
+        names: HeaderTriple,
+    ) {
+        val remaining = headers.cleanValue(names.remaining)
+        val limit = headers.cleanValue(names.limit)
+        if (remaining == null && limit == null) return
+        add(
+            UsageMetric(
+                kind = kind,
+                remaining = remaining,
+                limit = limit,
+                reset = headers.cleanValue(names.reset),
+            ),
+        )
     }
 
-    /** Get all recorded usage entries (model full name → entry). */
-    fun getAll(): Map<String, UsageEntry> = stats.toMap()
-
-    /** Get usage for a specific model. */
-    fun get(modelFullName: String): UsageEntry? = stats[modelFullName]
-
-    fun clear() = stats.clear()
+    private fun Headers.cleanValue(name: String): String? =
+        get(name)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.take(80)
 }

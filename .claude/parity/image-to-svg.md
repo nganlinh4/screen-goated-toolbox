@@ -14,6 +14,9 @@
 - One picker or drop may add multiple images as a batch.
 - Every SVG job has exactly one source image. A multi-image batch creates
   independent one-image sessions; references are never combined into one job.
+- The primary action submits only the selected session. Other sessions from the
+  same import remain drafts; parallel work requires an explicit submission for
+  each session.
 - A batch freezes Simple or Detail before entering the queue. A later batch may
   use a different choice.
 - Simple and Detail are stable product choices. Their implementation mapping
@@ -26,9 +29,14 @@
   Preview setup is silent, nonblocking, and cannot fail the creation job.
 - Queue thumbnails and the selected source use bounded preview derivatives.
   Original image bytes are never retained by the WebView, session creation is
-  immediate, and generation remains available while previews load.
-- Completion renders the real SVG at its intrinsic ratio and animates the full
-  path set with adaptive overlapping timing.
+  immediate, generation remains available while previews load, and preview
+  decoding never blocks the WebView message thread. Only the selected or
+  near-visible queue entries hydrate; off-screen history waits until it
+  approaches the viewport, and hydration yields while the canvas is active.
+- Completion renders every path in the real SVG at its intrinsic ratio. The
+  entrance effect animates at most 120 evenly sampled paths with adaptive
+  overlapping timing; all remaining paths are visible immediately so a large
+  document cannot monopolize the UI thread.
 - Viewer controls include fit, zoom, pan, background switching, path selection,
   fill/stroke editing, undo, redo, shape deletion, and saving edits to the real
   SVG.
@@ -40,10 +48,15 @@
 - Windows uses the shared creation-app title bar, queue rail, stage, controls,
   dialogs, focus treatment, typography, icon system, light/dark tokens, and
   reduced-motion behavior.
+- Filled Material Symbols Rounded come from the shared SGT icon catalog; the
+  mini app does not carry a separate hand-authored icon set.
 - Android uses the shared native Material 3 Expressive creation shell and
   preserves the same settings order, progress states, preview math, result
   controls, and history behavior.
-- Polling never replaces a focused input or active IME composition.
+- An unchanged poll or thumbnail completion preserves existing queue DOM.
+  Polling never replaces a hovered selection target, focused input, or active
+  IME composition. The queue owns its overflow, and the primary action remains
+  reachable regardless of queue length.
 
 ## Public Boundary
 
@@ -60,7 +73,10 @@
   twice.
 - Cancellation wins over late success and stale callbacks cannot affect newer
   worker assignments.
-- Closing the UI does not cancel or corrupt queued work.
+- Closing the mini app cancels all of its queued and running jobs, terminates
+  their tracked process trees, destroys the WebView, and prevents a late
+  completion from publishing. Shared proactive preparation remains app-owned
+  and is not mistaken for a mini-app job.
 
 ## Verification
 

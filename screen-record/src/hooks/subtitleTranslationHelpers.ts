@@ -63,7 +63,7 @@ export interface SubtitleTranslationCapabilities {
     modelLabel: string;
     modelName: string;
     provider: string;
-    qualityTier?: number | null;
+    intelligenceTier?: number | null;
     typicalLatencyMs?: number | null;
     performanceSource?: string | null;
   }>;

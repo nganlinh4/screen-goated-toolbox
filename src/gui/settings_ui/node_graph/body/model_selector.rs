@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::super::utils::{
-    insert_next_language_tag, model_supports_search, show_language_selector, show_language_vars,
+    insert_next_language_tag, model_shows_search_marker, show_language_selector, show_language_vars,
 };
 use super::super::viewer::ChainViewer;
 use crate::gui::icons::{Icon, icon_button};
@@ -107,7 +107,7 @@ pub fn show_model_and_settings(
                             viewer.changed = true;
                             egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
                         }
-                        if model_supports_search(&m.id) {
+                        if model_shows_search_marker(&m.id) {
                             crate::gui::icons::draw_icon_static(
                                 ui,
                                 Icon::Search,

@@ -42,6 +42,12 @@ class TextApiClientTest {
                     resolved.geminiThinkingConfig?.get("includeThoughts"),
                 )
             }
+            case.thinkingBudget?.let { expected ->
+                assertEquals(
+                    expected,
+                    resolved.geminiThinkingConfig?.get("thinkingBudget"),
+                )
+            }
         }
     }
 
@@ -60,10 +66,11 @@ class TextApiClientTest {
             payload.getValue("model").jsonPrimitive.content,
         )
         assertTrue(payload.getValue("stream").jsonPrimitive.boolean)
+        assertEquals("low", payload.getValue("reasoning_effort").jsonPrimitive.content)
     }
 
     @Test
-    fun geminiRequestBodyCarriesWindowsThinkingConfigAndSearchRules() {
+    fun geminiRequestBodyCarriesThinkingConfigWithoutImplicitSearchTools() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
                 modelId = "google-gemini-3-flash-text",
@@ -74,13 +81,104 @@ class TextApiClientTest {
 
         val generationConfig = payload.getValue("generationConfig").jsonObject
         assertEquals(
-            true,
+            "MINIMAL",
             generationConfig.getValue("thinkingConfig").jsonObject
-                .getValue("includeThoughts")
+                .getValue("thinkingLevel")
                 .jsonPrimitive
-                .boolean,
+                .content,
+        )
+        assertFalse(
+            generationConfig.getValue("thinkingConfig").jsonObject
+                .containsKey("includeThoughts"),
         )
         assertFalse(payload.containsKey("tools"))
+    }
+
+    @Test
+    fun searchCapabilityUsesExactCatalogProfiles() {
+        for (modelId in listOf(
+            "google-gemini-3-flash-text",
+            "google-gemini-3-1-flash-lite-text",
+            "google-gemini-3-5-flash-lite-text",
+            "google-gemini-3-6-flash-text",
+            "google-gemini-robotics-er-1-6-vision",
+            "groq-compound-mini-search",
+        )) {
+            assertTrue(modelId, PresetModelCatalog.supportsSearchById(modelId))
+        }
+        for (modelId in listOf(
+            "google-gemma-4-31b-text",
+            "google-gemini-3-1-live-text",
+            "groq-gpt-oss-120b-text",
+            "unknown-compound-text",
+        )) {
+            assertFalse(modelId, PresetModelCatalog.supportsSearchById(modelId))
+        }
+    }
+
+    @Test
+    fun searchMarkerRequiresDefaultToolExecutionNotCapabilityAlone() {
+        val fixture = json.parseToJsonElement(
+            Files.readAllBytes(modelPresentationFixturePath()).decodeToString(),
+        ).jsonObject
+        val expected = fixture.getValue("search_marker")
+            .jsonObject
+            .getValue("built_in_model_ids")
+            .jsonArray
+            .map { it.jsonPrimitive.content }
+            .sorted()
+        val actual = PresetModelCatalog.models
+            .filter { it.searchToolEnabledByDefault }
+            .map { it.id }
+            .sorted()
+        assertEquals(expected, actual)
+
+        for (modelId in listOf(
+            "google-gemini-3-1-flash-lite-text",
+            "google-gemini-3-5-flash-lite-vision",
+            "google-gemini-3-6-flash-text",
+        )) {
+            assertTrue(modelId, PresetModelCatalog.supportsSearchById(modelId))
+            assertFalse(
+                modelId,
+                PresetModelCatalog.searchToolEnabledByDefaultById(modelId),
+            )
+        }
+    }
+
+    @Test
+    fun cerebrasGptOssUsesItsCatalogReasoningAndLimit() {
+        val payload = json.parseToJsonElement(
+            client.debugBuildRequestBody(
+                modelId = "cerebras-gpt-oss-120b-text",
+                prompt = "Translate.",
+                inputText = "Hello",
+            ),
+        ).jsonObject
+        assertEquals("gpt-oss-120b", payload.getValue("model").jsonPrimitive.content)
+        assertEquals("low", payload.getValue("reasoning_effort").jsonPrimitive.content)
+        assertEquals(8192, payload.getValue("max_completion_tokens").jsonPrimitive.content.toInt())
+    }
+
+    @Test
+    fun openRouterNemotronUsesNestedReasoningPolicy() {
+        val payload = json.parseToJsonElement(
+            client.debugBuildRequestBody(
+                modelId = "openrouter-nemotron-3-nano-omni-30b-a3b-text",
+                prompt = "Translate.",
+                inputText = "Hello",
+            ),
+        ).jsonObject
+        assertEquals(
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            payload.getValue("model").jsonPrimitive.content,
+        )
+        assertEquals(
+            "none",
+            payload.getValue("reasoning").jsonObject
+                .getValue("effort").jsonPrimitive.content,
+        )
+        assertFalse(payload.containsKey("reasoning_effort"))
     }
 
     @Test
@@ -144,6 +242,10 @@ class TextApiClientTest {
                 supportsSearch = case.getValue("supports_search").jsonPrimitive.boolean,
                 thinkingLevel = case["thinking_level"]?.jsonPrimitive?.contentOrNull,
                 thinkingIncludeThoughts = case["thinking_include_thoughts"]?.jsonPrimitive?.booleanOrNull,
+                thinkingBudget = case["thinking_budget"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.toIntOrNull(),
                 languageVars = case["language_vars"]
                     ?.jsonObject
                     ?.mapValues { (_, value) -> value.jsonPrimitive.content }
@@ -163,6 +265,16 @@ class TextApiClientTest {
             ?: error("Could not locate text-provider-routing parity fixture.")
     }
 
+    private fun modelPresentationFixturePath(): Path {
+        val candidates = listOf(
+            Paths.get("..", "parity-fixtures", "model-catalog", "presentation.json"),
+            Paths.get("..", "..", "parity-fixtures", "model-catalog", "presentation.json"),
+            Paths.get("parity-fixtures", "model-catalog", "presentation.json"),
+        )
+        return candidates.firstOrNull(Files::exists)
+            ?: error("Could not locate model-catalog presentation parity fixture.")
+    }
+
     private data class FixtureCase(
         val name: String,
         val modelId: String,
@@ -171,6 +283,7 @@ class TextApiClientTest {
         val supportsSearch: Boolean,
         val thinkingLevel: String?,
         val thinkingIncludeThoughts: Boolean?,
+        val thinkingBudget: Int?,
         val languageVars: Map<String, String>,
         val targetLanguage: String?,
     )

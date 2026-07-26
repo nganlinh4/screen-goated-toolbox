@@ -10,7 +10,6 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
 
     match (preset_id, lang_code) {
         ("preset_translate", "vi") => "Dịch vùng".to_string(),
-        ("preset_extract_retranslate", "vi") => "Dịch vùng (CHUẨN)".to_string(),
         ("preset_translate_auto_paste", "vi") => "Dịch vùng (Tự dán)".to_string(),
         ("preset_translate_retranslate", "vi") => "Dịch vùng+Dịch lại".to_string(),
         ("preset_extract_retrans_retrans", "vi") => "D.vùng (CHUẨN)+D.lại".to_string(),
@@ -62,7 +61,6 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_audio_mic_master", "vi") => "Mic MASTER".to_string(),
         ("preset_audio_device_master", "vi") => "Tiếng MASTER".to_string(),
         ("preset_translate", "ko") => "영역 번역".to_string(),
-        ("preset_extract_retranslate", "ko") => "영역 번역 (정확)".to_string(),
         ("preset_translate_auto_paste", "ko") => "영역 번역 (자동 붙.)".to_string(),
         ("preset_translate_retranslate", "ko") => "영역 번역+재번역".to_string(),
         ("preset_extract_retrans_retrans", "ko") => "영.번역 (정확)+재번역".to_string(),
@@ -111,7 +109,6 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_audio_mic_master", "ko") => "마이크 마스터".to_string(),
         ("preset_audio_device_master", "ko") => "사운드 마스터".to_string(),
         ("preset_translate", _) => "Translate region".to_string(),
-        ("preset_extract_retranslate", _) => "Trans reg (ACCURATE)".to_string(),
         ("preset_translate_auto_paste", _) => "Trans reg (Auto paste)".to_string(),
         ("preset_translate_retranslate", _) => "Trans reg+Retrans".to_string(),
         ("preset_extract_retrans_retrans", _) => "Trans (ACC)+Retrans".to_string(),

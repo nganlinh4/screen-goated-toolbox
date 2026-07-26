@@ -5,6 +5,8 @@ export interface JobStatus {
   operation: string;
   stage: string;
   progressText: string;
+  elapsedMs?: number;
+  estimatedTotalMs?: number;
   progressRatio?: number;
   outputPath?: string;
   outputName?: string;

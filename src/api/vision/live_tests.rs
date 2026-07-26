@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn qwen_payload_stays_below_tpm_and_hides_reasoning() {
+fn qwen_payload_stays_below_tpm_and_disables_reasoning() {
     let payload = groq_vision_payload(
         "qwen/qwen3.6-27b",
         "prompt",
@@ -10,9 +10,14 @@ fn qwen_payload_stays_below_tpm_and_hides_reasoning() {
         false,
         None,
     );
-    assert_eq!(payload["max_completion_tokens"], 2048);
+    assert_eq!(payload["max_completion_tokens"], 512);
     assert_eq!(payload["reasoning_format"], "hidden");
-    assert!(payload.get("reasoning_effort").is_none());
+    assert_eq!(payload["reasoning_effort"], "none");
+    assert_eq!(payload["temperature"], 0.7);
+    assert_eq!(payload["top_p"], 0.8);
+    assert_eq!(payload["presence_penalty"], 1.5);
+    assert!(payload.get("top_k").is_none());
+    assert!(payload.get("min_p").is_none());
 
     let generic = groq_vision_payload(
         "future-vision-model",
@@ -50,10 +55,41 @@ fn vision_schema_uses_generic_json_mode() {
 }
 
 #[test]
+fn openrouter_nemotron_uses_nested_reasoning_and_prompt_only_structure() {
+    let schema = serde_json::json!({"type": "object"});
+    let payload = openrouter_vision_payload(
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "prompt",
+        "image/png",
+        "AA==",
+        false,
+        Some(&schema),
+    );
+
+    assert_eq!(payload["reasoning"]["effort"], "none");
+    assert!(payload.get("reasoning_effort").is_none());
+    assert!(payload.get("response_format").is_none());
+    assert_eq!(payload["messages"][0]["content"][0]["type"], "text");
+}
+
+#[test]
 fn groq_retry_headers_and_error_bodies_are_structural() {
     let mut headers = ureq::http::HeaderMap::new();
     headers.insert("retry-after", "14.2".parse().unwrap());
     assert_eq!(retry_after_seconds(&headers), Some(15));
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/preset-system/vision-payload.json"
+    )))
+    .expect("vision payload parity fixture parses");
+    assert_eq!(
+        fixture["groq"]["short_retry_after_max_seconds"],
+        GROQ_MAX_RATE_LIMIT_WAIT_SECS
+    );
+    assert_eq!(groq_rate_limit_retry_delay(429, 0, Some(2)), Some(2));
+    assert_eq!(groq_rate_limit_retry_delay(429, 0, Some(3)), None);
+    assert_eq!(groq_rate_limit_retry_delay(429, 1, Some(1)), None);
+    assert_eq!(groq_rate_limit_retry_delay(503, 0, Some(1)), None);
     assert_eq!(
         groq_error_message(429, r#"{"error":{"message":"TPM exhausted"}}"#),
         "TPM exhausted"
@@ -98,7 +134,6 @@ fn groq_rust_pipeline_live() {
             image,
             original_bytes: None,
             streaming_enabled: false,
-            use_json_format: false,
             response_schema: None,
             cancel_token: None,
             request_timeout: None,

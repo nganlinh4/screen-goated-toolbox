@@ -65,6 +65,7 @@ data class CreationCommonLocale(
     val queued: String,
     val providerQueued: String,
     val working: String,
+    val progress: CreationProgressLocale,
     val done: String,
     val failed: String,
     val saveTo: String,
@@ -82,6 +83,13 @@ data class CreationCommonLocale(
     val creationRuntimeDescription: String,
     val depthPreviewModel: String,
     val depthPreviewDescription: String,
+)
+
+data class CreationProgressLocale(
+    val almostThere: String,
+    val lessThanMinute: String,
+    val aboutMinutes: String,
+    val takingLonger: String,
 )
 
 data class Creation3dLocale(
@@ -242,16 +250,11 @@ data class MobilePresetRuntimeLocale(
     override val presetRuntimeDescription: String,
     override val presetRuntimeButton: String,
     override val presetRuntimeSettingsAction: String,
-    override val usageStatsButton: String,
-    override val usageStatsTitle: String,
-    override val usageStatsModel: String,
-    override val usageStatsRemaining: String,
-    override val usageStatsUnlimited: String,
-    override val usageStatsNoData: String,
-    override val usageStatsSettingsAction: String,
+    val usageStats: MobileUsageStatsLocale,
     override val usageTipsTitle: String,
     override val usageTipsClickHint: String,
-    override val usageTipsList: List<String>,
+    override val usageTipsDescription: String,
+    override val usageTipsCategories: List<MobileUsageTipCategoryText>,
     override val resetDefaultsButton: String,
     override val resetDefaultsAction: String,
     override val resetDefaultsConfirmTitle: String,
@@ -268,7 +271,35 @@ data class MobilePresetRuntimeLocale(
     override val presetRuntimeChosenHint: String,
     override val presetRuntimeAuto: String,
     override val presetRuntimeAutoHint: String,
-) : MobilePresetRuntimeText
+) : MobilePresetRuntimeText {
+    override val usageStatsButton: String get() = usageStats.button
+    override val usageStatsTitle: String get() = usageStats.title
+    override val usageStatsNoData: String get() = usageStats.noData
+    override val usageStatsSettingsAction: String get() = usageStats.settingsAction
+    override val usageStatsSessionHint: String get() = usageStats.sessionHint
+    override val usageStatsEndpointCount: String get() = usageStats.endpointCount
+    override val usageStatsSharedQuota: String get() = usageStats.sharedQuota
+    override val usageStatsUpdatedNow: String get() = usageStats.updatedNow
+    override val usageStatsMinutesAgo: String get() = usageStats.minutesAgo
+    override val usageStatsStale: String get() = usageStats.stale
+    override val usageStatsReset: String get() = usageStats.reset
+    override val usageStatsCheckUsage: String get() = usageStats.checkUsage
+}
+
+data class MobileUsageStatsLocale(
+    val button: String,
+    val title: String,
+    val noData: String,
+    val settingsAction: String,
+    val sessionHint: String,
+    val endpointCount: String,
+    val sharedQuota: String,
+    val updatedNow: String,
+    val minutesAgo: String,
+    val stale: String,
+    val reset: String,
+    val checkUsage: String,
+)
 
 data class MobileUpdateLocale(
     override val softwareUpdateHeader: String,

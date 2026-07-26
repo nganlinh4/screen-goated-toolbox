@@ -118,25 +118,38 @@ pub fn handle_get_subtitle_translation_capabilities(
     _args: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let config = current_config()?;
-    let models = collect_translation_models(&config);
+    let mut models = collect_translation_models(&config);
     let gtx_model =
         get_model_by_id_with_custom(PRESET_TRANSLATE_ARENA_GTX_MODEL_ID, &config.custom_models);
-    let mut model_payload = vec![gtx_model.map_or_else(
-        || SubtitleTranslationModelCapability {
+    if let Some(gtx_model) = gtx_model {
+        models.push(gtx_model);
+    }
+    crate::model_config::sort_models_for_display(&mut models);
+    let mut model_payload = models
+        .into_iter()
+        .map(|model| {
+            let runtime_model_id = if model.id == PRESET_TRANSLATE_ARENA_GTX_MODEL_ID {
+                GTX_TRANSLATION_MODEL_ID
+            } else {
+                &model.id
+            };
+            translation_model_capability(runtime_model_id, &model, &config.ui_language)
+        })
+        .collect::<Vec<_>>();
+    if !model_payload
+        .iter()
+        .any(|model| model.model_id == GTX_TRANSLATION_MODEL_ID)
+    {
+        model_payload.push(SubtitleTranslationModelCapability {
             model_id: GTX_TRANSLATION_MODEL_ID.to_string(),
             model_label: GTX_TRANSLATION_MODEL_LABEL.to_string(),
             model_name: "translate.googleapis.com/gtx".to_string(),
             provider: "google-gtx".to_string(),
-            quality_tier: None,
+            intelligence_tier: None,
             typical_latency_ms: None,
             performance_source: None,
-        },
-        |model| translation_model_capability(GTX_TRANSLATION_MODEL_ID, &model, &config.ui_language),
-    )];
-    model_payload.extend(models.into_iter().map(|model| {
-        let model_id = model.id.clone();
-        translation_model_capability(&model_id, &model, &config.ui_language)
-    }));
+        });
+    }
     let payload = SubtitleTranslationCapabilities {
         available: true,
         reason: None,
@@ -156,7 +169,7 @@ fn translation_model_capability(
         model_label: localized_model_label(model, ui_language),
         model_name: model.full_name.clone(),
         provider: model.provider.clone(),
-        quality_tier: model.quality_tier,
+        intelligence_tier: model.intelligence_tier,
         typical_latency_ms: model.typical_latency_ms,
         performance_source: model.performance_source.clone(),
     }

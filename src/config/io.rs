@@ -7,6 +7,9 @@ use crate::config::config::Config;
 use crate::config::preset::{Preset, ProcessingBlock, get_default_presets};
 use crate::model_config::{ModelType, get_model_by_id_with_custom, model_is_non_llm};
 
+const RETIRED_REGION_TRANSLATE_PRESET_ID: &str = "preset_extract_retranslate";
+const REGION_TRANSLATE_PRESET_ID: &str = "preset_translate";
+
 // ============================================================================
 // CONFIG PATH
 // ============================================================================
@@ -47,8 +50,22 @@ pub fn load_config() -> Config {
         }
     };
 
+    let should_persist_retirement = config
+        .presets
+        .iter()
+        .any(|preset| preset.id == RETIRED_REGION_TRANSLATE_PRESET_ID)
+        || config.preset_profiles.iter().any(|profile| {
+            profile
+                .presets
+                .iter()
+                .any(|preset| preset.id == RETIRED_REGION_TRANSLATE_PRESET_ID)
+        });
+
     // Apply migrations and merge new defaults
     migrate_config(&mut config);
+    if should_persist_retirement {
+        save_config(&config);
+    }
 
     config
 }
@@ -79,8 +96,20 @@ fn migrate_config(config: &mut Config) {
     migrate_computer_control_launcher(config);
     config.ensure_preset_profiles();
     migrate_preset_list(&mut config.presets, &default_presets);
+    migrate_retired_builtin_preset(
+        &mut config.presets,
+        &mut config.active_preset_idx,
+        RETIRED_REGION_TRANSLATE_PRESET_ID,
+        REGION_TRANSLATE_PRESET_ID,
+    );
     for profile in &mut config.preset_profiles {
         migrate_preset_list(&mut profile.presets, &default_presets);
+        migrate_retired_builtin_preset(
+            &mut profile.presets,
+            &mut profile.active_preset_idx,
+            RETIRED_REGION_TRANSLATE_PRESET_ID,
+            REGION_TRANSLATE_PRESET_ID,
+        );
         profile.active_preset_idx = profile
             .active_preset_idx
             .min(profile.presets.len().saturating_sub(1));
@@ -155,6 +184,42 @@ fn remove_legacy_launcher(
         if *active_idx > idx {
             *active_idx -= 1;
         }
+        *active_idx = (*active_idx).min(presets.len().saturating_sub(1));
+    }
+}
+
+fn migrate_retired_builtin_preset(
+    presets: &mut Vec<Preset>,
+    active_idx: &mut usize,
+    retired_id: &str,
+    replacement_id: &str,
+) {
+    while let Some(retired_idx) = presets.iter().position(|preset| preset.id == retired_id) {
+        let was_active = *active_idx == retired_idx;
+        let retired = presets.remove(retired_idx);
+
+        if *active_idx > retired_idx {
+            *active_idx -= 1;
+        }
+
+        if let Some(replacement_idx) = presets
+            .iter()
+            .position(|preset| preset.id == replacement_id)
+        {
+            let replacement = &mut presets[replacement_idx];
+            replacement.is_favorite |= retired.is_favorite;
+            for hotkey in retired.hotkeys {
+                if !replacement.hotkeys.iter().any(|existing| {
+                    existing.code == hotkey.code && existing.modifiers == hotkey.modifiers
+                }) {
+                    replacement.hotkeys.push(hotkey);
+                }
+            }
+            if was_active {
+                *active_idx = replacement_idx;
+            }
+        }
+
         *active_idx = (*active_idx).min(presets.len().saturating_sub(1));
     }
 }

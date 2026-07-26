@@ -13,8 +13,7 @@ import java.io.IOException
 import kotlin.math.ceil
 import kotlin.coroutines.coroutineContext
 
-private const val QWEN_VISION_MAX_COMPLETION_TOKENS = 2_048
-private const val GROQ_MAX_RATE_LIMIT_WAIT_SECONDS = 30L
+private const val GROQ_MAX_RATE_LIMIT_WAIT_SECONDS = 2L
 
 internal suspend fun VisionApiClient.streamOpenAiVision(
     endpoint: String,
@@ -31,7 +30,7 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:${providerName.lowercase()}")
 
     val payload = openAiVisionPayload(
-        model.fullName,
+        model,
         prompt,
         imageBase64,
         mimeType,
@@ -42,32 +41,20 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
         return generateOpenAiVisionBlocking(endpoint, apiKey, providerName, model, payload, onChunk)
     }
 
-    var requestPayload = payload
-    var emptyRecoveryAttempted = false
-    while (true) {
-        val encoded = if (providerName == "Cerebras") encodeCerebrasJson(requestPayload) else null
-        val requestBuilder = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .post(encoded?.body ?: requestPayload.toString().toRequestBody(jsonMediaType))
-        if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
-        val request = requestBuilder.build()
+    val encoded = if (providerName == "Cerebras") encodeCerebrasJson(payload) else null
+    val requestBuilder = Request.Builder()
+        .url(endpoint)
+        .header("Authorization", "Bearer $apiKey")
+        .header("Content-Type", "application/json")
+        .post(encoded?.body ?: payload.toString().toRequestBody(jsonMediaType))
+    if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
+    val request = requestBuilder.build()
 
-        val fullContent = StringBuilder()
-        var thinkingShown = false
-        var contentStarted = false
+    val fullContent = StringBuilder()
+    var thinkingShown = false
+    var contentStarted = false
 
-        executeOpenAiVisionRequest(request, providerName).use { response ->
-
-        if (providerName == "Cerebras") {
-            ModelUsageStats.updateCerebras(model.fullName, response.headers)
-        } else {
-            val rlRemaining = response.header("x-ratelimit-remaining-requests")
-            val rlLimit = response.header("x-ratelimit-limit-requests")
-            ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
-        }
-
+    executeOpenAiVisionRequest(request, providerName, model).use { response ->
         val body = response.body
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
@@ -95,18 +82,8 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
                 }
             }
         }
-        }
-        if (
-            model.fullName.startsWith("qwen/") &&
-            fullContent.isBlank() &&
-            !emptyRecoveryAttempted
-        ) {
-            requestPayload = JSONObject(payload.toString()).put("reasoning_effort", "none")
-            emptyRecoveryAttempted = true
-            continue
-        }
-        return fullContent.toString()
     }
+    return fullContent.toString()
 }
 
 private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
@@ -117,28 +94,16 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
     payload: JSONObject,
     onChunk: (String) -> Unit,
 ): String {
-    var requestPayload = payload
-    var emptyRecoveryAttempted = false
-    while (true) {
-        val encoded = if (providerName == "Cerebras") encodeCerebrasJson(requestPayload) else null
-        val requestBuilder = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .post(encoded?.body ?: requestPayload.toString().toRequestBody(jsonMediaType))
-        if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
-        val request = requestBuilder.build()
+    val encoded = if (providerName == "Cerebras") encodeCerebrasJson(payload) else null
+    val requestBuilder = Request.Builder()
+        .url(endpoint)
+        .header("Authorization", "Bearer $apiKey")
+        .header("Content-Type", "application/json")
+        .post(encoded?.body ?: payload.toString().toRequestBody(jsonMediaType))
+    if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
+    val request = requestBuilder.build()
 
-        executeOpenAiVisionRequest(request, providerName).use { response ->
-
-        if (providerName == "Cerebras") {
-            ModelUsageStats.updateCerebras(model.fullName, response.headers)
-        } else {
-            val rlRemaining = response.header("x-ratelimit-remaining-requests")
-            val rlLimit = response.header("x-ratelimit-limit-requests")
-            ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
-        }
-
+    executeOpenAiVisionRequest(request, providerName, model).use { response ->
         val content = try {
             JSONObject(response.body.string().orEmpty())
                 .optJSONArray("choices")
@@ -149,28 +114,22 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
         } catch (_: JSONException) {
             ""
         }
-            if (content.isBlank()) {
-                if (model.fullName.startsWith("qwen/") && !emptyRecoveryAttempted) {
-                    requestPayload = JSONObject(payload.toString()).put("reasoning_effort", "none")
-                    emptyRecoveryAttempted = true
-                    return@use
-                }
-                throw IOException("$providerName vision returned blank content.")
-            }
-            onChunk(content)
-            return content
-        }
+        if (content.isBlank()) throw IOException("$providerName vision returned blank content.")
+        onChunk(content)
+        return content
     }
 }
 
 private suspend fun VisionApiClient.executeOpenAiVisionRequest(
     request: Request,
     providerName: String,
+    model: PresetModelDescriptor,
 ): okhttp3.Response {
     var retried = false
     while (true) {
         coroutineContext.ensureActive()
         val response = httpClient.newCall(request).execute()
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (response.isSuccessful) return response
 
         val code = response.code
@@ -265,22 +224,26 @@ internal fun VisionApiClient.callQrServer(
 }
 
 internal fun openAiVisionPayload(
-    fullName: String,
+    model: PresetModelDescriptor,
     prompt: String,
     imageBase64: String,
     mimeType: String,
     stream: Boolean,
 ): JSONObject {
-    val content = JSONArray()
-        .put(JSONObject().put("type", "text").put("text", prompt))
+    val provider = model.provider
+    val fullName = model.fullName
+    val textPart = JSONObject().put("type", "text").put("text", prompt)
+    val imagePart = JSONObject()
+        .put("type", "image_url")
         .put(
-            JSONObject()
-                .put("type", "image_url")
-                .put(
-                    "image_url",
-                    JSONObject().put("url", "data:$mimeType;base64,$imageBase64"),
-                ),
+            "image_url",
+            JSONObject().put("url", "data:$mimeType;base64,$imageBase64"),
         )
+    val content = JSONArray()
+    when (model.visionInputOrder) {
+        PresetVisionInputOrder.TEXT_FIRST -> content.put(textPart).put(imagePart)
+        PresetVisionInputOrder.IMAGE_FIRST -> content.put(imagePart).put(textPart)
+    }
 
     val payload = JSONObject()
         .put("model", fullName)
@@ -293,12 +256,16 @@ internal fun openAiVisionPayload(
             ),
         )
         .put("stream", stream)
-    if (fullName.startsWith("qwen/")) {
-        payload.put("reasoning_format", "hidden")
-        payload.put("max_completion_tokens", QWEN_VISION_MAX_COMPLETION_TOKENS)
+    if (model.visionSamplingPolicy == PresetVisionSamplingPolicy.QWEN3_GROQ_NON_THINKING) {
+        payload
+            .put("reasoning_format", "hidden")
+            .put("temperature", 0.7)
+            .put("top_p", 0.8)
+            .put("presence_penalty", 1.5)
     }
-    if (fullName == "gemma-4-31b") {
+    model.visionMaxOutputTokens?.let { payload.put("max_completion_tokens", it) }
+    if (provider == PresetModelProvider.CEREBRAS && model.visionMaxOutputTokens == null) {
         payload.put("max_completion_tokens", 8192)
     }
-    return payload
+    return applyFastReasoningPolicy(payload, provider, fullName)
 }

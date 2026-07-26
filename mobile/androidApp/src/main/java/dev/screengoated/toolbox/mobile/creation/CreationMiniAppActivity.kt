@@ -48,7 +48,7 @@ class CreationMiniAppActivity : ComponentActivity() {
         enableEdgeToEdge()
         viewModel = ViewModelProvider(
             this,
-            CreationNativeViewModel.Factory(application, tool),
+            CreationNativeViewModelFactory(application, tool),
         )[CreationNativeViewModel::class.java]
         val preferences = (application as SgtMobileApplication).appContainer.repository
             .currentUiPreferences()
@@ -76,6 +76,11 @@ class CreationMiniAppActivity : ComponentActivity() {
                 override fun handleOnBackPressed() = finish()
             },
         )
+    }
+
+    override fun onDestroy() {
+        if (isFinishing && ::viewModel.isInitialized) viewModel.closeMiniApp()
+        super.onDestroy()
     }
 
     companion object {

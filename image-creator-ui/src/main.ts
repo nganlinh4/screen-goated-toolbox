@@ -1,6 +1,12 @@
 import "./styles.css";
+import "../../ui-shared/creation-shell-layout.css";
 import { copyFor, type Copy } from "./i18n";
 import { ICONS as I } from "./icons";
+import {
+  ImageProgressPresenter,
+  imageStatusLabel,
+  publicImageStage,
+} from "./jobPresentation";
 import {
   escapeHtml,
   historyReferences,
@@ -15,6 +21,7 @@ import {
   type Selection,
 } from "./models";
 import { guardPollRendering } from "./pollRenderGuard";
+import { ImagePreviewHydrator } from "./previewHydration";
 import { PreviewStore } from "./previewStore";
 import { stageMarkup } from "./stageMarkup";
 
@@ -42,10 +49,10 @@ let compare = 50;
 let message = "";
 let preparationStatus = "preparing";
 let dialog: DialogState | null = null;
-let renderVersion = 0;
+let renderedLayoutSignature = "";
 let sessionSequence = 0;
 let fitObserver: ResizeObserver | undefined;
-let hydrationQueue = Promise.resolve();
+let submitting = false;
 
 async function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   if (!window.invoke) throw new Error("Native host is unavailable");
@@ -53,6 +60,8 @@ async function invoke<T>(command: string, args: Record<string, unknown> = {}): P
 }
 
 const previews = new PreviewStore(invoke);
+const previewHydrator = new ImagePreviewHydrator(previews, fitNaturalFrame);
+const progressPresenter = new ImageProgressPresenter();
 const renderAfterPoll = guardPollRendering(app, render);
 
 function terminal(stage: string): boolean {
@@ -61,11 +70,6 @@ function terminal(stage: string): boolean {
 
 function busy(stage: string): boolean {
   return !terminal(stage) && stage !== "draft";
-}
-
-function publicStage(stage: string): string {
-  return ["queued", "preparing", "uploading", "generating", "finalizing", "done", "failed", "cancelled"]
-    .includes(stage) ? stage : "preparing";
 }
 
 function currentDraft(): DraftSession | undefined {
@@ -153,6 +157,7 @@ async function chooseOutput() {
 }
 
 async function submit() {
+  if (submitting) return;
   const selection = selected();
   if (!selection) return;
   const selectedJob = jobs.find((item) => item.jobId === selectedKey);
@@ -165,6 +170,8 @@ async function submit() {
   }
 
   const draft = currentDraft();
+  submitting = true;
+  render();
   try {
     const status = await invoke<JobStatus>("start_job", {
       imagePaths: [...selection.referencePaths],
@@ -177,6 +184,8 @@ async function submit() {
     message = "";
   } catch {
     message = copy.failed;
+  } finally {
+    submitting = false;
   }
   render();
 }
@@ -189,11 +198,12 @@ async function refresh() {
     ]);
     jobs = nextJobs;
     history = nextHistory;
+    progressPresenter.retain(jobs);
     const exists = jobs.some((item) => item.jobId === selectedKey)
       || drafts.some((item) => item.key === selectedKey)
       || history.some((item) => item.id === selectedKey);
     if (!exists) selectedKey = jobs[jobs.length - 1]?.jobId ?? drafts[0]?.key ?? history[0]?.id ?? "";
-    renderAfterPoll();
+    reconcileAfterPoll();
   } catch {
     // A hidden or closing host can reject a poll; the next poll reconciles it.
   }
@@ -201,7 +211,7 @@ async function refresh() {
 
 async function updateReady() {
   preparationStatus = await invoke<string>("runtime_preparation_status").catch(() => "preparing");
-  renderAfterPoll();
+  reconcileAfterPoll();
 }
 
 async function cancel(jobId: string) {
@@ -230,22 +240,53 @@ async function commitDialog() {
   }
 }
 
-function statusLabel(job: JobStatus): string {
-  switch (publicStage(job.stage)) {
-    case "queued": return copy.queued;
-    case "preparing": return copy.preparing;
-    case "uploading": return copy.uploading;
-    case "generating": return copy.generating;
-    case "finalizing": return copy.finalizing;
-    case "done": return copy.ready;
-    case "failed": return copy.failed;
-    case "cancelled": return copy.cancelled;
-    default: return copy.preparing;
-  }
-}
-
 function thumb(path: string | undefined): string {
   return path ? ` data-thumb="${escapeHtml(path)}"` : "";
+}
+
+function layoutSignature(): string {
+  return JSON.stringify({
+    selectedKey,
+    outputDir,
+    message,
+    submitting,
+    preparationReady: preparationStatus === "ready" || preparationStatus === "partial",
+    dialog,
+    drafts: drafts.map((draft) => [draft.key, draft.prompt, draft.referencePaths]),
+    jobs: jobs.map((job) => [
+      job.jobId,
+      job.stage,
+      job.outputPath || "",
+      job.outputName || "",
+      job.prompt,
+      job.width || 0,
+      job.height || 0,
+      jobReferences(job),
+    ]),
+    history: history.map((entry) => [
+      entry.id,
+      entry.outputPath,
+      entry.outputName,
+      entry.metadata?.prompt || "",
+      historyReferences(entry),
+    ]),
+  });
+}
+
+function syncPolledUi() {
+  const ready = preparationStatus === "ready" || preparationStatus === "partial";
+  const readiness = document.querySelector<HTMLElement>(".readiness");
+  readiness?.classList.toggle("busy", !ready);
+  const readinessText = readiness?.querySelector<HTMLElement>("span");
+  if (readinessText) readinessText.textContent = ready ? copy.ready : copy.preparing;
+
+  const selectedJob = jobs.find((item) => item.jobId === selectedKey);
+  progressPresenter.sync(app, selectedJob, copy);
+}
+
+function reconcileAfterPoll() {
+  if (layoutSignature() !== renderedLayoutSignature) renderAfterPoll();
+  syncPolledUi();
 }
 
 function renderQueue(): string {
@@ -259,8 +300,8 @@ function renderQueue(): string {
       <button class="queue-item-main" type="button" data-select="${escapeHtml(job.jobId)}">
         <span class="queue-thumb"${thumb(preview)}>${I.image}</span>
         <span class="queue-copy"><strong>${escapeHtml(job.outputName || referenceTitle(references))}</strong>
-          <small>${escapeHtml(statusLabel(job))}</small></span>
-        <i class="queue-state state ${publicStage(job.stage)}"></i>
+          <small>${escapeHtml(imageStatusLabel(job, copy))}</small></span>
+        <i class="queue-state state ${publicImageStage(job.stage)}"></i>
       </button>
     </div>`;
   }).join("");
@@ -324,12 +365,12 @@ function renderDialog(): string {
 }
 
 function render() {
-  const version = ++renderVersion;
   fitObserver?.disconnect();
   const selection = selected();
   const draft = currentDraft();
   const selectedJob = jobs.find((item) => item.jobId === selectedKey);
-  const selectedBusy = Boolean(selectedJob && busy(selectedJob.stage));
+  const progressState = progressPresenter.snapshot(selectedJob, copy);
+  const selectedBusy = submitting || Boolean(selectedJob && busy(selectedJob.stage));
   const ready = preparationStatus === "ready" || preparationStatus === "partial";
   const canCreate = Boolean(selection?.prompt.trim()) && !selectedBusy;
   const dimensions = selection?.width && selection?.height
@@ -356,10 +397,12 @@ function render() {
       <section class="stage"><div class="artboard-wrap"><div class="artboard">
         ${stageMarkup(selection, copy, compare)}</div>
         ${selectedJob ? `<div class="status-strip"><span class="status-icon">${I.sparkle}</span>
-          <span class="status-copy"><span class="status-heading"><strong>${escapeHtml(statusLabel(selectedJob))}</strong></span>
+          <span class="status-copy"><span class="status-heading"><strong>${escapeHtml(imageStatusLabel(selectedJob, copy))}</strong>
+          <small class="status-eta ${progressState.visible ? "visible" : ""}" data-job-progress-eta>${escapeHtml(progressState.eta)}</small></span>
           <small>${escapeHtml(selectedJob.stage === "failed" ? copy.failed : selectedJob.prompt)}</small></span>
-          <i class="progress ${busy(selectedJob.stage) ? "visible" : ""}">
-            <b style="width:${Math.round((selectedJob.progressRatio ?? 0) * 100)}%"></b></i></div>` : ""}
+          <i class="progress ${busy(selectedJob.stage) ? "visible" : ""}" data-job-progress
+            role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressState.percent}">
+            <b style="width:${progressState.percent}%"></b></i></div>` : ""}
         ${selection?.output ? `<button class="floating-action" type="button"
           data-open="${escapeHtml(selection.output)}" title="${copy.openFolder}">${I.folder}</button>` : ""}
         </div><div class="result-meta">${escapeHtml(dimensions)}</div></section>
@@ -380,34 +423,8 @@ function render() {
       role="status">${escapeHtml(message)}</div></section>`;
 
   bindEvents();
-  hydrationQueue = hydrationQueue.then(() => hydrateImages(version)).catch(() => undefined);
-}
-
-async function hydrateImages(version: number) {
-  if (version !== renderVersion) return;
-  for (const image of document.querySelectorAll<HTMLImageElement>("[data-stage-path]")) {
-    const path = image.dataset.stagePath;
-    if (!path) continue;
-    try {
-      const source = await previews.stage(path, Number(image.dataset.stageEdge) || 1_600);
-      if (version !== renderVersion || !image.isConnected) return;
-      if (image.hasAttribute("data-fit-anchor")) {
-        image.addEventListener("load", () => fitNaturalFrame(image), { once: true });
-      }
-      image.src = source;
-      image.hidden = false;
-    } catch { /* A missing preview does not change the job or session. */ }
-  }
-  for (const element of document.querySelectorAll<HTMLElement>("[data-thumb]")) {
-    const path = element.dataset.thumb;
-    if (!path) continue;
-    try {
-      const source = await previews.thumbnail(path);
-      if (version !== renderVersion || !element.isConnected) return;
-      element.style.backgroundImage = `url("${source}")`;
-      element.innerHTML = "";
-    } catch { /* Queue thumbnails are optional. */ }
-  }
+  renderedLayoutSignature = layoutSignature();
+  previewHydrator.bind(app, [selection?.output || "", selection?.referencePaths[0] || ""]);
 }
 
 function fitNaturalFrame(image: HTMLImageElement) {
@@ -527,6 +544,9 @@ async function bootstrap() {
   await Promise.all([refresh(), updateReady()]);
   setInterval(() => void refresh(), 1_000);
   setInterval(() => void updateReady(), 2_500);
+  setInterval(() => {
+    progressPresenter.sync(app, jobs.find((item) => item.jobId === selectedKey), copy);
+  }, 250);
 }
 
 newSession(false);

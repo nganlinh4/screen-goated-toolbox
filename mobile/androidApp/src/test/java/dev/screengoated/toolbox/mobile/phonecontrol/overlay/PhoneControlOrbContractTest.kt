@@ -2,11 +2,13 @@ package dev.screengoated.toolbox.mobile.phonecontrol.overlay
 
 import java.io.File
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PhoneControlOrbContractTest {
@@ -31,6 +33,21 @@ class PhoneControlOrbContractTest {
         assertEquals(120.0 / 32768.0, audio.getValue("voicedThreshold").jsonPrimitive.double, 0.0)
         assertEquals(32768.0 / 4000.0, audio.getValue("gain").jsonPrimitive.double, 0.0)
         assertEquals(80L, audio.getValue("updateIntervalMs").jsonPrimitive.long)
+    }
+
+    @Test
+    fun captureAndTouchRegionsRemainSeparateAcrossPlatforms() {
+        val fixture = Json.parseToJsonElement(fixtureFile().readText()).jsonObject
+        val invariants = fixture.getValue("invariants").jsonObject
+
+        assertEquals("canonical_renderer_orb_region", invariants.string("captureRegionOwner"))
+        assertEquals("orb_glow_and_caption", invariants.string("captureRegionIncludes"))
+        assertEquals("orb_touch_shim_only", invariants.string("interactionRegion"))
+        assertTrue(invariants.getValue("captionGrowthDoesNotExpandTouchSurface").jsonPrimitive.boolean)
+        assertTrue(
+            invariants.getValue("allPointerProvidersRelocateBeforeIntersectingDispatch")
+                .jsonPrimitive.boolean,
+        )
     }
 
     private fun fixtureFile(): File {

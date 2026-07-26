@@ -112,11 +112,11 @@ mod tests {
         let text = LocaleText::get("vi");
         assert_eq!(
             text.desktop_settings.preset_model_update_title,
-            "Áp dụng các cài đặt mô hình preset mới?"
+            "Áp dụng các cài đặt đề xuất mới?"
         );
         assert_eq!(
             text.desktop_settings.preset_model_update_body,
-            "Bản cập nhật này có các mô hình đề xuất mới hơn cho một số preset. Khi áp dụng, chỉ trường mô hình của các preset đó được thay đổi; prompt, sơ đồ, chế độ, mục yêu thích, phím tắt và mọi cài đặt khác được giữ nguyên. Danh sách ưu tiên mô hình cũng được cập nhật theo mặc định mới. Nếu bỏ qua, bạn vẫn có thể nhận mặc định mới sau này bằng cách khôi phục tất cả preset hoặc từng preset."
+            "Bản cập nhật này có đề xuất mới cho mô hình preset, chuỗi ưu tiên và nhà cung cấp nên bật. Áp dụng để cập nhật trường mô hình của các preset dựng sẵn bị ảnh hưởng, khôi phục hai chuỗi ưu tiên và bật các nhà cung cấp được đề xuất. Không nhà cung cấp nào bị tắt; prompt, sơ đồ, chế độ, mục yêu thích, phím tắt, khóa API và các cài đặt khác vẫn giữ nguyên. Không áp dụng để giữ các lựa chọn hiện tại. Bạn có thể khôi phục preset sau để nhận mặc định preset mới."
         );
         assert_eq!(
             text.desktop_settings.preset_model_update_skip,

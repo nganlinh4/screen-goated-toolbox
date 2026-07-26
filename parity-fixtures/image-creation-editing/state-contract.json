@@ -1,6 +1,6 @@
 {
   "schema": "sgt.creation.image",
-  "fixtureVersion": 14,
+  "fixtureVersion": 19,
   "tool": "image",
   "jobIdPrefix": "image_",
   "operation": "create_image_from_reference",
@@ -33,6 +33,10 @@
     "oneSessionCreatesOneJob": true,
     "plusCreatesEmptySession": true
   },
+  "submission": {
+    "primaryActionScope": "selected_session",
+    "submitsOtherSessions": false
+  },
   "publicStages": [
     "queued",
     "preparing",
@@ -46,7 +50,8 @@
   "publicCopyPolicy": {
     "vocabulary": "feature_only",
     "implementationDetailsVisible": false,
-    "rawImplementationErrorsVisible": false
+    "rawImplementationErrorsVisible": false,
+    "referenceUploadCopyRequiresReferences": true
   },
   "artifact": {
     "extensions": [
@@ -92,11 +97,31 @@
     "multipleReferencesUseOrderedReferenceLayout": true,
     "focusedInputSurvivesStatusPolling": true,
     "imeCompositionSurvivesStatusPolling": true,
+    "sharedIconCatalog": true,
+    "unchangedPollPreservesQueueDom": true,
+    "hoveredSelectionTargetSurvivesPolling": true,
+    "pointerSequenceSurvivesPolling": true,
+    "singleClickStartsSubmission": true,
+    "submissionLocksImmediately": true,
+    "queueOwnsOverflow": true,
+    "primaryActionRemainsReachable": true,
+    "estimatedProgress": {
+      "usesRuntimeEstimate": true,
+      "usesElapsedTimeCurve": true,
+      "monotonic": true,
+      "maximumBeforeCompletion": 0.94,
+      "completionRatio": 1.0,
+      "showsLocalizedEta": true
+    },
     "previewMemory": {
       "webviewRetainsOriginalImageBytes": false,
       "thumbnailMaximumEdgePixels": 128,
       "stageMaximumEdgePixels": 1600,
-      "hydrationBlocksSessionActions": false
+      "hydrationBlocksSessionActions": false,
+      "decodeBlocksWebviewThread": false,
+      "offscreenPreviewsHydrate": false,
+      "selectedPreviewHasPriority": true,
+      "backgroundHydrationYieldsToInteraction": true
     }
   },
   "behavior": {
@@ -105,7 +130,10 @@
     "acceptedRequestIsNotRepeatedDuringRecovery": true,
     "retryCreatesNewJob": true,
     "retryPreservesPreviousResult": true,
-    "closingUiKeepsQueuedJobs": true,
+    "closingUiCancelsToolJobs": true,
+    "closingUiTerminatesTrackedProcessTrees": true,
+    "closingUiDestroysWebSurface": true,
+    "sharedPreparationSurvivesMiniAppClose": true,
     "failureRemainsBoundToJob": true
   },
   "androidSurface": {

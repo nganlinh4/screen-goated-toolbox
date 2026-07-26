@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from pathlib import Path
 
+from model_catalog_validation import validate_manifest
 
 PROVIDER_MAP = {
     "google": "GOOGLE",
@@ -28,6 +28,37 @@ MODEL_TYPE_MAP = {
     "Audio": "AUDIO",
 }
 
+REASONING_POLICY_MAP = {
+    "not-applicable": "NOT_APPLICABLE",
+    "gemini-disabled": "GEMINI_DISABLED",
+    "gemini-minimal": "GEMINI_MINIMAL",
+    "openai-none": "OPENAI_NONE",
+    "openai-low": "OPENAI_LOW",
+    "provider-managed": "PROVIDER_MANAGED",
+    "live-profile": "LIVE_PROFILE",
+}
+
+VISION_INPUT_ORDER_MAP = {
+    "text-first": "TEXT_FIRST",
+    "image-first": "IMAGE_FIRST",
+}
+
+VISION_MEDIA_RESOLUTION_MAP = {
+    "provider-default": "PROVIDER_DEFAULT",
+}
+
+VISION_SAMPLING_POLICY_MAP = {
+    "provider-default": "PROVIDER_DEFAULT",
+    "qwen3-groq-non-thinking": "QWEN3_GROQ_NON_THINKING",
+}
+
+STRUCTURED_OUTPUT_POLICY_MAP = {
+    "unsupported": "UNSUPPORTED",
+    "prompt-only": "PROMPT_ONLY",
+    "json-object": "JSON_OBJECT",
+    "strict-json-schema": "STRICT_JSON_SCHEMA",
+}
+
 
 def kotlin_string(value: str) -> str:
     escaped = (
@@ -38,189 +69,23 @@ def kotlin_string(value: str) -> str:
     return f'"{escaped}"'
 
 
+def localized_model_name(
+    model: dict,
+    profile: dict,
+    variants: dict[str, dict],
+    language: str,
+) -> str:
+    name = profile[f"name_{language}"]
+    variant_key = model.get("presentation_variant")
+    if variant_key is not None:
+        name += variants[variant_key][f"suffix_{language}"]
+    return name
+
+
 def load_manifest(manifest_path: Path) -> dict:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     validate_manifest(manifest)
     return manifest
-
-
-def validate_manifest(manifest: dict) -> None:
-    if manifest.get("schema_version") != 2:
-        raise ValueError("catalog schema_version must be 2")
-    if "model_id_migrations" in manifest:
-        raise ValueError("permanent model ID migrations are forbidden")
-    models = manifest["models"]
-    ids = [model["id"] for model in models]
-    if len(ids) != len(set(ids)):
-        raise ValueError("model ids must be unique")
-    allowed_providers = {"google", "groq", "cerebras", "taalas", "qrserver", "local"}
-    allowed_capabilities = {"text", "vision", "audio", "search"}
-    lifecycle_words = {
-        "preview", "latest", "experimental", "stable", "deprecated", "retired",
-    }
-    provider_prefixes = {
-        "google": "GG",
-        "google-gtx": "GG",
-        "gemini-live": "GG",
-        "groq": "G",
-        "cerebras": "C",
-        "taalas": "T",
-        "parakeet": "L",
-        "qwen3": "L",
-        "qrserver": "QR",
-    }
-    provider_id_prefixes = {
-        "google": "google-",
-        "google-gtx": "google-",
-        "gemini-live": "google-",
-        "groq": "groq-",
-        "cerebras": "cerebras-",
-        "taalas": "taalas-",
-        "parakeet": "local-",
-        "qwen3": "local-",
-        "qrserver": "qrserver-",
-    }
-    localized_names: set[tuple[str, str, str]] = set()
-    for model in models:
-        model_id = model["id"]
-        segments = model_id.split("-")
-        if (
-            re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", model_id) is None
-            or segments[0] not in allowed_providers
-            or segments[-1] not in allowed_capabilities
-            or lifecycle_words.intersection(segments)
-        ):
-            raise ValueError(f"invalid durable model id: {model_id}")
-        id_prefix = provider_id_prefixes.get(model["provider"])
-        if id_prefix is None or not model_id.startswith(id_prefix):
-            raise ValueError(
-                f"model id {model_id} does not match provider {model['provider']}"
-            )
-        quality = model.get("quality_tier")
-        latency = model.get("typical_latency_ms")
-        source = model.get("performance_source")
-        if isinstance(quality, bool) or not isinstance(quality, int) or not 1 <= quality <= 5:
-            raise ValueError(f"quality_tier for {model_id} must be 1..5")
-        if (
-            isinstance(latency, bool)
-            or not isinstance(latency, int)
-            or not 1 <= latency <= 2_147_483_647
-        ):
-            raise ValueError(
-                f"typical_latency_ms for {model_id} must be a positive cross-platform i32"
-            )
-        if not isinstance(source, str) or not source.strip():
-            raise ValueError(f"performance_source for {model_id} must not be empty")
-        prefix = provider_prefixes.get(model["provider"])
-        if prefix is None:
-            raise ValueError(f"missing localized-name prefix for {model['provider']}")
-        for language in ("vi", "ko", "en"):
-            name = model[f"name_{language}"]
-            if not name.startswith(f"{prefix} "):
-                raise ValueError(f"{language} name for {model_id} must start with {prefix}")
-            name_key = (language, prefix, name)
-            if name_key in localized_names:
-                raise ValueError(f"duplicate {language} name in {prefix}: {name}")
-            localized_names.add(name_key)
-    enabled_ids = {model["id"] for model in models if model["enabled"]}
-    priority_chains = manifest["priority_chains"]
-    for key in ("image_to_text", "text_to_text"):
-        chain = priority_chains.get(key)
-        if not isinstance(chain, list) or not chain or len(chain) != len(set(chain)):
-            raise ValueError(f"{key} must be a non-empty unique model chain")
-        unknown = [model_id for model_id in chain if model_id not in enabled_ids]
-        if unknown:
-            raise ValueError(f"{key} references disabled or unknown models: {unknown}")
-    if manifest["constants"]["default_image_model_id"] != priority_chains["image_to_text"][0]:
-        raise ValueError("default image model must lead image_to_text")
-    if manifest["constants"]["default_text_model_id"] != priority_chains["text_to_text"][0]:
-        raise ValueError("default text model must lead text_to_text")
-    feature_model_chains = manifest["feature_model_chains"]
-    for key in ("help_assistant", "computer_control_grounding"):
-        chain = feature_model_chains.get(key)
-        if not isinstance(chain, list) or len(chain) != 2:
-            raise ValueError(f"{key} must define primary and fallback models")
-        if len(set(chain)) != len(chain):
-            raise ValueError(f"{key} model chain must not contain duplicates")
-        unknown = [model_id for model_id in chain if model_id not in enabled_ids]
-        if unknown:
-            raise ValueError(f"{key} references disabled or unknown models: {unknown}")
-    endpoints = manifest["endpoints"]
-    allowed = {"stable", "preview", "experimental", "deprecated", "retired"}
-    for endpoint, metadata in endpoints.items():
-        if metadata.get("lifecycle") not in allowed or not metadata.get("verified_at"):
-            raise ValueError(f"invalid lifecycle metadata for {endpoint}")
-        replacement = metadata.get("replacement")
-        if replacement is not None and replacement not in endpoints:
-            raise ValueError(f"unknown endpoint replacement: {replacement}")
-        if "live_thinking" in metadata:
-            thinking = metadata["live_thinking"]
-            if not isinstance(thinking, dict):
-                raise ValueError(f"live_thinking for {endpoint} must be an object")
-            kind = thinking.get("kind")
-            value = thinking.get("value")
-            if kind == "budget":
-                valid = (
-                    isinstance(value, int)
-                    and not isinstance(value, bool)
-                    and 0 <= value <= 2_147_483_647
-                )
-                if not valid:
-                    raise ValueError(
-                        f"live_thinking budget for {endpoint} must be a non-negative 32-bit integer"
-                    )
-            elif kind == "level":
-                if not isinstance(value, str) or not value.strip():
-                    raise ValueError(
-                        f"live_thinking level for {endpoint} must be a non-empty string"
-                    )
-            else:
-                raise ValueError(f"unsupported live_thinking kind for {endpoint}: {kind!r}")
-        if "live_max_output_tokens" in metadata:
-            limit = metadata["live_max_output_tokens"]
-            valid = (
-                isinstance(limit, int)
-                and not isinstance(limit, bool)
-                and 1 <= limit <= 0xFFFF_FFFF
-            )
-            if not valid:
-                raise ValueError(
-                    f"live_max_output_tokens for {endpoint} must be a positive u32"
-                )
-        if "live_automatic_activity_detection_default" in metadata and not isinstance(
-            metadata["live_automatic_activity_detection_default"], bool
-        ):
-            raise ValueError(
-                f"live_automatic_activity_detection_default for {endpoint} must be boolean"
-            )
-        if "live_protocol" in metadata and (
-            not isinstance(metadata["live_protocol"], str)
-            or not metadata["live_protocol"].strip()
-        ):
-            raise ValueError(f"live_protocol for {endpoint} must be a non-empty string")
-        if metadata.get("live_protocol") == "native-audio" and (
-            "live_thinking" not in metadata
-            or "live_max_output_tokens" not in metadata
-        ):
-            raise ValueError(
-                f"native-audio endpoint {endpoint} must define Live thinking and output policy"
-            )
-    forbidden = {endpoint for endpoint, metadata in endpoints.items()
-                 if metadata["lifecycle"] in {"deprecated", "retired"}}
-    for key in ("gemini_live_api_model_2_5", "gemini_live_api_model_3_1"):
-        endpoint = manifest["constants"][key]
-        profile = endpoints.get(endpoint)
-        if profile is None:
-            raise ValueError(f"{key} must reference a catalog endpoint")
-        if profile.get("live_protocol") != "native-audio":
-            raise ValueError(f"{key} endpoint must use the native-audio protocol")
-    for model in models:
-        if model["enabled"] and model["full_name"] in forbidden:
-            raise ValueError(f"enabled model uses retired endpoint: {model['full_name']}")
-    runtime = [manifest["defaults"]["tts_gemini_live_model"]]
-    runtime += [item["api_model"] for item in manifest["tts_gemini_models"]]
-    if forbidden.intersection(runtime):
-        raise ValueError("deprecated/retired endpoint cannot be a runtime default")
 
 
 def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
@@ -229,7 +94,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
     priority_chains = manifest["priority_chains"]
     feature_model_chains = manifest["feature_model_chains"]
     non_llm_ids = set(manifest["non_llm_ids"])
-    search_disabled_full_names = manifest["search_disabled_full_names"]
+    presentation_variants = manifest["presentation_variants"]
 
     lines: list[str] = [
         "package dev.screengoated.toolbox.mobile.preset",
@@ -248,6 +113,30 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
             raise SystemExit(f"Unknown model type mapping for {model_type!r}")
         if not model["enabled"]:
             continue
+        profile = manifest["model_profiles"][f"{provider}:{model['full_name']}"]
+        name_en = localized_model_name(
+            model, profile, presentation_variants, "en"
+        )
+        name_vi = localized_model_name(
+            model, profile, presentation_variants, "vi"
+        )
+        name_ko = localized_model_name(
+            model, profile, presentation_variants, "ko"
+        )
+        request_profile = manifest["vision_request_profiles"].get(
+            f"{provider}:{model['full_name']}",
+            {
+                "input_order": "text-first",
+                "media_resolution": "provider-default",
+                "sampling": "provider-default",
+                "max_output_tokens": None,
+                "structured_output": "unsupported",
+            },
+        )
+        max_output_tokens = request_profile["max_output_tokens"]
+        max_output_tokens_value = (
+            "null" if max_output_tokens is None else str(max_output_tokens)
+        )
 
         lines.extend(
             [
@@ -256,14 +145,22 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
                 f"            provider = PresetModelProvider.{PROVIDER_MAP[provider]},",
                 f"            fullName = {kotlin_string(model['full_name'])},",
                 f"            modelType = PresetModelType.{MODEL_TYPE_MAP[model_type]},",
-                f"            displayName = {kotlin_string(model['name_en'])},",
-                f"            nameVi = {kotlin_string(model['name_vi'])},",
-                f"            nameKo = {kotlin_string(model['name_ko'])},",
+                f"            displayName = {kotlin_string(name_en)},",
+                f"            nameVi = {kotlin_string(name_vi)},",
+                f"            nameKo = {kotlin_string(name_ko)},",
                 f"            isNonLlm = {str(model['id'] in non_llm_ids).lower()},",
-                f"            quotaEn = {kotlin_string(model['quota_en'])},",
-                f"            quotaVi = {kotlin_string(model['quota_vi'])},",
-                f"            quotaKo = {kotlin_string(model['quota_ko'])},",
-                f"            qualityTier = {model['quality_tier']},",
+                f"            quotaEn = {kotlin_string(profile['quota_en'])},",
+                f"            quotaVi = {kotlin_string(profile['quota_vi'])},",
+                f"            quotaKo = {kotlin_string(profile['quota_ko'])},",
+                f"            supportsSearchOverride = {str(profile['supports_search']).lower()},",
+                f"            searchToolEnabledByDefault = {str(profile['search_tool_enabled_by_default']).lower()},",
+                f"            reasoningPolicy = PresetReasoningPolicy.{REASONING_POLICY_MAP[profile['reasoning_policy']]},",
+                f"            visionInputOrder = PresetVisionInputOrder.{VISION_INPUT_ORDER_MAP[request_profile['input_order']]},",
+                f"            visionMediaResolution = PresetVisionMediaResolution.{VISION_MEDIA_RESOLUTION_MAP[request_profile['media_resolution']]},",
+                f"            visionSamplingPolicy = PresetVisionSamplingPolicy.{VISION_SAMPLING_POLICY_MAP[request_profile['sampling']]},",
+                f"            visionMaxOutputTokens = {max_output_tokens_value},",
+                f"            structuredOutputPolicy = PresetStructuredOutputPolicy.{STRUCTURED_OUTPUT_POLICY_MAP[request_profile['structured_output']]},",
+                f"            intelligenceTier = {profile['intelligence_tier']},",
                 f"            typicalLatencyMs = {model['typical_latency_ms']},",
                 f"            performanceSource = {kotlin_string(model['performance_source'])},",
                 "        ),",
@@ -272,10 +169,6 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
 
     lines.extend(
         [
-            "    )",
-            "",
-            "    val searchDisabledFullNames: Set<String> = setOf(",
-            *[f"        {kotlin_string(item)}," for item in search_disabled_full_names],
             "    )",
             "",
             "    val providerSettings = PresetProviderSettings(",

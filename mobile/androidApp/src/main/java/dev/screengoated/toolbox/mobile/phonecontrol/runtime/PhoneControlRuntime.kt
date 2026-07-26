@@ -236,6 +236,8 @@ internal class PhoneControlRuntime(
         transportReady = transportReady,
         statusPublisher = statusPublisher,
         prepareReconnect = { controlPayloads.prepareReconnect(resumptionHandle) },
+        retireTransportInterruptedTurn =
+            turnCoordinator::retireTransportInterruptedTurn,
         abandonProtocolSession = turnCoordinator::abandonProtocolSession,
         purgeSessionOutbound = ::purgeSessionOutbound,
         discardUntilFreshConnection = discardOutboundUntilFreshConnection,

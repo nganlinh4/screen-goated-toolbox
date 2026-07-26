@@ -146,6 +146,10 @@ second locator-model constant.
 The live control session uses the fixture's exact Gemini Live endpoint and
 bounded `LOW` thinking configuration on both platforms. Silent thought parts
 feed control intent only and are never narrated or shown to the user.
+In the session's `AUDIO` response mode, raw model text is also control-plane
+material: only provider `outputTranscription` and PCM audio count as assistant
+content. Raw text parts cannot update the orb, transcript memory, emotion
+analysis, or turn-completion evidence.
 Voice sessions also use the same high-sensitivity automatic activity detection,
 30 ms prefix padding, 250 ms end silence, and native start-of-speech
 interruption. Both platforms append the same compact evidence-routing and
@@ -416,6 +420,12 @@ sideloaded app before Accessibility can be enabled. Treat this as a typed
   when a bounded, nonblank resumption handle is sent in the next setup; without
   one, old control payloads, screen/audio input, output, and generation state
   are abandoned before a fresh session is bound.
+- Transport resumption may preserve authenticated conversation context and
+  queued control receipts, but it does not own a disconnected output
+  generation forever. When no accepted tool effect is still settling, a
+  transport interruption retires the local generation before reconnect. Late
+  resumed output cannot reopen it, and the ready connection returns the orb to
+  listening instead of leaving an orphaned working state.
 - A synchronous function call is answered before any tool-owned screen evidence
   or ambient screen frame is sent. Ambient video remains paused while that call
   is unanswered; microphone audio remains live so barge-in still works. Each
@@ -482,7 +492,10 @@ device timeout or release a still-running production operation.
   locally voiced burst while assistant playback is quiet, request one fresh
   screen frame immediately so pixels lead the utterance. Keep the 500 ms
   structural hangover independent of Gemini Live's provider-owned automatic
-  activity detection.
+  activity detection. Structural burst ownership is one-to-one: if a new
+  above-threshold burst begins after the hangover before the prior burst's
+  below-threshold sample was observed, close the prior epoch before opening the
+  next one.
 - Stream current-generation PCM as it arrives. Only a bounded device-startup
   buffer or a temporarily missing output sink may delay playback.
 - Tool dispatch, tool completion, semantic completion, and postcondition checks
@@ -514,6 +527,11 @@ device timeout or release a still-running production operation.
   This preserves exact pixels while underlying apps remain interactive. During
   an accessibility-service reconnect, an application-overlay fallback may render
   only at the platform-reported non-obscuring alpha until the trusted host returns.
+- The renderer's canonical `orbRegion` message is the only capture-exclusion
+  geometry. It covers the liquid body, full glow, and current caption. Android
+  scales that region from the renderer viewport into display coordinates and
+  keeps it separate from the orb-sized touch shim. Caption growth can enlarge
+  capture exclusion but can never enlarge the touch-consuming surface.
 - Crossing the touch shim's drag threshold opens the same shared, single-target
   bottom dismiss bubble used by Android's other floating overlays. Current raw
   pointer coordinates drive its proximity feedback. Releasing inside its commit
@@ -706,9 +724,15 @@ they advance a separate visual revision instead of retiring every semantic
 lease. Every semantic mutation still resolves the live node path and exact
 fingerprint immediately before dispatch. Coordinate actions require the visual
 revision captured with their grid or detector verification, so content churn
-cannot turn an old image into a click. Streaming may return the bitmap captured
-at one instant while content continues changing. A topology event or an explicit
-controller mutation during image capture returns `stale_frame`. Explicit visual
+cannot turn an old image into a click. For detector actions that cross a remote
+vision request, the provider takes one final fast screenshot and renews that
+revision only when the hard surface lease is unchanged and every selected
+target's local pixels still match its verified crop. Unrelated ambient changes
+outside those target regions therefore do not discard a valid target; a changed
+target, hard generation, surface identity, or revision during final dispatch
+still fails closed. Streaming may return the bitmap captured at one instant
+while content continues changing. A topology event or an explicit controller
+mutation during image capture returns `stale_frame`. Explicit visual
 tools use only their bounded internal retry; ambient streaming immediately uses
 the lease-free projection fallback described below.
 Ambient capture never changes controller overlay alpha, interactivity, window
@@ -719,7 +743,11 @@ window itself. Therefore continuous visual evidence cannot visibly blink the
 orb, steal touch input, create topology events, or invalidate its own frame and
 action leases. A short-lived overlay relocation is permitted only at the final
 dispatch edge when the requested pointer path actually intersects the
-controller-owned region; it is never a periodic capture strategy.
+controller-owned interaction region; it is never a periodic capture strategy.
+Accessibility gestures and every elevated pointer backend use that same final
+dispatch wrapper. Controller-overlay window events are recognized by durable
+controller window identity even when Android omits the event package, and never
+retire leases for the external surface.
 
 `focus_window` resolves one current token or one exact current package/title,
 launches only the resolved launchable package, then takes a fresh observation.
@@ -770,13 +798,16 @@ geometry and exception-class diagnostics on failure.
 
 A transient Accessibility disconnect, unavailable surface, unstable semantic
 tree, or frame-generation race does not discard an attached MediaProjection
-session. Ambient streaming makes one semantic capture attempt, then immediately
-falls back to a clean whole-display projection frame with no semantic or
-coordinate lease. It does not retry Accessibility inside the ambient frame
-interval. This keeps the live model visually current without periodic retry
-churn and reports Accessibility as the unavailable action authority. When
-Accessibility stabilizes, the next successful semantic capture restores leased
-active-window frames and numbered-grid authority. Projection-only pixels must
+session. Ambient streaming makes one semantic capture attempt. On API 34+ it
+then tries one lease-free screenshot of the current external window, so semantic
+tree churn cannot expose controller pixels or interrupt live vision. Only when
+that window-scoped route is structurally unavailable may it use the
+whole-display projection frame with the complete canonical `orbRegion` removed.
+It does not retry Accessibility traversal inside the ambient frame interval.
+This keeps the live model visually current without periodic retry churn and
+reports Accessibility as the unavailable action authority. When Accessibility
+stabilizes, the next successful semantic capture restores leased active-window
+frames and numbered-grid authority. Lease-free and projection-only pixels must
 never be presented as proof that an Accessibility mutation can be dispatched.
 
 An API 34+ window id may expire after observation but before the platform
@@ -955,7 +986,8 @@ window change, or uncertain interruption invalidates it.
   verifies that anchor against the exact frame/surface lease, and asks the
   vision model to confirm that a crosshair on the fresh crop is inside the
   requested target with at least 70% confidence. The gesture dispatches only
-  after both checks. Language meaning never moves into Kotlin and no second
+  after both checks and a target-local final pixel-lease renewal. Language
+  meaning never moves into Kotlin and no second
   tool call is required. `drag_target` applies the same division of labor to two
   endpoints: auxiliary vision chooses two distinct current anchors in one call;
   one screenshot and one UI-DETR inference independently rebind both anchors;
@@ -1336,6 +1368,12 @@ distinguish no effect, verified effect, and unknown effect. At minimum:
   exists;
 - current display/user/profile/surface scope when relevant.
 
+A detector request failure reports request freshness separately from provider
+health. `stale_frame`, `stale_target`, `target_not_found`, and other
+frame/request outcomes do not claim that a loaded detector became unavailable;
+only a genuinely missing or unusable detector capability reports
+`unavailable`.
+
 Hard walls return typed failures: secure/DRM capture, stale nodes, inaccessible
 profiles, OEM-omitted nodes, unsupported multi-window effects, revoked services,
 shell/SELinux denial, unavailable WebView debugging, missing CDP, lock screen,
@@ -1373,6 +1411,11 @@ tool plan and capability route.
   bounded `failure_class` and `provider_route_error` symbols when present so a
   handler failure can be distinguished from dispatch-plan rejection without
   collecting paths, URLs, text, or other content.
+- Detector receipts may additionally carry bounded stage and timing symbols
+  (`detector_stage`, mapping, selection, refresh, semantic verification, and
+  final pixel-lease milliseconds). These contain no image, target description,
+  model response, or other user content and make slow/stale stages independently
+  diagnosable.
 - The persistent journal accepts structural event summaries only. It preserves
   Unicode but never persists exception messages or stack traces. Call sites
   must not place speech, model text, node text, URLs, paths, clipboard/file/page

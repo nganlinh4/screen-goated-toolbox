@@ -24,7 +24,7 @@ pub const ICON_MD: f32 = 16.0;
 pub const ICON_LG: f32 = 18.0;
 pub const ICON_XL: f32 = 20.0;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Icon {
     Settings,
 
@@ -82,9 +82,14 @@ pub enum Icon {
     Public,       // openrouter  (Android: ms_public)
     QrCode,       // qrserver
     SpeechToText, // parakeet / local ASR providers
-    Psychology,   // local AI / ASR providers
     Rocket,       // taalas
     Search,
+    Stat3,
+    Stat2,
+    Stat1,
+    StatMinus1,
+    StatMinus2,
+    StatMinus3,
 
     // Reorder + dropdown/collapsing chevrons (keyboard-arrow family)
     ArrowUp,
@@ -159,9 +164,14 @@ fn icon_svg_bytes(icon: Icon) -> &'static [u8] {
         Icon::Public => include_bytes!("svg/public.svg"),
         Icon::QrCode => include_bytes!("svg/qr_code.svg"),
         Icon::SpeechToText => include_bytes!("svg/speech_to_text.svg"),
-        Icon::Psychology => include_bytes!("svg/psychology.svg"),
         Icon::Rocket => include_bytes!("svg/rocket.svg"),
         Icon::Search => include_bytes!("svg/search.svg"),
+        Icon::Stat3 => include_bytes!("svg/stat_3.svg"),
+        Icon::Stat2 => include_bytes!("svg/stat_2.svg"),
+        Icon::Stat1 => include_bytes!("svg/stat_1.svg"),
+        Icon::StatMinus1 => include_bytes!("svg/stat_minus_1.svg"),
+        Icon::StatMinus2 => include_bytes!("svg/stat_minus_2.svg"),
+        Icon::StatMinus3 => include_bytes!("svg/stat_minus_3.svg"),
         Icon::ArrowUp => include_bytes!("svg/keyboard_arrow_up.svg"),
         Icon::ArrowDown => include_bytes!("svg/keyboard_arrow_down.svg"),
         Icon::ArrowRight => include_bytes!("svg/keyboard_arrow_right.svg"),
@@ -352,8 +362,7 @@ pub fn provider_icon(provider: &str) -> Icon {
         "openrouter" => Icon::Public,
         "ollama" => Icon::Terminal,
         "qrserver" => Icon::QrCode,
-        "parakeet" => Icon::SpeechToText,
-        "qwen3" => Icon::Psychology,
+        "parakeet" | "qwen3" => Icon::SpeechToText,
         "taalas" => Icon::Rocket,
         _ => Icon::Settings,
     }

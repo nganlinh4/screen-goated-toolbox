@@ -35,6 +35,7 @@ mod trace;
 mod turn_policy;
 mod uia;
 mod uia_task;
+pub(crate) mod vision_contract;
 mod vision_reader;
 
 /// Detector model hooks for the Downloaded Tools settings UI (download/remove/probe).

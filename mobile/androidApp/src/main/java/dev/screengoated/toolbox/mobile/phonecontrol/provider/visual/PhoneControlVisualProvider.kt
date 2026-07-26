@@ -60,7 +60,10 @@ internal object PhoneControlVisualProvider {
                 )
             ) {
                 latestGrid = null
-                captureProjectionOnlyStreamingFrame()
+                when (val windowFrame = captureLeaseFreeWindowStreamingFrame()) {
+                    is VisualProviderResult.Success -> windowFrame
+                    is VisualProviderResult.Failure -> captureProjectionOnlyStreamingFrame()
+                }
             } else {
                 captured
             }

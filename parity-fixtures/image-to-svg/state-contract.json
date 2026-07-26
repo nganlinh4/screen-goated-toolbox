@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 6,
   "tool": "image-to-svg",
   "states": [
     "draft",
@@ -30,9 +30,15 @@
     "maximumImagesPerJob": 1,
     "multiplePickerImagesCreateIndependentJobs": true
   },
+  "submission": {
+    "primaryActionScope": "selected_session",
+    "submitsOtherSessions": false
+  },
   "viewer": {
     "preserveIntrinsicRatio": true,
-    "animateAllPaths": true,
+    "allPathsRendered": true,
+    "animateAllPaths": false,
+    "maximumAnimatedPaths": 120,
     "adaptiveOverlappingAnimation": true,
     "editableShapes": ["path", "rect", "circle", "ellipse", "polygon", "polyline", "line"]
   },
@@ -40,7 +46,21 @@
     "webviewRetainsOriginalImageBytes": false,
     "thumbnailMaximumEdgePixels": 128,
     "stageMaximumEdgePixels": 1600,
-    "hydrationBlocksSessionActions": false
+    "hydrationBlocksSessionActions": false,
+    "decodeBlocksWebviewThread": false,
+    "offscreenPreviewsHydrate": false,
+    "selectedPreviewHasPriority": true,
+    "backgroundHydrationYieldsToInteraction": true
+  },
+  "presentation": {
+    "iconFamily": "Material Symbols Rounded",
+    "iconFill": 1,
+    "sharedIconCatalog": true,
+    "unchangedPollPreservesQueueDom": true,
+    "hoveredSelectionTargetSurvivesPolling": true,
+    "pointerSequenceSurvivesPolling": true,
+    "queueOwnsOverflow": true,
+    "primaryActionRemainsReachable": true
   },
   "history": {
     "requireExistingOutput": true,
@@ -57,6 +77,13 @@
     "preparationProgressMaximumPercent": 18,
     "diagnostics": "bounded_privacy_safe_journal",
     "backgroundAutomationVisible": false
+  },
+  "hostLifecycle": {
+    "cancelWinsOverLateSuccess": true,
+    "closeCancelsToolJobs": true,
+    "closeTerminatesTrackedProcessTrees": true,
+    "closeDestroysWebSurface": true,
+    "sharedPreparationSurvivesMiniAppClose": true
   },
   "distribution": {
     "fullSupported": true,

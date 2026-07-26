@@ -125,11 +125,12 @@ pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, Strin
     let job_id = next_job_id();
     let filename_suffix = job_id.strip_prefix("image_").unwrap_or(job_id.as_str());
     request.output_name = Some(format!("Created Image {filename_suffix}.png"));
+    let has_references = !request.image_paths.is_empty();
     let status = JobStatus {
         job_id: job_id.clone(),
         operation: OPERATION.to_string(),
         stage: "queued".to_string(),
-        progress_text: public_progress::text("queued").to_string(),
+        progress_text: public_progress::text("queued", has_references).to_string(),
         progress_key: Some(public_progress::key("queued")),
         phase: Some("queued".to_string()),
         elapsed_ms: Some(0),
@@ -252,7 +253,8 @@ fn update_progress(job_id: &str, value: &Value) {
     }
     if let Some(stage) = value.get("stage").and_then(Value::as_str) {
         job.stage = public_progress::stage(stage).to_string();
-        job.progress_text = public_progress::text(&job.stage).to_string();
+        job.progress_text =
+            public_progress::text(&job.stage, !job.source_image_paths.is_empty()).to_string();
         job.progress_key = Some(public_progress::key(&job.stage));
         job.phase = Some(job.stage.clone());
     }
@@ -311,7 +313,7 @@ fn finish(job_id: &str, result: Result<Value, String>) {
                     }
                     Err(_error) => {
                         job.stage = "failed".to_string();
-                        job.progress_text = public_progress::text("failed").to_string();
+                        job.progress_text = public_progress::text("failed", false).to_string();
                         job.progress_key = Some(public_progress::key("failed"));
                         job.phase = Some("failed".to_string());
                         job.error = Some("Image creation could not finish. Try again.".to_string());
@@ -366,7 +368,7 @@ fn schedule_next() {
         };
         if let Some(job) = state.jobs.get_mut(&job_id) {
             job.stage = "preparing".to_string();
-            job.progress_text = public_progress::text("preparing").to_string();
+            job.progress_text = public_progress::text("preparing", false).to_string();
             job.progress_key = Some(public_progress::key("preparing"));
             job.phase = Some("preparing".to_string());
         }

@@ -6,6 +6,9 @@ use crate::overlay::result::button_canvas;
 use crate::overlay::result::markdown_view;
 use crate::overlay::result::paint;
 use crate::overlay::result::state::{InteractionMode, ResizeEdge, WINDOW_STATES};
+use crate::overlay::result::window;
+use crate::overlay::utils::to_wstring;
+use windows::core::PCWSTR;
 
 pub const WM_CREATE_WEBVIEW: u32 = WM_USER + 200;
 pub const WM_SHOW_MARKDOWN: u32 = WM_USER + 201;
@@ -158,38 +161,55 @@ pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
 
 pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
     unsafe {
-        // Get the text to render
-        let (full_text, is_hovered) = {
+        let (full_text, is_hovered, bg_color, is_markdown_mode) = {
             let states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                (state.full_text.clone(), state.is_hovered)
+                (
+                    state.full_text.clone(),
+                    state.is_hovered,
+                    state.bg_color,
+                    state.is_markdown_mode,
+                )
             } else {
-                (String::new(), false)
+                (String::new(), false, 0, false)
             }
         };
 
+        // A rapid second toggle can leave an already-posted create message in the
+        // queue. Never resurrect Markdown after state has returned to plain text.
+        if !is_markdown_mode {
+            return LRESULT(0);
+        }
+
         if markdown_view::has_markdown_webview(hwnd) {
-            // WebView was pre-created, just show and update it
+            window::set_markdown_parent_clipping(hwnd, true);
             markdown_view::update_markdown_content(hwnd, &full_text);
             markdown_view::show_markdown_webview(hwnd);
             markdown_view::resize_markdown_webview(hwnd, is_hovered);
             markdown_view::fit_font_to_window(hwnd);
-            // Register with button canvas for floating buttons
             button_canvas::register_markdown_window(hwnd);
         } else {
-            // Try to create WebView
+            // The child is transparent. Remove the last native-text frame before
+            // WS_CLIPCHILDREN makes that part of the parent surface unreachable.
+            window::prepare_markdown_parent(hwnd, bg_color);
             let result = markdown_view::create_markdown_webview(hwnd, &full_text, is_hovered);
             if !result {
-                // Failed to create - revert markdown mode
-                let mut states = WINDOW_STATES.lock().unwrap();
-                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                    state.is_markdown_mode = false;
+                {
+                    let mut states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                        state.is_markdown_mode = false;
+                        state.font_cache_dirty = true;
+                    }
                 }
+                window::set_markdown_parent_clipping(hwnd, false);
+                let wide_text = to_wstring(&full_text);
+                let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
+                let _ = KillTimer(Some(hwnd), 2);
             } else {
                 markdown_view::resize_markdown_webview(hwnd, is_hovered);
                 markdown_view::fit_font_to_window(hwnd);
-                // Register with button canvas for floating buttons
                 button_canvas::register_markdown_window(hwnd);
+                SetTimer(Some(hwnd), 2, 30, None);
             }
         }
 
@@ -212,7 +232,24 @@ pub unsafe fn handle_show_markdown(hwnd: HWND) -> LRESULT {
 
 pub unsafe fn handle_hide_markdown(hwnd: HWND) -> LRESULT {
     unsafe {
-        markdown_view::hide_markdown_webview(hwnd);
+        // Drop the transparent child instead of retaining a hidden document. A
+        // later toggle then performs exactly one fresh navigation/appearance.
+        markdown_view::destroy_markdown_webview(hwnd);
+        window::set_markdown_parent_clipping(hwnd, false);
+        let _ = KillTimer(Some(hwnd), 2);
+
+        let full_text = {
+            let mut states = WINDOW_STATES.lock().unwrap();
+            states
+                .get_mut(&(hwnd.0 as isize))
+                .map(|state| {
+                    state.font_cache_dirty = true;
+                    state.full_text.clone()
+                })
+                .unwrap_or_default()
+        };
+        let wide_text = to_wstring(&full_text);
+        let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
         let _ = InvalidateRect(Some(hwnd), None, false);
         LRESULT(0)
     }

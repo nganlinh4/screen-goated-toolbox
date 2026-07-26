@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 8,
+  "schemaVersion": 11,
   "tool": "image-to-3d",
   "names": {
     "en": "Image to 3D",
@@ -39,6 +39,10 @@
     "minimumImagesPerJob": 1,
     "maximumImagesPerJob": 1,
     "multiplePickerImagesCreateIndependentJobs": true
+  },
+  "submission": {
+    "primaryActionScope": "selected_session",
+    "submitsOtherSessions": false
   },
   "generationModes": {
     "default": "quality",
@@ -156,11 +160,23 @@
     "showImplementationSelection": false,
     "showGenerationModeSelection": true,
     "normalizeImplementationText": true,
+    "iconFamily": "Material Symbols Rounded",
+    "iconFill": 1,
+    "sharedIconCatalog": true,
+    "unchangedPollPreservesQueueDom": true,
+    "hoveredSelectionTargetSurvivesPolling": true,
+    "pointerSequenceSurvivesPolling": true,
+    "queueOwnsOverflow": true,
+    "primaryActionRemainsReachable": true,
     "previewMemory": {
       "webviewRetainsOriginalImageBytes": false,
       "thumbnailMaximumEdgePixels": 128,
       "stageMaximumEdgePixels": 1600,
-      "hydrationBlocksSessionActions": false
+      "hydrationBlocksSessionActions": false,
+      "decodeBlocksWebviewThread": false,
+      "offscreenPreviewsHydrate": false,
+      "selectedPreviewHasPriority": true,
+      "backgroundHydrationYieldsToInteraction": true
     }
   },
   "androidSurface": {
@@ -190,7 +206,11 @@
     "staleCallbackCannotReleaseNewAssignment": true,
     "cancelWinsOverLateSuccess": true,
     "lateSuccessCannotPublishAfterCancel": true,
-    "lateSuccessCannotDeletePreviousOutputAfterCancel": true
+    "lateSuccessCannotDeletePreviousOutputAfterCancel": true,
+    "closeCancelsToolJobs": true,
+    "closeTerminatesTrackedProcessTrees": true,
+    "closeDestroysWebSurface": true,
+    "sharedPreparationSurvivesMiniAppClose": true
   },
   "timing": {
     "persistMeasuredDurations": true,

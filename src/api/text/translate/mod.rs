@@ -88,7 +88,6 @@ where
         .unwrap_or_default();
     let cerebras_api_key =
         crate::api::provider_credentials::resolve("CEREBRAS_API_KEY", &saved_cerebras_api_key);
-
     let full_content;
     let prompt = format!("{}\n\n{}", instruction, text);
     let transport = TranslateTransportOptions {

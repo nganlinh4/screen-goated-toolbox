@@ -96,6 +96,47 @@ fn ordinary_and_structural_edits_share_one_target_scope_identity() {
 }
 
 #[test]
+fn artifact_target_context_is_payload_type_agnostic() {
+    let mut authorization = ResourceAuthorization::default();
+    authorization.record_request(5, "Save both outputs in this folder.");
+    let existing = std::env::temp_dir().join(format!(
+        "cc-resource-artifact-{}-{}.bin",
+        std::process::id(),
+        super::super::super::telemetry::next_artifact_id()
+    ));
+    let missing = existing.with_extension("new.bin");
+    std::fs::write(&existing, b"old").unwrap();
+
+    let replace = authorization
+        .context(
+            "save_artifact",
+            &json!({
+                "id": "private-artifact-id",
+                "path": existing,
+                "overwrite": true,
+            }),
+        )
+        .unwrap();
+    let create = authorization
+        .context(
+            "save_artifact",
+            &json!({
+                "id": "private-artifact-id",
+                "path": missing,
+                "overwrite": true,
+            }),
+        )
+        .unwrap();
+
+    assert!(replace.contains(r#""capability_class":"dedicated_local_file_write""#));
+    assert!(replace.contains(r#""operation":"replace_existing_file""#));
+    assert!(create.contains(r#""operation":"create_file""#));
+    assert!(!replace.contains("private-artifact-id"));
+    assert!(!create.contains("private-artifact-id"));
+    std::fs::remove_file(existing).unwrap();
+}
+
+#[test]
 fn repair_process_context_uses_exact_argv_without_interpreting_user_phrases() {
     let mut authorization = ResourceAuthorization::default();
     authorization.record_request(4, "Preserve unrelated work while repairing the project.");

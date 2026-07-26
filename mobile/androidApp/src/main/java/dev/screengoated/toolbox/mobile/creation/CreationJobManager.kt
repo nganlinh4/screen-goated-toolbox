@@ -306,6 +306,9 @@ internal class CreationJobManager private constructor(context: Context) {
             if (current.stage == "cancelled") return@synchronized null
             val requestTool = requests[jobId]?.tool
             val isImageCreator = requestTool == CreationTool.IMAGE_CREATOR.wireName
+            val hasImageReferences = requests[jobId]?.let { request ->
+                request.imagePaths.any(String::isNotBlank) || request.imagePath.isNotBlank()
+            } == true
             val observedStage = event.stage ?: current.stage
             val nextStage = if (isImageCreator) {
                 publicImageCreationStage(observedStage)
@@ -318,7 +321,7 @@ internal class CreationJobManager private constructor(context: Context) {
             jobs[jobId] = current.copy(
                 stage = nextStage,
                 progressText = if (isImageCreator) {
-                    publicImageCreationText(nextStage)
+                    publicImageCreationText(nextStage, hasImageReferences)
                 } else {
                     event.progressText?.let(::publicCreationText) ?: current.progressText
                 },

@@ -40,4 +40,38 @@ class CreationImageSessionsTest {
         assertEquals("reference-1.png", removed.sourcePath)
         assertEquals(item.referencePaths.drop(1), removed.referencePaths)
     }
+
+    @Test
+    fun `wire image cardinality stays exact across legacy and plural fields`() {
+        assertEquals(
+            listOf("first.png", "second.png"),
+            normalizeCreationImagePaths(
+                CreationTool.IMAGE_CREATOR,
+                listOf(" first.png ", "second.png"),
+                "FIRST.PNG",
+            ),
+        )
+        assertTrue(
+            runCatching {
+                normalizeCreationImagePaths(
+                    CreationTool.IMAGE_TO_3D,
+                    listOf("first.png"),
+                    "second.png",
+                )
+            }.isFailure,
+        )
+        assertTrue(
+            runCatching {
+                normalizeCreationImagePaths(CreationTool.IMAGE_TO_SVG, emptyList(), null)
+            }.isFailure,
+        )
+        assertEquals(
+            listOf("first.png"),
+            normalizeCreationImagePaths(
+                CreationTool.IMAGE_TO_SVG,
+                listOf("first.png"),
+                "FIRST.PNG",
+            ),
+        )
+    }
 }

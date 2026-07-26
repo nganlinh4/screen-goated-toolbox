@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.ui.i18n
 
-import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 
 /** Vietnamese locale text. Dispatched from [MobileLocaleText.forLanguage]. */
@@ -59,6 +58,12 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 queued = "Đang chờ",
                 providerQueued = "Đang ở trong hàng đợi",
                 working = "Đang tạo",
+                progress = CreationProgressLocale(
+                    almostThere = "Sắp xong",
+                    lessThanMinute = "Còn dưới một phút",
+                    aboutMinutes = "Còn khoảng {count} phút",
+                    takingLonger = "Đang mất thêm một chút thời gian",
+                ),
                 done = "Hoàn tất",
                 failed = "Thất bại",
                 saveTo = "Lưu vào",
@@ -238,38 +243,99 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
             presetRuntimeDescription = "Nhà cung cấp tắt, thiếu khóa, khóa sai, hoặc mô hình không hỗ trợ sẽ bị bỏ qua ngay khi thử lại.",
             presetRuntimeButton = "Ưu tiên model",
             presetRuntimeSettingsAction = "Cài đặt",
-            usageStatsButton = "Thống kê model",
-            usageStatsTitle = "Thống kê sử dụng",
-            usageStatsModel = "Mô hình",
-            usageStatsRemaining = "Còn lại / Tổng",
-            usageStatsUnlimited = "Không giới hạn",
-            usageStatsNoData = "Dùng model ít nhất 1 lần để có dữ liệu",
-            usageStatsSettingsAction = "Xem",
+            usageStats = MobileUsageStatsLocale(
+                button = "Thống kê model",
+                title = "Thống kê sử dụng",
+                noData = "Chưa ghi nhận mức dùng thực tế. Dùng các model từ Groq, Cerebras hoặc OpenRouter để hiện.",
+                settingsAction = "Xem",
+                sessionHint = "Header giới hạn gần nhất ghi nhận trong phiên này. Bảng điều khiển của nhà cung cấp vẫn là nguồn chính xác nhất.",
+                endpointCount = "endpoint",
+                sharedQuota = "Hạn mức dùng chung",
+                updatedNow = "Vừa cập nhật",
+                minutesAgo = "phút trước",
+                stale = "Đã cũ",
+                reset = "đặt lại",
+                checkUsage = "Xem lượng dùng ↗",
+            ),
             usageTipsTitle = "Mẹo sử dụng",
-            usageTipsClickHint = "Chạm để xem toàn bộ danh sách mẹo",
-            usageTipsList = listOfNotNull(
-                "Thêm **mục bong bóng SGT** vào Quick Settings, cấp quyền overlay rồi đánh dấu công cụ bằng ★ để chúng xuất hiện trong bong bóng nổi.",
-                "Khi đang chọn trên **màn hình tối**, hãy chạm **Hủy** hoặc dùng thao tác quay lại của hệ thống để dừng.",
-                "Không thể đổi tên preset mặc định, nhưng bạn có thể tự do đổi tên **preset tùy chỉnh**.",
-                "**Lịch sử** luôn giữ mục mới nhất và tự xóa các file cũ nhất khi vượt giới hạn.",
-                "Trong chuỗi xử lý của preset, chỉ **một bước** có thể bật Tự động copy; bạn cũng có thể tắt ở mọi bước.",
-                "**Tự động dán kết quả** cần Dịch vụ trợ năng SGT và một ô văn bản đang được chọn.",
-                "**Thêm dòng mới** xuất hiện sau khi bạn bật Tự động dán kết quả.",
-                "Với preset âm thanh, bật **Tự động dừng ghi** để tự kết thúc khi bạn nói xong.",
-                "Trong Thiết lập Giọng Đọc, thử **Xịn (Gemini Live)** và chỉnh **Giọng điệu theo ngôn ngữ**.",
-                "Trong **Dịch cabin**, đặt tốc độ TTS thành Tự động để giọng đọc bám theo nhịp nói.",
-                "Trong overlay kết quả, dùng **Bật/Tắt Markdown** để chuyển giữa văn bản thường và bản trình bày có định dạng.",
-                "Mô hình có **biểu tượng kính lúp** dùng tìm kiếm web để lấy thông tin mới và nguồn tham khảo.",
-                "Trong **Ưu tiên model**, đặt model muốn dùng lên đầu và giữ Tự động để tiếp tục fallback thông minh.",
-                "Dùng **Tùy chỉnh mô hình** để quét OpenRouter hoặc Ollama.",
-                "Nếu cần hướng dẫn, hãy mở **Hỏi cách dùng** và hỏi trợ lý AI về SGT.",
-                "**Điều khiển điện thoại** cần mã API Gemini và chia sẻ toàn màn hình; dùng công tắc trên thẻ ứng dụng để bật hoặc dừng.",
-                "Trong **Bánh mỳ chuyển ngữ**, đặt hai ngôn ngữ rồi nói bằng một ngôn ngữ để nghe bản dịch ở ngôn ngữ còn lại.",
-                "Thêm ảnh vào **Ảnh sang 3D** hoặc **Ảnh sang SVG**; tác vụ chạy trong nền và kết quả hoàn tất được giữ trong mục Kết quả.",
-                "Nhạc tạo trong **Làm DJ** có thể tiếp tục phát khi bạn dùng ứng dụng khác.",
-                "Dùng **Tải video** để lưu video và phụ đề từ các trang được hỗ trợ."
-                    .takeIf { BuildConfig.DOWNLOADER_SUPPORTED },
-                "Trong bong bóng nổi, **nhấn giữ preset ảnh** để vào Chế độ liên tục; nhấn giữ lần nữa để thoát.",
+            usageTipsClickHint = "Chạm để khám phá thao tác ẩn và quy tắc ngầm",
+            usageTipsDescription =
+                "Những cử chỉ, quy tắc và cách khôi phục khó thấy nhưng đáng biết.",
+            usageTipsCategories = listOf(
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.CAPTURE_SHORTCUTS,
+                    title = "Chụp & phím tắt",
+                    description = "Cách ẩn để mở và lặp lại quy trình chụp.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.CONTINUOUS_MODE_ENTRY,
+                            text = "Trong bong bóng nổi, **nhấn giữ preset ảnh** để bật Chế độ " +
+                                "liên tục. Sau mỗi kết quả, chế độ sẽ tự sẵn sàng lại; nhấn giữ " +
+                                "đúng preset đó lần nữa để thoát.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.PRESETS_AUTOMATION,
+                    title = "Preset & tự động hóa",
+                    description = "Các quy tắc chỉ lộ ra khi bạn sửa hoặc chạy preset.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.CUSTOM_PRESET_RENAME,
+                            text = "Preset có sẵn giữ nguyên tên; trong màn chỉnh sửa, hãy " +
+                                "**chạm vào tiêu đề preset tùy chỉnh** để đổi tên.",
+                        ),
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.AUTO_PASTE_PREREQUISITES,
+                            text = "**Tự động dán kết quả** chỉ hoạt động sang ứng dụng khác khi " +
+                                "đã bật Trợ năng SGT và con trỏ vẫn nằm trong ô văn bản có thể " +
+                                "chỉnh sửa của ứng dụng đó.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.RESULTS_RECOVERY,
+                    title = "Kết quả & khôi phục",
+                    description = "Nơi tác vụ dài tiếp tục chạy và kết quả xuất hiện lại.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.CREATION_BACKGROUND_RESULTS,
+                            text = "**Ảnh sang 3D** và **Ảnh sang SVG** tiếp tục chạy nền sau " +
+                                "khi bạn rời màn hình của công cụ; file hoàn tất được lưu trong " +
+                                "tab Kết quả của từng công cụ.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.MODELS_SEARCH,
+                    title = "Mô hình & tìm kiếm",
+                    description = "Ý nghĩa biểu tượng và cách chọn model dự phòng.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.SEARCH_MARKER_DEFAULT,
+                            text = "**Kính lúp** cạnh một model nghĩa là công cụ tìm kiếm web " +
+                                "của model đó được bật mặc định.",
+                        ),
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.FALLBACK_COOLDOWN_SEARCH,
+                            text = "**Fallback thông minh** bỏ qua nhà cung cấp đang tắt hoặc " +
+                                "chưa cấu hình. Model gặp giới hạn tần suất sẽ tạm nghỉ 5 phút; " +
+                                "model hỗ trợ tìm kiếm chỉ fallback sang model cũng hỗ trợ tìm kiếm.",
+                        ),
+                    ),
+                ),
+                MobileUsageTipCategoryText(
+                    id = MobileUsageTipCategoryId.CREATIVE_TOOLS,
+                    title = "Công cụ sáng tạo",
+                    description = "Cách phát âm thanh tiếp tục bên ngoài màn hình ứng dụng.",
+                    tips = listOf(
+                        MobileUsageTipText(
+                            id = MobileUsageTipId.DJ_BACKGROUND_PLAYBACK,
+                            text = "**Làm DJ** tiếp tục phát khi bạn chuyển ứng dụng, đồng thời " +
+                                "có nút phát, tạm dừng và dừng trong bảng thông báo và màn hình khóa.",
+                        ),
+                    ),
+                ),
             ),
             resetDefaultsButton = "Khôi phục",
             resetDefaultsAction = "Khôi phục",

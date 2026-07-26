@@ -4,6 +4,7 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -21,6 +22,8 @@ class CreationParityContractTest {
         val limits = fixture["limits"]!!.jsonObject
         val defaults = fixture["defaults"]!!.jsonObject
         val names = fixture["names"]!!.jsonObject
+        val presentation = fixture["presentation"]!!.jsonObject
+        val lifecycle = fixture["hostLifecycle"]!!.jsonObject
 
         assertEquals(CreationContract.MINIMUM_POLYCOUNT, limits.int("minimumPolycount"))
         assertEquals(CreationContract.MAXIMUM_POLYCOUNT, limits.int("maximumPolycount"))
@@ -35,6 +38,11 @@ class CreationParityContractTest {
         )
         assertEquals(CreationContract.IMAGE_TO_3D_WORKSPACES, limits.int("preparedWorkspaces"))
         assertEquals(CreationContract.DEFAULT_POLYCOUNT, defaults.int("polycount"))
+        assertTrue(presentation.boolean("sharedIconCatalog"))
+        assertTrue(presentation.boolean("unchangedPollPreservesQueueDom"))
+        assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesPolling"))
+        assertTrue(lifecycle.boolean("closeCancelsToolJobs"))
+        assertTrue(lifecycle.boolean("closeDestroysWebSurface"))
         assertEquals(names.string("en"), MobileLocaleText.forLanguage("en").appImageTo3dTitle)
         assertEquals(names.string("ko"), MobileLocaleText.forLanguage("ko").appImageTo3dTitle)
         assertEquals(names.string("vi"), MobileLocaleText.forLanguage("vi").appImageTo3dTitle)
@@ -45,6 +53,8 @@ class CreationParityContractTest {
         val fixture = fixture("image-to-svg")
         val limits = fixture["limits"]!!.jsonObject
         val models = fixture["models"]!!.jsonObject
+        val presentation = fixture["presentation"]!!.jsonObject
+        val lifecycle = fixture["hostLifecycle"]!!.jsonObject
 
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.int("maximumParallelJobs"))
         assertEquals(
@@ -59,6 +69,11 @@ class CreationParityContractTest {
         assertEquals(setOf("simple", "detail"), models.keys)
         assertTrue(models.getValue("simple").jsonObject.boolean("selectable"))
         assertTrue(models.getValue("detail").jsonObject.boolean("selectable"))
+        assertTrue(presentation.boolean("sharedIconCatalog"))
+        assertTrue(presentation.boolean("unchangedPollPreservesQueueDom"))
+        assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesPolling"))
+        assertTrue(lifecycle.boolean("closeCancelsToolJobs"))
+        assertTrue(lifecycle.boolean("closeDestroysWebSurface"))
     }
 
     @Test
@@ -100,8 +115,17 @@ class CreationParityContractTest {
         assertEquals("Material Symbols Rounded", presentation.string("iconFamily"))
         assertEquals(1, presentation.int("iconFill"))
         assertFalse(presentation.boolean("appSpecificTheme"))
+        assertTrue(presentation.boolean("sharedIconCatalog"))
+        assertTrue(presentation.boolean("unchangedPollPreservesQueueDom"))
+        assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesPolling"))
         assertTrue(presentation.boolean("focusedInputSurvivesStatusPolling"))
         assertTrue(presentation.boolean("imeCompositionSurvivesStatusPolling"))
+        val estimatedProgress = presentation["estimatedProgress"]!!.jsonObject
+        assertTrue(estimatedProgress.boolean("usesRuntimeEstimate"))
+        assertTrue(estimatedProgress.boolean("usesElapsedTimeCurve"))
+        assertTrue(estimatedProgress.boolean("monotonic"))
+        assertEquals(0.94, estimatedProgress.double("maximumBeforeCompletion"), 0.0)
+        assertTrue(estimatedProgress.boolean("showsLocalizedEta"))
         assertEquals(
             CreationContract.IMAGE_CREATOR_WORKSPACES,
             surface.int("isolatedWorkers"),
@@ -110,12 +134,16 @@ class CreationParityContractTest {
         assertEquals("feature_only", copyPolicy.string("vocabulary"))
         assertFalse(copyPolicy.boolean("implementationDetailsVisible"))
         assertFalse(copyPolicy.boolean("rawImplementationErrorsVisible"))
+        assertTrue(copyPolicy.boolean("referenceUploadCopyRequiresReferences"))
         assertTrue(behavior.boolean("cancellationIsMonotonic"))
         assertTrue(behavior.boolean("lateSuccessCannotPublishAfterCancellation"))
         assertTrue(behavior.boolean("acceptedRequestIsNotRepeatedDuringRecovery"))
         assertTrue(behavior.boolean("retryCreatesNewJob"))
         assertTrue(behavior.boolean("retryPreservesPreviousResult"))
-        assertTrue(behavior.boolean("closingUiKeepsQueuedJobs"))
+        assertTrue(behavior.boolean("closingUiCancelsToolJobs"))
+        assertTrue(behavior.boolean("closingUiTerminatesTrackedProcessTrees"))
+        assertTrue(behavior.boolean("closingUiDestroysWebSurface"))
+        assertTrue(behavior.boolean("sharedPreparationSurvivesMiniAppClose"))
         assertTrue(behavior.boolean("failureRemainsBoundToJob"))
         assertEquals(locales.string("en"), MobileLocaleText.forLanguage("en").appImageCreatorTitle)
         assertEquals(locales.string("ko"), MobileLocaleText.forLanguage("ko").appImageCreatorTitle)
@@ -143,3 +171,6 @@ private fun kotlinx.serialization.json.JsonObject.string(key: String): String =
 
 private fun kotlinx.serialization.json.JsonObject.boolean(key: String): Boolean =
     this[key]!!.jsonPrimitive.boolean
+
+private fun kotlinx.serialization.json.JsonObject.double(key: String): Double =
+    this[key]!!.jsonPrimitive.double

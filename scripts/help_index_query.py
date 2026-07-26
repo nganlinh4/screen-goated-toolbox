@@ -13,7 +13,7 @@ import json, os, sys, math, time, requests, pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 INDEX_PATH = ROOT / "help-index.json"
 EMBED_SERVER_URL = os.environ.get("KALM_EMBED_SERVER_URL", "http://127.0.0.1:8400/api/embed")
-LLM_MODEL = "gemini-2.5-flash"
+LLM_MODEL = "gemini-3.5-flash-lite"
 LLM_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{LLM_MODEL}:generateContent"
 TOP_K = 20
 

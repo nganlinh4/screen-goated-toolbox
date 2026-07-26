@@ -272,7 +272,7 @@
     if(captionText && cr.width>2){ x1=Math.min(x1,cr.left-12); y1=Math.min(y1,cr.top-10); x2=Math.max(x2,cr.right+12); y2=Math.max(y2,cr.bottom+10); }
     if(cmdOpen){ const br=cmdEl.getBoundingClientRect(); if(br.width>2){ x1=Math.min(x1,br.left-12); y1=Math.min(y1,br.top-12); x2=Math.max(x2,br.right+12); y2=Math.max(y2,br.bottom+12); } }
     x1=Math.max(0,x1); y1=Math.max(0,y1); x2=Math.min(W,x2); y2=Math.min(H,y2);
-    postIPC({type:'orbRegion', x:x1, y:y1, w:x2-x1, h:y2-y1}); }
+    postIPC({type:'orbRegion', x:x1, y:y1, w:x2-x1, h:y2-y1, viewportW:W, viewportH:H}); }
 
   // ---- typed command box: click (tap, no drag) the orb to type a command instead of speaking ----
   function positionCmd(){ if(!W) return; const ox=W*CX_FRAC, oy=H*CY_FRAC, Rn=Math.min(W,H)*0.16*mag;

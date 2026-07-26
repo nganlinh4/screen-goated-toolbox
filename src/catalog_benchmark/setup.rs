@@ -156,6 +156,9 @@ pub struct Pacer {
     last_call: HashMap<String, Instant>,
 }
 
+const OPENROUTER_FREE_MIN_INTERVAL: Duration = Duration::from_millis(3_100);
+const CEREBRAS_FREE_MIN_INTERVAL: Duration = Duration::from_millis(12_500);
+
 impl Pacer {
     pub fn from_env() -> Result<Self> {
         let milliseconds = std::env::var("CATALOG_BENCH_MIN_INTERVAL_MS")
@@ -170,9 +173,20 @@ impl Pacer {
 
     pub fn wait(&mut self, provider: &str) {
         if let Some(previous) = self.last_call.get(provider) {
-            std::thread::sleep(self.min_interval.saturating_sub(previous.elapsed()));
+            std::thread::sleep(
+                self.interval_for(provider)
+                    .saturating_sub(previous.elapsed()),
+            );
         }
         self.last_call.insert(provider.to_string(), Instant::now());
+    }
+
+    fn interval_for(&self, provider: &str) -> Duration {
+        match provider {
+            "openrouter" => self.min_interval.max(OPENROUTER_FREE_MIN_INTERVAL),
+            "cerebras" => self.min_interval.max(CEREBRAS_FREE_MIN_INTERVAL),
+            _ => self.min_interval,
+        }
     }
 }
 
@@ -191,10 +205,19 @@ pub fn request_timeout() -> Result<Option<Duration>> {
 pub fn output_dir() -> PathBuf {
     std::env::var_os("CATALOG_BENCH_OUTPUT").map_or_else(
         || {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("target/catalog-benchmark")
-                .join(chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string())
+            history_root().join("runs").join(format!(
+                "{}-{}",
+                chrono::Utc::now().format("%Y%m%d-%H%M%S-%3f"),
+                std::process::id()
+            ))
         },
+        PathBuf::from,
+    )
+}
+
+pub fn history_root() -> PathBuf {
+    std::env::var_os("CATALOG_BENCH_HISTORY_ROOT").map_or_else(
+        || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/catalog-benchmark"),
         PathBuf::from,
     )
 }
@@ -202,8 +225,9 @@ pub fn output_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::time::Duration;
 
-    use super::{Credentials, select_models};
+    use super::{Credentials, Pacer, select_models};
     use crate::model_config::ModelType;
 
     fn empty_credentials() -> Credentials {
@@ -225,5 +249,30 @@ mod tests {
 
         let vision_filter = HashSet::from(["qrserver-qr-scanner-vision".to_string()]);
         assert!(select_models(ModelType::Vision, Some(&vision_filter), &credentials).is_empty());
+    }
+
+    #[test]
+    fn pacer_respects_provider_free_tier_rates() {
+        let default = Pacer {
+            min_interval: Duration::from_millis(2_500),
+            last_call: Default::default(),
+        };
+        assert_eq!(
+            default.interval_for("openrouter"),
+            Duration::from_millis(3_100)
+        );
+        assert_eq!(
+            default.interval_for("cerebras"),
+            Duration::from_millis(12_500)
+        );
+
+        let slower_override = Pacer {
+            min_interval: Duration::from_millis(5_000),
+            last_call: Default::default(),
+        };
+        assert_eq!(
+            slower_override.interval_for("openrouter"),
+            Duration::from_millis(5_000)
+        );
     }
 }

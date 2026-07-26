@@ -25,12 +25,14 @@ class PhoneControlLogTest {
     @Test
     fun `diagnostic event parser keeps typed structure and drops prose`() {
         val parsed = PhoneControlLog.parseDiagnosticEvent(
-            "tool_receipt name=observe generation=42 retryable=true ignored prose",
+            "tool_receipt name=observe generation=42 window_changes=12 " +
+                "retryable=true ignored prose",
         )
 
         assertEquals("tool_receipt", parsed.name)
         assertEquals("observe", parsed.fields["name"])
         assertEquals(42L, parsed.fields["generation"])
+        assertEquals(12L, parsed.fields["window_changes"])
         assertEquals(true, parsed.fields["retryable"])
         assertFalse(parsed.fields.containsKey("ignored"))
     }

@@ -1,295 +1,129 @@
 import "./styles.css";
-import { locale, setLocale, t, type MessageKey } from "./i18n";
-import { generationSettings, type GenerationMode } from "./generation-mode";
-import { ModelViewer, type ModelStats, type ShadingMode } from "./viewer";
-
-type Stage = "idle" | "runtime_missing" | "preparing" | "visualizing" | "generating" | "segmenting" | "finalizing" | "done" | "failed" | "cancelled";
-type QueueState = "queued" | "running" | "done" | "failed" | "cancelled";
-
-type JobStatus = {
-  jobId?: string | null;
-  stage: Stage;
-  progressText: string;
-  phase?: string | null;
-  workspaceState?: string | null;
-  elapsedMs?: number | null;
-  estimatedTotalMs?: number | null;
-  progressRatio?: number | null;
-  timingSampleCount?: number | null;
-  outputPath?: string | null;
-  outputName?: string | null;
-  previewPath?: string | null;
-  sourceImagePath?: string | null;
-  generationMode?: GenerationMode;
-  isSegmented?: boolean;
-  canSegment?: boolean;
-  error?: string | null;
-  runtimeStatus?: string;
-};
-
-type StartJobRequest = {
-  imagePath: string;
-  outputDir?: string | null;
-  polycount: number;
-  mode: "topology_mesh";
-  generationMode: GenerationMode;
-  outputFormat: "glb_plain";
-  autoSegment: boolean;
-  segmentationMode: "parts" | "none";
-};
-
-type AssetPayload = { dataUrl: string; sizeBytes?: number };
-type HostContext = { theme?: "light" | "dark"; language?: string };
-type HistoryEntry = {
-  id: string; tool: "3d"; sourcePath: string; outputPath: string; outputName: string;
-  createdAtMs: number; metadata?: { generationMode?: GenerationMode; isSegmented?: boolean };
-};
-
-type QueueItem = {
-  id: string;
-  batchId: string;
-  path: string;
-  name: string;
-  extension: string;
-  thumbnailUrl?: string;
-  generationMode: GenerationMode;
-  polycount: number;
-  autoSegment: boolean;
-  submitted: boolean;
-  state: QueueState;
-  result?: JobStatus;
-  loadedDepthPath?: string;
-  loadedModelPath?: string;
-  modelAssetPath?: string;
-  modelAssetPromise?: Promise<AssetPayload>;
-  operationStartedAt?: number;
-  estimatedTotalMs?: number;
-  displayedProgress?: number;
-  modelStats?: ModelStats;
-  historyId?: string;
-  createdAtMs?: number;
-};
+import "../../ui-shared/creation-shell-layout.css";
+import { setLocale, t } from "./i18n";
+import { generationSettings } from "./generation-mode";
+import { ModelViewer } from "./viewer";
+import { appMarkup } from "./layout";
+import { collectNodes } from "./dom";
+import { ModelQueueView } from "./queue-view";
+import { ModelPresentation } from "./presentation";
+import { JobRunner } from "./job-runner";
+import { DevHarness } from "./dev-harness";
+import { bindControls } from "./bind-controls";
+import type {
+  AppState,
+  AssetPayload,
+  HistoryEntry,
+  HostContext,
+  JobStatus,
+  QueueItem,
+} from "./types";
 
 declare global {
   interface Window {
     invoke?: <T = unknown>(cmd: string, args?: unknown) => Promise<T>;
     ipc?: { postMessage: (message: string) => void };
     __SGT_CONTEXT__?: HostContext;
-    __SGT_PARALLEL_TEST__?: { starts: string[]; active: number; maxActive: number; completed: number };
+    __SGT_PARALLEL_TEST__?: {
+      starts: string[];
+      active: number;
+      maxActive: number;
+      completed: number;
+    };
     applyHostContext?: (context: HostContext) => void;
     handleNativeFileDrop?: (paths: string[]) => void;
     handleNativeFileDrag?: (active: boolean) => void;
   }
 }
 
-const BUSY_STAGES = new Set<Stage>(["preparing", "visualizing", "generating", "segmenting", "finalizing"]);
+const BUSY_STAGES = new Set<JobStatus["stage"]>([
+  "preparing",
+  "visualizing",
+  "generating",
+  "segmenting",
+  "finalizing",
+]);
+const MAX_PARALLEL_JOBS = 2;
 const initialContext = window.__SGT_CONTEXT__ || {};
 const devParams = import.meta.env.DEV ? new URLSearchParams(window.location.search) : null;
 setLocale(devParams?.get("lang") || initialContext.language);
-document.documentElement.dataset.theme = devParams?.get("theme") || initialContext.theme || document.documentElement.dataset.theme || "dark";
+document.documentElement.dataset.theme =
+  devParams?.get("theme")
+  || initialContext.theme
+  || document.documentElement.dataset.theme
+  || "dark";
 
 function invoke<T = unknown>(cmd: string, args: unknown = {}): Promise<T> {
   if (window.invoke) return window.invoke<T>(cmd, args);
   return Promise.reject(new Error("The desktop bridge is not available."));
 }
 
-function icon(path: string, viewBox = "0 -960 960 960") {
-  return `<svg aria-hidden="true" viewBox="${viewBox}" focusable="false"><path d="${path}"/></svg>`;
-}
-
-const ICONS = {
-  model: icon("M440-183v-274L200-596v274l240 139Zm80 0 240-139v-274L520-457v274Zm-40-343 237-137-237-137-237 137 237 137ZM160-252q-19-11-29.5-29T120-321v-318q0-22 10.5-40t29.5-29l280-161q19-11 40-11t40 11l280 161q19 11 29.5 29t10.5 40v318q0 22-10.5 40T800-252L520-91q-19 11-40 11t-40-11L160-252Zm320-228Z"),
-  image: icon("M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm80-160h400q12 0 18-11t-2-21L586-459q-6-8-16-8t-16 8L450-320l-74-99q-6-8-16-8t-16 8l-80 107q-8 10-2 21t18 11Z"),
-  folder: icon("M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h207q16 0 30.5 6t25.5 17l57 57h360q17 0 28.5 11.5T880-680q0 17-11.5 28.5T840-640H314q-62 0-108 39t-46 99v262l79-263q8-26 29.5-41.5T316-560h516q41 0 64.5 32.5T909-457l-72 240q-8 26-29.5 41.5T760-160H160Z"),
-  sparkle: icon("M706-706l-70-32q-11-5-11-18t11-18l70-32 32-70q5-12 18-12t18 12l32 70 70 32q12 5 12 18t-12 18l-70 32-32 70q-5 11-18 11t-18-11l-32-70ZM260-380l-160-73q-17-8-17-27t17-27l160-73 73-160q8-17 27-17t27 17l73 160 160 73q17 8 17 27t-17 27l-160 73-73 160q-8 17-27 17t-27-17l-73-160Zm450 230-70-32q-12-5-12-18t12-18l70-32 32-70q5-12 18-12t18 12l32 70 70 32q12 5 12 18t-12 18l-70 32-32 70q-5 12-18 12t-18-12l-32-70Z"),
-  stop: icon("M280-240q-33 0-56.5-23.5T200-320v-320q0-33 23.5-56.5T280-720h400q33 0 56.5 23.5T760-640v320q0 33-23.5 56.5T680-240H280Z"),
-  close: icon("M480-424 284-228q-11 11-28 11t-28-11q-11-11-11-28t11-28l196-196-196-196q-11-11-11-28t11-28q11-11 28-11t28 11l196 196 196-196q11-11 28-11t28 11q11 11 11 28t-11 28L536-480l196 196q11 11 11 28t-11 28q-11 11-28 11t-28-11L480-424Z"),
-  minimize: icon("M240-440q-17 0-28.5-11.5T200-480q0-17 11.5-28.5T240-520h480q17 0 28.5 11.5T760-480q0 17-11.5 28.5T720-440H240Z"),
-  check: icon("m424-408-86-86q-11-11-28-11t-28 11q-11 11-11 28t11 28l114 114q12 12 28 12t28-12l226-226q11-11 11-28t-11-28q-11-11-28-11t-28 11L424-408Z"),
-  add: icon("M440-440H240q-17 0-28.5-11.5T200-480q0-17 11.5-28.5T240-520h200v-200q0-17 11.5-28.5T480-760q17 0 28.5 11.5T520-720v200h200q17 0 28.5 11.5T760-480q0 17-11.5 28.5T720-440H520v200q0 17-11.5 28.5T480-200q-17 0-28.5-11.5T440-240v-200Z"),
-  palette: icon("M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 32.5-156t88-127Q256-817 331-848.5T488-880q80 0 151 27.5t124.5 76Q817-728 848.5-661T880-520q0 58-35 93t-93 35h-68q-12 0-22 4t-18 12q-8 8-12 18t-4 22q0 27 22 50.5t22 56.5q0 55-61 102T480-80Z"),
-  toon: icon("M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm40-160h480v-160H240v160Zm0-240h480v-160H240v160Z"),
-  outline: icon("M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm80-80v-400h400v400H280Z"),
-  rotate: icon("M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q84 0 157 39t119 105v-104q0-17 11.5-28.5T796-800q17 0 28.5 11.5T836-760v240H596q-17 0-28.5-11.5T556-560q0-17 11.5-28.5T596-600h106q-34-55-92-87.5T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q68 0 125-35t91-93q9-15 25.5-20t31.5 4q15 9 19.5 25t-4.5 31q-46 75-122.5 121.5T480-160Z"),
-  grid: icon("M120-120v-720h720v720H120Zm80-480h160v-160H200v160Zm240 0h160v-160H440v160Zm240 0h80v-160h-80v160ZM200-360h160v-160H200v160Zm240 0h160v-160H440v160Zm240 0h80v-160h-80v160ZM200-200h160v-80H200v80Zm240 0h160v-80H440v80Zm240 0h80v-80h-80v80Z"),
-  wire: icon("M160-120q-17 0-28.5-11.5T120-160v-640q0-17 11.5-28.5T160-840h640q17 0 28.5 11.5T840-800v640q0 17-11.5 28.5T800-120H160Zm40-80h240v-240H200v240Zm320 0h240v-240H520v240ZM200-520h240v-240H200v240Zm320 0h240v-240H520v240Z"),
-  fit: icon("M200-120q-33 0-56.5-23.5T120-200v-160q0-17 11.5-28.5T160-400q17 0 28.5 11.5T200-360v160h160q17 0 28.5 11.5T400-160q0 17-11.5 28.5T360-120H200Zm560 0H600q-17 0-28.5-11.5T560-160q0-17 11.5-28.5T600-200h160v-160q0-17 11.5-28.5T800-400q17 0 28.5 11.5T840-360v160q0 33-23.5 56.5T760-120ZM160-560q-17 0-28.5-11.5T120-600v-160q0-33 23.5-56.5T200-840h160q17 0 28.5 11.5T400-800q0 17-11.5 28.5T360-760H200v160q0 17-11.5 28.5T160-560Zm640 0q-17 0-28.5-11.5T760-600v-160H600q-17 0-28.5-11.5T560-800q0-17 11.5-28.5T600-840h160q33 0 56.5 23.5T840-760v160q0 17-11.5 28.5T800-560Z"),
-  rename: icon("M200-120q-33 0-56.5-23.5T120-200v-113q0-16 6-30.5t17-25.5l407-407q23-23 57.5-23t57.5 23l56 57q23 23 23 57t-23 57L369-143q-11 11-25.5 17t-30.5 6H200Zm400-600L200-320v120h120l400-400-120-120Z"),
-  trash: icon("M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm80-160h80v-360h-80v360Zm160 0h80v-360h-80v360Z"),
-};
-
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("App root not found");
-
-app.innerHTML = `
-  <section class="app-shell">
-    <div class="drop-overlay">${ICONS.image}<strong data-i18n="dropImages"></strong></div>
-    <header class="titlebar" id="dragRegion">
-      <div class="identity">
-        <span class="app-icon">${ICONS.model}</span>
-        <strong data-i18n="appTitle"></strong>
-        <span class="readiness" id="readiness" data-i18n-title="readyTooltip"><i></i><span id="readinessText"></span></span>
-      </div>
-      <div class="window-actions">
-        <button class="icon-button" id="minimizeButton" type="button" data-i18n-title="minimize">${ICONS.minimize}</button>
-        <button class="icon-button close" id="closeButton" type="button" data-i18n-title="close">${ICONS.close}</button>
-      </div>
-    </header>
-
-    <main class="workspace">
-      <aside class="queue-rail">
-        <div class="queue-header">
-          <span class="control-label" data-i18n="queue"></span>
-          <button class="icon-button add-button" id="addImagesButton" type="button" data-i18n-title="addImages">${ICONS.add}</button>
-        </div>
-        <div class="queue-list" id="queueList"></div>
-        <div class="queue-footer" id="queueFooter"></div>
-      </aside>
-
-      <section class="model-stage" id="modelStage">
-        <canvas id="modelCanvas" data-i18n-aria="preview"></canvas>
-        <div class="empty-copy" id="emptyCopy">
-          <strong data-i18n="emptyTitle"></strong>
-          <span data-i18n="emptyDetail"></span>
-        </div>
-        <aside class="reference-preview" id="referencePreview" data-i18n-aria="referencePreview" hidden>
-          <header class="reference-preview-header">
-            <span>${ICONS.image}</span>
-            <strong id="referencePreviewName"></strong>
-            <button class="view-tool" id="referencePreviewClose" type="button" data-i18n-title="close">${ICONS.close}</button>
-          </header>
-          <div class="reference-preview-image">
-            <img id="referencePreviewImage" alt="" />
-          </div>
-        </aside>
-        <div class="viewer-toolbar" id="viewerToolbar">
-          <span class="tool-segment" role="group">
-            <button class="view-tool shading-tool" type="button" data-shading="original" data-i18n-title="originalMaterials">${ICONS.model}</button>
-            <button class="view-tool shading-tool" type="button" data-shading="toon" data-i18n-title="toonOutline">${ICONS.toon}</button>
-            <button class="view-tool shading-tool" type="button" data-shading="parts" data-i18n-title="partColors">${ICONS.palette}</button>
-          </span>
-          <span class="tool-divider"></span>
-          <button class="view-tool active" id="outlineButton" type="button" data-i18n-title="toggleOutline">${ICONS.outline}</button>
-          <button class="view-tool" id="rotateButton" type="button" data-i18n-title="toggleRotation">${ICONS.rotate}</button>
-          <button class="view-tool" id="gridButton" type="button" data-i18n-title="toggleGrid">${ICONS.grid}</button>
-          <button class="view-tool" id="wireButton" type="button" data-i18n-title="toggleWireframe">${ICONS.wire}</button>
-          <button class="view-tool" id="fitButton" type="button" data-i18n-title="resetView">${ICONS.fit}</button>
-        </div>
-        <div class="stage-status" id="stageStatus" aria-live="polite">
-          <span class="status-mark" id="statusMark">${ICONS.sparkle}</span>
-          <span class="status-copy">
-            <span class="status-heading"><strong id="statusTitle"></strong><small class="status-eta" id="statusEta"></small></span>
-            <small id="statusDetail"></small>
-            <span class="progress-track" id="progressTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="progressFill"></i></span>
-          </span>
-        </div>
-        <div class="model-stats" id="modelStats"></div>
-        <button class="floating-action" id="showFolderButton" type="button" data-i18n-title="showInFolder">${ICONS.folder}</button>
-      </section>
-
-      <aside class="control-rail">
-        <div class="control-section source-section">
-          <span class="control-label" data-i18n="image"></span>
-          <button class="source-button" id="chooseImageButton" type="button">
-            <span class="source-thumb" id="sourceThumb">${ICONS.image}</span>
-            <span class="source-copy"><strong id="sourceName"></strong><small id="sourceMeta"></small></span>
-          </button>
-        </div>
-        <div class="control-section">
-          <span class="control-label" data-i18n="generationMode"></span>
-          <div class="mode-options" role="group" data-i18n-aria="generationMode">
-            <button type="button" data-generation-mode="fast" data-i18n="fast"></button>
-            <button type="button" data-generation-mode="quality" data-i18n="quality"></button>
-          </div>
-        </div>
-        <div class="control-section">
-          <div class="control-heading">
-            <label for="polycountRange" data-i18n="topology"></label>
-            <output id="polycountValue">5,000</output>
-          </div>
-          <input class="range" id="polycountRange" type="range" min="100" max="20000" step="100" value="5000" />
-          <div class="range-scale"><span data-i18n="light"></span><span data-i18n="detailed"></span></div>
-        </div>
-        <div class="control-section compact">
-          <button class="folder-row" id="chooseFolderButton" type="button">
-            <span>${ICONS.folder}</span><span><small data-i18n="saveTo"></small><strong id="folderName"></strong></span>
-          </button>
-        </div>
-        <div class="control-section compact" id="autoSegmentSection">
-          <label class="switch-row" for="autoSegmentInput">
-            <span><strong data-i18n="autoSeparateParts"></strong><small data-i18n="colorReadyPieces"></small></span>
-            <input id="autoSegmentInput" type="checkbox" /><i class="switch" aria-hidden="true"></i>
-          </label>
-        </div>
-        <div class="rail-spacer"></div>
-        <div class="result-summary" id="resultSummary">
-          <span>${ICONS.check}</span><span><strong id="resultName"></strong><small id="resultMeta"></small></span>
-        </div>
-        <button class="secondary-action" id="segmentButton" type="button" data-i18n="separateParts"></button>
-        <button class="primary-action" id="generateButton" type="button" disabled><span>${ICONS.sparkle}</span><span id="generateLabel"></span></button>
-        <button class="cancel-action" id="cancelButton" type="button"><span>${ICONS.stop}</span><span id="cancelLabel" data-i18n="cancel"></span></button>
-      </aside>
-    </main>
-    <div class="app-dialog" id="confirmDialog" role="dialog" aria-modal="true" hidden>
-      <div class="dialog-surface">
-        <strong id="confirmMessage"></strong>
-        <div class="dialog-actions">
-          <button class="secondary-action" id="confirmCancel" type="button" data-i18n="cancel"></button>
-          <button class="danger-action" id="confirmAccept" type="button" data-i18n="deleteResult"></button>
-        </div>
-      </div>
-    </div>
-    <div class="app-toast" id="appToast" role="status" aria-live="polite"></div>
-  </section>
-`;
-
-const query = <T extends Element>(selector: string) => document.querySelector<T>(selector)!;
-const nodes = {
-  dragRegion: query<HTMLElement>("#dragRegion"), minimizeButton: query<HTMLButtonElement>("#minimizeButton"), closeButton: query<HTMLButtonElement>("#closeButton"),
-  addImagesButton: query<HTMLButtonElement>("#addImagesButton"), queueList: query<HTMLElement>("#queueList"), queueFooter: query<HTMLElement>("#queueFooter"),
-  chooseImageButton: query<HTMLButtonElement>("#chooseImageButton"), chooseFolderButton: query<HTMLButtonElement>("#chooseFolderButton"),
-  showFolderButton: query<HTMLButtonElement>("#showFolderButton"), sourceThumb: query<HTMLElement>("#sourceThumb"), sourceName: query<HTMLElement>("#sourceName"),
-  sourceMeta: query<HTMLElement>("#sourceMeta"), folderName: query<HTMLElement>("#folderName"), polycountRange: query<HTMLInputElement>("#polycountRange"),
-  polycountValue: query<HTMLOutputElement>("#polycountValue"),
-  modeButtons: [...document.querySelectorAll<HTMLButtonElement>("[data-generation-mode]")],
-  autoSegmentSection: query<HTMLElement>("#autoSegmentSection"), autoSegmentInput: query<HTMLInputElement>("#autoSegmentInput"),
-  generateButton: query<HTMLButtonElement>("#generateButton"), generateLabel: query<HTMLElement>("#generateLabel"), cancelButton: query<HTMLButtonElement>("#cancelButton"), cancelLabel: query<HTMLElement>("#cancelLabel"),
-  segmentButton: query<HTMLButtonElement>("#segmentButton"), statusTitle: query<HTMLElement>("#statusTitle"), statusDetail: query<HTMLElement>("#statusDetail"),
-  statusEta: query<HTMLElement>("#statusEta"), progressTrack: query<HTMLElement>("#progressTrack"), progressFill: query<HTMLElement>("#progressFill"),
-  statusMark: query<HTMLElement>("#statusMark"), stageStatus: query<HTMLElement>("#stageStatus"), readiness: query<HTMLElement>("#readiness"),
-  readinessText: query<HTMLElement>("#readinessText"), emptyCopy: query<HTMLElement>("#emptyCopy"), modelStats: query<HTMLElement>("#modelStats"),
-  resultSummary: query<HTMLElement>("#resultSummary"),
-  resultName: query<HTMLElement>("#resultName"), resultMeta: query<HTMLElement>("#resultMeta"), canvas: query<HTMLCanvasElement>("#modelCanvas"),
-  stage: query<HTMLElement>("#modelStage"), viewerToolbar: query<HTMLElement>("#viewerToolbar"), outlineButton: query<HTMLButtonElement>("#outlineButton"),
-  rotateButton: query<HTMLButtonElement>("#rotateButton"), gridButton: query<HTMLButtonElement>("#gridButton"), wireButton: query<HTMLButtonElement>("#wireButton"),
-  fitButton: query<HTMLButtonElement>("#fitButton"), shadingButtons: [...document.querySelectorAll<HTMLButtonElement>(".shading-tool")],
-  referencePreview: query<HTMLElement>("#referencePreview"), referencePreviewName: query<HTMLElement>("#referencePreviewName"),
-  referencePreviewImage: query<HTMLImageElement>("#referencePreviewImage"), referencePreviewClose: query<HTMLButtonElement>("#referencePreviewClose"),
-  confirmDialog: query<HTMLElement>("#confirmDialog"), confirmMessage: query<HTMLElement>("#confirmMessage"),
-  confirmCancel: query<HTMLButtonElement>("#confirmCancel"), confirmAccept: query<HTMLButtonElement>("#confirmAccept"), appToast: query<HTMLElement>("#appToast"),
-};
-
+app.innerHTML = appMarkup();
+const nodes = collectNodes();
 const viewer = new ModelViewer(nodes.canvas, nodes.stage);
-const MAX_PARALLEL_JOBS = 2;
-const state = {
-  items: [] as QueueItem[], selectedId: "", runningIds: new Set<string>(), outputDir: "", queueActive: false, cancelRequested: false,
-  backendStatus: { stage: "idle", progressText: "", runtimeStatus: "checking" } as JobStatus,
-  preparationStatus: "preparing", preparationTimer: 0, preparationPollToken: 0, displayToken: 0, displayedItemId: "", displayedModelPath: "",
-  displayRequestKey: "", displayPromise: undefined as Promise<void> | undefined,
-  outline: true, rotate: false, grid: false, wire: false, renamingId: "", historyRefreshing: false,
-  referencePreviewItemId: "", referencePreviewToken: 0,
+const state: AppState = {
+  items: [],
+  selectedId: "",
+  runningIds: new Set<string>(),
+  outputDir: "",
+  queueActive: false,
+  cancelRequested: false,
+  backendStatus: { stage: "idle", progressText: "", runtimeStatus: "checking" },
+  preparationStatus: "preparing",
+  preparationTimer: 0,
+  preparationPollToken: 0,
+  displayToken: 0,
+  displayedItemId: "",
+  displayedModelPath: "",
+  displayRequestKey: "",
+  displayPromise: undefined,
+  outline: true,
+  rotate: false,
+  grid: false,
+  wire: false,
+  historyRefreshing: false,
+  referencePreviewItemId: "",
+  referencePreviewToken: 0,
 };
 
-function pathLeaf(path: string) { return path.split(/[\\/]/).filter(Boolean).pop() || path; }
-function stripExtension(name: string) { return name.replace(/\.[^.]+$/, ""); }
-function selectedItem() { return state.items.find((item) => item.id === state.selectedId); }
-function pendingItems() { return state.items.filter((item) => item.state === "queued" && item.submitted); }
-function batchItems(batchId: string) { return state.items.filter((item) => item.batchId === batchId); }
-function activeJobCount() { return state.runningIds.size; }
-function delay(ms: number) { return new Promise((resolve) => window.setTimeout(resolve, ms)); }
-function isDraft(item?: QueueItem) { return Boolean(item?.state === "queued" && !item.submitted); }
-function isRerunnable(item?: QueueItem) { return Boolean(item && ["done", "failed", "cancelled"].includes(item.state)); }
-function isConfigurable(item?: QueueItem) { return isDraft(item) || isRerunnable(item); }
+function pathLeaf(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
+function stripExtension(name: string) {
+  return name.replace(/\.[^.]+$/, "");
+}
+
+function selectedItem() {
+  return state.items.find((item) => item.id === state.selectedId);
+}
+
+function pendingItems() {
+  return state.items.filter((item) => item.state === "queued" && item.submitted);
+}
+
+function batchItems(batchId: string) {
+  return state.items.filter((item) => item.batchId === batchId);
+}
+
+function activeJobCount() {
+  return state.runningIds.size;
+}
+
+function isDraft(item?: QueueItem) {
+  return Boolean(item?.state === "queued" && !item.submitted);
+}
+
+function isRerunnable(item?: QueueItem) {
+  return Boolean(item && ["done", "failed", "cancelled"].includes(item.state));
+}
+
+function isConfigurable(item?: QueueItem) {
+  return isDraft(item) || isRerunnable(item);
+}
+
 function normalizeGenerationSettings(item: QueueItem) {
   const settings = generationSettings(item.generationMode, item.polycount, item.autoSegment);
   item.generationMode = settings.mode;
@@ -299,12 +133,16 @@ function normalizeGenerationSettings(item: QueueItem) {
 }
 
 let confirmResolver: ((accepted: boolean) => void) | undefined;
+let toastTimer = 0;
+
 function confirmInApp(message: string) {
   confirmResolver?.(false);
   nodes.confirmMessage.textContent = message;
   nodes.confirmDialog.hidden = false;
   nodes.confirmAccept.focus();
-  return new Promise<boolean>((resolve) => { confirmResolver = resolve; });
+  return new Promise<boolean>((resolve) => {
+    confirmResolver = resolve;
+  });
 }
 
 function closeConfirmation(accepted: boolean) {
@@ -314,12 +152,11 @@ function closeConfirmation(accepted: boolean) {
   resolve?.(accepted);
 }
 
-let toastTimer = 0;
 function showToast(message: string) {
   window.clearTimeout(toastTimer);
   nodes.appToast.textContent = message;
   nodes.appToast.classList.add("visible");
-  toastTimer = window.setTimeout(() => nodes.appToast.classList.remove("visible"), 4200);
+  toastTimer = window.setTimeout(() => nodes.appToast.classList.remove("visible"), 4_200);
 }
 
 function closeReferencePreview() {
@@ -347,171 +184,12 @@ async function openReferencePreview(item: QueueItem) {
   }
 }
 
-function applyTranslations() {
-  document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n as MessageKey); });
-  document.querySelectorAll<HTMLElement>("[data-i18n-title]").forEach((node) => {
-    const value = t(node.dataset.i18nTitle as MessageKey); node.title = value; node.setAttribute("aria-label", value);
-  });
-  document.querySelectorAll<HTMLElement>("[data-i18n-aria]").forEach((node) => node.setAttribute("aria-label", t(node.dataset.i18nAria as MessageKey)));
-  const referenceItem = state.items.find((item) => item.id === state.referencePreviewItemId);
-  if (referenceItem) nodes.referencePreviewImage.alt = t("referenceImageAlt", { name: stripExtension(referenceItem.name) });
+async function readAsset(path: string) {
+  return invoke<AssetPayload>("read_asset", { path });
 }
 
-function queueStateLabel(value: QueueState) {
-  return t(value === "running" ? "creating" : value === "done" ? "complete" : value === "failed" ? "failed" : "queued");
-}
-
-function itemQueueLabel(item: QueueItem) {
-  if (item.historyId && item.state === "done") return t("savedResult");
-  return item.state === "queued" && !item.submitted ? t("draft") : queueStateLabel(item.state);
-}
-
-let renderedQueueSignature = "";
-
-function queueRenderSignature() {
-  return JSON.stringify({
-    locale: locale(),
-    selectedId: state.selectedId,
-    renamingId: state.renamingId,
-    items: state.items.map((item) => [
-      item.id,
-      item.batchId,
-      item.state,
-      item.submitted,
-      item.historyId || "",
-      item.result?.outputName || "",
-      Boolean(item.thumbnailUrl),
-    ]),
-  });
-}
-
-function renderQueue() {
-  const signature = queueRenderSignature();
-  if (signature === renderedQueueSignature) return;
-  renderedQueueSignature = signature;
-  nodes.queueList.replaceChildren();
-  if (!state.items.length) {
-    const empty = document.createElement("div");
-    empty.className = "queue-empty";
-    empty.innerHTML = `<span>${ICONS.image}</span><strong>${t("queueEmpty")}</strong><small>${t("queueEmptyDetail")}</small>`;
-    nodes.queueList.append(empty);
-  }
-  const currentItems = state.items.filter((item) => !item.historyId);
-  const batchIds = [...new Set(currentItems.map((item) => item.batchId))];
-  const showBatchLabels = batchIds.length > 1 || currentItems.some((item) => batchItems(item.batchId).length > 1);
-  let previousBatchId = "";
-  for (const item of state.items) {
-    if (!item.historyId && showBatchLabels && item.batchId !== previousBatchId) {
-      const batchHeader = document.createElement("div");
-      batchHeader.className = "batch-label";
-      batchHeader.textContent = t("batchLabel", {
-        number: batchIds.indexOf(item.batchId) + 1,
-        count: batchItems(item.batchId).length,
-      });
-      nodes.queueList.append(batchHeader);
-      previousBatchId = item.batchId;
-    }
-    const row = document.createElement("div");
-    row.className = `queue-item ${item.id === state.selectedId ? "selected" : ""}`;
-    row.dataset.state = item.state;
-    const main = document.createElement("div");
-    main.className = "queue-item-main";
-    const thumb = document.createElement("button");
-    thumb.type = "button";
-    thumb.className = "queue-thumb";
-    thumb.innerHTML = item.thumbnailUrl ? `<img alt="" src="${item.thumbnailUrl}">` : ICONS.image;
-    thumb.title = t("viewReference");
-    thumb.setAttribute("aria-label", t("viewReference"));
-    thumb.addEventListener("click", () => void openReferencePreview(item));
-    const button = document.createElement("div");
-    button.tabIndex = 0; button.setAttribute("role", "button");
-    button.className = "queue-select";
-    const copy = document.createElement("span");
-    copy.className = "queue-copy";
-    const strong = document.createElement("strong"); strong.textContent = stripExtension(item.result?.outputName || item.name);
-    const small = document.createElement("small"); small.textContent = itemQueueLabel(item);
-    if (state.renamingId === item.id && item.historyId) {
-      const input = document.createElement("input");
-      input.className = "queue-rename-input"; input.value = stripExtension(item.result?.outputName || item.name);
-      input.setAttribute("aria-label", t("renameResult"));
-      input.addEventListener("click", (event) => event.stopPropagation());
-      input.addEventListener("keydown", (event) => {
-        event.stopPropagation();
-        if (event.key === "Enter") void renameHistoryItem(item, input.value);
-        else if (event.key === "Escape") { state.renamingId = ""; renderQueue(); }
-      });
-      input.addEventListener("blur", () => window.setTimeout(() => {
-        if (state.renamingId === item.id) { state.renamingId = ""; renderQueue(); }
-      }, 80));
-      copy.append(input, small);
-      window.setTimeout(() => { input.focus(); input.select(); });
-    } else copy.append(strong, small);
-    button.append(copy);
-    button.addEventListener("click", () => void selectItem(item.id));
-    button.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void selectItem(item.id); }
-    });
-    main.append(thumb, button);
-    const actions = document.createElement("span"); actions.className = "queue-actions";
-    if (item.historyId && item.state === "done") {
-      const rename = document.createElement("button"); rename.type = "button"; rename.innerHTML = ICONS.rename;
-      rename.title = t("renameResult"); rename.setAttribute("aria-label", t("renameResult"));
-      rename.addEventListener("click", () => { state.renamingId = item.id; renderQueue(); });
-      const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.innerHTML = ICONS.trash;
-      remove.title = t("deleteResult"); remove.setAttribute("aria-label", t("deleteResult"));
-      remove.addEventListener("click", () => void deleteHistoryItem(item));
-      actions.append(rename, remove);
-    } else {
-      const remove = document.createElement("button"); remove.type = "button"; remove.innerHTML = ICONS.close;
-      remove.title = t("remove"); remove.setAttribute("aria-label", t("remove"));
-      remove.disabled = item.state === "running" || item.state === "done";
-      remove.addEventListener("click", () => removeItem(item.id)); actions.append(remove);
-    }
-    row.append(main, actions); nodes.queueList.append(row);
-  }
-  nodes.queueFooter.textContent = state.items.length ? t("jobsCount", { count: state.items.length }) : "";
-}
-
-async function renameHistoryItem(item: QueueItem, newName: string) {
-  if (!item.historyId) return;
-  try {
-    const entry = await invoke<HistoryEntry>("rename_history_result", { id: item.historyId, newName });
-    if (item.result) { item.result.outputPath = entry.outputPath; item.result.outputName = entry.outputName; }
-    state.renamingId = ""; updateUi();
-  } catch (error) {
-    showToast(`${t("renameFailed")}: ${String(error)}`);
-    state.renamingId = ""; renderQueue();
-  }
-}
-
-async function deleteHistoryItem(item: QueueItem) {
-  if (!item.historyId || !await confirmInApp(t("deleteResultConfirm"))) return;
-  try {
-    await invoke("delete_history_result", { id: item.historyId });
-    removeItem(item.id);
-  } catch (error) {
-    showToast(`${t("deleteFailed")}: ${String(error)}`);
-  }
-}
-
-async function readAsset(path: string) { return invoke<AssetPayload>("read_asset", { path }); }
 async function readImagePreview(path: string, maxEdge: number) {
   return invoke<AssetPayload>("read_image_preview", { path, maxEdge });
-}
-
-let thumbnailHydration = Promise.resolve();
-function hydrateThumbnails(items: QueueItem[]) {
-  thumbnailHydration = thumbnailHydration.then(async () => {
-    for (const item of items) {
-      if (item.thumbnailUrl || !state.items.includes(item) || !item.path) continue;
-      try {
-        item.thumbnailUrl = (await readImagePreview(item.path, 128)).dataUrl;
-        renderedQueueSignature = "";
-        renderQueue();
-        updateUi();
-      } catch { /* Preview failure does not affect the creation job. */ }
-    }
-  }).catch(() => undefined);
 }
 
 function readModelAsset(item: QueueItem, path: string) {
@@ -527,10 +205,75 @@ function readModelAsset(item: QueueItem, path: string) {
     };
     void promise.then(clear, clear);
   }
-  return item.modelAssetPromise!;
+  return item.modelAssetPromise;
 }
 
-function comparablePath(path?: string | null) { return (path || "").toLowerCase(); }
+function comparablePath(path?: string | null) {
+  return (path || "").toLowerCase();
+}
+
+let presentation!: ModelPresentation;
+let jobRunner!: JobRunner;
+const queueView = new ModelQueueView({
+  state,
+  nodes,
+  batchItems,
+  stripExtension,
+  readImagePreview,
+  onSelect: (id) => void selectItem(id),
+  onOpenReference: (item) => void openReferencePreview(item),
+  onRemove: removeItem,
+  onRename: (item, name) => void renameHistoryItem(item, name),
+  onDelete: (item) => void deleteHistoryItem(item),
+});
+viewer.onInteractionChange((active) => queueView.setInteractionActive(active, 220));
+presentation = new ModelPresentation({
+  state,
+  nodes,
+  viewer,
+  selectedItem,
+  batchItems,
+  activeJobCount,
+  isConfigurable,
+  isDraft,
+  normalizeSettings: normalizeGenerationSettings,
+  maxParallelJobs: MAX_PARALLEL_JOBS,
+  renderQueue: () => queueView.render(),
+  stripExtension,
+});
+
+function updateUi() {
+  presentation.updateUi();
+}
+
+async function renameHistoryItem(item: QueueItem, newName: string) {
+  if (!item.historyId) return;
+  try {
+    const entry = await invoke<HistoryEntry>("rename_history_result", {
+      id: item.historyId,
+      newName,
+    });
+    if (item.result) {
+      item.result.outputPath = entry.outputPath;
+      item.result.outputName = entry.outputName;
+    }
+  } catch (error) {
+    showToast(`${t("renameFailed")}: ${String(error)}`);
+  } finally {
+    queueView.finishRename();
+    updateUi();
+  }
+}
+
+async function deleteHistoryItem(item: QueueItem) {
+  if (!item.historyId || !await confirmInApp(t("deleteResultConfirm"))) return;
+  try {
+    await invoke("delete_history_result", { id: item.historyId });
+    removeItem(item.id);
+  } catch (error) {
+    showToast(`${t("deleteFailed")}: ${String(error)}`);
+  }
+}
 
 async function refreshHistory() {
   if (state.historyRefreshing || !window.invoke) return;
@@ -540,42 +283,63 @@ async function refreshHistory() {
     const validIds = new Set(entries.map((entry) => entry.id));
     for (const entry of entries) {
       let item = state.items.find((candidate) => candidate.historyId === entry.id)
-        || state.items.find((candidate) => comparablePath(candidate.result?.outputPath) === comparablePath(entry.outputPath));
+        || state.items.find((candidate) =>
+          comparablePath(candidate.result?.outputPath) === comparablePath(entry.outputPath));
       if (item) {
-        item.historyId = entry.id; item.createdAtMs = entry.createdAtMs;
+        item.historyId = entry.id;
+        item.createdAtMs = entry.createdAtMs;
         if (item.result) {
-          item.result.outputPath = entry.outputPath; item.result.outputName = entry.outputName;
+          item.result.outputPath = entry.outputPath;
+          item.result.outputName = entry.outputName;
           item.result.isSegmented = Boolean(entry.metadata?.isSegmented);
         }
         continue;
       }
       const sourcePath = entry.sourcePath;
       const name = pathLeaf(sourcePath || entry.outputName);
-      item = {
-        id: `history_${entry.id}`, batchId: `history_${entry.id}`, path: sourcePath, name,
+      state.items.push({
+        id: `history_${entry.id}`,
+        batchId: `history_${entry.id}`,
+        path: sourcePath,
+        name,
         extension: name.split(".").pop()?.toUpperCase() || t("image"),
-        generationMode: entry.metadata?.generationMode || "quality", polycount: 5000,
-        autoSegment: Boolean(entry.metadata?.isSegmented), submitted: true, state: "done", historyId: entry.id,
+        generationMode: entry.metadata?.generationMode || "quality",
+        polycount: 5_000,
+        autoSegment: Boolean(entry.metadata?.isSegmented),
+        submitted: true,
+        state: "done",
+        historyId: entry.id,
         createdAtMs: entry.createdAtMs,
         result: {
-          stage: "done", progressText: "", outputPath: entry.outputPath, outputName: entry.outputName,
-          sourceImagePath: sourcePath, isSegmented: Boolean(entry.metadata?.isSegmented),
+          stage: "done",
+          progressText: "",
+          outputPath: entry.outputPath,
+          outputName: entry.outputName,
+          sourceImagePath: sourcePath,
+          isSegmented: Boolean(entry.metadata?.isSegmented),
           canSegment: false,
         },
-      };
-      state.items.push(item);
-      hydrateThumbnails([item]);
+      });
     }
     const selectedBefore = state.selectedId;
     state.items = state.items.filter((item) => !item.historyId || validIds.has(item.historyId));
-    if (state.referencePreviewItemId && !state.items.some((item) => item.id === state.referencePreviewItemId)) closeReferencePreview();
-    if (!state.items.some((item) => item.id === state.selectedId)) state.selectedId = state.items[0]?.id || "";
+    if (
+      state.referencePreviewItemId
+      && !state.items.some((item) => item.id === state.referencePreviewItemId)
+    ) closeReferencePreview();
+    if (!state.items.some((item) => item.id === state.selectedId)) {
+      state.selectedId = state.items[0]?.id || "";
+    }
     updateUi();
     if (state.selectedId && state.selectedId !== selectedBefore) {
-      const item = selectedItem(); if (item) await displayItem(item);
+      const item = selectedItem();
+      if (item) await displayItem(item);
     }
-  } catch { /* Keep the active queue usable if history storage is unavailable. */ }
-  finally { state.historyRefreshing = false; }
+  } catch {
+    // Keep the active queue usable if history storage is unavailable.
+  } finally {
+    state.historyRefreshing = false;
+  }
 }
 
 async function addImagePaths(paths: string[]) {
@@ -591,20 +355,26 @@ async function addImagePaths(paths: string[]) {
   });
   if (!unique.length) return;
   const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const items = unique.map((path): QueueItem => {
+  const created = unique.map((path): QueueItem => {
     const name = pathLeaf(path);
     return {
-      id: `image_${Date.now()}_${Math.random().toString(36).slice(2)}`, batchId, path, name,
+      id: `image_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      batchId,
+      path,
+      name,
       extension: name.split(".").pop()?.toUpperCase() || t("image"),
-      generationMode: "quality", polycount: 5000, autoSegment: false, submitted: false, state: "queued",
+      generationMode: "quality",
+      polycount: 5_000,
+      autoSegment: false,
+      submitted: false,
+      state: "queued",
     };
   });
   closeReferencePreview();
-  state.items.push(...items);
-  state.selectedId = items[0].id;
-  renderQueue(); updateUi();
-  hydrateThumbnails(items);
-  void displayItem(items[0]);
+  state.items.push(...created);
+  state.selectedId = created[0].id;
+  updateUi();
+  void displayItem(created[0]);
 }
 
 async function addImages() {
@@ -616,8 +386,10 @@ function removeItem(id: string) {
   if (index < 0 || state.items[index].state === "running") return;
   if (state.referencePreviewItemId === id) closeReferencePreview();
   state.items.splice(index, 1);
-  if (state.selectedId === id) state.selectedId = state.items[Math.min(index, state.items.length - 1)]?.id || "";
-  renderQueue(); updateUi();
+  if (state.selectedId === id) {
+    state.selectedId = state.items[Math.min(index, state.items.length - 1)]?.id || "";
+  }
+  updateUi();
   const item = selectedItem();
   if (item) void displayItem(item);
 }
@@ -625,24 +397,33 @@ function removeItem(id: string) {
 async function selectItem(id: string) {
   if (state.referencePreviewItemId && state.referencePreviewItemId !== id) closeReferencePreview();
   state.selectedId = id;
-  renderQueue(); updateUi();
+  updateUi();
   const item = selectedItem();
   if (item) await displayItem(item);
 }
 
 function displayItem(item: QueueItem): Promise<void> {
-  const modelPath = item.result?.outputPath &&
-    (item.state === "done" || item.result.stage === "done" || item.result.stage === "segmenting"
-      || item.state === "failed" || item.state === "cancelled")
+  const modelPath = item.result?.outputPath
+    && (
+      item.state === "done"
+      || item.result.stage === "done"
+      || item.result.stage === "segmenting"
+      || item.state === "failed"
+      || item.state === "cancelled"
+    )
     ? item.result.outputPath
     : undefined;
-  if (modelPath && state.displayedItemId === item.id && state.displayedModelPath === modelPath && item.loadedModelPath === modelPath) {
-    syncViewerControls();
+  if (
+    modelPath
+    && state.displayedItemId === item.id
+    && state.displayedModelPath === modelPath
+    && item.loadedModelPath === modelPath
+  ) {
+    presentation.syncViewerControls();
     return Promise.resolve();
   }
   const requestKey = `${item.id}\n${modelPath || "source"}\n${Boolean(item.result?.isSegmented)}`;
   if (state.displayRequestKey === requestKey && state.displayPromise) return state.displayPromise;
-
   const token = ++state.displayToken;
   const operation = (async () => {
     try {
@@ -668,8 +449,10 @@ function displayItem(item: QueueItem): Promise<void> {
       item.loadedModelPath = "";
       item.loadedDepthPath = "";
       if (item.result?.previewPath) await loadDepthFor(item, item.result.previewPath);
-    } catch { /* The status surface remains usable even if preview loading fails. */ }
-    syncViewerControls();
+    } catch {
+      // The status surface remains usable even if preview loading fails.
+    }
+    presentation.syncViewerControls();
   })();
   state.displayRequestKey = requestKey;
   state.displayPromise = operation;
@@ -685,563 +468,60 @@ function displayItem(item: QueueItem): Promise<void> {
 async function loadDepthFor(item: QueueItem, path: string) {
   if (!path || item.loadedDepthPath === path || state.selectedId !== item.id) return;
   item.loadedDepthPath = path;
-  try { await viewer.setDepth((await readImagePreview(path, 1_024)).dataUrl); } catch { item.loadedDepthPath = ""; }
-}
-
-function friendlyError(message: string) {
-  const text = message.toLowerCase();
-  if (text.includes("rate limit") || text.includes("retry after")) return t("serviceBusy");
-  if (text.includes("workspace preparation email") || text.includes("workspace email service")) return t("serviceBusy");
-  if (text.includes("runtime_missing") || text.includes("runtime") && text.includes("missing")) return t("engineMissing");
-  if (text.includes("timed out") || text.includes("timeout")) return t("timedOut");
-  if (text.includes("segment")) return t("separationFailed");
-  return t("interrupted");
-}
-
-function friendlyStatus() {
-  const item = selectedItem();
-  if (!item) return { title: t("ready"), detail: t("chooseToBegin"), stage: "idle" as Stage };
-  if (item.state === "done") return {
-    title: item.result?.isSegmented ? t("partsReady") : t("modelReady"),
-    detail: item.result?.isSegmented ? t("dragInspectParts") : t("dragInspect"), stage: "done" as Stage,
-  };
-  if (item.state === "failed") return { title: t("couldNotCreate"), detail: friendlyError(item.result?.error || item.result?.progressText || ""), stage: "failed" as Stage };
-  if (item.state === "cancelled") return { title: t("cancelled"), detail: t("cancelledDetail"), stage: "cancelled" as Stage };
-  if (item.state === "queued" && item.submitted && activeJobCount()) return { title: t("queuedTitle"), detail: t("queuedDetail"), stage: "idle" as Stage };
-  if (item.state !== "running") return { title: t("ready"), detail: t("adjustThenGenerate"), stage: "idle" as Stage };
-  const status = item.result || state.backendStatus;
-  if (status.workspaceState === "waiting") return { title: t("preparingWorkspace"), detail: t("finishingPreparation"), stage: status.stage };
-  if (status.workspaceState === "provider_queue") return { title: t("providerQueueTitle"), detail: t("providerQueueDetail"), stage: status.stage };
-  if (status.stage === "preparing") return { title: t("preparingWorkspace"), detail: t("gettingEverythingReady"), stage: status.stage };
-  if (status.stage === "segmenting") return { title: t("separatingParts"), detail: t("findingPieces"), stage: status.stage };
-  if (status.stage === "finalizing") return { title: t("finishingModel"), detail: t("preparingGeometry"), stage: status.stage };
-  const details: Record<string, MessageKey> = {
-    depth_preview: "readingDepth", model_setup: "preparingImage", model_creation: "shapingGeometry", separation: "findingPieces", finalizing: "preparingGeometry",
-  };
-  return { title: t("creatingModel"), detail: t(details[status.phase || ""] || (status.previewPath ? "shapingGeometry" : "readingDepth")), stage: status.stage };
-}
-
-function beginProgress(item: QueueItem, estimateMs: number) {
-  item.operationStartedAt = Date.now(); item.estimatedTotalMs = estimateMs; item.displayedProgress = 0;
-}
-
-function formatRemaining(milliseconds: number) {
-  if (milliseconds <= 15_000) return t("almostThere");
-  if (milliseconds < 60_000) return t("lessMinute");
-  return t("aboutMinutes", { count: Math.max(1, Math.ceil(milliseconds / 60_000)) });
-}
-
-function formatModelStats(stats: ModelStats) {
-  const number = new Intl.NumberFormat(locale());
-  return t("modelStats", { vertices: number.format(stats.vertices), faces: number.format(stats.faces) });
-}
-
-function updateProgressUi() {
-  const item = selectedItem();
-  const busy = item?.state === "running";
-  nodes.progressTrack.classList.toggle("visible", busy); nodes.statusEta.classList.toggle("visible", busy);
-  if (!busy) {
-    nodes.progressTrack.classList.remove("provider-queued");
-    nodes.progressTrack.removeAttribute("aria-valuetext");
-    const done = selectedItem()?.state === "done";
-    nodes.progressTrack.setAttribute("aria-valuenow", done ? "100" : "0"); nodes.progressFill.style.width = done ? "100%" : "0%"; nodes.statusEta.textContent = ""; return;
-  }
-  if (!item) return;
-  const elapsedMs = Math.max(0, Date.now() - (item.operationStartedAt || Date.now()));
-  const estimateMs = Math.max(10_000, item.estimatedTotalMs || 240_000);
-  const providerQueued = item.result?.workspaceState === "provider_queue";
-  nodes.progressTrack.classList.toggle("provider-queued", providerQueued);
-  if (providerQueued) {
-    nodes.progressTrack.removeAttribute("aria-valuenow");
-    nodes.progressTrack.setAttribute("aria-valuetext", t("providerQueueEta"));
-    nodes.progressFill.style.width = "34%";
-    nodes.statusEta.textContent = t("providerQueueEta");
-    return;
-  }
-  nodes.progressTrack.removeAttribute("aria-valuetext");
-  const curved = Math.min(0.94, 0.9 * (1 - Math.exp((-3 * elapsedMs) / estimateMs)));
-  const reported = Math.max(0, Math.min(0.94, item.result?.progressRatio || 0));
-  item.displayedProgress = Math.max(item.displayedProgress || 0, curved, reported);
-  const percent = Math.round(item.displayedProgress * 100);
-  nodes.progressTrack.setAttribute("aria-valuenow", String(percent)); nodes.progressFill.style.width = `${percent}%`;
-  nodes.statusEta.textContent = elapsedMs >= estimateMs ? t("takingLonger") : formatRemaining(estimateMs - elapsedMs);
-}
-
-function syncViewerControls() {
-  const hasModel = Boolean(selectedItem()?.loadedModelPath);
-  nodes.viewerToolbar.classList.toggle("visible", hasModel);
-  nodes.shadingButtons.forEach((button) => {
-    const mode = button.dataset.shading as ShadingMode;
-    button.classList.toggle("active", viewer.getShading() === mode);
-    button.disabled = mode === "parts" && !viewer.hasParts();
-  });
-  nodes.outlineButton.classList.toggle("active", state.outline);
-  nodes.rotateButton.classList.toggle("active", state.rotate);
-  nodes.gridButton.classList.toggle("active", state.grid);
-  nodes.wireButton.classList.toggle("active", state.wire);
-}
-
-function updateUi() {
-  const item = selectedItem();
-  const status = friendlyStatus();
-  const busy = activeJobCount() > 0;
-  const missing = item?.result?.runtimeStatus === "missing" || state.backendStatus.runtimeStatus === "missing";
-  nodes.statusTitle.textContent = status.title; nodes.statusDetail.textContent = status.detail;
-  nodes.stageStatus.dataset.stage = status.stage; nodes.statusMark.innerHTML = item?.state === "done" ? ICONS.check : ICONS.sparkle;
-  nodes.readinessText.textContent = missing ? t("unavailable") : busy ? t("working") : state.preparationStatus === "ready" ? t("ready") : t("preparing");
-  nodes.readiness.classList.toggle("busy", busy || state.preparationStatus === "preparing");
-  nodes.readiness.classList.toggle("error", missing);
-  nodes.sourceName.textContent = item ? stripExtension(item.name) : t("chooseImages");
-  const selectedBatchSize = item ? batchItems(item.batchId).length : 0;
-  nodes.sourceMeta.textContent = item
-    ? selectedBatchSize > 1 ? t("sharedSettings", { count: selectedBatchSize }) : item.extension
-    : t("formats");
-  nodes.sourceThumb.innerHTML = item?.thumbnailUrl ? `<img alt="" src="${item.thumbnailUrl}">` : ICONS.image;
-  nodes.folderName.textContent = state.outputDir || t("defaultFolder");
-  nodes.folderName.title = state.outputDir;
-  const settings = item
-    ? normalizeGenerationSettings(item)
-    : generationSettings("quality", 5000, false);
-  const polycount = settings.polycount;
-  nodes.polycountValue.value = new Intl.NumberFormat(locale()).format(polycount); nodes.polycountRange.value = String(polycount);
-  nodes.polycountRange.min = String(settings.minimumPolycount);
-  nodes.polycountRange.max = String(settings.maximumPolycount);
-  nodes.modeButtons.forEach((button) => {
-    const selected = button.dataset.generationMode === settings.mode;
-    button.classList.toggle("active", selected);
-    button.setAttribute("aria-pressed", String(selected));
-  });
-  nodes.autoSegmentSection.hidden = !settings.showAutoSegment;
-  nodes.autoSegmentInput.checked = settings.autoSegment;
-  const locked = !isConfigurable(item);
-  nodes.modeButtons.forEach((button) => { button.disabled = locked; });
-  nodes.polycountRange.disabled = locked; nodes.autoSegmentInput.disabled = locked;
-  const selectedDraft = isDraft(item);
-  nodes.generateButton.disabled = !item || missing || item.state === "running";
-  nodes.generateButton.classList.toggle("is-busy", busy);
-  const rerun = item ? item.state === "done" || item.state === "failed" || item.state === "cancelled" : false;
-  const selectedBatchSizeForAction = item ? batchItems(item.batchId).length : 0;
-  nodes.generateLabel.textContent = selectedDraft && busy
-    ? t("addToQueue")
-    : item?.state === "running"
-      ? t("creatingModel")
-      : selectedDraft && selectedBatchSizeForAction > 1
-        ? t("generateQueue")
-        : rerun
-          ? t("generateAgain")
-          : t("generateModel");
-  nodes.cancelButton.classList.toggle("visible", busy || state.queueActive);
-  nodes.cancelLabel.textContent = item?.result?.stage === "segmenting" ? t("cancelSegmentation") : t("cancel");
-  const canSegment = item?.state === "done" && item.result?.canSegment
-    && item.result?.jobId && !item.result?.isSegmented
-    && activeJobCount() < MAX_PARALLEL_JOBS;
-  nodes.segmentButton.classList.toggle("visible", Boolean(canSegment));
-  const hasModel = Boolean(item?.result?.outputPath && item.loadedModelPath);
-  nodes.resultSummary.classList.toggle("visible", hasModel);
-  nodes.resultName.textContent = item?.result?.isSegmented ? t("partsReady") : t("modelReady");
-  const resultFilename = item?.result?.outputName || t("savedAutomatically");
-  nodes.resultMeta.textContent = resultFilename;
-  const showModelStats = hasModel && Boolean(item?.modelStats);
-  nodes.modelStats.textContent = item?.modelStats ? formatModelStats(item.modelStats) : "";
-  nodes.modelStats.classList.toggle("visible", showModelStats);
-  nodes.showFolderButton.classList.toggle("visible", Boolean(item?.result?.outputPath));
-  nodes.emptyCopy.classList.toggle("hidden", Boolean(item));
-  if (!state.renamingId) renderQueue();
-  syncViewerControls(); updateProgressUi();
-}
-
-function applyBackendStatus(item: QueueItem, status: JobStatus) {
-  if (BUSY_STAGES.has(status.stage)) {
-    if (!item.operationStartedAt) {
-      item.operationStartedAt = Date.now() - Math.max(0, status.elapsedMs || 0);
-      item.displayedProgress = Math.max(0, status.progressRatio || 0);
-    }
-    if (status.estimatedTotalMs) item.estimatedTotalMs = status.estimatedTotalMs;
-  }
-  if (state.selectedId === item.id) state.backendStatus = status;
-  item.result = status;
-  if (status.previewPath) void loadDepthFor(item, status.previewPath);
-  if (status.outputPath && state.selectedId === item.id) void displayItem(item);
-  updateUi();
-}
-
-async function waitForJob(item: QueueItem, initial: JobStatus) {
-  let status = initial; applyBackendStatus(item, status);
-  const jobId = status.jobId;
-  if (!jobId) throw new Error("The model job did not return an ID.");
-  while (BUSY_STAGES.has(status.stage)) {
-    await delay(800);
-    status = await invoke<JobStatus>("job_status", { jobId });
-    applyBackendStatus(item, status);
-  }
-  return status;
-}
-
-async function runItem(item: QueueItem) {
-  const settings = normalizeGenerationSettings(item);
-  state.runningIds.add(item.id); item.state = "running";
-  beginProgress(item, 240_000);
-  if (state.selectedId === item.id) await displayItem(item);
-  const request: StartJobRequest = {
-    imagePath: item.path, outputDir: state.outputDir || null, polycount: settings.polycount,
-    mode: "topology_mesh", generationMode: settings.mode, outputFormat: "glb_plain",
-    autoSegment: settings.autoSegment,
-    segmentationMode: settings.autoSegment ? "parts" : "none",
-  };
   try {
-    const final = await waitForJob(item, await invoke<JobStatus>("start_job", request));
-    item.result = final;
-    if (final.stage === "done") {
-      item.state = "done";
-      if (state.selectedId === item.id) await displayItem(item);
-      await refreshHistory();
-    } else if (final.stage === "cancelled") item.state = "cancelled";
-    else item.state = "failed";
-  } catch (error) {
-    item.state = "failed";
-    item.result = {
-      stage: "failed", progressText: String(error), error: String(error),
-      runtimeStatus: state.backendStatus.runtimeStatus,
-    };
-  } finally {
-    state.runningIds.delete(item.id); updateUi(); startPreparationPolling();
+    await viewer.setDepth((await readImagePreview(path, 1_024)).dataUrl);
+  } catch {
+    item.loadedDepthPath = "";
   }
 }
 
-async function processQueue() {
-  if (state.queueActive) return;
-  const selected = selectedItem();
-  if (!pendingItems().length && selected && selected.state !== "running") {
-    selected.state = "queued"; selected.result = undefined;
-  }
-  state.queueActive = true; state.cancelRequested = false; updateUi();
-  const active = new Map<string, Promise<void>>();
-  while (!state.cancelRequested) {
-    while (activeJobCount() < MAX_PARALLEL_JOBS) {
-      const next = pendingItems()[0];
-      if (!next) break;
-      const operation = runItem(next).finally(() => active.delete(next.id));
-      active.set(next.id, operation);
-    }
-    if (!active.size) {
-      if (pendingItems().length && activeJobCount() >= MAX_PARALLEL_JOBS) {
-        await delay(400);
-        continue;
-      }
-      break;
-    }
-    await Promise.race(active.values());
-  }
-  await Promise.allSettled(active.values());
-  state.queueActive = false; state.cancelRequested = false; updateUi();
-}
-
-function submitSelectedBatch() {
-  const item = selectedItem();
-  if (!item) return;
-  if (item.state === "queued" && !item.submitted) {
-    for (const member of batchItems(item.batchId)) {
-      if (member.state === "queued") member.submitted = true;
-    }
-  } else if (item.state === "done" || item.state === "failed" || item.state === "cancelled") {
-    item.state = "queued";
-    item.submitted = true;
-    item.historyId = undefined;
-    item.createdAtMs = undefined;
-    item.result = undefined;
-    item.modelStats = undefined;
-  }
-  updateUi();
-  if (!state.queueActive) void processQueue();
-}
-
-async function segmentSelected() {
-  const item = selectedItem();
-  if (!item?.result?.jobId || item.result.isSegmented
-    || !item.result.canSegment || activeJobCount() >= MAX_PARALLEL_JOBS) return;
-  const continuationId = item.result.jobId;
-  state.runningIds.add(item.id); item.state = "running"; beginProgress(item, 120_000); updateUi();
-  try {
-    const final = await waitForJob(item, await invoke<JobStatus>("segment_model", { continuationId }));
-    item.result = final; item.state = final.stage === "done" ? "done" : "failed";
-    if (item.state === "done") { await displayItem(item); await refreshHistory(); }
-  } catch (error) {
-    item.state = "failed";
-    item.result = { stage: "failed", progressText: String(error), error: String(error) };
-  } finally {
-    state.runningIds.delete(item.id); updateUi(); startPreparationPolling();
-    if (pendingItems().length && !state.queueActive) void processQueue();
-  }
-}
-
-function startPreparationPolling() {
-  window.clearTimeout(state.preparationTimer);
-  const token = ++state.preparationPollToken;
-  const check = async () => {
-    try { state.preparationStatus = await invoke<string>("runtime_preparation_status"); } catch { state.preparationStatus = "not_ready"; }
-    if (token !== state.preparationPollToken) return;
-    updateUi();
-    const delayMs = state.preparationStatus === "preparing" || state.preparationStatus === "not_ready" ? 1000 : 15_000;
-    state.preparationTimer = window.setTimeout(check, delayMs);
-  };
-  void check();
-}
-
-async function restoreCurrentJobs() {
-  try {
-    const statuses = await invoke<JobStatus[]>("job_statuses");
-    const recoverable = new Map<string, JobStatus>();
-    for (const status of statuses) {
-      if (status.sourceImagePath && (BUSY_STAGES.has(status.stage) || status.stage === "done" && status.outputPath)) {
-        recoverable.set(status.sourceImagePath, status);
-      }
-    }
-    const items = [...recoverable.values()].map((status, index): QueueItem => {
-      const path = status.sourceImagePath!;
-      const name = pathLeaf(path);
-      const running = BUSY_STAGES.has(status.stage);
-      return {
-        id: `recovered_${Date.now()}_${index}`, batchId: `recovered_batch_${Date.now()}_${index}`, path, name,
-        extension: name.split(".").pop()?.toUpperCase() || t("image"),
-        generationMode: status.generationMode || "quality", polycount: 5000,
-        autoSegment: Boolean(status.isSegmented), submitted: true, state: running ? "running" : "done", result: status,
-        operationStartedAt: running ? Date.now() - Math.max(0, status.elapsedMs || 0) : undefined,
-        estimatedTotalMs: status.estimatedTotalMs || 240_000, displayedProgress: status.progressRatio || 0,
-      };
-    });
-    if (!items.length) { updateUi(); return; }
-    const latest = items[items.length - 1];
-    state.items.push(...items); state.selectedId = latest.id;
-    state.backendStatus = latest.result!;
-    for (const item of items) if (item.state === "running") state.runningIds.add(item.id);
-    updateUi(); hydrateThumbnails(items); await displayItem(latest);
-    await Promise.all(items.filter((item) => item.state === "running").map(async (item) => {
-      try {
-        const final = await waitForJob(item, item.result!);
-        item.result = final;
-        item.state = final.stage === "done" ? "done" : final.stage === "cancelled" ? "cancelled" : "failed";
-        if (state.selectedId === item.id && item.state === "done") await displayItem(item);
-      } catch (error) {
-        item.state = "failed";
-        item.result = { stage: "failed", progressText: String(error), error: String(error) };
-      } finally {
-        state.runningIds.delete(item.id);
-        updateUi();
-      }
-    }));
-  } catch { updateUi(); }
-}
-
-async function loadDevModelPreview(modelUrl: string) {
-  try {
-    const response = await fetch(modelUrl);
-    if (!response.ok) throw new Error(`Preview model returned ${response.status}`);
-    const objectUrl = URL.createObjectURL(await response.blob());
-    const name = pathLeaf(modelUrl);
-    const item: QueueItem = {
-      id: "dev_model", batchId: "dev_batch", path: modelUrl, name, extension: "GLB", polycount: 5000,
-      generationMode: "quality",
-      autoSegment: devParams?.get("segmented") === "1", submitted: true, state: "done",
-      result: { stage: "done", progressText: "", outputPath: modelUrl, outputName: name, isSegmented: devParams?.get("segmented") === "1", canSegment: false },
-    };
-    state.items.push(item); state.selectedId = item.id;
-    const stats = await viewer.setModel(objectUrl, Boolean(item.result?.isSegmented));
-    if (stats) item.modelStats = stats;
-    state.displayedItemId = item.id;
-    state.displayedModelPath = modelUrl;
-    updateUi();
-  } catch (error) {
-    state.backendStatus = { stage: "failed", progressText: String(error), error: String(error) };
-    updateUi();
-  }
-}
-
-function loadDevBatchPreview() {
-  const makeItem = (
-    id: string,
-    batchId: string,
-    name: string,
-    itemState: QueueState,
-    submitted: boolean,
-  ): QueueItem => ({
-    id, batchId, path: name, name, extension: "PNG",
-    generationMode: batchId === "batch_2" ? "fast" : "quality",
-    polycount: batchId === "batch_2" ? 8200 : 5000,
-    autoSegment: batchId === "batch_2", submitted, state: itemState,
-  });
-  state.items.push(
-    makeItem("batch_1_a", "batch_1", "atrium-front.png", "running", true),
-    makeItem("batch_1_b", "batch_1", "atrium-side.png", "running", true),
-    makeItem("batch_2_a", "batch_2", "character-front.png", "queued", false),
-    makeItem("batch_2_b", "batch_2", "character-side.png", "queued", false),
-    makeItem("batch_2_c", "batch_2", "character-back.png", "queued", false),
-  );
-  if (devParams?.get("history") === "1") {
-    state.items.push({
-      ...makeItem("history_a", "history_a", "clinic-reception.png", "done", true), historyId: "history_a", createdAtMs: Date.now() - 60_000,
-      result: { stage: "done", progressText: "", outputPath: "C:\\Models\\clinic-reception.glb", outputName: "clinic-reception.glb", isSegmented: true, canSegment: false },
-    }, {
-      ...makeItem("history_b", "history_b", "lobby-chair.png", "done", true), historyId: "history_b", createdAtMs: Date.now() - 120_000,
-      result: { stage: "done", progressText: "", outputPath: "C:\\Models\\lobby-chair.glb", outputName: "lobby-chair.glb", isSegmented: false, canSegment: false },
-    });
-  }
-  state.selectedId = devParams?.get("history") === "1" ? "history_a" : "batch_2_a";
-  state.runningIds.add("batch_1_a");
-  state.runningIds.add("batch_1_b");
-  state.queueActive = true;
-  state.items[0].operationStartedAt = Date.now() - 42_000;
-  state.items[0].estimatedTotalMs = 120_000;
-  state.items[0].displayedProgress = 0.38;
-  state.backendStatus = {
-    jobId: "dev_running",
-    stage: "generating",
-    phase: "model_creation",
-    progressText: "",
-    runtimeStatus: "installed",
-    progressRatio: 0.38,
-    estimatedTotalMs: 120_000,
-  };
-  updateUi();
-}
-
-function loadDevParallelHarness() {
-  const harness = { starts: [] as string[], active: 0, maxActive: 0, completed: 0 };
-  const polls = new Map<string, number>();
-  const syncHarness = () => {
-    document.documentElement.dataset.parallelStarts = String(harness.starts.length);
-    document.documentElement.dataset.parallelActive = String(harness.active);
-    document.documentElement.dataset.parallelMax = String(harness.maxActive);
-    document.documentElement.dataset.parallelCompleted = String(harness.completed);
-  };
-  window.__SGT_PARALLEL_TEST__ = harness;
-  syncHarness();
-  window.invoke = async <T>(cmd: string, args?: unknown): Promise<T> => {
-    if (cmd === "start_job") {
-      const jobId = `parallel_${harness.starts.length + 1}`;
-      harness.starts.push(jobId); harness.active += 1; harness.maxActive = Math.max(harness.maxActive, harness.active);
-      syncHarness();
-      polls.set(jobId, 0);
-      return { jobId, stage: "generating", progressText: "", runtimeStatus: "installed" } as T;
-    }
-    if (cmd === "job_status") {
-      const jobId = (args as { jobId?: string })?.jobId || "";
-      const count = (polls.get(jobId) || 0) + 1; polls.set(jobId, count);
-      if (count < 2) return { jobId, stage: "generating", progressText: "", runtimeStatus: "installed", progressRatio: 0.5 } as T;
-      harness.active -= 1; harness.completed += 1;
-      syncHarness();
-      return { jobId, stage: "done", progressText: "", runtimeStatus: "installed", isSegmented: false } as T;
-    }
-    if (cmd === "read_asset") throw new Error("No fixture asset");
-    return null as T;
-  };
-  const batchId = "parallel_batch";
-  state.items.push(
-    { id: "parallel_a", batchId, path: "parallel-a.png", name: "parallel-a.png", extension: "PNG", generationMode: "quality", polycount: 5000, autoSegment: false, submitted: true, state: "queued" },
-    { id: "parallel_b", batchId, path: "parallel-b.png", name: "parallel-b.png", extension: "PNG", generationMode: "fast", polycount: 5000, autoSegment: false, submitted: true, state: "queued" },
-  );
-  state.selectedId = "parallel_a";
-  updateUi();
-  void processQueue();
-}
-
-window.applyHostContext = (context) => {
-  const theme = context.theme === "light" ? "light" : "dark";
-  document.documentElement.dataset.theme = theme; setLocale(context.language); viewer.setTheme(theme);
-  applyTranslations(); updateUi();
-};
-
-window.handleNativeFileDrag = (active) => document.body.classList.toggle("file-dragging", active);
-window.handleNativeFileDrop = (paths) => {
-  document.body.classList.remove("file-dragging");
-  void addImagePaths(paths);
-};
-
-nodes.dragRegion.addEventListener("pointerdown", (event) => {
-  if ((event.target as HTMLElement).closest("button, input, label")) return;
-  void invoke("start_drag");
-});
-nodes.minimizeButton.addEventListener("click", () => void invoke("minimize_window"));
-nodes.closeButton.addEventListener("click", () => void invoke("close_window"));
-nodes.addImagesButton.addEventListener("click", () => void addImages());
-nodes.chooseImageButton.addEventListener("click", () => void addImages());
-nodes.chooseFolderButton.addEventListener("click", async () => { const path = await invoke<string | null>("pick_output_dir"); if (path) { state.outputDir = path; updateUi(); } });
-nodes.showFolderButton.addEventListener("click", () => void invoke("open_output", { kind: "folder", path: selectedItem()?.result?.outputPath || null }));
-nodes.generateButton.addEventListener("click", submitSelectedBatch);
-nodes.segmentButton.addEventListener("click", () => void segmentSelected());
-nodes.cancelButton.addEventListener("click", async () => {
-  const item = selectedItem();
-  if (item?.result?.stage === "segmenting" && item.result.jobId) {
-    const status = await invoke<JobStatus>("cancel_job", { jobId: item.result.jobId });
-    item.result = status; item.state = "cancelled"; state.runningIds.delete(item.id); updateUi();
-    return;
-  }
-  state.cancelRequested = true;
-  await invoke("cancel_job");
-});
-nodes.confirmCancel.addEventListener("click", () => closeConfirmation(false));
-nodes.confirmAccept.addEventListener("click", () => closeConfirmation(true));
-nodes.confirmDialog.addEventListener("click", (event) => { if (event.target === nodes.confirmDialog) closeConfirmation(false); });
-nodes.modeButtons.forEach((button) => button.addEventListener("click", () => {
-  const item = selectedItem();
-  const generationMode = button.dataset.generationMode as GenerationMode;
-  if (!item || !isConfigurable(item) || !generationMode) return;
-  const update = (member: QueueItem) => {
-    member.generationMode = generationMode;
-    normalizeGenerationSettings(member);
-  };
-  if (isRerunnable(item)) update(item);
-  else batchItems(item.batchId).forEach((member) => {
-    if (member.state === "queued" && !member.submitted) update(member);
-  });
-  updateUi();
-}));
-nodes.polycountRange.addEventListener("input", () => {
-  const item = selectedItem();
-  if (item && isConfigurable(item)) {
-    const value = Number(nodes.polycountRange.value);
-    if (isRerunnable(item)) {
-      item.polycount = value;
-      normalizeGenerationSettings(item);
-    } else {
-      batchItems(item.batchId).forEach((member) => {
-        if (member.state === "queued" && !member.submitted) {
-          member.polycount = value;
-          normalizeGenerationSettings(member);
-        }
-      });
-    }
-    updateUi();
-  }
-});
-nodes.autoSegmentInput.addEventListener("change", () => {
-  const item = selectedItem();
-  if (item && isConfigurable(item)) {
-    if (isRerunnable(item)) {
-      item.autoSegment = nodes.autoSegmentInput.checked;
-      normalizeGenerationSettings(item);
-    } else {
-      batchItems(item.batchId).forEach((member) => {
-        if (member.state === "queued" && !member.submitted) {
-          member.autoSegment = nodes.autoSegmentInput.checked;
-          normalizeGenerationSettings(member);
-        }
-      });
-    }
-    updateUi();
-  }
-});
-nodes.shadingButtons.forEach((button) => button.addEventListener("click", () => { viewer.setShading(button.dataset.shading as ShadingMode); syncViewerControls(); }));
-nodes.outlineButton.addEventListener("click", () => { state.outline = !state.outline; viewer.setOutline(state.outline); syncViewerControls(); });
-nodes.rotateButton.addEventListener("click", () => { state.rotate = !state.rotate; viewer.setAutoRotate(state.rotate); syncViewerControls(); });
-nodes.gridButton.addEventListener("click", () => { state.grid = !state.grid; viewer.setGrid(state.grid); syncViewerControls(); });
-nodes.wireButton.addEventListener("click", () => { state.wire = !state.wire; viewer.setWireframe(state.wire); syncViewerControls(); });
-nodes.fitButton.addEventListener("click", () => viewer.fitView());
-nodes.referencePreviewClose.addEventListener("click", closeReferencePreview);
-window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !nodes.referencePreview.hidden) closeReferencePreview();
+jobRunner = new JobRunner({
+  state,
+  busyStages: BUSY_STAGES,
+  maxParallelJobs: MAX_PARALLEL_JOBS,
+  invoke,
+  normalizeSettings: normalizeGenerationSettings,
+  selectedItem,
+  pendingItems,
+  activeJobCount,
+  pathLeaf,
+  displayItem,
+  loadDepthFor,
+  refreshHistory,
+  updateUi,
+  beginProgress: (item, estimateMs) => presentation.beginProgress(item, estimateMs),
 });
 
-applyTranslations(); updateUi(); window.setInterval(updateProgressUi, 250);
+const devHarness = devParams
+  ? new DevHarness({
+    state,
+    viewer,
+    params: devParams,
+    pathLeaf,
+    updateUi,
+    processQueue: () => void jobRunner.processQueue(),
+  })
+  : undefined;
+
+bindControls({
+  state,
+  nodes,
+  viewer,
+  presentation,
+  jobRunner,
+  invoke,
+  selectedItem,
+  isConfigurable,
+  isRerunnable,
+  batchItems,
+  normalizeSettings: normalizeGenerationSettings,
+  updateUi,
+  addImages,
+  addImagePaths,
+  closeConfirmation,
+  closeReferencePreview,
+});
+
 async function loadDefaultOutputDir() {
   try {
     state.outputDir = await invoke<string>("default_output_dir");
@@ -1251,24 +531,29 @@ async function loadDefaultOutputDir() {
   }
 }
 
+presentation.applyTranslations();
+updateUi();
+window.setInterval(() => presentation.updateProgressUi(), 250);
 const devModelUrl = devParams?.get("model");
 if (devParams?.get("output")) {
   state.outputDir = devParams.get("output") || "";
   updateUi();
 }
 if (devParams?.get("parallel") === "1") {
-  loadDevParallelHarness();
+  devHarness?.loadParallelHarness();
 } else if (devParams?.get("batches") === "1") {
-  loadDevBatchPreview();
+  devHarness?.loadBatchPreview();
 } else if (devModelUrl) {
-  void loadDevModelPreview(devModelUrl);
+  void devHarness?.loadModelPreview(devModelUrl);
 } else if (window.invoke) {
-  void invoke("prepare_runtime").catch(() => undefined).finally(startPreparationPolling);
+  void invoke("prepare_runtime")
+    .catch(() => undefined)
+    .finally(() => jobRunner.startPreparationPolling());
   void (async () => {
     await loadDefaultOutputDir();
-    await restoreCurrentJobs();
+    await jobRunner.restoreCurrentJobs();
     await refreshHistory();
-    window.setInterval(() => void refreshHistory(), 5000);
+    window.setInterval(() => void refreshHistory(), 5_000);
   })();
 }
 window.addEventListener("focus", () => void refreshHistory());

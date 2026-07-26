@@ -439,11 +439,21 @@ internal fun CreationProgressOverlay(
                     color = accent,
                     trackColor = Color.White.copy(alpha = 0.25f),
                 )
-                Text(
-                    "${(progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.84f),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "${(progress * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.84f),
+                    )
+                    Text(
+                        estimatedProgressEta(status, common),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.84f),
+                    )
+                }
             }
         }
     }
@@ -477,7 +487,7 @@ private fun stageColor(stage: CreationNativeStage, accent: Color): Color = when 
 
 private fun estimatedProgress(status: CreationJobStatus?): Float {
     if (status == null) return 0.04f
-    val observed = status.progressRatio?.toFloat()?.coerceIn(0f, 0.96f) ?: 0f
+    val observed = status.progressRatio?.toFloat()?.coerceIn(0f, 0.94f) ?: 0f
     val elapsed = status.elapsedMs?.coerceAtLeast(0L) ?: 0L
     val estimate = status.estimatedTotalMs?.coerceAtLeast(10_000L) ?: 240_000L
     val curve = (0.9 * (1.0 - kotlin.math.exp(-3.0 * elapsed / estimate.toDouble())))
@@ -488,4 +498,18 @@ private fun estimatedProgress(status: CreationJobStatus?): Float {
         return maxOf(0.04f, observed.coerceAtMost(0.18f), preparationCurve)
     }
     return maxOf(0.04f, observed, curve)
+}
+
+private fun estimatedProgressEta(
+    status: CreationJobStatus?,
+    common: CreationCommonLocale,
+): String {
+    val elapsed = status?.elapsedMs?.coerceAtLeast(0L) ?: 0L
+    val estimate = status?.estimatedTotalMs?.coerceAtLeast(10_000L) ?: 240_000L
+    if (elapsed >= estimate) return common.progress.takingLonger
+    val remaining = estimate - elapsed
+    if (remaining <= 15_000L) return common.progress.almostThere
+    if (remaining < 60_000L) return common.progress.lessThanMinute
+    val minutes = maxOf(1L, (remaining + 59_999L) / 60_000L)
+    return common.progress.aboutMinutes.replace("{count}", minutes.toString())
 }

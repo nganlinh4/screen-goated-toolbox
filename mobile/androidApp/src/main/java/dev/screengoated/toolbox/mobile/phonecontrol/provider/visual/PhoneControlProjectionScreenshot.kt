@@ -6,6 +6,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProje
 import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProjectionProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityScreenshot
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.captureAmbientExternalWindowScreenshot
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import dev.screengoated.toolbox.mobile.phonecontrol.session.buildPhoneControlScreenPayload
@@ -80,6 +81,47 @@ internal suspend fun captureProjectionOnlyStreamingFrame(): VisualProviderResult
                 )
             } finally {
                 bitmap.recycle()
+            }
+        }
+    }
+
+internal suspend fun captureLeaseFreeWindowStreamingFrame(): VisualProviderResult<VisualFrame> =
+    when (val captured = captureAmbientExternalWindowScreenshot()) {
+        is AccessibilityProviderResult.Failure -> VisualProviderResult.Failure(
+            code = captured.code,
+            message = captured.message,
+            retryable = captured.retryable,
+            requiredUserStep = captured.requiredUserStep,
+            freshObservationRequired = captured.freshObservationRequired,
+        )
+        is AccessibilityProviderResult.Success -> {
+            val frame = captured.value
+            val screenshot = frame.screenshot
+            try {
+                VisualProviderResult.Success(
+                    VisualFrame(
+                        identity = VisualFrameIdentity(
+                            observationGeneration = screenshot.generation,
+                            visualRevision = screenshot.visualRevision,
+                            displayId = frame.displayId,
+                            windowId = screenshot.windowId,
+                            packageOrSurface = frame.packageOrSurface,
+                            cropBounds = screenshot.captureBounds,
+                            captureWidth = screenshot.bitmap.width,
+                            captureHeight = screenshot.bitmap.height,
+                            rotation = frame.rotation,
+                            densityDpi = frame.densityDpi,
+                            capturedAtMs = screenshot.capturedAtMs,
+                            viewKind = VisualViewKind.ACTIVE_SURFACE,
+                            clean = true,
+                            grid = null,
+                            captureProvider = screenshot.captureProvider,
+                        ),
+                        screenPayload = buildPhoneControlScreenPayload(screenshot.bitmap),
+                    ),
+                )
+            } finally {
+                screenshot.bitmap.recycle()
             }
         }
     }

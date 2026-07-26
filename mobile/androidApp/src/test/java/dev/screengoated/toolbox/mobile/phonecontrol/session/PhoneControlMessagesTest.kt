@@ -55,6 +55,8 @@ class PhoneControlMessagesTest {
         val prompt = Files.readAllBytes(canonicalPromptPath()).decodeToString()
 
         assertTrue(prompt.contains("Act first when action is requested."))
+        assertTrue(prompt.contains("Recover silently."))
+        assertTrue(prompt.contains("state only the actionable step."))
         assertTrue(prompt.contains("Resolve operational details from current evidence and tools"))
         assertTrue(prompt.contains("Routine requested actions proceed."))
         assertFalse(prompt.contains("protect your privacy", ignoreCase = true))

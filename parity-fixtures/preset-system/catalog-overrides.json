@@ -1,5 +1,19 @@
 {
-  "version": 1,
+  "version": 2,
+  "retired_builtins": [
+    {
+      "preset_id": "preset_extract_retranslate",
+      "replacement_id": "preset_translate",
+      "windows_default_hotkey": {
+        "code": 192,
+        "modifiers": 0
+      },
+      "transfer_unique_hotkeys": true,
+      "transfer_favorite": true,
+      "redirect_active_selection": true,
+      "android_copies_hotkey_metadata": false
+    }
+  ],
   "cases": [
     {
       "name": "favorite_override_merges_onto_builtin",

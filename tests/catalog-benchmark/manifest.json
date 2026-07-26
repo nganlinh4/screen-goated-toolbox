@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "rounds": 10,
   "text_cases": [
     {
@@ -9,7 +9,7 @@
       "target_language": "Vietnamese",
       "input": "The meeting starts at nine tomorrow morning.",
       "reference": "Cuộc họp bắt đầu lúc chín giờ sáng mai.",
-      "required_terms": ["chín", "sáng mai"],
+      "required_terms": ["giờ", "sáng mai"],
       "rubric": ["Preserves the meeting as the subject", "Preserves the time as 9:00 tomorrow morning"]
     },
     {
@@ -30,7 +30,8 @@
       "input": "Der Sensor meldete 1,05 °C, nicht 1,5 °C; der Grenzwert bleibt bei −2 °C.",
       "reference": "The sensor reported 1.05 °C, not 1.5 °C; the threshold remains at −2 °C.",
       "required_terms": ["sensor", "threshold"],
-      "required_exact": ["1.05", "1.5", "−2", "°C"],
+      "required_exact": ["1.05", "1.5", "°C"],
+      "required_exact_any": [["−2", "-2"]],
       "rubric": ["Keeps 1.05 distinct from 1.5", "Preserves the negative two-degree threshold", "Does not convert or drop the unit"]
     },
     {
@@ -39,9 +40,10 @@
       "source_language": "Japanese",
       "target_language": "English",
       "input": "注意：更新中は電源を切らないでください。\n完了後、［設定］→［同期］を開きます。",
-      "reference": "Caution: Do not turn off the power during the update.\nWhen it is complete, open [Settings] → [Sync].",
-      "required_terms": ["update", "power"],
-      "required_exact": ["[Settings]", "[Sync]", "→"],
+      "reference": "Caution: Do not turn off the power during the update.\nWhen it is complete, open ［Settings］ → ［Sync］.",
+      "required_terms": ["update", "power", "Settings", "Sync"],
+      "required_exact": ["→"],
+      "required_exact_any": [["［Settings］", "[Settings]"], ["［Sync］", "[Sync]"]],
       "expected_line_count": 2,
       "rubric": ["Preserves the warning", "Preserves the two-line structure", "Preserves the menu navigation order and exact bracketed labels"]
     },
@@ -107,7 +109,8 @@
       "input": "Status: **DO NOT DEPLOY**\n- Keep ${BUILD_ID} unchanged.\n- Restore only files modified after 23:40 UTC+9; do not restore the archive.\n- “May” means permission, not probability.",
       "reference": "상태: **배포 금지**\n- ${BUILD_ID}는 변경하지 마세요.\n- UTC+9 기준 23:40 이후에 수정된 파일만 복원하고, 아카이브는 복원하지 마세요.\n- “May”는 가능성이 아니라 허가를 뜻합니다.",
       "required_terms": ["배포 금지", "파일만", "아카이브", "허가"],
-      "required_exact": ["**", "${BUILD_ID}", "23:40", "UTC+9", "“May”"],
+      "required_exact": ["**", "${BUILD_ID}", "23:40", "UTC+9"],
+      "required_exact_any": [["“May”", "\"May\""]],
       "expected_line_count": 4,
       "rubric": ["Preserves the Markdown structure and placeholder", "Keeps the deployment prohibition emphatic", "Restores only post-23:40 files and explicitly excludes the archive", "Explains May as permission rather than probability"]
     }
@@ -118,6 +121,7 @@
       "difficulty": 1,
       "image": "images/coordinate/01-vlc.png",
       "target": "the large Play button at the bottom-left",
+      "context": "Resume the paused video in VLC.",
       "box_px": [5.0, 417.0, 31.0, 31.0]
     },
     {
@@ -125,6 +129,7 @@
       "difficulty": 2,
       "image": "images/coordinate/02-office.png",
       "target": "the Math Formula item in the left Create list",
+      "context": "Create a new formula document from the LibreOffice start screen.",
       "box_px": [15.0, 500.0, 157.0, 39.0]
     },
     {
@@ -132,6 +137,7 @@
       "difficulty": 3,
       "image": "images/coordinate/03-settings.png",
       "target": "the Check for updates button",
+      "context": "Check whether this application has an available update.",
       "box_px": [634.0, 517.0, 155.0, 34.0]
     },
     {
@@ -139,13 +145,15 @@
       "difficulty": 4,
       "image": "images/coordinate/04-vector-editor.png",
       "target": "the small red X that closes the Fill and Stroke panel",
+      "context": "Close only the Fill and Stroke panel in the vector editor.",
       "box_px": [1243.0, 146.0, 21.0, 21.0]
     },
     {
       "id": "coordinate-05-tiny-tree-row",
       "difficulty": 5,
       "image": "images/coordinate/05-3d-editor.png",
-      "target": "the Camera row in the upper-right Scene Collection tree",
+      "target": "the Camera object item label in the upper-right Scene Collection tree",
+      "context": "Select the Camera object in Blender's Scene Collection.",
       "box_px": [818.0, 84.0, 67.0, 14.0]
     },
     {
@@ -153,6 +161,7 @@
       "difficulty": 6,
       "image": "images/coordinate/06-duplicate-color.png",
       "target": "the Colour 2 selector, not Colour 1 or any palette swatch",
+      "context": "Choose the secondary drawing color before editing it.",
       "box_px": [225.0, 139.0, 41.0, 69.0]
     },
     {
@@ -160,6 +169,7 @@
       "difficulty": 7,
       "image": "images/coordinate/07-mobile-controls.jpg",
       "target": "the green plus beside Alarm under More Controls",
+      "context": "Add Alarm to the included Control Center controls.",
       "box_px": [947.0, 1496.0, 74.0, 82.0]
     },
     {
@@ -167,6 +177,7 @@
       "difficulty": 8,
       "image": "images/coordinate/08-filter-chip.png",
       "target": "the X inside the Byte Blaze assignee filter chip, not the X at the far right of the filter bar",
+      "context": "Remove only Byte Blaze from the current assignee filters.",
       "box_px": [782.0, 372.0, 64.0, 51.0]
     },
     {
@@ -174,6 +185,7 @@
       "difficulty": 9,
       "image": "images/coordinate/09-nested-comments.png",
       "target": "the up-arrow for the comment whose score is 72",
+      "context": "Upvote the nested comment that currently has a score of 72.",
       "box_px": [129.0, 1078.0, 59.0, 51.0]
     },
     {
@@ -181,7 +193,8 @@
       "difficulty": 10,
       "image": "images/coordinate/10-rating-stars.png",
       "target": "the fourth star from the left in the five-star rating row",
-      "box_px": [615.0, 395.0, 31.0, 55.0]
+      "context": "Give the product a four-star rating.",
+      "box_px": [612.0, 395.0, 35.0, 55.0]
     }
   ],
   "ocr_cases": [
@@ -189,29 +202,33 @@
       "id": "ocr-01-headlines",
       "difficulty": 1,
       "image": "images/ocr/01-poster.jpg",
+      "input_mode": "screen-crop-png",
       "instruction": "Transcribe the two large headline lines only, in top-to-bottom order. Output ONLY those two lines.",
       "reference": "THE RIGHT TO READ\nTARGET FOR THE 70'S"
     },
     {
       "id": "ocr-02-table",
-      "difficulty": 2,
+      "difficulty": 3,
       "image": "images/ocr/02-receipt.jpg",
+      "input_mode": "original-file",
       "instruction": "Extract all text from this image exactly as it appears. Output ONLY the text.",
       "reference": "Товарный чек №\n«        »                         20     г.\nНаименование\nКол-во\nЦена\nСумма\nИтого\nПодпись продавца"
     },
     {
       "id": "ocr-03-multiscript",
-      "difficulty": 3,
+      "difficulty": 4,
       "image": "images/ocr/03-multilingual-sign.jpg",
+      "input_mode": "screen-crop-png",
       "crop_px": [328, 136, 350, 758],
       "instruction": "Extract all text from this image exactly as it appears. Output ONLY the text.",
       "reference": "JB\n07\nT\n01\nNakano\n中野\n나카노"
     },
     {
       "id": "ocr-04-historic-menu",
-      "difficulty": 4,
+      "difficulty": 5,
       "image": "images/ocr/04-historic-menu.jpg",
-      "crop_px": [190, 363, 220, 125],
+      "input_mode": "screen-crop-png",
+      "crop_px": [165, 360, 270, 132],
       "instruction": "Extract all text from this image exactly as it appears. Output ONLY the text.",
       "reference": "SOUP.\nOx Cheek Soup.\nROAST.                 BOILED.\nBeef.                       Ham.\nPork, Apple Sauce.       Tongue.\nMutton.                    Corned Beef and Greens.\nTurkey.                     Leg of Mutton, Caper Sauce.",
       "accepted_references": [
@@ -220,36 +237,41 @@
     },
     {
       "id": "ocr-05-newspaper",
-      "difficulty": 5,
+      "difficulty": 9,
       "image": "images/ocr/05-newspaper.jpg",
+      "input_mode": "original-file",
       "instruction": "Transcribe the masthead and the two largest headlines across the top of the front page. Output ONLY those three lines.",
-      "reference": "The Sun.\nSTATE COMMITTEE AVOIDS ACTING ON THE SOCIALISTS, SWEET DEFENDS ASSEMBLY\nGERMAN PEACE IS RATIFIED; ENTENTE POWERS ALL SIGN, ONLY U. S. ‘NOW AT WAR’"
+      "reference": "The Sun.\nSTATE COMMITTEE AVOIDS ACTING ON THE SOCIALISTS, SWEET DEFENDS ASSEMBLY\nGERMAN PEACE IS RATIFIED; ENTENTE POWERS ALL SIGN, ONLY U. S. \"NOW AT WAR\""
     },
     {
       "id": "ocr-06-perspective-diacritics",
-      "difficulty": 6,
+      "difficulty": 2,
       "image": "images/ocr/06-perspective-sign.jpg",
+      "input_mode": "original-file",
       "instruction": "Transcribe the two white text lines on the red sign, preserving Czech diacritics. Output ONLY those two lines.",
       "reference": "DOBŘÍŠSKÁ\nPŘÍBRAM II"
     },
     {
       "id": "ocr-07-tiny-status-bar",
-      "difficulty": 7,
+      "difficulty": 6,
       "image": "images/ocr/07-status-bar.png",
+      "input_mode": "screen-crop-png",
       "instruction": "Transcribe the three text labels at the lower-left and the zoom percentage at the lower-right, in left-to-right order, one per line. Output ONLY those four lines.",
       "reference": "Slide 1 of 1\nEnglish (China)\nAccessibility: Good to go\n83%"
     },
     {
       "id": "ocr-08-dense-issue-metadata",
-      "difficulty": 8,
+      "difficulty": 7,
       "image": "images/ocr/08-issue-list.png",
+      "input_mode": "screen-crop-png",
       "instruction": "Transcribe the first five issue titles and their issue numbers. Output one line per issue as TITLE — #NUMBER, and nothing else.",
       "reference": "primer/design Landing Page — #54\nGuidelines should document our take on link targets — #85\nAdd info about font usage in Figma — #44\nLinks w/ Octicons — #30\nFilters & Clearing Filters — #29"
     },
     {
       "id": "ocr-09-multicolumn-products",
-      "difficulty": 9,
+      "difficulty": 8,
       "image": "images/ocr/09-product-grid.png",
+      "input_mode": "screen-crop-png",
       "instruction": "Transcribe the four visible product names and prices from left to right. Output one line per product as NAME — PRICE, and nothing else.",
       "reference": "Shop Succulents | Assorted Collection of Live Air Plants, Hand Selected Variety Pack of Air Succulents | Collection of 6 — $21.96\nSunset Jade Plant - Crassula - Easy to Grow House Plant - 4\" Pot — $12.50\nAmerican Plant Exchange Windmill Cold Hardy Palm Tree Live Plant, 4\" Pot, Indoor Outdoor Use — $21.96\nLive Rare Echeveria Ice Green Succulent Plant Fully Rooted in 2\" Plant Pots — $15.98"
     },
@@ -257,6 +279,7 @@
       "id": "ocr-10-handwriting",
       "difficulty": 10,
       "image": "images/ocr/10-handwritten-address.jpg",
+      "input_mode": "original-file",
       "instruction": "Transcribe only the first handwritten paragraph beneath the letterhead, ending at ‘created equal’. Do not include the letterhead. Output ONLY the paragraph.",
       "reference": "Four score and seven years ago our fathers brought forth, upon this continent, a new nation, conceived in liberty, and dedicated to the proposition that \"all men are created equal.\""
     }

@@ -1,4 +1,9 @@
 {
+  "ordinary_request_policy": {
+    "search_capability_is_metadata": true,
+    "implicit_provider_tools": false,
+    "grounding_requires_explicit_search_path": true
+  },
   "cases": [
     {
       "name": "cerebras_gemma_is_the_cerebras_vision_route",
@@ -12,8 +17,24 @@
       "model_id": "google-gemini-3-flash-text",
       "provider": "GOOGLE",
       "api_model": "gemini-3-flash-preview",
-      "supports_search": false,
-      "thinking_include_thoughts": true
+      "supports_search": true,
+      "thinking_level": "MINIMAL"
+    },
+    {
+      "name": "gemini_3_1_lite_search_is_explicitly_supported",
+      "model_id": "google-gemini-3-1-flash-lite-text",
+      "provider": "GOOGLE",
+      "api_model": "gemini-3.1-flash-lite",
+      "supports_search": true,
+      "thinking_level": "MINIMAL"
+    },
+    {
+      "name": "gemini_2_5_lite_disables_thinking",
+      "model_id": "google-gemini-2-5-flash-lite-text",
+      "provider": "GOOGLE",
+      "api_model": "gemini-2.5-flash-lite",
+      "supports_search": true,
+      "thinking_budget": 0
     },
     {
       "name": "gemma_4_26b_uses_minimal_thinking",
@@ -22,6 +43,13 @@
       "api_model": "gemma-4-26b-a4b-it",
       "supports_search": false,
       "thinking_level": "MINIMAL"
+    },
+    {
+      "name": "gemini_live_does_not_claim_rest_search",
+      "model_id": "google-gemini-3-1-live-text",
+      "provider": "GEMINI_LIVE",
+      "api_model": "gemini-3.1-flash-live-preview",
+      "supports_search": false
     },
     {
       "name": "gemma_4_31b_uses_minimal_thinking",
@@ -53,6 +81,24 @@
       "provider": "GROQ",
       "api_model": "groq/compound-mini",
       "supports_search": true
+    },
+    {
+      "name": "cerebras_gpt_oss_policy_is_provider_qualified",
+      "model_id": "cerebras-gpt-oss-120b-text",
+      "provider": "CEREBRAS",
+      "api_model": "gpt-oss-120b",
+      "supports_search": false,
+      "reasoning_effort": "low"
+    },
+    {
+      "name": "openrouter_nemotron_disables_reasoning_with_nested_policy",
+      "model_id": "openrouter-nemotron-3-nano-omni-30b-a3b-text",
+      "provider": "OPENROUTER",
+      "api_model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "supports_search": false,
+      "reasoning": {
+        "effort": "none"
+      }
     },
     {
       "name": "gtx_uses_language1_target_language",

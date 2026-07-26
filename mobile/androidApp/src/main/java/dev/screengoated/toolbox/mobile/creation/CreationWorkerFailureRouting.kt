@@ -23,9 +23,12 @@ internal fun publicImageCreationStage(value: String): String = when (value) {
     else -> "preparing"
 }
 
-internal fun publicImageCreationText(stage: String): String = when (stage) {
+internal fun publicImageCreationText(
+    stage: String,
+    hasReferences: Boolean = true,
+): String = when (stage) {
     "queued" -> "Queued"
-    "uploading" -> "Adding reference image"
+    "uploading" -> if (hasReferences) "Adding reference image" else "Getting ready"
     "generating" -> "Creating image"
     "finalizing" -> "Finishing image"
     "done" -> "Image ready"

@@ -1,0 +1,46 @@
+:is(.shell, .app-shell) > .workspace {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.workspace > .queue-rail {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace > :is(.stage, .model-stage, .controls, .control-rail) {
+  min-height: 0;
+}
+
+.controls > .action-area {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.queue-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: color-mix(in srgb, var(--muted) 58%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.queue-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+.queue-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.queue-list::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 2px solid transparent;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--muted) 58%, transparent);
+  background-clip: padding-box;
+}

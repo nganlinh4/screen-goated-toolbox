@@ -27,31 +27,58 @@ pub use vision::{TranslateImageRequest, translate_image_streaming};
 /// When a chunk starts with this, the callback should: 1) Clear acc 2) Add the content after this prefix
 pub const WIPE_SIGNAL: &str = "\x00WIPE\x00";
 
-/// Returns an explicit Gemini thinking configuration when the model needs one.
+/// Lowest-latency thinking policy for ordinary model calls.
 pub fn gemini_thinking_config(model: &str) -> Option<serde_json::Value> {
-    if model.contains("gemini-3.1-flash-lite")
-        || model.contains("gemini-3.5-flash-lite")
-        || model.contains("gemma-4-")
-    {
-        return Some(serde_json::json!({
-            "thinkingLevel": "MINIMAL"
-        }));
+    match crate::model_config::ordinary_reasoning_policy("google", model) {
+        crate::model_config::OrdinaryReasoningPolicy::GeminiBudget(budget) => {
+            Some(serde_json::json!({ "thinkingBudget": budget }))
+        }
+        crate::model_config::OrdinaryReasoningPolicy::GeminiLevel(level) => {
+            Some(serde_json::json!({ "thinkingLevel": level }))
+        }
+        _ => None,
     }
+}
 
-    let supports_thinking = (model.contains("gemini-2.5-flash") && !model.contains("lite"))
-        || model.contains("gemini-3-flash-preview")
-        || model.contains("gemini-robotics");
+/// Deliberate low-thinking override for correctness-sensitive interactive tasks.
+pub fn gemini_important_task_thinking_config(model: &str) -> Option<serde_json::Value> {
+    matches!(
+        crate::model_config::ordinary_reasoning_policy("google", model),
+        crate::model_config::OrdinaryReasoningPolicy::GeminiLevel(_)
+    )
+    .then(|| serde_json::json!({ "thinkingLevel": "LOW" }))
+}
 
-    supports_thinking.then(|| {
-        serde_json::json!({
-            "includeThoughts": true
-        })
-    })
+/// Apply the catalog-owned lowest supported reasoning effort to ordinary
+/// OpenAI-compatible requests.
+pub fn apply_ordinary_openai_reasoning_policy(
+    payload: &mut serde_json::Value,
+    provider: &str,
+    model: &str,
+) {
+    if let crate::model_config::OrdinaryReasoningPolicy::OpenAiEffort(effort) =
+        crate::model_config::ordinary_reasoning_policy(provider, model)
+    {
+        payload["reasoning_effort"] = serde_json::Value::String(effort.to_string());
+    }
+}
+
+/// Apply an exact catalog reasoning policy using OpenRouter's nested request
+/// shape. OpenRouter's top-level `reasoning_effort` is not equivalent.
+pub fn apply_ordinary_openrouter_reasoning_policy(payload: &mut serde_json::Value, model: &str) {
+    if let crate::model_config::OrdinaryReasoningPolicy::OpenAiEffort(effort) =
+        crate::model_config::ordinary_reasoning_policy("openrouter", model)
+    {
+        payload["reasoning"] = serde_json::json!({ "effort": effort });
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::gemini_thinking_config;
+    use super::{
+        apply_ordinary_openai_reasoning_policy, apply_ordinary_openrouter_reasoning_policy,
+        gemini_thinking_config,
+    };
 
     #[test]
     fn minimizes_thinking_for_flash_lite_models() {
@@ -80,13 +107,37 @@ mod tests {
     }
 
     #[test]
-    fn enables_thought_streaming_for_supported_gemini_models() {
-        let config = gemini_thinking_config("gemini-2.5-flash")
-            .expect("2.5 flash should get explicit thought streaming config");
+    fn important_tasks_use_low_thinking_without_exposing_thoughts() {
+        let config = super::gemini_important_task_thinking_config("gemini-3.5-flash-lite")
+            .expect("Gemini 3 important task config");
+        assert_eq!(config["thinkingLevel"], "LOW");
+        assert!(config.get("includeThoughts").is_none());
+    }
 
-        assert_eq!(
-            config.get("includeThoughts").and_then(|v| v.as_bool()),
-            Some(true)
+    #[test]
+    fn openai_compatible_reasoning_comes_from_exact_catalog_profiles() {
+        for (provider, model, expected) in [
+            ("groq", "qwen/qwen3.6-27b", "none"),
+            ("groq", "openai/gpt-oss-120b", "low"),
+            ("cerebras", "gpt-oss-120b", "low"),
+            ("cerebras", "zai-glm-4.7", "none"),
+            ("cerebras", "gemma-4-31b", "none"),
+        ] {
+            let mut payload = serde_json::json!({});
+            apply_ordinary_openai_reasoning_policy(&mut payload, provider, model);
+            assert_eq!(payload["reasoning_effort"], expected, "{model}");
+        }
+    }
+
+    #[test]
+    fn openrouter_reasoning_uses_its_nested_wire_contract() {
+        let mut payload = serde_json::json!({});
+        apply_ordinary_openrouter_reasoning_policy(
+            &mut payload,
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
         );
+
+        assert_eq!(payload["reasoning"]["effort"], "none");
+        assert!(payload.get("reasoning_effort").is_none());
     }
 }

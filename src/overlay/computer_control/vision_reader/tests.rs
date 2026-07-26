@@ -9,18 +9,18 @@ fn grounding_chain_never_inherits_general_vision_models() {
     let mut config = Config::default();
     config.model_priority_chains.image_to_text = vec![
         "groq-qwen-3-6-27b-vision".into(),
-        "google-gemini-2-5-flash-vision".into(),
+        "google-gemma-4-26b-a4b-vision".into(),
     ];
     let grounding = chain_ids(&config, &[], VisionTask::Grounding);
     assert!(!grounding.is_empty());
     assert!(
         !grounding.iter().any(|id| {
-            id == "groq-qwen-3-6-27b-vision" || id == "google-gemini-2-5-flash-vision"
+            id == "groq-qwen-3-6-27b-vision" || id == "google-gemma-4-26b-a4b-vision"
         })
     );
     assert_eq!(
         chain_ids(&config, &[], VisionTask::General),
-        ["groq-qwen-3-6-27b-vision", "google-gemini-2-5-flash-vision"]
+        ["groq-qwen-3-6-27b-vision", "google-gemma-4-26b-a4b-vision"]
     );
     assert_eq!(
         grounding,

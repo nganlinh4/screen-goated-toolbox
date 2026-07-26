@@ -40,7 +40,7 @@ pub(super) fn render_api_keys_card(
             // Fill the (now wider) panel so the card doesn't leave a blank strip
             // beside it that reads as a gap before the next column.
             ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_MD));
                 ui.label(
                     egui::RichText::new(text.global_settings.api_keys_header)

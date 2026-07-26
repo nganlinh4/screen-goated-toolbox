@@ -17,7 +17,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
     let constant_mappings = [
         ("DEFAULT_IMAGE_MODEL_ID", "default_image_model_id"),
         ("DEFAULT_TEXT_MODEL_ID", "default_text_model_id"),
-        ("DEFAULT_TEXT_API_MODEL", "default_text_api_model"),
         ("GEMINI_EMBEDDING_API_MODEL", "gemini_embedding_api_model"),
         ("GEMINI_LIVE_API_MODEL_2_5", "gemini_live_api_model_2_5"),
         ("GEMINI_LIVE_API_MODEL_3_1", "gemini_live_api_model_3_1"),
@@ -72,6 +71,21 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
     ));
     lines.push(String::new());
 
+    let provider_defaults = manifest_object(&manifest, "provider_defaults");
+    for (const_name, manifest_key) in [
+        ("DEFAULT_USE_GROQ", "use_groq"),
+        ("DEFAULT_USE_GEMINI", "use_gemini"),
+        ("DEFAULT_USE_OPENROUTER", "use_openrouter"),
+        ("DEFAULT_USE_CEREBRAS", "use_cerebras"),
+        ("DEFAULT_USE_OLLAMA", "use_ollama"),
+    ] {
+        lines.push(format!(
+            "pub const {const_name}: bool = {};",
+            manifest_bool(provider_defaults, manifest_key)
+        ));
+    }
+    lines.push(String::new());
+
     lines.push(
         "pub fn generated_live_endpoint_profile(api_model: &str) -> Option<LiveEndpointProfile> {"
             .to_string(),
@@ -122,6 +136,93 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
     lines.push("}".to_string());
     lines.push(String::new());
 
+    lines.push(
+        "pub fn generated_ordinary_reasoning_policy(provider: &str, api_model: &str) -> OrdinaryReasoningPolicy {"
+            .to_string(),
+    );
+    lines.push("    match (provider, api_model) {".to_string());
+    for (api_model, value) in manifest_object(&manifest, "model_profiles") {
+        let profile = value
+            .as_object()
+            .expect("model profile entries must be objects");
+        let policy = match manifest_string(profile, "reasoning_policy") {
+            "not-applicable" => "OrdinaryReasoningPolicy::NotApplicable".to_string(),
+            "gemini-disabled" => "OrdinaryReasoningPolicy::GeminiBudget(0)".to_string(),
+            "gemini-minimal" => "OrdinaryReasoningPolicy::GeminiLevel(\"MINIMAL\")".to_string(),
+            "openai-none" => "OrdinaryReasoningPolicy::OpenAiEffort(\"none\")".to_string(),
+            "openai-low" => "OrdinaryReasoningPolicy::OpenAiEffort(\"low\")".to_string(),
+            "provider-managed" => "OrdinaryReasoningPolicy::ProviderManaged".to_string(),
+            "live-profile" => "OrdinaryReasoningPolicy::LiveProfile".to_string(),
+            policy => panic!("unsupported ordinary reasoning policy {policy:?}"),
+        };
+        let (provider, api_model) = api_model
+            .split_once(':')
+            .unwrap_or_else(|| panic!("model profile key must be provider:api-model"));
+        lines.push(format!(
+            "        ({}, {}) => {policy},",
+            rust_string(provider),
+            rust_string(api_model)
+        ));
+    }
+    lines.push("        _ => OrdinaryReasoningPolicy::NotApplicable,".to_string());
+    lines.push("    }".to_string());
+    lines.push("}".to_string());
+    lines.push(String::new());
+
+    lines.push(
+        "pub fn generated_vision_request_profile(provider: &str, api_model: &str) -> Option<VisionRequestProfile> {"
+            .to_string(),
+    );
+    lines.push("    match (provider, api_model) {".to_string());
+    for (profile_key, value) in manifest_object(&manifest, "vision_request_profiles") {
+        let profile = value
+            .as_object()
+            .expect("vision request profile entries must be objects");
+        let input_order = match manifest_string(profile, "input_order") {
+            "text-first" => "VisionInputOrder::TextFirst",
+            "image-first" => "VisionInputOrder::ImageFirst",
+            value => panic!("unsupported vision input order {value:?}"),
+        };
+        let media_resolution = match manifest_string(profile, "media_resolution") {
+            "provider-default" => "VisionMediaResolutionPolicy::ProviderDefault",
+            value => panic!("unsupported vision media resolution {value:?}"),
+        };
+        let sampling = match manifest_string(profile, "sampling") {
+            "provider-default" => "VisionSamplingPolicy::ProviderDefault",
+            "qwen3-groq-non-thinking" => "VisionSamplingPolicy::Qwen3GroqNonThinking",
+            value => panic!("unsupported vision sampling policy {value:?}"),
+        };
+        let max_output_tokens = match profile.get("max_output_tokens") {
+            Some(serde_json::Value::Null) => "None".to_string(),
+            Some(value) => format!(
+                "Some({}u32)",
+                value
+                    .as_u64()
+                    .expect("vision max_output_tokens must be an unsigned integer")
+            ),
+            None => panic!("vision request profile must declare max_output_tokens"),
+        };
+        let structured_output = match manifest_string(profile, "structured_output") {
+            "unsupported" => "StructuredOutputPolicy::Unsupported",
+            "prompt-only" => "StructuredOutputPolicy::PromptOnly",
+            "json-object" => "StructuredOutputPolicy::JsonObject",
+            "strict-json-schema" => "StructuredOutputPolicy::StrictJsonSchema",
+            value => panic!("unsupported structured output policy {value:?}"),
+        };
+        let (provider, api_model) = profile_key
+            .split_once(':')
+            .unwrap_or_else(|| panic!("vision request profile key must be provider:api-model"));
+        lines.push(format!(
+            "        ({}, {}) => Some(VisionRequestProfile {{ input_order: {input_order}, media_resolution: {media_resolution}, sampling: {sampling}, max_output_tokens: {max_output_tokens}, structured_output: {structured_output} }}),",
+            rust_string(provider),
+            rust_string(api_model)
+        ));
+    }
+    lines.push("        _ => None,".to_string());
+    lines.push("    }".to_string());
+    lines.push("}".to_string());
+    lines.push(String::new());
+
     let preset_defaults = manifest_object(&manifest, "preset_defaults");
     for (const_name, value) in preset_defaults {
         lines.push(format!(
@@ -135,13 +236,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
 
     lines.push("pub const GENERATED_NON_LLM_IDS: &[&str] = &[".to_string());
     for value in manifest_array(&manifest, "non_llm_ids") {
-        lines.push(format!("    {},", rust_string(value.as_str().unwrap())));
-    }
-    lines.push("];".to_string());
-    lines.push(String::new());
-
-    lines.push("pub const GENERATED_SEARCH_DISABLED_FULL_NAMES: &[&str] = &[".to_string());
-    for value in manifest_array(&manifest, "search_disabled_full_names") {
         lines.push(format!("    {},", rust_string(value.as_str().unwrap())));
     }
     lines.push("];".to_string());
@@ -206,6 +300,8 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
 
     lines.push("pub fn generated_models() -> Vec<ModelConfig> {".to_string());
     lines.push("    vec![".to_string());
+    let profiles = manifest_object(&manifest, "model_profiles");
+    let presentation_variants = manifest_object(&manifest, "presentation_variants");
     for value in manifest_array(&manifest, "models") {
         let model = value.as_object().expect("model entries must be objects");
         if !model
@@ -216,6 +312,34 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
             continue;
         }
         let model_type = manifest_string(model, "model_type");
+        let provider = manifest_string(model, "provider");
+        let full_name = manifest_string(model, "full_name");
+        let profile_key = format!("{provider}:{full_name}");
+        let profile = profiles
+            .get(&profile_key)
+            .and_then(serde_json::Value::as_object)
+            .unwrap_or_else(|| panic!("missing model profile for {profile_key:?}"));
+        let name_vi = localized_model_name(
+            model,
+            profile,
+            presentation_variants,
+            "name_vi",
+            "suffix_vi",
+        );
+        let name_ko = localized_model_name(
+            model,
+            profile,
+            presentation_variants,
+            "name_ko",
+            "suffix_ko",
+        );
+        let name_en = localized_model_name(
+            model,
+            profile,
+            presentation_variants,
+            "name_en",
+            "suffix_en",
+        );
         lines.extend([
             "        ModelConfig::new(".to_string(),
             format!("            {},", rust_string(manifest_string(model, "id"))),
@@ -223,37 +347,42 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
                 "            {},",
                 rust_string(manifest_string(model, "provider"))
             ),
-            format!(
-                "            {},",
-                rust_string(manifest_string(model, "name_vi"))
-            ),
-            format!(
-                "            {},",
-                rust_string(manifest_string(model, "name_ko"))
-            ),
-            format!(
-                "            {},",
-                rust_string(manifest_string(model, "name_en"))
-            ),
-            format!(
-                "            {},",
-                rust_string(manifest_string(model, "full_name"))
-            ),
+            format!("            {},", rust_string(&name_vi)),
+            format!("            {},", rust_string(&name_ko)),
+            format!("            {},", rust_string(&name_en)),
+            format!("            {},", rust_string(full_name)),
             format!("            ModelType::{},", model_type),
             "            true,".to_string(),
             format!(
                 "            {},",
-                rust_string(manifest_string(model, "quota_vi"))
+                rust_string(manifest_string(profile, "quota_vi"))
             ),
             format!(
                 "            {},",
-                rust_string(manifest_string(model, "quota_ko"))
+                rust_string(manifest_string(profile, "quota_ko"))
             ),
             format!(
                 "            {},",
-                rust_string(manifest_string(model, "quota_en"))
+                rust_string(manifest_string(profile, "quota_en"))
             ),
-            format!("            {},", manifest_u64(model, "quality_tier")),
+            format!(
+                "            {},",
+                profile
+                    .get("supports_search")
+                    .and_then(serde_json::Value::as_bool)
+                    .expect("supports_search must be boolean")
+            ),
+            format!(
+                "            {},",
+                profile
+                    .get("search_tool_enabled_by_default")
+                    .and_then(serde_json::Value::as_bool)
+                    .expect("search_tool_enabled_by_default must be boolean")
+            ),
+            format!(
+                "            {},",
+                manifest_u64(profile, "intelligence_tier")
+            ),
             format!("            {},", manifest_u64(model, "typical_latency_ms")),
             format!(
                 "            {},",
@@ -337,6 +466,26 @@ fn realtime_transcription_option_label<'a>(
     }
 }
 
+fn localized_model_name(
+    model: &serde_json::Map<String, serde_json::Value>,
+    profile: &serde_json::Map<String, serde_json::Value>,
+    variants: &serde_json::Map<String, serde_json::Value>,
+    name_field: &str,
+    suffix_field: &str,
+) -> String {
+    let mut name = manifest_string(profile, name_field).to_string();
+    if let Some(variant_key) = model
+        .get("presentation_variant")
+        .and_then(serde_json::Value::as_str)
+    {
+        let variant = variants[variant_key]
+            .as_object()
+            .expect("presentation variant must be an object");
+        name.push_str(manifest_string(variant, suffix_field));
+    }
+    name
+}
+
 fn manifest_string<'a>(
     manifest: &'a serde_json::Map<String, serde_json::Value>,
     key: &str,
@@ -352,6 +501,13 @@ fn manifest_u64(manifest: &serde_json::Map<String, serde_json::Value>, key: &str
         .get(key)
         .and_then(serde_json::Value::as_u64)
         .unwrap_or_else(|| panic!("manifest object key {key:?} must be an unsigned integer"))
+}
+
+fn manifest_bool(manifest: &serde_json::Map<String, serde_json::Value>, key: &str) -> bool {
+    manifest
+        .get(key)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or_else(|| panic!("manifest object key {key:?} must be a boolean"))
 }
 
 fn rust_string(value: &str) -> String {

@@ -1,6 +1,8 @@
 use super::Config;
 use crate::config::preset::{Preset, get_default_presets};
-use crate::config::types::{PendingPresetModelUpdate, PresetModelDefaults};
+use crate::config::types::{
+    PendingPresetModelUpdate, PresetModelDefaults, RecommendedProviderDefaults,
+};
 use anyhow::{Context, Result};
 use semver::Version;
 
@@ -15,6 +17,7 @@ impl Config {
             target_version,
             previous_models,
             previous_model_priority_chains: Some(Default::default()),
+            previous_recommended_provider_defaults: Some(Default::default()),
         });
         Ok(())
     }
@@ -41,7 +44,11 @@ impl Config {
             .previous_model_priority_chains
             .as_ref()
             .is_some_and(|previous| previous != &Default::default());
-        if !preset_models_changed && !priority_chains_changed {
+        let provider_defaults_changed = pending
+            .previous_recommended_provider_defaults
+            .as_ref()
+            .is_some_and(|previous| previous != &RecommendedProviderDefaults::default());
+        if !preset_models_changed && !priority_chains_changed && !provider_defaults_changed {
             self.pending_preset_model_update = None;
             return Ok(false);
         }
@@ -66,24 +73,34 @@ impl Config {
         self.active_preset_profile_idx = defaults.active_preset_profile_idx;
     }
 
-    /// Resolve the one-time post-update choice. Applying makes changed
-    /// built-in preset model slots and the model-priority chains follow the
-    /// newly compiled defaults. Every other setting stays unchanged.
-    pub fn finish_preset_model_update(&mut self, apply_models: bool) -> usize {
+    /// Resolve the one-time post-update choice. Applying updates changed
+    /// built-in preset model slots, restores model-priority defaults, and
+    /// enables recommended providers without disabling any provider.
+    pub fn finish_preset_model_update(&mut self, apply_recommendations: bool) -> usize {
         let previous_models = self
             .pending_preset_model_update
             .as_ref()
             .map(|pending| pending.previous_models.clone())
             .unwrap_or_default();
-        let updated = if apply_models {
+        let updated = if apply_recommendations {
             let updated = self.apply_changed_builtin_preset_models(&previous_models);
             self.model_priority_chains = Default::default();
+            self.enable_recommended_providers();
             updated
         } else {
             0
         };
         self.pending_preset_model_update = None;
         updated
+    }
+
+    fn enable_recommended_providers(&mut self) {
+        let recommended = RecommendedProviderDefaults::default();
+        self.use_groq |= recommended.use_groq;
+        self.use_gemini |= recommended.use_gemini;
+        self.use_openrouter |= recommended.use_openrouter;
+        self.use_cerebras |= recommended.use_cerebras;
+        self.use_ollama |= recommended.use_ollama;
     }
 
     fn apply_changed_builtin_preset_models(
@@ -201,7 +218,9 @@ fn preset_model_defaults(presets: &[Preset]) -> PresetModelDefaults {
 mod tests {
     use super::{builtin_preset_model_defaults, changed_model_slots, preset_model_defaults};
     use crate::config::preset::get_default_presets;
-    use crate::config::types::{PendingPresetModelUpdate, PresetProfile};
+    use crate::config::types::{
+        PendingPresetModelUpdate, PresetProfile, RecommendedProviderDefaults,
+    };
     use crate::config::{Config, Hotkey, Preset};
 
     fn hotkey(code: u32, name: &str) -> Hotkey {
@@ -248,6 +267,7 @@ mod tests {
                 target_version: "2.0.0".to_string(),
                 previous_models: models,
                 previous_model_priority_chains: Some(Default::default()),
+                previous_recommended_provider_defaults: Some(Default::default()),
             }),
             ..Default::default()
         };
@@ -256,6 +276,24 @@ mod tests {
         assert!(config.pending_preset_model_update.is_some());
         assert!(!config.prepare_preset_model_update_prompt("2.0.0").unwrap());
         assert!(config.pending_preset_model_update.is_none());
+    }
+
+    #[test]
+    fn staging_snapshots_provider_and_priority_recommendations() {
+        let mut config = Config::default();
+        config
+            .mark_staged_preset_model_update("2.0.0".to_string())
+            .unwrap();
+        let pending = config.pending_preset_model_update.unwrap();
+        assert_eq!(pending.previous_models, builtin_preset_model_defaults());
+        assert_eq!(
+            pending.previous_model_priority_chains,
+            Some(Default::default())
+        );
+        assert_eq!(
+            pending.previous_recommended_provider_defaults,
+            Some(RecommendedProviderDefaults::default())
+        );
     }
 
     #[test]
@@ -273,6 +311,7 @@ mod tests {
                     target_version: "2.0.0".to_string(),
                     previous_models,
                     previous_model_priority_chains: Some(Default::default()),
+                    previous_recommended_provider_defaults: Some(Default::default()),
                 }),
                 ..Default::default()
             };
@@ -293,6 +332,7 @@ mod tests {
                 target_version: "2.0.0".to_string(),
                 previous_models: builtin_preset_model_defaults(),
                 previous_model_priority_chains: Some(previous_priorities),
+                previous_recommended_provider_defaults: Some(Default::default()),
             }),
             ..Default::default()
         };
@@ -302,14 +342,55 @@ mod tests {
     }
 
     #[test]
-    fn marker_without_priority_baseline_remains_compatible() {
+    fn prompt_appears_when_only_recommended_provider_defaults_changed() {
+        let mut previous_providers = RecommendedProviderDefaults::default();
+        previous_providers.use_openrouter = !previous_providers.use_openrouter;
+        let mut config = Config {
+            pending_preset_model_update: Some(PendingPresetModelUpdate {
+                target_version: "2.0.0".to_string(),
+                previous_models: builtin_preset_model_defaults(),
+                previous_model_priority_chains: Some(Default::default()),
+                previous_recommended_provider_defaults: Some(previous_providers),
+            }),
+            ..Default::default()
+        };
+
+        assert!(config.prepare_preset_model_update_prompt("2.0.0").unwrap());
+        assert!(config.pending_preset_model_update.is_some());
+    }
+
+    #[test]
+    fn marker_without_priority_or_provider_baselines_remains_compatible() {
         let marker: PendingPresetModelUpdate = serde_json::from_value(serde_json::json!({
             "target_version": "2.0.0",
             "previous_models": {}
         }))
         .unwrap();
-
         assert!(marker.previous_model_priority_chains.is_none());
+        assert!(marker.previous_recommended_provider_defaults.is_none());
+    }
+
+    #[test]
+    fn legacy_marker_apply_still_enables_recommended_providers_additively() {
+        let marker: PendingPresetModelUpdate = serde_json::from_value(serde_json::json!({
+            "target_version": "2.0.0",
+            "previous_models": {}
+        }))
+        .unwrap();
+        let mut config = Config {
+            use_openrouter: false,
+            use_ollama: true,
+            pending_preset_model_update: Some(marker),
+            ..Default::default()
+        };
+        assert!(RecommendedProviderDefaults::default().use_openrouter);
+        config.finish_preset_model_update(true);
+
+        assert!(config.use_openrouter);
+        assert!(
+            config.use_ollama,
+            "an extra user-enabled provider must remain enabled"
+        );
     }
 
     #[test]
@@ -421,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn update_overrides_changed_model_slots_and_priority_lists_only() {
+    fn update_applies_models_priorities_and_recommended_provider_activation_only() {
         let defaults = get_default_presets();
         let current_model = defaults[0].blocks[0].model.clone();
         let old_model = format!("{current_model}-previous");
@@ -447,6 +528,7 @@ mod tests {
             target_version: "2.0.0".to_string(),
             previous_models,
             previous_model_priority_chains: Some(Default::default()),
+            previous_recommended_provider_defaults: Some(Default::default()),
         };
         let mut base = Config {
             presets: vec![inherited.clone(), custom.clone()],
@@ -471,6 +553,11 @@ mod tests {
         };
         base.translation_gummy.hotkey = Some(hotkey(0x52, "Ctrl + R"));
         base.translation_gummy.hotkeys = vec![hotkey(0x53, "Ctrl + S")];
+        base.use_groq = false;
+        base.use_gemini = false;
+        base.use_openrouter = false;
+        base.use_cerebras = false;
+        base.use_ollama = true;
         base.model_priority_chains.image_to_text = vec!["custom-image-priority".to_string()];
         base.model_priority_chains.text_to_text = vec!["custom-text-priority".to_string()];
 
@@ -490,12 +577,22 @@ mod tests {
         expected_applied.preset_profiles[0].presets[0].blocks[0].model = current_model.clone();
         expected_applied.preset_profiles[1].presets[0].blocks[0].model = current_model;
         expected_applied.model_priority_chains = Default::default();
+        let recommended = RecommendedProviderDefaults::default();
+        expected_applied.use_groq |= recommended.use_groq;
+        expected_applied.use_gemini |= recommended.use_gemini;
+        expected_applied.use_openrouter |= recommended.use_openrouter;
+        expected_applied.use_cerebras |= recommended.use_cerebras;
+        expected_applied.use_ollama |= recommended.use_ollama;
+        assert!(
+            expected_applied.use_ollama,
+            "applying recommendations must not disable an extra provider"
+        );
         let mut applied = base;
         assert_eq!(applied.finish_preset_model_update(true), 2);
         assert_eq!(
             serde_json::to_value(&applied).unwrap(),
             serde_json::to_value(&expected_applied).unwrap(),
-            "applying must override affected built-in model slots and priority lists only"
+            "applying must update only model recommendations and additive provider activation"
         );
     }
 }

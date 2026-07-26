@@ -29,6 +29,7 @@ use crate::win_types::SendHwnd;
 
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 461;
 pub(super) const WM_APP_SYNC: u32 = WM_USER + 462;
+pub(super) const WM_APP_PREVIEW_REPLY: u32 = WM_USER + 463;
 
 pub(super) static REGISTER_CLASS: Once = Once::new();
 pub(super) static mut WINDOW_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));

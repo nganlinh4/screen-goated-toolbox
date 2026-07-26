@@ -120,6 +120,10 @@ unsafe extern "system" fn window_proc(
                 refresh_window_chrome(hwnd);
                 LRESULT(0)
             }
+            super::WM_APP_PREVIEW_REPLY => {
+                super::ipc::flush_preview_replies(hwnd);
+                LRESULT(0)
+            }
             WM_NCCALCSIZE => {
                 if wparam.0 != 0 {
                     LRESULT(0)
@@ -145,10 +149,14 @@ unsafe extern "system" fn window_proc(
             }
             WM_CLOSE => {
                 save_window_size(hwnd);
-                let _ = ShowWindow(hwnd, SW_HIDE);
+                crate::overlay::creation_preview::unregister_async_target(hwnd);
+                let _ = super::runtime::cancel_job(None);
+                let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }
             WM_DESTROY => {
+                crate::overlay::creation_preview::unregister_async_target(hwnd);
+                let _ = super::runtime::cancel_job(None);
                 super::WEBVIEW.with(|webview| {
                     *webview.borrow_mut() = None;
                 });
@@ -229,6 +237,7 @@ unsafe fn internal_create_loop() {
     unsafe {
         super::WINDOW_HWND = crate::win_types::SendHwnd(hwnd);
     }
+    crate::overlay::creation_preview::register_async_target(hwnd);
 
     let corner_pref = DWMWCP_ROUND;
     let _ = unsafe {

@@ -30,6 +30,7 @@ EXECUTION
 
 COMMUNICATION
 - Act first when action is requested. Speak only a short progress update during genuinely long work, a concise blocker that requires user input, or the final result.
+- Recover silently. Never narrate tools, IDs, retries, failures, evidence, or plans. Ask only for necessary user action.
 - Give one answer per user turn. Never emit delayed, duplicate, unsolicited, or self-triggered follow-up speech.
 - Report supported facts/invariants, not broader causes. Distinguish screen, memory, and research sources.
 - Prove no-change by exact comparison.

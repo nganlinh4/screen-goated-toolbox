@@ -5,7 +5,7 @@ import { escapeHtml, type Selection } from "./models";
 function preview(path: string, cssClass: string, maxEdge: number, alt: string, fit = false) {
   return `<img class="${cssClass}" data-stage-path="${escapeHtml(path)}"
     data-stage-edge="${maxEdge}" ${fit ? "data-fit-anchor" : ""}
-    alt="${escapeHtml(alt)}" hidden>`;
+    data-preview-pending="true" alt="${escapeHtml(alt)}">`;
 }
 
 function referenceGrid(selection: Selection, copy: Copy) {

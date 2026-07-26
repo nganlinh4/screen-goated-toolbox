@@ -179,7 +179,7 @@ pub fn compact_filled_icon_button(
     text: Color32,
     corner_radius: u8,
 ) -> egui::Response {
-    filled_icon_button_with_spacing(ui, icon, label, fill, text, corner_radius, (8.0, 5.0))
+    filled_icon_button_with_spacing(ui, icon, label, fill, text, corner_radius, (3.0, 3.0))
 }
 
 fn filled_icon_button_with_spacing(

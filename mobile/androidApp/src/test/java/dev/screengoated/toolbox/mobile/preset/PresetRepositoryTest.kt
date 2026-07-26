@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.preset
 
 import dev.screengoated.toolbox.mobile.AppToastBus
 import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_CONTINUOUS_MODEL_ID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.serialization.json.Json
@@ -315,6 +316,10 @@ class PresetRepositoryTest {
             streamingContract.getValue("google-gemini-2-5-live-transcribe-audio").jsonPrimitive.content,
         )
         assertEquals(
+            "partial_transcript_during_capture",
+            streamingContract.getValue(PRESET_AUDIO_CONTINUOUS_MODEL_ID).jsonPrimitive.content,
+        )
+        assertEquals(
             "first_audio_block_uses_precomputed_transcript",
             streamingContract.getValue("final_transcript_handoff").jsonPrimitive.content,
         )
@@ -395,6 +400,25 @@ class PresetRepositoryTest {
         assertEquals("gemma-4-31b", cerebrasVision.fullName)
         assertTrue(PresetModelCatalog.getById("google-gemma-4-26b-a4b-text-audio") == null)
         assertTrue(PresetModelCatalog.getById("gemma-4-31b-audio") == null)
+    }
+
+    @Test
+    fun behavioralModelNamesMatchSharedPresentationFixture() {
+        val fixture = json.parseToJsonElement(
+            File(repoRoot(), "parity-fixtures/model-catalog/presentation.json").readText(),
+        ).jsonObject
+        fixture.getValue("localized_name_cases").jsonArray.forEach { value ->
+            val case = value.jsonObject
+            val modelId = case.getValue("model_id").jsonPrimitive.content
+            val model = requireNotNull(PresetModelCatalog.getById(modelId))
+
+            for (language in listOf("vi", "ko", "en")) {
+                assertEquals(
+                    case.getValue(language).jsonPrimitive.content,
+                    model.localizedName(language),
+                )
+            }
+        }
     }
 
     @Test

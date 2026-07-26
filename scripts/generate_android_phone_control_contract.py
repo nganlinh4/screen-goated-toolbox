@@ -299,7 +299,7 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
     }
     if not isinstance(contract, dict) or set(contract) != expected_fields:
         raise ValueError("orb contract has unsupported top-level fields")
-    if contract["schemaVersion"] != 3 or contract["feature"] != "phone-control-orb":
+    if contract["schemaVersion"] != 4 or contract["feature"] != "phone-control-orb":
         raise ValueError("orb contract identity is invalid")
     if contract["canonicalAsset"] != "src/overlay/computer_control/orb/orb.html":
         raise ValueError("orb contract must point at the Windows canonical renderer")
@@ -311,6 +311,18 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
         raise ValueError("orb renderer parity invariants must remain enabled")
     if invariants.get("captureDoesNotMutateVisibleOverlayWhenWindowCaptureIsAvailable") is not True:
         raise ValueError("window-scoped capture must not mutate the visible orb")
+    if invariants.get("captureRegionOwner") != "canonical_renderer_orb_region":
+        raise ValueError("capture exclusion must use the canonical renderer region")
+    if invariants.get("captureRegionIncludes") != "orb_glow_and_caption":
+        raise ValueError("capture exclusion must cover the complete controller visual")
+    if invariants.get("interactionRegion") != "orb_touch_shim_only":
+        raise ValueError("caption pixels must not consume underlying touches")
+    if invariants.get("captionGrowthDoesNotExpandTouchSurface") is not True:
+        raise ValueError("caption growth must remain visual-only")
+    if invariants.get("allPointerProvidersRelocateBeforeIntersectingDispatch") is not True:
+        raise ValueError("every pointer backend must share overlay avoidance")
+    if invariants.get("controllerOverlayEventsDoNotInvalidateExternalLeases") is not True:
+        raise ValueError("controller windows must not invalidate external leases")
     if invariants.get("freshReceiptPostconditionDoesNotPublishTransientWarning") is not True:
         raise ValueError("fresh receipts must not publish transient reconciliation warnings")
     if invariants.get("unchangedVisualStateDoesNotRerender") is not True:

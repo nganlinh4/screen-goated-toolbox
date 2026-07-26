@@ -35,6 +35,13 @@ internal class PhoneControlRuntimeInputActivity(
         var ended: SpeechBurstEvidence? = null
         val startedEpoch = synchronized(burstLock) {
             if (started) {
+                if (activeEpoch != 0L) {
+                    ended = SpeechBurstEvidence(
+                        epoch = activeEpoch,
+                        elapsedMs = (nowMs - activeSinceMs).coerceAtLeast(0L),
+                        audioFrames = activeFrames,
+                    )
+                }
                 val nextEpoch = epoch.incrementAndGet()
                 activeEpoch = nextEpoch
                 activeSinceMs = nowMs
@@ -57,11 +64,11 @@ internal class PhoneControlRuntimeInputActivity(
                 null
             }
         }
+        ended?.let { onSpeechEnded(it.epoch, it.elapsedMs, it.audioFrames) }
         if (startedEpoch != null) {
             firstSpeechObserved.set(true)
             onSpeechStarted(startedEpoch)
         }
-        ended?.let { onSpeechEnded(it.epoch, it.elapsedMs, it.audioFrames) }
         val previous = lastLevelUpdateMs.get()
         if (nowMs - previous < LEVEL_UPDATE_INTERVAL_MS ||
             !lastLevelUpdateMs.compareAndSet(previous, nowMs)

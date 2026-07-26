@@ -3,10 +3,12 @@ package dev.screengoated.toolbox.mobile.service
 import android.util.Log
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
+import dev.screengoated.toolbox.mobile.preset.ModelUsageStats
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
+import dev.screengoated.toolbox.mobile.preset.applyFastReasoningPolicy
 import dev.screengoated.toolbox.mobile.preset.providerIsAvailable
 import dev.screengoated.toolbox.mobile.preset.streamGeminiLiveText
 import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
@@ -138,8 +140,10 @@ class RealtimeTranslationClient(
                     PresetModelProvider.CEREBRAS -> {
                         val key = apiKeys.cerebrasKey.takeIf { it.isNotBlank() }
                             ?: return@runCatching null
-                        translateWithCerebras(
+                        translateWithOpenAiCompatible(
                             endpoint = "https://api.cerebras.ai/v1/chat/completions",
+                            provider = descriptor.provider,
+                            providerName = "Cerebras",
                             apiKey = key,
                             model = descriptor.fullName,
                             request = request,
@@ -153,6 +157,7 @@ class RealtimeTranslationClient(
                         translateWithGemini(
                             endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${descriptor.fullName}:generateContent",
                             apiKey = key,
+                            model = descriptor.fullName,
                             request = request,
                             targetLanguage = targetLanguage,
                         )
@@ -210,19 +215,25 @@ class RealtimeTranslationClient(
         return parseTranslationResponse(text, request)
     }
 
-    private fun translateWithCerebras(
+    private fun translateWithOpenAiCompatible(
         endpoint: String,
+        provider: PresetModelProvider,
+        providerName: String,
         apiKey: String,
         model: String,
         request: TranslationRequest,
         targetLanguage: String,
     ): TranslationResponse {
-        val payload = JSONObject()
+        val payload = applyFastReasoningPolicy(
+            JSONObject()
             .put("model", model)
             .put("messages", cerebrasMessages(request, targetLanguage))
             .put("stream", false)
             .put("max_completion_tokens", 512)
-            .put("response_format", cerebrasResponseFormat())
+            .put("response_format", cerebrasResponseFormat()),
+            provider,
+            model,
+        )
         val requestBody = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
 
         val httpRequest = Request.Builder()
@@ -233,8 +244,9 @@ class RealtimeTranslationClient(
             .build()
 
         httpClient.newCall(httpRequest).execute().use { response ->
+            ModelUsageStats.update(provider, model, response.headers)
             if (!response.isSuccessful) {
-                throw IOException("Translation request failed with ${response.code}")
+                throw IOException("$providerName translation request failed with ${response.code}")
             }
             val body = response.body.string().orEmpty()
             val root = JSONObject(body)
@@ -253,12 +265,16 @@ class RealtimeTranslationClient(
         request: TranslationRequest,
         targetLanguage: String,
     ): TranslationResponse {
-        val requestBody = JSONObject()
-            .put("model", model)
-            .put("messages", cerebrasMessages(request, targetLanguage))
-            .put("stream", false)
+        val requestBody = applyFastReasoningPolicy(
+            JSONObject()
+                .put("model", model)
+                .put("messages", cerebrasMessages(request, targetLanguage))
+                .put("stream", false)
             .put("max_tokens", 512)
-            .put("response_format", JSONObject().put("type", "json_object"))
+            .put("response_format", JSONObject().put("type", "json_object")),
+            PresetModelProvider.GROQ,
+            model,
+        )
             .toString()
             .toRequestBody(JSON_MEDIA_TYPE)
 
@@ -270,6 +286,7 @@ class RealtimeTranslationClient(
             .build()
 
         httpClient.newCall(httpRequest).execute().use { response ->
+            ModelUsageStats.update(PresetModelProvider.GROQ, model, response.headers)
             if (!response.isSuccessful) {
                 throw IOException("Groq translation request failed with ${response.code}")
             }
@@ -287,9 +304,17 @@ class RealtimeTranslationClient(
     private fun translateWithGemini(
         endpoint: String,
         apiKey: String,
+        model: String,
         request: TranslationRequest,
         targetLanguage: String,
     ): TranslationResponse {
+        val generationConfig = JSONObject().put("responseMimeType", "application/json")
+        PresetModelCatalog.geminiThinkingConfig(
+            PresetModelProvider.GOOGLE,
+            model,
+        )?.let { thinking ->
+            generationConfig.put("thinkingConfig", JSONObject(thinking))
+        }
         val requestBody = JSONObject()
             .put(
                 "contents",
@@ -306,7 +331,7 @@ class RealtimeTranslationClient(
             )
             .put(
                 "generationConfig",
-                JSONObject().put("responseMimeType", "application/json"),
+                generationConfig,
             )
             .toString()
             .toRequestBody(JSON_MEDIA_TYPE)

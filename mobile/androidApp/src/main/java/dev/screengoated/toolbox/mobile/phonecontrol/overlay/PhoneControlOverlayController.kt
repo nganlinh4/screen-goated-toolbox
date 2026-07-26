@@ -77,6 +77,9 @@ internal class PhoneControlOverlayController(
     @Volatile
     private var interactionBounds: Rect? = null
 
+    @Volatile
+    private var rendererBounds: Rect? = null
+
     override fun onState(state: PhoneControlServiceState) {
         val next = phoneControlOverlayVisual(state)
         mainHandler.post {
@@ -107,7 +110,13 @@ internal class PhoneControlOverlayController(
         detachWindows()
     }
 
-    override fun orbBounds(): OverlayBounds? = interactionBounds?.let { bounds ->
+    fun orbBounds(): OverlayBounds? = interactionBounds?.let { bounds ->
+        OverlayBounds(bounds.left, bounds.top, bounds.right, bounds.bottom)
+    }
+
+    override fun interactionBounds(): OverlayBounds? = orbBounds()
+
+    override fun captureBounds(): OverlayBounds? = captureOverlayBounds()?.let { bounds ->
         OverlayBounds(bounds.left, bounds.top, bounds.right, bounds.bottom)
     }
 
@@ -188,7 +197,11 @@ internal class PhoneControlOverlayController(
 
     private fun ensureWindows() {
         if (orb != null) return
-        val orbView = PhoneControlOrbView(host.context, ::onRendererGone)
+        val orbView = PhoneControlOrbView(
+            host.context,
+            ::onRendererGone,
+            ::onRendererRegionChanged,
+        )
         val touchView = View(host.context).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             setOnTouchListener(OrbTouchListener())
@@ -200,7 +213,10 @@ internal class PhoneControlOverlayController(
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-        ).apply { configureFullDisplayLayout() }
+        ).apply {
+            alpha = host.rendererAlpha
+            configureFullDisplayLayout()
+        }
         val touchLayout = overlayLayoutParams(
             width = orbSize,
             height = orbSize,
@@ -345,6 +361,41 @@ internal class PhoneControlOverlayController(
         }
     }
 
+    private fun onRendererRegionChanged(
+        source: PhoneControlOrbView,
+        region: OverlayBounds?,
+    ) {
+        if (destroyed || orb !== source) return
+        rendererBounds = region?.let { local ->
+            val display = screenBounds()
+            Rect(
+                display.left + local.left,
+                display.top + local.top,
+                display.left + local.right,
+                display.top + local.bottom,
+            )
+        }
+    }
+
+    private fun captureOverlayBounds(): Rect? {
+        if (!visual.visible) return null
+        val bounds = rendererBounds?.let(::Rect)
+        powerPrompt?.let { prompt ->
+            powerPromptParams?.let { params ->
+                val height = prompt.height.takeIf { it > 0 } ?: context.dp(170)
+                val promptBounds = Rect(
+                    params.x,
+                    params.y,
+                    params.x + params.width,
+                    params.y + height,
+                )
+                if (bounds == null) return promptBounds
+                bounds.union(promptBounds)
+            }
+        }
+        return bounds ?: interactionBounds?.let(::Rect)
+    }
+
     private fun refreshInteractionBounds() {
         if (!visual.visible) {
             interactionBounds = null
@@ -401,6 +452,7 @@ internal class PhoneControlOverlayController(
         orbParams = null
         touchParams = null
         interactionBounds = null
+        rendererBounds = null
         dismissing = false
     }
 

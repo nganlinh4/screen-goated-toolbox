@@ -4,6 +4,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlEffect
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlTurnPhase
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveFunctionCall
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleEffect
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveContentPart
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -168,6 +169,37 @@ class PhoneControlTurnCoordinatorTranscriptTest {
             assertTrue(harness.sink.orbPresentations.isEmpty())
             assertTrue(harness.sink.phases.isEmpty())
             assertEquals(1, harness.coordinator.pendingWorkCount)
+        } finally {
+            harness.close()
+        }
+    }
+
+    @Test
+    fun `audio mode model text stays internal`() {
+        val harness = Harness()
+        try {
+            harness.input("request")
+            val outputCount = harness.sink.outputs.size
+            val orbCount = harness.sink.orbPresentations.size
+            val phaseCount = harness.sink.phases.size
+
+            harness.coordinator.handleFrame(
+                GeminiLiveServerFrame(
+                    contentParts = listOf(
+                        GeminiLiveContentPart(
+                            text = "internal tool narration",
+                            thought = false,
+                            inlineData = null,
+                        ),
+                    ),
+                ),
+                listOf(GeminiLiveLifecycleEffect.DeliverContent(1)),
+            )
+
+            assertEquals(outputCount, harness.sink.outputs.size)
+            assertEquals(orbCount, harness.sink.orbPresentations.size)
+            assertEquals(phaseCount, harness.sink.phases.size)
+            assertTrue(harness.recorder.assistants.isEmpty())
         } finally {
             harness.close()
         }

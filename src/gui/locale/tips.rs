@@ -1,126 +1,568 @@
-const TIP_COUNT: usize = 25;
+// Curation policy and cross-platform contract: .claude/parity/usage-tips.md
 
-const EN: [&str; TIP_COUNT] = [
-    "While choosing a screen region, press **Esc** or the same preset hotkey again to cancel.",
-    "If text is already highlighted in another app, press a **Text-Select** preset hotkey to process it immediately.",
-    "Preset hotkeys can use **Middle Click**, **Mouse Back**, or **Mouse Forward**. Assign one to any **MASTER** preset to open its matching preset wheel.",
-    "Star presets for **Favorite Bubble**, then enable it from the system tray. Hold a non-MASTER Image or Text hotkey—or its bubble item—to enter Continuous Mode; press Esc or the same hotkey to exit.",
-    "**Drop files onto SGT** or press Ctrl+V with a clipboard image or text. Images and text open a preset wheel; audio can use a preset or Record Screen, while video and subtitle files open Record Screen actions.",
-    "On a result overlay, left, right, or middle click closes **one, its group, or all**; dragging with those buttons moves the same scope.",
-    "Closed a result by mistake? Use the tray menu to **restore the last closed overlay batch** or a recent batch.",
-    "On a result, use **Edit / Refine** for follow-up instructions, or **Toggle Markdown** to switch between plain text and rendered output.",
-    "If result overlays feel slow, try **Graphics Mode → Minimal**.",
-    "On the preset graph, scroll to zoom, drag empty space to pan, double-click to fit nodes, and right-click for **Add/Delete** menus.",
-    "The output mode beside the eye offers **Normal, Stream, Markdown, and MD+Stream**.",
-    "A model's magnifying-glass marker means its normal selection runs **web search by default**.",
-    "Only one processing step can own **Auto-copy**. With Controller off, it reveals Auto-paste and Add newline; Auto-paste still needs a blinking caret in the target app.",
-    "Choose **Restore** on a built-in preset to reset its settings without losing its hotkeys; custom preset names remain editable.",
-    "Use **Profiles** to keep separate preset collections; a new profile copies the active one so you can customize it safely.",
-    "Use **History** search to find earlier results. Lowering Max Items prunes the oldest entries, while Computer Control memory has its own limit.",
-    "For non-realtime audio presets, enable **Auto-stop** to finish recording after silence.",
-    "In **Model Priority**, put preferred models first and leave Auto to continue through smart fallbacks; unavailable providers or bad or missing keys are skipped.",
-    "Use **Custom Models** to scan OpenRouter or Ollama. Use **Downloaded Tools** to install or remove local models, runtimes, Record Screen backgrounds, and pointer collections.",
-    "Voice Settings selects the TTS method and per-language voices or accents for Presets, Live Translate, and Translation Gummy; Live Translate's **AUTO** speed catches up with the speaker.",
-    "Use **TTS Playground** to test or clone voices, edit audio, and export WAV or MP3.",
-    "In **Download Video**, Advanced Features controls metadata, SponsorBlock, subtitles, playlists, and browser cookies.",
-    "The footer opens **Computer Control, Pointer Gallery, Translation Gummy, TTS Playground, Image to 3D, Image to SVG, Be a DJ, Download Video, and Record Screen** directly.",
-    "In **Be a DJ**, enable MIDI and map MIDI CC controls to the prompt-weight knobs.",
-    "If you are unsure which workflow to use, open **How to use** in Global Settings and ask in your own words.",
-];
-
-const KO: [&str; TIP_COUNT] = [
-    "어두워진 화면에서 영역을 선택하는 중에는 **Esc** 또는 같은 프리셋 단축키를 다시 눌러 취소할 수 있습니다.",
-    "다른 앱에서 텍스트가 이미 선택되어 있다면 **텍스트 선택** 프리셋 단축키를 눌러 바로 처리할 수 있습니다.",
-    "프리셋 단축키에는 **가운데 클릭, 마우스 뒤로, 마우스 앞으로**도 지정할 수 있습니다. **마스터 프리셋**에 지정하면 해당 프리셋 선택 휠이 열립니다.",
-    "자주 쓰는 프리셋을 **즐겨찾기 버블**에 추가하고 트레이에서 버블을 켜세요. 마스터가 아닌 이미지 또는 텍스트 단축키나 버블 항목을 길게 누르면 연속 모드로 들어가며, Esc 또는 같은 단축키로 종료합니다.",
-    "SGT에 **파일을 드롭**하거나 클립보드 이미지 또는 텍스트를 Ctrl+V로 붙여넣으세요. 이미지와 텍스트는 프리셋 휠을 열고, 오디오는 프리셋 또는 화면 녹화로, 비디오와 자막은 화면 녹화 작업으로 연결됩니다.",
-    "결과 오버레이를 왼쪽, 오른쪽, 가운데 버튼으로 클릭하면 각각 **하나, 그룹, 전체**를 닫고, 같은 버튼으로 드래그하면 같은 범위를 이동합니다.",
-    "결과를 실수로 닫았다면 트레이 메뉴에서 **마지막으로 닫은 오버레이 묶음**이나 최근 묶음을 복원하세요.",
-    "결과에서 **편집 / 다듬기**로 후속 지시를 입력하거나 **마크다운 토글**로 일반 텍스트와 렌더링된 결과를 전환하세요.",
-    "결과 오버레이가 느리다면 **그래픽 모드 → 최소**로 바꿔 보세요.",
-    "프리셋 그래프에서 스크롤로 확대/축소하고, 빈 공간을 드래그해 이동하고, 더블 클릭해 노드를 화면에 맞추고, 오른쪽 클릭으로 **추가/삭제** 메뉴를 여세요.",
-    "눈 아이콘 옆의 출력 모드에는 **일반, 스트림, 마크다운, 마크다운+스트림**이 있습니다.",
-    "모델의 돋보기 표시는 일반 선택 시 **웹 검색이 기본으로 실행됨**을 뜻합니다.",
-    "처리 단계 하나만 **자동 복사**를 사용할 수 있습니다. 컨트롤러가 꺼져 있으면 자동 붙여넣기와 줄바꿈 추가가 나타나며, 자동 붙여넣기는 대상 앱의 깜빡이는 텍스트 커서가 필요합니다.",
-    "기본 제공 프리셋에서 **복원**을 누르면 단축키를 유지한 채 설정을 초기화합니다. 사용자 프리셋 이름은 계속 편집할 수 있습니다.",
-    "**프로필**로 작업별 프리셋 모음을 분리하세요. 새 프로필은 현재 프로필을 복사하므로 안전하게 바꿀 수 있습니다.",
-    "**기록** 검색으로 이전 결과를 찾을 수 있습니다. 최대 항목 수를 줄이면 오래된 항목부터 정리되며, 컴퓨터 제어 메모리는 별도 한도를 사용합니다.",
-    "비실시간 오디오 프리셋에서 **자동 중지**를 켜면 침묵을 감지한 뒤 녹음을 마칩니다.",
-    "**모델 우선순위**에서 선호 모델을 먼저 두고 자동을 남겨 스마트 폴백을 계속하세요. 비활성 공급자와 누락되거나 잘못된 키는 건너뜁니다.",
-    "**사용자 모델**에서 OpenRouter나 Ollama를 검색하세요. **다운로드된 도구**에서는 로컬 모델, 런타임, 화면 녹화 배경, 포인터 컬렉션을 설치하거나 삭제할 수 있습니다.",
-    "음성 설정에서는 프리셋, 실시간 음성 번역, 통역 곤약에 사용할 TTS 방식과 언어별 음성 또는 억양을 고를 수 있습니다. 실시간 음성 번역의 **자동** 속도는 화자의 속도를 따라갑니다.",
-    "**TTS 플레이그라운드**에서 음성을 시험하거나 클론하고, 오디오를 편집한 뒤 WAV 또는 MP3로 내보낼 수 있습니다.",
-    "**비디오 다운로드**의 고급 기능에서 메타데이터, SponsorBlock, 자막, 재생 목록, 브라우저 쿠키를 설정할 수 있습니다.",
-    "푸터에서 **컴퓨터 제어, 포인터 갤러리, 통역 곤약, TTS 플레이그라운드, 이미지를 3D로, SVG 변환, DJ 되기, 비디오 다운로드, 화면 녹화**를 바로 열 수 있습니다.",
-    "**DJ 되기**에서 MIDI를 켜고 MIDI CC 컨트롤을 프롬프트 가중치 노브에 연결할 수 있습니다.",
-    "어떤 작업 흐름을 써야 할지 모르겠다면 전역 설정에서 **사용법 문의**를 열고 원하는 작업을 자연스럽게 물어보세요.",
-];
-
-const VI: [&str; TIP_COUNT] = [
-    "Khi đang chọn vùng trên màn hình tối, nhấn **Esc** hoặc nhấn lại phím tắt preset để hủy.",
-    "Nếu văn bản đã được bôi đen trong ứng dụng khác, nhấn phím tắt của preset **chọn văn bản** để xử lý ngay.",
-    "Phím tắt preset có thể dùng **chuột giữa, nút Quay lại hoặc nút Tiến**. Gán một nút cho **preset MASTER** để mở vòng chọn preset tương ứng.",
-    "Đánh dấu preset cho **bong bóng yêu thích** rồi bật bong bóng từ khay hệ thống. Nhấn giữ phím tắt Ảnh hoặc Văn bản không phải MASTER, hoặc mục trong bong bóng, để vào Chế độ liên tục; nhấn Esc hoặc phím đó để thoát.",
-    "**Thả tệp vào SGT** hoặc nhấn Ctrl+V với ảnh hay văn bản trong clipboard. Ảnh và văn bản mở vòng chọn preset; âm thanh có thể vào preset hoặc Quay màn hình, còn video và phụ đề mở tác vụ Quay màn hình.",
-    "Nhấp nút trái, phải hoặc giữa trên cửa sổ kết quả để đóng **một cửa sổ, cả nhóm hoặc tất cả**; kéo bằng các nút đó để di chuyển cùng phạm vi.",
-    "Lỡ đóng kết quả? Dùng menu khay hệ thống để **khôi phục nhóm overlay vừa đóng** hoặc một nhóm gần đây.",
-    "Trong cửa sổ kết quả, dùng **Chỉnh sửa / Viết lại** để nhập yêu cầu tiếp theo hoặc **Bật/Tắt Markdown** để đổi giữa văn bản thường và bản trình bày có định dạng.",
-    "Nếu cửa sổ kết quả chạy chậm, hãy thử **Chế độ đồ họa → Tối giản**.",
-    "Trên sơ đồ preset, cuộn để zoom, kéo vùng trống để pan, nhấp đúp để căn vừa các node, và nhấp phải để mở menu **Thêm/Xóa**.",
-    "Nút chế độ cạnh biểu tượng con mắt có **Thường, Stream, Đẹp và Đẹp+Str**.",
-    "Dấu kính lúp cạnh mô hình nghĩa là khi chọn bình thường, mô hình sẽ **tìm kiếm web theo mặc định**.",
-    "Chỉ một bước xử lý có thể dùng **Tự động copy**. Khi Bộ điều khiển tắt, tùy chọn này hiện Tự động dán và Thêm dòng mới; Tự động dán vẫn cần con trỏ văn bản đang nhấp nháy ở ứng dụng đích.",
-    "Chọn **Khôi phục** trên preset tích hợp để đặt lại cài đặt mà vẫn giữ phím tắt. Tên preset tùy chỉnh vẫn có thể chỉnh sửa.",
-    "Dùng **Hồ sơ** để tách các bộ preset theo công việc. Hồ sơ mới sao chép hồ sơ hiện tại để bạn tùy chỉnh an toàn.",
-    "Dùng tìm kiếm trong **Lịch sử** để tìm kết quả cũ. Giảm Giới hạn mục sẽ dọn các mục lâu nhất; bộ nhớ Điều khiển máy tính có giới hạn riêng.",
-    "Với preset âm thanh không chạy thời gian thực, bật **Tự động dừng** để kết thúc ghi âm sau khi phát hiện im lặng.",
-    "Trong **Ưu tiên mô hình**, đặt mô hình muốn dùng lên đầu và giữ Tự động để tiếp tục fallback thông minh; nhà cung cấp tắt hoặc khóa thiếu hay sai sẽ bị bỏ qua.",
-    "Dùng **Tùy chỉnh mô hình** để quét OpenRouter hoặc Ollama. Trong **Công cụ đã tải**, bạn có thể cài hoặc xóa mô hình cục bộ, runtime, nền Quay màn hình và bộ con trỏ.",
-    "Cài đặt giọng đọc chọn phương thức TTS cùng giọng hoặc giọng vùng theo từng ngôn ngữ cho preset, Dịch cabin và Bánh mỳ chuyển ngữ; tốc độ **Tự động** của Dịch cabin sẽ bám theo nhịp nói.",
-    "Dùng **Sân chơi TTS** để thử hoặc clone giọng, chỉnh audio và xuất WAV hoặc MP3.",
-    "**Tải video** có các tùy chọn nâng cao cho metadata, SponsorBlock, phụ đề, playlist và cookie trình duyệt.",
-    "Thanh dưới mở nhanh **Điều khiển máy tính, Kho trỏ chuột, Bánh mỳ chuyển ngữ, Sân chơi TTS, Ảnh sang 3D, Ảnh sang SVG, Làm DJ, Tải video và Quay màn hình**.",
-    "Trong **Làm DJ**, bật MIDI rồi gán các điều khiển MIDI CC cho núm trọng số prompt.",
-    "Nếu chưa biết nên dùng quy trình nào, mở **Hỏi cách dùng** trong Cài đặt chung và mô tả điều bạn muốn làm.",
-];
-
-pub(super) fn en() -> Vec<&'static str> {
-    EN.to_vec()
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum UsageTipCategory {
+    #[default]
+    CaptureShortcuts,
+    PresetsAutomation,
+    ResultsRecovery,
+    ModelsSearch,
+    CreativeTools,
 }
 
-pub(super) fn ko() -> Vec<&'static str> {
-    KO.to_vec()
+impl UsageTipCategory {
+    pub const ALL: [Self; 5] = [
+        Self::CaptureShortcuts,
+        Self::PresetsAutomation,
+        Self::ResultsRecovery,
+        Self::ModelsSearch,
+        Self::CreativeTools,
+    ];
+
+    pub const fn stable_id(self) -> &'static str {
+        match self {
+            Self::CaptureShortcuts => "capture_shortcuts",
+            Self::PresetsAutomation => "presets_automation",
+            Self::ResultsRecovery => "results_recovery",
+            Self::ModelsSearch => "models_search",
+            Self::CreativeTools => "creative_tools",
+        }
+    }
 }
 
-pub(super) fn vi() -> Vec<&'static str> {
-    VI.to_vec()
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UsageTip {
+    pub id: &'static str,
+    pub text: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UsageTipSection {
+    pub id: UsageTipCategory,
+    pub title: &'static str,
+    pub description: &'static str,
+    pub tips: &'static [UsageTip],
+}
+
+macro_rules! tip {
+    ($id:literal, $text:literal) => {
+        UsageTip {
+            id: $id,
+            text: $text,
+        }
+    };
+}
+
+const EN_CAPTURE: &[UsageTip] = &[
+    tip!(
+        "selection_cancel",
+        "Press **Esc** to cancel a region selection. If capture began with a keyboard hotkey, pressing that hotkey again also cancels."
+    ),
+    tip!(
+        "selection_hidden_gestures",
+        "Before dragging an Image selection, use the **mouse wheel to zoom** and right-drag to pan. A click without a region copies that pixel as #RRGGBB."
+    ),
+    tip!(
+        "selected_text_hotkey",
+        "If text is already highlighted in another app, press a **Text-Select preset hotkey** to process it immediately."
+    ),
+    tip!(
+        "mouse_button_hotkeys",
+        "Preset hotkeys can be **Middle Click, Mouse Back, or Mouse Forward**, so capture actions do not need a keyboard chord."
+    ),
+    tip!(
+        "continuous_mode_entry",
+        "In **Favorite Bubble**, click to run once; hold a non-MASTER Image/Text item for Continuous Mode. Press Esc to exit."
+    ),
+    tip!(
+        "continuous_mode_image_gestures",
+        "In Image Continuous Mode, **right-drag** to capture a region. A plain right-click copies the pixel's HEX color; wheel while holding right zooms from 1× to 4×."
+    ),
+    tip!(
+        "smart_input_routing",
+        "Paste image/text into SGT or **drop a file** to open its routing workflow; video and subtitle drops open SGT Record. Explorer's Process with SGT feeds registered files through the same router."
+    ),
+    tip!(
+        "input_history_navigation",
+        "In Refine, use **Up/Down** to recall submissions. In a multiline typed prompt, use Up at the start or Down at the end; moving past newest restores your draft."
+    ),
+    tip!(
+        "audio_auto_stop_semantics",
+        "Audio **Auto-stop** waits for detected voice or sound activity, then stops after the following silence; quiet setup time alone will not stop recording."
+    ),
+];
+
+const EN_PRESETS: &[UsageTip] = &[
+    tip!(
+        "graph_navigation",
+        "On the preset graph, scroll to zoom, drag empty space to pan, double-click to fit nodes, and right-click for **Add/Delete** menus."
+    ),
+    tip!(
+        "auto_copy_ownership",
+        "Only one processing node can own **Auto-copy**. For normal hotkey/Bubble runs, Auto-paste targets the editor focused at launch; an open prompt or Refine editor receives it instead."
+    ),
+    tip!(
+        "profile_clone_active",
+        "A new **Profile** clones the active preset collection—including favorites and hotkeys—then switches to the copy, leaving the original profile unchanged."
+    ),
+    tip!(
+        "continuous_input_replaces_group",
+        "For a typed Text preset, **Continuous Input** keeps the prompt open; each submission replaces the previous result group instead of accumulating windows."
+    ),
+];
+
+const EN_RESULTS: &[UsageTip] = &[
+    tip!(
+        "restore_closed_batches",
+        "The tray can restore the **last closed overlay batch**, or several recently closed batches together."
+    ),
+    tip!(
+        "refine_revision_history",
+        "Each **Refine** creates a revision you can Undo or Redo; image follow-ups also retain the original image context."
+    ),
+    tip!(
+        "result_geometry_memory",
+        "Move or resize the first Text/Audio result and SGT **remembers that geometry for the preset**. Image presets ignore saved geometry and use the current input placement."
+    ),
+    tip!(
+        "history_pruning",
+        "Lowering **History → Max Items** immediately prunes the oldest entries and deletes their stored media."
+    ),
+    tip!(
+        "tray_close_keeps_running",
+        "Closing the main window **hides SGT to the tray**, so preset hotkeys keep working. Choose Quit from the tray to exit the app."
+    ),
+];
+
+const EN_MODELS: &[UsageTip] = &[
+    tip!(
+        "search_marker_default",
+        "A model's **magnifying-glass marker** means its web-search tool is enabled during normal use."
+    ),
+    tip!(
+        "fallback_cooldown_search",
+        "In preset Image→Text/Text→Text retries, a **rate-limited model** is skipped for five minutes. Fallback preserves model type, and search-capable models retry only through search-capable models."
+    ),
+];
+
+const EN_CREATIVE: &[UsageTip] = &[tip!(
+    "promptdj_midi_learn",
+    "In **Be a DJ**, enable MIDI, click a prompt's CC:n badge to enter Learn, then move a hardware control to bind it to that prompt's weight."
+)];
+
+const EN: &[UsageTipSection] = &[
+    UsageTipSection {
+        id: UsageTipCategory::CaptureShortcuts,
+        title: "Capture & shortcuts",
+        description: "Hidden gestures available before processing starts.",
+        tips: EN_CAPTURE,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::PresetsAutomation,
+        title: "Presets & automation",
+        description: "Quiet rules SGT applies behind the preset graph.",
+        tips: EN_PRESETS,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::ResultsRecovery,
+        title: "Results & recovery",
+        description: "Recovery, revision history, and retained output behavior.",
+        tips: EN_RESULTS,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::ModelsSearch,
+        title: "Models & search",
+        description: "Routing behavior behind model choices.",
+        tips: EN_MODELS,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::CreativeTools,
+        title: "Creative tools",
+        description: "Hardware behavior beyond the main controls.",
+        tips: EN_CREATIVE,
+    },
+];
+
+const KO_CAPTURE: &[UsageTip] = &[
+    tip!(
+        "selection_cancel",
+        "**Esc**를 누르면 영역 선택이 취소됩니다. 키보드 단축키로 캡처를 시작했다면 같은 단축키를 다시 눌러도 취소됩니다."
+    ),
+    tip!(
+        "selection_hidden_gestures",
+        "이미지 영역을 드래그하기 전에 **마우스 휠로 확대/축소**하고 오른쪽 버튼 드래그로 화면을 이동할 수 있습니다. 영역 없이 클릭하면 해당 픽셀의 #RRGGBB 색상이 복사됩니다."
+    ),
+    tip!(
+        "selected_text_hotkey",
+        "다른 앱에서 텍스트를 미리 선택해 두었다면 **단축키 후 텍스트 선택** 방식의 프리셋 단축키를 눌러 바로 처리할 수 있습니다."
+    ),
+    tip!(
+        "mouse_button_hotkeys",
+        "프리셋 단축키에는 **Middle Click, Mouse Back, Mouse Forward**도 지정할 수 있어 키보드 조합 없이 캡처 작업을 실행할 수 있습니다."
+    ),
+    tip!(
+        "continuous_mode_entry",
+        "**즐겨찾기 버블**에서 클릭하면 한 번 실행하고, 마스터가 아닌 이미지/텍스트 항목을 길게 누르면 연속 모드로 들어갑니다. Esc를 눌러 종료하세요."
+    ),
+    tip!(
+        "continuous_mode_image_gestures",
+        "이미지 연속 모드에서는 **오른쪽 버튼으로 드래그**해 영역을 캡처합니다. 짧게 오른쪽 클릭하면 픽셀의 HEX 색상이 복사되고, 오른쪽 버튼을 누른 채 휠을 돌리면 1배에서 4배까지 확대됩니다."
+    ),
+    tip!(
+        "smart_input_routing",
+        "이미지/텍스트를 SGT에 붙여넣거나 **파일을 드롭**하면 라우팅 작업이 열립니다. 비디오와 자막 드롭은 SGT Record를 열고, 탐색기의 Process with SGT는 등록된 파일을 같은 라우터로 전달합니다."
+    ),
+    tip!(
+        "input_history_navigation",
+        "다듬기에서는 **위/아래 화살표**로 이전에 제출한 내용을 다시 불러올 수 있습니다. 여러 줄 입력 프롬프트에서는 커서가 맨 앞에 있을 때 위쪽 화살표를, 맨 끝에 있을 때 아래쪽 화살표를 누르세요. 최신 항목을 지나면 작성 중이던 초안이 복원됩니다."
+    ),
+    tip!(
+        "audio_auto_stop_semantics",
+        "오디오 **자동 중지**는 먼저 음성이나 소리를 감지할 때까지 기다린 뒤, 그다음 침묵이 이어지면 녹음을 끝냅니다. 따라서 준비 중에 조용한 시간만 흘러서는 녹음이 멈추지 않습니다."
+    ),
+];
+
+const KO_PRESETS: &[UsageTip] = &[
+    tip!(
+        "graph_navigation",
+        "프리셋 그래프에서 스크롤로 확대/축소하고, 빈 공간을 드래그해 이동하고, 더블 클릭해 노드를 화면에 맞추고, 오른쪽 클릭으로 **추가/삭제** 메뉴를 여세요."
+    ),
+    tip!(
+        "auto_copy_ownership",
+        "처리 노드 하나만 **자동 복사**를 사용할 수 있습니다. 일반 단축키/버블 실행에서는 시작할 때 포커스된 편집기로 자동 붙여넣기하며, 열린 프롬프트 또는 다듬기 편집기가 있으면 그곳이 우선합니다."
+    ),
+    tip!(
+        "profile_clone_active",
+        "새 **프로필**은 즐겨찾기와 단축키를 포함한 현재 프리셋 모음을 복제한 뒤 그 복사본으로 전환하므로 원본 프로필은 바뀌지 않습니다."
+    ),
+    tip!(
+        "continuous_input_replaces_group",
+        "텍스트 프리셋의 작동 방식을 '단축키 후 입력'으로 설정하고 **연속 입력**을 켜면 입력창이 계속 열려 있고, 제출할 때마다 새 창을 쌓는 대신 이전 결과 그룹을 대체합니다."
+    ),
+];
+
+const KO_RESULTS: &[UsageTip] = &[
+    tip!(
+        "restore_closed_batches",
+        "트레이에서 **마지막으로 닫은 오버레이 묶음** 또는 최근에 닫은 여러 묶음을 함께 복원할 수 있습니다."
+    ),
+    tip!(
+        "refine_revision_history",
+        "**다듬기**를 실행할 때마다 실행 취소/다시 실행이 가능한 새 리비전이 생기며, 이미지 후속 요청은 원본 이미지 문맥도 유지합니다."
+    ),
+    tip!(
+        "result_geometry_memory",
+        "첫 텍스트/오디오 결과를 이동하거나 크기를 바꾸면 SGT가 **해당 프리셋의 위치와 크기**를 기억합니다. 이미지 프리셋은 저장된 위치와 크기를 사용하지 않고 현재 입력 위치에 맞춰 배치됩니다."
+    ),
+    tip!(
+        "history_pruning",
+        "**히스토리 → 저장 한도**를 낮추면 가장 오래된 항목이 즉시 정리되고 저장된 미디어 파일도 삭제됩니다."
+    ),
+    tip!(
+        "tray_close_keeps_running",
+        "메인 창을 닫아도 SGT는 **트레이로 숨겨지므로** 프리셋 단축키가 계속 작동합니다. 앱을 종료하려면 트레이에서 종료를 선택하세요."
+    ),
+];
+
+const KO_MODELS: &[UsageTip] = &[
+    tip!(
+        "search_marker_default",
+        "모델의 **돋보기 표시**는 일반 사용 시 해당 모델의 웹 검색 도구가 활성화된다는 뜻입니다."
+    ),
+    tip!(
+        "fallback_cooldown_search",
+        "프리셋 이미지→텍스트/텍스트→텍스트 재시도에서 **요청 한도에 걸린 모델**은 5분 동안 건너뜁니다. 폴백은 모델 유형을 유지하며, 검색 지원 모델은 검색 지원 모델만 거쳐 재시도합니다."
+    ),
+];
+
+const KO_CREATIVE: &[UsageTip] = &[tip!(
+    "promptdj_midi_learn",
+    "**DJ 되기**에서 MIDI를 켜고 프롬프트의 CC:n 배지를 클릭해 학습 모드로 들어간 다음, 하드웨어 컨트롤을 움직여 프롬프트 가중치에 연결하세요."
+)];
+
+const KO: &[UsageTipSection] = &[
+    UsageTipSection {
+        id: UsageTipCategory::CaptureShortcuts,
+        title: "캡처 및 단축키",
+        description: "처리를 시작하기 전에 쓸 수 있는 숨은 동작입니다.",
+        tips: KO_CAPTURE,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::PresetsAutomation,
+        title: "프리셋 및 자동화",
+        description: "프리셋 그래프 뒤에서 SGT가 적용하는 규칙입니다.",
+        tips: KO_PRESETS,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::ResultsRecovery,
+        title: "결과 및 복구",
+        description: "복구, 리비전 기록, 결과 보관 방식입니다.",
+        tips: KO_RESULTS,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::ModelsSearch,
+        title: "모델 및 검색",
+        description: "모델 선택 뒤에서 작동하는 라우팅 규칙입니다.",
+        tips: KO_MODELS,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::CreativeTools,
+        title: "창작 도구",
+        description: "기본 컨트롤 너머의 하드웨어 동작입니다.",
+        tips: KO_CREATIVE,
+    },
+];
+
+const VI_CAPTURE: &[UsageTip] = &[
+    tip!(
+        "selection_cancel",
+        "Nhấn **Esc** để hủy chọn vùng. Nếu bắt đầu chụp bằng phím tắt bàn phím, nhấn lại phím tắt đó cũng sẽ hủy."
+    ),
+    tip!(
+        "selection_hidden_gestures",
+        "Trước khi kéo để chọn vùng cho preset Ảnh, dùng **con lăn chuột để thu phóng** và kéo chuột phải để di chuyển khung nhìn. Nhấp mà không chọn vùng sẽ sao chép màu #RRGGBB của pixel đó."
+    ),
+    tip!(
+        "selected_text_hotkey",
+        "Nếu văn bản đã được bôi đen trong ứng dụng khác, nhấn phím tắt của preset Văn bản ở chế độ **Hotkey rồi bôi text** để xử lý ngay."
+    ),
+    tip!(
+        "mouse_button_hotkeys",
+        "Phím tắt preset có thể là **Middle Click, Mouse Back hoặc Mouse Forward**, nên bạn có thể chạy thao tác chụp mà không cần tổ hợp phím trên bàn phím."
+    ),
+    tip!(
+        "continuous_mode_entry",
+        "Trong **Bong bóng yêu thích**, nhấp để chạy một lần; nhấn giữ mục Ảnh/Văn bản không phải MASTER để vào Chế độ liên tục. Nhấn Esc để thoát."
+    ),
+    tip!(
+        "continuous_mode_image_gestures",
+        "Trong Chế độ liên tục của Ảnh, **kéo chuột phải** để chụp một vùng. Nhấp chuột phải sẽ copy màu HEX của pixel; giữ chuột phải và cuộn để zoom từ 1× đến 4×."
+    ),
+    tip!(
+        "smart_input_routing",
+        "Dán ảnh/văn bản vào SGT hoặc **thả tệp** để mở quy trình định tuyến; tệp video và phụ đề sẽ mở SGT Record. Process with SGT trong Explorer đưa tệp đã đăng ký qua cùng bộ định tuyến."
+    ),
+    tip!(
+        "input_history_navigation",
+        "Trong Viết lại, dùng **Lên/Xuống** để gọi lại nội dung đã gửi. Với prompt nhiều dòng, dùng Lên ở đầu hoặc Xuống ở cuối; đi qua mục mới nhất sẽ khôi phục bản nháp."
+    ),
+    tip!(
+        "audio_auto_stop_semantics",
+        "**Tự động dừng** chờ đến khi phát hiện giọng nói hoặc âm thanh, rồi dừng ghi âm sau khoảng lặng tiếp theo; nếu chỉ yên tĩnh trong lúc chuẩn bị thì ghi âm sẽ không dừng."
+    ),
+];
+
+const VI_PRESETS: &[UsageTip] = &[
+    tip!(
+        "graph_navigation",
+        "Trên sơ đồ preset, cuộn để zoom, kéo vùng trống để pan, nhấp đúp để căn vừa các node, và nhấp phải để mở menu **Thêm/Xóa**."
+    ),
+    tip!(
+        "auto_copy_ownership",
+        "Chỉ có thể bật **Tự động copy** trên một node xử lý. Với lần chạy thông thường bằng phím tắt hoặc Bong bóng yêu thích, Tự động dán sẽ gửi kết quả đến ô soạn thảo đang có tiêu điểm khi bắt đầu; nếu prompt hoặc ô Viết lại đang mở thì kết quả được dán vào đó."
+    ),
+    tip!(
+        "profile_clone_active",
+        "**Hồ sơ** mới sao chép bộ preset đang dùng, gồm cả mục yêu thích và phím tắt, rồi chuyển sang bản sao nên hồ sơ gốc không thay đổi."
+    ),
+    tip!(
+        "continuous_input_replaces_group",
+        "Với preset Văn bản ở chế độ “Hotkey rồi gõ”, **Nhập liên tục** giữ ô prompt mở; mỗi lần gửi sẽ thay thế nhóm kết quả trước đó thay vì mở thêm cửa sổ."
+    ),
+];
+
+const VI_RESULTS: &[UsageTip] = &[
+    tip!(
+        "restore_closed_batches",
+        "Từ khay hệ thống, bạn có thể **khôi phục nhóm overlay vừa đóng** hoặc nhiều nhóm đã đóng gần đây cùng lúc."
+    ),
+    tip!(
+        "refine_revision_history",
+        "Mỗi lần **Viết lại** tạo một phiên bản có thể Hoàn tác/Làm lại; yêu cầu tiếp theo cho ảnh cũng giữ ngữ cảnh của ảnh gốc."
+    ),
+    tip!(
+        "result_geometry_memory",
+        "Khi bạn di chuyển hoặc đổi kích thước kết quả Văn bản/Âm thanh đầu tiên, SGT sẽ **nhớ vị trí và kích thước cho preset đó**. Preset Ảnh bỏ qua vị trí và kích thước đã lưu, rồi dùng vị trí của đầu vào hiện tại."
+    ),
+    tip!(
+        "history_pruning",
+        "Giảm **Lịch sử → Giới hạn lưu** sẽ xóa ngay các mục cũ nhất và file media đã lưu của chúng."
+    ),
+    tip!(
+        "tray_close_keeps_running",
+        "Đóng cửa sổ chính chỉ **ẩn SGT vào khay hệ thống**, nên phím tắt preset vẫn hoạt động. Chọn Thoát trong khay để tắt ứng dụng."
+    ),
+];
+
+const VI_MODELS: &[UsageTip] = &[
+    tip!(
+        "search_marker_default",
+        "Dấu **kính lúp trên một mô hình** cho biết công cụ tìm kiếm web của mô hình đó được bật khi sử dụng bình thường."
+    ),
+    tip!(
+        "fallback_cooldown_search",
+        "Khi preset Ảnh → Text/Text → Text thử lại, **mô hình gặp giới hạn tần suất** sẽ bị bỏ qua trong 5 phút. Fallback giữ nguyên loại mô hình; mô hình hỗ trợ tìm kiếm chỉ thử lại qua các mô hình cũng hỗ trợ tìm kiếm."
+    ),
+];
+
+const VI_CREATIVE: &[UsageTip] = &[tip!(
+    "promptdj_midi_learn",
+    "Trong **Làm DJ**, bật MIDI, nhấp huy hiệu CC:n của prompt để vào chế độ Học, rồi di chuyển bộ điều khiển phần cứng để gán cho trọng số prompt."
+)];
+
+const VI: &[UsageTipSection] = &[
+    UsageTipSection {
+        id: UsageTipCategory::CaptureShortcuts,
+        title: "Chụp & phím tắt",
+        description: "Các thao tác ẩn trước khi bắt đầu xử lý.",
+        tips: VI_CAPTURE,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::PresetsAutomation,
+        title: "Preset & tự động hóa",
+        description: "Các quy tắc SGT áp dụng phía sau sơ đồ preset.",
+        tips: VI_PRESETS,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::ResultsRecovery,
+        title: "Kết quả & khôi phục",
+        description: "Khôi phục, lịch sử phiên bản và cách lưu giữ kết quả.",
+        tips: VI_RESULTS,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::ModelsSearch,
+        title: "Mô hình & tìm kiếm",
+        description: "Cách SGT định tuyến phía sau lựa chọn model.",
+        tips: VI_MODELS,
+    },
+    UsageTipSection {
+        id: UsageTipCategory::CreativeTools,
+        title: "Công cụ sáng tạo",
+        description: "Hành vi phần cứng ngoài các nút chính.",
+        tips: VI_CREATIVE,
+    },
+];
+
+pub(super) const fn en() -> &'static [UsageTipSection] {
+    EN
+}
+
+pub(super) const fn ko() -> &'static [UsageTipSection] {
+    KO
+}
+
+pub(super) const fn vi() -> &'static [UsageTipSection] {
+    VI
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
 
-    use super::{EN, KO, VI};
+    use super::{EN, KO, UsageTipCategory, UsageTipSection, VI};
 
     #[test]
-    fn localized_tip_catalogs_are_complete_and_well_formed() {
-        for (language, tips) in [("en", &EN), ("ko", &KO), ("vi", &VI)] {
-            assert!(
-                tips.iter().all(|tip| !tip.trim().is_empty()),
-                "{language} contains an empty tip"
+    fn localized_tip_catalogs_have_matching_semantic_structure() {
+        let expected_categories = UsageTipCategory::ALL;
+        let expected_ids = tip_ids(EN);
+
+        for (language, sections) in [("en", EN), ("ko", KO), ("vi", VI)] {
+            assert_eq!(sections.len(), expected_categories.len());
+            assert_eq!(
+                sections
+                    .iter()
+                    .map(|section| section.id)
+                    .collect::<Vec<_>>(),
+                expected_categories,
+                "{language} category order drifted"
             );
             assert_eq!(
-                tips.iter().copied().collect::<HashSet<_>>().len(),
-                tips.len(),
-                "{language} contains duplicate tips"
+                tip_ids(sections),
+                expected_ids,
+                "{language} tip ID/order drifted"
             );
-            for tip in tips {
+        }
+    }
+
+    #[test]
+    fn localized_tip_catalogs_are_unique_and_well_formed() {
+        for (language, sections) in [("en", EN), ("ko", KO), ("vi", VI)] {
+            let mut ids = HashSet::new();
+            let mut text = HashSet::new();
+
+            for section in sections {
+                assert!(!section.title.trim().is_empty(), "{language} empty title");
+                assert!(
+                    !section.description.trim().is_empty(),
+                    "{language} empty description"
+                );
+                assert!(
+                    !section.tips.is_empty(),
+                    "{language} has an empty category: {}",
+                    section.id.stable_id()
+                );
+                for tip in section.tips {
+                    assert!(ids.insert(tip.id), "{language} duplicate ID: {}", tip.id);
+                    assert!(
+                        text.insert(tip.text),
+                        "{language} contains duplicate tip text"
+                    );
+                    assert!(!tip.text.trim().is_empty(), "{language} empty tip");
+                    assert_eq!(
+                        tip.text.matches("**").count() % 2,
+                        0,
+                        "{language} contains unbalanced bold markers: {}",
+                        tip.text
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn windows_catalog_matches_the_shared_parity_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../parity-fixtures/mobile-shell/usage-tips.json"
+        ))
+        .expect("valid usage-tips fixture");
+        let fixture_categories = fixture["catalog_contract"]["categories"]
+            .as_array()
+            .expect("fixture category array");
+
+        assert_eq!(fixture_categories.len(), EN.len());
+        for (index, fixture_category) in fixture_categories.iter().enumerate() {
+            let expected_id = fixture_category["id"].as_str().expect("category ID");
+            assert_eq!(EN[index].id.stable_id(), expected_id);
+            for (language, sections) in [("en", EN), ("ko", KO), ("vi", VI)] {
                 assert_eq!(
-                    tip.matches("**").count() % 2,
-                    0,
-                    "{language} contains unbalanced bold markers: {tip}"
+                    sections[index].title,
+                    fixture_category["labels"][language]
+                        .as_str()
+                        .expect("localized category label"),
+                    "{language} fixture label drifted"
                 );
             }
         }
+
+        let windows_case = fixture["cases"]
+            .as_array()
+            .expect("fixture cases")
+            .iter()
+            .find(|case| case["name"] == "windows_static_entry_contract")
+            .expect("Windows tips fixture case");
+        let expected_tip_ids = windows_case["required_tip_ids"]
+            .as_array()
+            .expect("Windows required tip IDs")
+            .iter()
+            .map(|id| id.as_str().expect("tip ID"))
+            .collect::<Vec<_>>();
+        assert_eq!(tip_ids(EN), expected_tip_ids);
+    }
+
+    fn tip_ids(sections: &[UsageTipSection]) -> Vec<&str> {
+        sections
+            .iter()
+            .flat_map(|section| section.tips.iter().map(|tip| tip.id))
+            .collect()
     }
 }

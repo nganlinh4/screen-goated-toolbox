@@ -1,6 +1,16 @@
 import * as React from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { Check, ChevronDown, Psychology, Search } from '@/components/ui/MaterialIcon';
+import {
+  Check,
+  ChevronDown,
+  Search,
+  Stat1,
+  Stat2,
+  Stat3,
+  StatMinus1,
+  StatMinus2,
+  StatMinus3,
+} from '@/components/ui/MaterialIcon';
 import { motion } from 'motion/react';
 
 import { cn } from '@/lib/utils';
@@ -11,7 +21,7 @@ export interface PanelSelectOption {
   triggerLabel?: string;
   disabled?: boolean;
   keywords?: string[];
-  qualityTier?: number | null;
+  intelligenceTier?: number | null;
   typicalLatencyMs?: number | null;
   performanceSource?: string | null;
   trailing?: React.ReactNode;
@@ -48,30 +58,75 @@ export function formatModelLatencyMs(milliseconds: number | null | undefined): s
 }
 
 function hasPerformanceMetadata(option: PanelSelectOption): boolean {
-  return option.qualityTier !== undefined || option.typicalLatencyMs !== undefined;
+  return option.intelligenceTier !== undefined || option.typicalLatencyMs !== undefined;
+}
+
+const INTELLIGENCE_ICONS = {
+  stat_minus_3: StatMinus3,
+  stat_minus_2: StatMinus2,
+  stat_minus_1: StatMinus1,
+  stat_1: Stat1,
+  stat_2: Stat2,
+  stat_3: Stat3,
+} as const;
+
+export function intelligenceStatIconName(tier: number): keyof typeof INTELLIGENCE_ICONS {
+  const names = [
+    'stat_minus_3',
+    'stat_minus_2',
+    'stat_minus_1',
+    'stat_1',
+    'stat_2',
+    'stat_3',
+  ] as const;
+  return names[Math.min(6, Math.max(1, Math.round(tier))) - 1];
+}
+
+export const MODEL_PERFORMANCE_COLUMNS = {
+  intelligenceWidth: 15,
+  gap: 2,
+  latencyWidth: 32,
+} as const;
+
+function IntelligenceIcon({ tier }: { tier: number }) {
+  const Icon = INTELLIGENCE_ICONS[intelligenceStatIconName(tier)];
+  return (
+    <Icon
+      className="model-performance-intelligence h-[13px] w-[13px] shrink-0"
+      aria-hidden="true"
+    />
+  );
 }
 
 function ModelPerformancePrefix({ option }: { option: PanelSelectOption }) {
-  const tier = option.qualityTier == null
+  const tier = option.intelligenceTier == null
     ? null
-    : Math.min(5, Math.max(1, Math.round(option.qualityTier)));
+    : Math.min(6, Math.max(1, Math.round(option.intelligenceTier)));
+  const prefixWidth =
+    MODEL_PERFORMANCE_COLUMNS.intelligenceWidth +
+    MODEL_PERFORMANCE_COLUMNS.gap +
+    MODEL_PERFORMANCE_COLUMNS.latencyWidth;
   return (
     <span
-      className="model-performance-prefix flex w-[116px] shrink-0 items-center text-[10px] text-[var(--on-surface-variant)]"
+      className="model-performance-prefix flex shrink-0 items-center text-[10px] text-[var(--on-surface-variant)]"
+      style={{ width: prefixWidth }}
       title={option.performanceSource ?? undefined}
     >
-      <span className="model-performance-quality flex w-[74px] shrink-0 items-center gap-px">
+      <span
+        className="model-performance-intelligence-column flex shrink-0 items-center justify-end"
+        style={{
+          width: MODEL_PERFORMANCE_COLUMNS.intelligenceWidth,
+          marginRight: MODEL_PERFORMANCE_COLUMNS.gap,
+        }}
+      >
         {tier == null
           ? '—'
-          : Array.from({ length: tier }, (_, index) => (
-              <Psychology
-                key={index}
-                className="model-performance-brain h-[13px] w-[13px] shrink-0"
-                aria-hidden="true"
-              />
-            ))}
+          : <IntelligenceIcon tier={tier} />}
       </span>
-      <span className="model-performance-latency w-[42px] shrink-0 tabular-nums">
+      <span
+        className="model-performance-latency shrink-0 text-right tabular-nums"
+        style={{ width: MODEL_PERFORMANCE_COLUMNS.latencyWidth }}
+      >
         {formatModelLatencyMs(option.typicalLatencyMs)}
       </span>
     </span>

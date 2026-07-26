@@ -11,7 +11,9 @@
 
 - Fetch and cache the tracked `help-index.json` from the repository raw URL.
 - Rank every chunk by non-overlapping question-term matches across `path + text`, apply the fixture's path boost, and send the top 20. With no searchable terms, use the first 20 chunks.
-- Use one primary and one fallback Gemini model with the same output limit, temperature, and model-appropriate thinking configuration on both platforms.
+- Use one primary and one fallback Gemini model with the same output limit,
+  temperature, and catalog-resolved `LOW` important-task thinking configuration
+  on both platforms. Ordinary model calls remain at disabled/minimal thinking.
 - The model chain must name models that are currently available. Change both platform constants and the shared fixture in one commit; never copy model IDs into this prose.
 - Answer in the question language, use locale-correct UI terms, return Markdown, and prohibit invented facts or source-code framing.
 - Use dedicated long-lived network clients for the index and generation requests.

@@ -5,6 +5,7 @@ import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -23,6 +24,7 @@ class CreationStateContractTest {
         val defaults = fixture.objectAt("defaults")
         val limits = fixture.objectAt("limits")
         val input = fixture.objectAt("input")
+        val submission = fixture.objectAt("submission")
         val presentation = fixture.objectAt("presentation")
         val segmentation = fixture.objectAt("segmentation")
         val history = fixture.objectAt("history")
@@ -41,10 +43,28 @@ class CreationStateContractTest {
         assertEquals(1, input.intAt("minimumImagesPerJob"))
         assertEquals(1, input.intAt("maximumImagesPerJob"))
         assertTrue(input.booleanAt("multiplePickerImagesCreateIndependentJobs"))
+        assertEquals("selected_session", submission.stringAt("primaryActionScope"))
+        assertFalse(submission.booleanAt("submitsOtherSessions"))
         assertFalse(presentation.booleanAt("showImplementationBranding"))
         assertFalse(presentation.booleanAt("showImplementationSelection"))
         assertTrue(presentation.booleanAt("showGenerationModeSelection"))
         assertTrue(presentation.booleanAt("normalizeImplementationText"))
+        assertEquals("Material Symbols Rounded", presentation.stringAt("iconFamily"))
+        assertEquals(1, presentation.intAt("iconFill"))
+        assertTrue(presentation.booleanAt("sharedIconCatalog"))
+        assertTrue(presentation.booleanAt("unchangedPollPreservesQueueDom"))
+        assertTrue(presentation.booleanAt("hoveredSelectionTargetSurvivesPolling"))
+        assertTrue(presentation.booleanAt("pointerSequenceSurvivesPolling"))
+        assertTrue(presentation.booleanAt("queueOwnsOverflow"))
+        assertTrue(presentation.booleanAt("primaryActionRemainsReachable"))
+        val preview = presentation.objectAt("previewMemory")
+        assertFalse(preview.booleanAt("webviewRetainsOriginalImageBytes"))
+        assertFalse(preview.booleanAt("decodeBlocksWebviewThread"))
+        assertFalse(preview.booleanAt("offscreenPreviewsHydrate"))
+        assertTrue(preview.booleanAt("selectedPreviewHasPriority"))
+        assertTrue(preview.booleanAt("backgroundHydrationYieldsToInteraction"))
+        assertEquals(128, preview.intAt("thumbnailMaximumEdgePixels"))
+        assertEquals(1_600, preview.intAt("stageMaximumEdgePixels"))
         assertTrue(segmentation.booleanAt("requireRenderableNormals"))
         assertTrue(segmentation.booleanAt("expandDisconnectedComponentsForSingleMesh"))
         assertTrue(segmentation.booleanAt("preserveExistingPartNodes"))
@@ -94,16 +114,41 @@ class CreationStateContractTest {
         val fixture = loadFixture("parity-fixtures/image-to-svg/state-contract.json")
         val limits = fixture.objectAt("limits")
         val input = fixture.objectAt("input")
+        val submission = fixture.objectAt("submission")
         val models = fixture.objectAt("models")
         val surface = fixture.objectAt("androidSurface")
+        val preview = fixture.objectAt("previewMemory")
+        val presentation = fixture.objectAt("presentation")
+        val viewer = fixture.objectAt("viewer")
 
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.intAt("maximumParallelJobs"))
         assertEquals(1, input.intAt("minimumImagesPerJob"))
         assertEquals(1, input.intAt("maximumImagesPerJob"))
         assertTrue(input.booleanAt("multiplePickerImagesCreateIndependentJobs"))
+        assertEquals("selected_session", submission.stringAt("primaryActionScope"))
+        assertFalse(submission.booleanAt("submitsOtherSessions"))
         assertEquals(setOf("simple", "detail"), models.keys)
         assertTrue(models.objectAt("simple").booleanAt("selectable"))
         assertTrue(models.objectAt("detail").booleanAt("selectable"))
+        assertFalse(preview.booleanAt("webviewRetainsOriginalImageBytes"))
+        assertFalse(preview.booleanAt("decodeBlocksWebviewThread"))
+        assertFalse(preview.booleanAt("offscreenPreviewsHydrate"))
+        assertTrue(preview.booleanAt("selectedPreviewHasPriority"))
+        assertTrue(preview.booleanAt("backgroundHydrationYieldsToInteraction"))
+        assertEquals(128, preview.intAt("thumbnailMaximumEdgePixels"))
+        assertEquals(1_600, preview.intAt("stageMaximumEdgePixels"))
+        assertEquals("Material Symbols Rounded", presentation.stringAt("iconFamily"))
+        assertEquals(1, presentation.intAt("iconFill"))
+        assertTrue(presentation.booleanAt("sharedIconCatalog"))
+        assertTrue(presentation.booleanAt("unchangedPollPreservesQueueDom"))
+        assertTrue(presentation.booleanAt("hoveredSelectionTargetSurvivesPolling"))
+        assertTrue(presentation.booleanAt("pointerSequenceSurvivesPolling"))
+        assertTrue(presentation.booleanAt("queueOwnsOverflow"))
+        assertTrue(presentation.booleanAt("primaryActionRemainsReachable"))
+        assertTrue(viewer.booleanAt("allPathsRendered"))
+        assertFalse(viewer.booleanAt("animateAllPaths"))
+        assertEquals(120, viewer.intAt("maximumAnimatedPaths"))
+        assertTrue(viewer.booleanAt("adaptiveOverlappingAnimation"))
         assertEquals("native_compose_m3e", surface.stringAt("shell"))
         assertEquals("sandboxed_svg_document", surface.stringAt("resultRenderer"))
         assertEquals("depth_anything_3_six_bins", surface.stringAt("progressPreview"))
@@ -121,6 +166,7 @@ class CreationStateContractTest {
             "parity-fixtures/image-creation-editing/state-contract.json",
         )
         val request = fixture.objectAt("request")
+        val submission = fixture.objectAt("submission")
         val prompt = request.objectAt("prompt")
         val references = request.objectAt("references")
         val copyPolicy = fixture.objectAt("publicCopyPolicy")
@@ -164,9 +210,12 @@ class CreationStateContractTest {
         assertFalse(request.booleanAt("multipleInputsCreateIndependentJobs"))
         assertTrue(request.booleanAt("oneSessionCreatesOneJob"))
         assertTrue(request.booleanAt("plusCreatesEmptySession"))
+        assertEquals("selected_session", submission.stringAt("primaryActionScope"))
+        assertFalse(submission.booleanAt("submitsOtherSessions"))
         assertEquals("feature_only", copyPolicy.stringAt("vocabulary"))
         assertFalse(copyPolicy.booleanAt("implementationDetailsVisible"))
         assertFalse(copyPolicy.booleanAt("rawImplementationErrorsVisible"))
+        assertTrue(copyPolicy.booleanAt("referenceUploadCopyRequiresReferences"))
         assertTrue(artifact.booleanAt("requiresDecodedDimensions"))
         assertTrue(artifact.booleanAt("requiresPositiveWidth"))
         assertTrue(artifact.booleanAt("requiresPositiveHeight"))
@@ -178,12 +227,38 @@ class CreationStateContractTest {
         assertEquals("Material Symbols Rounded", presentation.stringAt("iconFamily"))
         assertEquals(1, presentation.intAt("iconFill"))
         assertFalse(presentation.booleanAt("appSpecificTheme"))
+        assertTrue(presentation.booleanAt("sharedIconCatalog"))
+        assertTrue(presentation.booleanAt("unchangedPollPreservesQueueDom"))
+        assertTrue(presentation.booleanAt("hoveredSelectionTargetSurvivesPolling"))
+        assertTrue(presentation.booleanAt("pointerSequenceSurvivesPolling"))
+        assertTrue(presentation.booleanAt("singleClickStartsSubmission"))
+        assertTrue(presentation.booleanAt("submissionLocksImmediately"))
+        assertTrue(presentation.booleanAt("queueOwnsOverflow"))
+        assertTrue(presentation.booleanAt("primaryActionRemainsReachable"))
+        val estimatedProgress = presentation.objectAt("estimatedProgress")
+        assertTrue(estimatedProgress.booleanAt("usesRuntimeEstimate"))
+        assertTrue(estimatedProgress.booleanAt("usesElapsedTimeCurve"))
+        assertTrue(estimatedProgress.booleanAt("monotonic"))
+        assertEquals(0.94, estimatedProgress.doubleAt("maximumBeforeCompletion"), 0.0)
+        assertEquals(1.0, estimatedProgress.doubleAt("completionRatio"), 0.0)
+        assertTrue(estimatedProgress.booleanAt("showsLocalizedEta"))
+        val preview = presentation.objectAt("previewMemory")
+        assertFalse(preview.booleanAt("webviewRetainsOriginalImageBytes"))
+        assertFalse(preview.booleanAt("decodeBlocksWebviewThread"))
+        assertFalse(preview.booleanAt("offscreenPreviewsHydrate"))
+        assertTrue(preview.booleanAt("selectedPreviewHasPriority"))
+        assertTrue(preview.booleanAt("backgroundHydrationYieldsToInteraction"))
+        assertEquals(128, preview.intAt("thumbnailMaximumEdgePixels"))
+        assertEquals(1_600, preview.intAt("stageMaximumEdgePixels"))
         assertTrue(behavior.booleanAt("cancellationIsMonotonic"))
         assertTrue(behavior.booleanAt("lateSuccessCannotPublishAfterCancellation"))
         assertTrue(behavior.booleanAt("acceptedRequestIsNotRepeatedDuringRecovery"))
         assertTrue(behavior.booleanAt("retryCreatesNewJob"))
         assertTrue(behavior.booleanAt("retryPreservesPreviousResult"))
-        assertTrue(behavior.booleanAt("closingUiKeepsQueuedJobs"))
+        assertTrue(behavior.booleanAt("closingUiCancelsToolJobs"))
+        assertTrue(behavior.booleanAt("closingUiTerminatesTrackedProcessTrees"))
+        assertTrue(behavior.booleanAt("closingUiDestroysWebSurface"))
+        assertTrue(behavior.booleanAt("sharedPreparationSurvivesMiniAppClose"))
         assertTrue(behavior.booleanAt("failureRemainsBoundToJob"))
         assertEquals("adaptive_image_session_result", surface.stringAt("resultRenderer"))
         assertEquals(
@@ -213,6 +288,11 @@ class CreationStateContractTest {
     fun `image creator exposes only normal product progress and failures`() {
         assertEquals("preparing", publicImageCreationStage("unknown"))
         assertEquals("Getting ready", publicImageCreationText("preparing"))
+        assertEquals("Getting ready", publicImageCreationText("uploading", hasReferences = false))
+        assertEquals(
+            "Adding reference image",
+            publicImageCreationText("uploading", hasReferences = true),
+        )
         assertEquals(
             "Image creation could not finish. Try again.",
             publicImageCreationFailure(),
@@ -316,6 +396,18 @@ class CreationStateContractTest {
         assertTrue(lifecycle.booleanAt("cancelWinsOverLateSuccess"))
         assertTrue(lifecycle.booleanAt("lateSuccessCannotPublishAfterCancel"))
         assertTrue(lifecycle.booleanAt("lateSuccessCannotDeletePreviousOutputAfterCancel"))
+        assertTrue(lifecycle.booleanAt("closeCancelsToolJobs"))
+        assertTrue(lifecycle.booleanAt("closeTerminatesTrackedProcessTrees"))
+        assertTrue(lifecycle.booleanAt("closeDestroysWebSurface"))
+        assertTrue(lifecycle.booleanAt("sharedPreparationSurvivesMiniAppClose"))
+        val svgLifecycle = loadFixture(
+            "parity-fixtures/image-to-svg/state-contract.json",
+        ).objectAt("hostLifecycle")
+        assertTrue(svgLifecycle.booleanAt("cancelWinsOverLateSuccess"))
+        assertTrue(svgLifecycle.booleanAt("closeCancelsToolJobs"))
+        assertTrue(svgLifecycle.booleanAt("closeTerminatesTrackedProcessTrees"))
+        assertTrue(svgLifecycle.booleanAt("closeDestroysWebSurface"))
+        assertTrue(svgLifecycle.booleanAt("sharedPreparationSurvivesMiniAppClose"))
         assertTrue(timing.booleanAt("persistMeasuredDurations"))
         assertTrue(timing.booleanAt("boundedSamples"))
         assertTrue(timing.booleanAt("reportSampleCount"))
@@ -343,6 +435,27 @@ class CreationStateContractTest {
     }
 
     @Test
+    fun `primary action submits only the selected session from an imported batch`() {
+        fun draft(id: String) = CreationNativeItem(
+            id = id,
+            batchId = "shared-import",
+            sourcePath = "$id.png",
+            sourceName = "$id.png",
+        )
+        val submitted = CreationNativeUiState(
+            items = listOf(draft("first"), draft("selected"), draft("last")),
+            selectedItemId = "selected",
+        ).submitSelectedItem()
+
+        assertFalse(submitted.items[0].submitted)
+        assertEquals(CreationNativeStage.DRAFT, submitted.items[0].stage)
+        assertTrue(submitted.items[1].submitted)
+        assertEquals(CreationNativeStage.QUEUED, submitted.items[1].stage)
+        assertFalse(submitted.items[2].submitted)
+        assertEquals(CreationNativeStage.DRAFT, submitted.items[2].stage)
+    }
+
+    @Test
     fun `cancelled terminal state cannot accept a late completion`() {
         assertTrue(creationStageIsBusy("generating"))
         assertTrue(creationStageIsBusy("finalizing"))
@@ -364,6 +477,7 @@ class CreationStateContractTest {
 
     private fun JsonObject.objectAt(key: String) = requireNotNull(this[key]).jsonObject
     private fun JsonObject.intAt(key: String) = requireNotNull(this[key]).jsonPrimitive.int
+    private fun JsonObject.doubleAt(key: String) = requireNotNull(this[key]).jsonPrimitive.double
     private fun JsonObject.stringAt(key: String) = requireNotNull(this[key]).jsonPrimitive.content
     private fun JsonObject.booleanAt(key: String) = requireNotNull(this[key]).jsonPrimitive.boolean
 }

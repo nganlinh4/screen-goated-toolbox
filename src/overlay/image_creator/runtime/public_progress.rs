@@ -11,10 +11,10 @@ pub(super) fn stage(value: &str) -> &'static str {
     }
 }
 
-pub(super) fn text(stage: &str) -> &'static str {
+pub(super) fn text(stage: &str, has_references: bool) -> &'static str {
     match stage {
         "queued" => "Queued",
-        "uploading" => "Adding reference image",
+        "uploading" if has_references => "Adding reference image",
         "generating" => "Creating image",
         "finalizing" => "Finishing image",
         "done" => "Image ready",
@@ -36,7 +36,13 @@ mod tests {
     fn integration_stages_collapse_to_normal_product_progress() {
         for internal in ["internal", "unknown"] {
             assert_eq!(stage(internal), "preparing");
-            assert_eq!(text(stage(internal)), "Getting ready");
+            assert_eq!(text(stage(internal), false), "Getting ready");
         }
+    }
+
+    #[test]
+    fn upload_copy_requires_a_reference() {
+        assert_eq!(text("uploading", true), "Adding reference image");
+        assert_eq!(text("uploading", false), "Getting ready");
     }
 }
