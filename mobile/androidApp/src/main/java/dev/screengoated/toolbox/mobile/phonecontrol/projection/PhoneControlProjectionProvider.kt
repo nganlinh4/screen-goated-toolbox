@@ -15,6 +15,8 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
 import android.util.DisplayMetrics
+import android.view.Display
+import android.view.Surface
 import android.view.WindowManager
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import kotlinx.coroutines.CompletableDeferred
@@ -68,7 +70,13 @@ internal object PhoneControlProjectionProvider {
             Log.e(TAG, "projection_start_failed code=projection_grant_invalid", error)
             null
         } ?: return PhoneControlProjectionStartResult.Failure("projection_grant_invalid")
-        val dimensions = projectionDimensions(context)
+        val dimensions = try {
+            projectionDimensions(context)
+        } catch (error: Throwable) {
+            Log.e(TAG, "projection_start_failed code=projection_display_unavailable", error)
+            runCatching { projection.stop() }
+            return PhoneControlProjectionStartResult.Failure("projection_display_unavailable")
+        }
         val candidate = ProjectionSession(
             projection = projection,
             initialDimensions = dimensions,
@@ -77,7 +85,11 @@ internal object PhoneControlProjectionProvider {
         )
         return try {
             candidate.start()
-            synchronized(lock) { session = candidate }
+            check(candidate.isReady) { "Projection stopped during startup." }
+            synchronized(lock) {
+                check(candidate.isReady) { "Projection stopped during startup." }
+                session = candidate
+            }
             Log.i(
                 TAG,
                 "projection_session_started width=${dimensions.width} " +
@@ -142,7 +154,6 @@ private class ProjectionSession(
     private val callback = object : MediaProjection.Callback() {
         override fun onStop() {
             if (close(requested = false)) {
-                Log.w(TAG, "projection_session_stopped reason=platform")
                 onProjectionStopped()
             }
         }
@@ -155,18 +166,21 @@ private class ProjectionSession(
     fun start() {
         projection.registerCallback(callback, handler)
         synchronized(resourceLock) {
+            check(!closed.get()) { "Projection stopped during startup." }
             val nextReader = createReader(dimensions)
             reader = nextReader
-            virtualDisplay = projection.createVirtualDisplay(
-                DISPLAY_NAME,
-                dimensions.width,
-                dimensions.height,
-                dimensions.densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                nextReader.surface,
-                null,
-                handler,
-            )
+            virtualDisplay = requireNotNull(
+                projection.createVirtualDisplay(
+                    DISPLAY_NAME,
+                    dimensions.width,
+                    dimensions.height,
+                    dimensions.densityDpi,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    nextReader.surface,
+                    null,
+                    handler,
+                ),
+            ) { "MediaProjection did not create a virtual display." }
         }
     }
 
@@ -210,13 +224,6 @@ private class ProjectionSession(
         val pending = synchronized(resourceLock) {
             val waiting = pendingCapture
             pendingCapture = null
-            virtualDisplay?.release()
-            virtualDisplay = null
-            reader?.setOnImageAvailableListener(null, null)
-            reader?.close()
-            reader = null
-            cachedFrame?.bitmap?.recycle()
-            cachedFrame = null
             waiting
         }
         pending?.complete(
@@ -225,10 +232,36 @@ private class ProjectionSession(
                 retryable = false,
             ),
         )
+        Log.i(
+            TAG,
+            "projection_session_stopped reason=${if (requested) "requested" else "platform"}",
+        )
+        val retirement = Runnable { retireResources(requested) }
+        if (!handler.post(retirement)) {
+            // This can happen only if the owned looper is already terminal. No
+            // callback can still be admitted after that point.
+            retirement.run()
+        }
+        return true
+    }
+
+    private fun retireResources(requested: Boolean) {
+        val retired = synchronized(resourceLock) {
+            val display = virtualDisplay
+            val imageReader = reader
+            val frame = cachedFrame
+            virtualDisplay = null
+            reader = null
+            cachedFrame = null
+            RetiredProjectionResources(display, imageReader, frame)
+        }
+        runCatching { retired.reader?.setOnImageAvailableListener(null, null) }
+        runCatching { retired.display?.release() }
+        runCatching { retired.reader?.close() }
+        runCatching { retired.frame?.bitmap?.recycle() }
         runCatching { projection.unregisterCallback(callback) }
         if (requested) runCatching { projection.stop() }
         handlerThread.quitSafely()
-        return true
     }
 
     private fun resize(width: Int, height: Int) {
@@ -274,6 +307,8 @@ private class ProjectionSession(
 
     private fun onImageAvailable(source: ImageReader) {
         val image = runCatching { source.acquireLatestImage() }.getOrNull() ?: return
+        val diagnostics = projectionImageDiagnostics(image)
+        var decodedBitmap: Bitmap? = null
         try {
             val shouldCopy = synchronized(resourceLock) {
                 !closed.get() && source === reader &&
@@ -281,45 +316,50 @@ private class ProjectionSession(
             }
             if (!shouldCopy) return
             val bitmap = image.toBitmap()
-            consecutiveDecodeFailures = 0
+            decodedBitmap = bitmap
             val capturedAtMs = SystemClock.elapsedRealtime()
             val metadata = displayMetadata()
-            val waiting = synchronized(resourceLock) {
+            val published = synchronized(resourceLock) {
                 if (closed.get() || source !== reader) {
                     bitmap.recycle()
+                    decodedBitmap = null
                     return@synchronized null
+                }
+                val request = pendingCapture
+                val callerCopy = request?.let {
+                    bitmap.copy(Bitmap.Config.ARGB_8888, true)
                 }
                 cachedFrame?.bitmap?.recycle()
                 cachedFrame = CachedProjectionFrame(bitmap, capturedAtMs, metadata)
-                val request = pendingCapture
+                decodedBitmap = null
                 pendingCapture = null
                 if (!firstFrameLogged) {
                     firstFrameLogged = true
                     Log.i(TAG, "projection_frame_ready")
                 }
-                request
+                PublishedProjectionFrame(request, callerCopy)
             }
-            waiting?.complete(
+            if (published == null) return
+            consecutiveDecodeFailures = 0
+            published.request?.complete(
                 PhoneControlProjectionFrameResult.Success(
-                    bitmap.copy(Bitmap.Config.ARGB_8888, true),
+                    requireNotNull(published.callerBitmap),
                     capturedAtMs,
                     metadata.rotation,
                     metadata.densityDpi,
                 ),
             )
         } catch (error: Throwable) {
+            runCatching { decodedBitmap?.recycle() }
             consecutiveDecodeFailures += 1
-            if (
-                consecutiveDecodeFailures == 1 ||
-                consecutiveDecodeFailures % DECODE_FAILURE_SUMMARY_INTERVAL == 0
-            ) {
-                val plane = image.planes.firstOrNull()
+            if (shouldSummarizeProjectionDecodeFailure(consecutiveDecodeFailures)) {
                 Log.e(
                     TAG,
-                    "projection_frame_decode_failed width=${image.width} height=${image.height} " +
-                        "pixel_stride=${plane?.pixelStride ?: 0} " +
-                        "row_stride=${plane?.rowStride ?: 0} " +
-                        "buffer_bytes=${plane?.buffer?.remaining() ?: 0} " +
+                    "projection_frame_decode_failed width=${diagnostics.width} " +
+                        "height=${diagnostics.height} " +
+                        "pixel_stride=${diagnostics.pixelStride} " +
+                        "row_stride=${diagnostics.rowStride} " +
+                        "buffer_bytes=${diagnostics.bufferBytes} " +
                         "consecutive_failures=$consecutiveDecodeFailures",
                     error,
                 )
@@ -336,7 +376,7 @@ private class ProjectionSession(
                 ),
             )
         } finally {
-            image.close()
+            runCatching { image.close() }
         }
     }
 
@@ -345,9 +385,44 @@ private class ProjectionSession(
         const val DISPLAY_NAME = "SGT Phone Control"
         const val MAX_IMAGES = 2
         const val FRESH_FRAME_WAIT_MS = 650L
-        const val DECODE_FAILURE_SUMMARY_INTERVAL = 30
     }
 }
+
+private data class RetiredProjectionResources(
+    val display: VirtualDisplay?,
+    val reader: ImageReader?,
+    val frame: CachedProjectionFrame?,
+)
+
+private data class PublishedProjectionFrame(
+    val request: CompletableDeferred<PhoneControlProjectionFrameResult>?,
+    val callerBitmap: Bitmap?,
+)
+
+internal data class ProjectionImageDiagnostics(
+    val width: Int,
+    val height: Int,
+    val pixelStride: Int,
+    val rowStride: Int,
+    val bufferBytes: Int,
+)
+
+internal fun shouldSummarizeProjectionDecodeFailure(consecutiveFailures: Int): Boolean =
+    consecutiveFailures == 1 ||
+        consecutiveFailures % PROJECTION_DECODE_FAILURE_SUMMARY_INTERVAL == 0
+
+private fun projectionImageDiagnostics(image: Image): ProjectionImageDiagnostics {
+    val plane = runCatching { image.planes.firstOrNull() }.getOrNull()
+    return ProjectionImageDiagnostics(
+        width = runCatching { image.width }.getOrDefault(0),
+        height = runCatching { image.height }.getOrDefault(0),
+        pixelStride = runCatching { plane?.pixelStride ?: 0 }.getOrDefault(0),
+        rowStride = runCatching { plane?.rowStride ?: 0 }.getOrDefault(0),
+        bufferBytes = runCatching { plane?.buffer?.remaining() ?: 0 }.getOrDefault(0),
+    )
+}
+
+private const val PROJECTION_DECODE_FAILURE_SUMMARY_INTERVAL = 300
 
 private data class CachedProjectionFrame(
     val bitmap: Bitmap,
@@ -394,13 +469,14 @@ private fun projectionDimensions(context: Context): ProjectionDimensions {
 }
 
 private fun projectionDisplayMetadata(context: Context): ProjectionDisplayMetadata {
+    val displayManager = context.getSystemService(DisplayManager::class.java)
     val windowManager = context.getSystemService(WindowManager::class.java)
     @Suppress("DEPRECATION")
-    val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        context.display.rotation
-    } else {
-        windowManager.defaultDisplay.rotation
-    }
+    val rotation = displayManager
+        ?.getDisplay(Display.DEFAULT_DISPLAY)
+        ?.rotation
+        ?: runCatching { windowManager.defaultDisplay.rotation }
+            .getOrDefault(Surface.ROTATION_0)
     return ProjectionDisplayMetadata(
         rotation = rotation,
         densityDpi = context.resources.configuration.densityDpi.coerceAtLeast(1),

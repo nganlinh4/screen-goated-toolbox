@@ -23,10 +23,12 @@ class PhoneControlDiagnosticsContractTest {
         val toolEvents = root.getValue("toolEvents").jsonObject
         val invalidArguments = root.getValue("invalidArgumentClassification").jsonObject
         val captureRoutes = root.getValue("captureRouteDiagnostics").jsonObject
+        val projectionLifecycle = root.getValue("projectionLifecycleDiagnostics").jsonObject
+        val speechActivity = root.getValue("speechActivityDiagnostics").jsonObject
         val recovery = root.getValue("sameGenerationTargetRecovery").jsonObject
         val postconditions = root.getValue("postconditions").jsonObject
 
-        assertEquals(5L, root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(6L, root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals(
             PhoneControlLog.RECORD_SCHEMA_VERSION.toLong(),
             journal.getValue("recordSchemaVersion").jsonPrimitive.long,
@@ -97,6 +99,18 @@ class PhoneControlDiagnosticsContractTest {
             captureRoutes.getValue("fields").jsonArray.map { it.jsonPrimitive.content },
         )
         assertFalse(captureRoutes.getValue("periodicHeartbeat").jsonPrimitive.boolean)
+        assertEquals(
+            "serialized_after_in_flight_callback",
+            projectionLifecycle.getValue("resourceRetirement").jsonPrimitive.content,
+        )
+        assertEquals(
+            "default_display_service",
+            projectionLifecycle.getValue("displayMetadataSource").jsonPrimitive.content,
+        )
+        assertFalse(projectionLifecycle.getValue("closedImageAccess").jsonPrimitive.boolean)
+        assertFalse(projectionLifecycle.getValue("callbackExceptionEscape").jsonPrimitive.boolean)
+        assertFalse(speechActivity.getValue("persistsTranscriptText").jsonPrimitive.boolean)
+        assertFalse(speechActivity.getValue("persistsAudio").jsonPrimitive.boolean)
         assertEquals(
             listOf("snapshot_generation", "display_id", "window_id"),
             recovery.getValue("scope").jsonArray.map { it.jsonPrimitive.content },

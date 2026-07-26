@@ -45,6 +45,10 @@ internal fun assertPhoneControlFixturePolicy(expected: JsonObject) {
         put("toolReceiptPrecedesToolOwnedScreenEvidence", true)
         put("ambientScreenBlockedWhileToolResponseOutstanding", true)
         put("microphoneAudioBlockedByTools", false)
+        put("microphoneAudioPrecedesQueuedControlAndVisualPayloads", true)
+        put("speechOnsetRequestsFreshScreenWhenAssistantSilent", true)
+        put("localVoiceActivityCannotRetirePlayingGeneration", true)
+        put("providerInterruptionRetiresPlayingGeneration", true)
         put("transportFailureTailContainsPayloadContent", false)
         put(
             "equivalentStructuredFailureRetryLimit",

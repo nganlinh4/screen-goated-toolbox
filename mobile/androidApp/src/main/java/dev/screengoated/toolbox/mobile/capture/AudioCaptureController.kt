@@ -101,6 +101,8 @@ class AudioCaptureController(
                     trySend(chunk)
                 } else if (count < 0) {
                     Log.w(TAG, "Mic capture read returned error=$count")
+                    close(AudioCaptureReadException(count))
+                    return@launch
                 }
             }
         }
@@ -175,6 +177,8 @@ class AudioCaptureController(
                     trySend(chunk)
                 } else if (count < 0) {
                     Log.w(TAG, "Playback capture read returned error=$count")
+                    close(AudioCaptureReadException(count))
+                    return@launch
                 }
             }
         }
@@ -203,7 +207,20 @@ internal class ProjectionConsentInvalidException(
     message: String,
 ) : IllegalStateException(message)
 
-private fun ShortArray.rmsLevel(): Float {
+internal class AudioCaptureReadException(
+    val errorCode: Int,
+) : IllegalStateException("AudioRecord read failed with code $errorCode") {
+    val diagnosticCode: String
+        get() = when (errorCode) {
+            AudioRecord.ERROR_DEAD_OBJECT -> "dead_object"
+            AudioRecord.ERROR_INVALID_OPERATION -> "invalid_operation"
+            AudioRecord.ERROR_BAD_VALUE -> "bad_value"
+            AudioRecord.ERROR -> "error"
+            else -> "unknown"
+        }
+}
+
+internal fun ShortArray.rmsLevel(): Float {
     if (isEmpty()) {
         return 0f
     }

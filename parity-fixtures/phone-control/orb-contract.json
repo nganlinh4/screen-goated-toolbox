@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "feature": "phone-control-orb",
   "canonicalAsset": "src/overlay/computer_control/orb/orb.html",
   "androidAsset": "phone_control/orb.html",
@@ -27,6 +27,15 @@
     "degradedStatePresentation": "preserve_current_conversation_state",
     "degradedStateCaption": "empty_unless_explicit_user_step_guidance",
     "conversationCaptionOwner": "current_generation_transcription_only",
+    "audioReaction": {
+      "inputUnit": "normalized_pcm16_rms",
+      "voicedThreshold": 0.003662109375,
+      "gain": 8.192,
+      "minimumOutput": 0.0,
+      "maximumOutput": 1.0,
+      "updateIntervalMs": 80,
+      "affectsSemantics": false
+    },
     "respondingEmotionClassifier": {
       "provider": "taalas",
       "cadenceMs": 1000,

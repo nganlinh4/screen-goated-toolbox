@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "feature": "phone-control",
   "canonical_windows_files": [
     "docs/COMPUTER_CONTROL_DEVELOPMENT.md",
@@ -135,6 +135,31 @@
     ],
     "contentFields": false,
     "emission": "failure_transition_and_bounded_repeat_summary"
+  },
+  "projectionLifecycleDiagnostics": {
+    "resourceRetirement": "serialized_after_in_flight_callback",
+    "displayMetadataSource": "default_display_service",
+    "closedImageAccess": false,
+    "callbackExceptionEscape": false,
+    "failureCounterReset": "complete_frame_publication_only"
+  },
+  "speechActivityDiagnostics": {
+    "events": [
+      "microphone_speech_started",
+      "microphone_speech_ended",
+      "microphone_capture_retry"
+    ],
+    "persistsTranscriptText": false,
+    "persistsAudio": false,
+    "burstFields": [
+      "epoch",
+      "elapsed_ms",
+      "audio_frames"
+    ],
+    "retryFields": [
+      "attempt",
+      "code"
+    ]
   },
   "presentationDiagnostics": {
     "unchangedSnapshotObserverCallback": false,

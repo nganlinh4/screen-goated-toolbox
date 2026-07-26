@@ -299,7 +299,7 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
     }
     if not isinstance(contract, dict) or set(contract) != expected_fields:
         raise ValueError("orb contract has unsupported top-level fields")
-    if contract["schemaVersion"] != 2 or contract["feature"] != "phone-control-orb":
+    if contract["schemaVersion"] != 3 or contract["feature"] != "phone-control-orb":
         raise ValueError("orb contract identity is invalid")
     if contract["canonicalAsset"] != "src/overlay/computer_control/orb/orb.html":
         raise ValueError("orb contract must point at the Windows canonical renderer")
@@ -329,6 +329,18 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
         "current_generation_transcription_only"
     ):
         raise ValueError("orb conversation captions must be generation-correlated")
+    audio_reaction = invariants.get("audioReaction")
+    if (
+        not isinstance(audio_reaction, dict)
+        or audio_reaction.get("inputUnit") != "normalized_pcm16_rms"
+        or audio_reaction.get("voicedThreshold") != 120 / 32768
+        or audio_reaction.get("gain") != 32768 / 4000
+        or audio_reaction.get("minimumOutput") != 0.0
+        or audio_reaction.get("maximumOutput") != 1.0
+        or audio_reaction.get("updateIntervalMs") != 80
+        or audio_reaction.get("affectsSemantics") is not False
+    ):
+        raise ValueError("orb audio reaction must match the Windows PCM16 mapping")
     emotion = invariants.get("respondingEmotionClassifier")
     if (
         not isinstance(emotion, dict)

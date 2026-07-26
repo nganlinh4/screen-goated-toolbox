@@ -10,6 +10,7 @@ import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerChoice
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.phoneControlPowerChoicePresentation
@@ -136,14 +137,15 @@ internal class PhoneControlPowerPromptView(
     }
 
     private fun choiceBackground(selected: Boolean, recommended: Boolean): Drawable {
-        val shape = GradientDrawable().apply {
+        val shape = if (selected) {
+            GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(RECOMMENDED_START_COLOR, RECOMMENDED_END_COLOR),
+            )
+        } else {
+            GradientDrawable().apply { setColor(CHOICE_COLOR) }
+        }.apply {
             cornerRadius = dp(15).toFloat()
-            if (selected) {
-                orientation = GradientDrawable.Orientation.LEFT_RIGHT
-                colors = intArrayOf(RECOMMENDED_START_COLOR, RECOMMENDED_END_COLOR)
-            } else {
-                setColor(CHOICE_COLOR)
-            }
             setStroke(
                 dp(1),
                 if (recommended) RECOMMENDED_STROKE_COLOR else CHOICE_STROKE_COLOR,
@@ -169,7 +171,7 @@ internal class PhoneControlPowerPromptView(
     }
 
     private fun recommendedIcon(): Drawable? =
-        context.getDrawable(R.drawable.ms_star)?.mutate()?.apply {
+        ContextCompat.getDrawable(context, R.drawable.ms_star)?.mutate()?.apply {
             setTint(RECOMMENDED_ICON_COLOR)
             setBounds(0, 0, dp(16), dp(16))
         }
