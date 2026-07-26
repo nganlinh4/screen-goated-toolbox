@@ -146,6 +146,12 @@ second locator-model constant.
 The live control session uses the fixture's exact Gemini Live endpoint and
 bounded `LOW` thinking configuration on both platforms. Silent thought parts
 feed control intent only and are never narrated or shown to the user.
+Voice sessions also use the same high-sensitivity automatic activity detection,
+30 ms prefix padding, 250 ms end silence, and native start-of-speech
+interruption. Both platforms append the same compact evidence-routing and
+communicative-intent invariants to the canonical prompt. Those rules rank
+current semantic, pixel, browser, system, file, and integration evidence; they
+never encode user phrases, languages, applications, or device identities.
 
 Phone Control UI strings have complete default-English, Korean, and Vietnamese
 resource sets; Android's normal default-resource fallback serves every other UI
@@ -426,6 +432,12 @@ sideloaded app before Accessibility can be enabled. Treat this as a typed
   resurrect a reconnect.
 - Interrupted mutations with no proven no-effect receipt block later mutation
   and completion until a fresh observation reconciles state.
+- Two equivalent structured failures for the same normalized tool request and
+  current surface retire that retry path. A third identical call returns
+  `repeated_failure` with proven no effect instead of dispatching. The fingerprint
+  uses tool identity, canonical structured arguments, typed failure code, and
+  observation identity only; it never matches user phrases or app content.
+  Verified effects and genuinely fresh evidence clear the relevant history.
 - A mutation-requested screen refresh clears that reconciliation gate only after
   the fresh frame is successfully transmitted. It may release a generation whose
   completion was already deferred, but it never completes an active generation
@@ -499,6 +511,19 @@ device timeout or release a still-running production operation.
   fading it. A receipt that both reports uncertain effect and carries a fresh
   reconciled observation is reduced atomically and never exposes an intermediate
   warning state.
+- The orb caption is conversation presentation, not a diagnostic console.
+  Provider, transport, capture, contract, retry, and reconciliation error text
+  stays in typed receipts, the journal, Logcat, and the notification. A degraded
+  runtime preserves the current conversational orb state instead of flashing an
+  error glyph; its caption is empty unless there is one explicit user-owned
+  Android step with localized guidance. Publishing the same visual state twice
+  is a no-op.
+- While the current generation is in `responding`, classify at most the latest
+  600 caption characters about once per second through the same Taalas client
+  used by Windows and map its exact label to the canonical `sentiment_*` glyph.
+  This is conflated background presentation work: it never delays speech, tool
+  dispatch, or turn completion, and any network or malformed response keeps the
+  current icon silently.
 
 ### Foreground execution
 
@@ -569,7 +594,7 @@ declarations append through the same versioned catalog boundary.
 
 | Canonical family | Android implementation target |
 | --- | --- |
-| `observe`, `act`, `do_steps`, `click_at`, `look`, `click_target`, marks, zoom/view tools | Accessibility windows/nodes first; current screenshot, local detector, then vision when semantics are absent |
+| `observe`, `act`, `do_steps`, `click_at`, `look`, `click_target`, marks, zoom/view tools | Accessibility windows/nodes first; current screenshot, local detector, then vision. An explicit detector/vision tool remains valid on a structured surface |
 | `type_text`, keyboard, scroll, drag, pointer tools | Node actions and Accessibility input connection first; gesture dispatch or a proven elevated input backend as fallback |
 | `open_url`, `launch_app`, window/app focus/list tools | Intents, package/task/display state, Accessibility global actions, and elevated system APIs when required |
 | `system_query`, files, clipboard, and `run_command` | App APIs and persisted SAF grants first; selected SGT Bridge, Shizuku, or root authority for operations the app UID lacks. Shell commands do not require an Accessibility surface lease |
@@ -580,6 +605,10 @@ declarations append through the same versioned catalog boundary.
 | `done` | The canonical terminal turn signal |
 
 Structured tool arguments are protocol identities, not descriptive hints.
+Provider planning resolves a tool's capability from its validated structured
+arguments before dispatch. In particular, `act(fill)` plans and validates
+`ui.text_edit`, while pointer verbs plan `ui.pointer_action`; a static tool-name
+classification cannot reject a correct handler receipt.
 `type_text` and `key_combination` require the complete exact current target
 returned by `list_windows`; an app label or window title is not a substitute.
 If no current target is available, call `list_windows` before dispatch.
@@ -647,17 +676,19 @@ state, so the model can make at most one retry using only identities from that
 generation instead of looping on an expired snapshot.
 
 Background visual streaming must not replace the semantic leases backing model
-`@id` actions. Window topology and actual user-mutation events invalidate the
-generation immediately. Generic window-content notifications advance a separate
-visual revision instead of retiring every semantic lease; every semantic
-mutation still resolves the live node path and exact fingerprint immediately
-before dispatch. Coordinate actions require the visual revision captured with
-their grid or detector verification, so content churn cannot turn an old image
-into a click. Streaming may return the bitmap captured at one instant while
-content continues changing. A topology or explicit mutation event during image
-capture returns `stale_frame`. Explicit visual tools use only their bounded
-internal retry; ambient streaming immediately uses the lease-free projection
-fallback described below.
+`@id` actions. Window topology and a mutation accepted through Phone Control
+invalidate the generation immediately. Ambient Accessibility click, scroll,
+text, selection, focus, and generic content notifications can be emitted by
+animation, lazy layout, another input source, or the controller's own overlay;
+they advance a separate visual revision instead of retiring every semantic
+lease. Every semantic mutation still resolves the live node path and exact
+fingerprint immediately before dispatch. Coordinate actions require the visual
+revision captured with their grid or detector verification, so content churn
+cannot turn an old image into a click. Streaming may return the bitmap captured
+at one instant while content continues changing. A topology event or an explicit
+controller mutation during image capture returns `stale_frame`. Explicit visual
+tools use only their bounded internal retry; ambient streaming immediately uses
+the lease-free projection fallback described below.
 Ambient capture never changes controller overlay alpha, interactivity, window
 membership, position, or layout. A whole-display provider instead masks the
 bounded controller-owned region in the captured bitmap after capture. A
@@ -710,6 +741,10 @@ cell with one-quarter-cell context; a changed generation returns `stale_frame`
 with proven no effect. `reset_view` captures the fresh active application
 surface. `see_whole_screen` captures the complete default display and reports
 that display scope rather than implying unavailable multi-display pixels.
+MediaProjection row decoding copies exactly the visible pixel width of each row.
+It accepts row padding without requiring padding bytes after the final visible
+row, validates all visible bytes before allocation, and reports only typed
+geometry and exception-class diagnostics on failure.
 
 A transient Accessibility disconnect, unavailable surface, unstable semantic
 tree, or frame-generation race does not discard an attached MediaProjection
@@ -762,6 +797,13 @@ Provider choice uses the narrowest ready provider that supplies the full
 requested semantics. Stronger authority is not automatically better evidence.
 For example, a fresh Accessibility node action beats a shell-coordinate tap,
 and a DOM node beats either for a browser element.
+
+An elevated provider is effect authority, not a perception system. For pointer
+and key actions, SGT Bridge, Shizuku, or root may run only after the narrower
+Accessibility or DOM effect path proves no effect and only against the exact
+current observation or visual lease. The explicit model-chosen detector or
+vision tool still grounds coordinates. A ready ADB bridge never authorizes blind
+coordinates, stale geometry, or a silent change of requested tool.
 
 ### Baseline Accessibility backend
 
@@ -841,6 +883,13 @@ window change, or uncertain interruption invalidates it.
 - UI-DETR-1 keeps its Windows role: optional class-agnostic clickable-region
   marks only on semantically blind surfaces. It does not infer user intent and
   never authorizes a click by itself.
+- Detector surface selection must not require an Accessibility node root. A
+  rootless active application/system window may recover its package authority
+  only from an exact-window Accessibility event recorded in the current
+  observation generation. It must never infer authority from titles, visible
+  text, coordinates, model output, shell dumps, or device-specific window
+  formats. Without that structural attribution, visual reading may continue but
+  mutation returns `surface_authority_unknown`.
 - Detector boxes become numbered current-frame anchors. The model still chooses
   the target; execution performs fresh crop verification and postcondition
   checks.

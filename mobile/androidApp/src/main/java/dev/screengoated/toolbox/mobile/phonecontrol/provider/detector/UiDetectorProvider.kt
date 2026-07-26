@@ -115,13 +115,6 @@ internal class UiDetectorProvider(context: Context) {
                 retryable = false,
             )
         }
-        if (!isAccessibilityBlind(observation, surface)) {
-            return UiDetectorProviderResult.Failure(
-                "structured_surface_available",
-                "This surface has usable Accessibility targets; observe and act on their current ids.",
-                retryable = false,
-            )
-        }
         val model = when (val prepared = modelManager.prepare()) {
             is UiDetectorPreparation.Ready -> prepared.model
             is UiDetectorPreparation.Pending -> return UiDetectorProviderResult.Failure(
@@ -173,11 +166,10 @@ internal class UiDetectorProvider(context: Context) {
             if (PhoneControlAccessibilityProvider.observationGeneration != observation.generation) {
                 return staleFrame()
             }
-            val accessible = accessibleActionBounds(observation, surface)
-            val filtered = inference.output.boxes.filter { box ->
-                accessible.none { bounds -> bounds.contains(box.centerX, box.centerY) }
-            }
-            val selected = selectUiDetectorMarks(filtered, cropMapping.absoluteBounds)
+            val selected = selectUiDetectorMarks(
+                inference.output.boxes,
+                cropMapping.absoluteBounds,
+            )
             val firstId = allocateMarkIds(selected.size)
             val frame = UiDetectorFrameIdentity(
                 surfaceLease = surfaceLease,
@@ -411,9 +403,6 @@ private fun staleMark(message: String) = UiDetectorProviderResult.Failure(
     retryable = true,
     freshObservationRequired = true,
 )
-
-private fun TargetBounds.contains(x: Int, y: Int): Boolean =
-    x in left..right && y in top..bottom
 
 private fun Bitmap.crop(bounds: TargetBounds): Bitmap = Bitmap.createBitmap(
     this,

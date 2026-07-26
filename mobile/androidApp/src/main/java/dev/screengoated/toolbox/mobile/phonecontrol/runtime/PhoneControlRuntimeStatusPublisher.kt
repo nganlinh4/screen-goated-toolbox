@@ -19,9 +19,22 @@ internal class PhoneControlRuntimeStatusPublisher(
         updateSnapshot { it.copy(listeningLevel = 0f) }
     }
 
-    fun updateOrbPresentation(stateLabel: String, iconOverride: String?) {
-        updateSnapshot {
-            it.copy(orbStateLabel = stateLabel, orbIconOverride = iconOverride)
+    fun updateOrbPresentation(
+        stateLabel: String,
+        iconOverride: String?,
+        preserveCurrentIconOnNull: Boolean = false,
+    ) {
+        updateSnapshot { current ->
+            val nextIcon = if (
+                preserveCurrentIconOnNull &&
+                iconOverride == null &&
+                current.orbStateLabel == stateLabel
+            ) {
+                current.orbIconOverride
+            } else {
+                iconOverride
+            }
+            current.copy(orbStateLabel = stateLabel, orbIconOverride = nextIcon)
         }
     }
 
@@ -90,8 +103,10 @@ internal class PhoneControlRuntimeStatusPublisher(
         transform: (PhoneControlRuntimeSnapshot) -> PhoneControlRuntimeSnapshot,
     ) {
         val next = synchronized(snapshotLock) {
-            transform(currentSnapshot).also { currentSnapshot = it }
-        }
+            transform(currentSnapshot).takeUnless { it == currentSnapshot }?.also {
+                currentSnapshot = it
+            }
+        } ?: return
         runCatching { observer.onSnapshot(next) }
             .onFailure { Log.e(TAG, "runtime_observer_failed", it) }
     }

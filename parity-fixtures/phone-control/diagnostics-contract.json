@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "feature": "phone-control",
   "canonical_windows_files": [
     "docs/COMPUTER_CONTROL_DEVELOPMENT.md",
@@ -121,6 +121,25 @@
       "overlay_mutated"
     ],
     "periodicHeartbeat": false
+  },
+  "projectionDecodeDiagnostics": {
+    "event": "projection_frame_decode_failed",
+    "fields": [
+      "width",
+      "height",
+      "pixel_stride",
+      "row_stride",
+      "buffer_bytes",
+      "consecutive_failures",
+      "throwable_type"
+    ],
+    "contentFields": false,
+    "emission": "failure_transition_and_bounded_repeat_summary"
+  },
+  "presentationDiagnostics": {
+    "unchangedSnapshotObserverCallback": false,
+    "systemErrorCopiedToOrbCaption": false,
+    "emotionFailureUserVisible": false
   },
   "elevatedReconnectDiagnostics": {
     "emission": "terminal_attempt_only",

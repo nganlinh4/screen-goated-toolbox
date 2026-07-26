@@ -190,6 +190,47 @@ class PhoneControlToolDispatcherTest {
     }
 
     @Test
+    fun `act fill plans and attests text edit instead of pointer action`() = runTest {
+        val dispatcher = PhoneControlToolDispatcher(
+            executor = PhoneControlHandlerExecutor { handler, job, requestedTool, _ ->
+                assertEquals(PhoneControlHandler.ACT, handler)
+                PhoneControlToolExecution(
+                    response = toolResponse(
+                        job = job,
+                        requestedTool = requestedTool,
+                        capability = "ui.text_edit",
+                        provider = "accessibility",
+                        providerState = CapabilityState.READY,
+                        code = "ok",
+                        observationGeneration = 7,
+                        effect = EffectCertainty.MAY_HAVE_OCCURRED,
+                        snapshotInvalidated = true,
+                    ),
+                    mutating = true,
+                )
+            },
+            providerRouter = ROUTER,
+            failureReporter = PhoneControlToolFailureReporter { _, _, _ ->
+                error("no provider failure expected")
+            },
+        )
+
+        val execution = dispatcher.dispatch(
+            JOB,
+            "act",
+            buildJsonObject {
+                put("id", 4)
+                put("verb", "fill")
+                put("value", "text")
+            },
+        )
+
+        assertEquals("ok", execution.response.stringValue("code"))
+        assertEquals("ui.text_edit", execution.response.stringValue("capability"))
+        assertFalse(execution.response.toString().contains("provider_contract_failure"))
+    }
+
+    @Test
     fun providerOnCapabilityRouteButOutsideExactToolPlanIsRejected() = runTest {
         val dispatcher = dispatcherReturning(
             tool = "launch_app",
@@ -434,6 +475,44 @@ class PhoneControlToolDispatcherTest {
         assertEquals("ok", response.stringValue("code"))
         assertEquals("system_query", response.stringValue("requested_tool"))
         assertEquals("android_app_api", response.stringValue("provider"))
+    }
+
+    @Test
+    fun `dispatcher stops an equivalent proven no effect failure loop structurally`() = runTest {
+        var executions = 0
+        val dispatcher = PhoneControlToolDispatcher(
+            executor = PhoneControlHandlerExecutor { _, job, requestedTool, _ ->
+                executions += 1
+                PhoneControlToolExecution(
+                    response = toolResponse(
+                        job = job,
+                        requestedTool = requestedTool,
+                        capability = "system_query",
+                        provider = "android_app_api",
+                        providerState = CapabilityState.READY,
+                        code = "query_rejected",
+                        observationGeneration = 12,
+                        effect = EffectCertainty.PROVEN_NO_EFFECT,
+                        snapshotInvalidated = false,
+                    ),
+                    mutating = false,
+                )
+            },
+            providerRouter = ROUTER,
+        )
+        val arguments = buildJsonObject {
+            put("domain", "battery")
+            put("query", "status")
+        }
+
+        dispatcher.dispatch(JOB, "system_query", arguments)
+        dispatcher.dispatch(JOB, "system_query", arguments)
+        val blocked = dispatcher.dispatch(JOB, "system_query", arguments)
+
+        assertEquals(2, executions)
+        assertEquals("repeated_failure", blocked.response.stringValue("code"))
+        assertEquals("proven_no_effect", blocked.response.stringValue("effect_status"))
+        assertTrue(blocked.refreshScreenFrame)
     }
 
     private fun generatedCatalogNames(): List<String> {

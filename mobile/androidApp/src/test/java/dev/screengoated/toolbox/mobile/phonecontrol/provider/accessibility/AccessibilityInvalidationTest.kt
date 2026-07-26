@@ -21,13 +21,10 @@ class AccessibilityInvalidationTest {
     }
 
     @Test
-    fun `window topology and explicit user mutations invalidate immediately`() {
+    fun `only window topology events retire every target lease`() {
         val eventTypes = listOf(
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
-            AccessibilityEvent.TYPE_VIEW_CLICKED,
-            AccessibilityEvent.TYPE_VIEW_SCROLLED,
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
         )
 
         eventTypes.forEach { eventType ->
@@ -63,6 +60,9 @@ class AccessibilityInvalidationTest {
             ) == AccessibilityInvalidationImpact.SEMANTIC_ONLY,
         )
         listOf(
+            AccessibilityEvent.TYPE_VIEW_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_SCROLLED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
             AccessibilityEvent.TYPE_VIEW_SELECTED,
             AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,

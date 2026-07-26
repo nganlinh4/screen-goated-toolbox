@@ -31,7 +31,7 @@ class PhoneControlAuthorityMatrixTest {
         val fixture = PhoneControlAuthorityFixture.load()
         val catalog = fixture.root.getValue("catalog").jsonObject
 
-        assertEquals(22L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(24L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals("phone-control", fixture.root.getValue("feature").jsonPrimitive.content)
         val distribution = fixture.root.getValue("distribution").jsonObject
         assertEquals(
@@ -389,6 +389,12 @@ class PhoneControlAuthorityMatrixTest {
                 "dual_crosshair_verification_exact_surface_lease",
             visual.getValue("dragTarget").jsonPrimitive.content,
         )
+        assertFalse(visual.getValue("detectorSurfaceRequiresAccessibilityRoot").jsonPrimitive.boolean)
+        assertEquals("exact_window_accessibility_event_in_current_generation",
+            visual.getValue("rootlessSurfaceAttribution").jsonPrimitive.content)
+        assertFalse(visual.getValue("rootlessSurfaceAuthorityHeuristics").jsonPrimitive.boolean)
+        assertEquals("surface_authority_unknown",
+            visual.getValue("unattributedRootlessMutation").jsonPrimitive.content)
         assertEquals(
             "same_attempt_display_scoped_fallback",
             visual.getValue("invalidWindowCaptureRecovery").jsonPrimitive.content,

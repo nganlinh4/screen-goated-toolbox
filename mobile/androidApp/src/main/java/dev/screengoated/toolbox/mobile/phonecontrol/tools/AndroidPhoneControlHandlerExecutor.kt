@@ -27,6 +27,7 @@ internal class AndroidPhoneControlHandlerExecutor(
     private val surfaces = SurfaceToolHandlers(context)
     private val memory = MemoryToolHandlers(context)
     private val commands = AndroidCommandToolBackend(context)
+    private val elevatedPointer = AndroidElevatedPointerInput(context)
 
     override suspend fun execute(
         handler: PhoneControlHandler,
@@ -37,7 +38,7 @@ internal class AndroidPhoneControlHandlerExecutor(
         PhoneControlHandler.OBSERVE -> handleObserve(job)
         PhoneControlHandler.ACT -> handleAct(job, arguments)
         PhoneControlHandler.DO_STEPS -> handleDoSteps(job, arguments)
-        PhoneControlHandler.CLICK_AT -> handleClickAt(job, arguments)
+        PhoneControlHandler.CLICK_AT -> handleClickAt(job, arguments, elevatedInput = elevatedPointer)
         PhoneControlHandler.ZOOM -> visual.zoom(job, arguments)
         PhoneControlHandler.RESET_VIEW -> visual.resetView(job)
         PhoneControlHandler.SEE_WHOLE_SCREEN -> visual.seeWholeScreen(job)
@@ -47,8 +48,8 @@ internal class AndroidPhoneControlHandlerExecutor(
         PhoneControlHandler.CLICK_MARK -> detector.clickMark(job, arguments)
         PhoneControlHandler.WAIT -> handleWait(job, arguments)
         PhoneControlHandler.TYPE_TEXT -> providers.typeText(job, arguments)
-        PhoneControlHandler.SCROLL -> handleScroll(job, arguments)
-        PhoneControlHandler.DRAG -> handleDrag(job, arguments)
+        PhoneControlHandler.SCROLL -> handleScroll(job, arguments, elevatedInput = elevatedPointer)
+        PhoneControlHandler.DRAG -> handleDrag(job, arguments, elevatedInput = elevatedPointer)
         PhoneControlHandler.DRAG_TARGET -> detector.dragTarget(job, arguments)
         PhoneControlHandler.KEY_COMBINATION -> providers.keyCombination(job, arguments)
         PhoneControlHandler.OPEN_URL -> providers.openUrl(job, arguments)

@@ -102,6 +102,7 @@ internal suspend fun handleClickAt(
     job: PhoneControlToolJobContext,
     args: JsonObject,
     backend: AccessibilityToolBackend = AndroidAccessibilityToolBackend,
+    elevatedInput: ElevatedPointerInput = NoElevatedPointerInput,
 ): PhoneControlToolExecution {
     val cell = args.int("cell")
         ?: return invalidArgs(job, "click_at", "click_at requires cell")
@@ -123,11 +124,24 @@ internal suspend fun handleClickAt(
     val point = grid.cellCenter(cell)
         ?: return invalidArgs(job, "click_at", "grid cell is outside the current frame")
     val lease = grid.surfaceLease
-    return gestureExecution(
+    val accessibility = backend.click(
+        lease,
+        point.first,
+        point.second,
+        grid.visualRevision,
+    )
+    return pointerExecution(
         job,
         "click_at",
-        backend.click(lease, point.first, point.second, grid.visualRevision),
-        backend,
+        routePointerInput(accessibility, { backend.observationGeneration }) {
+            elevatedInput.tap(
+                job,
+                lease,
+                point.first,
+                point.second,
+                grid.visualRevision,
+            )
+        },
     )
 }
 
@@ -135,6 +149,7 @@ internal suspend fun handleDrag(
     job: PhoneControlToolJobContext,
     args: JsonObject,
     backend: AccessibilityToolBackend = AndroidAccessibilityToolBackend,
+    elevatedInput: ElevatedPointerInput = NoElevatedPointerInput,
 ): PhoneControlToolExecution {
     val from = args.int("from_cell")
         ?: return invalidArgs(job, "drag", "drag requires from_cell")
@@ -154,20 +169,32 @@ internal suspend fun handleDrag(
     val toPoint = grid.cellCenter(to)
         ?: return invalidArgs(job, "drag", "to_cell is outside the current frame")
     val lease = grid.surfaceLease
-    return gestureExecution(
+    val accessibility = backend.swipe(
+        lease,
+        fromPoint.first,
+        fromPoint.second,
+        toPoint.first,
+        toPoint.second,
+        550L,
+        AccessibilityMutationKind.POINTER_ACTIVATE,
+        grid.visualRevision,
+    )
+    return pointerExecution(
         job,
         "drag",
-        backend.swipe(
-            lease,
-            fromPoint.first,
-            fromPoint.second,
-            toPoint.first,
-            toPoint.second,
-            550L,
-            AccessibilityMutationKind.POINTER_ACTIVATE,
-            grid.visualRevision,
-        ),
-        backend,
+        routePointerInput(accessibility, { backend.observationGeneration }) {
+            elevatedInput.swipe(
+                job,
+                lease,
+                fromPoint.first,
+                fromPoint.second,
+                toPoint.first,
+                toPoint.second,
+                550L,
+                AccessibilityMutationKind.POINTER_ACTIVATE,
+                grid.visualRevision,
+            )
+        },
     )
 }
 
@@ -175,6 +202,7 @@ internal suspend fun handleScroll(
     job: PhoneControlToolJobContext,
     args: JsonObject,
     backend: AccessibilityToolBackend = AndroidAccessibilityToolBackend,
+    elevatedInput: ElevatedPointerInput = NoElevatedPointerInput,
 ): PhoneControlToolExecution {
     val direction = args.string("direction")
         ?: return invalidArgs(
@@ -229,20 +257,33 @@ internal suspend fun handleScroll(
             argumentField = "direction",
             contractReason = "unsupported_value",
         )
-    return gestureExecution(
+    val expectedVisualRevision = grid?.visualRevision.takeIf { requestedCell != null }
+    val accessibility = backend.swipe(
+        lease,
+        coordinates[0],
+        coordinates[1],
+        coordinates[2],
+        coordinates[3],
+        420L,
+        AccessibilityMutationKind.NAVIGATION_GESTURE,
+        expectedVisualRevision,
+    )
+    return pointerExecution(
         job,
         "scroll",
-        backend.swipe(
-            lease,
-            coordinates[0],
-            coordinates[1],
-            coordinates[2],
-            coordinates[3],
-            420L,
-            AccessibilityMutationKind.NAVIGATION_GESTURE,
-            grid?.visualRevision.takeIf { requestedCell != null },
-        ),
-        backend,
+        routePointerInput(accessibility, { backend.observationGeneration }) {
+            elevatedInput.swipe(
+                job,
+                lease,
+                coordinates[0],
+                coordinates[1],
+                coordinates[2],
+                coordinates[3],
+                420L,
+                AccessibilityMutationKind.NAVIGATION_GESTURE,
+                expectedVisualRevision,
+            )
+        },
     )
 }
 
@@ -276,51 +317,47 @@ private fun actionSuccess(
     refreshScreenFrame = outcome.snapshotInvalidated,
 )
 
-private fun gestureExecution(
+private fun pointerExecution(
     job: PhoneControlToolJobContext,
     tool: String,
-    result: AccessibilityProviderResult<AccessibilityGestureOutcome>,
-    backend: AccessibilityToolBackend,
-): PhoneControlToolExecution = when (result) {
-    is AccessibilityProviderResult.Failure -> accessibilityFailure(
-        job,
-        tool,
-        POINTER_CAPABILITY,
-        result,
-        backend,
-    )
-    is AccessibilityProviderResult.Success -> PhoneControlToolExecution(
-        response = toolResponse(
-            job = job,
-            requestedTool = tool,
-            capability = POINTER_CAPABILITY,
-            provider = ACCESSIBILITY_PROVIDER,
-            providerState = CapabilityState.READY,
-            code = result.value.code,
-            observationGeneration = result.value.generation,
-            effect = result.value.effect,
-            snapshotInvalidated = result.value.snapshotInvalidated,
-            freshObservationRequired = result.value.snapshotInvalidated,
-        ),
-        mutating = result.value.effect != EffectCertainty.PROVEN_NO_EFFECT,
-        refreshScreenFrame = result.value.snapshotInvalidated,
-    )
-}
+    result: PointerInputOutcome,
+): PhoneControlToolExecution = PhoneControlToolExecution(
+    response = toolResponse(
+        job = job,
+        requestedTool = tool,
+        capability = POINTER_CAPABILITY,
+        provider = result.providerId,
+        providerState = result.providerState,
+        code = result.code,
+        observationGeneration = result.generation,
+        effect = result.effect,
+        snapshotInvalidated = result.snapshotInvalidated,
+        retryable = result.retryable,
+        requiredUserStep = result.requiredUserStep,
+        freshObservationRequired = result.freshObservationRequired,
+        data = buildJsonObject {
+            result.message?.let { put("message", it) }
+        },
+    ),
+    mutating = result.effect != EffectCertainty.PROVEN_NO_EFFECT,
+    refreshScreenFrame = result.snapshotInvalidated,
+)
 
 private fun staleSurfaceExecution(
     job: PhoneControlToolJobContext,
     tool: String,
     backend: AccessibilityToolBackend,
-): PhoneControlToolExecution = gestureExecution(
-    job,
-    tool,
-    AccessibilityProviderResult.Failure(
+): PhoneControlToolExecution = accessibilityFailure(
+    job = job,
+    tool = tool,
+    capability = POINTER_CAPABILITY,
+    failure = AccessibilityProviderResult.Failure(
         code = "stale_target",
         message = "The visual surface no longer belongs to the current observation.",
         retryable = true,
         freshObservationRequired = true,
     ),
-    backend,
+    backend = backend,
 )
 
 private suspend fun currentOrFreshFrame(

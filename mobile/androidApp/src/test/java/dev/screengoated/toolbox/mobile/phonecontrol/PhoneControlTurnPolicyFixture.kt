@@ -4,7 +4,10 @@ import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PHONE_CONTROL_TURN
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PHONE_CONTROL_COMPLETION_QUEUE_CAPACITY
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlSessionPayloadQueue
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlToolFramePreflight
+import dev.screengoated.toolbox.mobile.phonecontrol.tools.PHONE_CONTROL_EQUIVALENT_FAILURE_RETRY_LIMIT
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -43,6 +46,26 @@ internal fun assertPhoneControlFixturePolicy(expected: JsonObject) {
         put("ambientScreenBlockedWhileToolResponseOutstanding", true)
         put("microphoneAudioBlockedByTools", false)
         put("transportFailureTailContainsPayloadContent", false)
+        put(
+            "equivalentStructuredFailureRetryLimit",
+            PHONE_CONTROL_EQUIVALENT_FAILURE_RETRY_LIMIT,
+        )
+        put("repeatFailureGuardUsesSemanticText", false)
+        put(
+            "repeatFailureContextFields",
+            JsonArray(
+                listOf(
+                    "turn_id",
+                    "tool",
+                    "canonical_arguments",
+                    "observation_generation",
+                    "visual_revision",
+                    "failure_code",
+                ).map(::JsonPrimitive),
+            ),
+        )
+        put("terminalGenerationCannotPublishLateToolsOrSpeech", true)
+        put("internalToolOrTransportErrorsAreNotAssistantOutput", true)
     }
     assertEquals("Phone Control invariant policy drifted", expected, actual)
 }

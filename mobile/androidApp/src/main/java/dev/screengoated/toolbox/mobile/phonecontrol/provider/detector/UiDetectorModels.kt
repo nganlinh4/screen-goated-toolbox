@@ -1,5 +1,8 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider.detector
 
+import android.view.Display
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.ACTIVE_CONTENT_WINDOW_TYPE
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.APPLICATION_WINDOW_TYPE
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityObservation
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilitySurfaceLease
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityWindowSnapshot
@@ -110,37 +113,20 @@ internal data class UiDetectorRefreshMatch(
 internal fun detectorSurface(
     observation: AccessibilityObservation,
 ): AccessibilityWindowSnapshot? = observation.windows
-    .filter { it.contentAccessible && !it.controllerOwned && (it.active || it.focused) }
+    .filter {
+        it.displayId == Display.DEFAULT_DISPLAY &&
+            !it.controllerOwned &&
+            (it.active || it.focused) &&
+            it.type in DETECTOR_SURFACE_WINDOW_TYPES
+    }
     .sortedWith(compareByDescending<AccessibilityWindowSnapshot> { it.active }.thenByDescending { it.layer })
     .firstOrNull()
 
-internal fun isAccessibilityBlind(
-    observation: AccessibilityObservation,
-    surface: AccessibilityWindowSnapshot,
-): Boolean {
-    val actionable = observation.elements.filter { element ->
-        element.target.windowId == surface.id.toLong() &&
-            element.enabled && element.visible && !element.controllerOwned &&
-            element.actions.any(ACTIONABLE_ACTIONS::contains) &&
-            listOf(element.label, element.value, element.hint, element.stateDescription, element.viewId)
-                .any { !it.isNullOrBlank() }
-    }
-    if (actionable.isEmpty()) return true
-    val viewArea = surface.bounds.area().coerceAtLeast(1L)
-    val covered = actionable.sumOf { element -> element.bounds.intersectionArea(surface.bounds) }
-    return actionable.size <= 12 && covered.toDouble() / viewArea.toDouble() < 0.03
-}
-
-internal fun accessibleActionBounds(
-    observation: AccessibilityObservation,
-    surface: AccessibilityWindowSnapshot,
-): List<TargetBounds> = observation.elements
-    .filter { element ->
-        element.target.windowId == surface.id.toLong() &&
-            element.enabled && element.visible && !element.controllerOwned &&
-            element.actions.any(ACTIONABLE_ACTIONS::contains)
-    }
-    .map { it.bounds }
+private val DETECTOR_SURFACE_WINDOW_TYPES = setOf(
+    APPLICATION_WINDOW_TYPE,
+    ACTIVE_CONTENT_WINDOW_TYPE,
+    "system",
+)
 
 internal fun postprocessUiDetector(
     detsShape: LongArray,
@@ -359,10 +345,6 @@ private fun bucket(position: Int, origin: Int, length: Int, count: Int): Int {
 private fun TargetBounds.area(): Long =
     (right - left).coerceAtLeast(0).toLong() * (bottom - top).coerceAtLeast(0).toLong()
 
-private fun TargetBounds.intersectionArea(other: TargetBounds): Long =
-    (minOf(right, other.right) - maxOf(left, other.left)).coerceAtLeast(0).toLong() *
-        (minOf(bottom, other.bottom) - maxOf(top, other.top)).coerceAtLeast(0).toLong()
-
 private fun Long.toIntExact(name: String): Int {
     require(this in 0..Int.MAX_VALUE.toLong()) { "invalid $name: $this" }
     return toInt()
@@ -374,6 +356,5 @@ private val SPATIAL_ORDER = compareBy<UiDetectorBox>(
     { it.bounds.bottom },
     { it.bounds.right },
 )
-private val ACTIONABLE_ACTIONS = setOf("click", "activate", "toggle", "select", "submit")
 private const val BUCKET_COLUMNS = 6
 private const val BUCKET_ROWS = 4

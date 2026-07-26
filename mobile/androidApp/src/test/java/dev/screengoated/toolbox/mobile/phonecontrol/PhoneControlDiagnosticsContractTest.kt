@@ -26,7 +26,7 @@ class PhoneControlDiagnosticsContractTest {
         val recovery = root.getValue("sameGenerationTargetRecovery").jsonObject
         val postconditions = root.getValue("postconditions").jsonObject
 
-        assertEquals(4L, root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(5L, root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals(
             PhoneControlLog.RECORD_SCHEMA_VERSION.toLong(),
             journal.getValue("recordSchemaVersion").jsonPrimitive.long,

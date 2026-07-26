@@ -72,12 +72,14 @@ internal object PhoneControlAccessibilityProvider {
         get() = service?.packageName
 
     fun attach(candidate: SgtAccessibilityService) {
+        AccessibilityWindowAttribution.clear()
         service = candidate
         invalidate("service_connected")
     }
 
     fun detach(candidate: SgtAccessibilityService) {
         if (service === candidate) {
+            AccessibilityWindowAttribution.clear()
             service = null
             invalidate("service_destroyed")
         }
@@ -89,8 +91,8 @@ internal object PhoneControlAccessibilityProvider {
     ) {
         if (service !== candidate || event == null) return
         val impact = accessibilityInvalidationImpact(event.eventType, event.contentChangeTypes)
-        if (impact == AccessibilityInvalidationImpact.NONE) return
-        val source = event.packageName?.toString().orEmpty().ifBlank { "unknown" }
+        val sourcePackage = event.packageName?.toString()?.takeIf(String::isNotBlank)
+        val source = sourcePackage ?: "unknown"
         val windows = synchronized(lock) {
             latestCapture?.observation?.windows.orEmpty()
         }
@@ -102,6 +104,10 @@ internal object PhoneControlAccessibilityProvider {
                 controllerTransitionActive = PhoneControlOverlayExclusion.controllerTransitionActive,
             )
         ) {
+            return
+        }
+        if (impact == AccessibilityInvalidationImpact.NONE) {
+            AccessibilityWindowAttribution.record(event.windowId, sourcePackage, observationGeneration)
             return
         }
         AccessibilityInvalidationDiagnostics.record(
@@ -118,6 +124,7 @@ internal object PhoneControlAccessibilityProvider {
         } else {
             advanceVisualRevision()
         }
+        AccessibilityWindowAttribution.record(event.windowId, sourcePackage, observationGeneration)
     }
 
     suspend fun observe(maxElements: Int = 400): AccessibilityProviderResult<AccessibilityObservation> {

@@ -17,11 +17,11 @@ internal fun accessibilityInvalidationImpact(
 ): AccessibilityInvalidationImpact = when (eventType) {
     AccessibilityEvent.TYPE_WINDOWS_CHANGED,
     AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+    -> AccessibilityInvalidationImpact.HARD
+
     AccessibilityEvent.TYPE_VIEW_CLICKED,
     AccessibilityEvent.TYPE_VIEW_SCROLLED,
     AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
-    -> AccessibilityInvalidationImpact.HARD
-
     AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ->
         if (contentChangeTypes >= 0) {
             AccessibilityInvalidationImpact.SEMANTIC_ONLY

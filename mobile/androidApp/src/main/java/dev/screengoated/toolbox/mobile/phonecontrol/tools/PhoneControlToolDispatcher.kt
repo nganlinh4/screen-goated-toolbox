@@ -13,6 +13,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderExecution
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderExecutionPlanDecision
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderReceiptDecision
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderRouter
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
@@ -47,6 +48,10 @@ internal fun interface PhoneControlModelToolAdmission {
     fun allowed(): Boolean
 }
 
+internal fun interface PhoneControlFailureContext {
+    fun currentIdentity(): String
+}
+
 internal object AndroidPhoneControlToolFailureReporter : PhoneControlToolFailureReporter {
     override fun report(requestedTool: String, jobId: String, error: Throwable) {
         Log.e(
@@ -68,6 +73,10 @@ internal class PhoneControlToolDispatcher(
         NoOpActionableObservationRecovery,
     private val modelToolAdmission: PhoneControlModelToolAdmission =
         PhoneControlModelToolAdmission { true },
+    private val repeatFailureGuard: PhoneControlRepeatFailureGuard =
+        PhoneControlRepeatFailureGuard(),
+    private val failureContext: PhoneControlFailureContext =
+        PhoneControlFailureContext { TEST_FAILURE_CONTEXT },
 ) : PhoneControlToolDispatchBoundary {
     constructor(
         context: Context,
@@ -87,6 +96,10 @@ internal class PhoneControlToolDispatcher(
         modelToolAdmission = PhoneControlModelToolAdmission(
             PhoneControlProtectedCheckpointRegistry::modelToolsAllowed,
         ),
+        failureContext = PhoneControlFailureContext {
+            "${PhoneControlAccessibilityProvider.observationGeneration}:" +
+                PhoneControlAccessibilityProvider.currentVisualRevision
+        },
     )
 
     override suspend fun dispatch(
@@ -94,7 +107,7 @@ internal class PhoneControlToolDispatcher(
         requestedTool: String,
         arguments: JsonObject,
     ): PhoneControlToolExecution {
-        val spec = PhoneControlToolRegistry.byName[requestedTool]
+        val spec = PhoneControlToolRegistry.resolve(requestedTool, arguments)
             ?: return unavailableToolResponse(
                 job = job,
                 requestedTool = requestedTool,
@@ -102,6 +115,15 @@ internal class PhoneControlToolDispatcher(
                 provider = "unregistered",
                 state = CapabilityState.UNSUPPORTED,
             )
+        val failureFingerprint = repeatFailureGuard.fingerprint(
+            job.turnId,
+            requestedTool,
+            arguments,
+            failureContext.currentIdentity(),
+        )
+        if (repeatFailureGuard.isBlocked(failureFingerprint)) {
+            return repeatedFailure(job, requestedTool, failureFingerprint)
+        }
         if (!modelToolAdmission.allowed()) {
             return unavailableToolResponse(
                 job = job,
@@ -129,7 +151,7 @@ internal class PhoneControlToolDispatcher(
                 return providerPlanFailure(job, spec, decision)
             }
         }
-        return try {
+        val execution = try {
             validateReceipt(
                 spec = spec,
                 plan = plan,
@@ -143,7 +165,35 @@ internal class PhoneControlToolDispatcher(
             failureReporter.report(requestedTool, job.jobId, error)
             providerFailure(job, spec, handler)
         }
+        repeatFailureGuard.observe(failureFingerprint, execution.response)
+        return execution
     }
+
+    private fun repeatedFailure(
+        job: PhoneControlToolJobContext,
+        requestedTool: String,
+        fingerprint: PhoneControlFailureFingerprint,
+    ): PhoneControlToolExecution = PhoneControlToolExecution(
+        response = toolResponse(
+            job = job,
+            requestedTool = requestedTool,
+            capability = LOCAL_CONTRACT_CAPABILITY,
+            provider = LOCAL_REPEAT_GUARD_PROVIDER,
+            providerState = CapabilityState.READY,
+            code = REPEATED_FAILURE_CODE,
+            observationGeneration = 0,
+            effect = EffectCertainty.PROVEN_NO_EFFECT,
+            snapshotInvalidated = false,
+            retryable = false,
+            freshObservationRequired = true,
+            data = buildJsonObject {
+                put("failure_class", INTERNAL_FAILURE_CLASS)
+                put("prior_failure_code", repeatFailureGuard.failureCode(fingerprint).orEmpty())
+            },
+        ),
+        mutating = false,
+        refreshScreenFrame = true,
+    )
 
     private fun providerFailure(
         job: PhoneControlToolJobContext,
@@ -298,5 +348,8 @@ internal class PhoneControlToolDispatcher(
         const val PRIMARY_PROVIDER_ROLE = "primary"
         const val DEPENDENCY_PROVIDER_ROLE = "dependency"
         const val PROTECTED_CHECKPOINT_PROVIDER = "protected_checkpoint"
+        const val LOCAL_REPEAT_GUARD_PROVIDER = "android_app_api"
+        const val REPEATED_FAILURE_CODE = "repeated_failure"
+        const val TEST_FAILURE_CONTEXT = "test"
     }
 }

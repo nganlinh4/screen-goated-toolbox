@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "feature": "phone-control-orb",
   "canonicalAsset": "src/overlay/computer_control/orb/orb.html",
   "androidAsset": "phone_control/orb.html",
@@ -21,7 +21,34 @@
     "dragDismissCancel": "hide_target_and_keep_session",
     "dragDismissCoordinates": "current_raw_pointer",
     "captureDoesNotMutateVisibleOverlayWhenWindowCaptureIsAvailable": true,
-    "freshReceiptPostconditionDoesNotPublishTransientWarning": true
+    "freshReceiptPostconditionDoesNotPublishTransientWarning": true,
+    "unchangedVisualStateDoesNotRerender": true,
+    "internalOrProviderErrorTextNeverBecomesCaption": true,
+    "degradedStatePresentation": "preserve_current_conversation_state",
+    "degradedStateCaption": "empty_unless_explicit_user_step_guidance",
+    "conversationCaptionOwner": "current_generation_transcription_only",
+    "respondingEmotionClassifier": {
+      "provider": "taalas",
+      "cadenceMs": 1000,
+      "maximumInputCharacters": 600,
+      "failurePresentation": "keep_current_icon_silently",
+      "doesNotBlockSpeechOrTools": true,
+      "labels": [
+        "very_satisfied",
+        "satisfied",
+        "excited",
+        "content",
+        "calm",
+        "neutral",
+        "worried",
+        "stressed",
+        "frustrated",
+        "sad",
+        "dissatisfied",
+        "very_dissatisfied",
+        "extremely_dissatisfied"
+      ]
+    }
   },
   "stateLabels": [
     "idle",

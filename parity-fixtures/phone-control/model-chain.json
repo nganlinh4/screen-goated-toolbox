@@ -1,10 +1,24 @@
 {
-  "version": 2,
+  "version": 3,
   "live_session": {
     "api_model": "gemini-3.1-flash-live-preview",
     "thinking_config": {
       "thinkingLevel": "LOW",
       "includeThoughts": true
+    },
+    "realtime_input_config": {
+      "automaticActivityDetection": {
+        "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
+        "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH",
+        "prefixPaddingMs": 30,
+        "silenceDurationMs": 250
+      },
+      "activityHandling": "START_OF_ACTIVITY_INTERRUPTS"
+    },
+    "controller_contract": {
+      "evidenceRoutingAddendum": true,
+      "communicativeIntentRule": true,
+      "languageSpecificRouting": false
     }
   },
   "grounding": {
