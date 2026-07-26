@@ -418,11 +418,13 @@ sideloaded app before Accessibility can be enabled. Treat this as a typed
   are abandoned before a fresh session is bound.
 - A synchronous function call is answered before any tool-owned screen evidence
   or ambient screen frame is sent. Ambient video remains paused while that call
-  is unanswered; microphone audio remains live so barge-in still works. Once the
-  response is accepted by the socket, exact tool evidence follows in the same
-  logical-session FIFO before ambient video resumes. Transport diagnostics keep
-  only a bounded structural tail (payload kind, byte count, protocol phase, and
-  pending-work count); they never retain payload content.
+  is unanswered; microphone audio remains live so barge-in still works. Each
+  outbound flush sends its bounded microphone burst before queued control and
+  visual payloads. This priority changes latency only: the tool response still
+  precedes its tool-owned screen evidence, and exact tool evidence still
+  precedes ambient video. Transport diagnostics keep only a bounded structural
+  tail (payload kind, byte count, protocol phase, and pending-work count); they
+  never retain payload content.
 - `done` is terminal. Accept it once, release its current-generation audio once,
   retire later tools/output, run silent local cleanup, and return idle.
 - If a generation ends without `done`, release its one response and return idle.
@@ -471,6 +473,16 @@ device timeout or release a still-running production operation.
 ### Speech and captions
 
 - Caption and audio belong to the same generation.
+- Microphone capture remains open while assistant audio plays and while tools
+  run. Local RMS is presentation/activity evidence only; it never phrase-gates
+  input and never retires a playing generation. Gemini Live's typed
+  `interrupted` event is the sole speech barge-in receipt that retires that
+  generation, stops its playback, and cancels only its owned work.
+- Use the Windows PCM16 voice floor of 120 RMS for local activity. On each new
+  locally voiced burst while assistant playback is quiet, request one fresh
+  screen frame immediately so pixels lead the utterance. Keep the 500 ms
+  structural hangover independent of Gemini Live's provider-owned automatic
+  activity detection.
 - Stream current-generation PCM as it arrives. Only a bounded device-startup
   buffer or a temporarily missing output sink may delay playback.
 - Tool dispatch, tool completion, semantic completion, and postcondition checks
@@ -489,6 +501,10 @@ device timeout or release a still-running production operation.
   path data, icon loops, and directional scroll overrides come from the canonical
   renderer and `parity-fixtures/phone-control/orb-contract.json`; Android must not
   redraw a substitute circle or maintain a second icon catalog.
+- Orb audio receives the same signal as Windows: normalized PCM16 RMS is treated
+  as voiced at `120 / 32768`, multiplied by `32768 / 4000`, clamped to `[0, 1]`,
+  and otherwise sent as zero. This is a visual mapping only and cannot affect
+  upload, interruption, tool dispatch, or semantic state.
 - Android renders the caption in that same canonical HTML, including Google Sans
   Flex, transparent background, white text/shadows, placement, and incremental
   word motion. It must not maintain a native substitute caption or restart
@@ -540,6 +556,12 @@ device timeout or release a still-running production operation.
   types follow the platform contract already declared by the mobile app.
   Process death retires owned jobs and requires a fresh consent session; it
   never replays a command or reuses projection consent.
+- Projection callbacks, reader/display retirement, resize, and frame ownership
+  are serialized on the projection handler. Stop first closes admission and
+  settles any pending capture, then retires platform resources after any
+  in-flight callback. A callback never reads an `Image` after close, cleanup
+  exceptions never escape the callback thread, and display metadata comes from
+  the structural default-display service rather than an Activity-only context.
 - Android may redact private notification content while whole-display capture is
   active. Provider setup may therefore declare a protected user checkpoint.
   The full-catalog agent first completes its bounded reversible navigation goal.
@@ -1374,6 +1396,15 @@ tool plan and capability route.
   per-frame heartbeat, so diagnostics can distinguish Accessibility,
   projection-only continuity, and detector grounding without creating log or
   rendering churn.
+- Projection decode failures emit once at the failure transition and then at a
+  bounded repeat cadence. The count resets only after the complete frame,
+  metadata, cache, and caller-copy path succeeds. Failure reporting uses a
+  pre-close structural image snapshot and can never touch or close the frame
+  unsafely.
+- Microphone diagnostics record every structural voiced-burst start and end
+  without transcript content, plus bounded capture-reopen attempts after a
+  platform read failure. This makes a silent/dead input path diagnosable without
+  persisting speech.
 - When collecting schema-v1 journals, compact legacy periodic invalidation
   summaries before JSON parsing. Preserve aggregate record, hard-invalidation,
   and semantic-invalidation counts in `summary.json`; omit those legacy lines
@@ -1428,7 +1459,7 @@ tool plan and capability route.
 - Windows acceptance suite:
   `tests/computer_control_golden_suite.json`
 
-### Verified Android evidence (2026-07-25)
+### Verified Android evidence (2026-07-26)
 
 - The latest completed Full and Play unit runs pass 734 and 723 tests
   respectively; neither run has failures, errors, or skips.
@@ -1452,6 +1483,12 @@ tool plan and capability route.
   original foreground, and user-granted Accessibility state remain unchanged.
 - The final Play release AAB passes module ownership plus exact native/model
   byte-count and SHA-256 checks.
+- A Full debug build on a physical current-API device repeatedly starts
+  whole-display MediaProjection, publishes a first frame, opens microphone
+  uplink, verifies the paired SGT Bridge authority, and then stops projection
+  while the app process remains alive. The post-fix run contains no projection
+  decode failure, closed-image access, activity-only display lookup, or fatal
+  exception.
 - Production-path probes on real Settings surfaces verify a routine navigation
   postcondition, stale-target rejection with proven no effect, and an OS-owned
   Package Installer confirmation that remains a user step and preserves the

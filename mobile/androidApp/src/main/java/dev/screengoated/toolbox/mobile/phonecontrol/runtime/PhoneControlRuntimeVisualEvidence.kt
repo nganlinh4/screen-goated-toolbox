@@ -75,9 +75,10 @@ internal fun offerPhoneControlPayload(
 internal const val TRANSPORT_POLL_MS = 40L
 internal const val RECEIVE_POLL_MS = 40L
 internal const val MAX_TRANSPORT_REASON_CHARS = 240
-internal const val LEVEL_UPDATE_INTERVAL_MS = 50L
+internal const val LEVEL_UPDATE_INTERVAL_MS = 80L
 internal const val MAX_BUFFERED_AUDIO_FRAMES = 24
 internal const val MAX_AUDIO_FRAMES_PER_FLUSH = 8
 internal const val MAX_BUFFERED_PLAYBACK_CHUNKS = 32
-internal const val SPEECH_RMS_THRESHOLD = 0.015f
-internal const val SPEECH_HANGOVER_MS = 800L
+internal const val SPEECH_RMS_THRESHOLD = 120f / 32768f
+internal const val SPEECH_HANGOVER_MS = 500L
+internal const val ORB_AUDIO_GAIN = 32768f / 4000f

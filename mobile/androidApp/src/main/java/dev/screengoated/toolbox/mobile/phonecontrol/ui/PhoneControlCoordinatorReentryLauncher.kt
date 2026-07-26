@@ -5,6 +5,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Bundle
+import androidx.annotation.RequiresApi
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
 import java.util.concurrent.atomic.AtomicLong
 
@@ -91,29 +93,50 @@ internal object PhoneControlCoordinatorReentryLauncher {
 
     fun hasPendingReceipt(): Boolean = expectedToken.get() != NO_TOKEN
 
-    private fun creatorOptions(mode: PhoneControlBackgroundLaunchMode) =
-        activityOptions(mode) { value ->
-            setPendingIntentCreatorBackgroundActivityStartMode(value)
+    private fun creatorOptions(mode: PhoneControlBackgroundLaunchMode): Bundle? =
+        if (mode != PhoneControlBackgroundLaunchMode.PLATFORM_DEFAULT &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        ) {
+            creatorOptionsApi34(mode)
+        } else {
+            null
         }
 
-    private fun senderOptions(mode: PhoneControlBackgroundLaunchMode) =
-        activityOptions(mode) { value ->
-            setPendingIntentBackgroundActivityStartMode(value)
+    private fun senderOptions(mode: PhoneControlBackgroundLaunchMode): Bundle? =
+        if (mode != PhoneControlBackgroundLaunchMode.PLATFORM_DEFAULT &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        ) {
+            senderOptionsApi34(mode)
+        } else {
+            null
         }
 
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun creatorOptionsApi34(mode: PhoneControlBackgroundLaunchMode): Bundle =
+        ActivityOptions.makeBasic().apply {
+            setPendingIntentCreatorBackgroundActivityStartMode(backgroundLaunchModeApi34(mode))
+        }.toBundle()
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun senderOptionsApi34(mode: PhoneControlBackgroundLaunchMode): Bundle =
+        ActivityOptions.makeBasic().apply {
+            setPendingIntentBackgroundActivityStartMode(backgroundLaunchModeApi34(mode))
+        }.toBundle()
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     @Suppress("DEPRECATION")
-    private inline fun activityOptions(
-        mode: PhoneControlBackgroundLaunchMode,
-        setMode: ActivityOptions.(Int) -> Unit,
-    ) = when (mode) {
-        PhoneControlBackgroundLaunchMode.PLATFORM_DEFAULT -> null
-        PhoneControlBackgroundLaunchMode.ALLOWED -> ActivityOptions.makeBasic().apply {
-            setMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
-        }.toBundle()
-        PhoneControlBackgroundLaunchMode.ALLOW_ALWAYS -> ActivityOptions.makeBasic().apply {
-            setMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS)
-        }.toBundle()
-    }
+    private fun backgroundLaunchModeApi34(mode: PhoneControlBackgroundLaunchMode): Int =
+        if (mode == PhoneControlBackgroundLaunchMode.ALLOW_ALWAYS &&
+            Build.VERSION.SDK_INT >= 36
+        ) {
+            backgroundLaunchModeApi36()
+        } else {
+            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+        }
+
+    @RequiresApi(36)
+    private fun backgroundLaunchModeApi36(): Int =
+        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS
 
     private const val TAG = "SGTPhoneControlActivation"
     private const val REENTRY_REQUEST_CODE = 0x5347

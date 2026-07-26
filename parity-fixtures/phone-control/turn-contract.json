@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 9,
+  "schemaVersion": 10,
   "feature": "phone-control",
   "sharedSocketFixture": "parity-fixtures/gemini-live-session/lifecycle.json",
   "states": ["idle", "listening", "working", "finalizing"],
@@ -34,6 +34,10 @@
     "toolReceiptPrecedesToolOwnedScreenEvidence": true,
     "ambientScreenBlockedWhileToolResponseOutstanding": true,
     "microphoneAudioBlockedByTools": false,
+    "microphoneAudioPrecedesQueuedControlAndVisualPayloads": true,
+    "speechOnsetRequestsFreshScreenWhenAssistantSilent": true,
+    "localVoiceActivityCannotRetirePlayingGeneration": true,
+    "providerInterruptionRetiresPlayingGeneration": true,
     "transportFailureTailContainsPayloadContent": false,
     "equivalentStructuredFailureRetryLimit": 2,
     "repeatFailureGuardUsesSemanticText": false,
