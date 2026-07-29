@@ -79,7 +79,7 @@ private val OPTIONAL_STRING_FIELDS = listOf(
     "argument_field",
     "contract_reason",
     "effect_status",
-    "detector_stage",
+    "grounding_stage",
 )
 private val OPTIONAL_LONG_FIELDS = listOf(
     "observation_generation",
@@ -90,9 +90,8 @@ private val OPTIONAL_LONG_FIELDS = listOf(
     "target_snapshot_generation",
     "target_display_id",
     "target_window_id",
-    "mapping_inference_ms",
-    "target_selection_ms",
-    "refresh_inference_ms",
+    "mapping_model_ms",
+    "target_location_ms",
     "target_verification_ms",
     "pixel_revalidation_ms",
 )

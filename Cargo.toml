@@ -28,6 +28,7 @@ zip = "8.2"
 flate2 = "1.1"
 byteorder = "1.5"
 rayon = "1.11"
+quick-xml = "0.38"
 
 # Image Processing
 image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }

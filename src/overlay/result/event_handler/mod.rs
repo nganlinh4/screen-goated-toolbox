@@ -68,6 +68,10 @@ pub unsafe extern "system" fn result_wnd_proc(
             // Handle monitor changes to prevent lost windows
             WM_DISPLAYCHANGE => misc::handle_display_change(hwnd),
 
+            // A transparent WebView2 child must be created only after its layered
+            // parent has entered the visible/composed window tree.
+            WM_SHOWWINDOW => misc::handle_show_window(hwnd, wparam, lparam),
+
             // Enforce minimum window size to prevent rendering issues
             WM_GETMINMAXINFO => {
                 let mmi = lparam.0 as *mut MINMAXINFO;

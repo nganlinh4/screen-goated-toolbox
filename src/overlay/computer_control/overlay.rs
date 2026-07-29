@@ -81,7 +81,6 @@ pub fn show_overlay() {
         return;
     }
     CC_STOP.store(false, Ordering::SeqCst);
-    super::orb::ensure_started();
     super::orb::show_orb();
     set_orb_state(OrbState::Idle, None);
     let stop = CC_STOP.clone();

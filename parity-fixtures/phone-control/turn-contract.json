@@ -54,7 +54,7 @@
     "internalToolOrTransportErrorsAreNotAssistantOutput": true,
     "audioModeModelTextIsInternal": true,
     "voiceBurstStartsAndEndsPair": true,
-    "detectorRequestFreshnessDoesNotDowngradeProvider": true,
+    "groundingRequestFreshnessDoesNotDowngradeProvider": true,
     "visualGroundingUsesTargetLocalFinalLease": true
   },
   "cases": [

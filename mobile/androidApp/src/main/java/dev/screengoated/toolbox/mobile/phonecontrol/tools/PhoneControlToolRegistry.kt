@@ -118,15 +118,20 @@ internal object PhoneControlToolRegistry {
         realWithProviders(
             "click_target",
             "ui.pointer_action",
-            listOf("local_ui_detector"),
+            listOf("current_frame_vision"),
             PhoneControlHandler.CLICK_TARGET,
             dependencyProviders = POINTER_EFFECT_PROVIDERS.toSet(),
         ),
-        real("map_targets", "blind_surface_grounding", "local_ui_detector", PhoneControlHandler.MAP_TARGETS),
+        real(
+            "map_targets",
+            "blind_surface_grounding",
+            "current_frame_vision",
+            PhoneControlHandler.MAP_TARGETS,
+        ),
         realWithProviders(
             "click_mark",
             "ui.pointer_action",
-            listOf("local_ui_detector"),
+            listOf("current_frame_vision"),
             PhoneControlHandler.CLICK_MARK,
             dependencyProviders = POINTER_EFFECT_PROVIDERS.toSet(),
         ),
@@ -152,12 +157,12 @@ internal object PhoneControlToolRegistry {
         realWithProviders(
             "drag_target",
             "ui.pointer_action",
-            listOf("local_ui_detector"),
+            listOf("current_frame_vision"),
             PhoneControlHandler.DRAG_TARGET,
             dependencyProviders = POINTER_EFFECT_PROVIDERS.toSet(),
         ),
         unsupported("click_here", "ui.pointer_action", "accessibility"),
-        unavailable("point_at", "ui.pointer_action", "local_ui_detector"),
+        unavailable("point_at", "ui.pointer_action", "current_frame_vision"),
         realWithProviders(
             "key_combination",
             "ui.key_action",

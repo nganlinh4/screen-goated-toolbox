@@ -3,7 +3,6 @@ package dev.screengoated.toolbox.mobile.phonecontrol
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.w3c.dom.Element
@@ -63,7 +62,7 @@ class PhoneControlDistributionParityTest {
     }
 
     @Test
-    fun `full and play share behavior and vary only detector asset delivery`() {
+    fun `full and play share one Phone Control implementation`() {
         val appCatalog = file(
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/AppsCarouselSection.kt",
         ).readText()
@@ -87,25 +86,7 @@ class PhoneControlDistributionParityTest {
         assertTrue(appCatalog.contains("app-card-phone-control"))
         assertTrue(appCatalog.contains("PhoneControlActivity.activationIntent"))
         assertTrue(appCatalog.contains("PhoneControlService.stop"))
-        assertEquals(
-            setOf(
-                "full/java/dev/screengoated/toolbox/mobile/phonecontrol/provider/detector/" +
-                    "UiDetectorBundledModelSource.kt",
-                "play/java/dev/screengoated/toolbox/mobile/phonecontrol/provider/detector/" +
-                    "UiDetectorBundledModelSource.kt",
-            ),
-            flavorSources.map { source ->
-                source.relativeTo(file("mobile/androidApp/src")).invariantSeparatorsPath
-            }.toSet(),
-        )
-        flavorSources.forEach { source ->
-            val deliveryShim = source.readText()
-            assertTrue(deliveryShim.contains("internal object UiDetectorBundledModelSource"))
-            assertTrue(deliveryShim.contains("suspend fun copyTo("))
-            assertTrue(deliveryShim.contains("UiDetectorBundledModelResult"))
-            assertFalse(deliveryShim.contains("PhoneControlToolRegistry"))
-            assertFalse(deliveryShim.contains("PhoneControlHandler"))
-        }
+        assertEquals(emptyList<File>(), flavorSources)
     }
 
     private fun xml(path: String) = DocumentBuilderFactory.newInstance()

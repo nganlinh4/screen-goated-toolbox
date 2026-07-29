@@ -231,7 +231,6 @@ class PresetRetryChainTest {
         }
 
         listOf(
-            "preset_extract_retrans_retrans",
             "preset_extract_table",
             "preset_fact_check",
             "preset_omniscient_god",
@@ -245,16 +244,19 @@ class PresetRetryChainTest {
         val root = json.parseToJsonElement(
             Files.readAllBytes(catalogFixturePath()).decodeToString(),
         ).jsonObject
-        val retirement = root.getValue("retired_builtins").jsonArray.single().jsonObject
-        val retiredId = retirement.getValue("preset_id").jsonPrimitive.content
-        val replacementId = retirement.getValue("replacement_id").jsonPrimitive.content
+        val retirements = root.getValue("retired_builtins").jsonArray.map { it.jsonObject }
 
-        assertFalse(
-            retirement.getValue("android_copies_hotkey_metadata").jsonPrimitive.boolean,
-        )
-        assertFalse(DefaultPresets.all.any { it.id == retiredId })
-        assertTrue(DefaultPresets.all.single { it.id == replacementId }.hotkeys.isEmpty())
-        assertEquals(15, DefaultPresets.imagePresets.size)
+        assertEquals(2, retirements.size)
+        retirements.forEach { retirement ->
+            val retiredId = retirement.getValue("preset_id").jsonPrimitive.content
+            val replacementId = retirement.getValue("replacement_id").jsonPrimitive.content
+            assertFalse(
+                retirement.getValue("android_copies_hotkey_metadata").jsonPrimitive.boolean,
+            )
+            assertFalse(DefaultPresets.all.any { it.id == retiredId })
+            assertTrue(DefaultPresets.all.single { it.id == replacementId }.hotkeys.isEmpty())
+        }
+        assertEquals(14, DefaultPresets.imagePresets.size)
     }
 
     private fun fixturePath(): Path {

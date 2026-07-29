@@ -56,7 +56,7 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 ready = "Ready",
                 preparing = "Preparing",
                 queued = "Queued",
-                providerQueued = "In service queue",
+                waiting = "Waiting",
                 working = "Creating",
                 progress = CreationProgressLocale(
                     almostThere = "Almost there",
@@ -71,18 +71,21 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 open = "Open",
                 rename = "Rename",
                 delete = "Delete",
-                deleteConfirm = "Delete this result?",
+                deleteAll = "Delete all results",
+                deleteAllConfirm = "Delete all saved results from this app?",
                 dismiss = "Dismiss",
                 noResults = "No saved results",
                 selectedImages = "{} images",
                 interrupted = "Creation could not finish.",
-                previewTools = "Creation previews",
-                creationRuntime = "Creation tools",
-                creationRuntimeDescription =
-                    "Create 3D models, SVGs, and images from your references.",
-                depthPreviewModel = "Depth Anything 3 Small",
-                depthPreviewDescription =
-                    "Adds animated depth previews while 3D and SVG results are being created.",
+                sourceUnavailable = "Choose the source image again, then retry.",
+                storageUnavailable =
+                    "Free up storage space, then try again. Your existing results were kept.",
+                tools = CreationToolsLocale(
+                    previewTools = "Creation previews",
+                    creationRuntime = "Creation tools",
+                    creationRuntimeDescription =
+                        "Create 3D models, SVGs, and images from your references.",
+                ),
             ),
             model3d = Creation3dLocale(
                 mode = "Mode",
@@ -92,6 +95,8 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 light = "Light (game/web)",
                 detailed = "Detailed (render/print)",
                 autoSeparate = "Automatically separate parts",
+                instruction = "Optional instruction",
+                instructionHint = "Describe the shape or details to emphasize",
                 generate = "Generate model",
                 generateAgain = "Generate again",
                 separate = "Separate parts",
@@ -114,6 +119,10 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 simpleDescription = "Clean shapes, smaller file",
                 detail = "Detail",
                 detailDescription = "More paths and fine edges",
+                transparentBackground = "Transparent background",
+                backgroundAuto = "Auto",
+                backgroundOn = "On",
+                backgroundOff = "Off",
                 generate = "Create SVG",
                 generateAgain = "Create again",
                 vectorReady = "SVG ready",
@@ -124,6 +133,7 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 zoomOut = "Zoom out",
                 undo = "Undo",
                 redo = "Redo",
+                editPaths = "Edit paths",
                 saveEdits = "Save edits",
             ),
             image = CreationImageLocale(

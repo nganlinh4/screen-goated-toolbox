@@ -19,8 +19,8 @@ use windows061::Win32::UI::WindowsAndMessaging::{
 use windows061::core::w;
 
 use super::{
-    ORB_COMP, ORB_HWND, ORB_INITIALIZING, ORB_PAGE_READY, ORB_WARMED_UP, ORB_WEBVIEW,
-    REGISTER_ORB_CLASS, dcomp::build_host, virtual_screen, wnd_proc::orb_wnd_proc,
+    ORB_COMP, ORB_HWND, ORB_INITIALIZING, ORB_PAGE_READY, ORB_SHOW_POSTED, ORB_WARMED_UP,
+    ORB_WEBVIEW, REGISTER_ORB_CLASS, dcomp::build_host, virtual_screen, wnd_proc::orb_wnd_proc,
 };
 
 /// Thread entry: bring up the orb window + WebView2 host and run its message loop.
@@ -74,6 +74,7 @@ pub(super) fn create_orb_window() {
         drop(host);
         ORB_WARMED_UP.store(false, Ordering::SeqCst);
         ORB_PAGE_READY.store(false, Ordering::SeqCst);
+        ORB_SHOW_POSTED.store(false, Ordering::SeqCst);
         ORB_INITIALIZING.store(false, Ordering::SeqCst);
         ORB_HWND.store(0, Ordering::SeqCst);
         ORB_WEBVIEW.with(|c| *c.borrow_mut() = None);

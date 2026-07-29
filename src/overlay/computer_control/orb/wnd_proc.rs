@@ -22,7 +22,7 @@ use windows061::core::{HSTRING, Interface, PCWSTR};
 
 use super::{
     HIDE_TIMER_ID, LEAVE_TIMER_ID, ORB_COMP, ORB_TEXT_MODE, ORB_WEBVIEW, WM_APP_HIDE_ORB,
-    WM_APP_RUN_ORB_SCRIPT, WM_APP_SHOW_ORB,
+    WM_APP_RUN_ORB_SCRIPT, WM_APP_SHOW_ORB, visibility_message_is_current,
 };
 
 pub(super) unsafe extern "system" fn orb_wnd_proc(
@@ -43,14 +43,18 @@ pub(super) unsafe extern "system" fn orb_wnd_proc(
             }
 
             WM_APP_SHOW_ORB => {
-                handle_show(hwnd);
+                if visibility_message_is_current(wparam.0, true) {
+                    handle_show(hwnd);
+                }
                 LRESULT(0)
             }
 
             WM_APP_HIDE_ORB => {
-                exec_script("window.cc&&window.cc.hide();");
-                // Let the fly-out animation play, then hide the window.
-                let _ = SetTimer(Some(hwnd), HIDE_TIMER_ID, 900, None);
+                if visibility_message_is_current(wparam.0, false) {
+                    exec_script("window.cc&&window.cc.hide();");
+                    // Let the fly-out animation play, then hide the window.
+                    let _ = SetTimer(Some(hwnd), HIDE_TIMER_ID, 900, None);
+                }
                 LRESULT(0)
             }
 

@@ -12,17 +12,24 @@ enum ProfileAction {
     Delete(usize),
 }
 
+#[derive(Default)]
+pub(super) struct ProfileRenderResponse {
+    pub(super) changed: bool,
+    pub(super) presets_changed: bool,
+}
+
 pub fn render_profiles(
     ui: &mut egui::Ui,
     config: &mut Config,
     view_mode: &mut ViewMode,
     text: &LocaleText,
-) -> bool {
+) -> ProfileRenderResponse {
     if config.preset_profiles.is_empty() {
         config.sync_active_profile_from_presets();
     }
 
     let mut changed = false;
+    let mut presets_changed = false;
     let mut action = None;
     let editing_id = egui::Id::new("sidebar_profile_editing_id");
     let delete_confirm_id = egui::Id::new("sidebar_profile_delete_confirm_id");
@@ -267,10 +274,13 @@ pub fn render_profiles(
         } else {
             ViewMode::Preset(config.active_preset_idx.min(config.presets.len() - 1))
         };
-        crate::overlay::favorite_bubble::update_favorites_panel();
         ui.memory_mut(|mem| mem.data.remove::<String>(editing_id));
         changed = true;
+        presets_changed = true;
     }
 
-    changed
+    ProfileRenderResponse {
+        changed,
+        presets_changed,
+    }
 }

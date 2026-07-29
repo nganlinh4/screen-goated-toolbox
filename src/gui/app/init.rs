@@ -219,10 +219,9 @@ impl SettingsApp {
         // App releases pin the compatible creation runtime. Refresh an existing
         // install in the background, while preserving first-use installation.
         crate::overlay::creation_runtime::update_installed_runtime_in_background();
-        crate::overlay::creation_runtime::start_shared_preparation_maintainer();
+        crate::overlay::creation_runtime::maintain_all_readiness();
 
         // A compatible 3D runtime keeps its prepared workspace pool warm.
-        crate::overlay::three_d_generator::start_background_preparation();
 
         // Detect initial system theme
         let system_dark = crate::gui::utils::is_system_in_dark_mode();

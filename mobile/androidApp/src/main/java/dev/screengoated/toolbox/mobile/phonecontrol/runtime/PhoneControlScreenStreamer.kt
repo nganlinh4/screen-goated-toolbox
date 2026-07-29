@@ -2,7 +2,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.runtime
 
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorGroundingFrameStore
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.grounding.VisualGroundingFrameStore
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.visual.PhoneControlVisualProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.visual.VisualProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlTurnPhase
@@ -34,13 +34,13 @@ internal class PhoneControlScreenStreamer(
                 transportReady.get() &&
                 canSendAmbientScreen(pendingWorkCount())
             ) {
-                val groundingFrame = UiDetectorGroundingFrameStore.takeForGeneration(
+                val groundingFrame = VisualGroundingFrameStore.take(
                     PhoneControlAccessibilityProvider.observationGeneration,
                 )
                 if (groundingFrame != null) {
                     lastCaptureRoute = logCaptureRouteTransition(
                         lastCaptureRoute,
-                        "local_ui_detector",
+                        "current_frame_vision",
                         "grounding_frame",
                     )
                     explicitRefreshPending = queueFrame(groundingFrame, explicitRefreshPending)

@@ -20,7 +20,7 @@ use windows061::Win32::UI::WindowsAndMessaging::{
 use windows061::core::Interface;
 
 use super::{
-    LEAVE_TIMER_ID, ORB_COMP, ORB_PAGE_READY, ORB_PREV_FG, ORB_TEXT_MODE, get_dpi_scale,
+    LEAVE_TIMER_ID, ORB_COMP, ORB_PREV_FG, ORB_TEXT_MODE, get_dpi_scale, note_page_ready,
     note_user_move, virtual_screen,
 };
 
@@ -56,7 +56,7 @@ pub(super) fn handle_orb_ipc(hwnd: HWND, body: &str) {
                 note_user_move(cx, cy);
             }
         }
-        "orbReady" => ORB_PAGE_READY.store(true, Ordering::SeqCst),
+        "orbReady" => note_page_ready(hwnd),
         // The command box opened (orb clicked) → take keyboard focus so typing (incl. IME) works.
         "openCommand" => begin_text_mode(hwnd),
         // A typed command was submitted (Enter) → inject it into the live session.

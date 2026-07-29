@@ -18,7 +18,6 @@ pub(super) fn get() -> BadgeLocaleText {
         preparing_runtime_fmt: "Đang chuẩn bị runtime {name}...",
         downloading_sherpa_runtime: "Đang tải runtime sherpa-onnx",
         required_for_offline_tts_fmt: "Cần cho TTS ngoại tuyến {name}",
-        ui_detector_name: "mô hình nhận diện thành phần giao diện",
         downloading_model_fmt: "Đang tải {name}",
         preparing_model_fmt: "Đang chuẩn bị {name}...",
         model_ready_fmt: "{name} đã sẵn sàng",

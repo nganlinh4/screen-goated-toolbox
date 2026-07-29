@@ -21,13 +21,20 @@ pub(crate) fn cached_grid_width() -> f32 {
     GRID_WIDTH.with(|w| w.get())
 }
 
+#[derive(Default)]
+pub struct SidebarRenderResponse {
+    pub changed: bool,
+    pub refresh_favorites: bool,
+    pub blink_favorite: bool,
+}
+
 pub fn render_sidebar(
     ui: &mut egui::Ui,
     config: &mut Config,
     view_mode: &mut ViewMode,
     text: &LocaleText,
-) -> bool {
-    let mut changed = false;
+) -> SidebarRenderResponse {
+    let mut response = SidebarRenderResponse::default();
     let mut preset_to_add_type = None;
     let mut preset_idx_to_select: Option<usize> = None;
     let mut preset_idx_to_delete = None;
@@ -35,9 +42,9 @@ pub fn render_sidebar(
     let mut preset_idx_to_toggle_favorite = None;
     let mut preset_swap_request = None;
 
-    if profiles::render_profiles(ui, config, view_mode, text) {
-        changed = true;
-    }
+    let profile_response = profiles::render_profiles(ui, config, view_mode, text);
+    response.changed |= profile_response.changed;
+    response.refresh_favorites |= profile_response.presets_changed;
 
     // Get currently dragging item index from memory (if any)
     let dragging_idx_id = egui::Id::new("sidebar_drag_source");
@@ -190,13 +197,14 @@ pub fn render_sidebar(
         && let Some(preset) = config.presets.get_mut(idx)
     {
         preset.is_favorite = !preset.is_favorite;
-        changed = true;
-        crate::overlay::favorite_bubble::update_favorites_panel();
-        crate::overlay::favorite_bubble::trigger_blink_animation();
+        response.changed = true;
+        response.refresh_favorites = true;
+        response.blink_favorite = true;
     }
 
     if let Some(idx) = preset_idx_to_clone {
         let mut new_preset = config.presets[idx].clone();
+        let clone_is_favorite = new_preset.is_favorite;
         new_preset.id = format!(
             "{:x}",
             std::time::SystemTime::now()
@@ -219,10 +227,12 @@ pub fn render_sidebar(
         new_preset.hotkeys.clear();
         config.presets.push(new_preset);
         *view_mode = ViewMode::Preset(config.presets.len() - 1);
-        changed = true;
+        response.changed = true;
+        response.refresh_favorites |= clone_is_favorite;
     }
 
     if let Some((idx_a, idx_b)) = preset_swap_request {
+        let favorite_moved = config.presets[idx_a].is_favorite || config.presets[idx_b].is_favorite;
         // Swap presets
         config.presets.swap(idx_a, idx_b);
         // If currently selecting one of them, update view_mode
@@ -233,7 +243,8 @@ pub fn render_sidebar(
                 *view_mode = ViewMode::Preset(idx_a);
             }
         }
-        changed = true;
+        response.changed = true;
+        response.refresh_favorites |= favorite_moved;
     }
 
     if let Some(type_str) = preset_to_add_type {
@@ -265,10 +276,13 @@ pub fn render_sidebar(
         }
         config.presets.push(new_preset);
         *view_mode = ViewMode::Preset(config.presets.len() - 1);
-        changed = true;
+        response.changed = true;
     }
 
     if let Some(idx) = preset_idx_to_delete {
+        let favorite_indices_changed = config.presets[idx..]
+            .iter()
+            .any(|preset| preset.is_favorite);
         config.presets.remove(idx);
         if let ViewMode::Preset(curr) = *view_mode {
             if curr >= idx && curr > 0 {
@@ -279,10 +293,11 @@ pub fn render_sidebar(
                 *view_mode = ViewMode::Preset(0);
             }
         }
-        changed = true;
+        response.changed = true;
+        response.refresh_favorites |= favorite_indices_changed;
     }
 
-    changed
+    response
 }
 
 fn render_add_preset_button_parts(

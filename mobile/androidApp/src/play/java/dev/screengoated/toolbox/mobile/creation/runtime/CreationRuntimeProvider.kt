@@ -33,9 +33,9 @@ internal class CreationRuntimeProvider(private val context: Context) {
         val request = SplitInstallRequest.newBuilder().addModule(MODULE_NAME).build()
         splitManager.startInstall(request)
             .addOnSuccessListener { sessionId = it }
-            .addOnFailureListener { error ->
+            .addOnFailureListener {
                 mutableStatus.value = CreationRuntimeStatus.Failed(
-                    error.message ?: "Creation runtime delivery failed",
+                    CREATION_RUNTIME_INSTALL_FAILURE,
                 )
             }
     }
@@ -74,7 +74,7 @@ internal class CreationRuntimeProvider(private val context: Context) {
                 val factory = loadFactory()
                 if (factory == null) {
                     mutableStatus.value = CreationRuntimeStatus.Failed(
-                        "Creation runtime split could not be loaded",
+                        CREATION_RUNTIME_INSTALL_FAILURE,
                     )
                 } else {
                     loadedFactory = factory
@@ -84,7 +84,7 @@ internal class CreationRuntimeProvider(private val context: Context) {
             SplitInstallSessionStatus.FAILED -> {
                 sessionId = null
                 mutableStatus.value = CreationRuntimeStatus.Failed(
-                    "Creation runtime delivery failed (${state.errorCode()})",
+                    CREATION_RUNTIME_INSTALL_FAILURE,
                 )
             }
             SplitInstallSessionStatus.CANCELED -> {
@@ -96,7 +96,10 @@ internal class CreationRuntimeProvider(private val context: Context) {
 
     private fun loadFactory(): CreationRuntimeFactory? = runCatching {
         check(SplitCompat.install(context)) { "SplitCompat activation failed" }
-        val type = Class.forName(FACTORY_CLASS, true, context.classLoader)
+        val factoryClass = requireNotNull(loadCreationRuntimeFactoryClass(context)) {
+            "Creation runtime delivery metadata is unavailable"
+        }
+        val type = Class.forName(factoryClass, true, context.classLoader)
         type.getDeclaredConstructor().newInstance() as CreationRuntimeFactory
     }.getOrNull()
 
@@ -113,7 +116,5 @@ internal class CreationRuntimeProvider(private val context: Context) {
 
     private companion object {
         const val MODULE_NAME = "feature_creation_runtime"
-        const val FACTORY_CLASS =
-            "dev.screengoated.toolbox.creation.runtime.AndroidCreationRuntimeFactory"
     }
 }

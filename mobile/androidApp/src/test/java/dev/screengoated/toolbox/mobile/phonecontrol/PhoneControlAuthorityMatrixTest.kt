@@ -31,7 +31,7 @@ class PhoneControlAuthorityMatrixTest {
         val fixture = PhoneControlAuthorityFixture.load()
         val catalog = fixture.root.getValue("catalog").jsonObject
 
-        assertEquals(24L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(25L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals("phone-control", fixture.root.getValue("feature").jsonPrimitive.content)
         val distribution = fixture.root.getValue("distribution").jsonObject
         assertEquals(
@@ -42,17 +42,7 @@ class PhoneControlAuthorityMatrixTest {
         )
         assertEquals("identical", distribution.getValue("behavior").jsonPrimitive.content)
         assertTrue(distribution.getValue("catalogAndRuntimeMustMatch").jsonPrimitive.boolean)
-        assertTrue(
-            distribution.getValue("largeOfflineAssetDeliveryMayDiffer").jsonPrimitive.boolean,
-        )
-        assertTrue(
-            distribution.getValue("largeOfflineAssetIdentityMustMatch").jsonPrimitive.boolean,
-        )
-        assertEquals(
-            "feature_asr_ort",
-            distribution.getValue("playDetectorModule").jsonPrimitive.content,
-        )
-        assertFalse(distribution.getValue("playDetectorNetworkFallback").jsonPrimitive.boolean)
+        assertFalse(distribution.getValue("visualGroundingAssetRequired").jsonPrimitive.boolean)
         assertEquals(
             fixture.capabilityStates,
             CapabilityState.entries.map(CapabilityState::wireName),
@@ -385,11 +375,14 @@ class PhoneControlAuthorityMatrixTest {
             checkpoint.getValue("unexpectedLoss").jsonPrimitive.content,
         )
         assertEquals(
-            "same_tool_dual_semantic_selection_one_frame_detector_refresh_" +
-                "dual_crosshair_verification_exact_surface_lease",
+            "same_tool_one_clean_frame_dual_endpoint_grounding_dual_crosshair_" +
+                "verification_target_local_visual_revalidation_exact_surface_lease",
             visual.getValue("dragTarget").jsonPrimitive.content,
         )
-        assertFalse(visual.getValue("detectorSurfaceRequiresAccessibilityRoot").jsonPrimitive.boolean)
+        assertFalse(
+            visual.getValue("visualGroundingSurfaceRequiresAccessibilityRoot")
+                .jsonPrimitive.boolean,
+        )
         assertEquals("exact_window_accessibility_event_in_current_generation",
             visual.getValue("rootlessSurfaceAttribution").jsonPrimitive.content)
         assertFalse(visual.getValue("rootlessSurfaceAuthorityHeuristics").jsonPrimitive.boolean)

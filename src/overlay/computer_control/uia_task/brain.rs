@@ -316,15 +316,9 @@ impl Brain {
             .as_ref()
             .map(|state| &state.identity)
             .or_else(|| native.as_ref().and_then(|state| state.surface.as_ref()));
-        let detector_start_id = (!has_semantic_surface
-            && self.anchors.is_empty()
-            && current_surface_identity(self.target.as_deref()).is_some()
-            && detector_surface_blind(&elements, self.view)
-            && super::super::detector::available())
-        .then_some(self.next_anchor_id);
-        let excluded = accessible_rects(&elements, self.view);
-        self.show_coarse_grid =
-            !has_semantic_surface && accessibility_observed && excluded.is_empty();
+        self.show_coarse_grid = !has_semantic_surface
+            && accessibility_observed
+            && !has_accessible_action(&elements, self.view);
         let existing_marks = self.anchor_marks();
         let Rendered {
             frame_b64: b,
@@ -335,7 +329,6 @@ impl Brain {
             source,
             fixed_view_retained: _,
             perception_matched,
-            detected,
         } = render_view(RenderRequest {
             dir: &self.dir,
             target: self.target.as_deref(),
@@ -350,8 +343,6 @@ impl Brain {
             reason: "initial",
             action: None,
             existing_marks: &existing_marks,
-            detector_start_id,
-            excluded_rects: &excluded,
             show_grid: self.show_coarse_grid,
         })?;
         if !perception_matched {
@@ -359,9 +350,7 @@ impl Brain {
         }
         self.view = v;
         self.source_frame = Some(source);
-        if detector_start_id.is_some() {
-            self.install_detector_anchors(detected, frame_id, v, surface);
-        }
+        self.bind_pending_anchors(frame_id, v, surface);
         self.prev_state_sig = Some(
             semantic
                 .as_ref()
@@ -411,17 +400,10 @@ impl Brain {
             (elements, observed, surface)
         };
         self.invalidate_bound_anchors_for_new_frame();
-        let detector_start_id = (!suppress_readouts
-            && semantic.is_none()
-            && self.anchors.is_empty()
-            && current_surface_identity(self.target.as_deref()).is_some()
-            && detector_surface_blind(&elements, self.view)
-            && super::super::detector::available())
-        .then_some(self.next_anchor_id);
-        let excluded = accessible_rects(&elements, self.view);
         if !suppress_readouts {
-            self.show_coarse_grid =
-                semantic.is_none() && accessibility_observed && excluded.is_empty();
+            self.show_coarse_grid = semantic.is_none()
+                && accessibility_observed
+                && !has_accessible_action(&elements, self.view);
         }
         let existing_marks = self.anchor_marks();
         let Rendered {
@@ -433,7 +415,6 @@ impl Brain {
             source,
             fixed_view_retained,
             perception_matched,
-            detected,
         } = render_view(RenderRequest {
             dir: &self.dir,
             target: self.target.as_deref(),
@@ -448,8 +429,6 @@ impl Brain {
             reason: name,
             action,
             existing_marks: &existing_marks,
-            detector_start_id,
-            excluded_rects: &excluded,
             show_grid: self.show_coarse_grid,
         })?;
         if perception_surface.is_some() && !perception_matched {
@@ -471,9 +450,7 @@ impl Brain {
             self.zoomed = false;
             self.clear_anchors("zoomed_surface_changed");
         }
-        if detector_start_id.is_some() {
-            self.install_detector_anchors(detected, frame_id, v, surface);
-        } else if !self.anchors.is_empty() {
+        if !self.anchors.is_empty() {
             self.bind_pending_anchors(frame_id, v, surface);
         }
         if suppress_readouts {

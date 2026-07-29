@@ -9,8 +9,9 @@ use crate::api::{TranslateImageRequest, translate_image_streaming};
 use crate::model_config::ModelConfig;
 use crate::overlay::computer_control::vision_contract::{
     CONTROL_VISION_SHORT_EDGE, GROUNDING_STREAMING_ENABLED, GroundingRequest,
-    MIN_VERIFICATION_CONFIDENCE, crosshair_crop, encode_jpeg, parse_point, parse_verification,
-    point_request, resize_to_short_edge, response_reports_not_visible, verification_request,
+    MIN_VERIFICATION_CONFIDENCE, crosshair_crop, encode_jpeg, grounding_reports_not_visible,
+    parse_named_grounding_records, parse_verification, point_request, resize_to_short_edge,
+    verification_request,
 };
 
 use super::super::manifest::{CoordinateCase, Manifest};
@@ -49,7 +50,7 @@ pub(super) fn run(
                 .failure("request_error", error.to_string());
         }
     };
-    if response_reports_not_visible(&locate_response) {
+    if grounding_reports_not_visible(&locate_response, &["target"]) {
         return attempt(model, case, round, locate.timing).success(
             0.0,
             Some(false),
@@ -66,14 +67,17 @@ pub(super) fn run(
             false,
         );
     }
-    let Some((x, y)) = parse_point(&locate_response) else {
+    let Some(point) = parse_named_grounding_records(&locate_response, &["target"])
+        .and_then(|points| points.into_iter().next())
+    else {
         return attempt(model, case, round, locate.timing)
             .with_response(locate_response)
             .failure(
                 "malformed",
-                "production point parser could not find x/y coordinates",
+                "production grounding parser rejected the target record",
             );
     };
+    let (x, y) = (point.x, point.y);
     let score = scoring::coordinate_point(x, y, prepared.width, prepared.height, prepared.box_px);
     let verification_image = match crosshair_crop(&prepared.jpeg, x, y) {
         Ok(image) => image,
@@ -228,7 +232,7 @@ fn call_model(
             image,
             original_bytes: Some(image_bytes.to_vec()),
             streaming_enabled: GROUNDING_STREAMING_ENABLED,
-            response_schema: Some(request.response_schema),
+            response_schema: request.response_schema,
             cancel_token: None,
             request_timeout: timeout,
         },
@@ -318,8 +322,9 @@ mod tests {
     #[test]
     fn coordinate_benchmark_uses_the_exact_production_contract() {
         let request = point_request("the fourth star", "Give a four-star rating");
-        assert!(request.prompt.contains("\"what\""));
-        assert!(request.prompt.contains("\"error\": \"not visible\""));
+        assert!(request.prompt.contains("M|target|x|y|short visible label"));
+        assert!(request.prompt.contains("N|target"));
+        assert!(request.response_schema.is_none());
         assert_eq!(
             request.response_schema,
             crate::overlay::computer_control::vision_contract::point_request(

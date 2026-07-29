@@ -2,8 +2,20 @@ pub mod auto_copy_badge; // Auto-copy notification badge
 pub mod broom_assets;
 pub mod computer_control; // "Điều khiển máy tính" — Gemini Live computer-control agent (probe)
 pub mod continuous_mode; // Continuous mode for image/text presets (hold-to-activate)
+mod creation_close;
+pub mod creation_delivery;
+mod creation_file_identity;
+mod creation_identity;
+pub mod creation_intent_journal;
+mod creation_output;
 pub mod creation_preview;
+mod creation_preview_protocol;
+pub mod creation_process_supervisor;
+pub mod creation_progress;
+pub mod creation_recovery;
 pub mod creation_runtime;
+pub mod creation_source;
+mod creation_source_snapshot;
 pub mod generation_history;
 pub mod image_continuous_mode; // Non-blocking image selection mode (right-click gestures)
 pub mod image_creator;

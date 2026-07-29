@@ -7,8 +7,13 @@ use crate::config::config::Config;
 use crate::config::preset::{Preset, ProcessingBlock, get_default_presets};
 use crate::model_config::{ModelType, get_model_by_id_with_custom, model_is_non_llm};
 
-const RETIRED_REGION_TRANSLATE_PRESET_ID: &str = "preset_extract_retranslate";
-const REGION_TRANSLATE_PRESET_ID: &str = "preset_translate";
+const RETIRED_BUILTIN_PRESET_MIGRATIONS: &[(&str, &str)] = &[
+    ("preset_extract_retranslate", "preset_translate"),
+    (
+        "preset_extract_retrans_retrans",
+        "preset_translate_retranslate",
+    ),
+];
 
 // ============================================================================
 // CONFIG PATH
@@ -53,12 +58,12 @@ pub fn load_config() -> Config {
     let should_persist_retirement = config
         .presets
         .iter()
-        .any(|preset| preset.id == RETIRED_REGION_TRANSLATE_PRESET_ID)
+        .any(|preset| is_retired_builtin_preset_id(&preset.id))
         || config.preset_profiles.iter().any(|profile| {
             profile
                 .presets
                 .iter()
-                .any(|preset| preset.id == RETIRED_REGION_TRANSLATE_PRESET_ID)
+                .any(|preset| is_retired_builtin_preset_id(&preset.id))
         });
 
     // Apply migrations and merge new defaults
@@ -96,20 +101,10 @@ fn migrate_config(config: &mut Config) {
     migrate_computer_control_launcher(config);
     config.ensure_preset_profiles();
     migrate_preset_list(&mut config.presets, &default_presets);
-    migrate_retired_builtin_preset(
-        &mut config.presets,
-        &mut config.active_preset_idx,
-        RETIRED_REGION_TRANSLATE_PRESET_ID,
-        REGION_TRANSLATE_PRESET_ID,
-    );
+    migrate_retired_builtin_presets(&mut config.presets, &mut config.active_preset_idx);
     for profile in &mut config.preset_profiles {
         migrate_preset_list(&mut profile.presets, &default_presets);
-        migrate_retired_builtin_preset(
-            &mut profile.presets,
-            &mut profile.active_preset_idx,
-            RETIRED_REGION_TRANSLATE_PRESET_ID,
-            REGION_TRANSLATE_PRESET_ID,
-        );
+        migrate_retired_builtin_presets(&mut profile.presets, &mut profile.active_preset_idx);
         profile.active_preset_idx = profile
             .active_preset_idx
             .min(profile.presets.len().saturating_sub(1));
@@ -185,6 +180,18 @@ fn remove_legacy_launcher(
             *active_idx -= 1;
         }
         *active_idx = (*active_idx).min(presets.len().saturating_sub(1));
+    }
+}
+
+fn is_retired_builtin_preset_id(preset_id: &str) -> bool {
+    RETIRED_BUILTIN_PRESET_MIGRATIONS
+        .iter()
+        .any(|(retired_id, _)| *retired_id == preset_id)
+}
+
+fn migrate_retired_builtin_presets(presets: &mut Vec<Preset>, active_idx: &mut usize) {
+    for &(retired_id, replacement_id) in RETIRED_BUILTIN_PRESET_MIGRATIONS {
+        migrate_retired_builtin_preset(presets, active_idx, retired_id, replacement_id);
     }
 }
 

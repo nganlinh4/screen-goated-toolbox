@@ -89,14 +89,13 @@ class PhoneControlDiagnosticsContractTest {
         )
         assertEquals(
             listOf(
-                "detector_stage",
-                "mapping_inference_ms",
-                "target_selection_ms",
-                "refresh_inference_ms",
+                "grounding_stage",
+                "mapping_model_ms",
+                "target_location_ms",
                 "target_verification_ms",
                 "pixel_revalidation_ms",
             ),
-            toolEvents.getValue("optionalDetectorFields").jsonArray.map {
+            toolEvents.getValue("optionalGroundingFields").jsonArray.map {
                 it.jsonPrimitive.content
             },
         )

@@ -409,8 +409,10 @@ pub fn init_com_and_dpi() {
 
 /// Spawn warmup thread for overlay components.
 pub fn spawn_warmup_thread() {
-    // Startup warmups are intentionally disabled.
-    // All overlays now initialize on first use.
+    // Computer Control keeps one hidden composition host for its full lifetime.
+    // Starting it here moves WebView2's cold initialization off the first hotkey
+    // without reviving the old blanket warmup of every mini app.
+    crate::overlay::computer_control::warm_up_orb();
 }
 
 #[cfg(test)]

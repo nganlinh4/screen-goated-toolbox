@@ -122,7 +122,7 @@ pub(super) fn draw_click_marker(img: &mut RgbImage, cx: i32, cy: i32) {
     }
 }
 
-/// Draw a compact numbered detector/map anchor without covering its click center.
+/// Draw a compact numbered visual mark without covering its click center.
 pub(super) fn draw_anchor_marker(img: &mut RgbImage, cx: i32, cy: i32, label: u32) {
     let cyan = Rgb([20, 235, 255]);
     let radius = 9.0;

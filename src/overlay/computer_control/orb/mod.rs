@@ -20,7 +20,7 @@ mod window;
 mod wnd_proc;
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 use std::sync::{Mutex, Once};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -38,6 +38,14 @@ use window::create_orb_window;
 static ORB_HWND: AtomicIsize = AtomicIsize::new(0);
 static ORB_WARMED_UP: AtomicBool = AtomicBool::new(false);
 static ORB_INITIALIZING: AtomicBool = AtomicBool::new(false);
+/// Desired visibility is independent of host readiness. This prevents a launch
+/// canceled during WebView startup from surfacing several seconds later.
+static ORB_SHOW_REQUESTED: AtomicBool = AtomicBool::new(false);
+/// Claims the single show message for the current visibility request.
+static ORB_SHOW_POSTED: AtomicBool = AtomicBool::new(false);
+/// Invalidates queued show/hide messages when the user toggles again before the
+/// orb thread processes them.
+static ORB_VISIBILITY_GENERATION: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_ORB_CLASS: Once = Once::new();
 
 /// Set once the orb page has parsed + initialised (the `orbReady` IPC). `show_orb` waits
@@ -110,6 +118,7 @@ fn valid_orb_hwnd() -> Option<HWND> {
             ORB_HWND.store(0, Ordering::SeqCst);
             ORB_WARMED_UP.store(false, Ordering::SeqCst);
             ORB_PAGE_READY.store(false, Ordering::SeqCst);
+            ORB_SHOW_POSTED.store(false, Ordering::SeqCst);
             None
         }
     }
@@ -121,42 +130,89 @@ pub(super) fn ensure_started() {
         return;
     }
     if !ORB_INITIALIZING.swap(true, Ordering::SeqCst) {
-        std::thread::spawn(create_orb_window);
+        ORB_PAGE_READY.store(false, Ordering::SeqCst);
+        ORB_SHOW_POSTED.store(false, Ordering::SeqCst);
+        std::thread::spawn(|| {
+            if std::panic::catch_unwind(create_orb_window).is_err() {
+                crate::log_info!("[CCOrb] host thread panicked during initialization");
+                ORB_HWND.store(0, Ordering::SeqCst);
+                ORB_WARMED_UP.store(false, Ordering::SeqCst);
+                ORB_PAGE_READY.store(false, Ordering::SeqCst);
+                ORB_SHOW_POSTED.store(false, Ordering::SeqCst);
+                ORB_INITIALIZING.store(false, Ordering::SeqCst);
+            }
+        });
     }
 }
 
-/// Show the orb (it flies in from the nearest screen edge). Waits for the window AND the
-/// page's readiness first, so the first reveal paints the transparent canvas, never the
-/// WebView's white default. Times out at ~4s as a fallback.
+/// Show the orb (it flies in from the nearest screen edge). A cold host completes
+/// the request from its `orbReady` IPC; a warmed host posts the show immediately.
 pub(super) fn show_orb() {
     init_position();
-    std::thread::spawn(|| {
-        for _ in 0..80 {
-            if let Some(hwnd) = valid_orb_hwnd()
-                && ORB_PAGE_READY.load(Ordering::SeqCst)
-            {
-                unsafe {
-                    let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_ORB, WPARAM(0), LPARAM(0));
-                }
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        if let Some(hwnd) = valid_orb_hwnd() {
-            unsafe {
-                let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_ORB, WPARAM(0), LPARAM(0));
-            }
-        }
-    });
+    ORB_VISIBILITY_GENERATION.fetch_add(1, Ordering::SeqCst);
+    ORB_SHOW_REQUESTED.store(true, Ordering::SeqCst);
+    ORB_SHOW_POSTED.store(false, Ordering::SeqCst);
+    ensure_started();
+    post_show_if_ready(None);
 }
 
 /// Hide the orb (it flies out, then the window is hidden after the animation).
 pub(super) fn hide_orb() {
+    let generation = ORB_VISIBILITY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    ORB_SHOW_REQUESTED.store(false, Ordering::SeqCst);
+    ORB_SHOW_POSTED.store(false, Ordering::SeqCst);
     if let Some(hwnd) = valid_orb_hwnd() {
         unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE_ORB, WPARAM(0), LPARAM(0));
+            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE_ORB, WPARAM(generation), LPARAM(0));
         }
     }
+}
+
+/// Complete a pending show on the orb thread as soon as the page reports its
+/// first-paint readiness.
+pub(super) fn note_page_ready(hwnd: HWND) {
+    if ORB_HWND.load(Ordering::SeqCst) != hwnd.0 as isize {
+        return;
+    }
+    ORB_PAGE_READY.store(true, Ordering::SeqCst);
+    post_show_if_ready(Some(hwnd));
+}
+
+fn post_show_if_ready(hwnd: Option<HWND>) {
+    if !ORB_SHOW_REQUESTED.load(Ordering::SeqCst)
+        || !ORB_PAGE_READY.load(Ordering::SeqCst)
+        || ORB_SHOW_POSTED.swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
+    let Some(hwnd) = hwnd.or_else(valid_orb_hwnd) else {
+        ORB_SHOW_POSTED.store(false, Ordering::SeqCst);
+        return;
+    };
+    let generation = ORB_VISIBILITY_GENERATION.load(Ordering::SeqCst);
+    unsafe {
+        if PostMessageW(Some(hwnd), WM_APP_SHOW_ORB, WPARAM(generation), LPARAM(0)).is_err() {
+            ORB_SHOW_POSTED.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+pub(super) fn visibility_message_is_current(generation: usize, visible: bool) -> bool {
+    visibility_message_matches(
+        generation,
+        ORB_VISIBILITY_GENERATION.load(Ordering::SeqCst),
+        ORB_SHOW_REQUESTED.load(Ordering::SeqCst),
+        visible,
+    )
+}
+
+fn visibility_message_matches(
+    message_generation: usize,
+    current_generation: usize,
+    requested_visible: bool,
+    message_visible: bool,
+) -> bool {
+    message_generation == current_generation && requested_visible == message_visible
 }
 
 /// Run a JS snippet on the orb WebView from any thread (boxed string handed to the
@@ -286,5 +342,19 @@ pub(super) fn placement_script() -> String {
             format!("window.cc&&window.cc.configurePlacement({{cxFrac:{cx:.5},cyFrac:{cy:.5}}});")
         }
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::visibility_message_matches;
+
+    #[test]
+    fn stale_or_opposite_visibility_messages_are_rejected() {
+        assert!(visibility_message_matches(7, 7, true, true));
+        assert!(visibility_message_matches(8, 8, false, false));
+        assert!(!visibility_message_matches(7, 8, true, true));
+        assert!(!visibility_message_matches(8, 8, false, true));
+        assert!(!visibility_message_matches(8, 8, true, false));
     }
 }

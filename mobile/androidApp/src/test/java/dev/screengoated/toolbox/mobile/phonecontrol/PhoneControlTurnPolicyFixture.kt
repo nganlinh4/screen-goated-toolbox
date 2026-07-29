@@ -73,7 +73,7 @@ internal fun assertPhoneControlFixturePolicy(expected: JsonObject) {
         put("internalToolOrTransportErrorsAreNotAssistantOutput", true)
         put("audioModeModelTextIsInternal", true)
         put("voiceBurstStartsAndEndsPair", true)
-        put("detectorRequestFreshnessDoesNotDowngradeProvider", true)
+        put("groundingRequestFreshnessDoesNotDowngradeProvider", true)
         put("visualGroundingUsesTargetLocalFinalLease", true)
     }
     assertEquals("Phone Control invariant policy drifted", expected, actual)

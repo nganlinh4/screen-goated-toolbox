@@ -156,6 +156,10 @@ impl eframe::App for SettingsApp {
     }
 
     fn on_exit(&mut self) {
+        let _ = crate::overlay::three_d_generator::shutdown();
+        let _ = crate::overlay::image_to_svg::shutdown();
+        let _ = crate::overlay::image_creator::shutdown();
+        crate::overlay::creation_runtime::shutdown();
         crate::overlay::screen_record::cleanup_on_app_exit();
         self.tray_icon = None;
     }

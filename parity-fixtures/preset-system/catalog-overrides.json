@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "retired_builtins": [
     {
       "preset_id": "preset_extract_retranslate",
@@ -8,6 +8,14 @@
         "code": 192,
         "modifiers": 0
       },
+      "transfer_unique_hotkeys": true,
+      "transfer_favorite": true,
+      "redirect_active_selection": true,
+      "android_copies_hotkey_metadata": false
+    },
+    {
+      "preset_id": "preset_extract_retrans_retrans",
+      "replacement_id": "preset_translate_retranslate",
       "transfer_unique_hotkeys": true,
       "transfer_favorite": true,
       "redirect_active_selection": true,

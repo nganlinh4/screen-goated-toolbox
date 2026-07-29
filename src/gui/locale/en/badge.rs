@@ -18,7 +18,6 @@ pub(super) fn get() -> BadgeLocaleText {
         preparing_runtime_fmt: "Preparing {name} runtime...",
         downloading_sherpa_runtime: "Downloading sherpa-onnx runtime",
         required_for_offline_tts_fmt: "Required for {name} offline TTS",
-        ui_detector_name: "UI element detector",
         downloading_model_fmt: "Downloading {name}",
         preparing_model_fmt: "Preparing {name}...",
         model_ready_fmt: "{name} ready",

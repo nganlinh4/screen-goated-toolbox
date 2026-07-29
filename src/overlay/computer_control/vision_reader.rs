@@ -2,9 +2,8 @@
 //!
 //! The Live model gets only ~258 tokens per frame, too few to read or precisely
 //! locate fine canvas/pixel content (game boards, charts, maps, raster images).
-//! This routes a CLEAN high-res crop of the current view through the user's
-//! configured `image_to_text` model priority stack (`translate_image_streaming`,
-//! same provider dispatch the rest of the app uses), giving:
+//! This routes a CLEAN high-res crop of the current view through the catalog-owned
+//! grounding chain (using the same provider dispatch as other image tasks), giving:
 //!   * `read_image` — a plain-text reading of the content (perception), and
 //!   * `locate_point` — the exact 0-1000 click point of a described target
 //!     (localization), which fixes the coarse-grid click-accuracy problem.
@@ -21,19 +20,18 @@ use crate::config::Config;
 use crate::model_config::{get_model_by_id_with_custom, model_is_non_llm};
 
 use super::vision_contract::{
-    GROUNDING_STREAMING_ENABLED, VerificationDecision, context_prefix, parse_point,
-    parse_string_field, parse_verification, point_request, response_reports_not_visible,
+    GROUNDING_STREAMING_ENABLED, VerificationDecision, context_prefix, drag_request,
+    grounding_reports_not_visible, marks_request, parse_named_grounding_records,
+    parse_open_grounding_records, parse_verification, point_request, response_reports_not_visible,
     verification_request,
 };
 
 mod candidates;
 mod circuit;
-mod mark_labels;
 mod schemas;
 mod text_candidates;
 pub(super) use candidates::{CandidateAttempt, CandidateReport};
-pub(super) use mark_labels::label_clickable_marks;
-use schemas::{box_schema, points_schema};
+use schemas::box_schema;
 pub(super) use text_candidates::read_text_pref_where;
 
 /// Per-provider API key, preferring the repo `.env` overrides (so the headless
@@ -294,18 +292,17 @@ pub(super) fn read_image_pref_where(
 /// Ask the vision stack for the click point of `description` (+ what's there).
 pub(super) fn locate_point(jpeg: &[u8], description: &str, ctx: &str) -> Result<Located> {
     let request = point_request(description, ctx);
-    let answer = run_grounding_chain(
-        jpeg,
-        &request.prompt,
-        Some(request.response_schema),
-        |response| parse_point(response).is_some() || response_reports_not_visible(response),
-    )?;
-    let (x, y) = parse_point(&answer)
-        .ok_or_else(|| anyhow!("could not parse a point from vision answer: {answer}"))?;
+    let answer = run_grounding_chain(jpeg, &request.prompt, request.response_schema, |response| {
+        parse_named_grounding_records(response, &["target"]).is_some()
+            || grounding_reports_not_visible(response, &["target"])
+    })?;
+    let point = parse_named_grounding_records(&answer, &["target"])
+        .and_then(|mut points| points.pop())
+        .ok_or_else(|| anyhow!("target is not visible or grounding output was invalid"))?;
     Ok(Located {
-        x,
-        y,
-        note: parse_string_field(&answer, "what"),
+        x: point.x,
+        y: point.y,
+        note: Some(point.label),
     })
 }
 
@@ -314,12 +311,9 @@ pub(super) fn locate_point(jpeg: &[u8], description: &str, ctx: &str) -> Result<
 /// confirms that the crosshair itself lies inside the requested target.
 pub(super) fn verify_target(jpeg: &[u8], description: &str, ctx: &str) -> Result<Verification> {
     let request = verification_request(description, ctx);
-    let answer = run_grounding_chain(
-        jpeg,
-        &request.prompt,
-        Some(request.response_schema),
-        |response| parse_verification(response).is_some(),
-    )?;
+    let answer = run_grounding_chain(jpeg, &request.prompt, request.response_schema, |response| {
+        parse_verification(response).is_some()
+    })?;
     parse_verification(&answer).ok_or_else(|| anyhow!("verification JSON invalid: {answer}"))
 }
 
@@ -346,75 +340,59 @@ visible, output {{\"error\": \"not visible\"}}.",
         .ok_or_else(|| anyhow!("could not parse a box from vision answer: {answer}"))
 }
 
-/// Ask the vision stack to enumerate EVERY target matching `description` as a JSON
-/// array of centre points — for building a reusable set of click anchors in ONE
-/// call (then the Live model clicks them by id, no per-click vision).
+/// Ask the vision stack to enumerate every relevant target in one strict,
+/// model-neutral record set.
 pub(super) fn locate_points(jpeg: &[u8], description: &str, ctx: &str) -> Result<Vec<Located>> {
-    let prompt = format!(
-        "{}Find EVERY target matching: {description}. Output ONLY a JSON array, one object per target, in reading \
-order (top row left-to-right, then next row): [{{\"x\": <int>, \"y\": <int>, \"what\": \"<2-4 words at that spot>\"}}, ...] \
-- x,y are the CENTER on a 0-1000 grid (x 0 left..1000 right, y 0 top..1000 bottom). Output [] if none. Cap at 30.",
-        context_prefix(ctx)
-    );
-    let answer = run_grounding_chain(jpeg, &prompt, Some(points_schema()), |response| {
-        parse_points(response).is_some()
+    let request = marks_request(description, ctx);
+    let answer = run_grounding_chain(jpeg, &request.prompt, request.response_schema, |response| {
+        parse_open_grounding_records(response).is_some()
     })?;
-    parse_points(&answer)
-        .ok_or_else(|| anyhow!("could not parse point array from vision answer: {answer}"))
+    parse_open_grounding_records(&answer)
+        .map(|points| {
+            points
+                .into_iter()
+                .map(|point| Located {
+                    x: point.x,
+                    y: point.y,
+                    note: Some(point.label),
+                })
+                .collect()
+        })
+        .ok_or_else(|| anyhow!("could not parse visual marks from grounding answer"))
 }
 
-/// Parse a JSON array of `{x,y,what}` objects from a vision answer (tolerant of
-/// surrounding prose / markdown fences).
-fn parse_points(s: &str) -> Option<Vec<Located>> {
-    let (Some(a), Some(b)) = (s.find('['), s.rfind(']')) else {
-        return None;
+pub(super) fn locate_drag_points(
+    jpeg: &[u8],
+    from_description: &str,
+    to_description: &str,
+    ctx: &str,
+) -> Result<(Located, Located)> {
+    let request = drag_request(from_description, to_description, ctx);
+    let answer = run_grounding_chain(jpeg, &request.prompt, request.response_schema, |response| {
+        parse_named_grounding_records(response, &["from", "to"]).is_some()
+            || grounding_reports_not_visible(response, &["from", "to"])
+    })?;
+    let points = parse_named_grounding_records(&answer, &["from", "to"])
+        .ok_or_else(|| anyhow!("one or both drag endpoints are not visible"))?;
+    let located = |id: &str| {
+        points
+            .iter()
+            .find(|point| point.id.as_deref() == Some(id))
+            .map(|point| Located {
+                x: point.x,
+                y: point.y,
+                note: Some(point.label.clone()),
+            })
+            .ok_or_else(|| anyhow!("grounding output omitted the {id} endpoint"))
     };
-    if b <= a {
-        return None;
+    let from = located("from")?;
+    let to = located("to")?;
+    let dx = from.x - to.x;
+    let dy = from.y - to.y;
+    if dx * dx + dy * dy < 100.0 {
+        anyhow::bail!("drag endpoints resolved to the same point");
     }
-    let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(&s[a..=b])
-    else {
-        return None;
-    };
-    let input_was_empty = arr.is_empty();
-    let mut points: Vec<Located> = arr
-        .iter()
-        .filter_map(|item| {
-            let x = item.get("x").and_then(serde_json::Value::as_f64)?;
-            let y = item.get("y").and_then(serde_json::Value::as_f64)?;
-            if !x.is_finite()
-                || !y.is_finite()
-                || !(0.0..=1000.0).contains(&x)
-                || !(0.0..=1000.0).contains(&y)
-            {
-                return None;
-            }
-            let note = item
-                .get("what")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string);
-            Some(Located { x, y, note })
-        })
-        .collect();
-    if !input_was_empty && points.is_empty() {
-        return None;
-    }
-    points.sort_by(|left, right| left.y.total_cmp(&right.y).then(left.x.total_cmp(&right.x)));
-    let mut unique: Vec<Located> = Vec::with_capacity(points.len().min(30));
-    for point in points {
-        let duplicate = unique.iter().any(|existing| {
-            let dx = existing.x - point.x;
-            let dy = existing.y - point.y;
-            dx * dx + dy * dy < 100.0
-        });
-        if !duplicate {
-            unique.push(point);
-        }
-        if unique.len() == 30 {
-            break;
-        }
-    }
-    Some(unique)
+    Ok((from, to))
 }
 
 /// Parse a `box_2d` [ymin, xmin, ymax, xmax] from a vision answer. Reads numbers

@@ -44,6 +44,7 @@ pub fn render_history_panel(
                         .changed()
                     {
                         history_manager.request_prune(config.max_history_items);
+                        crate::overlay::generation_history::request_prune(config.max_history_items);
                         changed = true;
                     }
                     ui.label(text.workspace.max_items_label);

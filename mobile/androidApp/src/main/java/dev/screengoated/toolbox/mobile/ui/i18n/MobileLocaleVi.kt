@@ -56,7 +56,7 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 ready = "Sẵn sàng",
                 preparing = "Đang chuẩn bị",
                 queued = "Đang chờ",
-                providerQueued = "Đang ở trong hàng đợi",
+                waiting = "Đang chờ",
                 working = "Đang tạo",
                 progress = CreationProgressLocale(
                     almostThere = "Sắp xong",
@@ -71,18 +71,21 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 open = "Mở",
                 rename = "Đổi tên",
                 delete = "Xóa",
-                deleteConfirm = "Xóa kết quả này?",
+                deleteAll = "Xóa mọi kết quả",
+                deleteAllConfirm = "Xóa mọi kết quả đã lưu của ứng dụng này?",
                 dismiss = "Đóng",
                 noResults = "Chưa có kết quả đã lưu",
                 selectedImages = "{} ảnh",
                 interrupted = "Không thể hoàn tất việc tạo.",
-                previewTools = "Xem trước khi tạo",
-                creationRuntime = "Công cụ sáng tạo",
-                creationRuntimeDescription =
-                    "Tạo mô hình 3D, SVG và ảnh mới từ ảnh tham chiếu.",
-                depthPreviewModel = "Depth Anything 3 Small",
-                depthPreviewDescription =
-                    "Hiện hiệu ứng chiều sâu động trong lúc tạo kết quả 3D và SVG.",
+                sourceUnavailable = "Hãy chọn lại ảnh nguồn rồi thử lại.",
+                storageUnavailable =
+                    "Hãy giải phóng dung lượng rồi thử lại. Các kết quả hiện có vẫn được giữ.",
+                tools = CreationToolsLocale(
+                    previewTools = "Xem trước khi tạo",
+                    creationRuntime = "Công cụ sáng tạo",
+                    creationRuntimeDescription =
+                        "Tạo mô hình 3D, SVG và ảnh mới từ ảnh tham chiếu.",
+                ),
             ),
             model3d = Creation3dLocale(
                 mode = "Chế độ",
@@ -92,6 +95,8 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 light = "Nhẹ (game/web)",
                 detailed = "Chi tiết (render/in)",
                 autoSeparate = "Tự động tách bộ phận",
+                instruction = "Yêu cầu không bắt buộc",
+                instructionHint = "Mô tả hình dáng hoặc chi tiết cần nhấn mạnh",
                 generate = "Tạo mô hình",
                 generateAgain = "Tạo lại",
                 separate = "Tách bộ phận",
@@ -114,6 +119,10 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 simpleDescription = "Hình gọn, tệp nhẹ",
                 detail = "Chi tiết",
                 detailDescription = "Nhiều đường nét mịn hơn",
+                transparentBackground = "Nền trong suốt",
+                backgroundAuto = "Tự động",
+                backgroundOn = "Bật",
+                backgroundOff = "Tắt",
                 generate = "Tạo SVG",
                 generateAgain = "Tạo lại",
                 vectorReady = "SVG đã sẵn sàng",
@@ -124,6 +133,7 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 zoomOut = "Thu nhỏ",
                 undo = "Hoàn tác",
                 redo = "Làm lại",
+                editPaths = "Chỉnh sửa path",
                 saveEdits = "Lưu chỉnh sửa",
             ),
             image = CreationImageLocale(

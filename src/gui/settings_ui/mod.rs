@@ -18,7 +18,7 @@ pub use history::render_history_panel;
 pub use preset::render_preset_editor;
 pub(crate) use sidebar::cached_grid_width;
 pub use sidebar::get_localized_preset_name;
-pub use sidebar::render_sidebar;
+pub use sidebar::{SidebarRenderResponse, render_sidebar};
 pub use tips::render_tips_modal;
 
 #[derive(PartialEq, Clone, Copy)]

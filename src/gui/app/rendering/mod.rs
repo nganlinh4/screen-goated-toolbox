@@ -94,8 +94,16 @@ impl SettingsApp {
                     }),
             )
             .show_inside(root_ui, |ui| {
-                if render_sidebar(ui, &mut self.config, &mut self.view_mode, &text) {
+                let sidebar_response =
+                    render_sidebar(ui, &mut self.config, &mut self.view_mode, &text);
+                if sidebar_response.changed {
                     self.save_and_sync();
+                    if sidebar_response.refresh_favorites {
+                        crate::overlay::favorite_bubble::update_favorites_panel();
+                    }
+                    if sidebar_response.blink_favorite {
+                        crate::overlay::favorite_bubble::trigger_blink_animation();
+                    }
                 }
                 self.update_sr_hotkey_recording(ctx);
             });

@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 5,
   "live_session": {
     "api_model": "gemini-3.1-flash-live-preview",
     "thinking_config": {
@@ -38,6 +38,38 @@
       "valid_target_not_visible",
       "valid_verification_rejection"
     ],
-    "inherits_general_image_chain": false
+    "inherits_general_image_chain": false,
+    "response_contract": {
+      "coordinate_grid": 1000,
+      "maximum_marks": 30,
+      "named_point_record": "M|target|x|y|label",
+      "open_mark_record": "M|label|x|y",
+      "not_visible_records": ["N", "N|target", "N|from", "N|to"],
+      "named_not_visible_set": "terminal when every expected identifier appears exactly once and at least one record is N",
+      "drag_endpoint_records": [
+        "M|from|x|y|label",
+        "M|to|x|y|label"
+      ],
+      "optional_final_delimiter": true,
+      "duplicate_or_unknown_ids": "invalid",
+      "out_of_range_coordinates": "invalid",
+      "surrounding_prose": "invalid"
+    },
+    "verification_contract": {
+      "format": "exact_json_object",
+      "required_fields": [
+        "matches",
+        "confidence",
+        "what"
+      ],
+      "unknown_fields": "invalid",
+      "surrounding_prose": "invalid",
+      "confidence_range": [
+        0,
+        100
+      ],
+      "minimum_acceptance_confidence": 70,
+      "valid_rejection": "terminal"
+    }
   }
 }

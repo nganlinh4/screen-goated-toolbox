@@ -4,7 +4,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtec
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointToken
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorGroundingFrameStore
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.grounding.VisualGroundingFrameStore
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntime
 
 internal class PhoneControlProtectedCheckpointController {
@@ -39,7 +39,7 @@ internal class PhoneControlProtectedCheckpointController {
         capturePolicy = policy
         runtime.suspendVisualEvidence()
         PhoneControlAccessibilityProvider.invalidate("protected_checkpoint")
-        UiDetectorGroundingFrameStore.clear()
+        VisualGroundingFrameStore.clear()
         if (policy == PhoneControlProtectedCapturePolicy.RELEASE_PROJECTION) {
             releaseProjection()
         }

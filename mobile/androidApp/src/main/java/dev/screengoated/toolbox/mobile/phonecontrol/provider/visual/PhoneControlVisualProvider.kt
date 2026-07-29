@@ -19,6 +19,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.surfa
 import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProjectionProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import dev.screengoated.toolbox.mobile.phonecontrol.session.buildPhoneControlScreenPayload
+import dev.screengoated.toolbox.mobile.phonecontrol.session.encodePhoneControlScreenImage
 import dev.screengoated.toolbox.mobile.phonecontrol.tools.AccessibilityGridIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -82,6 +83,12 @@ internal object PhoneControlVisualProvider {
     suspend fun look(): VisualProviderResult<VisualFrame> = captureMutex.withLock {
         captureLocked(clean = true, resetStaleZoom = true)
     }
+
+    suspend fun captureGroundingFrame(): VisualProviderResult<VisualFrame> =
+        captureMutex.withLock {
+            selection = ViewSelection.ActiveSurface
+            captureLocked(clean = true, resetStaleZoom = false)
+        }
 
     suspend fun zoom(cell: Int): VisualProviderResult<VisualFrame> = captureMutex.withLock {
         val grid = latestGrid
@@ -217,14 +224,15 @@ internal object PhoneControlVisualProvider {
                     windowId = view.windowId,
                     packageOrSurface = view.packageOrSurface,
                     cropBounds = crop.absoluteBounds,
-                    captureWidth = screenshot.bitmap.width,
-                    captureHeight = screenshot.bitmap.height,
+                    captureWidth = outgoing.width,
+                    captureHeight = outgoing.height,
                     rotation = observation.displayRotation,
                     densityDpi = observation.densityDpi,
                     capturedAtMs = screenshot.capturedAtMs,
                     viewKind = view.kind,
                     clean = clean,
                     grid = visualGrid,
+                    surfaceLease = view.surfaceLease,
                     captureProvider = screenshot.captureProvider,
                 )
                 if (visualGrid != null &&
@@ -232,8 +240,13 @@ internal object PhoneControlVisualProvider {
                 ) {
                     latestGrid = visualGrid
                 }
+                val imageBytes = encodePhoneControlScreenImage(outgoing)
                 VisualProviderResult.Success(
-                    VisualFrame(identity, buildPhoneControlScreenPayload(outgoing)),
+                    VisualFrame(
+                        identity,
+                        buildPhoneControlScreenPayload(imageBytes),
+                        imageBytes,
+                    ),
                 )
             } finally {
                 if (outgoing !== sourceCrop) outgoing.recycle()

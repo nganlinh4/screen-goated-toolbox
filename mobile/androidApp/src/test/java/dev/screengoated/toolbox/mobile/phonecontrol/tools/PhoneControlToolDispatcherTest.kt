@@ -101,7 +101,7 @@ class PhoneControlToolDispatcherTest {
         assertEquals("unregistered", unknown.stringValue("provider"))
         assertEquals("capability_unavailable", unsupported.stringValue("code"))
         assertEquals("point_at", unsupported.stringValue("requested_tool"))
-        assertEquals("local_ui_detector", unsupported.stringValue("provider"))
+        assertEquals("current_frame_vision", unsupported.stringValue("provider"))
     }
 
     @Test
@@ -380,7 +380,7 @@ class PhoneControlToolDispatcherTest {
     fun dependencyProviderEvidenceDoesNotReplacePrimaryRoute() = runTest {
         val dispatcher = dispatcherReturning(
             tool = "click_target",
-            provider = "local_ui_detector",
+            provider = "current_frame_vision",
             effect = EffectCertainty.MAY_HAVE_OCCURRED,
             data = buildJsonObject { put("input_provider", "android_app_api") },
         )
@@ -388,7 +388,7 @@ class PhoneControlToolDispatcherTest {
         val execution = dispatcher.dispatch(JOB, "click_target", JsonObject(emptyMap()))
 
         assertEquals("ok", execution.response.stringValue("code"))
-        assertEquals("local_ui_detector", execution.response.stringValue("provider"))
+        assertEquals("current_frame_vision", execution.response.stringValue("provider"))
         assertEquals("android_app_api", execution.response.stringValue("input_provider"))
     }
 
@@ -429,7 +429,7 @@ class PhoneControlToolDispatcherTest {
         val cases = listOf(
             dispatcherReturning(
                 tool = "launch_app",
-                provider = "local_ui_detector",
+                provider = "current_frame_vision",
                 effect = EffectCertainty.PROVEN_NO_EFFECT,
                 code = "dependency_failed",
                 data = buildJsonObject { put("provider_role", "dependency") },

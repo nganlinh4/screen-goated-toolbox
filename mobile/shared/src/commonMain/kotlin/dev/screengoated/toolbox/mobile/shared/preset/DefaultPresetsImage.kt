@@ -1,7 +1,7 @@
 package dev.screengoated.toolbox.mobile.shared.preset
 
 /**
- * Image presets (15).
+ * Image presets (14).
  *
  * Split out of [DefaultPresets] to keep each category file focused. The list is
  * re-exported via [DefaultPresets] so the public API is unchanged. Block helpers
@@ -54,31 +54,6 @@ internal val defaultImagePresets: List<Preset> = listOf(
                 "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.",
                 "language1" to "Korean",
             ).copy(renderMode = "markdown", autoCopy = true),
-            textBlock(
-                DEFAULT_TEXT_MODEL_ID,
-                "Translate to {language1}. Output ONLY the translation.",
-                "language1" to "Vietnamese",
-            ),
-        ),
-    ),
-
-    Preset(
-        id = "preset_extract_retrans_retrans",
-        nameEn = "Trans (ACC)+Retrans",
-        nameVi = "D.v\u00f9ng (CHU\u1ea8N)+D.l\u1ea1i",
-        nameKo = "\uc601.\ubc88\uc5ed (\uc815\ud655)+\uc7ac\ubc88\uc5ed",
-        presetType = PresetType.IMAGE,
-        blocks = listOf(
-            imageBlock(
-                PRESET_IMAGE_ACCURATE_MODEL_ID,
-                "Extract all text from this image exactly as it appears. Output ONLY the text.",
-                "language1" to "English",
-            ).copy(showOverlay = false),
-            textBlock(
-                DEFAULT_TEXT_MODEL_ID,
-                "Translate to {language1}. Output ONLY the translation.",
-                "language1" to "Korean",
-            ).copy(autoCopy = true),
             textBlock(
                 DEFAULT_TEXT_MODEL_ID,
                 "Translate to {language1}. Output ONLY the translation.",

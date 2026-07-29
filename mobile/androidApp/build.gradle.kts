@@ -91,9 +91,17 @@ val generatedNativeRuntimeContractAssets =
     layout.buildDirectory.dir("generated/nativeRuntimeContractAssets")
 val generatedFullNativeRuntimeAssets =
     layout.buildDirectory.dir("generated/fullNativeRuntimeAssets")
+val generatedFullCreationRuntimeDeliveryAssets =
+    layout.buildDirectory.dir("generated/fullCreationRuntimeDeliveryAssets")
 val nativeRuntimeContractSource = rootProject.projectDir.parentFile
     .resolve("parity-fixtures/phone-control/native-runtime-contract.json")
 val checkedInOrtRuntime = projectDir.resolve("libs/ort-runtime.zip")
+val creationRuntimeDeliveryManifest = System.getenv("SGT_CREATION_RUNTIME_DELIVERY_MANIFEST")
+    ?.takeIf { it.isNotBlank() }
+    ?.let { file(it) }
+    ?: rootProject.projectDir.parentFile.resolve(
+        "local-runtime-bundles/sgt_creation_runtime/sgt_creation_runtime.delivery.json",
+    )
 
 val stageNativeRuntimeContract by tasks.registering(Sync::class) {
     dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
@@ -105,6 +113,13 @@ val stageFullOrtRuntimeAsset by tasks.registering(Sync::class) {
     dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
     from(checkedInOrtRuntime)
     into(generatedFullNativeRuntimeAssets.map { it.dir("native-runtime") })
+}
+
+val stageFullCreationRuntimeDelivery by tasks.registering(Sync::class) {
+    if (creationRuntimeDeliveryManifest.isFile) {
+        from(creationRuntimeDeliveryManifest) { rename { "delivery.json" } }
+    }
+    into(generatedFullCreationRuntimeDeliveryAssets.map { it.dir("creation-runtime") })
 }
 
 val generatePresetOverlayAssets by tasks.registering {
@@ -451,7 +466,10 @@ android {
         java.srcDir(generatedPhoneControlContract.map { it.dir("kotlin") })
         assets.srcDir(generatedNativeRuntimeContractAssets)
     }
-    sourceSets.named("full") { assets.srcDir(generatedFullNativeRuntimeAssets) }
+    sourceSets.named("full") {
+        assets.srcDir(generatedFullNativeRuntimeAssets)
+        assets.srcDir(generatedFullCreationRuntimeDeliveryAssets)
+    }
     sourceSets.maybeCreate("testFullDebug").java.srcDir("src/testDebug/java")
     sourceSets.maybeCreate("testPlayDebug").java.srcDir("src/testDebug/java")
 }
@@ -468,6 +486,7 @@ tasks.matching {
     it.name.startsWith("mergeFull") && it.name.endsWith("Assets")
 }.configureEach {
     dependsOn(stageFullOrtRuntimeAsset)
+    dependsOn(stageFullCreationRuntimeDelivery)
 }
 
 tasks.matching {
@@ -491,7 +510,10 @@ tasks.matching {
     dependsOn(generatePresetOverlayAssets)
     dependsOn(generatePresetModelCatalog)
     dependsOn(stageNativeRuntimeContract)
-    if (name.contains("Full")) dependsOn(stageFullOrtRuntimeAsset)
+    if (name.contains("Full")) {
+        dependsOn(stageFullOrtRuntimeAsset)
+        dependsOn(stageFullCreationRuntimeDelivery)
+    }
 }
 
 dependencies {

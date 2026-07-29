@@ -78,7 +78,7 @@
     },
     {
       "name": "drag_target",
-      "description": "Drag between described endpoints selected from one frame, then rebound and verified by one fresh detector pass.",
+      "description": "Drag between described endpoints selected in one frame, crosshair-verify both points, then revalidate their local pixels before input.",
       "parameters": {"type":"object","properties":{"from":{"type":"string","description":"The visible object or handle to grab."},"to":{"type":"string","description":"The visible destination or final handle position."}},"required":["from","to"]}
     },
     {

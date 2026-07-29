@@ -121,7 +121,7 @@ fn locale_root_contains_only_the_sixteen_typed_sections() {
 #[test]
 fn locale_leaf_fields_have_one_section_owner() {
     let sections = [
-        ("badge", include_str!("badge.rs"), 44),
+        ("badge", include_str!("badge.rs"), 43),
         ("workspace", include_str!("workspace.rs"), 25),
         ("preset_basics", include_str!("preset_basics.rs"), 36),
         ("desktop_settings", include_str!("desktop_settings.rs"), 38),
@@ -155,7 +155,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 529);
+    assert_eq!(owners.len(), 528);
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
     assert_eq!(owners["image_creator_btn"], "shell");

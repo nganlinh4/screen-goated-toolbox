@@ -38,6 +38,15 @@ pub(super) const VIEW_SHORT: u32 = 1024;
 /// Short-edge size for the CLEAN crop sent to the aux vision reader. Larger than
 /// the Live frame (the reader is not token-capped) so fine detail survives.
 pub(super) const VISION_SHORT: u32 = super::super::vision_contract::CONTROL_VISION_SHORT_EDGE;
+pub(super) const GROUNDING_SIGNATURE_HALF: i32 = 48;
+
+#[derive(Clone, Debug)]
+pub(super) struct VisualLocation {
+    pub x: f64,
+    pub y: f64,
+    pub note: Option<String>,
+    pub signature: Vec<u8>,
+}
 
 /// Read the current view with the aux vision stack (clean crop, no grid overlay).
 /// `ctx` is task/intent context for disambiguation. Returns the plain answer.
@@ -172,7 +181,7 @@ pub(super) fn locate_in_view(
     description: &str,
     ctx: &str,
     cancel: &AtomicBool,
-) -> Result<Located> {
+) -> Result<VisualLocation> {
     let cap = session::capture_virtual()?;
     let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)?;
     let located = match std::env::var("CC_LOCATE_MODE").as_deref() {
@@ -204,7 +213,19 @@ pub(super) fn locate_in_view(
     // stale/moving UI and verifies the exact proposed point on a marked crop.
     let fresh = session::capture_virtual()?;
     let (fresh_jpeg, _) = session::encode_view(&fresh, view, VISION_SHORT, None, None, None)?;
-    verify_located(&fresh_jpeg, located, description, ctx, cancel)
+    let verified = verify_located(&fresh_jpeg, located, description, ctx, cancel)?;
+    let (screen_x, screen_y) = view.to_screen_px(verified.x, verified.y);
+    Ok(VisualLocation {
+        x: verified.x,
+        y: verified.y,
+        note: verified.note,
+        signature: session::target_region_fingerprint(
+            &fresh,
+            screen_x,
+            screen_y,
+            GROUNDING_SIGNATURE_HALF,
+        ),
+    })
 }
 
 /// Ask the aux vision stack to map EVERY target matching `description` to a list
@@ -215,13 +236,90 @@ pub(super) fn map_in_view(
     description: &str,
     ctx: &str,
     cancel: &AtomicBool,
-) -> Result<Vec<Located>> {
+) -> Result<Vec<VisualLocation>> {
     let cap = session::capture_virtual()?;
     let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)?;
     let (d, c) = (description.to_string(), ctx.to_string());
-    run_cancellable(cancel, move || {
+    let points = run_cancellable(cancel, move || {
         super::super::vision_reader::locate_points(&jpeg, &d, &c)
-    })
+    })?;
+    Ok(points
+        .into_iter()
+        .map(|point| {
+            let (screen_x, screen_y) = view.to_screen_px(point.x, point.y);
+            VisualLocation {
+                x: point.x,
+                y: point.y,
+                note: point.note,
+                signature: session::target_region_fingerprint(
+                    &cap,
+                    screen_x,
+                    screen_y,
+                    GROUNDING_SIGNATURE_HALF,
+                ),
+            }
+        })
+        .collect())
+}
+
+pub(super) fn drag_in_view(
+    view: View,
+    from_description: &str,
+    to_description: &str,
+    ctx: &str,
+    cancel: &AtomicBool,
+) -> Result<(VisualLocation, VisualLocation)> {
+    let capture = session::capture_virtual()?;
+    let (jpeg, _) = session::encode_view(&capture, view, VISION_SHORT, None, None, None)?;
+    let (from_owned, to_owned, context_owned) = (
+        from_description.to_string(),
+        to_description.to_string(),
+        ctx.to_string(),
+    );
+    let (from, to) = run_cancellable(cancel, move || {
+        super::super::vision_reader::locate_drag_points(
+            &jpeg,
+            &from_owned,
+            &to_owned,
+            &context_owned,
+        )
+    })?;
+    let fresh = session::capture_virtual()?;
+    let (fresh_jpeg, _) = session::encode_view(&fresh, view, VISION_SHORT, None, None, None)?;
+    let from = verify_located(&fresh_jpeg, from, from_description, ctx, cancel)?;
+    let to = verify_located(&fresh_jpeg, to, to_description, ctx, cancel)?;
+    let convert = |point: Located| {
+        let (screen_x, screen_y) = view.to_screen_px(point.x, point.y);
+        VisualLocation {
+            x: point.x,
+            y: point.y,
+            note: point.note,
+            signature: session::target_region_fingerprint(
+                &fresh,
+                screen_x,
+                screen_y,
+                GROUNDING_SIGNATURE_HALF,
+            ),
+        }
+    };
+    Ok((convert(from), convert(to)))
+}
+
+pub(super) fn revalidate_visual_locations(view: View, locations: &[&VisualLocation]) -> Result<()> {
+    let fresh = session::capture_virtual()?;
+    for location in locations {
+        let (screen_x, screen_y) = view.to_screen_px(location.x, location.y);
+        let current = session::target_region_fingerprint(
+            &fresh,
+            screen_x,
+            screen_y,
+            GROUNDING_SIGNATURE_HALF,
+        );
+        if !session::target_fingerprint_matches(&location.signature, &current) {
+            anyhow::bail!("the target pixels changed before input dispatch");
+        }
+    }
+    Ok(())
 }
 
 /// Two-call coarse-to-fine locate: point over the whole view, then ZOOM a box

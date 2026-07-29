@@ -112,7 +112,6 @@ private val toolCategories = listOf(
             ToolPresetItem("translate_auto_paste", "Trans (Auto paste)", "Dịch vùng (Tự dán)", "영역 번역 (자동 붙.)", R.drawable.ms_content_paste_go),
             ToolPresetItem("extract_table", "Extract Table", "Trích bảng", "표 추출", R.drawable.ms_table_chart),
             ToolPresetItem("translate_retranslate", "Trans+Retrans", "Dịch vùng+Dịch lại", "번역+재번역", R.drawable.ms_translate),
-            ToolPresetItem("extract_retrans_retrans", "Trans (ACC)+Retrans", "D.vùng (CHUẨN)+D.lại", "번역(정확)+재번역", R.drawable.ms_verified),
             ToolPresetItem("ocr", "Extract text", "Lấy text từ ảnh", "텍스트 추출", R.drawable.ms_text_fields),
             ToolPresetItem("ocr_read", "Read this region", "Đọc vùng này", "영역 읽기", R.drawable.ms_volume_up),
             ToolPresetItem("quick_screenshot", "Quick Screenshot", "Chụp MH nhanh", "빠른 스크린샷", R.drawable.ms_photo_camera),

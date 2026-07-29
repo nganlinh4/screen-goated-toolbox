@@ -63,7 +63,7 @@ data class CreationCommonLocale(
     val ready: String,
     val preparing: String,
     val queued: String,
-    val providerQueued: String,
+    val waiting: String,
     val working: String,
     val progress: CreationProgressLocale,
     val done: String,
@@ -73,16 +73,21 @@ data class CreationCommonLocale(
     val open: String,
     val rename: String,
     val delete: String,
-    val deleteConfirm: String,
+    val deleteAll: String,
+    val deleteAllConfirm: String,
     val dismiss: String,
     val noResults: String,
     val selectedImages: String,
     val interrupted: String,
+    val sourceUnavailable: String,
+    val storageUnavailable: String,
+    val tools: CreationToolsLocale,
+)
+
+data class CreationToolsLocale(
     val previewTools: String,
     val creationRuntime: String,
     val creationRuntimeDescription: String,
-    val depthPreviewModel: String,
-    val depthPreviewDescription: String,
 )
 
 data class CreationProgressLocale(
@@ -100,6 +105,8 @@ data class Creation3dLocale(
     val light: String,
     val detailed: String,
     val autoSeparate: String,
+    val instruction: String,
+    val instructionHint: String,
     val generate: String,
     val generateAgain: String,
     val separate: String,
@@ -123,6 +130,10 @@ data class CreationSvgLocale(
     val simpleDescription: String,
     val detail: String,
     val detailDescription: String,
+    val transparentBackground: String,
+    val backgroundAuto: String,
+    val backgroundOn: String,
+    val backgroundOff: String,
     val generate: String,
     val generateAgain: String,
     val vectorReady: String,
@@ -133,6 +144,7 @@ data class CreationSvgLocale(
     val zoomOut: String,
     val undo: String,
     val redo: String,
+    val editPaths: String,
     val saveEdits: String,
 )
 
