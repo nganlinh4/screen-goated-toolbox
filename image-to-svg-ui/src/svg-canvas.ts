@@ -1,9 +1,17 @@
 import { t } from "./i18n";
-import type { Asset, Item } from "./types";
-import { DepthPreviewController } from "./depth-preview";
-
-const EDITABLE_SELECTOR = "path,rect,circle,ellipse,polygon,polyline,line";
-const MAX_ANIMATED_PATHS = 120;
+import type { Item } from "./types";
+import { applyDelta, deltaBytes, elementPath, pushUndo } from "./svg-edit-history";
+import { bindSvgCanvasGestures, bindSvgCanvasKeyboard } from "./svg-canvas-input";
+import {
+  EDITABLE_SELECTOR,
+  EDIT_SURFACE_STYLE,
+  prepareEditableSvg,
+} from "./svg-edit-surface";
+import {
+  shouldConstructEditableSurface,
+  type SvgSurfaceIntent,
+} from "./svg-display-policy";
+import { LatestOnlyLane } from "../../ui-shared/latest-only-lane";
 
 type Invoke = <T = unknown>(cmd: string, args?: unknown) => Promise<T>;
 
@@ -13,34 +21,17 @@ type CanvasOptions = {
   isSelected: (id: string) => boolean;
   busy: (item: Item) => boolean;
   loadSource: (item: Item) => Promise<string>;
+  loadVectorPreview: (item: Item) => Promise<string>;
+  loadVectorText: (item: Item) => Promise<string>;
+  cacheVector: (item: Item, svg: string) => void;
+  invalidateVectorPreview: (item: Item) => void;
   invoke: Invoke;
   imageIcon: string;
   vectorIcon: string;
-  holdPreviews: (milliseconds: number) => void;
-  setPreviewInteraction: (active: boolean) => void;
 };
 
 function query<T extends Element>(selector: string) {
   return document.querySelector<T>(selector)!;
-}
-
-function sanitizeSvg(text: string): SVGSVGElement {
-  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
-  if (doc.querySelector("parsererror") || doc.documentElement.tagName.toLowerCase() !== "svg") {
-    throw new Error("Invalid SVG result");
-  }
-  doc.querySelectorAll("script, foreignObject, iframe, object, embed").forEach((node) => node.remove());
-  doc.querySelectorAll("*").forEach((node) => {
-    for (const attr of [...node.attributes]) {
-      const name = attr.name.toLowerCase();
-      const value = attr.value.trim();
-      const externalReference = name === "href" || name === "xlink:href" || name === "src";
-      if (name.startsWith("on") || (externalReference && !value.startsWith("#") && !value.startsWith("data:"))) {
-        node.removeAttribute(attr.name);
-      }
-    }
-  });
-  return document.importNode(doc.documentElement, true) as unknown as SVGSVGElement;
 }
 
 export class SvgCanvasController {
@@ -57,24 +48,21 @@ export class SvgCanvasController {
   private readonly redoEdit = query<HTMLButtonElement>("#redoEdit");
   private readonly deleteShape = query<HTMLButtonElement>("#deleteShape");
   private readonly saveEdits = query<HTMLButtonElement>("#saveEdits");
+  private readonly editPaths = query<HTMLButtonElement>("#editPaths");
   private readonly statusStrip = query<HTMLElement>("#statusStrip");
   private readonly resultMeta = query<HTMLElement>("#resultMeta");
   private readonly sourceName = query<HTMLElement>("#sourceName");
   private readonly sourceMeta = query<HTMLElement>("#sourceMeta");
   private readonly sourceThumb = query<HTMLElement>("#sourceThumb");
-  private readonly pathAnimationState = new WeakMap<SVGPathElement, {
-    stroke: string;
-    fillOpacity: string;
-    dashArray: string;
-    dashOffset: string;
-  }>();
   private renderedOutput = "";
+  private renderedSvgObjectUrl = "";
   private displayVersion = 0;
+  private readonly displayLane = new LatestOnlyLane<void>();
   private artboardResizeObserver?: ResizeObserver;
-  private readonly depthPreview: DepthPreviewController;
   private activeSvg?: SVGSVGElement;
   private activeViewport?: HTMLElement;
   private selectedShape?: SVGGraphicsElement;
+  private selectionOverlay?: SVGSVGElement;
   private viewScale = 1;
   private viewX = 0;
   private viewY = 0;
@@ -82,34 +70,63 @@ export class SvgCanvasController {
   private viewBaseHeight = 0;
   private outlineVisible = false;
   private backgroundMode = 0;
-  private panStart?: { x: number; y: number; viewX: number; viewY: number };
-  private panMoved = false;
+  private editingEnabled = false;
+  private surfaceIntent: SvgSurfaceIntent = "preview";
+  private pendingRenderFrame = 0;
 
   constructor(private readonly options: CanvasOptions) {
-    this.depthPreview = new DepthPreviewController({
-      artboard: this.artboard,
-      isSelected: options.isSelected,
-      busy: options.busy,
-    });
     this.bindControls();
-    this.bindCanvasGestures();
-    this.bindKeyboard();
+    bindSvgCanvasGestures({
+      artboard: this.artboard,
+      hasViewport: () => Boolean(this.activeViewport),
+      getView: () => ({ scale: this.viewScale, x: this.viewX, y: this.viewY }),
+      setView: (x, y) => {
+        this.viewX = x;
+        this.viewY = y;
+      },
+      applyView: () => this.applyViewTransform(),
+      setZoom: (scale, anchor) => this.setZoom(scale, anchor),
+      resetView: () => this.resetView(),
+      selectIndex: (index) => this.selectShape(index === undefined
+        ? undefined
+        : [...(this.activeSvg?.querySelectorAll<SVGGraphicsElement>(EDITABLE_SELECTOR) || [])][index]),
+    });
+    bindSvgCanvasKeyboard({
+      save: () => void this.saveCurrentEdits(),
+      resetView: () => this.resetView(),
+      zoomBy: (factor) => this.setZoom(this.viewScale * factor),
+      undo: () => void this.undoCurrentEdit(),
+      redo: () => void this.redoCurrentEdit(),
+      hasSelection: () => Boolean(this.selectedShape),
+      deleteSelection: () => this.deleteShape.click(),
+      clearSelection: () => this.selectShape(),
+    });
   }
 
   invalidate() {
+    this.displayVersion += 1;
+    this.displayLane.invalidate();
     this.renderedOutput = "";
+    this.surfaceIntent = "preview";
   }
 
   clear() {
-    this.finishPathAnimations();
-    this.depthPreview.stop();
+    if (this.pendingRenderFrame) cancelAnimationFrame(this.pendingRenderFrame);
+    this.pendingRenderFrame = 0;
+    if (this.renderedSvgObjectUrl) URL.revokeObjectURL(this.renderedSvgObjectUrl);
+    this.renderedSvgObjectUrl = "";
     this.artboardResizeObserver?.disconnect();
     this.activeSvg = undefined;
     this.activeViewport = undefined;
     this.viewBaseWidth = 0;
     this.viewBaseHeight = 0;
     this.selectedShape = undefined;
+    this.selectionOverlay = undefined;
+    this.editingEnabled = false;
+    this.surfaceIntent = "preview";
     this.viewerToolbar.hidden = true;
+    this.editPaths.hidden = true;
+    this.editPaths.classList.remove("active");
     this.editSection.hidden = true;
     this.statusStrip.hidden = false;
     this.artboard.classList.remove("is-panning");
@@ -125,6 +142,7 @@ export class SvgCanvasController {
     if (!item || item.stage !== "done") {
       this.viewerToolbar.hidden = true;
       this.editSection.hidden = true;
+      this.editPaths.hidden = true;
     }
   }
 
@@ -133,39 +151,59 @@ export class SvgCanvasController {
       this.resultMeta.textContent = "";
       return;
     }
-    const suffix = item.saveError ? t("saveFailed") : item.dirty ? t("unsaved") : "";
+    const suffix = item.editingUnavailable
+      ? t("editingUnavailable")
+      : item.editLimitReached
+        ? t("editLimitReached")
+      : item.saveError
+        ? t("saveFailed")
+        : item.dirty
+          ? t("unsaved")
+          : "";
+    const pathCount = item.pathCount === undefined ? "" : `${item.pathCount} ${t("paths")} · `;
     this.resultMeta.textContent =
-      `${item.pathCount ?? 0} ${t("paths")} · ${item.outputName || "SVG"}${suffix ? ` · ${suffix}` : ""}`;
+      `${pathCount}${item.outputName || "SVG"}${suffix ? ` · ${suffix}` : ""}`;
   }
 
-  async showItem(item?: Item, animateSvg = true) {
+  async showItem(item?: Item, _animateSvg = true) {
     if (!item) return;
     const version = ++this.displayVersion;
-    const isCurrent = () => version === this.displayVersion && this.options.isSelected(item.id);
     this.sourceName.textContent = item.name;
     this.sourceMeta.textContent = item.model === "detail" ? t("detail") : t("simple");
-    this.sourceThumb.innerHTML = item.thumbnailUrl
-      ? `<img src="${item.thumbnailUrl}" alt="" />`
-      : this.options.imageIcon;
-    const source = await this.options.loadSource(item).catch(() => "");
-    if (!isCurrent()) {
-      item.sourceUrl = undefined;
-      return;
-    }
+    this.sourceThumb.innerHTML = this.options.imageIcon;
+    await this.displayLane.run(
+      (signal) => this.showLatestItem(item, version, signal),
+      () => undefined,
+    );
+  }
+
+  private async showLatestItem(
+    item: Item,
+    version: number,
+    signal: AbortSignal,
+  ) {
+    const isCurrent = () => !signal.aborted
+      && version === this.displayVersion
+      && this.options.isSelected(item.id);
+    const hasResult = item.stage === "done" && Boolean(item.outputPath);
+    const source = hasResult ? "" : await this.options.loadSource(item).catch(() => "");
+    if (!isCurrent()) return;
     this.options.getItems().forEach((candidate) => {
-      if (candidate !== item) candidate.sourceUrl = undefined;
+      if (candidate === item) return;
+      if (!candidate.dirty) {
+        candidate.svgText = undefined;
+        candidate.undoStack = undefined;
+        candidate.redoStack = undefined;
+        candidate.undoBytes = 0;
+        candidate.redoBytes = 0;
+      }
     });
-    if (item.stage === "done" && item.outputPath) await this.showSvgResult(item, animateSvg, isCurrent);
-    else if (source && item.depthUrl && this.options.busy(item)) {
-      const depthKey = `depth:${item.id}:${item.previewPath}`;
-      if (this.renderedOutput === depthKey) return;
+    if (hasResult) await this.showSvgResult(item, isCurrent);
+    else if (source && this.renderedOutput !== `source:${item.id}`) {
       this.clear();
-      if (await this.depthPreview.show(item)) this.renderedOutput = depthKey;
-    } else if (source && this.renderedOutput !== `source:${item.id}`) {
-      this.clear();
-      this.depthPreview.stop();
       this.artboardResizeObserver?.disconnect();
-      this.artboard.innerHTML = `<img class="source-preview" src="${source}" alt="" />`;
+      this.artboard.innerHTML =
+        `<img class="source-preview" src="${source}" decoding="async" alt="" />`;
       this.renderedOutput = `source:${item.id}`;
     }
   }
@@ -191,115 +229,128 @@ export class SvgCanvasController {
     this.selectShape(this.activeSvg?.querySelector<SVGGraphicsElement>(EDITABLE_SELECTOR) || undefined);
   }
 
-  private async showSvgResult(item: Item, animateSvg: boolean, isCurrent: () => boolean) {
-    if (!item.svgText) {
-      const asset = await this.options.invoke<Asset>("read_asset", { path: item.outputPath });
-      item.svgText = asset.text;
+  private async showSvgResult(item: Item, isCurrent: () => boolean) {
+    if (!item.svgText && !item.svgPreviewUrl) {
+      item.svgPreviewUrl = await this.options.loadVectorPreview(item);
     }
-    if (!isCurrent() || !item.svgText || this.renderedOutput === item.outputPath) return;
-    this.depthPreview.stop();
-    this.finishPathAnimations();
-    const svg = sanitizeSvg(item.svgText);
-    if (item.originalWidth === undefined) item.originalWidth = svg.getAttribute("width") || "";
-    if (item.originalHeight === undefined) item.originalHeight = svg.getAttribute("height") || "";
-    const viewBox = (svg.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
-    const width = viewBox.length === 4 && viewBox[2] > 0
-      ? viewBox[2]
-      : Number.parseFloat(svg.getAttribute("width") || "");
-    const height = viewBox.length === 4 && viewBox[3] > 0
-      ? viewBox[3]
-      : Number.parseFloat(svg.getAttribute("height") || "");
-    svg.removeAttribute("width");
-    svg.removeAttribute("height");
-    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    svg.setAttribute("role", "img");
+    const source = item.svgText || item.svgPreviewUrl;
+    if (!isCurrent() || !source || this.renderedOutput === item.outputPath) return;
+    this.surfaceIntent = "preview";
+    this.editingEnabled = false;
+    this.activeSvg = undefined;
     const viewport = document.createElement("div");
     viewport.className = "svg-viewport";
-    viewport.append(svg);
     this.artboardResizeObserver?.disconnect();
     this.artboard.replaceChildren(viewport);
-    this.activeSvg = svg;
     this.activeViewport = viewport;
     this.selectedShape = undefined;
-    const ratio = Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
-      ? width / height
-      : 1;
-    this.fitSvgViewport(viewport, ratio);
+    this.fitSvgViewport(viewport, 1);
     this.resetView();
     this.syncCanvasModes();
-    if (item.savedSvgText === undefined) {
-      item.savedSvgText = this.serializeActiveSvg(item);
-      item.svgText = item.savedSvgText;
-    }
-    item.pathCount = svg.querySelectorAll("path").length;
+    this.renderStaticSvg(source, Boolean(item.svgText));
     this.renderedOutput = item.outputPath || "";
     this.syncEditorUi();
-    if (animateSvg) requestAnimationFrame(() => this.animatePaths(svg));
   }
 
-  private restoreAnimatedPath(path: SVGPathElement) {
-    const state = this.pathAnimationState.get(path);
-    if (!state) return;
-    path.getAnimations().forEach((animation) => animation.cancel());
-    const restore = (property: string, value: string) => {
-      if (value) path.style.setProperty(property, value);
-      else path.style.removeProperty(property);
-    };
-    restore("stroke", state.stroke);
-    restore("fill-opacity", state.fillOpacity);
-    restore("stroke-dasharray", state.dashArray);
-    restore("stroke-dashoffset", state.dashOffset);
-    this.pathAnimationState.delete(path);
+  private async activateEditing() {
+    const item = this.options.getSelected();
+    this.surfaceIntent = "edit";
+    if (!item || !shouldConstructEditableSurface(this.surfaceIntent, item.stage, item.outputPath)) {
+      this.surfaceIntent = "preview";
+      return;
+    }
+    this.editPaths.disabled = true;
+    try {
+      if (!item.svgText) item.svgText = await this.options.loadVectorText(item);
+      if (this.options.getSelected()?.id !== item.id || !item.svgText) return;
+      const surface = prepareEditableSvg(item.svgText);
+      const { svg } = surface;
+      item.editingUnavailable = false;
+      this.editingEnabled = true;
+      if (item.originalWidth === undefined) item.originalWidth = surface.originalWidth;
+      if (item.originalHeight === undefined) item.originalHeight = surface.originalHeight;
+      svg.removeAttribute("width");
+      svg.removeAttribute("height");
+      svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      this.activeSvg = svg;
+      const viewport = document.createElement("div");
+      viewport.className = "svg-viewport";
+      this.artboardResizeObserver?.disconnect();
+      this.artboard.replaceChildren(viewport);
+      this.activeViewport = viewport;
+      this.selectedShape = undefined;
+      this.fitSvgViewport(viewport, surface.ratio);
+      this.resetView();
+      this.syncCanvasModes();
+      item.pathCount = surface.pathCount;
+      this.renderEditableSvg();
+    } catch {
+      this.surfaceIntent = "preview";
+      this.editingEnabled = false;
+      this.activeSvg = undefined;
+      item.editingUnavailable = true;
+    }
+    if (this.options.getSelected()?.id === item.id) this.syncEditorUi();
   }
 
-  private finishPathAnimations(svg = this.activeSvg) {
-    svg?.querySelectorAll<SVGPathElement>("path").forEach((path) => this.restoreAnimatedPath(path));
+  private renderActiveSvg(item: Item) {
+    if (!this.activeSvg || !this.activeViewport) return;
+    item.svgText = this.serializeActiveSvg(item);
+    this.syncOverlaySelection();
   }
 
-  private animatePaths(svg: SVGSVGElement) {
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const allPaths = [...svg.querySelectorAll<SVGPathElement>("path")];
-    const stride = Math.max(1, Math.ceil(allPaths.length / MAX_ANIMATED_PATHS));
-    const paths = allPaths.filter((_, index) => index % stride === 0).slice(0, MAX_ANIMATED_PATHS);
-    const totalDuration = Math.min(4_200, Math.max(1_600, 1_200 + Math.log2(paths.length + 1) * 320));
-    this.options.holdPreviews(totalDuration);
-    const delayWindow = totalDuration * 0.3;
-    const baseDuration = totalDuration - delayWindow;
-    const measurements = paths.flatMap((path) => {
-      try {
-        const length = path.getTotalLength();
-        if (!Number.isFinite(length) || length <= 0) return [];
-        return [{ path, length, stroke: getComputedStyle(path).stroke }];
-      } catch {
-        return [];
-      }
+  private renderEditableSvg() {
+    if (!this.activeViewport) return;
+    if (!this.editingEnabled || !this.activeSvg) return;
+    if (this.renderedSvgObjectUrl) URL.revokeObjectURL(this.renderedSvgObjectUrl);
+    this.renderedSvgObjectUrl = "";
+    const shapes = [...this.activeSvg.querySelectorAll<SVGGraphicsElement>(EDITABLE_SELECTOR)];
+    this.activeSvg.classList.add("svg-edit-surface");
+    shapes.forEach((shape, index) => {
+      shape.dataset.editIndex = String(index);
     });
-    measurements.forEach(({ path, length, stroke }, index) => {
-      this.pathAnimationState.set(path, {
-        stroke: path.style.stroke,
-        fillOpacity: path.style.fillOpacity,
-        dashArray: path.style.strokeDasharray,
-        dashOffset: path.style.strokeDashoffset,
-      });
-      path.style.stroke = stroke === "none" ? "var(--ink-accent)" : stroke;
-      path.style.strokeDasharray = `${length}`;
-      path.style.strokeDashoffset = `${length}`;
-      path.style.fillOpacity = "0";
-      const animation = path.animate(
-        [
-          { strokeDashoffset: length, fillOpacity: 0 },
-          { strokeDashoffset: 0, fillOpacity: 0, offset: 0.78 },
-          { strokeDashoffset: 0, fillOpacity: 1 },
-        ],
-        {
-          duration: baseDuration * (0.72 + Math.min(length / 700, 1) * 0.28),
-          delay: measurements.length > 1 ? (index / (measurements.length - 1)) * delayWindow : 0,
-          easing: "cubic-bezier(.2,.75,.25,1)",
-          fill: "forwards",
-        },
-      );
-      animation.finished.then(() => this.restoreAnimatedPath(path)).catch(() => undefined);
-    });
+    this.selectionOverlay = this.activeSvg;
+    const shadow = this.activeViewport.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = EDIT_SURFACE_STYLE;
+    shadow.replaceChildren(style, this.activeSvg);
+    this.syncOverlaySelection();
+  }
+
+  private renderStaticSvg(source: string, isDocumentText: boolean) {
+    if (!this.activeViewport) return;
+    if (this.renderedSvgObjectUrl) URL.revokeObjectURL(this.renderedSvgObjectUrl);
+    const nextUrl = isDocumentText
+      ? URL.createObjectURL(new Blob([source], { type: "image/svg+xml" }))
+      : source;
+    this.renderedSvgObjectUrl = isDocumentText ? nextUrl : "";
+    const image = document.createElement("img");
+    image.className = "svg-render-image";
+    image.alt = "";
+    image.decoding = "async";
+    image.src = nextUrl;
+    image.addEventListener("load", () => {
+      if (!image.isConnected || !this.activeViewport) return;
+      const ratio = image.naturalWidth > 0 && image.naturalHeight > 0
+        ? image.naturalWidth / image.naturalHeight
+        : 1;
+      this.fitSvgViewport(this.activeViewport, ratio);
+    }, { once: true });
+    image.addEventListener("error", () => {
+      if (!isDocumentText || this.renderedSvgObjectUrl !== nextUrl) return;
+      URL.revokeObjectURL(this.renderedSvgObjectUrl);
+      this.renderedSvgObjectUrl = "";
+    }, { once: true });
+    this.selectionOverlay = undefined;
+    this.activeViewport.replaceChildren(image);
+  }
+
+  private syncOverlaySelection() {
+    const shapes = [...this.activeSvg?.querySelectorAll<SVGGraphicsElement>(EDITABLE_SELECTOR) || []];
+    const index = this.selectedShape ? shapes.indexOf(this.selectedShape) : -1;
+    this.selectionOverlay
+      ?.querySelectorAll("[data-edit-index]")
+      .forEach((shape) => shape.classList.toggle("selected", shape.getAttribute("data-edit-index") === String(index)));
   }
 
   private applyViewTransform() {
@@ -318,33 +369,40 @@ export class SvgCanvasController {
     this.artboard.classList.toggle("background-light", this.backgroundMode === 1);
     this.artboard.classList.toggle("background-dark", this.backgroundMode === 2);
     this.activeSvg?.classList.toggle("viewer-outlines", this.outlineVisible);
+    this.selectionOverlay?.classList.toggle("show-outlines", this.outlineVisible);
     query("#showOutlines").classList.toggle("active", this.outlineVisible);
     query("#canvasBackground").classList.toggle("active", this.backgroundMode !== 1);
   }
 
   private serializeActiveSvg(item = this.options.getSelected()) {
     if (!this.activeSvg || !item) return item?.svgText || "";
-    this.finishPathAnimations(this.activeSvg);
     const clone = this.activeSvg.cloneNode(true) as SVGSVGElement;
-    clone.classList.remove("viewer-outlines");
-    clone.querySelectorAll(".vector-selected").forEach((element) => element.classList.remove("vector-selected"));
+    clone.classList.remove("viewer-outlines", "show-outlines", "svg-edit-surface");
+    clone.querySelectorAll("[data-edit-index]").forEach((element) => {
+      element.removeAttribute("data-edit-index");
+      element.classList.remove("selected");
+    });
     if (!clone.getAttribute("class")) clone.removeAttribute("class");
     clone.querySelectorAll("[class='']").forEach((element) => element.removeAttribute("class"));
     if (item.originalWidth) clone.setAttribute("width", item.originalWidth);
     else clone.removeAttribute("width");
     if (item.originalHeight) clone.setAttribute("height", item.originalHeight);
     else clone.removeAttribute("height");
-    clone.removeAttribute("role");
     return new XMLSerializer().serializeToString(clone);
   }
 
   private syncEditorUi() {
     const item = this.options.getSelected();
-    const editable = item?.stage === "done" && Boolean(this.activeSvg);
-    this.viewerToolbar.hidden = !editable;
+    const rendered = item?.stage === "done" && Boolean(this.activeViewport);
+    const editable = rendered && this.editingEnabled && Boolean(this.activeSvg);
+    this.viewerToolbar.hidden = !rendered;
+    this.editPaths.hidden = !rendered;
+    this.editPaths.disabled = !rendered || editable || Boolean(item?.editingUnavailable);
+    this.editPaths.classList.toggle("active", editable);
     this.editSection.hidden = !editable;
     this.statusStrip.hidden = editable;
-    const hasSelection = editable && Boolean(this.selectedShape?.isConnected);
+    const hasSelection = editable
+      && Boolean(this.selectedShape && this.activeSvg?.contains(this.selectedShape));
     this.selectionLabel.textContent = hasSelection && this.activeSvg && this.selectedShape
       ? t("shapeSelected", {
         count: [...this.activeSvg.querySelectorAll(EDITABLE_SELECTOR)].indexOf(this.selectedShape) + 1,
@@ -357,13 +415,12 @@ export class SvgCanvasController {
     this.saveEdits.disabled = !item?.dirty || !item.outputPath;
     this.saveEdits.classList.toggle("dirty", Boolean(item?.dirty));
     if (hasSelection && this.selectedShape) {
-      const computed = getComputedStyle(this.selectedShape);
-      const fill = this.selectedShape.style.fill || this.selectedShape.getAttribute("fill") || computed.fill;
-      const stroke = this.selectedShape.style.stroke || this.selectedShape.getAttribute("stroke") || computed.stroke;
+      const fill = this.selectedShape.style.fill || this.selectedShape.getAttribute("fill") || "none";
+      const stroke = this.selectedShape.style.stroke || this.selectedShape.getAttribute("stroke") || "none";
       this.fillColor.value = this.colorToHex(fill, "#315fce");
       this.strokeColor.value = this.colorToHex(stroke, "#252c39");
-      this.removeFill.classList.toggle("active", fill === "none" || computed.fill === "none");
-      this.removeStroke.classList.toggle("active", stroke === "none" || computed.stroke === "none");
+      this.removeFill.classList.toggle("active", fill === "none");
+      this.removeStroke.classList.toggle("active", stroke === "none");
     } else {
       this.removeFill.classList.remove("active");
       this.removeStroke.classList.remove("active");
@@ -383,60 +440,69 @@ export class SvgCanvasController {
   }
 
   private selectShape(shape?: SVGGraphicsElement) {
-    this.finishPathAnimations();
-    this.selectedShape?.classList.remove("vector-selected");
-    this.selectedShape = shape?.isConnected ? shape : undefined;
-    this.selectedShape?.classList.add("vector-selected");
+    this.selectedShape = shape && this.activeSvg?.contains(shape) ? shape : undefined;
+    this.syncOverlaySelection();
     this.syncEditorUi();
-  }
-
-  private pushUndo(item: Item) {
-    item.undoStack ||= [];
-    item.undoStack.push(this.serializeActiveSvg(item));
-    if (item.undoStack.length > 50) item.undoStack.shift();
-    item.redoStack = [];
   }
 
   private commitLiveEdit(item: Item) {
-    item.svgText = this.serializeActiveSvg(item);
-    item.dirty = item.svgText !== item.savedSvgText;
     item.saveError = false;
-    item.pathCount = this.activeSvg?.querySelectorAll("path").length || 0;
+    item.dirty = true;
     this.syncEditorUi();
+    if (this.pendingRenderFrame) return;
+    this.pendingRenderFrame = requestAnimationFrame(() => {
+      this.pendingRenderFrame = 0;
+      if (this.options.getSelected() !== item || !this.activeSvg) return;
+      item.svgText = this.serializeActiveSvg(item);
+      item.dirty = Boolean(item.undoBaselineLost || item.undoStack?.length);
+      item.pathCount = this.activeSvg.querySelectorAll("path").length;
+      this.renderActiveSvg(item);
+      this.syncEditorUi();
+    });
   }
 
   private applyPaint(property: "fill" | "stroke", value: string) {
     const item = this.options.getSelected();
     if (!item || !this.selectedShape) return;
-    this.pushUndo(item);
+    const shapePath = elementPath(this.activeSvg!, this.selectedShape);
+    const before = this.selectedShape.style.getPropertyValue(property);
+    if (!pushUndo(this.options.getItems(), item, {
+      kind: "paint", shapePath, property, before, after: value,
+    })) {
+      item.editLimitReached = true;
+      this.syncEditorUi();
+      return;
+    }
     this.selectedShape.style.setProperty(property, value);
     this.commitLiveEdit(item);
   }
 
-  private async restoreEdit(item: Item, svg: string) {
-    item.svgText = svg;
-    item.dirty = svg !== item.savedSvgText;
-    item.saveError = false;
-    this.invalidate();
-    await this.showItem(item, false);
-  }
-
-  private async undoCurrentEdit() {
+  private undoCurrentEdit() {
     const item = this.options.getSelected();
-    const previous = item?.undoStack?.pop();
-    if (!item || !previous) return;
+    const delta = item?.undoStack?.pop();
+    if (!item || !delta || !this.activeSvg) return;
+    const result = applyDelta(this.activeSvg, delta, false);
+    if (!result.applied) return;
+    this.selectedShape = result.selected;
     item.redoStack ||= [];
-    item.redoStack.push(this.serializeActiveSvg(item));
-    await this.restoreEdit(item, previous);
+    item.redoStack.push(delta);
+    item.undoBytes = Math.max(0, (item.undoBytes || 0) - deltaBytes(delta));
+    item.redoBytes = (item.redoBytes || 0) + deltaBytes(delta);
+    this.commitLiveEdit(item);
   }
 
-  private async redoCurrentEdit() {
+  private redoCurrentEdit() {
     const item = this.options.getSelected();
-    const next = item?.redoStack?.pop();
-    if (!item || !next) return;
+    const delta = item?.redoStack?.pop();
+    if (!item || !delta || !this.activeSvg) return;
+    const result = applyDelta(this.activeSvg, delta, true);
+    if (!result.applied) return;
+    this.selectedShape = result.selected;
     item.undoStack ||= [];
-    item.undoStack.push(this.serializeActiveSvg(item));
-    await this.restoreEdit(item, next);
+    item.undoStack.push(delta);
+    item.redoBytes = Math.max(0, (item.redoBytes || 0) - deltaBytes(delta));
+    item.undoBytes = (item.undoBytes || 0) + deltaBytes(delta);
+    this.commitLiveEdit(item);
   }
 
   private async saveCurrentEdits() {
@@ -448,9 +514,17 @@ export class SvgCanvasController {
     try {
       await this.options.invoke("save_svg_edits", { path: item.outputPath, svg });
       item.svgText = svg;
-      item.savedSvgText = svg;
+      item.svgPreviewUrl = undefined;
+      this.options.cacheVector(item, svg);
+      this.options.invalidateVectorPreview(item);
       item.dirty = false;
       item.saveError = false;
+      item.undoStack = [];
+      item.redoStack = [];
+      item.undoBytes = 0;
+      item.redoBytes = 0;
+      item.undoBaselineLost = false;
+      item.editLimitReached = false;
     } catch {
       item.saveError = true;
     } finally {
@@ -495,96 +569,24 @@ export class SvgCanvasController {
     this.deleteShape.addEventListener("click", () => {
       const item = this.options.getSelected();
       if (!item || !this.selectedShape) return;
-      this.pushUndo(item);
+      const parent = this.selectedShape.parentElement;
+      if (!parent) return;
+      if (!pushUndo(this.options.getItems(), item, {
+        kind: "delete",
+        parentPath: elementPath(this.activeSvg!, parent),
+        childIndex: [...parent.children].indexOf(this.selectedShape),
+        markup: this.selectedShape.outerHTML,
+      })) {
+        item.editLimitReached = true;
+        this.syncEditorUi();
+        return;
+      }
       this.selectedShape.remove();
       this.selectedShape = undefined;
       this.commitLiveEdit(item);
     });
     this.saveEdits.addEventListener("click", () => void this.saveCurrentEdits());
+    this.editPaths.addEventListener("click", () => void this.activateEditing());
   }
 
-  private bindCanvasGestures() {
-    this.artboard.addEventListener("wheel", (event) => {
-      if (!this.activeViewport) return;
-      this.options.holdPreviews(220);
-      event.preventDefault();
-      const bounds = this.artboard.getBoundingClientRect();
-      const anchor = {
-        x: event.clientX - bounds.left - bounds.width / 2,
-        y: event.clientY - bounds.top - bounds.height / 2,
-      };
-      this.setZoom(this.viewScale * (event.deltaY < 0 ? 1.12 : 0.89), anchor);
-    }, { passive: false });
-    this.artboard.addEventListener("dblclick", (event) => {
-      if (!this.activeViewport || (event.target as Element).closest(EDITABLE_SELECTOR)) return;
-      this.resetView();
-    });
-    this.artboard.addEventListener("pointerdown", (event) => {
-      if (!this.activeViewport || event.button !== 0) return;
-      this.options.setPreviewInteraction(true);
-      this.panStart = { x: event.clientX, y: event.clientY, viewX: this.viewX, viewY: this.viewY };
-      this.panMoved = false;
-      this.artboard.setPointerCapture(event.pointerId);
-    });
-    this.artboard.addEventListener("pointermove", (event) => {
-      if (!this.panStart) return;
-      const dx = event.clientX - this.panStart.x;
-      const dy = event.clientY - this.panStart.y;
-      if (Math.abs(dx) + Math.abs(dy) > 3) this.panMoved = true;
-      if (!this.panMoved) return;
-      this.viewX = this.panStart.viewX + dx;
-      this.viewY = this.panStart.viewY + dy;
-      this.artboard.classList.add("is-panning");
-      this.applyViewTransform();
-    });
-    this.artboard.addEventListener("pointerup", (event) => this.finishPan(event.pointerId));
-    this.artboard.addEventListener("pointercancel", (event) => this.finishPan(event.pointerId, true));
-    this.artboard.addEventListener("click", (event) => {
-      if (this.panMoved || !this.activeSvg) return;
-      const target = (event.target as Element).closest(EDITABLE_SELECTOR) as SVGGraphicsElement | null;
-      this.selectShape(target && this.activeSvg.contains(target) ? target : undefined);
-    });
-  }
-
-  private finishPan(pointerId: number, cancelled = false) {
-    if (!this.panStart) return;
-    this.panStart = undefined;
-    this.artboard.classList.remove("is-panning");
-    if (this.artboard.hasPointerCapture(pointerId)) this.artboard.releasePointerCapture(pointerId);
-    this.options.setPreviewInteraction(false);
-    if (cancelled) this.panMoved = false;
-    else if (this.panMoved) setTimeout(() => {
-      this.panMoved = false;
-    }, 0);
-  }
-
-  private bindKeyboard() {
-    window.addEventListener("keydown", (event) => {
-      if (event.target instanceof Element && event.target.closest("input")) return;
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        void this.saveCurrentEdits();
-      } else if ((event.ctrlKey || event.metaKey) && event.key === "0") {
-        event.preventDefault();
-        this.resetView();
-      } else if ((event.ctrlKey || event.metaKey) && (event.key === "+" || event.key === "=")) {
-        event.preventDefault();
-        this.setZoom(this.viewScale * 1.2);
-      } else if ((event.ctrlKey || event.metaKey) && event.key === "-") {
-        event.preventDefault();
-        this.setZoom(this.viewScale / 1.2);
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        void (event.shiftKey ? this.redoCurrentEdit() : this.undoCurrentEdit());
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
-        event.preventDefault();
-        void this.redoCurrentEdit();
-      } else if ((event.key === "Delete" || event.key === "Backspace") && this.selectedShape) {
-        event.preventDefault();
-        this.deleteShape.click();
-      } else if (event.key === "Escape" && this.selectedShape) {
-        this.selectShape();
-      }
-    });
-  }
 }

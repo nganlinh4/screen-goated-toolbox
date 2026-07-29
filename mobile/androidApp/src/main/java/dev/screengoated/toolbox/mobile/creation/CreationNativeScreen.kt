@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
@@ -29,10 +31,15 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -66,9 +73,13 @@ internal fun CreationNativeScreen(
         CreationTool.IMAGE_CREATOR -> locale.creationApps.appImageCreatorTitle
     }
     val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(viewModel) {
+        withFrameNanos { }
+        viewModel.activateSurface()
+    }
     LaunchedEffect(state.transientError) {
         state.transientError?.let {
-            snackbar.showSnackbar(it)
+            snackbar.showSnackbar(publicCreationErrorText(it, common))
             viewModel.dismissError()
         }
     }
@@ -79,7 +90,10 @@ internal fun CreationNativeScreen(
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(painterResource(R.drawable.ms_arrow_back), contentDescription = null)
+                        Icon(
+                            painterResource(R.drawable.ms_arrow_back),
+                            contentDescription = common.dismiss,
+                        )
                     }
                 },
                 actions = {
@@ -196,6 +210,7 @@ private fun CreationItemRail(
     onPickImages: () -> Unit,
     compact: Boolean = false,
 ) {
+    var confirmDeleteAll by remember(tool) { mutableStateOf(false) }
     val horizontalPadding = if (compact) 0.dp else 16.dp
     val verticalPadding = if (compact) 6.dp else 12.dp
     Column(Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding)) {
@@ -226,8 +241,24 @@ private fun CreationItemRail(
                             .replace("{}", item.referencePaths.size.toString())
                     }
                 },
+                showArtworkPreviews = tool == CreationTool.IMAGE_TO_3D,
             )
         } else {
+            if (state.history.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = { confirmDeleteAll = true }) {
+                        Icon(
+                            painterResource(R.drawable.ms_delete),
+                            contentDescription = null,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(locale.creationApps.common.deleteAll)
+                    }
+                }
+            }
             CreationHistoryStrip(
                 entries = state.history,
                 selectedId = state.selectedHistoryId,
@@ -236,6 +267,29 @@ private fun CreationItemRail(
                 onSelect = viewModel::selectHistory,
             )
         }
+    }
+    if (confirmDeleteAll) {
+        val common = locale.creationApps.common
+        AlertDialog(
+            onDismissRequest = { confirmDeleteAll = false },
+            title = { Text(common.deleteAll) },
+            text = { Text(common.deleteAllConfirm) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteAll = false
+                        viewModel.deleteAllHistory()
+                    },
+                ) {
+                    Text(common.deleteAll)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteAll = false }) {
+                    Text(common.dismiss)
+                }
+            },
+        )
     }
 }
 

@@ -97,11 +97,10 @@
       "argument_field",
       "contract_reason"
     ],
-    "optionalDetectorFields": [
-      "detector_stage",
-      "mapping_inference_ms",
-      "target_selection_ms",
-      "refresh_inference_ms",
+    "optionalGroundingFields": [
+      "grounding_stage",
+      "mapping_model_ms",
+      "target_location_ms",
       "target_verification_ms",
       "pixel_revalidation_ms"
     ]

@@ -10,13 +10,15 @@
 ## Data and Editor Contract
 
 - Windows built-ins are canonical seed data. Android persists user overrides by preset ID; restore removes the override.
-- `preset_extract_retranslate` is retired on both platforms.
-  `preset_translate` is the canonical direct region-translation preset and owns
+- The OCR-first `preset_extract_retranslate` and
+  `preset_extract_retrans_retrans` built-ins are retired on both platforms.
+  Their canonical replacements are `preset_translate` and
+  `preset_translate_retranslate`, respectively. The direct replacement owns
   the unmodified backtick default on Windows. When Windows loads older saved
   catalogs, it removes every retired row, transfers its favorite state and
-  unique hotkeys to `preset_translate`, and redirects an active retired
-  selection to the replacement. Android does not copy Windows-only hotkey
-  metadata into its runtime catalog.
+  unique hotkeys to the matching replacement, and redirects an active retired
+  selection. Android does not copy Windows-only hotkey metadata into its
+  runtime catalog.
 - The catalog owns the generic image default, accuracy-sensitive image default,
   preset-specific model defaults, provider defaults, and both retry chains.
   Gemini 3.5 Flash Lite is the broad image default because it combines

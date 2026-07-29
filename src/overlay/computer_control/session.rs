@@ -400,6 +400,46 @@ pub(super) fn region_fingerprint(cap: &Capture, cx: i32, cy: i32, half: i32) -> 
     view_fingerprint(cap, v)
 }
 
+/// RGB signature for a small target-local box. Unlike the grayscale action
+/// postcondition fingerprint, this preserves state changes expressed only by
+/// color and is used to fail closed before a grounded pointer effect.
+pub(super) fn target_region_fingerprint(cap: &Capture, cx: i32, cy: i32, half: i32) -> Vec<u8> {
+    let iw = cap.rgb.width() as i32;
+    let ih = cap.rgb.height() as i32;
+    let x = (cx - half - cap.origin_x).clamp(0, iw.saturating_sub(1).max(0));
+    let y = (cy - half - cap.origin_y).clamp(0, ih.saturating_sub(1).max(0));
+    let w = (half * 2).clamp(1, iw - x);
+    let h = (half * 2).clamp(1, ih - y);
+    let sub =
+        image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
+    image::imageops::resize(&sub, 24, 24, image::imageops::FilterType::Triangle)
+        .pixels()
+        .flat_map(|pixel| pixel.0)
+        .collect()
+}
+
+pub(super) fn target_fingerprint_matches(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() || !left.len().is_multiple_of(3) {
+        return false;
+    }
+    let mut total_delta = 0_u64;
+    let mut changed_samples = 0_usize;
+    for (left_rgb, right_rgb) in left.chunks_exact(3).zip(right.chunks_exact(3)) {
+        let delta = left_rgb
+            .iter()
+            .zip(right_rgb)
+            .map(|(left, right)| u32::from(left.abs_diff(*right)))
+            .sum::<u32>()
+            / 3;
+        total_delta += u64::from(delta);
+        if delta >= 52 {
+            changed_samples += 1;
+        }
+    }
+    let samples = left.len() / 3;
+    total_delta <= samples as u64 * 30 && changed_samples * 100 <= samples * 28
+}
+
 /// Capture the screen now and fingerprint the box around (cx, cy) — the "before"
 /// snapshot taken just prior to a click.
 pub(super) fn capture_region_fp(cx: i32, cy: i32, half: i32) -> Option<Vec<u8>> {
@@ -423,7 +463,7 @@ pub(super) fn fingerprint_change(a: &[u8], b: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod view_tests {
-    use super::View;
+    use super::{View, target_fingerprint_matches};
 
     #[test]
     fn normalized_edges_stay_inside_the_view() {
@@ -436,5 +476,19 @@ mod view_tests {
         assert_eq!(view.to_screen_px(0.0, 0.0), (-100, 20));
         assert_eq!(view.to_screen_px(1000.0, 1000.0), (-91, 27));
         assert_eq!(view.to_screen_px(-50.0, 1200.0), (-100, 27));
+    }
+
+    #[test]
+    fn target_signatures_preserve_color_and_tolerate_small_capture_noise() {
+        let baseline = vec![80_u8; 24 * 24 * 3];
+        let mut noisy = baseline.clone();
+        noisy.iter_mut().for_each(|channel| *channel += 4);
+        assert!(target_fingerprint_matches(&baseline, &noisy));
+
+        let mut changed = baseline.clone();
+        changed.chunks_exact_mut(3).take(200).for_each(|pixel| {
+            pixel.copy_from_slice(&[220, 20, 160]);
+        });
+        assert!(!target_fingerprint_matches(&baseline, &changed));
     }
 }

@@ -115,7 +115,7 @@ class PhoneControlRuntimeWiringTest {
     }
 
     @Test
-    fun `semantic detector gestures are mutating before dispatch completes`() = runBlocking {
+    fun `visual grounding gestures are mutating before dispatch completes`() = runBlocking {
         listOf("click_target", "drag_target").forEach { tool ->
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val started = CompletableDeferred<Unit>()

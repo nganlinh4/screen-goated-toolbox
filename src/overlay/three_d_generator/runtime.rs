@@ -1,28 +1,43 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
-use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod capabilities;
+mod control;
+mod generation_mode;
 mod preparation;
 mod process;
-mod provider;
+mod recovery;
+mod restore;
+mod submission;
+pub(super) use submission::{start_job, start_segmentation};
 
-use process::{CommandNoWindowExt as _, run_runtime_operation};
-use provider::{GenerationMode, ModelProvider};
+pub(super) use control::{
+    cancel_for_shutdown, cancel_job, forget_result_path, is_known_result_path, open_output,
+    remap_result_path,
+};
+use generation_mode::GenerationMode;
+use process::run_runtime_operation;
+use restore::ensure_recovery_started;
 
-const MAX_ASSET_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_PARALLEL_JOBS: usize = 2;
+const MAX_QUEUED_JOBS: usize = 50;
+const MAX_RETAINED_TERMINAL_JOBS: usize = 64;
+const CONTINUATION_WINDOW_MS: u64 = 24 * 60 * 60 * 1_000;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct StartJobRequest {
     pub image_path: String,
+    #[serde(default)]
+    pub source_descriptors: Vec<crate::overlay::creation_source::SourceDescriptor>,
     pub output_dir: Option<String>,
+    #[serde(default)]
+    pub final_output_dir: Option<String>,
     pub polycount: u32,
     pub mode: String,
     #[serde(default)]
@@ -30,8 +45,12 @@ pub(super) struct StartJobRequest {
     pub output_format: String,
     pub auto_segment: bool,
     pub segmentation_mode: String,
+    #[serde(default)]
+    pub instruction: Option<String>,
+    #[serde(default)]
+    pub output_name: String,
     #[serde(skip, default)]
-    pub provider: ModelProvider,
+    pub dispatch_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -41,16 +60,18 @@ pub(super) struct JobStatus {
     pub stage: String,
     pub progress_text: String,
     pub phase: Option<String>,
-    pub workspace_state: Option<String>,
     pub elapsed_ms: Option<u64>,
     pub estimated_total_ms: Option<u64>,
     pub progress_ratio: Option<f64>,
     pub timing_sample_count: Option<u64>,
     pub output_path: Option<String>,
     pub output_name: Option<String>,
-    pub preview_path: Option<String>,
     pub source_image_path: Option<String>,
+    pub output_dir: Option<String>,
     pub generation_mode: Option<GenerationMode>,
+    pub polycount: Option<u32>,
+    pub auto_segment: Option<bool>,
+    pub instruction: Option<String>,
     pub is_segmented: bool,
     pub can_segment: bool,
     pub error: Option<String>,
@@ -59,13 +80,19 @@ pub(super) struct JobStatus {
 
 #[derive(Debug, Clone)]
 struct Continuation {
-    token: String,
-    group: String,
+    parent_dispatch_id: String,
+    dispatch_id: String,
     image_path: String,
+    source_descriptor: crate::overlay::creation_source::SourceDescriptor,
     output_dir: PathBuf,
+    staging_dir: PathBuf,
+    output_name: String,
     previous_output_path: PathBuf,
-    preview_path: Option<String>,
-    provider: ModelProvider,
+    generation_mode: GenerationMode,
+    polycount: u32,
+    auto_segment: bool,
+    instruction: Option<String>,
+    expires_at_ms: u64,
 }
 
 #[derive(Default)]
@@ -74,6 +101,11 @@ struct RuntimeState {
     job_order: Vec<String>,
     pids: HashMap<String, u32>,
     continuations: HashMap<String, Continuation>,
+    operations: HashMap<String, RuntimeOperation>,
+    request_fingerprints: HashMap<String, String>,
+    deadlines: HashMap<String, u64>,
+    recovered_jobs: std::collections::HashSet<String>,
+    pending_completions: HashMap<String, (JobStatus, Option<Continuation>)>,
 }
 
 impl RuntimeState {
@@ -84,11 +116,52 @@ impl RuntimeState {
             .count()
     }
 
+    fn pending_count(&self) -> usize {
+        self.jobs
+            .values()
+            .filter(|status| status.stage == "queued" || status_is_busy(&status.stage))
+            .count()
+    }
+
     fn insert_job(&mut self, job_id: String, status: JobStatus) {
         if !self.jobs.contains_key(&job_id) {
             self.job_order.push(job_id.clone());
         }
         self.jobs.insert(job_id, status);
+        self.prune_terminal_jobs();
+    }
+
+    fn prune_terminal_jobs(&mut self) {
+        let terminal_ids = self
+            .job_order
+            .iter()
+            .filter(|job_id| {
+                self.jobs.get(*job_id).is_some_and(|status| {
+                    matches!(status.stage.as_str(), "done" | "failed" | "cancelled")
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let remove_count = terminal_ids
+            .len()
+            .saturating_sub(MAX_RETAINED_TERMINAL_JOBS);
+        for job_id in terminal_ids.into_iter().take(remove_count) {
+            self.jobs.remove(&job_id);
+            if let Some(continuation) = self.continuations.remove(&job_id) {
+                let _ = crate::overlay::creation_source_snapshot::release_continuation(
+                    std::slice::from_ref(&continuation.source_descriptor),
+                    &job_id,
+                );
+            }
+            self.pids.remove(&job_id);
+            self.operations.remove(&job_id);
+            self.request_fingerprints.remove(&job_id);
+            self.deadlines.remove(&job_id);
+            self.recovered_jobs.remove(&job_id);
+            self.pending_completions.remove(&job_id);
+        }
+        self.job_order
+            .retain(|job_id| self.jobs.contains_key(job_id));
     }
 
     fn latest_status(&self) -> Option<JobStatus> {
@@ -98,33 +171,63 @@ impl RuntimeState {
             .find_map(|job_id| self.jobs.get(job_id).cloned())
     }
 
-    fn invalidate_continuation_group(&mut self, group: &str) {
-        let continuation_ids = self
+    fn prune_expired_continuations(&mut self, now_ms: u64) {
+        let expired = self
             .continuations
             .iter()
-            .filter(|(_, continuation)| continuation.group == group)
-            .map(|(job_id, _)| job_id.clone())
+            .filter(|(_, continuation)| continuation.expires_at_ms <= now_ms)
+            .map(|(job_id, continuation)| (job_id.clone(), continuation.source_descriptor.clone()))
             .collect::<Vec<_>>();
-        for job_id in continuation_ids {
+        for (job_id, descriptor) in expired {
             self.continuations.remove(&job_id);
+            let _ = crate::overlay::creation_source_snapshot::release_continuation(
+                std::slice::from_ref(&descriptor),
+                &job_id,
+            );
             if let Some(status) = self.jobs.get_mut(&job_id) {
                 status.can_segment = false;
             }
         }
+    }
+
+    fn take_continuation(&mut self, job_id: &str, now_ms: u64) -> Result<Continuation, String> {
+        self.prune_expired_continuations(now_ms);
+        let continuation = self
+            .continuations
+            .remove(job_id)
+            .ok_or_else(|| "This model can no longer be separated into parts.".to_string())?;
+        if let Some(status) = self.jobs.get_mut(job_id) {
+            status.can_segment = false;
+        }
+        Ok(continuation)
+    }
+
+    fn peek_continuation(&mut self, job_id: &str, now_ms: u64) -> Result<Continuation, String> {
+        self.prune_expired_continuations(now_ms);
+        self.continuations
+            .get(job_id)
+            .cloned()
+            .ok_or_else(|| "This model can no longer be separated into parts.".to_string())
     }
 }
 
 fn status_is_busy(stage: &str) -> bool {
     matches!(
         stage,
-        "preparing" | "visualizing" | "generating" | "segmenting" | "finalizing"
+        "preparing" | "generating" | "segmenting" | "finalizing"
     )
 }
 
+fn status_is_non_publishable(stage: &str) -> bool {
+    matches!(stage, "cancelling" | "cancelled")
+}
+
+#[derive(Clone)]
 enum RuntimeOperation {
     Generate {
         request: StartJobRequest,
         output_dir: PathBuf,
+        final_output_dir: PathBuf,
     },
     Segment {
         continuation: Continuation,
@@ -139,23 +242,66 @@ impl RuntimeOperation {
         }
     }
 
-    fn provider(&self) -> ModelProvider {
-        match self {
-            Self::Generate { request, .. } => request.provider,
-            Self::Segment { continuation } => continuation.provider,
-        }
-    }
-
     fn generation_mode(&self) -> GenerationMode {
         match self {
             Self::Generate { request, .. } => request.generation_mode,
-            Self::Segment { .. } => GenerationMode::Quality,
+            Self::Segment { continuation } => continuation.generation_mode,
+        }
+    }
+
+    fn polycount(&self) -> u32 {
+        match self {
+            Self::Generate { request, .. } => request.polycount,
+            Self::Segment { continuation } => continuation.polycount,
+        }
+    }
+
+    fn auto_segment(&self) -> bool {
+        match self {
+            Self::Generate { request, .. } => request.auto_segment,
+            Self::Segment { continuation } => continuation.auto_segment,
+        }
+    }
+
+    fn instruction(&self) -> Option<&str> {
+        match self {
+            Self::Generate { request, .. } => request.instruction.as_deref(),
+            Self::Segment { continuation } => continuation.instruction.as_deref(),
+        }
+    }
+
+    fn output_dir(&self) -> &std::path::Path {
+        match self {
+            Self::Generate { output_dir, .. } => output_dir,
+            Self::Segment { continuation } => &continuation.staging_dir,
+        }
+    }
+
+    fn final_output_dir(&self) -> &std::path::Path {
+        match self {
+            Self::Generate {
+                final_output_dir, ..
+            } => final_output_dir,
+            Self::Segment { continuation } => &continuation.output_dir,
+        }
+    }
+
+    fn dispatch_id(&self) -> &str {
+        match self {
+            Self::Generate { request, .. } => &request.dispatch_id,
+            Self::Segment { continuation } => &continuation.dispatch_id,
+        }
+    }
+
+    fn output_name(&self) -> &str {
+        match self {
+            Self::Generate { request, .. } => &request.output_name,
+            Self::Segment { continuation } => &continuation.output_name,
         }
     }
 }
 
 static STATE: LazyLock<Mutex<RuntimeState>> = LazyLock::new(|| Mutex::new(RuntimeState::default()));
-static JOB_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn prepare_runtime() -> String {
     preparation::prepare_runtime()
@@ -165,8 +311,8 @@ pub(super) fn runtime_preparation_status() -> String {
     preparation::runtime_preparation_status()
 }
 
-pub(super) fn start_preparation_maintainer(install_if_missing: bool) {
-    preparation::start_preparation_maintainer(install_if_missing);
+pub(super) fn product_capabilities() -> Value {
+    capabilities::product_capabilities()
 }
 
 fn runtime_command() -> Option<Command> {
@@ -174,9 +320,7 @@ fn runtime_command() -> Option<Command> {
 }
 
 fn runtime_status_label() -> String {
-    if crate::overlay::creation_runtime::development_runtime_path().is_some() {
-        "dev-native".to_string()
-    } else if crate::overlay::creation_runtime::is_runtime_installed() {
+    if crate::overlay::creation_runtime::shared_runtime_path().is_some() {
         "installed".to_string()
     } else {
         "missing".to_string()
@@ -184,18 +328,33 @@ fn runtime_status_label() -> String {
 }
 
 pub(super) fn default_output_dir() -> PathBuf {
-    dirs::download_dir().unwrap_or_else(|| crate::paths::app_local_data_dir().join("3d-generator"))
+    crate::paths::app_local_data_dir().join("3d-generator")
 }
 
-fn next_job_id() -> String {
-    format!(
-        "mesh_{}_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis(),
-        JOB_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-    )
+fn next_job_id() -> Result<String, String> {
+    crate::overlay::creation_identity::random_id("mesh_")
+}
+
+fn next_dispatch_id() -> Result<String, String> {
+    crate::overlay::creation_identity::random_id("dispatch-")
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
+fn continuation_expiry(reported: Option<u64>, now: u64) -> Option<u64> {
+    let latest = now.saturating_add(CONTINUATION_WINDOW_MS);
+    match reported {
+        Some(expires) if expires <= now => None,
+        Some(expires) => Some(expires.min(latest)),
+        None => Some(latest),
+    }
 }
 
 fn idle_status() -> JobStatus {
@@ -204,16 +363,18 @@ fn idle_status() -> JobStatus {
         stage: "idle".to_string(),
         progress_text: "Ready to create.".to_string(),
         phase: None,
-        workspace_state: None,
         elapsed_ms: None,
         estimated_total_ms: None,
         progress_ratio: None,
         timing_sample_count: None,
         output_path: None,
         output_name: None,
-        preview_path: None,
         source_image_path: None,
+        output_dir: None,
         generation_mode: None,
+        polycount: None,
+        auto_segment: None,
+        instruction: None,
         is_segmented: false,
         can_segment: false,
         error: None,
@@ -222,20 +383,28 @@ fn idle_status() -> JobStatus {
 }
 
 pub(super) fn job_status(job_id: Option<&str>) -> JobStatus {
+    ensure_recovery_started();
     STATE
         .lock()
         .ok()
-        .and_then(|state| match job_id {
-            Some(job_id) => state.jobs.get(job_id).cloned(),
-            None => state.latest_status(),
+        .and_then(|mut state| {
+            state.prune_expired_continuations(now_ms());
+            match job_id {
+                Some(job_id) => state.jobs.get(job_id).cloned(),
+                None => state.latest_status(),
+            }
         })
         .unwrap_or_else(idle_status)
 }
 
 pub(super) fn job_statuses() -> Vec<JobStatus> {
+    ensure_recovery_started();
+    crate::overlay::creation_delivery::schedule_reconciliation("3d");
+    settle_reconciled_completions();
     STATE
         .lock()
-        .map(|state| {
+        .map(|mut state| {
+            state.prune_expired_continuations(now_ms());
             state
                 .job_order
                 .iter()
@@ -245,281 +414,92 @@ pub(super) fn job_statuses() -> Vec<JobStatus> {
         .unwrap_or_default()
 }
 
-pub(super) fn remap_result_path(previous: &str, current: &str) {
-    let current_name = PathBuf::from(current)
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string());
-    if let Ok(mut state) = STATE.lock() {
-        for status in state.jobs.values_mut() {
-            if status
-                .output_path
-                .as_deref()
-                .is_some_and(|path| path.eq_ignore_ascii_case(previous))
-            {
-                status.output_path = Some(current.to_string());
-                status.output_name = current_name.clone();
-            }
-        }
-        for continuation in state.continuations.values_mut() {
-            if continuation
-                .previous_output_path
-                .to_string_lossy()
-                .eq_ignore_ascii_case(previous)
-            {
-                continuation.previous_output_path = PathBuf::from(current);
-            }
-        }
-    }
-}
-
-pub(super) fn forget_result_path(path: &str) {
-    if let Ok(mut state) = STATE.lock() {
-        for status in state.jobs.values_mut() {
-            if status
-                .output_path
-                .as_deref()
-                .is_some_and(|value| value.eq_ignore_ascii_case(path))
-            {
-                status.output_path = None;
-                status.output_name = None;
-                status.can_segment = false;
-            }
-        }
-        state.continuations.retain(|_, continuation| {
-            !continuation
-                .previous_output_path
-                .to_string_lossy()
-                .eq_ignore_ascii_case(path)
-        });
-    }
-}
-
-pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, String> {
-    provider::normalize_request(&mut request);
-    if request.image_path.trim().is_empty() {
-        return Err("Pick an image first.".to_string());
-    }
-    if !PathBuf::from(&request.image_path).exists() {
-        return Err(format!("Image does not exist: {}", request.image_path));
-    }
-
-    let output_dir = request
-        .output_dir
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(default_output_dir);
-    std::fs::create_dir_all(&output_dir).map_err(|err| {
-        format!(
-            "Could not create output directory {}: {err}",
-            output_dir.display()
-        )
-    })?;
-
-    if STATE
-        .lock()
-        .map(|state| state.running_count() >= MAX_PARALLEL_JOBS)
-        .unwrap_or(true)
-    {
-        return Err("Both model creation workers are busy.".to_string());
-    }
-
-    let job_id = next_job_id();
-    let runtime_status = runtime_status_label();
-
-    let status = JobStatus {
-        job_id: Some(job_id.clone()),
-        stage: "preparing".to_string(),
-        progress_text: "Preparing creation.".to_string(),
-        phase: Some("preparing".to_string()),
-        workspace_state: Some("checking".to_string()),
-        elapsed_ms: Some(0),
-        estimated_total_ms: None,
-        progress_ratio: Some(0.0),
-        timing_sample_count: None,
-        output_path: None,
-        output_name: None,
-        preview_path: None,
-        source_image_path: Some(request.image_path.clone()),
-        generation_mode: Some(request.generation_mode),
-        is_segmented: false,
-        can_segment: false,
-        error: None,
-        runtime_status,
+fn settle_reconciled_completions() {
+    let Ok(active) = crate::overlay::creation_intent_journal::load("3d") else {
+        return;
     };
-    if let Ok(mut state) = STATE.lock() {
-        state.insert_job(job_id.clone(), status.clone());
+    let active = active
+        .into_iter()
+        .map(|intent| intent.job_id)
+        .collect::<std::collections::HashSet<_>>();
+    let Ok(mut state) = STATE.lock() else {
+        return;
+    };
+    let completed = state
+        .pending_completions
+        .keys()
+        .filter(|job_id| {
+            !active.contains(*job_id)
+                && state
+                    .jobs
+                    .get(*job_id)
+                    .is_some_and(|status| !status_is_non_publishable(&status.stage))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for job_id in completed {
+        if let Some((status, continuation)) = state.pending_completions.remove(&job_id) {
+            state.jobs.insert(job_id.clone(), status);
+            if let Some(continuation) = continuation {
+                state.continuations.insert(job_id.clone(), continuation);
+            }
+            state.operations.remove(&job_id);
+            state.request_fingerprints.remove(&job_id);
+            state.deadlines.remove(&job_id);
+            state.recovered_jobs.remove(&job_id);
+        }
     }
-    std::thread::spawn(move || {
-        run_runtime_operation(
-            job_id,
-            RuntimeOperation::Generate {
-                request,
-                output_dir,
-            },
-        )
-    });
-    Ok(status)
+    state.prune_terminal_jobs();
 }
 
-pub(super) fn start_segmentation(continuation_id: &str) -> Result<JobStatus, String> {
-    if continuation_id.trim().is_empty() {
-        return Err("The model continuation is missing.".to_string());
-    }
-    let (continuation, preview_path, runtime_status) = {
-        let mut state = STATE
-            .lock()
-            .map_err(|_| "3D generator state is unavailable")?;
-        if state.running_count() >= MAX_PARALLEL_JOBS {
-            return Err("Both model creation workers are busy.".to_string());
-        }
-        let continuation = state
-            .continuations
-            .remove(continuation_id)
-            .ok_or_else(|| "This model can no longer be separated into parts.".to_string())?;
-        if continuation.provider != ModelProvider::Tripo {
-            return Err("This model cannot be separated after creation.".to_string());
-        }
-        if let Some(status) = state.jobs.get_mut(continuation_id) {
-            status.can_segment = false;
-        }
-        state.invalidate_continuation_group(&continuation.group);
-        let preview_path = continuation.preview_path.clone();
-        (continuation, preview_path, runtime_status_label())
-    };
-
-    let job_id = next_job_id();
-    let status = JobStatus {
-        job_id: Some(job_id.clone()),
-        stage: "segmenting".to_string(),
-        progress_text: "Separating model parts.".to_string(),
-        phase: Some("separation".to_string()),
-        workspace_state: None,
-        elapsed_ms: Some(0),
-        estimated_total_ms: None,
-        progress_ratio: Some(0.0),
-        timing_sample_count: None,
-        output_path: Some(
-            continuation
-                .previous_output_path
-                .to_string_lossy()
-                .to_string(),
-        ),
-        output_name: continuation
-            .previous_output_path
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string()),
-        preview_path,
-        source_image_path: Some(continuation.image_path.clone()),
-        generation_mode: Some(GenerationMode::Quality),
-        is_segmented: false,
-        can_segment: false,
-        error: None,
-        runtime_status,
-    };
-    if let Ok(mut state) = STATE.lock() {
-        state.insert_job(job_id.clone(), status.clone());
-    }
-    std::thread::spawn(move || {
-        run_runtime_operation(job_id, RuntimeOperation::Segment { continuation })
-    });
-    Ok(status)
-}
-
-pub(super) fn cancel_job(job_id: Option<&str>) -> JobStatus {
-    let (pids, status) = if let Ok(mut state) = STATE.lock() {
-        let targets: Vec<String> = match job_id {
-            Some(job_id) => vec![job_id.to_string()],
-            None => state
-                .jobs
+fn schedule_next() {
+    loop {
+        let next = {
+            let Ok(mut state) = STATE.lock() else {
+                return;
+            };
+            if state.running_count() >= MAX_PARALLEL_JOBS {
+                return;
+            }
+            let Some(job_id) = state
+                .job_order
                 .iter()
-                .filter(|(_, status)| status_is_busy(&status.stage))
-                .map(|(job_id, _)| job_id.clone())
-                .collect(),
+                .find(|id| state.jobs.get(*id).is_some_and(|job| job.stage == "queued"))
+                .cloned()
+            else {
+                return;
+            };
+            let Some(operation) = state.operations.get(&job_id).cloned() else {
+                return;
+            };
+            let Some(request_fingerprint) = state.request_fingerprints.get(&job_id).cloned() else {
+                return;
+            };
+            let Some(deadline_at_ms) = state.deadlines.get(&job_id).copied() else {
+                return;
+            };
+            let recovered = state.recovered_jobs.remove(&job_id);
+            if let Some(status) = state.jobs.get_mut(&job_id) {
+                let segment = matches!(operation, RuntimeOperation::Segment { .. });
+                status.stage = if segment { "segmenting" } else { "preparing" }.to_string();
+                status.progress_text = if segment {
+                    "Separating model parts."
+                } else {
+                    "Preparing creation."
+                }
+                .to_string();
+                status.phase = Some(if segment { "separation" } else { "preparing" }.to_string());
+            }
+            (
+                job_id,
+                operation,
+                request_fingerprint,
+                deadline_at_ms,
+                recovered,
+            )
         };
-        let mut pids = Vec::new();
-        for target in &targets {
-            if let Some(status) = state.jobs.get_mut(target)
-                && status_is_busy(&status.stage)
-            {
-                status.stage = "cancelled".to_string();
-                status.progress_text = "Cancelled.".to_string();
-                status.error = None;
-            }
-            if let Some(pid) = state.pids.remove(target) {
-                pids.push(pid);
-            }
-        }
-        let status = job_id
-            .and_then(|job_id| state.jobs.get(job_id).cloned())
-            .or_else(|| state.latest_status())
-            .unwrap_or_else(idle_status);
-        (pids, status)
-    } else {
-        (Vec::new(), idle_status())
-    };
-
-    for pid in pids {
-        let mut command = Command::new("taskkill");
-        command
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .creation_flags_windows();
-        let _ = command.status();
+        std::thread::spawn(move || run_runtime_operation(next.0, next.1, next.2, next.3, next.4));
     }
-    status
-}
-
-pub(super) fn read_asset(path: &str) -> Result<Value, String> {
-    let path = PathBuf::from(path);
-    let metadata = std::fs::metadata(&path)
-        .map_err(|err| format!("Could not read {}: {err}", path.display()))?;
-    if !metadata.is_file() {
-        return Err(format!("Not a file: {}", path.display()));
-    }
-    if metadata.len() > MAX_ASSET_BYTES {
-        return Err(format!("Asset is too large to preview: {}", path.display()));
-    }
-    let mime = match path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "glb" => "model/gltf-binary",
-        _ => "application/octet-stream",
-    };
-    let bytes =
-        std::fs::read(&path).map_err(|err| format!("Could not read {}: {err}", path.display()))?;
-    Ok(serde_json::json!({
-        "dataUrl": format!("data:{mime};base64,{}", general_purpose::STANDARD.encode(&bytes)),
-        "sizeBytes": bytes.len(),
-    }))
-}
-
-pub(super) fn open_output(kind: &str, requested_path: Option<&str>) -> Result<(), String> {
-    let path = requested_path
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| job_status(None).output_path.map(PathBuf::from))
-        .unwrap_or_else(default_output_dir);
-    let target = if kind == "folder" {
-        if path.is_file() {
-            path.parent()
-                .map(PathBuf::from)
-                .unwrap_or_else(default_output_dir)
-        } else {
-            path
-        }
-    } else {
-        path
-    };
-    open::that(&target).map_err(|err| format!("Could not open {}: {err}", target.display()))
 }
 
 #[cfg(test)]

@@ -14,7 +14,6 @@ mod browser;
 mod clipboard;
 mod controller;
 mod coord_test;
-mod detector;
 mod effect_receipt;
 mod executor;
 mod grid;
@@ -38,14 +37,14 @@ mod uia_task;
 pub(crate) mod vision_contract;
 mod vision_reader;
 
-/// Detector model hooks for the Downloaded Tools settings UI (download/remove/probe).
-pub(crate) use detector::{
-    DOWNLOAD_TITLE as DETECTOR_DOWNLOAD_TITLE, detector_model_dir, download_detector_model,
-    is_detector_downloaded, remove_detector_model,
-};
 /// MCP capability-store hooks for the Downloaded Tools settings UI (list/install/remove).
 pub(crate) use mcp::{ui_install, ui_list, ui_remove, ui_remove_all};
 pub use overlay::{is_active, show_overlay, stop_overlay};
+
+/// Start the hidden orb host without starting a Computer Control session.
+pub(crate) fn warm_up_orb() {
+    orb::ensure_started();
+}
 
 /// CLI entry for the de-risk probe. Multiple tasks run in one real Live session,
 /// which exercises conversation-state behavior without enabling input execution.
@@ -81,11 +80,6 @@ pub fn run_grid_test_cli(target: Option<&str>) -> Result<(), String> {
 /// CLI entry for the aux vision-stack smoke test: `--cc-vision-test`.
 pub fn run_vision_test_cli(target: Option<&str>, question: &str) -> Result<(), String> {
     uia_task::run_vision_test(target, question).map_err(|e| format!("{e:?}"))
-}
-
-/// CLI entry for validated local UI-DETR inference: `--cc-detector-test`.
-pub fn run_detector_test_cli(target: Option<&str>) -> Result<(), String> {
-    detector::run_test(target).map_err(|e| format!("{e:?}"))
 }
 
 /// CLI entry for the MCP stdio bridge smoke test: `--cc-mcp-test <id>` (no Gemini).

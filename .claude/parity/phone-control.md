@@ -4,9 +4,9 @@ Status: core implementation complete; physical-device acceptance remains in
 progress. Evidence is recorded only after each contract layer is exercised;
 untested authority and device variants remain explicitly open.
 
-Research baseline: 2026-07-18. Re-check the linked Android, Play, Shizuku, Chrome,
-and ONNX Runtime documentation before implementation because platform and store
-rules change independently of SGT.
+Research baseline: 2026-07-18. Re-check the linked Android, Play, Shizuku, and
+Chrome documentation before implementation because platform and store rules
+change independently of SGT.
 
 ## Canonical Source
 
@@ -25,7 +25,8 @@ rules change independently of SGT.
   - `src/overlay/computer_control/research.rs`
   - `src/overlay/computer_control/mcp/mod.rs`
   - `src/overlay/computer_control/system_query/mod.rs`
-  - `src/overlay/computer_control/detector.rs`
+  - `src/overlay/computer_control/vision_contract.rs`
+  - `src/overlay/computer_control/vision_reader.rs`
   - `src/overlay/computer_control/telemetry.rs`
 - Canonical end-to-end evaluation:
   - `tests/COMPUTER_CONTROL_GOLDEN_SUITE.md`
@@ -634,7 +635,7 @@ declarations append through the same versioned catalog boundary.
 
 | Canonical family | Android implementation target |
 | --- | --- |
-| `observe`, `act`, `do_steps`, `click_at`, `look`, `click_target`, marks, zoom/view tools | Accessibility windows/nodes first; current screenshot, local detector, then vision. An explicit detector/vision tool remains valid on a structured surface |
+| `observe`, `act`, `do_steps`, `click_at`, `look`, `click_target`, marks, zoom/view tools | Accessibility windows/nodes first, then explicit current-frame Gemini grounding. A requested vision tool remains valid on a structured surface |
 | `type_text`, keyboard, scroll, drag, pointer tools | Node actions and Accessibility input connection first; gesture dispatch or a proven elevated input backend as fallback |
 | `open_url`, `launch_app`, window/app focus/list tools | Intents, package/task/display state, Accessibility global actions, and elevated system APIs when required |
 | `system_query`, files, clipboard, and `run_command` | App APIs and persisted SAF grants first; selected SGT Bridge, Shizuku, or root authority for operations the app UID lacks. Shell commands do not require an Accessibility surface lease |
@@ -723,11 +724,11 @@ animation, lazy layout, another input source, or the controller's own overlay;
 they advance a separate visual revision instead of retiring every semantic
 lease. Every semantic mutation still resolves the live node path and exact
 fingerprint immediately before dispatch. Coordinate actions require the visual
-revision captured with their grid or detector verification, so content churn
-cannot turn an old image into a click. For detector actions that cross a remote
-vision request, the provider takes one final fast screenshot and renews that
+revision captured with their grid or visual-grounding verification, so content
+churn cannot turn an old image into a click. For actions that cross a remote
+grounding request, the provider takes one final fast screenshot and renews that
 revision only when the hard surface lease is unchanged and every selected
-target's local pixels still match its verified crop. Unrelated ambient changes
+target's local pixels still match its bound signature. Unrelated ambient changes
 outside those target regions therefore do not discard a valid target; a changed
 target, hard generation, surface identity, or revision during final dispatch
 still fails closed. Streaming may return the bitmap captured at one instant
@@ -830,9 +831,9 @@ model owns the requested visual meaning. Secure capture, display mismatch,
 provider loss, and screenshot rate limits remain typed failures. `point_at`
 stays unavailable because Android has no universal persistent touch pointer or
 hover state. `drag_target` selects both described endpoints from one immutable
-marked frame, then rebinds both through one fresh detector inference and exact
-surface lease. It verifies a fresh crosshair crop for each endpoint and performs
-one Accessibility swipe only after a final exact-surface observation.
+clean frame in one grounding request. It verifies a fresh crosshair crop for
+each endpoint and performs one Accessibility swipe only after final
+exact-surface and target-local pixel revalidation.
 
 ### Capability registry
 
@@ -854,8 +855,8 @@ and a DOM node beats either for a browser element.
 An elevated provider is effect authority, not a perception system. For pointer
 and key actions, SGT Bridge, Shizuku, or root may run only after the narrower
 Accessibility or DOM effect path proves no effect and only against the exact
-current observation or visual lease. The explicit model-chosen detector or
-vision tool still grounds coordinates. A ready ADB bridge never authorizes blind
+current observation or visual lease. The explicit model-chosen vision tool still
+grounds coordinates. A ready ADB bridge never authorizes blind
 coordinates, stale geometry, or a silent change of requested tool.
 
 ### Baseline Accessibility backend
@@ -928,76 +929,46 @@ generation, display ID, accessibility window ID, package, node path/index,
 bounds, and surface/document identity. Any mutation, navigation, rotation,
 window change, or uncertain interruption invalidates it.
 
-### Visual grounding and the local detector
+### Visual grounding
 
 - Semantic Accessibility/DOM state remains first choice.
 - A screenshot is bound to its exact display/window, crop, rotation, density,
   insets, snapshot generation, and capture timestamp.
-- UI-DETR-1 keeps its Windows role: optional class-agnostic clickable-region
-  marks only on semantically blind surfaces. It does not infer user intent and
-  never authorizes a click by itself.
-- Detector surface selection must not require an Accessibility node root. A
+- Gemini grounding receives one clean current-view image. It may locate one
+  named point, enumerate up to 30 relevant actionable marks, or locate both drag
+  endpoints in one request. The strict model-neutral line records and 0-1000
+  coordinate grid are owned by
+  `parity-fixtures/phone-control/model-chain.json`; malformed, duplicate,
+  unknown-ID, or out-of-range output advances the grounding chain and otherwise
+  fails closed.
+- Visual surface selection must not require an Accessibility node root. A
   rootless active application/system window may recover its package authority
   only from an exact-window Accessibility event recorded in the current
   observation generation. It must never infer authority from titles, visible
   text, coordinates, model output, shell dumps, or device-specific window
   formats. Without that structural attribution, visual reading may continue but
   mutation returns `surface_authority_unknown`.
-- Detector boxes become numbered current-frame anchors. The model still chooses
-  the target; execution performs fresh crop verification and postcondition
-  checks.
-- The Android port may use the same validated model only after measuring APK/
-  download size, memory, latency, thermal cost, and mark accuracy on real
-  devices. It stays an on-demand asset delivered equivalently through the
-  distribution's supported module/asset mechanism.
-- ONNX Runtime recommends starting with CPU/XNNPACK for unquantized mobile
-  models and measuring NNAPI because partitioning and benefit are model/device
-  dependent. Run the model usability checker, then benchmark CPU, XNNPACK, and
-  NNAPI; do not select an execution provider from device branding.
-- The Android implementation uses the verified Windows tensor contract
-  (`input` 1x3x1024x1024, ImageNet normalization, named `dets`/`labels`
-  outputs, 0.70 score threshold, 0.92 duplicate IoU, 90 retained proposals and
-  30 displayed marks). CPU is the conservative baseline until the required
-  real-device provider benchmark selects anything else.
-- Both distributions bundle the small `libonnxruntime4j_jni.so` Java bridge.
-  The full distribution packages the checked-in `ort-runtime.zip` as a
-  Full-only asset; Play delivers the same core runtime through
-  `feature_asr_ort`. Full downloads the UI-DETR model through its existing
-  verified on-demand path. Play packages the exact same 131,216,489-byte model
-  in that on-demand feature and copies it into the shared stable model path only
-  after split activation. Both routes require the canonical SHA-256 before use;
-  Play never falls back to a second network model download.
-- Both flavors load `libonnxruntime_real.so` before native/JNI consumers. The
-  packaged `libonnxruntime.so` compatibility proxy exposes only the API-table
-  entry point and must never substitute for the real runtime's complete ABI.
-- `parity-fixtures/phone-control/native-runtime-contract.json` is the sole
-  identity owner for every checked-in native-runtime archive and member. Builds,
-  Full extraction, and Play compliance require exact byte counts and SHA-256
-  digests. Runtime ZIPs contain only unique, flat, declared filenames; extraction
-  stages and verifies every member before atomic same-directory finalization.
-  ORT never depends on a mutable network branch. The remaining Full runtime
-  downloads use the same exact archive/member contract and fail closed if their
-  remote bytes change.
-- Because UI-DETR is class-agnostic, `map_targets` publishes numbered anchors
-  on the exact captured frame and `click_mark` re-runs the detector and requires
-  at least 0.35 box IoU before input. Android `click_target` keeps the canonical
-  single-tool behavior: an auxiliary vision model chooses one current numbered
-  anchor from the requested description, then the provider re-runs UI-DETR,
-  verifies that anchor against the exact frame/surface lease, and asks the
-  vision model to confirm that a crosshair on the fresh crop is inside the
-  requested target with at least 70% confidence. The gesture dispatches only
-  after both checks and a target-local final pixel-lease renewal. Language
-  meaning never moves into Kotlin and no second
-  tool call is required. `drag_target` applies the same division of labor to two
-  endpoints: auxiliary vision chooses two distinct current anchors in one call;
-  one screenshot and one UI-DETR inference independently rebind both anchors;
-  both fresh crops pass the same crosshair threshold; and one leased swipe is
-  dispatched. Sequential mixed-frame endpoint refreshes and zero-distance
-  fallback drags fail closed.
-
-See ONNX Runtime's [mobile deployment guidance](https://onnxruntime.ai/docs/tutorials/mobile/),
-[XNNPACK provider](https://onnxruntime.ai/docs/execution-providers/Xnnpack-ExecutionProvider.html),
-and [model usability checker](https://onnxruntime.ai/docs/tutorials/mobile/helpers/model-usability-checker.html).
+- `map_targets` converts the model's points into numbered current-frame anchors.
+  Every anchor binds the exact frame identity, surface lease, point, semantic
+  label, and target-local visual signature. `click_mark` never asks the model to
+  reinterpret an old frame: it requires the same hard surface plus a fresh
+  matching local signature immediately before input.
+- `click_target` keeps canonical single-tool behavior. One model request locates
+  the named point on a clean frame; a fresh crosshair crop must confirm that its
+  center is inside the requested target with at least 70% confidence; final
+  surface and target-local pixel revalidation must then pass before dispatch.
+  Verification accepts only the exact JSON object owned by the shared fixture;
+  prose, missing/extra fields, or out-of-range confidence advances the chain,
+  while a well-formed rejection is terminal and no later model may overrule it.
+  Language meaning never moves into Kotlin or Rust and no second agent tool call
+  is required.
+- `drag_target` locates `from` and `to` in one call against the same clean frame,
+  rejects missing, duplicate, or zero-distance endpoints, verifies each using a
+  fresh crosshair crop, and dispatches one leased swipe only after both local
+  signatures and the exact surface still match.
+- Visual grounding requires no local ML asset, automatic blind-frame inference,
+  model download, or Play/Full delivery difference. ORT remains only where
+  another subsystem independently needs it.
 
 ## Optional Authority Providers
 
@@ -1213,7 +1184,7 @@ See Android's [DevicePolicyManager](https://developer.android.com/reference/andr
   3. a Custom Tab for navigation that needs the user's preferred-browser session,
      followed by CDP only if a current probe discovers and binds its exact target;
   4. Accessibility for browser chrome, other browsers, OS/login surfaces, and
-     semantic fallback, then current-frame detector/vision grounding;
+     semantic fallback, then current-frame vision grounding;
   5. an SGT-owned WebView only for SGT-owned content or an intentionally isolated
      app-private session.
 - Custom Tabs are powered by the user's preferred browser and normally share its
@@ -1321,13 +1292,13 @@ limits them to computers.
   explicit Accessibility dismiss action is consequential; a generic clickable
   node is not promoted from its label, app identity, or visual appearance.
 - The authority check is a provider-side dispatch invariant, not a semantic-tool
-  convention. Semantic nodes, coordinate clicks, detector marks, long presses,
+  convention. Semantic nodes, coordinate clicks, visual marks, long presses,
   drags, scrolls, text edits, and key sequences must all present an immutable
   observation-bound node or surface lease before Android receives input.
 - After required structured arguments validate, a fresh structurally active
   Android-owned user-step surface returns the same `os_owned_confirmation`
   receipt across every mutating input route before stale-frame, missing-editor,
-  detector-routing, or alternate-provider failures can obscure that checkpoint.
+  grounding-route, or alternate-provider failures can obscure that checkpoint.
   No input is dispatched and the receipt remains proven no effect.
 - Elevated command execution must perform the same fresh structural preflight
   immediately before process dispatch. While an active Android-owned user-step
@@ -1368,10 +1339,10 @@ distinguish no effect, verified effect, and unknown effect. At minimum:
   exists;
 - current display/user/profile/surface scope when relevant.
 
-A detector request failure reports request freshness separately from provider
+A grounding request failure reports request freshness separately from provider
 health. `stale_frame`, `stale_target`, `target_not_found`, and other
-frame/request outcomes do not claim that a loaded detector became unavailable;
-only a genuinely missing or unusable detector capability reports
+frame/request outcomes do not claim that the model chain became unavailable;
+only a genuinely missing key or unusable grounding provider reports
 `unavailable`.
 
 Hard walls return typed failures: secure/DRM capture, stale nodes, inaccessible
@@ -1411,8 +1382,8 @@ tool plan and capability route.
   bounded `failure_class` and `provider_route_error` symbols when present so a
   handler failure can be distinguished from dispatch-plan rejection without
   collecting paths, URLs, text, or other content.
-- Detector receipts may additionally carry bounded stage and timing symbols
-  (`detector_stage`, mapping, selection, refresh, semantic verification, and
+- Visual-grounding receipts may additionally carry bounded stage and timing
+  symbols (`grounding_stage`, mapping, location, semantic verification, and
   final pixel-lease milliseconds). These contain no image, target description,
   model response, or other user content and make slow/stale stages independently
   diagnosable.
@@ -1437,7 +1408,7 @@ tool plan and capability route.
 - Visual streaming records `screen_capture_route` only when its provider
   changes, including whether the live overlay was mutated. It emits no
   per-frame heartbeat, so diagnostics can distinguish Accessibility,
-  projection-only continuity, and detector grounding without creating log or
+  projection-only continuity, and visual grounding without creating log or
   rendering churn.
 - Projection decode failures emit once at the failure transition and then at a
   bounded repeat cadence. The count resets only after the complete frame,
@@ -1487,6 +1458,8 @@ tool plan and capability route.
 
 - Shared authority/routing fixture:
   `parity-fixtures/phone-control/authority-matrix.json`
+- Shared Live and visual-grounding model contract:
+  `parity-fixtures/phone-control/model-chain.json`
 - Shared turn/effect fixture:
   `parity-fixtures/phone-control/turn-contract.json`
 - Shared file-mutation fixture:
@@ -1506,10 +1479,9 @@ tool plan and capability route.
 
 - The latest completed Full and Play unit runs pass 734 and 723 tests
   respectively; neither run has failures, errors, or skips.
-- Clean Full and Play installs each pass six instrumentation tests on a
-  disposable Android virtual device. Both load the same exact ORT libraries and
-  UI-DETR model, then run CPU inference on the current device frame. Full proves
-  its bundled archive path; Play proves initially absent on-demand splits.
+- Clean Full and Play installs each pass their shared instrumentation harness on
+  a disposable Android virtual device. Visual grounding requires no
+  flavor-specific model asset or native runtime.
 - Clean Full and Play debug installs each pass three device-local SGT Bridge
   primitive tests covering binding lifecycle, app-owned non-exportable ADB
   signing keys, and authenticated-loopback secret stripping. The release package
@@ -1538,7 +1510,7 @@ tool plan and capability route.
   installed package.
 - A visually blind target entered its own process-failure surface before usable
   content existed. Phone Control returned a typed degraded, proven-no-effect
-  result. A successful blind-surface detector action, Shizuku, root, and broader
+  result. A successful blind-surface visual action, Shizuku, root, and broader
   device variants remain evidence gaps, not claimed passes.
 
 Platform tests must consume the shared fixtures rather than duplicate their
@@ -1574,14 +1546,10 @@ constants. Required Android coverage:
   surfaces;
 - proof that no browser secret enters SGT storage, traces, screenshots intended
   for benchmarks, or provider handoff payloads;
-- UI-DETR CPU/XNNPACK/NNAPI latency, memory, power, and strict-box accuracy before
-  choosing a default execution provider;
-- a clean Play local-testing AAB install that proves the ORT and shared-C++
-  splits were initially absent, delivers them on demand, validates the bundled
-  UI-DETR bytes, loads ORT, and runs inference on the current device frame. A
-  user-scoped installer must preserve bundletool's local-testing contract by
-  staging every non-base-master split in the manifest-declared directory and
-  making that directory app-readable before the first split request;
+- strict named-point, multi-mark, and dual-endpoint parser tests across the
+  grounding chain, including malformed output and target-not-visible behavior;
+- real-device latency and coordinate accuracy for named clicks, dense mark maps,
+  drag endpoints, fresh crosshair verification, and target-local lease failure;
 - API 29 baseline plus representative API 30, 33, 34, and current devices across
   multiple OEMs, densities, navigation modes, orientations, and accessibility
   configurations.
@@ -1633,17 +1601,18 @@ consequential checkpoints. One initial run and at most one repair rerun per case
    its pairing, reconnect, cancellation, revoke, and real-device lifecycle
    checks; continue the transport threat-model and dependency-audit work.
 8. Optional root/device-owner/privileged providers behind the same registry.
-9. UI-DETR mobile feasibility benchmark and integration only if it improves the
-   real blind-surface route.
+9. Shared Gemini named-point, multi-mark, drag-endpoint, crosshair verification,
+   and target-local visual-lease grounding.
 10. Real-task golden runs, security isolation, performance/thermal testing, and
     one repair rerun per failed acceptance task.
 
-Implementation audit (2026-07-25):
+Implementation audit (2026-07-27):
 
 - Stages 1-9 have production paths or an honest platform-conditional result.
   The shared generated catalog, lifecycle, Accessibility/visual providers,
   files/artifacts/memory/research, SGT Bridge, Shizuku, root command route,
-  credentialed Chrome CDP, Custom Tabs, and UI-DETR are wired in both flavors.
+  credentialed Chrome CDP, Custom Tabs, and shared visual grounding are wired in
+  both flavors.
 - An SGT-owned WebView provider becomes ready only for an actual isolated
   SGT-owned browser surface. It is not a substitute for the user's credentialed
   browser. Device-owner and privileged-system providers likewise become ready
@@ -1655,10 +1624,10 @@ Implementation audit (2026-07-25):
   clicks or a hand-copied mobile list.
 - `click_here` and `point_at` remain typed platform limits because Android
   exposes no universal persistent pointer/hover state. Touch, semantic actions,
-  coordinates, detector marks, and target grounding remain fully available.
+  coordinates, visual marks, and target grounding remain fully available.
 - Stage 10 and the physical-device matrix are acceptance work, not missing core
   runtime code. An emulator can prove lifecycle, catalog, provider contracts,
-  app-owned storage, local tunnel isolation, and UI-DETR packaging/inference. It
+  app-owned storage, local tunnel isolation, and visual-grounding contracts. It
   cannot prove OEM behavior, real wireless-debugging/Shizuku/root authority,
   signed-in Chrome CDP, radio/thermal behavior, or hardware-backed user steps.
 

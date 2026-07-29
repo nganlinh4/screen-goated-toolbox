@@ -1,14 +1,13 @@
 import { locale, t } from "./i18n";
 import { ICONS } from "./layout";
-import type { AppNodes, AppState, AssetPayload, QueueItem, QueueState } from "./types";
-import { VisiblePreviewScheduler } from "../../ui-shared/visible-preview-scheduler";
+import type { AppNodes, AppState, QueueItem, QueueState } from "./types";
+import { newestSessionsFirst } from "../../ui-shared/creation-history-order";
 
 type QueueViewOptions = {
   state: AppState;
   nodes: AppNodes;
   batchItems: (batchId: string) => QueueItem[];
   stripExtension: (name: string) => string;
-  readImagePreview: (path: string, maxEdge: number) => Promise<AssetPayload>;
   onSelect: (id: string) => void;
   onOpenReference: (item: QueueItem) => void;
   onRemove: (id: string) => void;
@@ -34,30 +33,8 @@ function itemQueueLabel(item: QueueItem) {
 export class ModelQueueView {
   private signature = "";
   private renamingId = "";
-  private readonly scheduler: VisiblePreviewScheduler;
 
-  constructor(private readonly options: QueueViewOptions) {
-    const { nodes, state } = options;
-    this.scheduler = new VisiblePreviewScheduler(nodes.queueList, async (itemId) => {
-      const item = state.items.find((candidate) => candidate.id === itemId);
-      if (!item || item.thumbnailUrl || !item.path) return;
-      item.thumbnailUrl = (await options.readImagePreview(item.path, 128)).dataUrl;
-      const row = [...nodes.queueList.querySelectorAll<HTMLElement>("[data-item-id]")]
-        .find((candidate) => candidate.dataset.itemId === item.id);
-      const thumb = row?.querySelector<HTMLElement>(".queue-thumb");
-      if (thumb && item.thumbnailUrl) {
-        thumb.innerHTML = `<img alt="" src="${item.thumbnailUrl}">`;
-        if (row) row.dataset.previewReady = "true";
-      }
-      if (item.id === state.selectedId && item.thumbnailUrl) {
-        nodes.sourceThumb.innerHTML = `<img alt="" src="${item.thumbnailUrl}">`;
-      }
-    });
-  }
-
-  setInteractionActive(active: boolean, cooldownMs = 220) {
-    this.scheduler.setInteractionActive(active, cooldownMs);
-  }
+  constructor(private readonly options: QueueViewOptions) {}
 
   invalidate() {
     this.signature = "";
@@ -78,6 +55,7 @@ export class ModelQueueView {
         item.batchId,
         item.submitted,
         item.historyId || "",
+        item.createdAtMs || 0,
         item.result?.outputName || "",
       ]),
     });
@@ -94,7 +72,6 @@ export class ModelQueueView {
       this.appendRows();
       nodes.queueFooter.textContent =
         state.items.length ? t("jobsCount", { count: state.items.length }) : "";
-      this.scheduleHydration();
     }
     this.syncRows();
   }
@@ -102,11 +79,12 @@ export class ModelQueueView {
   private appendRows() {
     const { state, nodes, batchItems } = this.options;
     const currentItems = state.items.filter((item) => !item.historyId);
+    const presentationItems = newestSessionsFirst(state.items);
     const batchIds = [...new Set(currentItems.map((item) => item.batchId))];
     const showBatchLabels =
       batchIds.length > 1 || currentItems.some((item) => batchItems(item.batchId).length > 1);
     let previousBatchId = "";
-    for (const item of state.items) {
+    for (const item of presentationItems) {
       if (!item.historyId && showBatchLabels && item.batchId !== previousBatchId) {
         const batchHeader = document.createElement("div");
         batchHeader.className = "batch-label";
@@ -132,7 +110,7 @@ export class ModelQueueView {
     const thumb = document.createElement("button");
     thumb.type = "button";
     thumb.className = "queue-thumb";
-    thumb.innerHTML = item.thumbnailUrl ? `<img alt="" src="${item.thumbnailUrl}">` : ICONS.image;
+    thumb.innerHTML = ICONS.image;
     thumb.title = t("viewReference");
     thumb.setAttribute("aria-label", t("viewReference"));
     thumb.addEventListener("click", () => this.options.onOpenReference(item));
@@ -245,17 +223,5 @@ export class ModelQueueView {
         remove.disabled = item.state === "running" || item.state === "done";
       }
     });
-    this.scheduler.prioritize(state.selectedId);
-  }
-
-  private scheduleHydration() {
-    const { state, nodes } = this.options;
-    const targets = [...nodes.queueList.querySelectorAll<HTMLElement>("[data-item-id]")]
-      .flatMap((element) => {
-        const key = element.dataset.itemId || "";
-        const item = state.items.find((candidate) => candidate.id === key);
-        return item && !item.thumbnailUrl && item.path ? [{ key, element }] : [];
-      });
-    this.scheduler.bind(targets, state.selectedId ? [state.selectedId] : []);
   }
 }

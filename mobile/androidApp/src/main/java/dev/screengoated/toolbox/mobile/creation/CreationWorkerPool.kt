@@ -8,20 +8,17 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeManager
+import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeStatus
+import dev.screengoated.toolbox.mobile.creation.runtime.runtimeSupportsOptionalInstruction
 import dev.screengoated.toolbox.mobile.creation.worker.ICreationWorker
 import dev.screengoated.toolbox.mobile.creation.worker.ICreationWorkerCallback
 import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker0Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker1Service
-import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker2Service
-import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker3Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker0Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker1Service
-import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker2Service
-import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker3Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageToSvgWorker0Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageToSvgWorker1Service
-import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeManager
-import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeStatus
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,100 +27,110 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 internal class CreationWorkerPool private constructor(private val context: Context) {
-    private val json = Json { ignoreUnknownKeys = true }
-    private val diagnostics = CreationDiagnostics(context, "pool")
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
     private val runtime = CreationRuntimeManager.get(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val workers = listOf(
-        Worker("3d-0", CreationTool.IMAGE_TO_3D, ImageTo3dWorker0Service::class.java, slot = 0),
-        Worker("3d-1", CreationTool.IMAGE_TO_3D, ImageTo3dWorker1Service::class.java, slot = 1),
-        Worker("3d-2", CreationTool.IMAGE_TO_3D, ImageTo3dWorker2Service::class.java, slot = 2),
-        Worker("3d-3", CreationTool.IMAGE_TO_3D, ImageTo3dWorker3Service::class.java, slot = 3),
+        Worker("3d-0", CreationTool.IMAGE_TO_3D, ImageTo3dWorker0Service::class.java),
+        Worker("3d-1", CreationTool.IMAGE_TO_3D, ImageTo3dWorker1Service::class.java),
         Worker("svg-0", CreationTool.IMAGE_TO_SVG, ImageToSvgWorker0Service::class.java),
         Worker("svg-1", CreationTool.IMAGE_TO_SVG, ImageToSvgWorker1Service::class.java),
-        Worker("image-0", CreationTool.IMAGE_CREATOR, ImageCreatorWorker0Service::class.java, slot = 0),
-        Worker("image-1", CreationTool.IMAGE_CREATOR, ImageCreatorWorker1Service::class.java, slot = 1),
-        Worker("image-2", CreationTool.IMAGE_CREATOR, ImageCreatorWorker2Service::class.java, slot = 2),
-        Worker("image-3", CreationTool.IMAGE_CREATOR, ImageCreatorWorker3Service::class.java, slot = 3),
+        Worker("image-0", CreationTool.IMAGE_CREATOR, ImageCreatorWorker0Service::class.java),
+        Worker("image-1", CreationTool.IMAGE_CREATOR, ImageCreatorWorker1Service::class.java),
     )
     private val handler = Handler(context.mainLooper)
     private val jobWorkers = ConcurrentHashMap<String, String>()
-    private val pendingBindings = mutableMapOf<String, Runnable>()
-    @Volatile private var preferredPreparationTool: CreationTool? = null
-    @Volatile private var nextPreparationStartAtMs = 0L
+    private val leases = CreationWorkerLeaseRegistry()
+    private val leaseLock = Any()
+    private val startupQueue = ArrayDeque(CreationTool.entries)
+    private val surfacePriority = ArrayDeque<CreationTool>()
+    private var startupActive: CreationTool? = null
+    private var activePreparationTool: CreationTool? = null
+    private var startupStarted = false
     @Volatile private var runtimeAwaiting = false
 
-    init {
-        check(workers.count { it.tool == CreationTool.IMAGE_TO_3D } == CreationContract.IMAGE_TO_3D_WORKSPACES)
-        check(
-            workers.filter { it.tool == CreationTool.IMAGE_TO_3D }.mapNotNull { it.slot }.toSet() ==
-                (0 until CreationContract.IMAGE_TO_3D_WORKSPACES).toSet(),
-        )
-        check(workers.count { it.tool == CreationTool.IMAGE_TO_SVG } == CreationContract.IMAGE_TO_SVG_WORKSPACES)
-        check(workers.count { it.tool == CreationTool.IMAGE_CREATOR } == CreationContract.IMAGE_CREATOR_WORKSPACES)
-        check(
-            workers.filter { it.tool == CreationTool.IMAGE_CREATOR }.mapNotNull { it.slot }.toSet() ==
-                (0 until CreationContract.IMAGE_CREATOR_WORKSPACES).toSet(),
-        )
+    fun acquire(tool: CreationTool, owner: String) {
+        synchronized(leaseLock) {
+            leases.acquire(tool, owner)
+            if (owner != STARTUP_LEASE) {
+                surfacePriority.remove(tool)
+                surfacePriority.addFirst(tool)
+            }
+        }
+        schedulePreparation()
     }
 
-    fun startPreparation(priority: CreationTool? = null) {
-        if (priority != null) {
-            preferredPreparationTool = priority
-            val unrelated = pendingBindings.keys.filter { key ->
-                workers.firstOrNull { it.key == key }?.tool != priority
+    fun release(tool: CreationTool, owner: String) {
+        val last = synchronized(leaseLock) { leases.release(tool, owner) }
+        if (last) {
+            shutdownTool(tool)
+            synchronized(leaseLock) {
+                if (activePreparationTool == tool) activePreparationTool = null
+                surfacePriority.remove(tool)
             }
-            unrelated.forEach { key ->
-                pendingBindings.remove(key)?.let(handler::removeCallbacks)
-            }
+            schedulePreparation()
         }
+    }
+
+    fun startOneShotPreparation() {
+        val start = synchronized(leaseLock) {
+            if (startupStarted) return
+            startupStarted = true
+            nextStartupToolLocked()
+        }
+        start?.let { acquire(it, STARTUP_LEASE) }
+    }
+
+    private fun schedulePreparation() {
         if (runtime.factory() == null) {
             runtime.startInstall()
-            awaitRuntime(priority)
+            awaitRuntime()
             return
         }
-        val ordered = if (priority == null) {
-            CreationTool.entries.mapNotNull { tool -> workers.firstOrNull { it.tool == tool } }
-        } else {
-            workers.filter { it.tool == priority }
-        }
-        ordered.forEachIndexed { index, worker ->
-            if (worker.binder != null || worker.binding || pendingBindings.containsKey(worker.key)) {
-                return@forEachIndexed
+        val ready = synchronized(workers) {
+            CreationTool.entries.filterTo(mutableSetOf()) { tool ->
+                workers.filter { it.tool == tool }.all { it.ready }
             }
-            lateinit var action: Runnable
-            action = Runnable {
-                pendingBindings.remove(worker.key, action)
-                bind(worker)
-            }
-            pendingBindings[worker.key] = action
-            handler.postDelayed(
-                action,
-                if (priority != null && index == 0) 0L else STARTUP_GRACE_MS + index * PREPARATION_STAGGER_MS,
-            )
         }
+        val selected = synchronized(leaseLock) {
+            selectCreationPreparationTool(
+                activePreparationTool,
+                leases.retainedTools(),
+                ready,
+                surfacePriority.toList(),
+                startupActive,
+            )?.also { activePreparationTool = it }
+        } ?: return
+        workers.filter { it.tool == selected }.forEach(::bind)
     }
 
     fun preparationStatus(tool: CreationTool): String {
         when (runtime.status.value) {
-            is CreationRuntimeStatus.Downloading -> return "preparing"
+            is CreationRuntimeStatus.Downloading -> return "busy"
             is CreationRuntimeStatus.Missing,
-            is CreationRuntimeStatus.Failed -> return "idle"
+            is CreationRuntimeStatus.Failed,
+            -> return "unavailable"
             is CreationRuntimeStatus.Ready -> Unit
         }
         val matching = workers.filter { it.tool == tool }
-        val ready = matching.count { it.ready }
-        val now = System.currentTimeMillis()
-        return when {
-            ready == matching.size -> "ready"
-            ready > 0 -> "partial"
-            matching.any {
-                it.preparing || it.binding ||
-                    (it.prepareScheduled && it.prepareNotBeforeMs <= now)
-            } -> "preparing"
-            else -> "idle"
+        return synchronized(workers) {
+            when {
+                matching.any { it.ready && !it.busy } -> "ready"
+                matching.any { it.busy || it.preparing || it.binding || it.prepareScheduled } ->
+                    "busy"
+                else -> "unavailable"
+            }
         }
     }
+
+    fun supportsOptionalInstruction(mode: String): Boolean = runtime.factory()
+        ?.runtimeManifest()
+        ?.let { runtimeSupportsOptionalInstruction(it, mode) }
+        ?: false
 
     fun dispatch(
         request: CreationWorkerRequest,
@@ -132,43 +139,35 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         onAssigned: (String) -> Unit = {},
     ): String? {
         val tool = CreationTool.fromWireName(request.tool) ?: return null
+        val requestJson = json.encodeToString(CreationWorkerRequest.serializer(), request)
         val assignment = synchronized(workers) {
-            val worker = if (preferredWorker != null) {
-                workers.firstOrNull {
-                    it.key == preferredWorker &&
-                        it.binder != null &&
-                        !it.busy &&
-                        it.canRun(request)
-                }
-            } else {
-                workers.firstOrNull {
-                    it.tool == tool &&
-                        it.ready &&
-                        !it.busy &&
-                        it.canRun(request)
-                }
-            } ?: return@synchronized null
+            val candidates = workers.filter {
+                it.tool == tool && it.binder != null && it.ready && !it.busy
+            }
+            val worker = preferredWorker
+                ?.let { preferred -> candidates.firstOrNull { it.key == preferred } }
+                ?: candidates.firstOrNull().takeIf { preferredWorker == null }
+                ?: return@synchronized null
             val binder = worker.binder ?: return@synchronized null
             worker.busy = true
             worker.ready = false
-            worker.ownedJobReady = false
             worker.assignment.claim(request.jobId, onEvent)
             jobWorkers[request.jobId] = worker.key
             Assignment(worker, binder)
         } ?: return null
         val worker = assignment.worker
         val callback = callback(worker, request.jobId, onEvent)
-        onAssigned(worker.key)
+        if (runCatching { onAssigned(worker.key) }.isFailure) {
+            release(worker, request.jobId)
+            requestPrepare(worker)
+            return null
+        }
         return try {
-            assignment.binder.runJob(
-                json.encodeToString(CreationWorkerRequest.serializer(), request),
-                callback,
-            )
+            assignment.binder.runJob(requestJson, callback)
             worker.key
         } catch (_: RemoteException) {
             release(worker, request.jobId)
-            synchronized(workers) { worker.binder = null }
-            bind(worker)
+            handleWorkerLoss(worker, worker.connectionEpoch)
             null
         }
     }
@@ -185,30 +184,52 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     }
 
     private fun shutdown() {
-        pendingBindings.values.forEach(handler::removeCallbacks)
-        pendingBindings.clear()
-        synchronized(workers) {
-            workers.forEach { worker ->
-                worker.assignment.jobId?.let { runCatching { worker.binder?.cancel(it) } }
-                worker.connection?.let { connection ->
-                    runCatching { context.unbindService(connection) }
-                }
-                context.stopService(Intent(context, worker.serviceClass))
+        synchronized(leaseLock) { leases.clear() }
+        shutdownWorkers(workers)
+    }
+
+    private fun shutdownTool(tool: CreationTool) {
+        shutdownWorkers(workers.filter { it.tool == tool })
+    }
+
+    private fun shutdownWorkers(selected: List<Worker>) {
+        val actions = synchronized(workers) {
+            selected.map { worker ->
+                val action = ShutdownAction(
+                    worker = worker,
+                    binder = worker.binder,
+                    connection = worker.connection,
+                    assignment = worker.assignment.lose(),
+                )
                 worker.binder = null
                 worker.connection = null
                 worker.binding = false
                 worker.prepareScheduled = false
                 worker.preparing = false
                 worker.ready = false
-                worker.ownedJobReady = false
                 worker.busy = false
-                worker.assignment.lose()
+                worker.connectionEpoch += 1
+                action
+            }.also { actions ->
+                actions.mapNotNull { it.assignment?.jobId }.forEach(jobWorkers::remove)
             }
-            jobWorkers.clear()
+        }
+        actions.forEach { action ->
+            action.assignment?.jobId?.let { runCatching { action.binder?.cancel(it) } }
+            action.connection?.let { runCatching { context.unbindService(it) } }
+            context.stopService(Intent(context, action.worker.serviceClass))
+            action.assignment?.sink?.invoke(
+                action.worker.key,
+                CreationWorkerEvent(
+                    jobId = action.assignment.jobId,
+                    event = "execution_lost",
+                    failureCode = "execution_lost",
+                ),
+            )
         }
     }
 
-    private fun awaitRuntime(priority: CreationTool?) {
+    private fun awaitRuntime() {
         synchronized(this) {
             if (runtimeAwaiting) return
             runtimeAwaiting = true
@@ -216,186 +237,163 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         scope.launch {
             val available = runtime.awaitFactory() != null
             runtimeAwaiting = false
-            if (available) {
-                handler.post { startPreparation(priority ?: preferredPreparationTool) }
-            } else {
-                diagnostics.event(
-                    "runtime_unavailable",
-                    priority?.wireName ?: "creation",
-                    failureMessage = (runtime.status.value as? CreationRuntimeStatus.Failed)?.message,
-                )
-            }
+            if (available) handler.post(::schedulePreparation)
         }
     }
 
     private fun bind(worker: Worker) {
-        if (worker.binding || worker.binder != null) return
-        Log.i(TAG, "Binding creation worker ${worker.key}")
-        diagnostics.event("worker_binding", worker.tool.wireName, stage = worker.key)
-        worker.binding = true
-        val connection = object : ServiceConnection {
-            private var connectedEpoch = -1L
-
-            override fun onServiceConnected(name: ComponentName, service: IBinder) {
-                synchronized(workers) {
-                    worker.binding = false
-                    worker.connectionEpoch += 1
-                    connectedEpoch = worker.connectionEpoch
-                    worker.binder = ICreationWorker.Stub.asInterface(service)
-                }
-                service.linkToDeath(
-                    {
-                        handleWorkerLoss(worker, connectedEpoch, "worker_died")
-                    },
-                    0,
-                )
-                requestPrepare(worker)
+        val connection = synchronized(workers) {
+            if (worker.binding || worker.binder != null || !toolIsRequested(worker.tool)) {
+                return
             }
+            worker.binding = true
+            createConnection(worker).also { worker.connection = it }
+        }
+        val bound = runCatching {
+            context.bindService(
+                Intent(context, worker.serviceClass),
+                connection,
+                Context.BIND_AUTO_CREATE,
+            )
+        }.getOrDefault(false)
+        if (!bound) {
+            synchronized(workers) {
+                if (worker.connection === connection) {
+                    worker.binding = false
+                    worker.connection = null
+                }
+            }
+            handler.postDelayed({ bind(worker) }, PREPARATION_RETRY_DELAY_MS)
+        }
+    }
 
-            override fun onServiceDisconnected(name: ComponentName) {
-                handleWorkerLoss(worker, connectedEpoch, "worker_disconnected")
+    private fun createConnection(worker: Worker) = object : ServiceConnection {
+        private var connectedEpoch = -1L
+
+        override fun onServiceConnected(name: ComponentName, service: IBinder) {
+            synchronized(workers) {
+                worker.binding = false
+                worker.connectionEpoch += 1
+                connectedEpoch = worker.connectionEpoch
+                worker.binder = ICreationWorker.Stub.asInterface(service)
+            }
+            val linked = runCatching {
+                service.linkToDeath({ handleWorkerLoss(worker, connectedEpoch) }, 0)
+            }.isSuccess
+            if (linked) {
+                requestPrepare(worker)
+            } else {
+                handleWorkerLoss(worker, connectedEpoch)
             }
         }
-        worker.connection = connection
-        val bound = context.bindService(
-            Intent(context, worker.serviceClass),
-            connection,
-            Context.BIND_AUTO_CREATE,
-        )
-        if (!bound) worker.binding = false
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            handleWorkerLoss(worker, connectedEpoch)
+        }
     }
 
     private fun requestPrepare(worker: Worker, delayMs: Long = 0L) {
-        val schedule = synchronized(workers) {
+        val epoch = synchronized(workers) {
             if (worker.prepareScheduled || worker.preparing || worker.busy || worker.ready ||
-                worker.ownedJobReady || worker.binder == null
+                worker.binder == null
             ) {
-                false
-            } else {
-                worker.prepareScheduled = true
-                true
+                return
             }
+            worker.prepareScheduled = true
+            worker.connectionEpoch
         }
-        if (!schedule) return
         handler.postDelayed(
             {
-                synchronized(workers) { worker.prepareScheduled = false }
-                prepare(worker)
+                val current = synchronized(workers) {
+                    if (worker.connectionEpoch != epoch || !worker.prepareScheduled) {
+                        false
+                    } else {
+                        worker.prepareScheduled = false
+                        true
+                    }
+                }
+                if (current) prepare(worker)
             },
-            delayMs,
+            delayMs.coerceAtLeast(0L),
         )
     }
 
     private fun prepare(worker: Worker) {
-        val binder = worker.binder ?: return
-        val waitMs = synchronized(workers) {
-            val now = System.currentTimeMillis()
-            val preparationNotBefore = maxOf(
-                nextPreparationStartAtMs,
-                worker.prepareNotBeforeMs,
-            )
-            when {
-                worker.preparing || worker.busy || worker.ready || worker.ownedJobReady -> null
-                workers.any { it.busy } -> PREPARATION_QUEUE_POLL_MS
-                workers.any { it !== worker && it.preparing } -> PREPARATION_QUEUE_POLL_MS
-                preparationNotBefore > now -> preparationNotBefore - now
-                else -> {
-                    worker.preparing = true
-                    nextPreparationStartAtMs = now + MINIMUM_PREPARATION_INTERVAL_MS
-                    -1L
-                }
-            }
-        } ?: return
-        if (waitMs >= 0L) {
-            requestPrepare(worker, waitMs)
-            return
+        val call = synchronized(workers) {
+            val binder = worker.binder ?: return
+            if (worker.preparing || worker.busy || worker.ready) return
+            worker.preparing = true
+            PreparedCall(binder, worker.connectionEpoch)
         }
         try {
-            binder.prepare(
-                object : ICreationWorkerCallback.Stub() {
-                    override fun onEvent(eventJson: String) {
-                        val event = runCatching {
-                            json.decodeFromString(CreationWorkerEvent.serializer(), eventJson)
-                        }.getOrNull() ?: return
-                        if (event.event == "ready") {
-                            synchronized(workers) {
-                                worker.ready = event.ready != false
-                                worker.ownedJobReady = event.ownedJobReady == true
-                                worker.availableModels = event.availableModels
-                                worker.prepareNotBeforeMs = event.retryAfterMs ?: 0L
-                                worker.preparing = false
-                                worker.preparationFailures = 0
-                            }
-                            Log.i(TAG, "Creation worker ${worker.key} is ready")
-                            diagnostics.event("worker_ready", worker.tool.wireName, stage = worker.key)
-                            if (event.ready == false && event.retryAfterMs != null) {
-                                requestPrepare(
-                                    worker,
-                                    (event.retryAfterMs - System.currentTimeMillis())
-                                        .coerceAtLeast(PREPARATION_HANDOFF_GAP_MS),
-                                )
-                            }
-                            requestNextPreparation(PREPARATION_HANDOFF_GAP_MS)
-                        } else if (event.event == "failure") {
-                            val error = event.error.orEmpty()
-                            synchronized(workers) {
-                                worker.ready = false
-                                worker.ownedJobReady = false
-                                worker.preparing = false
-                                worker.preparationFailures += 1
-                                worker.prepareNotBeforeMs = maxOf(
-                                    worker.prepareNotBeforeMs,
-                                    event.retryAfterMs ?: 0L,
-                                )
-                            }
-                            val imageFailure = worker.tool == CreationTool.IMAGE_CREATOR
-                            val category = if (imageFailure) {
-                                IMAGE_CREATION_FAILURE_CATEGORY
-                            } else {
-                                CreationDiagnostics.failureCategory(error)
-                            }
-                            Log.w(TAG, "Creation worker ${worker.key} preparation failed: $category")
-                            diagnostics.event(
-                                "worker_prepare_failed",
-                                worker.tool.wireName,
-                                stage = worker.key,
-                                failureMessage = error.takeUnless { imageFailure },
-                                failureCategoryOverride = category.takeIf { imageFailure },
-                            )
-                            schedulePrepare(worker)
-                            requestNextPreparation(PREPARATION_HANDOFF_GAP_MS)
-                        }
-                    }
-                },
-            )
+            call.binder.prepare(prepareCallback(worker, call))
         } catch (_: RemoteException) {
-            synchronized(workers) {
-                worker.preparing = false
-                worker.binder = null
-            }
-            bind(worker)
+            handleWorkerLoss(worker, call.epoch)
         }
     }
 
-    private fun requestNextPreparation(delayMs: Long) {
-        val next = synchronized(workers) {
-            workers.asSequence()
-                .filter {
-                    it.binder != null && !it.ready && !it.ownedJobReady &&
-                        !it.busy && !it.preparing &&
-                        !it.prepareScheduled
+    private fun prepareCallback(
+        worker: Worker,
+        call: PreparedCall,
+    ): ICreationWorkerCallback = object : ICreationWorkerCallback.Stub() {
+        override fun onEvent(eventJson: String) {
+            val event = decodeCreationWorkerEvent(eventJson)
+            val current = synchronized(workers) {
+                worker.connectionEpoch == call.epoch && worker.binder === call.binder
+            }
+            if (!current) return
+            if (creationPreparationEventIsReady(event)) {
+                synchronized(workers) {
+                    worker.ready = true
+                    worker.preparing = false
                 }
-                .sortedWith(
-                    compareBy<Worker>(
-                        { if (it.tool == preferredPreparationTool) 0 else 1 },
-                        { it.preparationFailures },
-                        { it.key },
-                    ),
-                )
-                .firstOrNull()
+                completeToolPreparation(worker.tool)
+                return
+            }
+            synchronized(workers) {
+                worker.ready = false
+                worker.preparing = false
+            }
+            if (event?.event == "failure") {
+                    Log.w(
+                        TAG,
+                        "Creation engine preparation failed: " +
+                            publicCreationFailureCategory(event.failureCode),
+                    )
+            }
+            schedulePrepare(worker)
         }
-        next?.let { requestPrepare(it, delayMs) }
     }
+
+    private fun schedulePrepare(worker: Worker) =
+        requestPrepare(worker, PREPARATION_RETRY_DELAY_MS)
+
+    private fun completeToolPreparation(tool: CreationTool) {
+        val ready = synchronized(workers) {
+            workers.filter { it.tool == tool }.all { it.ready }
+        }
+        if (!ready) return
+        val startupCompleted = synchronized(leaseLock) {
+            if (activePreparationTool != tool) return
+            activePreparationTool = null
+            surfacePriority.remove(tool)
+            if (startupActive == tool) {
+                startupActive = null
+                true
+            } else {
+                false
+            }
+        }
+        if (startupCompleted) {
+            release(tool, STARTUP_LEASE)
+            val next = synchronized(leaseLock) { nextStartupToolLocked() }
+            next?.let { acquire(it, STARTUP_LEASE) }
+        }
+        schedulePreparation()
+    }
+
+    private fun nextStartupToolLocked(): CreationTool? =
+        startupQueue.removeFirstOrNull()?.also { startupActive = it }
 
     private fun callback(
         worker: Worker,
@@ -403,12 +401,21 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         onEvent: (String, CreationWorkerEvent) -> Unit,
     ): ICreationWorkerCallback = object : ICreationWorkerCallback.Stub() {
         override fun onEvent(eventJson: String) {
-            val event = runCatching {
-                json.decodeFromString(CreationWorkerEvent.serializer(), eventJson)
-            }.getOrNull() ?: return
-            val terminal = event.event == "success" ||
-                event.event == "failure" ||
-                event.event == "cancelled"
+            val event = decodeCreationWorkerEvent(eventJson)
+            if (event?.jobId != jobId) {
+                if (!release(worker, jobId)) return
+                onEvent(
+                    worker.key,
+                    CreationWorkerEvent(
+                        jobId = jobId,
+                        event = "failure",
+                        failureCode = "unexpected",
+                    ),
+                )
+                requestPrepare(worker)
+                return
+            }
+            val terminal = event.event in TERMINAL_EVENTS
             val accepted = synchronized(workers) {
                 if (!worker.assignment.owns(jobId, onEvent)) {
                     false
@@ -423,94 +430,82 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             }
             if (!accepted) return
             onEvent(worker.key, event)
-            if (terminal) schedulePrepare(worker)
+            if (terminal) requestPrepare(worker)
         }
     }
 
-    private fun release(worker: Worker, jobId: String) {
+    private fun release(worker: Worker, jobId: String): Boolean =
         synchronized(workers) {
-            if (worker.assignment.release(jobId) == null) return
+            if (worker.assignment.release(jobId) == null) return@synchronized false
             jobWorkers.remove(jobId, worker.key)
             worker.busy = false
+            true
         }
-    }
 
-    private fun handleWorkerLoss(worker: Worker, epoch: Long, diagnosticEvent: String) {
-        val lostAssignment = synchronized(workers) {
+    private fun handleWorkerLoss(worker: Worker, epoch: Long) {
+        val loss = synchronized(workers) {
             if (worker.connectionEpoch != epoch) return
             val assignment = worker.assignment.lose()
             assignment?.jobId?.let { jobWorkers.remove(it, worker.key) }
+            val connection = worker.connection
             worker.binder = null
+            worker.connection = null
+            worker.binding = false
+            worker.prepareScheduled = false
+            worker.preparing = false
             worker.ready = false
-            worker.ownedJobReady = false
             worker.busy = false
-            assignment
+            worker.connectionEpoch += 1
+            WorkerLoss(connection, assignment)
         }
-        diagnostics.event(diagnosticEvent, worker.tool.wireName, stage = worker.key)
-        lostAssignment?.sink?.invoke(
+        loss.connection?.let { runCatching { context.unbindService(it) } }
+        loss.assignment?.sink?.invoke(
             worker.key,
             CreationWorkerEvent(
-                jobId = lostAssignment.jobId,
-                event = "failure",
-                error = "Creation worker disconnected. Retry this creation.",
+                jobId = loss.assignment.jobId,
+                event = "execution_lost",
+                failureCode = "execution_lost",
             ),
         )
-        bind(worker)
+        schedulePreparation()
     }
 
-    private fun schedulePrepare(worker: Worker) {
-        val delay = RETRY_DELAYS_MS[
-            worker.preparationFailures.coerceIn(0, RETRY_DELAYS_MS.lastIndex)
-        ]
-        val retryAfterDelay =
-            (worker.prepareNotBeforeMs - System.currentTimeMillis()).coerceAtLeast(0L)
-        requestPrepare(worker, maxOf(delay, retryAfterDelay))
-    }
+    private fun toolIsRequested(tool: CreationTool): Boolean =
+        synchronized(leaseLock) { leases.retained(tool) }
 
     private data class Worker(
         val key: String,
         val tool: CreationTool,
         val serviceClass: Class<*>,
-        val slot: Int? = null,
         @Volatile var binder: ICreationWorker? = null,
         @Volatile var connection: ServiceConnection? = null,
         @Volatile var binding: Boolean = false,
         @Volatile var prepareScheduled: Boolean = false,
         @Volatile var preparing: Boolean = false,
         @Volatile var ready: Boolean = false,
-        @Volatile var ownedJobReady: Boolean = false,
-        @Volatile var availableModels: List<String>? = null,
-        @Volatile var prepareNotBeforeMs: Long = 0L,
         @Volatile var busy: Boolean = false,
         val assignment: CreationWorkerAssignmentGuard = CreationWorkerAssignmentGuard(),
         @Volatile var connectionEpoch: Long = 0,
-        @Volatile var preparationFailures: Int = 0,
-    ) {
-        fun canRun(request: CreationWorkerRequest): Boolean {
-            if (tool != CreationTool.fromWireName(request.tool)) return false
-            if (tool == CreationTool.IMAGE_TO_SVG) {
-                return availableModels?.contains(request.model) != false
-            }
-            return tool != CreationTool.IMAGE_TO_3D ||
-                CreationContract.canUse3dWorker(request.provider, requireNotNull(slot))
-        }
-    }
+    )
 
-    private data class Assignment(
+    private data class Assignment(val worker: Worker, val binder: ICreationWorker)
+    private data class PreparedCall(val binder: ICreationWorker, val epoch: Long)
+    private data class WorkerLoss(
+        val connection: ServiceConnection?,
+        val assignment: CreationWorkerAssignment?,
+    )
+    private data class ShutdownAction(
         val worker: Worker,
-        val binder: ICreationWorker,
+        val binder: ICreationWorker?,
+        val connection: ServiceConnection?,
+        val assignment: CreationWorkerAssignment?,
     )
 
     companion object {
         private const val TAG = "CreationWorkerPool"
-        private const val IMAGE_CREATION_FAILURE_CATEGORY = "image_creation"
-        private const val STARTUP_GRACE_MS = 8_000L
-        private const val PREPARATION_STAGGER_MS = 25_000L
-        private const val PREPARATION_QUEUE_POLL_MS = 10_000L
-        private const val PREPARATION_HANDOFF_GAP_MS = 8_000L
-        private const val MINIMUM_PREPARATION_INTERVAL_MS =
-            CreationContract.MINIMUM_PREPARATION_INTERVAL_SECONDS * 1_000L
-        private val RETRY_DELAYS_MS = longArrayOf(15_000L, 30_000L, 60_000L, 120_000L, 300_000L)
+        private const val STARTUP_LEASE = "startup"
+        private const val PREPARATION_RETRY_DELAY_MS = 15_000L
+        private val TERMINAL_EVENTS = setOf("success", "failure", "cancelled")
         @Volatile private var instance: CreationWorkerPool? = null
 
         fun get(context: Context): CreationWorkerPool = instance ?: synchronized(this) {

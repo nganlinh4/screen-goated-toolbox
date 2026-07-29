@@ -1,0 +1,112 @@
+package dev.screengoated.toolbox.mobile.creation
+
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
+import java.security.MessageDigest
+import java.util.UUID
+
+internal const val CREATION_OUTPUT_NAME_MAXIMUM_CHARACTERS = 180
+
+internal fun forceCreationDirectory(directory: File) {
+    runCatching {
+        FileChannel.open(directory.toPath(), StandardOpenOption.READ).use { it.force(true) }
+    }
+}
+
+internal fun copyCreationFileDurably(source: File, target: File) {
+    check(target.createNewFile()) { "Could not reserve output file" }
+    try {
+        writeCreationFileDurably(source, target)
+    } catch (failure: Throwable) {
+        target.delete()
+        throw failure
+    }
+}
+
+internal fun writeCreationFileDurably(source: File, target: File) {
+    FileOutputStream(target, false).use { output ->
+        source.inputStream().use { it.copyTo(output) }
+        output.fd.sync()
+    }
+}
+
+internal fun creationFileMatchesProof(
+    file: File,
+    expectedSize: Long,
+    expectedSha256: String,
+): Boolean = file.isFile &&
+    file.length() == expectedSize &&
+    runCatching {
+        creationFileSha256(file).equals(expectedSha256, ignoreCase = true)
+    }.getOrDefault(false)
+
+internal fun creationFileSha256(file: File): String =
+    file.inputStream().use(::creationStreamSha256)
+
+internal fun creationStreamSha256(input: InputStream): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        digest.update(buffer, 0, read)
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+internal fun uniqueCreationDeliveryName(
+    requested: String,
+    occupied: Set<String>,
+    dispatchId: String,
+): String {
+    if (requested !in occupied) return requested
+    val dot = requested.lastIndexOf('.')
+    val stem = if (dot > 0) requested.substring(0, dot) else requested
+    val extension = if (dot > 0) requested.substring(dot) else ""
+    val suffix = dispatchId.filter(Char::isLetterOrDigit).takeLast(12).ifBlank { "result" }
+    val boundedStem = stem.take(
+        (CREATION_OUTPUT_NAME_MAXIMUM_CHARACTERS - extension.length - suffix.length - 1)
+            .coerceAtLeast(1),
+    )
+    var candidate = "$boundedStem-$suffix$extension"
+    var index = 2
+    while (candidate in occupied) {
+        val indexedStem = stem.take(
+            (CREATION_OUTPUT_NAME_MAXIMUM_CHARACTERS - extension.length -
+                suffix.length - index.toString().length - 2).coerceAtLeast(1),
+        )
+        candidate = "$indexedStem-$suffix-$index$extension"
+        index += 1
+    }
+    return candidate
+}
+
+internal fun safeCreationOutputName(value: String): String = value
+    .substringAfterLast('/')
+    .substringAfterLast('\\')
+    .map { if (it.isLetterOrDigit() || it in "._-") it else '_' }
+    .joinToString("")
+    .trim('.', ' ')
+    .take(CREATION_OUTPUT_NAME_MAXIMUM_CHARACTERS)
+    .ifBlank { "result" }
+
+internal fun uniqueCreationOutputFile(directory: File, requested: String): File {
+    val first = File(directory, requested)
+    if (!first.exists()) return first
+    val dot = requested.lastIndexOf('.')
+    val stem = if (dot > 0) requested.substring(0, dot) else requested
+    val extension = if (dot > 0) requested.substring(dot) else ""
+    repeat(9_998) { offset ->
+        val candidate = File(directory, "${stem}_${offset + 2}$extension")
+        if (!candidate.exists()) return candidate
+    }
+    return File(directory, "${stem}_${UUID.randomUUID()}$extension")
+}
+
+internal data class CreationPendingReservation(
+    val handle: String,
+    val identity: String,
+)

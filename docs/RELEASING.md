@@ -64,6 +64,19 @@ cargo clippy --all-targets -- -D warnings
 
 Run relevant frontend/mobile tests for changed subsystems. Do not waive failures to cut a release.
 
+For a release containing the creation mini apps, build the separately tracked
+runtime first and point all host builds at its generated delivery manifest:
+
+```powershell
+$env:SGT_CREATION_RUNTIME_DELIVERY_MANIFEST = 'C:\secure\sgt_creation_runtime.delivery.json'
+```
+
+The same manifest version and feature handshake must feed Windows, Android Full,
+and Android Play. It supplies private delivery locations and integrity metadata
+at build time; never copy those values into tracked host source, fixtures,
+tests, or documentation. A host built without the manifest must fail closed and
+report that the creation engine is not included.
+
 ## 6. Build Windows
 
 ```powershell

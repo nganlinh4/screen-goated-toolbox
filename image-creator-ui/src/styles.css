@@ -79,13 +79,12 @@ svg { width: 1em; height: 1em; display: block; fill: currentColor; }
   gap: 10px;
   border: 2px dashed var(--cobalt);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--canvas-shell) 88%, transparent);
+  background: color-mix(in srgb, var(--canvas-shell) 96%, var(--surface));
   color: var(--text);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transition: opacity 150ms ease, visibility 150ms ease;
-  backdrop-filter: blur(10px);
 }
 .drop-overlay svg { width: 34px; height: 34px; color: var(--cobalt); }
 .drop-overlay strong { font-size: 14px; font-variation-settings: "ROND" 100, "wght" 720; }
@@ -162,6 +161,7 @@ body.file-dragging .drop-overlay { opacity: 1; visibility: visible; }
   font-variation-settings: "ROND" 100, "wght" 700;
   text-transform: uppercase;
 }
+.rail-actions { display: flex; align-items: center; gap: 2px; }
 .icon-button.add { color: var(--cobalt); }
 .queue-list { min-height: 0; overflow-y: auto; padding: 2px 8px 12px; }
 .queue-empty {
@@ -441,8 +441,7 @@ body.file-dragging .drop-overlay { opacity: 1; visibility: visible; }
   display: grid;
   place-items: center;
   padding: 24px;
-  background: color-mix(in srgb, #07101f 58%, transparent);
-  backdrop-filter: blur(5px);
+  background: color-mix(in srgb, #07101f 76%, transparent);
 }
 .dialog-surface {
   width: min(360px, 100%);

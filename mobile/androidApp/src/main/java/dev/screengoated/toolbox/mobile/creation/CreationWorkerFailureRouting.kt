@@ -1,14 +1,50 @@
 package dev.screengoated.toolbox.mobile.creation
 
-internal sealed interface CreationWorkerFailureRoute {
-    data object Fail : CreationWorkerFailureRoute
-    data class Redispatch(val preferredWorker: String) : CreationWorkerFailureRoute
+import dev.screengoated.toolbox.mobile.ui.i18n.CreationCommonLocale
+internal fun publicCreationFailure(): String = "Creation could not finish. Try again."
+
+internal fun publicCreationFailure(tool: CreationTool): String =
+    if (tool == CreationTool.IMAGE_CREATOR) publicImageCreationFailure() else publicCreationFailure()
+
+internal fun publicCreationFailureCategory(value: String?): String = value?.takeIf {
+    it in setOf(
+        "cancelled",
+        "execution_lost",
+        "input",
+        "output",
+        "runtime_unavailable",
+        "timeout",
+        "unsupported",
+    )
+} ?: "unexpected"
+
+internal fun publicCreationStage(
+    tool: CreationTool,
+    observed: String,
+    current: String,
+    hasReferences: Boolean = true,
+): String {
+    if (tool == CreationTool.IMAGE_CREATOR) {
+        val stage = publicImageCreationStage(observed)
+        return if (stage == "uploading" && !hasReferences) "preparing" else stage
+    }
+    val allowed = when (tool) {
+        CreationTool.IMAGE_TO_3D -> setOf("preparing", "generating", "segmenting", "finalizing")
+        CreationTool.IMAGE_TO_SVG -> setOf("preparing", "generating", "finalizing")
+        CreationTool.IMAGE_CREATOR -> error("Handled above")
+    }
+    return observed.takeIf(allowed::contains)
+        ?: current.takeIf(allowed::contains)
+        ?: "preparing"
 }
 
-internal fun publicCreationText(value: String): String = value
-    .replace("Meshy T2", "creation service", ignoreCase = true)
-    .replace("Meshy", "creation service", ignoreCase = true)
-    .replace("Tripo", "creation service", ignoreCase = true)
+internal fun publicCreationProgressText(stage: String): String = when (stage) {
+    "uploading" -> "Adding reference image"
+    "generating" -> "Creating result"
+    "segmenting" -> "Separating model parts"
+    "finalizing" -> "Finishing result"
+    else -> "Getting ready"
+}
 
 internal fun publicImageCreationStage(value: String): String = when (value) {
     "queued",
@@ -40,24 +76,36 @@ internal fun publicImageCreationText(
 internal fun publicImageCreationFailure(): String =
     "Image creation could not finish. Try again."
 
-internal fun routeCreationWorkerFailure(
-    provider: String?,
-    error: String,
-): CreationWorkerFailureRoute {
-    val prefix = when (provider) {
-        CreationProvider.MESHY.wireName -> CreationContract.MESHY_RECOVERY_OWNER_PREFIX
-        CreationProvider.TRIPO.wireName -> CreationContract.TRIPO_RECOVERY_OWNER_PREFIX
-        else -> return CreationWorkerFailureRoute.Fail
-    }
-    if (!error.startsWith(prefix)) return CreationWorkerFailureRoute.Fail
-    val ownerSlot = error.removePrefix(prefix).toIntOrNull()
-    val workerCount = if (provider == CreationProvider.MESHY.wireName) {
-        CreationContract.IMAGE_TO_3D_MESHY_WORKSPACES
-    } else {
-        CreationContract.IMAGE_TO_3D_WORKSPACES
-    }
-    require(ownerSlot != null && ownerSlot in 0 until workerCount) {
-        "Creation runtime returned an invalid recovery owner"
-    }
-    return CreationWorkerFailureRoute.Redispatch("3d-$ownerSlot")
+internal fun publicCreationErrorText(
+    value: String,
+    common: CreationCommonLocale,
+): String = publicCreationErrorText(
+    value,
+    common.storageUnavailable,
+    common.sourceUnavailable,
+    common.interrupted,
+)
+
+internal fun publicCreationErrorText(
+    value: String,
+    storageUnavailable: String,
+    sourceUnavailable: String,
+    genericFailure: String,
+): String = when (value) {
+    CREATION_STORAGE_UNAVAILABLE_ERROR_KEY -> storageUnavailable
+    CREATION_SOURCE_UNAVAILABLE_ERROR_KEY -> sourceUnavailable
+    else -> genericFailure
+}
+
+internal fun publicCreationThrowable(
+    error: Throwable,
+    tool: CreationTool,
+): String = when {
+    error is CreationStorageUnavailableException ||
+        error.message == CREATION_STORAGE_UNAVAILABLE_ERROR_KEY ->
+        CREATION_STORAGE_UNAVAILABLE_ERROR_KEY
+    error is CreationSourceUnavailableException ||
+        error.message == CREATION_SOURCE_UNAVAILABLE_ERROR_KEY ->
+        CREATION_SOURCE_UNAVAILABLE_ERROR_KEY
+    else -> publicCreationFailure(tool)
 }

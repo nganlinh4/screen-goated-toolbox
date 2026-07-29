@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 24,
+  "schemaVersion": 25,
   "feature": "phone-control",
   "canonicalFeature": "computer-control",
   "distribution": {
@@ -9,10 +9,7 @@
     ],
     "behavior": "identical",
     "catalogAndRuntimeMustMatch": true,
-    "largeOfflineAssetDeliveryMayDiffer": true,
-    "largeOfflineAssetIdentityMustMatch": true,
-    "playDetectorModule": "feature_asr_ort",
-    "playDetectorNetworkFallback": false
+    "visualGroundingAssetRequired": false
   },
   "catalog": {
     "normalTurnPolicy": "stable_full_catalog",
@@ -74,7 +71,7 @@
     "coveredDispatches": [
       "semantic_node",
       "coordinate_click",
-      "detector_mark",
+      "visual_mark",
       "long_press",
       "drag",
       "scroll",
@@ -208,6 +205,45 @@
     "rootCommandAuthorityImpliesCdpStream": false,
     "browserSecretsMayMoveBetweenProviders": false
   },
+  "visualGrounding": {
+    "provider": "current_frame_vision",
+    "modelChain": "computer_control_grounding",
+    "coordinateGrid": 1000,
+    "maximumMarks": 30,
+    "inputFrame": "one_clean_current_view",
+    "outputRecords": {
+      "namedPoint": "M|target|x|y|label",
+      "openMarks": "M|label|x|y",
+      "dragEndpoints": [
+        "M|from|x|y|label",
+        "M|to|x|y|label"
+      ],
+      "notVisible": [
+        "N",
+        "N|target",
+        "N|from",
+        "N|to"
+      ],
+      "optionalFinalDelimiter": true,
+      "malformedOrDuplicateIds": "advance_model_chain_then_typed_failure",
+      "unknownIdsOrOutOfRangeCoordinates": "reject"
+    },
+    "anchorLease": {
+      "bindsExactFrameIdentity": true,
+      "bindsExactSurfaceLease": true,
+      "bindsTargetLocalVisualSignature": true,
+      "mutationInvalidatesAllMarks": true,
+      "crossGenerationRebinding": false
+    },
+    "verification": {
+      "namedPoint": "fresh_crosshair_crop",
+      "dragEndpoints": "two_fresh_crosshair_crops",
+      "minimumConfidence": 70,
+      "finalDispatchCheck": "fresh_surface_and_target_local_visual_signature",
+      "failureEffect": "proven_no_effect"
+    },
+    "automaticBlindFrameMapping": false
+  },
   "providers": [
     {
       "id": "android_app_api",
@@ -291,11 +327,11 @@
       "loopbackSecretPersistence": false
     },
     {
-      "id": "local_ui_detector",
-      "authority": "app",
-      "optional": true,
-      "readiness": "implemented_mobile_benchmark_required",
-      "role": "blind_surface_clickable_region_marks"
+      "id": "current_frame_vision",
+      "authority": "visual_evidence",
+      "optional": false,
+      "readiness": "gemini_api_key_and_current_clean_frame_required",
+      "role": "named_points_multi_marks_and_drag_endpoints"
     },
     {
       "id": "sgt_adb_bridge",
@@ -396,7 +432,7 @@
     },
     {
       "capability": "ui.pointer_action",
-      "providers": ["owned_webview_bridge", "browser_cdp", "accessibility", "local_ui_detector", "sgt_adb_bridge", "shizuku_shell", "root_bridge"]
+      "providers": ["owned_webview_bridge", "browser_cdp", "accessibility", "current_frame_vision", "sgt_adb_bridge", "shizuku_shell", "root_bridge"]
     },
     {
       "capability": "ui.text_edit",
@@ -436,11 +472,11 @@
     },
     {
       "capability": "browser_chrome_ui",
-      "providers": ["accessibility", "local_ui_detector"]
+      "providers": ["accessibility", "current_frame_vision"]
     },
     {
       "capability": "blind_surface_grounding",
-      "providers": ["local_ui_detector", "accessibility", "media_projection"]
+      "providers": ["current_frame_vision", "accessibility", "media_projection"]
     },
     {
       "capability": "browser_devtools",
@@ -589,7 +625,7 @@
       ]
     },
     "gestureDispatch": {
-      "groundingOrder": ["dom_or_accessibility_semantics", "explicit_current_frame_detector_or_vision"],
+      "groundingOrder": ["dom_or_accessibility_semantics", "explicit_current_frame_vision"],
       "effectFallbackOrder": ["accessibility", "sgt_adb_bridge", "shizuku_shell", "root_bridge"],
       "elevatedFallbackRequiresNarrowerProviderProvenNoEffect": true,
       "elevatedFallbackReusesExactCurrentObservationLease": true,
@@ -693,8 +729,8 @@
       "zoom": "current_generation_grid_cell_plus_quarter_cell_context",
       "resetView": "fresh_active_surface_view",
       "look": "clean_current_view_frame_for_same_live_model",
-      "explicitDetectorOrVisionToolOnStructuredSurface": "execute_requested_grounding_tool",
-      "detectorSurfaceRequiresAccessibilityRoot": false,
+      "explicitVisionToolOnStructuredSurface": "execute_requested_grounding_tool",
+      "visualGroundingSurfaceRequiresAccessibilityRoot": false,
       "rootlessSurfaceAttribution": "exact_window_accessibility_event_in_current_generation",
       "rootlessSurfaceAuthorityHeuristics": false,
       "unattributedRootlessMutation": "surface_authority_unknown",
@@ -733,7 +769,7 @@
       "projectionFallbackWithoutAccessibility": "clean_whole_display_without_semantic_or_coordinate_lease",
       "projectionFallbackMayAuthorizeAccessibilityMutation": false,
       "pointAt": "unavailable_without_universal_pointer_state",
-      "dragTarget": "same_tool_dual_semantic_selection_one_frame_detector_refresh_dual_crosshair_verification_exact_surface_lease"
+      "dragTarget": "same_tool_one_clean_frame_dual_endpoint_grounding_dual_crosshair_verification_target_local_visual_revalidation_exact_surface_lease"
     }
   },
   "typedResult": {

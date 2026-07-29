@@ -67,4 +67,93 @@ class CreationMiniAppLifetimeTest {
         assertEquals(CreationNativeStage.CANCELLED, closed.items[2].stage)
         assertEquals(CreationNativeStage.DONE, closed.items[3].stage)
     }
+
+    @Test
+    fun `surface cancellation cannot select another owner or tool`() {
+        val memory = CreationManagerMemory()
+        fun add(id: String, owner: String, tool: CreationTool) {
+            memory.jobs[id] = CreationJobStatus(
+                jobId = id,
+                stage = "generating",
+                progressText = "working",
+            )
+            memory.requests[id] = CreationWorkerRequest(
+                jobId = id,
+                tool = tool.wireName,
+                operation = "generate",
+                imagePath = "source.png",
+                outputPath = "$id.out",
+                outputName = "$id.out",
+            )
+            memory.owners[id] = owner
+        }
+        add("mine", "surface-a", CreationTool.IMAGE_TO_SVG)
+        add("other-owner", "surface-b", CreationTool.IMAGE_TO_SVG)
+        add("other-tool", "surface-a", CreationTool.IMAGE_TO_3D)
+
+        assertEquals(
+            listOf("mine"),
+            creationCancellationJobIds(
+                memory,
+                "surface-a",
+                CreationTool.IMAGE_TO_SVG,
+                requestedJobId = null,
+            ),
+        )
+        assertTrue(
+            creationCancellationJobIds(
+                memory,
+                "surface-a",
+                CreationTool.IMAGE_TO_SVG,
+                requestedJobId = "other-owner",
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `worker leases retain concurrent surfaces and release the last owner`() {
+        val leases = CreationWorkerLeaseRegistry()
+
+        assertTrue(leases.acquire(CreationTool.IMAGE_TO_SVG, "surface-a"))
+        assertFalse(leases.acquire(CreationTool.IMAGE_TO_SVG, "surface-b"))
+        assertFalse(leases.release(CreationTool.IMAGE_TO_SVG, "surface-a"))
+        assertTrue(leases.retained(CreationTool.IMAGE_TO_SVG))
+        assertTrue(leases.release(CreationTool.IMAGE_TO_SVG, "surface-b"))
+        assertFalse(leases.retained(CreationTool.IMAGE_TO_SVG))
+    }
+
+    @Test
+    fun `recovery lease protects workers after the surface closes`() {
+        val leases = CreationWorkerLeaseRegistry()
+        leases.acquire(CreationTool.IMAGE_CREATOR, "surface-owner")
+        leases.acquire(CreationTool.IMAGE_CREATOR, "recovery-job")
+
+        assertFalse(leases.release(CreationTool.IMAGE_CREATOR, "surface-owner"))
+        assertTrue(leases.retained(CreationTool.IMAGE_CREATOR))
+        assertTrue(leases.release(CreationTool.IMAGE_CREATOR, "recovery-job"))
+    }
+
+    @Test
+    fun `surface priority preempts remaining sequential startup preparation`() {
+        val selected = selectCreationPreparationTool(
+            active = null,
+            retained = CreationTool.entries.toSet(),
+            ready = setOf(CreationTool.IMAGE_TO_3D),
+            surfacePriority = listOf(CreationTool.IMAGE_CREATOR),
+            startup = CreationTool.IMAGE_TO_SVG,
+        )
+
+        assertEquals(CreationTool.IMAGE_CREATOR, selected)
+        assertEquals(2, CreationContract.maximumParallelJobs(requireNotNull(selected)))
+        assertEquals(
+            CreationTool.IMAGE_TO_3D,
+            selectCreationPreparationTool(
+                active = CreationTool.IMAGE_TO_3D,
+                retained = CreationTool.entries.toSet(),
+                ready = emptySet(),
+                surfacePriority = listOf(CreationTool.IMAGE_CREATOR),
+                startup = CreationTool.IMAGE_TO_SVG,
+            ),
+        )
+    }
 }

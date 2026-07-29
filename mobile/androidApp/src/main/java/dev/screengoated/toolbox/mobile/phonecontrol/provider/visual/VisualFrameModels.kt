@@ -127,6 +127,7 @@ internal data class VisualFrameIdentity(
     val viewKind: VisualViewKind,
     val clean: Boolean,
     val grid: VisualGridIdentity?,
+    val surfaceLease: AccessibilitySurfaceLease? = null,
     val captureProvider: String = "accessibility",
 ) {
     init {
@@ -162,6 +163,7 @@ internal data class VisualFrameIdentity(
             capturedAtMs,
             viewKind.wireName,
             if (clean) "clean" else "grid",
+            surfaceLease?.stableIdentity ?: "lease-free",
             captureProvider,
         ).joinToString(":")
 
@@ -180,6 +182,7 @@ internal data class VisualFrameIdentity(
         put("captured_at_ms", capturedAtMs)
         put("view", viewKind.wireName)
         put("clean", clean)
+        surfaceLease?.let { put("surface_lease", it.stableIdentity) }
         put("capture_provider", captureProvider)
         grid?.let {
             put("grid_identity", it.wireIdentity)
@@ -192,9 +195,11 @@ internal data class VisualFrameIdentity(
 internal data class VisualFrame(
     val identity: VisualFrameIdentity,
     val screenPayload: String,
+    val imageBytes: ByteArray,
 ) {
     init {
         require(screenPayload.isNotBlank())
+        require(imageBytes.isNotEmpty())
     }
 }
 
@@ -202,3 +207,18 @@ internal const val GRID_COLUMNS = 6
 internal const val GRID_ROWS = 5
 internal const val ZOOM_PADDING_CELLS = 0.25
 private const val MIN_CROP_SIDE = 8
+
+private val AccessibilitySurfaceLease.stableIdentity: String
+    get() = listOf(
+        observationGeneration,
+        displayId,
+        windowId,
+        packageOrSurface,
+        windowLayer,
+        bounds.left,
+        bounds.top,
+        bounds.right,
+        bounds.bottom,
+        authority.wireName,
+        controllerOwned,
+    ).joinToString(":")

@@ -83,6 +83,17 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .to_string_lossy()
                 .to_string(),
         )),
+        "image_preview_url" => crate::overlay::creation_preview_protocol::issue_from_args(args),
+        "image_asset_url" => {
+            crate::overlay::creation_preview_protocol::issue_source_image_from_args(args)
+        }
+        "svg_asset_url" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "path is required".to_string())?;
+            super::runtime::issue_static_asset(path)
+        }
         "start_job" => {
             let request: super::runtime::StartJobRequest =
                 serde_json::from_value(args.clone()).map_err(|error| error.to_string())?;
@@ -101,8 +112,11 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
         "job_statuses" => {
             serde_json::to_value(super::runtime::job_statuses()).map_err(|error| error.to_string())
         }
-        "history_results" => serde_json::to_value(crate::overlay::generation_history::list("svg")?)
-            .map_err(|error| error.to_string()),
+        "history_results" => {
+            let entries = crate::overlay::generation_history::list("svg")?;
+            serde_json::to_value(crate::overlay::generation_history::public_entries(&entries))
+                .map_err(|error| error.to_string())
+        }
         "rename_history_result" => {
             let id = args
                 .get("id")
@@ -118,7 +132,8 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .ok_or_else(|| "Result is no longer in history.".to_string())?;
             let updated = crate::overlay::generation_history::rename("svg", id, new_name)?;
             super::runtime::remap_result_path(&previous.output_path, &updated.output_path);
-            serde_json::to_value(updated).map_err(|error| error.to_string())
+            serde_json::to_value(crate::overlay::generation_history::public_entry(&updated))
+                .map_err(|error| error.to_string())
         }
         "delete_history_result" => {
             let id = args
@@ -132,6 +147,14 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
             crate::overlay::generation_history::delete("svg", id)?;
             super::runtime::forget_result_path(&previous.output_path);
             Ok(Value::Null)
+        }
+        "delete_all_history_results" => {
+            let previous = crate::overlay::generation_history::list("svg")?;
+            let deleted = crate::overlay::generation_history::delete_all("svg")?;
+            for entry in previous {
+                super::runtime::forget_result_path(&entry.output_path);
+            }
+            Ok(Value::from(deleted as u64))
         }
         "read_asset" => {
             let path = args
@@ -187,7 +210,7 @@ fn send_reply(id: &str, result: Result<Value, String>) {
     }
     let payload = match result {
         Ok(value) => json!({ "id": id, "result": value }),
-        Err(error) => json!({ "id": id, "error": error }),
+        Err(_error) => json!({ "id": id, "error": "operation_failed" }),
     };
     let script =
         format!("window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {payload} }}));");

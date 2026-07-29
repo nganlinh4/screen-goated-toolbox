@@ -10,6 +10,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -19,8 +20,11 @@ class CreationStateContractTest {
     private val json = Json { ignoreUnknownKeys = false }
 
     @Test
-    fun `image to 3d native shell preserves canonical limits`() {
+    fun `image to 3d product contract preserves canonical limits`() {
         val fixture = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
+        val states = fixture.getValue("states").jsonArray
+            .map { it.jsonPrimitive.content }
+            .toSet()
         val defaults = fixture.objectAt("defaults")
         val limits = fixture.objectAt("limits")
         val input = fixture.objectAt("input")
@@ -28,7 +32,9 @@ class CreationStateContractTest {
         val presentation = fixture.objectAt("presentation")
         val segmentation = fixture.objectAt("segmentation")
         val history = fixture.objectAt("history")
-        val surface = fixture.objectAt("androidSurface")
+        val modelSafety = fixture.objectAt("modelSafety")
+        val runtimeCapabilities = fixture.objectAt("runtimeCapabilities")
+        val optionalInstruction = runtimeCapabilities.objectAt("optionalInstruction")
         val generationPrerequisite = segmentation.objectAt("generationPrerequisite")
 
         assertEquals(CreationContract.DEFAULT_POLYCOUNT, defaults.intAt("polycount"))
@@ -39,12 +45,19 @@ class CreationStateContractTest {
         assertFalse(defaults.booleanAt("autoSegment"))
         assertEquals(CreationContract.MINIMUM_POLYCOUNT, limits.intAt("minimumPolycount"))
         assertEquals(CreationContract.MAXIMUM_POLYCOUNT, limits.intAt("maximumPolycount"))
+        assertEquals(
+            CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES,
+            limits.longAt("maximumResultBytes"),
+        )
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.intAt("maximumParallelJobs"))
         assertEquals(1, input.intAt("minimumImagesPerJob"))
         assertEquals(1, input.intAt("maximumImagesPerJob"))
-        assertTrue(input.booleanAt("multiplePickerImagesCreateIndependentJobs"))
+        assertTrue(input.booleanAt("multiplePickerImagesCreateIndependentSessions"))
+        assertInputImageContract(input)
+        assertTrue("queued" in states)
         assertEquals("selected_session", submission.stringAt("primaryActionScope"))
         assertFalse(submission.booleanAt("submitsOtherSessions"))
+        assertTrue(submission.booleanAt("explicitSubmissionCreatesFreshDispatchId"))
         assertFalse(presentation.booleanAt("showImplementationBranding"))
         assertFalse(presentation.booleanAt("showImplementationSelection"))
         assertTrue(presentation.booleanAt("showGenerationModeSelection"))
@@ -52,23 +65,23 @@ class CreationStateContractTest {
         assertEquals("Material Symbols Rounded", presentation.stringAt("iconFamily"))
         assertEquals(1, presentation.intAt("iconFill"))
         assertTrue(presentation.booleanAt("sharedIconCatalog"))
-        assertTrue(presentation.booleanAt("unchangedPollPreservesQueueDom"))
-        assertTrue(presentation.booleanAt("hoveredSelectionTargetSurvivesPolling"))
-        assertTrue(presentation.booleanAt("pointerSequenceSurvivesPolling"))
+        assertTrue(presentation.booleanAt("unchangedStatusRefreshPreservesSessionList"))
+        assertTrue(presentation.booleanAt("hoveredSelectionTargetSurvivesStatusRefresh"))
+        assertTrue(presentation.booleanAt("pointerSequenceSurvivesStatusRefresh"))
         assertTrue(presentation.booleanAt("queueOwnsOverflow"))
         assertTrue(presentation.booleanAt("primaryActionRemainsReachable"))
         val preview = presentation.objectAt("previewMemory")
-        assertFalse(preview.booleanAt("webviewRetainsOriginalImageBytes"))
-        assertFalse(preview.booleanAt("decodeBlocksWebviewThread"))
+        assertFalse(preview.booleanAt("surfaceRetainsOriginalImageBytes"))
+        assertFalse(preview.booleanAt("decodeBlocksInteractionThread"))
         assertFalse(preview.booleanAt("offscreenPreviewsHydrate"))
         assertTrue(preview.booleanAt("selectedPreviewHasPriority"))
         assertTrue(preview.booleanAt("backgroundHydrationYieldsToInteraction"))
-        assertEquals(128, preview.intAt("thumbnailMaximumEdgePixels"))
+        assertFalse(preview.booleanAt("queueRowsDecodeArtwork"))
+        assertFalse(preview.booleanAt("historyRowsDecodeArtwork"))
         assertEquals(1_600, preview.intAt("stageMaximumEdgePixels"))
         assertTrue(segmentation.booleanAt("requireRenderableNormals"))
         assertTrue(segmentation.booleanAt("expandDisconnectedComponentsForSingleMesh"))
         assertTrue(segmentation.booleanAt("preserveExistingPartNodes"))
-        assertTrue(segmentation.booleanAt("windowsViewerRepairsLegacySegmentedOutputs"))
         assertEquals(24, segmentation.intAt("continuationWindowHours"))
         assertTrue(segmentation.booleanAt("newGenerationMayInvalidatePriorContinuation"))
         assertTrue(segmentation.booleanAt("fastResultIsSegmented"))
@@ -89,17 +102,23 @@ class CreationStateContractTest {
         assertTrue(history.booleanAt("freezeGenerationMode"))
         assertTrue(history.booleanAt("terminalItemCanBeReconfiguredAndRerun"))
         assertTrue(history.booleanAt("rerunPreservesPreviousOutput"))
-        assertEquals("native_compose_m3e", surface.stringAt("shell"))
-        assertEquals("sceneview_filament", surface.stringAt("resultRenderer"))
-        assertEquals("depth_anything_3_relief", surface.stringAt("progressPreview"))
-        assertEquals(DepthPreviewContract.INPUT_SIDE, surface.intAt("previewInputSide"))
-        assertFalse(surface.booleanAt("previewBlocksGeneration"))
-        assertFalse(surface.booleanAt("previewSetupVisible"))
-        assertEquals(18, surface.intAt("preparationProgressMaximumPercent"))
-        assertEquals("bounded_privacy_safe_journal", surface.stringAt("diagnostics"))
-        assertFalse(surface.booleanAt("backgroundAutomationVisible"))
-        assertTrue(surface.booleanAt("wireframeAndOutlineIndependent"))
-        val viewerControls = surface.getValue("viewerControls").jsonArray
+        assertTrue(modelSafety.booleanAt("bufferByteLengthIsExactLogicalBytes"))
+        assertTrue(modelSafety.booleanAt("binaryChunkUsesZeroAlignmentPadding"))
+        assertTrue(modelSafety.booleanAt("binaryChunkMustBackBufferZero"))
+        assertTrue(modelSafety.booleanAt("rendererBinaryFloatValuesMustBeFinite"))
+        assertTrue(modelSafety.booleanAt("texturePayloadMustDecode"))
+        assertTrue(modelSafety.booleanAt("sceneRootsUniqueAcrossScenes"))
+        assertEquals(3, modelSafety.intAt("maximumBinaryAlignmentPaddingBytes"))
+        assertEquals(1, runtimeCapabilities.intAt("contractVersion"))
+        assertTrue(runtimeCapabilities.booleanAt("strictProductOnlyManifest"))
+        assertTrue(runtimeCapabilities.booleanAt("malformedOrMissingCapabilityFailsClosed"))
+        assertEquals(
+            CreationContract.MAXIMUM_OPTIONAL_INSTRUCTION_CHARACTERS,
+            optionalInstruction.intAt("maximumCharacters"),
+        )
+        assertEquals("none", presentation.stringAt("progressPreview"))
+        assertTrue(presentation.booleanAt("wireframeAndOutlineIndependent"))
+        val viewerControls = presentation.getValue("viewerControls").jsonArray
             .map { it.jsonPrimitive.content }
             .toSet()
         assertTrue(
@@ -110,63 +129,136 @@ class CreationStateContractTest {
     }
 
     @Test
-    fun `image to svg native shell preserves canonical limits`() {
+    fun `image to svg product contract preserves canonical limits`() {
         val fixture = loadFixture("parity-fixtures/image-to-svg/state-contract.json")
         val limits = fixture.objectAt("limits")
         val input = fixture.objectAt("input")
         val submission = fixture.objectAt("submission")
+        val recovery = fixture.objectAt("recovery")
         val models = fixture.objectAt("models")
-        val surface = fixture.objectAt("androidSurface")
+        val transparentBackground = fixture.objectAt("transparentBackground")
+        val backgroundModes = transparentBackground.objectAt("modes")
         val preview = fixture.objectAt("previewMemory")
         val presentation = fixture.objectAt("presentation")
         val viewer = fixture.objectAt("viewer")
+        val pathSelection = viewer.objectAt("pathSelection")
 
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.intAt("maximumParallelJobs"))
         assertEquals(1, input.intAt("minimumImagesPerJob"))
         assertEquals(1, input.intAt("maximumImagesPerJob"))
-        assertTrue(input.booleanAt("multiplePickerImagesCreateIndependentJobs"))
+        assertTrue(input.booleanAt("multiplePickerImagesCreateIndependentSessions"))
+        assertInputImageContract(input)
         assertEquals("selected_session", submission.stringAt("primaryActionScope"))
         assertFalse(submission.booleanAt("submitsOtherSessions"))
+        assertTrue(submission.booleanAt("explicitSubmissionCreatesFreshDispatchId"))
+        assertTrue(recovery.booleanAt("replayMatchesOnlySameDispatchId"))
+        assertTrue(recovery.booleanAt("preparationRetriesAreBounded"))
+        assertTrue(recovery.booleanAt("retryUsesFreshExecutionState"))
+        assertTrue(recovery.booleanAt("uncleanWorkspaceIsQuarantined"))
+        assertTrue(recovery.booleanAt("transientCapacityFailureIsCapabilityScoped"))
+        assertTrue(recovery.booleanAt("temporaryCapacityPauseWaitIsBounded"))
+        assertTrue(recovery.booleanAt("recoveryStorageCannotPermanentlyBlockPreparation"))
+        assertTrue(recovery.booleanAt("inactivePreparationStateReclaimedBeforeAdmission"))
+        assertTrue(recovery.booleanAt("liveAndAcceptedRecoveryStateProtected"))
         assertEquals(setOf("simple", "detail"), models.keys)
         assertTrue(models.objectAt("simple").booleanAt("selectable"))
         assertTrue(models.objectAt("detail").booleanAt("selectable"))
-        assertFalse(preview.booleanAt("webviewRetainsOriginalImageBytes"))
-        assertFalse(preview.booleanAt("decodeBlocksWebviewThread"))
-        assertFalse(preview.booleanAt("offscreenPreviewsHydrate"))
-        assertTrue(preview.booleanAt("selectedPreviewHasPriority"))
-        assertTrue(preview.booleanAt("backgroundHydrationYieldsToInteraction"))
-        assertEquals(128, preview.intAt("thumbnailMaximumEdgePixels"))
-        assertEquals(1_600, preview.intAt("stageMaximumEdgePixels"))
+        assertEquals("opaque", transparentBackground.stringAt("default"))
+        assertEquals(setOf("auto", "transparent", "opaque"), backgroundModes.keys)
+        assertTrue(transparentBackground.booleanAt("capturedPerSubmission"))
+        assertTrue(transparentBackground.booleanAt("preservedThroughRecovery"))
+        assertTrue(transparentBackground.booleanAt("recordedInHistory"))
+        assertFalse(preview.booleanAt("surfaceRetainsOriginalImageBytes"))
+        assertFalse(preview.booleanAt("decodeBlocksInteractionThread"))
+        assertFalse(preview.booleanAt("queueRowsDecodeArtwork"))
+        assertFalse(preview.booleanAt("historyRowsDecodeArtwork"))
+        assertFalse(preview.booleanAt("sourceSettingDecodesArtwork"))
+        assertEquals(1, preview.intAt("maximumSelectedRasterPreviews"))
+        assertTrue(preview.booleanAt("selectedPreviewUsesPlatformImageDecoder"))
+        assertFalse(preview.booleanAt("selectedPreviewTransformsOnInteractionThread"))
+        assertFalse(preview.booleanAt("persistentPreviewCache"))
         assertEquals("Material Symbols Rounded", presentation.stringAt("iconFamily"))
         assertEquals(1, presentation.intAt("iconFill"))
         assertTrue(presentation.booleanAt("sharedIconCatalog"))
-        assertTrue(presentation.booleanAt("unchangedPollPreservesQueueDom"))
-        assertTrue(presentation.booleanAt("hoveredSelectionTargetSurvivesPolling"))
-        assertTrue(presentation.booleanAt("pointerSequenceSurvivesPolling"))
+        assertTrue(presentation.booleanAt("unchangedStatusRefreshPreservesSessionList"))
+        assertTrue(presentation.booleanAt("hoveredSelectionTargetSurvivesStatusRefresh"))
+        assertTrue(presentation.booleanAt("pointerSequenceSurvivesStatusRefresh"))
         assertTrue(presentation.booleanAt("queueOwnsOverflow"))
         assertTrue(presentation.booleanAt("primaryActionRemainsReachable"))
-        assertTrue(viewer.booleanAt("allPathsRendered"))
-        assertFalse(viewer.booleanAt("animateAllPaths"))
-        assertEquals(120, viewer.intAt("maximumAnimatedPaths"))
-        assertTrue(viewer.booleanAt("adaptiveOverlappingAnimation"))
-        assertEquals("native_compose_m3e", surface.stringAt("shell"))
-        assertEquals("sandboxed_svg_document", surface.stringAt("resultRenderer"))
-        assertEquals("depth_anything_3_six_bins", surface.stringAt("progressPreview"))
-        assertEquals(DepthPreviewContract.INPUT_SIDE, surface.intAt("previewInputSide"))
-        assertFalse(surface.booleanAt("previewBlocksGeneration"))
-        assertFalse(surface.booleanAt("previewSetupVisible"))
-        assertEquals(18, surface.intAt("preparationProgressMaximumPercent"))
-        assertEquals("bounded_privacy_safe_journal", surface.stringAt("diagnostics"))
-        assertFalse(surface.booleanAt("backgroundAutomationVisible"))
+        assertEquals("none", presentation.stringAt("progressPreview"))
+        assertTrue(viewer.booleanAt("completeSafeStaticPresentationRendered"))
+        assertTrue(viewer.booleanAt("rejectXmlProcessingInstructions"))
+        assertTrue(viewer.booleanAt("requireCanonicalSvgNamespace"))
+        assertTrue(viewer.booleanAt("allowEmbeddedRasterOnlyOnImageHref"))
+        assertEquals("explicit", viewer.stringAt("editableSurfaceActivation"))
+        assertFalse(viewer.booleanAt("selectionBuildsEditableSurface"))
+        assertFalse(viewer.booleanAt("selectionTransfersEditableDocument"))
+        assertFalse(viewer.booleanAt("staticPresentationAnimatesIndividualPaths"))
+        assertTrue(pathSelection.booleanAt("stationaryPrimaryPressSelectsGeometry"))
+        assertTrue(pathSelection.booleanAt("pointerCaptureBeginsAfterPanThreshold"))
+        assertTrue(pathSelection.booleanAt("captureCannotRetargetSelection"))
+        assertTrue(pathSelection.booleanAt("panDoesNotChangeSelection"))
+        assertEquals(
+            CreationContract.MAXIMUM_EDITABLE_SVG_BYTES,
+            viewer.longAt("maximumEditableDocumentBytes"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_EDITABLE_SVG_GEOMETRY,
+            viewer.intAt("maximumEditableGeometryElements"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_SVG_ARTIFACT_BYTES,
+            viewer.longAt("maximumDocumentBytes"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_SVG_ELEMENTS,
+            viewer.intAt("maximumDocumentElements"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_SVG_ELEMENTS,
+            viewer.intAt("maximumExpandedElementOccurrences"),
+        )
+        assertEquals(
+            CREATION_SVG_MAXIMUM_LOCAL_REFERENCE_EDGES,
+            viewer.intAt("maximumExpandedReferenceOccurrences"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_SVG_ATTRIBUTES,
+            viewer.intAt("maximumDocumentAttributes"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_SVG_EMBEDDED_RASTER_CHARACTERS,
+            viewer.intAt("maximumEmbeddedRasterCharacters"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_SVG_EMBEDDED_RASTER_PIXELS,
+            viewer.longAt("maximumEmbeddedRasterPixels"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_SVG_TOTAL_EMBEDDED_RASTER_PIXELS,
+            viewer.longAt("maximumTotalEmbeddedRasterPixels"),
+        )
+        assertTrue(viewer.booleanAt("totalEmbeddedRasterPixelsCountEveryOccurrence"))
+        assertTrue(viewer.booleanAt("localReferenceExpansionPreservesMultiplicity"))
+        assertTrue(viewer.booleanAt("localReferenceExpansionChargesReferencedRasterOccurrences"))
+        assertEquals(
+            setOf("image/png", "image/jpeg"),
+            viewer.getValue("allowedEmbeddedRasterMimeTypes").jsonArray
+                .map { it.jsonPrimitive.content }
+                .toSet(),
+        )
+        assertTrue(viewer.booleanAt("boundedUndoMemory"))
+        assertTrue(viewer.booleanAt("undoUsesDeltasOrCheckpoints"))
     }
 
     @Test
-    fun `image creator native shell preserves canonical product contract`() {
+    fun `image creator preserves canonical product contract`() {
         val fixture = loadFixture(
             "parity-fixtures/image-creation-editing/state-contract.json",
         )
         val request = fixture.objectAt("request")
         val submission = fixture.objectAt("submission")
+        val recovery = fixture.objectAt("recovery")
         val prompt = request.objectAt("prompt")
         val references = request.objectAt("references")
         val copyPolicy = fixture.objectAt("publicCopyPolicy")
@@ -174,7 +266,9 @@ class CreationStateContractTest {
         val locales = fixture.objectAt("locales")
         val presentation = fixture.objectAt("presentation")
         val behavior = fixture.objectAt("behavior")
-        val surface = fixture.objectAt("androidSurface")
+        val required = request.getValue("required").jsonArray
+            .map { it.jsonPrimitive.content }
+            .toSet()
         val stages = fixture.getValue("publicStages").jsonArray
             .map { it.jsonPrimitive.content }
             .toSet()
@@ -182,17 +276,10 @@ class CreationStateContractTest {
         assertEquals("image", fixture.stringAt("tool"))
         assertEquals("image_", fixture.stringAt("jobIdPrefix"))
         assertEquals(CreationContract.IMAGE_CREATOR_OPERATION, fixture.stringAt("operation"))
+        assertTrue("dispatchId" in required)
         assertEquals(
             CreationContract.IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS,
             fixture.intAt("maximumParallelJobs"),
-        )
-        assertEquals(
-            CreationContract.IMAGE_CREATOR_WORKSPACES,
-            fixture.intAt("preparedWorkspaces"),
-        )
-        assertEquals(
-            CreationContract.MAXIMUM_CONCURRENT_PREPARATIONS,
-            fixture.intAt("maximumConcurrentPreparations"),
         )
         assertEquals(
             CreationContract.IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS,
@@ -206,12 +293,33 @@ class CreationStateContractTest {
             references.intAt("maximum"),
         )
         assertTrue(references.booleanAt("ordered"))
+        assertEquals(
+            CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES,
+            references.longAt("maximumBytesPerReference"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_IMAGE_REFERENCE_AGGREGATE_BYTES,
+            references.longAt("maximumAggregateBytes"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_IMAGE_DIMENSION,
+            references.intAt("maximumDimensionPixels"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_DECODED_IMAGE_PIXELS,
+            references.longAt("maximumDecodedPixelsPerReference"),
+        )
         assertTrue(request.booleanAt("frozenBeforeQueue"))
         assertFalse(request.booleanAt("multipleInputsCreateIndependentJobs"))
         assertTrue(request.booleanAt("oneSessionCreatesOneJob"))
         assertTrue(request.booleanAt("plusCreatesEmptySession"))
         assertEquals("selected_session", submission.stringAt("primaryActionScope"))
         assertFalse(submission.booleanAt("submitsOtherSessions"))
+        assertTrue(submission.booleanAt("explicitSubmissionCreatesFreshJobId"))
+        assertTrue(submission.booleanAt("explicitSubmissionCreatesFreshDispatchId"))
+        assertTrue(submission.booleanAt("explicitPressCapturedSynchronously"))
+        assertTrue(submission.booleanAt("rapidPressesCreateDistinctJobs"))
+        assertTrue(submission.booleanAt("lateStartResponseCannotStealNewerSelection"))
         assertEquals("feature_only", copyPolicy.stringAt("vocabulary"))
         assertFalse(copyPolicy.booleanAt("implementationDetailsVisible"))
         assertFalse(copyPolicy.booleanAt("rawImplementationErrorsVisible"))
@@ -220,21 +328,42 @@ class CreationStateContractTest {
         assertTrue(artifact.booleanAt("requiresPositiveWidth"))
         assertTrue(artifact.booleanAt("requiresPositiveHeight"))
         assertTrue(artifact.booleanAt("atomicWrite"))
-        assertEquals("image_to_svg_creation_shell", presentation.stringAt("windowsShell"))
-        assertEquals("native_compose_m3e", presentation.stringAt("androidShell"))
+        assertEquals(
+            listOf("png"),
+            artifact.getValue("extensions").jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            listOf("image/png"),
+            artifact.getValue("mimeTypes").jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_IMAGE_ARTIFACT_BYTES,
+            artifact.longAt("maximumBytes"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_IMAGE_DIMENSION,
+            artifact.intAt("maximumDimensionPixels"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_DECODED_IMAGE_PIXELS,
+            artifact.longAt("maximumDecodedPixels"),
+        )
+        assertTrue(presentation.booleanAt("matchesSharedCreationExperience"))
         assertEquals("Google Sans Flex", presentation.stringAt("fontFamily"))
         assertEquals(100, presentation.intAt("fontRoundedAxis"))
         assertEquals("Material Symbols Rounded", presentation.stringAt("iconFamily"))
         assertEquals(1, presentation.intAt("iconFill"))
         assertFalse(presentation.booleanAt("appSpecificTheme"))
         assertTrue(presentation.booleanAt("sharedIconCatalog"))
-        assertTrue(presentation.booleanAt("unchangedPollPreservesQueueDom"))
-        assertTrue(presentation.booleanAt("hoveredSelectionTargetSurvivesPolling"))
-        assertTrue(presentation.booleanAt("pointerSequenceSurvivesPolling"))
+        assertTrue(presentation.booleanAt("unchangedStatusRefreshPreservesSessionList"))
+        assertTrue(presentation.booleanAt("hoveredSelectionTargetSurvivesStatusRefresh"))
+        assertTrue(presentation.booleanAt("pointerSequenceSurvivesStatusRefresh"))
         assertTrue(presentation.booleanAt("singleClickStartsSubmission"))
-        assertTrue(presentation.booleanAt("submissionLocksImmediately"))
         assertTrue(presentation.booleanAt("queueOwnsOverflow"))
         assertTrue(presentation.booleanAt("primaryActionRemainsReachable"))
+        assertTrue(presentation.booleanAt("multipleReferenceOrderVisibleAsFilenames"))
+        assertTrue(presentation.booleanAt("multiReferenceCanvasShowsFirstSourceAndCount"))
+        assertTrue(presentation.booleanAt("multiReferenceResultShowsOutputAndCount"))
         val estimatedProgress = presentation.objectAt("estimatedProgress")
         assertTrue(estimatedProgress.booleanAt("usesRuntimeEstimate"))
         assertTrue(estimatedProgress.booleanAt("usesElapsedTimeCurve"))
@@ -243,29 +372,25 @@ class CreationStateContractTest {
         assertEquals(1.0, estimatedProgress.doubleAt("completionRatio"), 0.0)
         assertTrue(estimatedProgress.booleanAt("showsLocalizedEta"))
         val preview = presentation.objectAt("previewMemory")
-        assertFalse(preview.booleanAt("webviewRetainsOriginalImageBytes"))
-        assertFalse(preview.booleanAt("decodeBlocksWebviewThread"))
-        assertFalse(preview.booleanAt("offscreenPreviewsHydrate"))
-        assertTrue(preview.booleanAt("selectedPreviewHasPriority"))
-        assertTrue(preview.booleanAt("backgroundHydrationYieldsToInteraction"))
-        assertEquals(128, preview.intAt("thumbnailMaximumEdgePixels"))
-        assertEquals(1_600, preview.intAt("stageMaximumEdgePixels"))
+        assertFalse(preview.booleanAt("surfaceRetainsOriginalImageBytes"))
+        assertFalse(preview.booleanAt("decodeBlocksInteractionThread"))
+        assertFalse(preview.booleanAt("queueRowsDecodeArtwork"))
+        assertFalse(preview.booleanAt("historyRowsDecodeArtwork"))
+        assertFalse(preview.booleanAt("referenceListDecodesArtwork"))
+        assertEquals(2, preview.intAt("maximumSelectedRasterPreviews"))
+        assertTrue(preview.booleanAt("selectedPreviewUsesPlatformImageDecoder"))
+        assertFalse(preview.booleanAt("selectedPreviewTransformsOnInteractionThread"))
+        assertFalse(preview.booleanAt("persistentPreviewCache"))
         assertTrue(behavior.booleanAt("cancellationIsMonotonic"))
         assertTrue(behavior.booleanAt("lateSuccessCannotPublishAfterCancellation"))
-        assertTrue(behavior.booleanAt("acceptedRequestIsNotRepeatedDuringRecovery"))
+        assertTrue(recovery.booleanAt("acceptedRequestResumedWithoutResubmit"))
+        assertTrue(recovery.booleanAt("replayMatchesOnlySameDispatchId"))
+        assertTrue(recovery.booleanAt("durableIntentRecordedBeforeSubmit"))
         assertTrue(behavior.booleanAt("retryCreatesNewJob"))
         assertTrue(behavior.booleanAt("retryPreservesPreviousResult"))
-        assertTrue(behavior.booleanAt("closingUiCancelsToolJobs"))
-        assertTrue(behavior.booleanAt("closingUiTerminatesTrackedProcessTrees"))
-        assertTrue(behavior.booleanAt("closingUiDestroysWebSurface"))
-        assertTrue(behavior.booleanAt("sharedPreparationSurvivesMiniAppClose"))
+        assertTrue(behavior.booleanAt("closeReleasesOwnerExecutionResources"))
+        assertTrue(behavior.booleanAt("closeDestroysProductSurface"))
         assertTrue(behavior.booleanAt("failureRemainsBoundToJob"))
-        assertEquals("adaptive_image_session_result", surface.stringAt("resultRenderer"))
-        assertEquals(
-            CreationContract.IMAGE_CREATOR_WORKSPACES,
-            surface.intAt("isolatedWorkers"),
-        )
-        assertFalse(surface.booleanAt("implementationDetailsVisible"))
         assertEquals(
             setOf(
                 "queued",
@@ -287,6 +412,15 @@ class CreationStateContractTest {
     @Test
     fun `image creator exposes only normal product progress and failures`() {
         assertEquals("preparing", publicImageCreationStage("unknown"))
+        assertEquals(
+            "preparing",
+            publicCreationStage(
+                CreationTool.IMAGE_CREATOR,
+                "uploading",
+                "preparing",
+                hasReferences = false,
+            ),
+        )
         assertEquals("Getting ready", publicImageCreationText("preparing"))
         assertEquals("Getting ready", publicImageCreationText("uploading", hasReferences = false))
         assertEquals(
@@ -300,167 +434,23 @@ class CreationStateContractTest {
     }
 
     @Test
-    fun `android depth preview uses the canonical windows model`() {
-        val windowsSource = File(
-            repoRoot(),
-            "src/overlay/three_d_generator/depth_model.rs",
-        ).readText()
-
-        assertTrue(windowsSource.contains(DepthPreviewContract.MODEL_URL))
-        assertTrue(windowsSource.replace("_", "").contains(DepthPreviewContract.MODEL_BYTES.toString()))
-        assertTrue(windowsSource.contains(DepthPreviewContract.MODEL_SHA256))
-        assertTrue(windowsSource.contains("const SIDE: u32 = ${DepthPreviewContract.INPUT_SIDE};"))
-    }
-
-    @Test
-    fun `creation runtime delivery remains flavor specific and integrity checked`() {
-        val fixture = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
-        val distribution = fixture.objectAt("distribution")
-        val full = distribution.objectAt("full")
-        val fullIntegrity = full.objectAt("integrity")
-        val play = distribution.objectAt("play")
-        val playIntegrity = play.objectAt("integrity")
-
-        assertEquals("identical", distribution.stringAt("hostBehavior"))
-        assertTrue(distribution.booleanAt("sameRuntimeBuild"))
-        assertTrue(distribution.booleanAt("sameRuntimeManifestVersionAndFeatures"))
-        assertTrue(full.booleanAt("supported"))
-        assertEquals("verified_download", full.stringAt("runtimeDelivery"))
-        assertTrue(full.booleanAt("downloadExecutableCode"))
-        assertTrue(fullIntegrity.booleanAt("bundleByteCountPinned"))
-        assertTrue(fullIntegrity.booleanAt("bundleSha256Pinned"))
-        assertTrue(fullIntegrity.booleanAt("extractedFileByteCountsPinned"))
-        assertTrue(fullIntegrity.booleanAt("extractedFileSha256Pinned"))
-
-        assertTrue(play.booleanAt("supported"))
-        assertEquals("packaged_on_demand", play.stringAt("runtimeDelivery"))
-        assertFalse(play.booleanAt("downloadExecutableCode"))
-        assertFalse(play.booleanAt("networkExecutableFallback"))
-        assertTrue(playIntegrity.booleanAt("playAppSigning"))
-        assertTrue(playIntegrity.booleanAt("packagedArtifactSha256Pinned"))
-
-        val fullSource = File(
-            repoRoot(),
-            "mobile/androidApp/src/full/java/dev/screengoated/toolbox/mobile/" +
-                "creation/runtime/CreationRuntimeProvider.kt",
-        ).readText()
-        assertTrue(fullSource.contains("DexClassLoader"))
-        assertTrue(fullSource.contains("BUNDLE_BYTES"))
-        assertTrue(fullSource.contains("BUNDLE_SHA256"))
-        assertTrue(fullSource.contains("DEX_SHA256"))
-        assertTrue(fullSource.contains("NATIVE_SHA256"))
-
-        val playSource = File(
-            repoRoot(),
-            "mobile/androidApp/src/play/java/dev/screengoated/toolbox/mobile/" +
-                "creation/runtime/CreationRuntimeProvider.kt",
-        ).readText()
-        assertTrue(playSource.contains("SplitInstallRequest"))
-        assertTrue(playSource.contains("feature_creation_runtime"))
-        assertFalse(playSource.contains("DexClassLoader"))
-        assertFalse(playSource.contains("OkHttpClient"))
-
-        val complianceSource = File(
-            repoRoot(),
-            "mobile/androidApp/gradle/play-compliance.gradle.kts",
-        ).readText()
-        assertTrue(complianceSource.contains("feature_creation_runtime"))
-        assertTrue(complianceSource.contains("Play creation native checksum mismatch"))
-        assertTrue(complianceSource.contains("Play creation runtime feature is missing executable code"))
-    }
-
-    @Test
-    fun `creation recovery remains durable and fail closed`() {
-        val fixture = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
-        val recovery = fixture.objectAt("recovery")
-
-        assertTrue(recovery.booleanAt("intentRecordedBeforeSubmit"))
-        assertTrue(recovery.booleanAt("jobIdentityUsesSourceContent"))
-        assertTrue(recovery.booleanAt("jobIdentityIgnoresSourcePathAndTimestamps"))
-        assertTrue(recovery.booleanAt("jobIdentityIncludesProductSettings"))
-        assertTrue(recovery.booleanAt("matchingJobSerializedAcrossWorkers"))
-        assertTrue(recovery.booleanAt("acceptedJobResumedWithoutResubmit"))
-        assertTrue(recovery.booleanAt("unknownSubmissionFailsClosed"))
-        assertTrue(recovery.booleanAt("artifactCommittedBeforeHostSuccess"))
-        assertEquals(7 * 24, recovery.intAt("recoveryRetentionHours"))
-    }
-
-    @Test
-    fun `host lifecycle and measured timing guarantees stay explicit`() {
-        val fixture = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
-        val lifecycle = fixture.objectAt("hostLifecycle")
-        val timing = fixture.objectAt("timing")
-
-        assertTrue(lifecycle.booleanAt("workerLossFailsActiveJobExactlyOnce"))
-        assertTrue(lifecycle.booleanAt("staleCallbackCannotReleaseNewAssignment"))
-        assertTrue(lifecycle.booleanAt("cancelWinsOverLateSuccess"))
-        assertTrue(lifecycle.booleanAt("lateSuccessCannotPublishAfterCancel"))
-        assertTrue(lifecycle.booleanAt("lateSuccessCannotDeletePreviousOutputAfterCancel"))
-        assertTrue(lifecycle.booleanAt("closeCancelsToolJobs"))
-        assertTrue(lifecycle.booleanAt("closeTerminatesTrackedProcessTrees"))
-        assertTrue(lifecycle.booleanAt("closeDestroysWebSurface"))
-        assertTrue(lifecycle.booleanAt("sharedPreparationSurvivesMiniAppClose"))
-        val svgLifecycle = loadFixture(
-            "parity-fixtures/image-to-svg/state-contract.json",
-        ).objectAt("hostLifecycle")
-        assertTrue(svgLifecycle.booleanAt("cancelWinsOverLateSuccess"))
-        assertTrue(svgLifecycle.booleanAt("closeCancelsToolJobs"))
-        assertTrue(svgLifecycle.booleanAt("closeTerminatesTrackedProcessTrees"))
-        assertTrue(svgLifecycle.booleanAt("closeDestroysWebSurface"))
-        assertTrue(svgLifecycle.booleanAt("sharedPreparationSurvivesMiniAppClose"))
-        assertTrue(timing.booleanAt("persistMeasuredDurations"))
-        assertTrue(timing.booleanAt("boundedSamples"))
-        assertTrue(timing.booleanAt("reportSampleCount"))
-        assertTrue(timing.booleanAt("fixedEstimateOnlyWhenSampleCountIsZero"))
-    }
-
-    @Test
-    fun `terminal items rerun while active and queued items remain immutable`() {
-        fun item(stage: CreationNativeStage, submitted: Boolean = true) = CreationNativeItem(
-            id = "item",
-            batchId = "batch",
-            sourcePath = "source.png",
-            sourceName = "source.png",
-            stage = stage,
-            submitted = submitted,
+    fun `unrecognized stages cannot expand product progress`() {
+        assertEquals(
+            "preparing",
+            publicCreationStage(CreationTool.IMAGE_TO_3D, "uploading", "preparing"),
         )
-
-        assertTrue(item(CreationNativeStage.DRAFT, submitted = false).isConfigurable())
-        assertTrue(item(CreationNativeStage.DONE).isConfigurable())
-        assertTrue(item(CreationNativeStage.FAILED).isConfigurable())
-        assertTrue(item(CreationNativeStage.CANCELLED).isConfigurable())
-        assertFalse(item(CreationNativeStage.QUEUED).isConfigurable())
-        assertFalse(item(CreationNativeStage.RUNNING).isConfigurable())
-        assertFalse(item(CreationNativeStage.DRAFT).isConfigurable())
-    }
-
-    @Test
-    fun `primary action submits only the selected session from an imported batch`() {
-        fun draft(id: String) = CreationNativeItem(
-            id = id,
-            batchId = "shared-import",
-            sourcePath = "$id.png",
-            sourceName = "$id.png",
+        assertEquals(
+            "generating",
+            publicCreationStage(CreationTool.IMAGE_TO_3D, "unrecognized-stage", "generating"),
         )
-        val submitted = CreationNativeUiState(
-            items = listOf(draft("first"), draft("selected"), draft("last")),
-            selectedItemId = "selected",
-        ).submitSelectedItem()
-
-        assertFalse(submitted.items[0].submitted)
-        assertEquals(CreationNativeStage.DRAFT, submitted.items[0].stage)
-        assertTrue(submitted.items[1].submitted)
-        assertEquals(CreationNativeStage.QUEUED, submitted.items[1].stage)
-        assertFalse(submitted.items[2].submitted)
-        assertEquals(CreationNativeStage.DRAFT, submitted.items[2].stage)
-    }
-
-    @Test
-    fun `cancelled terminal state cannot accept a late completion`() {
-        assertTrue(creationStageIsBusy("generating"))
-        assertTrue(creationStageIsBusy("finalizing"))
-        assertFalse(creationStageIsBusy("cancelled"))
-        assertFalse(creationStageIsBusy("done"))
+        assertEquals(
+            "preparing",
+            publicCreationStage(CreationTool.IMAGE_TO_SVG, "segmenting", "preparing"),
+        )
+        assertEquals(
+            "finalizing",
+            publicCreationStage(CreationTool.IMAGE_TO_SVG, "unrecognized-stage", "finalizing"),
+        )
     }
 
     private fun loadFixture(path: String): JsonObject {
@@ -477,7 +467,37 @@ class CreationStateContractTest {
 
     private fun JsonObject.objectAt(key: String) = requireNotNull(this[key]).jsonObject
     private fun JsonObject.intAt(key: String) = requireNotNull(this[key]).jsonPrimitive.int
+    private fun JsonObject.longAt(key: String) = requireNotNull(this[key]).jsonPrimitive.long
     private fun JsonObject.doubleAt(key: String) = requireNotNull(this[key]).jsonPrimitive.double
     private fun JsonObject.stringAt(key: String) = requireNotNull(this[key]).jsonPrimitive.content
     private fun JsonObject.booleanAt(key: String) = requireNotNull(this[key]).jsonPrimitive.boolean
+
+    private fun assertInputImageContract(input: JsonObject) {
+        assertEquals(
+            CreationContract.MAXIMUM_PICKER_BATCH_IMAGES,
+            input.intAt("maximumPickerBatchImages"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES,
+            input.longAt("maximumBytesPerImage"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_PICKER_AGGREGATE_BYTES,
+            input.longAt("maximumPickerAggregateBytes"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_IMAGE_DIMENSION,
+            input.intAt("maximumDimensionPixels"),
+        )
+        assertEquals(
+            CreationContract.MAXIMUM_DECODED_IMAGE_PIXELS,
+            input.longAt("maximumDecodedPixelsPerImage"),
+        )
+        assertEquals(
+            setOf("image/png", "image/jpeg", "image/webp"),
+            input.getValue("supportedMimeTypes").jsonArray
+                .map { it.jsonPrimitive.content }
+                .toSet(),
+        )
+    }
 }

@@ -41,6 +41,8 @@ fn desktop_startup_phases_remain_in_dependency_order() {
             "run_hotkey_listener",
             "init_tts",
             "init_gemini_live",
+            "clear_webview_permissions",
+            "spawn_warmup_thread",
             "settings_window::run",
         ],
     );
@@ -59,7 +61,6 @@ fn headless_dispatch_keeps_replay_last() {
             "--cc-coord-test",
             "--cc-uia-dump",
             "--cc-vision-test",
-            "--cc-detector-test",
             "--cc-cursor-demo",
             "--cc-grid-test",
             "--cc-uia-task",

@@ -25,6 +25,7 @@ export class DevHarness {
         id: "dev_model",
         batchId: "dev_batch",
         path: modelUrl,
+        sourceProvenance: "presentation",
         name,
         extension: "GLB",
         polycount: 5000,
@@ -43,16 +44,20 @@ export class DevHarness {
       };
       state.items.push(item);
       state.selectedId = item.id;
-      const stats = await viewer.setModel(objectUrl, segmented);
-      if (stats) item.modelStats = stats;
+      try {
+        const stats = await viewer.setModel(objectUrl, segmented);
+        if (stats) item.modelStats = stats;
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
       state.displayedItemId = item.id;
       state.displayedModelPath = modelUrl;
       updateUi();
-    } catch (error) {
-      state.backendStatus = {
+    } catch {
+      state.selectedStatus = {
         stage: "failed",
-        progressText: String(error),
-        error: String(error),
+        progressText: "Preview unavailable.",
+        error: "invalid_result",
       };
       updateUi();
     }
@@ -70,6 +75,7 @@ export class DevHarness {
       id,
       batchId,
       path: name,
+      sourceProvenance: "surface-import",
       name,
       extension: "PNG",
       generationMode: batchId === "batch_2" ? "fast" : "quality",
@@ -88,6 +94,7 @@ export class DevHarness {
     if (params.get("history") === "1") {
       state.items.push({
         ...makeItem("history_a", "history_a", "clinic-reception.png", "done", true),
+        sourceProvenance: "presentation",
         historyId: "history_a",
         createdAtMs: Date.now() - 60_000,
         result: {
@@ -100,6 +107,7 @@ export class DevHarness {
         },
       }, {
         ...makeItem("history_b", "history_b", "lobby-chair.png", "done", true),
+        sourceProvenance: "presentation",
         historyId: "history_b",
         createdAtMs: Date.now() - 120_000,
         result: {
@@ -119,7 +127,7 @@ export class DevHarness {
     state.items[0].operationStartedAt = Date.now() - 42_000;
     state.items[0].estimatedTotalMs = 120_000;
     state.items[0].displayedProgress = 0.38;
-    state.backendStatus = {
+    state.selectedStatus = {
       jobId: "dev_running",
       stage: "generating",
       phase: "model_creation",
@@ -158,31 +166,34 @@ export class DevHarness {
           runtimeStatus: "installed",
         } as T;
       }
-      if (cmd === "job_status") {
-        const jobId = (args as { jobId?: string })?.jobId || "";
-        const count = (polls.get(jobId) || 0) + 1;
-        polls.set(jobId, count);
-        if (count < 2) {
+      if (cmd === "job_statuses") {
+        const statuses = [...polls].map(([jobId, previous]) => {
+          const count = previous + 1;
+          if (count < 2) {
+            polls.set(jobId, count);
+            return {
+              jobId,
+              stage: "generating",
+              progressText: "",
+              runtimeStatus: "installed",
+              progressRatio: 0.5,
+            };
+          }
+          polls.delete(jobId);
+          harness.active -= 1;
+          harness.completed += 1;
+          syncHarness();
           return {
             jobId,
-            stage: "generating",
+            stage: "done",
             progressText: "",
             runtimeStatus: "installed",
-            progressRatio: 0.5,
-          } as T;
-        }
-        harness.active -= 1;
-        harness.completed += 1;
-        syncHarness();
-        return {
-          jobId,
-          stage: "done",
-          progressText: "",
-          runtimeStatus: "installed",
-          isSegmented: false,
-        } as T;
+            isSegmented: false,
+          };
+        });
+        return statuses as T;
       }
-      if (cmd === "read_asset") throw new Error("No fixture asset");
+      if (cmd === "model_asset_url") throw new Error("No fixture model");
       return null as T;
     };
     const batchId = "parallel_batch";
@@ -191,6 +202,7 @@ export class DevHarness {
         id: "parallel_a",
         batchId,
         path: "parallel-a.png",
+        sourceProvenance: "surface-import",
         name: "parallel-a.png",
         extension: "PNG",
         generationMode: "quality",
@@ -203,6 +215,7 @@ export class DevHarness {
         id: "parallel_b",
         batchId,
         path: "parallel-b.png",
+        sourceProvenance: "surface-import",
         name: "parallel-b.png",
         extension: "PNG",
         generationMode: "fast",

@@ -13,6 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.SgtMobileTheme
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -26,10 +27,43 @@ class CreationMiniAppActivity : ComponentActivity() {
     ) { uris ->
         if (uris.isEmpty()) return@registerForActivityResult
         lifecycleScope.launch {
-            val paths = withContext(Dispatchers.IO) {
-                CreationJobManager.get(this@CreationMiniAppActivity).files.importImages(uris)
+            runCatching {
+                val maximum = if (tool == CreationTool.IMAGE_CREATOR) {
+                    val configurableReferences = viewModel.state.value.selectedItem
+                        ?.takeIf {
+                            !it.submitted && it.stage == CreationNativeStage.DRAFT
+                        }
+                        ?.referencePaths
+                        ?.size
+                        ?: 0
+                    CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES -
+                        configurableReferences
+                } else {
+                    CreationContract.MAXIMUM_PICKER_BATCH_IMAGES
+                }
+                val existingReferences = if (tool == CreationTool.IMAGE_CREATOR) {
+                    viewModel.state.value.selectedItem
+                        ?.takeIf {
+                            !it.submitted && it.stage == CreationNativeStage.DRAFT
+                        }
+                        ?.referencePaths
+                        .orEmpty()
+                } else {
+                    emptyList()
+                }
+                withContext(Dispatchers.IO) {
+                    CreationJobManager.get(this@CreationMiniAppActivity).files.importImages(
+                        uris,
+                        tool,
+                        maximum,
+                        existingReferences,
+                    )
+                }
+            }.onSuccess { paths ->
+                viewModel.addImages(paths)
+            }.onFailure { error ->
+                viewModel.showError(error)
             }
-            viewModel.addImages(paths)
         }
     }
 
@@ -45,10 +79,13 @@ class CreationMiniAppActivity : ComponentActivity() {
             finish()
             return
         }
+        val ownerId = intent.getStringExtra(EXTRA_OWNER_ID)
+            ?.takeIf(String::isNotBlank)
+            ?: UUID.randomUUID().toString().also { intent.putExtra(EXTRA_OWNER_ID, it) }
         enableEdgeToEdge()
         viewModel = ViewModelProvider(
             this,
-            CreationNativeViewModelFactory(application, tool),
+            CreationNativeViewModelFactory(application, tool, ownerId),
         )[CreationNativeViewModel::class.java]
         val preferences = (application as SgtMobileApplication).appContainer.repository
             .currentUiPreferences()
@@ -85,10 +122,13 @@ class CreationMiniAppActivity : ComponentActivity() {
 
     companion object {
         private const val EXTRA_TOOL = "creation_tool"
+        private const val EXTRA_OWNER_ID = "creation_owner_id"
 
         internal fun intent(context: Context, tool: CreationTool): Intent = Intent(
             context,
             CreationMiniAppActivity::class.java,
-        ).putExtra(EXTRA_TOOL, tool.wireName)
+        )
+            .putExtra(EXTRA_TOOL, tool.wireName)
+            .putExtra(EXTRA_OWNER_ID, UUID.randomUUID().toString())
     }
 }

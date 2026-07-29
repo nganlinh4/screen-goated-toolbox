@@ -1,11 +1,12 @@
 import type { GenerationMode } from "./generation-mode";
 import type { ModelStats } from "./viewer";
+import type { CreationSourceProvenance } from "../../ui-shared/creation-source-provenance";
 
 export type Stage =
   | "idle"
   | "runtime_missing"
+  | "queued"
   | "preparing"
-  | "visualizing"
   | "generating"
   | "segmenting"
   | "finalizing"
@@ -19,16 +20,18 @@ export type JobStatus = {
   stage: Stage;
   progressText: string;
   phase?: string | null;
-  workspaceState?: string | null;
   elapsedMs?: number | null;
   estimatedTotalMs?: number | null;
   progressRatio?: number | null;
   timingSampleCount?: number | null;
   outputPath?: string | null;
   outputName?: string | null;
-  previewPath?: string | null;
   sourceImagePath?: string | null;
-  generationMode?: GenerationMode;
+  outputDir?: string | null;
+  generationMode?: GenerationMode | null;
+  polycount?: number | null;
+  autoSegment?: boolean | null;
+  instruction?: string | null;
   isSegmented?: boolean;
   canSegment?: boolean;
   error?: string | null;
@@ -44,9 +47,11 @@ export type StartJobRequest = {
   outputFormat: "glb_plain";
   autoSegment: boolean;
   segmentationMode: "parts" | "none";
+  instruction?: string;
 };
 
 export type AssetPayload = { dataUrl: string; sizeBytes?: number };
+export type ModelAssetPayload = { url: string };
 export type HostContext = { theme?: "light" | "dark"; language?: string };
 export type HistoryEntry = {
   id: string;
@@ -55,26 +60,36 @@ export type HistoryEntry = {
   outputPath: string;
   outputName: string;
   createdAtMs: number;
-  metadata?: { generationMode?: GenerationMode; isSegmented?: boolean };
+  metadata?: {
+    generationMode?: GenerationMode;
+    polycount?: number;
+    autoSegment?: boolean;
+    instruction?: string;
+    outputDir?: string;
+    isSegmented?: boolean;
+  };
 };
 
 export type QueueItem = {
   id: string;
   batchId: string;
   path: string;
+  sourceProvenance: CreationSourceProvenance;
   name: string;
   extension: string;
   thumbnailUrl?: string;
   generationMode: GenerationMode;
   polycount: number;
   autoSegment: boolean;
+  instruction?: string;
   submitted: boolean;
+  cancelRequested?: boolean;
   state: QueueState;
   result?: JobStatus;
-  loadedDepthPath?: string;
+  outputDir?: string;
   loadedModelPath?: string;
   modelAssetPath?: string;
-  modelAssetPromise?: Promise<AssetPayload>;
+  modelAssetPromise?: Promise<ModelAssetPayload>;
   operationStartedAt?: number;
   estimatedTotalMs?: number;
   displayedProgress?: number;
@@ -90,10 +105,8 @@ export type AppState = {
   outputDir: string;
   queueActive: boolean;
   cancelRequested: boolean;
-  backendStatus: JobStatus;
+  selectedStatus: JobStatus;
   preparationStatus: string;
-  preparationTimer: number;
-  preparationPollToken: number;
   displayToken: number;
   displayedItemId: string;
   displayedModelPath: string;
@@ -106,6 +119,10 @@ export type AppState = {
   historyRefreshing: boolean;
   referencePreviewItemId: string;
   referencePreviewToken: number;
+  generationCapabilities: {
+    ready: boolean;
+    optionalInstruction: Record<GenerationMode, boolean>;
+  };
 };
 
 export type AppNodes = {
@@ -127,6 +144,8 @@ export type AppNodes = {
   modeButtons: HTMLButtonElement[];
   autoSegmentSection: HTMLElement;
   autoSegmentInput: HTMLInputElement;
+  instructionSection: HTMLElement;
+  instructionInput: HTMLTextAreaElement;
   generateButton: HTMLButtonElement;
   generateLabel: HTMLElement;
   cancelButton: HTMLButtonElement;
@@ -159,9 +178,5 @@ export type AppNodes = {
   referencePreviewName: HTMLElement;
   referencePreviewImage: HTMLImageElement;
   referencePreviewClose: HTMLButtonElement;
-  confirmDialog: HTMLElement;
-  confirmMessage: HTMLElement;
-  confirmCancel: HTMLButtonElement;
-  confirmAccept: HTMLButtonElement;
   appToast: HTMLElement;
 };

@@ -101,6 +101,7 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
         "runtime_preparation_status" => {
             Ok(Value::String(super::runtime::runtime_preparation_status()))
         }
+        "generation_capabilities" => Ok(super::runtime::product_capabilities()),
         "cancel_job" => {
             let job_id = args.get("jobId").and_then(Value::as_str);
             serde_json::to_value(super::runtime::cancel_job(job_id)).map_err(|err| err.to_string())
@@ -112,8 +113,11 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
         "job_statuses" => {
             serde_json::to_value(super::runtime::job_statuses()).map_err(|err| err.to_string())
         }
-        "history_results" => serde_json::to_value(crate::overlay::generation_history::list("3d")?)
-            .map_err(|err| err.to_string()),
+        "history_results" => {
+            let entries = crate::overlay::generation_history::list("3d")?;
+            serde_json::to_value(crate::overlay::generation_history::public_entries(&entries))
+                .map_err(|err| err.to_string())
+        }
         "rename_history_result" => {
             let id = args
                 .get("id")
@@ -129,7 +133,8 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .ok_or_else(|| "Result is no longer in history.".to_string())?;
             let updated = crate::overlay::generation_history::rename("3d", id, new_name)?;
             super::runtime::remap_result_path(&previous.output_path, &updated.output_path);
-            serde_json::to_value(updated).map_err(|err| err.to_string())
+            serde_json::to_value(crate::overlay::generation_history::public_entry(&updated))
+                .map_err(|err| err.to_string())
         }
         "delete_history_result" => {
             let id = args
@@ -144,12 +149,24 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
             super::runtime::forget_result_path(&previous.output_path);
             Ok(Value::Null)
         }
-        "read_asset" => {
+        "delete_all_history_results" => {
+            let previous = crate::overlay::generation_history::list("3d")?;
+            let deleted = crate::overlay::generation_history::delete_all("3d")?;
+            for entry in previous {
+                super::runtime::forget_result_path(&entry.output_path);
+            }
+            Ok(Value::from(deleted as u64))
+        }
+        "model_asset_url" => {
             let path = args
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "path is required".to_string())?;
-            super::runtime::read_asset(path)
+            super::asset_protocol::issue(path)
+        }
+        "release_model_asset" => {
+            super::asset_protocol::clear();
+            Ok(Value::Null)
         }
         "open_output" => {
             let kind = args.get("kind").and_then(Value::as_str).unwrap_or("folder");
@@ -188,7 +205,7 @@ fn send_reply(id: &str, result: Result<Value, String>) {
     }
     let payload = match result {
         Ok(value) => json!({ "id": id, "result": value }),
-        Err(err) => json!({ "id": id, "error": err }),
+        Err(_error) => json!({ "id": id, "error": "operation_failed" }),
     };
     let script =
         format!("window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {payload} }}));");

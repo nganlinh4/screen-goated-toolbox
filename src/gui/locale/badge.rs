@@ -15,7 +15,6 @@ pub struct BadgeLocaleText {
     pub preparing_runtime_fmt: &'static str,
     pub downloading_sherpa_runtime: &'static str,
     pub required_for_offline_tts_fmt: &'static str,
-    pub ui_detector_name: &'static str,
     pub downloading_model_fmt: &'static str,
     pub preparing_model_fmt: &'static str,
     pub model_ready_fmt: &'static str,

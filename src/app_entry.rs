@@ -115,7 +115,9 @@ pub(crate) fn run() -> eframe::Result<()> {
         }
     }
 
-    crate::initialization::spawn_warmup_thread();
+    if !screen_record_wry_smoke {
+        crate::initialization::spawn_warmup_thread();
+    }
     crate::runtime_support::show_startup_compatibility_notice_if_needed();
 
     settings_window::run(screen_record_wry_smoke, pending_file_path)

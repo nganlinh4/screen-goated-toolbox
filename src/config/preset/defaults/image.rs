@@ -65,29 +65,6 @@ pub fn create_image_presets() -> Vec<Preset> {
             ])
             .build(),
 
-        // Translate (Accurate)+Retranslate - Triple chain
-        PresetBuilder::new("preset_extract_retrans_retrans", "Translate (Accurate)+Retranslate")
-            .image()
-            .blocks(vec![
-                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
-                    .prompt(OCR_EXTRACTION_PROMPT)
-                    .language("English")
-                    .show_overlay(false)
-                    .build(),
-                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
-                    .prompt("Translate to {language1}. Output ONLY the translation.")
-                    .language("Korean")
-                    .markdown_stream() // Đẹp+Str
-                    .auto_copy()
-                    .build(),
-                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
-                    .prompt("Translate to {language1}. Output ONLY the translation.")
-                    .language("Vietnamese")
-                    .markdown_stream() // Đẹp+Str
-                    .build(),
-            ])
-            .build(),
-
         // =====================================================================
         // EXTRACTION PRESETS
         // =====================================================================
@@ -327,7 +304,6 @@ mod tests {
         }
 
         for id in [
-            "preset_extract_retrans_retrans",
             "preset_extract_table",
             "preset_fact_check",
             "preset_omniscient_god",
@@ -347,10 +323,11 @@ mod tests {
             translate.hotkeys,
             vec![crate::config::Hotkey::new(192, "` / ~", 0)]
         );
-        assert!(
-            presets
-                .iter()
-                .all(|preset| preset.id != "preset_extract_retranslate")
-        );
+        for retired_id in [
+            "preset_extract_retranslate",
+            "preset_extract_retrans_retrans",
+        ] {
+            assert!(presets.iter().all(|preset| preset.id != retired_id));
+        }
     }
 }

@@ -12,15 +12,3 @@ pub(super) fn box_schema() -> serde_json::Value {
         }
     })
 }
-
-pub(super) fn points_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {
-                "x": {"type": "integer"}, "y": {"type": "integer"}, "what": {"type": "string"}
-            }
-        }
-    })
-}

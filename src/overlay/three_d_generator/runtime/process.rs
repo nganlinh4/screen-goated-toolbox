@@ -1,138 +1,132 @@
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
+use std::process::Command;
 
 use serde_json::Value;
 
-use super::super::depth_model;
-use super::{
-    Continuation, JobStatus, RuntimeOperation, STATE, job_status, prepare_runtime, runtime_command,
-    runtime_status_label,
-};
-use crate::overlay::creation_runtime;
+use super::{Continuation, JobStatus, RuntimeOperation, STATE};
 
-fn public_runtime_text(value: &str) -> String {
-    value
-        .replace("Meshy T2", "creation service")
-        .replace("Meshy", "creation service")
-        .replace("Tripo", "creation service")
-}
-
-fn command_for_operation(operation: &RuntimeOperation) -> Option<Command> {
-    let mut command = runtime_command()?;
-    match operation {
-        RuntimeOperation::Generate {
-            request,
-            output_dir,
-        } => {
-            command
-                .arg("--job")
-                .arg("--image")
-                .arg(&request.image_path)
-                .arg("--output-dir")
-                .arg(output_dir)
-                .arg("--polycount")
-                .arg(request.polycount.to_string())
-                .arg("--provider")
-                .arg(request.provider.as_str());
-            if request.auto_segment {
-                command.arg("--auto-segment");
-            }
-        }
-        RuntimeOperation::Segment { continuation } => {
-            command
-                .arg("--segment-job")
-                .arg("--continuation")
-                .arg(&continuation.token)
-                .arg("--image")
-                .arg(&continuation.image_path)
-                .arg("--output-dir")
-                .arg(&continuation.output_dir)
-                .arg("--previous-output")
-                .arg(&continuation.previous_output_path);
-        }
+fn normalize_progress_stage(value: &str) -> &'static str {
+    match value {
+        "queued" => "queued",
+        "preparing" => "preparing",
+        "generating" => "generating",
+        "segmenting" => "segmenting",
+        "finalizing" => "finalizing",
+        _ => "generating",
     }
-    command.arg("--headless");
-    Some(command)
 }
 
-fn update_progress(job_id: &str, value: &Value, runtime_status: &str) {
+fn progress_text(stage: &str) -> &'static str {
+    match stage {
+        "queued" => "Waiting to create.",
+        "preparing" => "Preparing creation.",
+        "segmenting" => "Separating model parts.",
+        "finalizing" => "Finishing model.",
+        _ => "Creating model.",
+    }
+}
+
+fn normalize_phase(value: &str) -> Option<&'static str> {
+    match value {
+        "preparing" => Some("preparing"),
+        "input" => Some("input"),
+        "generation" => Some("generation"),
+        "geometry" => Some("geometry"),
+        "separation" => Some("separation"),
+        _ => None,
+    }
+}
+
+pub(super) fn update_progress(job_id: &str, value: &Value, runtime_status: &str) {
     let Ok(mut state) = STATE.lock() else {
         return;
     };
     let Some(current) = state.jobs.get_mut(job_id) else {
         return;
     };
-    if current.stage == "cancelled" {
+    if super::status_is_non_publishable(&current.stage) {
         return;
     }
+    apply_progress(current, value, runtime_status);
+}
+
+fn apply_progress(current: &mut JobStatus, value: &Value, runtime_status: &str) {
     if let Some(stage) = value.get("stage").and_then(Value::as_str) {
-        current.stage = stage.to_string();
-    }
-    if let Some(progress_text) = value.get("progressText").and_then(Value::as_str) {
-        current.progress_text = public_runtime_text(progress_text);
+        current.stage = normalize_progress_stage(stage).to_string();
+        current.progress_text = progress_text(&current.stage).to_string();
     }
     if let Some(phase) = value.get("phase").and_then(Value::as_str) {
-        current.phase = Some(phase.to_string());
+        current.phase = normalize_phase(phase).map(str::to_string);
     }
-    if let Some(workspace_state) = value.get("workspaceState").and_then(Value::as_str) {
-        current.workspace_state = Some(workspace_state.to_string());
-    }
-    if let Some(elapsed_ms) = value.get("elapsedMs").and_then(Value::as_u64) {
+    if let Some(elapsed_ms) = crate::overlay::creation_progress::elapsed_ms(value) {
         current.elapsed_ms = Some(elapsed_ms);
     }
-    if let Some(estimated_total_ms) = value.get("estimatedTotalMs").and_then(Value::as_u64) {
+    if let Some(estimated_total_ms) = crate::overlay::creation_progress::estimated_total_ms(value) {
         current.estimated_total_ms = Some(estimated_total_ms);
     }
-    if let Some(progress_ratio) = value.get("progressRatio").and_then(Value::as_f64) {
+    if let Some(progress_ratio) = crate::overlay::creation_progress::ratio(value) {
         current.progress_ratio = Some(progress_ratio);
     }
-    if let Some(timing_sample_count) = value.get("timingSampleCount").and_then(Value::as_u64) {
+    if let Some(timing_sample_count) = crate::overlay::creation_progress::timing_sample_count(value)
+    {
         current.timing_sample_count = Some(timing_sample_count);
-    }
-    if let Some(preview_path) = value.get("previewPath").and_then(Value::as_str) {
-        current.preview_path = Some(preview_path.to_string());
-    }
-    if let Some(output_path) = value.get("outputPath").and_then(Value::as_str) {
-        current.output_path = Some(output_path.to_string());
-    }
-    if let Some(output_name) = value.get("outputName").and_then(Value::as_str) {
-        current.output_name = Some(output_name.to_string());
-    }
-    if let Some(is_segmented) = value.get("isSegmented").and_then(Value::as_bool) {
-        current.is_segmented = is_segmented;
-    }
-    if let Some(can_segment) = value.get("canSegment").and_then(Value::as_bool) {
-        current.can_segment = can_segment;
     }
     current.runtime_status = runtime_status.to_string();
 }
 
-fn update_preview(job_id: &str, preview_path: String) {
-    if let Ok(mut state) = STATE.lock()
-        && let Some(current) = state.jobs.get_mut(job_id)
-        && current.stage != "cancelled"
-    {
-        current.preview_path = Some(preview_path);
-    }
+pub(super) fn finish_job(job_id: &str, status: JobStatus, continuation: Option<Continuation>) {
+    finish_job_with_intent(job_id, status, continuation, true);
 }
 
-fn finish_job(
+pub(super) fn finish_job_retaining_intent(
     job_id: &str,
     status: JobStatus,
     continuation: Option<Continuation>,
-    provider: super::provider::ModelProvider,
 ) {
-    let completed = (status.stage == "done").then(|| status.clone());
+    finish_job_with_intent(job_id, status, continuation, false);
+}
+
+pub(super) fn finish_job_pending(
+    job_id: &str,
+    mut completed: JobStatus,
+    continuation: Option<Continuation>,
+) {
     if let Ok(mut state) = STATE.lock() {
         if state
             .jobs
             .get(job_id)
-            .is_none_or(|item| item.stage == "cancelled")
+            .is_none_or(|item| super::status_is_non_publishable(&item.stage))
         {
-            state.pids.remove(job_id);
+            return;
+        }
+        let mut pending = completed.clone();
+        pending.stage = "finalizing".to_string();
+        pending.progress_text = "Finishing model.".to_string();
+        pending.phase = Some("finalizing".to_string());
+        pending.progress_ratio = pending.progress_ratio.map(|ratio| ratio.min(0.99));
+        pending.output_path = None;
+        pending.output_name = None;
+        pending.can_segment = false;
+        completed.stage = "done".to_string();
+        state.jobs.insert(job_id.to_string(), pending);
+        state
+            .pending_completions
+            .insert(job_id.to_string(), (completed, continuation));
+        state.pids.remove(job_id);
+    }
+    super::schedule_next();
+}
+
+fn finish_job_with_intent(
+    job_id: &str,
+    status: JobStatus,
+    continuation: Option<Continuation>,
+    clear_terminal: bool,
+) {
+    let terminal = matches!(status.stage.as_str(), "done" | "failed" | "cancelled");
+    if let Ok(mut state) = STATE.lock() {
+        if state.jobs.get(job_id).is_none_or(|item| {
+            item.stage == "cancelled" || (item.stage == "cancelling" && status.stage != "done")
+        }) {
             return;
         }
         state.jobs.insert(job_id.to_string(), status);
@@ -140,385 +134,32 @@ fn finish_job(
             state.continuations.insert(job_id.to_string(), continuation);
         }
         state.pids.remove(job_id);
+        state.operations.remove(job_id);
+        state.request_fingerprints.remove(job_id);
+        state.deadlines.remove(job_id);
+        state.recovered_jobs.remove(job_id);
+        state.prune_terminal_jobs();
     }
-    if let Some(status) = completed
-        && let (Some(source_path), Some(output_path)) = (
-            status.source_image_path.as_deref(),
-            status.output_path.as_deref(),
-        )
-        && let Err(error) = crate::overlay::generation_history::record(
-            "3d",
-            source_path,
-            output_path,
-            serde_json::json!({
-                "isSegmented": status.is_segmented,
-                "generationMode": status.generation_mode,
-                "provider": provider.as_str(),
-            }),
-        )
-    {
-        crate::log_info!("[3D Generator] Could not record result history: {error}");
+    if terminal && clear_terminal {
+        crate::overlay::creation_intent_journal::clear("3d", job_id);
     }
+    super::schedule_next();
 }
 
-pub(super) fn run_runtime_operation(job_id: String, operation: RuntimeOperation) {
-    let provider = operation.provider();
-    let generation_mode = operation.generation_mode();
-    if runtime_command().is_none() {
-        update_progress(
-            &job_id,
-            &serde_json::json!({
-                "stage": "preparing",
-                "phase": "engine_setup",
-                "progressText": "Preparing the 3D engine"
-            }),
-            "installing",
-        );
-        let stop = std::sync::Arc::new(AtomicBool::new(false));
-        if let Err(error) = creation_runtime::download_runtime(stop, true) {
-            finish_job(
-                &job_id,
-                JobStatus {
-                    job_id: Some(job_id.clone()),
-                    stage: "failed".to_string(),
-                    progress_text: "The 3D engine could not be prepared.".to_string(),
-                    phase: Some("failed".to_string()),
-                    workspace_state: None,
-                    elapsed_ms: None,
-                    estimated_total_ms: None,
-                    progress_ratio: None,
-                    timing_sample_count: None,
-                    output_path: None,
-                    output_name: None,
-                    preview_path: None,
-                    source_image_path: Some(operation.source_image_path().to_string()),
-                    generation_mode: Some(generation_mode),
-                    is_segmented: false,
-                    can_segment: false,
-                    error: Some(error.to_string()),
-                    runtime_status: "missing".to_string(),
-                },
-                None,
-                provider,
-            );
-            return;
-        }
-    }
-    let runtime_status = runtime_status_label();
-    let source_image_path = operation.source_image_path().to_string();
-    if matches!(&operation, RuntimeOperation::Generate { .. }) {
-        update_progress(
-            &job_id,
-            &serde_json::json!({
-                "stage": "preparing",
-                "phase": "depth_preview",
-                "progressText": "Preparing image depth"
-            }),
-            &runtime_status,
-        );
-        let preview_job_id = job_id.clone();
-        let preview_source = source_image_path.clone();
-        std::thread::spawn(move || {
-            let stop = std::sync::Arc::new(AtomicBool::new(false));
-            let result = depth_model::download_depth_model(stop, true)
-                .and_then(|()| depth_model::create_depth_preview(&preview_source));
-            match result {
-                Ok(path) => update_preview(&preview_job_id, path.to_string_lossy().to_string()),
-                Err(error) => crate::log_info!(
-                    "[3D Generator] Optional depth preview failed for {}: {error}",
-                    preview_source
-                ),
-            }
-        });
-    }
-    let mut command = match command_for_operation(&operation) {
-        Some(command) => command,
-        None => {
-            finish_job(
-                &job_id,
-                JobStatus {
-                    job_id: Some(job_id.clone()),
-                    stage: "failed".to_string(),
-                    progress_text: "The 3D engine is not installed.".to_string(),
-                    phase: None,
-                    workspace_state: None,
-                    elapsed_ms: None,
-                    estimated_total_ms: None,
-                    progress_ratio: None,
-                    timing_sample_count: None,
-                    output_path: None,
-                    output_name: None,
-                    preview_path: None,
-                    source_image_path: Some(source_image_path),
-                    generation_mode: Some(generation_mode),
-                    is_segmented: false,
-                    can_segment: false,
-                    error: Some("runtime_missing".to_string()),
-                    runtime_status,
-                },
-                None,
-                provider,
-            );
-            return;
-        }
-    };
-    command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .creation_flags_windows();
-
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(err) => {
-            finish_job(
-                &job_id,
-                JobStatus {
-                    job_id: Some(job_id.clone()),
-                    stage: "failed".to_string(),
-                    progress_text: "The 3D engine could not start.".to_string(),
-                    phase: None,
-                    workspace_state: None,
-                    elapsed_ms: None,
-                    estimated_total_ms: None,
-                    progress_ratio: None,
-                    timing_sample_count: None,
-                    output_path: None,
-                    output_name: None,
-                    preview_path: None,
-                    source_image_path: Some(source_image_path),
-                    generation_mode: Some(generation_mode),
-                    is_segmented: false,
-                    can_segment: false,
-                    error: Some(err.to_string()),
-                    runtime_status,
-                },
-                None,
-                provider,
-            );
-            return;
-        }
-    };
-    let keep_running = if let Ok(mut state) = STATE.lock() {
-        if state
-            .jobs
-            .get(&job_id)
-            .is_some_and(|status| status.stage != "cancelled")
-        {
-            state.pids.insert(job_id.clone(), child.id());
-            true
-        } else {
-            false
-        }
-    } else {
-        false
-    };
-    if !keep_running {
-        let _ = child.kill();
-        let _ = child.wait();
-        return;
-    }
-
-    let stderr = child.stderr.take();
-    let stderr_tail = std::sync::Arc::new(Mutex::new(String::new()));
-    if let Some(stderr) = stderr {
-        let stderr_tail = stderr_tail.clone();
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().map_while(Result::ok) {
-                if let Ok(mut tail) = stderr_tail.lock() {
-                    tail.push_str(&line);
-                    tail.push('\n');
-                    if tail.len() > 8000 {
-                        let keep_from = tail.len().saturating_sub(6000);
-                        *tail = tail[keep_from..].to_string();
-                    }
-                }
-            }
-        });
-    }
-
-    if let Some(stdout) = child.stdout.take() {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines().map_while(Result::ok) {
-            let Ok(value) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            if value.get("event").and_then(Value::as_str) == Some("progress") {
-                update_progress(&job_id, &value, &runtime_status);
-                continue;
-            }
-
-            if value.get("ok").and_then(Value::as_bool) == Some(true) {
-                let result = value.get("result").cloned().unwrap_or(Value::Null);
-                let output_path = result
-                    .get("outputPath")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-                let output_name = result
-                    .get("outputName")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .or_else(|| {
-                        output_path.as_deref().and_then(|path| {
-                            Path::new(path)
-                                .file_name()
-                                .map(|name| name.to_string_lossy().to_string())
-                        })
-                    });
-                let preview_path = result
-                    .get("previewPath")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .or_else(|| job_status(Some(&job_id)).preview_path);
-                let is_segmented = result
-                    .get("isSegmented")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                if is_segmented
-                    && let Some(group) = result.get("continuationGroup").and_then(Value::as_str)
-                    && let Ok(mut state) = STATE.lock()
-                {
-                    state.invalidate_continuation_group(group);
-                }
-                let can_segment = result
-                    .get("canSegment")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                let continuation =
-                    if super::provider::can_offer_continuation(provider, is_segmented, can_segment)
-                    {
-                        let token = result.get("continuationToken").and_then(Value::as_str);
-                        let group = result.get("continuationGroup").and_then(Value::as_str);
-                        let output_dir = result.get("outputDir").and_then(Value::as_str);
-                        match (token, group, output_dir, output_path.as_deref()) {
-                            (Some(token), Some(group), Some(output_dir), Some(output_path)) => {
-                                Some(Continuation {
-                                    token: token.to_string(),
-                                    group: group.to_string(),
-                                    image_path: source_image_path.clone(),
-                                    output_dir: PathBuf::from(output_dir),
-                                    previous_output_path: PathBuf::from(output_path),
-                                    preview_path: preview_path.clone(),
-                                    provider,
-                                })
-                            }
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    };
-                finish_job(
-                    &job_id,
-                    JobStatus {
-                        job_id: Some(job_id.clone()),
-                        stage: "done".to_string(),
-                        progress_text: if is_segmented {
-                            "Parts ready".to_string()
-                        } else {
-                            "Model ready".to_string()
-                        },
-                        phase: Some("complete".to_string()),
-                        workspace_state: None,
-                        elapsed_ms: None,
-                        estimated_total_ms: None,
-                        progress_ratio: Some(1.0),
-                        timing_sample_count: None,
-                        output_path,
-                        output_name,
-                        preview_path,
-                        source_image_path: Some(source_image_path.clone()),
-                        generation_mode: Some(generation_mode),
-                        is_segmented,
-                        can_segment: can_segment && continuation.is_some(),
-                        error: None,
-                        runtime_status: runtime_status.clone(),
-                    },
-                    continuation,
-                    provider,
-                );
-                let _ = child.wait();
-                let _ = prepare_runtime();
-                return;
-            }
-
-            if value.get("ok").and_then(Value::as_bool) == Some(false) {
-                let error = public_runtime_text(
-                    value
-                        .get("error")
-                        .and_then(Value::as_str)
-                        .unwrap_or("Creation failed"),
-                );
-                let current = job_status(Some(&job_id));
-                finish_job(
-                    &job_id,
-                    JobStatus {
-                        job_id: Some(job_id.clone()),
-                        stage: "failed".to_string(),
-                        progress_text: "Creation was interrupted.".to_string(),
-                        phase: Some("failed".to_string()),
-                        workspace_state: None,
-                        elapsed_ms: None,
-                        estimated_total_ms: None,
-                        progress_ratio: None,
-                        timing_sample_count: None,
-                        output_path: current.output_path,
-                        output_name: current.output_name,
-                        preview_path: current.preview_path,
-                        source_image_path: Some(source_image_path.clone()),
-                        generation_mode: Some(generation_mode),
-                        is_segmented: false,
-                        can_segment: false,
-                        error: Some(error),
-                        runtime_status: runtime_status.clone(),
-                    },
-                    None,
-                    provider,
-                );
-                let _ = child.wait();
-                let _ = prepare_runtime();
-                return;
-            }
-        }
-    }
-
-    let process_status = child.wait().ok();
-    let stderr = stderr_tail
-        .lock()
-        .map(|tail| tail.trim().to_string())
-        .unwrap_or_default();
-    let message = public_runtime_text(&if stderr.is_empty() {
-        format!("3D engine exited unexpectedly: {process_status:?}")
-    } else {
-        format!("3D engine exited unexpectedly: {process_status:?}. {stderr}")
-    });
-    let current = job_status(Some(&job_id));
-    finish_job(
-        &job_id,
-        JobStatus {
-            job_id: Some(job_id.clone()),
-            stage: "failed".to_string(),
-            progress_text: "Creation was interrupted.".to_string(),
-            phase: Some("failed".to_string()),
-            workspace_state: None,
-            elapsed_ms: None,
-            estimated_total_ms: None,
-            progress_ratio: None,
-            timing_sample_count: None,
-            output_path: current.output_path,
-            output_name: current.output_name,
-            preview_path: current.preview_path,
-            source_image_path: Some(source_image_path),
-            generation_mode: Some(generation_mode),
-            is_segmented: false,
-            can_segment: false,
-            error: Some(message),
-            runtime_status,
-        },
-        None,
-        provider,
+pub(super) fn run_runtime_operation(
+    job_id: String,
+    operation: RuntimeOperation,
+    request_fingerprint: String,
+    deadline_at_ms: u64,
+    recovered: bool,
+) {
+    super::recovery::run_stdio_operation(
+        job_id,
+        operation,
+        request_fingerprint,
+        deadline_at_ms,
+        recovered,
     );
-    let _ = prepare_runtime();
 }
 
 pub(super) trait CommandNoWindowExt {
@@ -538,11 +179,68 @@ impl CommandNoWindowExt for Command {
 
 #[cfg(test)]
 mod tests {
-    use super::public_runtime_text;
+    use serde_json::json;
+
+    use super::{apply_progress, normalize_progress_stage, progress_text};
+    use crate::overlay::three_d_generator::runtime::JobStatus;
 
     #[test]
-    fn provider_branding_is_removed_from_public_runtime_text() {
-        let text = public_runtime_text("Meshy T2 queued; Tripo fallback");
-        assert_eq!(text, "creation service queued; creation service fallback");
+    fn inbound_runtime_state_is_reduced_to_the_public_contract() {
+        assert_eq!(normalize_progress_stage("generating"), "generating");
+        assert_eq!(normalize_progress_stage("unexpected-detail"), "generating");
+        assert_eq!(normalize_progress_stage("done"), "generating");
+        assert_eq!(progress_text("generating"), "Creating model.");
+    }
+
+    #[test]
+    fn progress_cannot_publish_unvalidated_result_fields() {
+        let mut status = JobStatus {
+            job_id: Some("job".to_string()),
+            stage: "generating".to_string(),
+            progress_text: "Creating model.".to_string(),
+            phase: None,
+            elapsed_ms: None,
+            estimated_total_ms: None,
+            progress_ratio: None,
+            timing_sample_count: None,
+            output_path: None,
+            output_name: None,
+            source_image_path: Some("source.png".to_string()),
+            output_dir: Some("output".to_string()),
+            generation_mode: None,
+            polycount: None,
+            auto_segment: None,
+            instruction: None,
+            is_segmented: false,
+            can_segment: false,
+            error: None,
+            runtime_status: "installed".to_string(),
+        };
+        apply_progress(
+            &mut status,
+            &json!({
+                "stage": "done",
+                "phase": "complete",
+                "elapsedMs": u64::MAX,
+                "estimatedTotalMs": u64::MAX,
+                "progressRatio": 9.0,
+                "timingSampleCount": u64::MAX,
+                "outputPath": "unvalidated.glb",
+                "outputName": "unvalidated.glb",
+                "isSegmented": true,
+                "canSegment": true,
+            }),
+            "installed",
+        );
+        assert_eq!(status.stage, "generating");
+        assert_eq!(status.phase, None);
+        assert_eq!(status.elapsed_ms, Some(7_200_000));
+        assert_eq!(status.estimated_total_ms, Some(7_200_000));
+        assert_eq!(status.progress_ratio, Some(1.0));
+        assert_eq!(status.timing_sample_count, Some(100_000));
+        assert_eq!(status.output_path, None);
+        assert_eq!(status.output_name, None);
+        assert!(!status.is_segmented);
+        assert!(!status.can_segment);
     }
 }

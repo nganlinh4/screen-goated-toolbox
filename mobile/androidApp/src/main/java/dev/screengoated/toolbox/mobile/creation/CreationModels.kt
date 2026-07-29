@@ -20,15 +20,14 @@ internal enum class CreationTool(
 @Serializable
 internal data class CreationJobStatus(
     val jobId: String? = null,
+    val dispatchId: String? = null,
     val operation: String? = null,
     val generationMode: String? = null,
-    val provider: String? = null,
     val polycount: Int? = null,
     val autoSegment: Boolean? = null,
     val stage: String,
     val progressText: String,
     val phase: String? = null,
-    val workspaceState: String? = null,
     val elapsedMs: Long? = null,
     val estimatedTotalMs: Long? = null,
     val progressRatio: Double? = null,
@@ -39,6 +38,7 @@ internal data class CreationJobStatus(
     val sourceImagePath: String? = null,
     val sourceImagePaths: List<String> = emptyList(),
     val prompt: String? = null,
+    val instruction: String? = null,
     val mimeType: String? = null,
     val width: Int? = null,
     val height: Int? = null,
@@ -47,6 +47,7 @@ internal data class CreationJobStatus(
     val error: String? = null,
     val runtimeStatus: String = "installed",
     val model: String? = null,
+    val backgroundMode: String? = null,
     val faces: Long? = null,
     val vertices: Long? = null,
 )
@@ -54,29 +55,46 @@ internal data class CreationJobStatus(
 @Serializable
 internal data class CreationHistoryEntry(
     val id: String,
+    val dispatchId: String? = null,
     val tool: String,
     val sourcePath: String,
     val outputPath: String,
     val outputName: String,
     val createdAtMs: Long,
     val metadata: JsonObject = JsonObject(emptyMap()),
+    val committedSize: Long? = null,
+    val committedSha256: String? = null,
+    val committedIdentity: String? = null,
+)
+
+@Serializable
+internal data class CreationSourceDescriptor(
+    val path: String,
+    val sizeBytes: Long,
+    val sha256: String,
 )
 
 @Serializable
 internal data class CreationWorkerRequest(
     val jobId: String,
+    val acceptedAtMs: Long = 0L,
+    val deadlineAtMs: Long = 0L,
+    val dispatchId: String = "",
+    val requestFingerprint: String = "",
+    val sourceDescriptors: List<CreationSourceDescriptor> = emptyList(),
     val tool: String,
     val generationMode: String? = null,
-    val provider: String? = null,
     val operation: String,
     val imagePath: String,
     val imagePaths: List<String> = emptyList(),
     val prompt: String? = null,
+    val instruction: String? = null,
     val outputPath: String,
     val outputName: String,
     val polycount: Int = CreationContract.DEFAULT_POLYCOUNT,
     val autoSegment: Boolean = false,
     val model: String = "simple",
+    val backgroundMode: String = "opaque",
     val continuationToken: String? = null,
     val previousOutputPath: String? = null,
 )
@@ -85,13 +103,9 @@ internal data class CreationWorkerRequest(
 internal data class CreationWorkerEvent(
     val jobId: String? = null,
     val generationMode: String? = null,
-    val provider: String? = null,
     val event: String,
     val stage: String? = null,
-    val progressText: String? = null,
-    val progressKey: String? = null,
-    val phase: String? = null,
-    val workspaceState: String? = null,
+    val failureCode: String? = null,
     val progressRatio: Double? = null,
     val estimatedTotalMs: Long? = null,
     val timingSampleCount: Long? = null,
@@ -103,11 +117,7 @@ internal data class CreationWorkerEvent(
     val height: Int? = null,
     val isSegmented: Boolean? = null,
     val canSegment: Boolean? = null,
-    val availableModels: List<String>? = null,
     val faces: Long? = null,
     val vertices: Long? = null,
-    val error: String? = null,
     val ready: Boolean? = null,
-    val ownedJobReady: Boolean? = null,
-    val retryAfterMs: Long? = null,
 )

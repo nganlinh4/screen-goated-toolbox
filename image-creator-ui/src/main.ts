@@ -1,7 +1,9 @@
 import "./styles.css";
 import "../../ui-shared/creation-shell-layout.css";
+import { DemandPoller } from "../../ui-shared/demand-poller";
 import { copyFor, type Copy } from "./i18n";
 import { ICONS as I } from "./icons";
+import { confirmDeleteAll, deleteSavedResults, renameSavedResult } from "./history-actions";
 import {
   ImageProgressPresenter,
   imageStatusLabel,
@@ -12,8 +14,7 @@ import {
   historyReferences,
   jobReferences,
   MAX_REFERENCES,
-  pathName,
-  uniquePaths,
+  orderedPaths,
   type DialogState,
   type DraftSession,
   type HistoryEntry,
@@ -24,7 +25,19 @@ import { guardPollRendering } from "./pollRenderGuard";
 import { ImagePreviewHydrator } from "./previewHydration";
 import { PreviewStore } from "./previewStore";
 import { stageMarkup } from "./stageMarkup";
-
+import {
+  canSubmitImageSelection,
+  ExplicitSubmissionTracker,
+  selectionAfterSubmission,
+  startImageArguments,
+  SurfaceSourceRegistry,
+} from "./submission";
+import {
+  referenceTitle,
+  renderImageDialog,
+  renderImageQueue,
+  renderImageReferences,
+} from "./viewMarkup";
 declare global {
   interface Window {
     invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -38,6 +51,7 @@ declare global {
 const context = window.__SGT_CONTEXT__ ?? {};
 const app = document.querySelector<HTMLDivElement>("#app")!;
 if (!app) throw new Error("App root is missing");
+document.documentElement.dataset.creationShellOnly = "false";
 
 let copy: Copy = copyFor(context.language);
 let drafts: DraftSession[] = [];
@@ -47,12 +61,14 @@ let selectedKey = "";
 let outputDir = "";
 let compare = 50;
 let message = "";
-let preparationStatus = "preparing";
+let preparationStatus = "ready";
 let dialog: DialogState | null = null;
 let renderedLayoutSignature = "";
+let syncedPollSignature = "";
 let sessionSequence = 0;
 let fitObserver: ResizeObserver | undefined;
-let submitting = false;
+const submissions = new ExplicitSubmissionTracker();
+const surfaceSources = new SurfaceSourceRegistry();
 
 async function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   if (!window.invoke) throw new Error("Native host is unavailable");
@@ -63,6 +79,22 @@ const previews = new PreviewStore(invoke);
 const previewHydrator = new ImagePreviewHydrator(previews, fitNaturalFrame);
 const progressPresenter = new ImageProgressPresenter();
 const renderAfterPoll = guardPollRendering(app, render);
+const jobMonitor = new DemandPoller({
+  hasWork: () => jobs.some((job) => busy(job.stage)),
+  poll: async () => {
+    if (await refreshJobs()) await refreshHistory();
+  },
+  present: () => {
+    const job = jobs.find((item) => item.jobId === selectedKey);
+    if (job && busy(job.stage)) progressPresenter.sync(app, job, copy);
+  },
+  pollEveryMs: 900,
+  presentEveryMs: 250,
+});
+app.addEventListener("pointerdown", () => previewHydrator.setInteractionActive(true), true);
+window.addEventListener("pointerup", () => previewHydrator.setInteractionActive(false), true);
+window.addEventListener("pointercancel", () => previewHydrator.setInteractionActive(false), true);
+window.addEventListener("pagehide", () => jobMonitor.dispose(), { once: true });
 
 function terminal(stage: string): boolean {
   return stage === "done" || stage === "failed" || stage === "cancelled";
@@ -76,22 +108,20 @@ function currentDraft(): DraftSession | undefined {
   return drafts.find((item) => item.key === selectedKey);
 }
 
-function referenceTitle(paths: string[]): string {
-  if (paths.length === 0) return copy.newImage;
-  if (paths.length === 1) return pathName(paths[0]);
-  return copy.referenceCount(paths.length);
-}
-
 function selected(): Selection | null {
   const job = jobs.find((item) => item.jobId === selectedKey);
   if (job) {
-    const references = jobReferences(job);
+    const importedReferences = surfaceSources.references(job.jobId);
+    const references = importedReferences ?? jobReferences(job);
     return {
       key: job.jobId,
       kind: "job",
       referencePaths: references,
+      sourceProvenance: importedReferences
+        ? references.length ? "surface-import" : "none"
+        : references.length ? "presentation" : "none",
       output: job.outputPath,
-      title: job.outputName || referenceTitle(references),
+      title: job.outputName || referenceTitle(references, copy),
       prompt: job.prompt,
       width: job.width,
       height: job.height,
@@ -103,6 +133,7 @@ function selected(): Selection | null {
       key: entry.id,
       kind: "history",
       referencePaths: historyReferences(entry),
+      sourceProvenance: historyReferences(entry).length ? "presentation" : "none",
       output: entry.outputPath,
       title: entry.outputName,
       prompt: entry.metadata?.prompt || "",
@@ -115,7 +146,8 @@ function selected(): Selection | null {
     key: draft.key,
     kind: "draft",
     referencePaths: draft.referencePaths,
-    title: referenceTitle(draft.referencePaths),
+    sourceProvenance: draft.referencePaths.length ? "surface-import" : "none",
+    title: referenceTitle(draft.referencePaths, copy),
     prompt: draft.prompt,
   } : null;
 }
@@ -125,6 +157,7 @@ function newSession(renderNow = true) {
     key: `draft-${Date.now()}-${++sessionSequence}`,
     referencePaths: [],
     prompt: "",
+    createdAtMs: Date.now(),
   };
   drafts = [...drafts, draft];
   selectedKey = draft.key;
@@ -133,13 +166,18 @@ function newSession(renderNow = true) {
 }
 
 function attachReferences(paths: string[]) {
+  if (paths.length > MAX_REFERENCES) {
+    message = copy.referenceLimit(MAX_REFERENCES);
+    render();
+    return;
+  }
   let draft = currentDraft();
   if (!draft) {
     newSession(false);
     draft = currentDraft();
   }
   if (!draft) return;
-  const combined = uniquePaths([...draft.referencePaths, ...paths]);
+  const combined = orderedPaths([...draft.referencePaths, ...paths]);
   if (combined.length > MAX_REFERENCES) message = copy.referenceLimit(MAX_REFERENCES);
   else message = "";
   draft.referencePaths = combined.slice(0, MAX_REFERENCES);
@@ -157,65 +195,95 @@ async function chooseOutput() {
 }
 
 async function submit() {
-  if (submitting) return;
   const selection = selected();
   if (!selection) return;
-  const selectedJob = jobs.find((item) => item.jobId === selectedKey);
-  if (selectedJob && busy(selectedJob.stage)) return;
   const frozenPrompt = selection.prompt.trim();
   if (!frozenPrompt) {
     message = copy.promptRequired;
     render();
     return;
   }
+  if (!canSubmitImageSelection(selection.referencePaths, selection.sourceProvenance)) {
+    message = copy.reselectReferences;
+    render();
+    return;
+  }
 
-  const draft = currentDraft();
-  submitting = true;
+  const ticket = submissions.begin(selection.key);
+  const draftKey = selection.kind === "draft" ? selection.key : undefined;
   render();
   try {
-    const status = await invoke<JobStatus>("start_job", {
-      imagePaths: [...selection.referencePaths],
-      outputDir,
-      prompt: frozenPrompt,
-    });
+    const status = await invoke<JobStatus>(
+      "start_job",
+      startImageArguments(
+        selection.referencePaths,
+        outputDir,
+        frozenPrompt,
+        selection.sourceProvenance,
+      ),
+    );
+    status.createdAtMs = Date.now();
+    surfaceSources.remember(status.jobId, selection.referencePaths);
     jobs = [...jobs.filter((item) => item.jobId !== status.jobId), status];
-    if (draft) drafts = drafts.filter((item) => item.key !== draft.key);
-    selectedKey = status.jobId;
-    message = "";
+    const latest = submissions.isLatest(ticket);
+    const ownsPresentation = latest && selectedKey === ticket.sourceKey;
+    if (draftKey && latest) drafts = drafts.filter((item) => item.key !== draftKey);
+    selectedKey = selectionAfterSubmission(selectedKey, ticket, status.jobId, latest);
+    if (ownsPresentation) message = "";
+    if (terminal(status.stage)) await refreshHistory();
+    else jobMonitor.start();
   } catch {
-    message = copy.failed;
+    if (submissions.isLatest(ticket) && selectedKey === ticket.sourceKey) {
+      message = copy.failed;
+    }
   } finally {
-    submitting = false;
+    submissions.finish(ticket);
   }
   render();
 }
 
-async function refresh() {
+function reconcileSelection() {
+  const exists = jobs.some((item) => item.jobId === selectedKey)
+    || drafts.some((item) => item.key === selectedKey)
+    || history.some((item) => item.id === selectedKey);
+  if (!exists) selectedKey = jobs[jobs.length - 1]?.jobId ?? drafts[0]?.key ?? history[0]?.id ?? "";
+  reconcileAfterPoll();
+}
+
+async function refreshJobs(): Promise<boolean> {
   try {
-    const [nextJobs, nextHistory] = await Promise.all([
-      invoke<JobStatus[]>("job_statuses"),
-      invoke<HistoryEntry[]>("history_results"),
-    ]);
-    jobs = nextJobs;
-    history = nextHistory;
+    const previous = new Map(jobs.map((job) => [job.jobId, job.stage]));
+    const creationTimes = new Map(jobs.map((job) => [job.jobId, job.createdAtMs]));
+    const refreshed = await invoke<JobStatus[]>("job_statuses");
+    refreshed.forEach((job) => {
+      job.createdAtMs = terminal(job.stage) && !terminal(previous.get(job.jobId) || "")
+        ? Date.now()
+        : creationTimes.get(job.jobId) ?? Date.now() - Math.max(0, job.elapsedMs || 0);
+    });
+    const reachedTerminal = refreshed.some((job) =>
+      terminal(job.stage) && previous.get(job.jobId) !== job.stage);
+    jobs = refreshed;
     progressPresenter.retain(jobs);
-    const exists = jobs.some((item) => item.jobId === selectedKey)
-      || drafts.some((item) => item.key === selectedKey)
-      || history.some((item) => item.id === selectedKey);
-    if (!exists) selectedKey = jobs[jobs.length - 1]?.jobId ?? drafts[0]?.key ?? history[0]?.id ?? "";
-    reconcileAfterPoll();
+    reconcileSelection();
+    return reachedTerminal;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshHistory() {
+  try {
+    history = await invoke<HistoryEntry[]>("history_results");
+    reconcileSelection();
   } catch {
     // A hidden or closing host can reject a poll; the next poll reconciles it.
   }
 }
 
-async function updateReady() {
-  preparationStatus = await invoke<string>("runtime_preparation_status").catch(() => "preparing");
-  reconcileAfterPoll();
-}
-
 async function cancel(jobId: string) {
   jobs = await invoke<JobStatus[]>("cancel_job", { jobId });
+  if (jobs.some((job) => busy(job.stage))) jobMonitor.start();
+  else await refreshHistory();
   render();
 }
 
@@ -223,39 +291,39 @@ async function commitDialog() {
   if (!dialog) return;
   const current = dialog;
   dialog = null;
-  try {
-    if (current.kind === "rename") {
-      const value = current.value.trim();
-      if (value && value !== current.entry.outputName) {
-        await invoke("rename_history_result", { id: current.entry.id, newName: value });
-      }
-    } else {
-      await invoke("delete_history_result", { id: current.entry.id });
-      if (selectedKey === current.entry.id) selectedKey = "";
-    }
-    await refresh();
-  } catch {
-    message = current.kind === "rename" ? copy.rename : copy.delete;
+  if (!await renameSavedResult(invoke, current.entry, current.value)) {
+    message = copy.rename;
     render();
+    return;
   }
+  await Promise.all([refreshJobs(), refreshHistory()]);
 }
 
-function thumb(path: string | undefined): string {
-  return path ? ` data-thumb="${escapeHtml(path)}"` : "";
+async function deleteHistory(entry?: HistoryEntry) {
+  if (!entry && !await confirmDeleteAll(copy)) return;
+  if (!await deleteSavedResults(invoke, entry?.id)) {
+    message = copy.delete;
+    render();
+    return;
+  }
+  if (entry?.id === selectedKey || (!entry && history.some((item) => item.id === selectedKey))) {
+    selectedKey = "";
+  }
+  await Promise.all([refreshJobs(), refreshHistory()]);
+  render();
 }
-
 function layoutSignature(): string {
   return JSON.stringify({
     selectedKey,
     outputDir,
     message,
-    submitting,
-    preparationReady: preparationStatus === "ready" || preparationStatus === "partial",
+    submitting: submissions.activeIds(),
+    preparationReady: preparationStatus === "ready",
     dialog,
     drafts: drafts.map((draft) => [draft.key, draft.prompt, draft.referencePaths]),
     jobs: jobs.map((job) => [
       job.jobId,
-      job.stage,
+      terminal(job.stage),
       job.outputPath || "",
       job.outputName || "",
       job.prompt,
@@ -274,113 +342,74 @@ function layoutSignature(): string {
 }
 
 function syncPolledUi() {
-  const ready = preparationStatus === "ready" || preparationStatus === "partial";
+  const ready = preparationStatus === "ready";
   const readiness = document.querySelector<HTMLElement>(".readiness");
   readiness?.classList.toggle("busy", !ready);
   const readinessText = readiness?.querySelector<HTMLElement>("span");
   if (readinessText) readinessText.textContent = ready ? copy.ready : copy.preparing;
 
   const selectedJob = jobs.find((item) => item.jobId === selectedKey);
+  for (const job of jobs) {
+    const row = document.querySelector<HTMLElement>(`[data-job-row="${CSS.escape(job.jobId)}"]`);
+    const label = row?.querySelector<HTMLElement>("[data-job-status]");
+    const state = row?.querySelector<HTMLElement>("[data-job-state]");
+    if (label) label.textContent = imageStatusLabel(job, copy);
+    if (state) {
+      state.classList.remove(
+        "queued",
+        "preparing",
+        "uploading",
+        "generating",
+        "finalizing",
+        "done",
+        "failed",
+        "cancelled",
+      );
+      state.classList.add(publicImageStage(job.stage));
+    }
+  }
+  const selectedStatus = document.querySelector<HTMLElement>("[data-selected-job-status]");
+  if (selectedStatus && selectedJob) {
+    selectedStatus.textContent = imageStatusLabel(selectedJob, copy);
+  }
   progressPresenter.sync(app, selectedJob, copy);
+}
+
+function pollUiSignature() {
+  return JSON.stringify({
+    selectedKey,
+    ready: preparationStatus === "ready",
+    jobs: jobs.map((job) => [job.jobId, publicImageStage(job.stage)]),
+  });
 }
 
 function reconcileAfterPoll() {
   if (layoutSignature() !== renderedLayoutSignature) renderAfterPoll();
-  syncPolledUi();
+  const signature = pollUiSignature();
+  if (signature !== syncedPollSignature) {
+    syncPolledUi();
+    syncedPollSignature = signature;
+  }
 }
 
-function renderQueue(): string {
-  const knownOutputs = new Set(
-    jobs.map((job) => job.outputPath?.toLocaleLowerCase()).filter((path): path is string => Boolean(path)),
-  );
-  const jobRows = jobs.slice().reverse().map((job) => {
-    const references = jobReferences(job);
-    const preview = job.outputPath || references[0];
-    return `<div class="queue-item ${selectedKey === job.jobId ? "selected" : ""}">
-      <button class="queue-item-main" type="button" data-select="${escapeHtml(job.jobId)}">
-        <span class="queue-thumb"${thumb(preview)}>${I.image}</span>
-        <span class="queue-copy"><strong>${escapeHtml(job.outputName || referenceTitle(references))}</strong>
-          <small>${escapeHtml(imageStatusLabel(job, copy))}</small></span>
-        <i class="queue-state state ${publicImageStage(job.stage)}"></i>
-      </button>
-    </div>`;
-  }).join("");
-  const draftRows = drafts.map((draft) => `
-    <div class="queue-item ${selectedKey === draft.key ? "selected" : ""}">
-      <button class="queue-item-main" type="button" data-select="${escapeHtml(draft.key)}">
-        <span class="queue-thumb"${thumb(draft.referencePaths[0])}>${draft.referencePaths.length ? I.image : I.sparkle}</span>
-        <span class="queue-copy"><strong>${escapeHtml(referenceTitle(draft.referencePaths))}</strong>
-          <small>${draft.referencePaths.length ? copy.referenceReady : copy.noReferences}</small></span>
-        <i class="queue-state state done"></i>
-      </button>
-      <span class="queue-actions"><button type="button" class="danger"
-        data-remove-session="${escapeHtml(draft.key)}" title="${copy.delete}">${I.trash}</button></span>
-    </div>`).join("");
-  const historyRows = history
-    .filter((entry) => !knownOutputs.has(entry.outputPath.toLocaleLowerCase()))
-    .map((entry) => `
-      <div class="queue-item ${selectedKey === entry.id ? "selected" : ""}">
-        <button class="queue-item-main" type="button" data-select="${escapeHtml(entry.id)}">
-          <span class="queue-thumb"${thumb(entry.outputPath)}>${I.image}</span>
-          <span class="queue-copy"><strong>${escapeHtml(entry.outputName)}</strong>
-            <small>${copy.savedResult}</small></span><i class="queue-state state done"></i>
-        </button>
-        <span class="queue-actions">
-          <button type="button" data-rename="${escapeHtml(entry.id)}" title="${copy.rename}">${I.rename}</button>
-          <button type="button" class="danger" data-delete="${escapeHtml(entry.id)}"
-            title="${copy.delete}">${I.trash}</button>
-        </span>
-      </div>`).join("");
-  return jobRows + draftRows + historyRows;
-}
-
-function renderReferences(selection: Selection | null, editable: boolean): string {
-  const references = selection?.referencePaths ?? [];
-  const list = references.length ? `<div class="reference-list">
-    ${references.map((path, index) => `<div class="reference-chip">
-      <span data-thumb="${escapeHtml(path)}">${I.image}</span>
-      <small title="${escapeHtml(path)}">${escapeHtml(pathName(path))}</small>
-      ${editable ? `<button type="button" data-remove-reference="${index}"
-        title="${copy.removeReference}">${I.close}</button>` : ""}
-    </div>`).join("")}
-  </div>` : `<p class="reference-empty">${copy.noReferences}</p>`;
-  const add = editable ? `<button class="source-button reference-add" type="button" data-pick>
-    <span class="source-thumb">${I.add}</span><span><strong>${copy.addReferences}</strong>
-      <small>${copy.referenceCount(references.length)} · ${references.length}/${MAX_REFERENCES}</small></span>
-  </button>` : "";
-  return list + add;
-}
-
-function renderDialog(): string {
-  if (!dialog) return "";
-  const rename = dialog.kind === "rename";
-  return `<div class="app-dialog" role="dialog" aria-modal="true"><div class="dialog-surface">
-    <strong>${rename ? copy.renameTitle : copy.deleteConfirm}</strong>
-    ${rename ? `<input class="dialog-input" value="${escapeHtml(dialog.value)}"
-      maxlength="180" aria-label="${copy.renameTitle}">` : ""}
-    <div class="dialog-actions"><button class="secondary" type="button"
-      data-dialog-dismiss>${copy.dismiss}</button><button class="${rename ? "primary" : "danger-action"}"
-      type="button" data-dialog-accept>${rename ? copy.save : copy.delete}</button></div>
-  </div></div>`;
-}
-
-function render() {
+function render(preserveQueue = false) {
+  const retainedQueue = preserveQueue
+    ? app.querySelector<HTMLElement>(".queue-rail")
+    : null;
   fitObserver?.disconnect();
   const selection = selected();
   const draft = currentDraft();
   const selectedJob = jobs.find((item) => item.jobId === selectedKey);
   const progressState = progressPresenter.snapshot(selectedJob, copy);
-  const selectedBusy = submitting || Boolean(selectedJob && busy(selectedJob.stage));
-  const ready = preparationStatus === "ready" || preparationStatus === "partial";
-  const canCreate = Boolean(selection?.prompt.trim()) && !selectedBusy;
+  const ready = preparationStatus === "ready";
+  const canUseSource = Boolean(
+    selection
+      && canSubmitImageSelection(selection.referencePaths, selection.sourceProvenance),
+  );
+  const canCreate = Boolean(selection?.prompt.trim()) && canUseSource;
   const dimensions = selection?.width && selection?.height
     ? `${selection.width} × ${selection.height} px`
     : selection?.title ?? "";
-  const stagePaths = [...(selection?.referencePaths ?? []), selection?.output].filter(
-    (path): path is string => Boolean(path),
-  );
-  previews.retainStagePaths(stagePaths);
-
   app.innerHTML = `<section class="shell">
     <div class="drop-overlay">${I.image}<strong>${copy.dropImages}</strong></div>
     <header class="titlebar" data-drag><div class="identity"><span class="app-icon">${I.image}</span>
@@ -391,13 +420,15 @@ function render() {
         data-close title="${copy.close}">${I.close}</button></div></header>
     <main class="workspace">
       <aside class="queue-rail"><div class="rail-heading"><span>${copy.queue}</span>
-        <button class="icon-button add" type="button" data-new-session
-          title="${copy.newSession}">${I.add}</button></div>
-        <div class="queue-list">${renderQueue() || `<p class="queue-empty">${copy.emptyQueue}</p>`}</div></aside>
+        <span class="rail-actions"><button class="icon-button" type="button" data-delete-all
+          title="${copy.deleteAll}">${I.trash}</button><button class="icon-button add" type="button"
+          data-new-session title="${copy.newSession}">${I.add}</button></span></div>
+        <div class="queue-list">${renderImageQueue(jobs, drafts, history, selectedKey, copy)
+          || `<p class="queue-empty">${copy.emptyQueue}</p>`}</div></aside>
       <section class="stage"><div class="artboard-wrap"><div class="artboard">
         ${stageMarkup(selection, copy, compare)}</div>
         ${selectedJob ? `<div class="status-strip"><span class="status-icon">${I.sparkle}</span>
-          <span class="status-copy"><span class="status-heading"><strong>${escapeHtml(imageStatusLabel(selectedJob, copy))}</strong>
+          <span class="status-copy"><span class="status-heading"><strong data-selected-job-status>${escapeHtml(imageStatusLabel(selectedJob, copy))}</strong>
           <small class="status-eta ${progressState.visible ? "visible" : ""}" data-job-progress-eta>${escapeHtml(progressState.eta)}</small></span>
           <small>${escapeHtml(selectedJob.stage === "failed" ? copy.failed : selectedJob.prompt)}</small></span>
           <i class="progress ${busy(selectedJob.stage) ? "visible" : ""}" data-job-progress
@@ -407,24 +438,34 @@ function render() {
           data-open="${escapeHtml(selection.output)}" title="${copy.openFolder}">${I.folder}</button>` : ""}
         </div><div class="result-meta">${escapeHtml(dimensions)}</div></section>
       <aside class="controls">
-        <section><span class="label">${copy.image}</span>${renderReferences(selection, Boolean(draft))}</section>
+        <section><span class="label">${copy.image}</span>${renderImageReferences(selection, Boolean(draft), copy)}</section>
         <section><label class="label" for="imagePrompt">${copy.instruction}</label>
           <div class="prompt-field"><textarea id="imagePrompt" maxlength="4000"
             placeholder="${copy.instructionHint}" ${draft ? "" : "disabled"}>${escapeHtml(selection?.prompt ?? "")}</textarea>
             <small><span data-prompt-count>${selection?.prompt.length ?? 0}</span> / 4000</small></div></section>
         <section><span class="label">${copy.saveTo}</span><button class="folder-row" type="button" data-output>
           ${I.folder}<span title="${escapeHtml(outputDir)}">${escapeHtml(outputDir || copy.change)}</span></button></section>
-        <div class="action-area"><button class="primary" type="button" data-create ${canCreate ? "" : "disabled"}>
+        <div class="action-area"><button class="primary" type="button" data-create
+          ${canCreate ? "" : "disabled"} title="${canUseSource ? "" : copy.reselectReferences}">
           ${I.sparkle}<span>${draft ? copy.generate : copy.generateAgain}</span></button>
           ${selectedJob && busy(selectedJob.stage) ? `<button class="secondary" type="button"
             data-cancel="${escapeHtml(selectedJob.jobId)}">${copy.cancel}</button>` : ""}</div>
       </aside>
-    </main>${renderDialog()}<div class="app-toast ${message ? "visible" : ""}"
+    </main>${renderImageDialog(dialog, copy)}<div class="app-toast ${message ? "visible" : ""}"
       role="status">${escapeHtml(message)}</div></section>`;
 
-  bindEvents();
+  if (retainedQueue) {
+    app.querySelector(".queue-rail")?.replaceWith(retainedQueue);
+    retainedQueue.querySelectorAll<HTMLElement>("[data-select]").forEach((element) => {
+      const selected = element.dataset.select === selectedKey;
+      element.closest(".queue-item")?.classList.toggle("selected", selected);
+      element.setAttribute("aria-current", selected ? "true" : "false");
+    });
+  }
+  bindEvents(!retainedQueue);
   renderedLayoutSignature = layoutSignature();
-  previewHydrator.bind(app, [selection?.output || "", selection?.referencePaths[0] || ""]);
+  syncedPollSignature = pollUiSignature();
+  previewHydrator.bind(app);
 }
 
 function fitNaturalFrame(image: HTMLImageElement) {
@@ -443,8 +484,14 @@ function fitNaturalFrame(image: HTMLImageElement) {
   fit();
 }
 
-function bindEvents() {
-  document.querySelector("[data-new-session]")?.addEventListener("click", () => newSession());
+function bindEvents(bindQueue = true) {
+  if (bindQueue) {
+    document.querySelector("[data-delete-all]")?.addEventListener(
+      "click",
+      () => void deleteHistory(),
+    );
+    document.querySelector("[data-new-session]")?.addEventListener("click", () => newSession());
+  }
   document.querySelectorAll("[data-pick]").forEach((element) =>
     element.addEventListener("click", () => void pickImages()));
   document.querySelector("[data-output]")?.addEventListener("click", () => void chooseOutput());
@@ -464,15 +511,18 @@ function bindEvents() {
     if (create) create.disabled = !draft.prompt.trim();
   });
   document.querySelector(".compare-input")?.addEventListener("input", (event) => {
+    previewHydrator.hold(220);
     compare = Number((event.target as HTMLInputElement).value);
     document.querySelector<HTMLElement>(".comparison-frame")?.style.setProperty("--compare", `${compare}%`);
   });
-  document.querySelectorAll<HTMLElement>("[data-select]").forEach((element) =>
-    element.addEventListener("click", () => {
-      selectedKey = element.dataset.select || "";
-      message = "";
-      render();
-    }));
+  if (bindQueue) {
+    document.querySelectorAll<HTMLElement>("[data-select]").forEach((element) =>
+      element.addEventListener("click", () => {
+        selectedKey = element.dataset.select || "";
+        message = "";
+        render(true);
+      }));
+  }
   document.querySelectorAll<HTMLElement>("[data-remove-reference]").forEach((element) =>
     element.addEventListener("click", () => {
       const draft = currentDraft();
@@ -480,20 +530,22 @@ function bindEvents() {
       if (draft && Number.isInteger(index)) draft.referencePaths.splice(index, 1);
       render();
     }));
-  document.querySelectorAll<HTMLElement>("[data-remove-session]").forEach((element) =>
-    element.addEventListener("click", () => {
-      const key = element.dataset.removeSession;
-      drafts = drafts.filter((item) => item.key !== key);
-      if (selectedKey === key) {
-        selectedKey = drafts[0]?.key ?? jobs[jobs.length - 1]?.jobId ?? history[0]?.id ?? "";
-      }
-      render();
-    }));
+  if (bindQueue) {
+    document.querySelectorAll<HTMLElement>("[data-remove-session]").forEach((element) =>
+      element.addEventListener("click", () => {
+        const key = element.dataset.removeSession;
+        drafts = drafts.filter((item) => item.key !== key);
+        if (selectedKey === key) {
+          selectedKey = drafts[0]?.key ?? jobs[jobs.length - 1]?.jobId ?? history[0]?.id ?? "";
+        }
+        render();
+      }));
+  }
   document.querySelectorAll<HTMLElement>("[data-cancel]").forEach((element) =>
     element.addEventListener("click", () => void cancel(element.dataset.cancel || "")));
   document.querySelectorAll<HTMLElement>("[data-open]").forEach((element) =>
     element.addEventListener("click", () => void invoke("open_output", { path: element.dataset.open })));
-  bindHistoryEvents();
+  if (bindQueue) bindHistoryEvents();
 }
 
 function bindHistoryEvents() {
@@ -507,10 +559,7 @@ function bindHistoryEvents() {
   });
   document.querySelectorAll<HTMLElement>("[data-delete]").forEach((element) => {
     const entry = history.find((item) => item.id === element.dataset.delete);
-    if (entry) element.addEventListener("click", () => {
-      dialog = { kind: "delete", entry, value: "" };
-      render();
-    });
+    if (entry) element.addEventListener("click", () => void deleteHistory(entry));
   });
   document.querySelector(".dialog-input")?.addEventListener("input", (event) => {
     if (dialog) dialog.value = (event.target as HTMLInputElement).value;
@@ -536,19 +585,16 @@ window.applyHostContext = (next) => {
   render();
 };
 
-async function bootstrap() {
+async function initializeApp() {
   document.documentElement.dataset.theme = context.theme || "dark";
   document.documentElement.lang = context.language || "en";
   outputDir = await invoke<string>("default_output_dir");
-  await invoke("prepare_runtime");
-  await Promise.all([refresh(), updateReady()]);
-  setInterval(() => void refresh(), 1_000);
-  setInterval(() => void updateReady(), 2_500);
-  setInterval(() => {
-    progressPresenter.sync(app, jobs.find((item) => item.jobId === selectedKey), copy);
-  }, 250);
+  await Promise.all([refreshJobs(), refreshHistory()]);
+  jobMonitor.start();
+  void invoke("prepare_runtime").catch(() => undefined);
 }
 
 newSession(false);
 render();
-void bootstrap();
+void initializeApp();
+window.addEventListener("focus", () => void refreshHistory());

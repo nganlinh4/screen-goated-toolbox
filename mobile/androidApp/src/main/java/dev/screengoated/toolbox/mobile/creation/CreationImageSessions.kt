@@ -7,13 +7,16 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 
 internal object CreationImageSessions {
-    fun new(referencePaths: List<String> = emptyList()) = CreationNativeItem(
-        id = "image_${UUID.randomUUID()}",
-        batchId = "batch_${UUID.randomUUID()}",
-        sourcePath = referencePaths.firstOrNull().orEmpty(),
-        sourceName = referencePaths.firstOrNull()?.let(::File)?.name.orEmpty(),
-        referencePaths = referencePaths,
-    )
+    fun new(referencePaths: List<String> = emptyList()): CreationNativeItem {
+        val references = normalizedReferences(referencePaths)
+        return CreationNativeItem(
+            id = "image_${UUID.randomUUID()}",
+            batchId = "batch_${UUID.randomUUID()}",
+            sourcePath = references.firstOrNull().orEmpty(),
+            sourceName = references.firstOrNull()?.let(::File)?.name.orEmpty(),
+            referencePaths = references,
+        )
+    }
 
     fun addReferences(
         state: CreationNativeUiState,
@@ -22,9 +25,11 @@ internal object CreationImageSessions {
         val selected = state.selectedItem?.takeIf {
             !it.submitted && it.stage == CreationNativeStage.DRAFT
         } ?: new()
-        val references = (selected.referencePaths + paths).distinctBy(String::lowercase)
+        val merged = (selected.referencePaths + paths)
+            .filter(String::isNotBlank)
+            .distinct()
         val maximum = CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES
-        val bounded = references.take(maximum)
+        val bounded = normalizedReferences(merged)
         val updated = selected.copy(
             sourcePath = bounded.firstOrNull().orEmpty(),
             sourceName = bounded.firstOrNull()?.let(::File)?.name.orEmpty(),
@@ -40,7 +45,7 @@ internal object CreationImageSessions {
             },
             selectedItemId = updated.id,
             selectedHistoryId = null,
-            transientError = if (references.size > maximum) {
+            transientError = if (merged.size > maximum) {
                 "An image session supports up to $maximum references"
             } else {
                 null
@@ -59,14 +64,22 @@ internal object CreationImageSessions {
     }
 
     fun statusReferences(status: CreationJobStatus): List<String> =
-        status.sourceImagePaths.ifEmpty {
+        normalizedReferences(status.sourceImagePaths.ifEmpty {
             listOfNotNull(status.sourceImagePath?.takeIf(String::isNotBlank))
-        }
+        })
 
     fun historyReferences(entry: CreationHistoryEntry): List<String> =
-        entry.metadata["sourceImagePaths"]
-            ?.jsonArray
-            ?.mapNotNull { it.jsonPrimitive.contentOrNull }
-            ?.take(CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES)
-            ?: listOfNotNull(entry.sourcePath.takeIf(String::isNotBlank))
+        normalizedReferences(
+            (entry.metadata["referencePreviewPaths"] ?: entry.metadata["sourceImagePaths"])
+                ?.jsonArray
+                ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                ?: listOfNotNull(entry.sourcePath.takeIf(String::isNotBlank)),
+        )
+
+    private fun normalizedReferences(paths: List<String>): List<String> =
+        paths.asSequence()
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES)
+            .toList()
 }

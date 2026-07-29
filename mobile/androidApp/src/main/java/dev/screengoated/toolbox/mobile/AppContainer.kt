@@ -7,6 +7,7 @@ import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyRuntime
 import dev.screengoated.toolbox.mobile.history.HistoryBackedPresetHistoryRecorder
 import dev.screengoated.toolbox.mobile.history.HistoryPersistence
 import dev.screengoated.toolbox.mobile.history.HistoryRepository
+import dev.screengoated.toolbox.mobile.creation.CreationHistoryMaintenance
 import dev.screengoated.toolbox.mobile.preset.AudioApiClient
 import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchStore
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
@@ -64,7 +65,9 @@ class AppContainer(
     private val sessionStore = LiveSessionStore()
     private val edgeVoiceCatalogService = EdgeVoiceCatalogService(httpClient, settingsStore, json)
     private val historyPersistence = HistoryPersistence(appContext, json)
-    val historyRepository = HistoryRepository(historyPersistence)
+    val historyRepository = HistoryRepository(historyPersistence) {
+        CreationHistoryMaintenance.run(appContext)
+    }
     internal val phoneControlMemoryRepository = PhoneControlMemoryRepository(appContext)
     private val phoneControlMemoryStartup = PhoneControlMemoryStartup(phoneControlMemoryRepository)
 

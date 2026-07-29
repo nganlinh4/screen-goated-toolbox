@@ -17,6 +17,13 @@ pub(in crate::overlay::computer_control::uia_task) enum BrowserVisionTarget {
     },
 }
 
+struct BrowserVisualLocation {
+    x: f64,
+    y: f64,
+    note: Option<String>,
+    signature: Vec<u8>,
+}
+
 impl BrowserVisionTarget {
     fn shot(&self) -> Result<(Vec<u8>, f64, f64)> {
         let Self::Exact {
@@ -111,7 +118,7 @@ fn locate_css(
     description: &str,
     ctx: &str,
     cancel: &AtomicBool,
-) -> Result<(f64, f64, Option<String>)> {
+) -> Result<BrowserVisualLocation> {
     let (jpeg, width, height) = target.shot()?;
     let (description_owned, ctx_owned) = (description.to_string(), ctx.to_string());
     let located = run_cancellable(cancel, move || {
@@ -122,11 +129,14 @@ fn locate_css(
         anyhow::bail!("browser viewport changed while locating the target");
     }
     let located = verify_located(&fresh_jpeg, located, description, ctx, cancel)?;
-    Ok((
-        located.x / 1000.0 * width,
-        located.y / 1000.0 * height,
-        located.note,
-    ))
+    let x = located.x / 1000.0 * width;
+    let y = located.y / 1000.0 * height;
+    Ok(BrowserVisualLocation {
+        x,
+        y,
+        note: located.note,
+        signature: jpeg_region_fingerprint(&fresh_jpeg, x, y)?,
+    })
 }
 
 pub(in crate::overlay::computer_control::uia_task) fn browser_click(
@@ -137,9 +147,10 @@ pub(in crate::overlay::computer_control::uia_task) fn browser_click(
     cancel: &AtomicBool,
 ) -> Value {
     let result = match locate_css(&target, description, ctx, cancel) {
-        Ok((x, y, note)) => {
+        Ok(located) => {
             eprintln!(
-                "[cc] CLICK_TARGET(browser) '{description}' -> css({x:.0},{y:.0}) saw={note:?}"
+                "[cc] CLICK_TARGET(browser) '{description}' -> css({:.0},{:.0}) saw={:?}",
+                located.x, located.y, located.note
             );
             if cancel.load(Ordering::SeqCst) {
                 return target.tag(
@@ -148,10 +159,19 @@ pub(in crate::overlay::computer_control::uia_task) fn browser_click(
                     ),
                 );
             }
-            match target.click(x, y, right, cancel) {
+            if let Err(error) = revalidate_browser_locations(&target, &[&located]) {
+                return target.tag(json!({
+                    "ok": false,
+                    "code": "ERR_STALE_VISUAL_TARGET",
+                    "effect_may_have_occurred": false,
+                    "error": error.to_string(),
+                }));
+            }
+            match target.click(located.x, located.y, right, cancel) {
                 Ok(()) => json!({
-                    "ok": true, "via": "browser", "css_px": [x.round(), y.round()],
-                    "saw_at_target": note,
+                    "ok": true, "via": "browser",
+                    "css_px": [located.x.round(), located.y.round()],
+                    "saw_at_target": located.note,
                 }),
                 Err(error) => super::super::super::browser::pointer_error_response(error),
             }
@@ -177,7 +197,7 @@ pub(in crate::overlay::computer_control::uia_task) fn browser_drag(
     ctx: &str,
     cancel: &AtomicBool,
 ) -> Value {
-    let from_point = match locate_css(&target, from, ctx, cancel) {
+    let (from_point, to_point) = match locate_drag_css(&target, from, to, ctx, cancel) {
         Ok(value) => value,
         Err(_) if cancel.load(Ordering::SeqCst) => {
             return target.tag(
@@ -190,30 +210,13 @@ pub(in crate::overlay::computer_control::uia_task) fn browser_drag(
                 "code": "ERR_BROWSER_POINTER_TARGETING_FAILED",
                 "stage": "vision_targeting",
                 "effect_may_have_occurred": false,
-                "error": format!("could not locate from '{from}': {error}"),
-            }));
-        }
-    };
-    let to_point = match locate_css(&target, to, ctx, cancel) {
-        Ok(value) => value,
-        Err(_) if cancel.load(Ordering::SeqCst) => {
-            return target.tag(
-                super::super::super::browser::cancelled_before_pointer_effect("vision_targeting"),
-            );
-        }
-        Err(error) => {
-            return target.tag(json!({
-                "ok": false,
-                "code": "ERR_BROWSER_POINTER_TARGETING_FAILED",
-                "stage": "vision_targeting",
-                "effect_may_have_occurred": false,
-                "error": format!("could not locate to '{to}': {error}"),
+                "error": format!("could not locate drag endpoints: {error}"),
             }));
         }
     };
     eprintln!(
         "[cc] DRAG_TARGET(browser) '{from}'->'{to}' : css({:.0},{:.0})->({:.0},{:.0})",
-        from_point.0, from_point.1, to_point.0, to_point.1
+        from_point.x, from_point.y, to_point.x, to_point.y
     );
     if cancel.load(Ordering::SeqCst) {
         return target.tag(
@@ -222,15 +225,96 @@ pub(in crate::overlay::computer_control::uia_task) fn browser_drag(
             ),
         );
     }
-    let result = match target.drag(from_point.0, from_point.1, to_point.0, to_point.1, cancel) {
+    if let Err(error) = revalidate_browser_locations(&target, &[&from_point, &to_point]) {
+        return target.tag(json!({
+            "ok": false,
+            "code": "ERR_STALE_VISUAL_TARGET",
+            "effect_may_have_occurred": false,
+            "error": error.to_string(),
+        }));
+    }
+    let result = match target.drag(from_point.x, from_point.y, to_point.x, to_point.y, cancel) {
         Ok(()) => json!({
-            "ok": true, "via": "browser", "from": from_point.2, "to": to_point.2,
-            "from_css": [from_point.0.round(), from_point.1.round()],
-            "to_css": [to_point.0.round(), to_point.1.round()],
+            "ok": true, "via": "browser", "from": from_point.note, "to": to_point.note,
+            "from_css": [from_point.x.round(), from_point.y.round()],
+            "to_css": [to_point.x.round(), to_point.y.round()],
         }),
         Err(error) => super::super::super::browser::pointer_error_response(error),
     };
     target.tag(result)
+}
+
+fn locate_drag_css(
+    target: &BrowserVisionTarget,
+    from: &str,
+    to: &str,
+    ctx: &str,
+    cancel: &AtomicBool,
+) -> Result<(BrowserVisualLocation, BrowserVisualLocation)> {
+    let (jpeg, width, height) = target.shot()?;
+    let (from_owned, to_owned, context_owned) = (from.to_string(), to.to_string(), ctx.to_string());
+    let (from_point, to_point) = run_cancellable(cancel, move || {
+        super::super::super::vision_reader::locate_drag_points(
+            &jpeg,
+            &from_owned,
+            &to_owned,
+            &context_owned,
+        )
+    })?;
+    let (fresh, fresh_width, fresh_height) = target.shot()?;
+    if (fresh_width - width).abs() > f64::EPSILON || (fresh_height - height).abs() > f64::EPSILON {
+        anyhow::bail!("browser viewport changed while locating drag endpoints");
+    }
+    let from_point = verify_located(&fresh, from_point, from, ctx, cancel)?;
+    let to_point = verify_located(&fresh, to_point, to, ctx, cancel)?;
+    let convert = |point: super::super::super::vision_reader::Located| -> Result<_> {
+        let x = point.x / 1000.0 * width;
+        let y = point.y / 1000.0 * height;
+        Ok(BrowserVisualLocation {
+            x,
+            y,
+            note: point.note,
+            signature: jpeg_region_fingerprint(&fresh, x, y)?,
+        })
+    };
+    Ok((convert(from_point)?, convert(to_point)?))
+}
+
+fn revalidate_browser_locations(
+    target: &BrowserVisionTarget,
+    locations: &[&BrowserVisualLocation],
+) -> Result<()> {
+    let (fresh, _, _) = target.shot()?;
+    for location in locations {
+        let current = jpeg_region_fingerprint(&fresh, location.x, location.y)?;
+        if !super::super::super::session::target_fingerprint_matches(&location.signature, &current)
+        {
+            anyhow::bail!("the browser target pixels changed before input dispatch");
+        }
+    }
+    Ok(())
+}
+
+fn jpeg_region_fingerprint(jpeg: &[u8], x: f64, y: f64) -> Result<Vec<u8>> {
+    let image = image::load_from_memory(jpeg)?.to_rgb8();
+    let half = super::super::GROUNDING_SIGNATURE_HALF.max(1) as u32;
+    let center_x = x.round().clamp(0.0, image.width().saturating_sub(1) as f64) as u32;
+    let center_y = y
+        .round()
+        .clamp(0.0, image.height().saturating_sub(1) as f64) as u32;
+    let left = center_x.saturating_sub(half);
+    let top = center_y.saturating_sub(half);
+    let right = center_x
+        .saturating_add(half)
+        .min(image.width())
+        .max(left + 1);
+    let bottom = center_y
+        .saturating_add(half)
+        .min(image.height())
+        .max(top + 1);
+    let crop = image::imageops::crop_imm(&image, left, top, right - left, bottom - top).to_image();
+    let small = image::imageops::resize(&crop, 32, 32, image::imageops::FilterType::Triangle);
+    Ok(small.pixels().flat_map(|pixel| pixel.0).collect())
 }
 
 #[cfg(test)]

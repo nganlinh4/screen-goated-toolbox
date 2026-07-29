@@ -41,10 +41,7 @@ fn new_turn_clears_task_local_recovery_state() {
         x: 10,
         y: 20,
         note: None,
-        verify_description: None,
-        source: AnchorSource::Detector,
-        score: None,
-        bounds: None,
+        signature: vec![0; 32 * 32],
         frame_id: 1,
         view: brain.view,
         surface: super::super::controller::world::SurfaceIdentity::Native {

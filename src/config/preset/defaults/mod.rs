@@ -43,7 +43,6 @@ pub fn get_default_presets() -> Vec<Preset> {
         find(&image, "preset_translate_auto_paste"),
         find(&image, "preset_extract_table"),
         find(&image, "preset_translate_retranslate"),
-        find(&image, "preset_extract_retrans_retrans"),
         find(&image, "preset_ocr"),
         find(&image, "preset_ocr_read"),
         find(&image, "preset_quick_screenshot"),

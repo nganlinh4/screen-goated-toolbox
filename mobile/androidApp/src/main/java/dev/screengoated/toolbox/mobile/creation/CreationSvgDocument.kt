@@ -1,59 +1,27 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-
 package dev.screengoated.toolbox.mobile.creation
 
 import android.graphics.Matrix
-import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Region
-import android.graphics.Color as AndroidColor
 import android.util.Xml
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.dp
 import androidx.core.graphics.PathParser
-import dev.screengoated.toolbox.mobile.R
-import dev.screengoated.toolbox.mobile.ui.i18n.CreationCommonLocale
-import dev.screengoated.toolbox.mobile.ui.i18n.CreationSvgLocale
 import java.io.StringReader
+import java.io.StringWriter
 import java.util.Locale
+import javax.xml.transform.OutputKeys
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.dom.DOMSource
+import javax.xml.transform.stream.StreamResult
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
@@ -62,259 +30,62 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
 
-internal class CreationSvgDocumentController {
-    internal var document by mutableStateOf<NativeSvgDocument?>(null)
-        private set
-    internal var revision by mutableIntStateOf(0)
-        private set
-    internal var zoom by mutableFloatStateOf(1f)
-        private set
-    internal var pan by mutableStateOf(Offset.Zero)
-        private set
-    internal var selectedIndex by mutableStateOf<Int?>(null)
-        private set
-
-    private val undo = ArrayDeque<SvgSnapshot>()
-    private val redo = ArrayDeque<SvgSnapshot>()
-
-    internal fun attach(value: NativeSvgDocument) {
-        if (document === value) return
-        document = value
-        selectedIndex = null
-        undo.clear()
-        redo.clear()
-        fit()
-    }
-
-    internal fun transform(panChange: Offset, zoomChange: Float) {
-        zoom = (zoom * zoomChange).coerceIn(0.25f, 8f)
-        pan = if (zoom <= 1f) Offset.Zero else pan + panChange
-    }
-
-    internal fun select(index: Int?) {
-        selectedIndex = index
-        revision += 1
-    }
-
-    fun fit() {
-        zoom = 1f
-        pan = Offset.Zero
-    }
-
-    fun zoomIn() { zoom = (zoom * 1.2f).coerceAtMost(8f) }
-    fun zoomOut() {
-        zoom = (zoom / 1.2f).coerceAtLeast(0.25f)
-        if (zoom <= 1f) pan = Offset.Zero
-    }
-
-    fun undo() {
-        val value = document ?: return
-        val snapshot = undo.removeLastOrNull() ?: return
-        redo.addLast(value.snapshot(selectedIndex))
-        value.restore(snapshot)
-        selectedIndex = snapshot.selected
-        revision += 1
-    }
-
-    fun redo() {
-        val value = document ?: return
-        val snapshot = redo.removeLastOrNull() ?: return
-        undo.addLast(value.snapshot(selectedIndex))
-        value.restore(snapshot)
-        selectedIndex = snapshot.selected
-        revision += 1
-    }
-
-    fun deleteSelected() = mutate { shape -> shape.deleted = true }
-    fun setFill(value: String) = mutate { shape -> shape.fill = value }
-    fun setStroke(value: String) = mutate { shape -> shape.stroke = value }
-
-    suspend fun serialize(): String = document?.serialize().orEmpty()
-
-    internal fun destroy() {
-        document = null
-        undo.clear()
-        redo.clear()
-    }
-
-    private fun mutate(action: (NativeSvgShape) -> Unit) {
-        val value = document ?: return
-        val shape = selectedIndex?.let(value.shapes::getOrNull) ?: return
-        undo.addLast(value.snapshot(selectedIndex))
-        while (undo.size > 40) undo.removeFirst()
-        redo.clear()
-        action(shape)
-        revision += 1
-    }
-}
-
 @Composable
 internal fun CreationSvgDocument(
     outputPath: String,
     viewModel: CreationNativeViewModel,
     controller: CreationSvgDocumentController,
+    editingRequested: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val document by produceState<NativeSvgDocument?>(null, outputPath) {
+    val svg by produceState<String?>(null, outputPath) {
         value = runCatching {
-            val svg = viewModel.readSvg(outputPath)
-            withContext(Dispatchers.Default) { NativeSvgParser.parse(svg) }
+            viewModel.readSvg(outputPath).also { text ->
+                withContext(Dispatchers.Default) {
+                    CreationArtifactValidator.validateSvgText(text)
+                }
+            }
         }.getOrNull()
     }
-    val value = document
-    if (value == null) {
+    val document by produceState<NativeSvgDocument?>(null, outputPath, editingRequested, svg) {
+        val source = svg
+        value = if (editingRequested && source != null) {
+            runCatching {
+                withContext(Dispatchers.Default) {
+                    NativeSvgParser.parse(source)
+                }
+            }.getOrNull()
+        } else {
+            null
+        }
+    }
+    val source = svg
+    if (source == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             androidx.compose.material3.CircularProgressIndicator()
         }
         return
     }
-    LaunchedEffect(value) { controller.attach(value) }
-    val accent = MaterialTheme.colorScheme.primary
+    LaunchedEffect(document) {
+        document?.let(controller::attach)
+    }
     val revision = controller.revision
-    val zoom = controller.zoom
-    val pan = controller.pan
-    val selected = controller.selectedIndex
-    val checkerLight = MaterialTheme.colorScheme.surfaceContainerLowest
-    val checkerDark = MaterialTheme.colorScheme.surfaceContainerHigh
-
-    Canvas(
-        modifier = modifier
-            .fillMaxSize()
-            .pointerInput(value, zoom, pan) {
-                detectTapGestures { point ->
-                    val transform = value.viewportTransform(size.width.toFloat(), size.height.toFloat(), zoom, pan)
-                    controller.select(value.hitTest(transform.toDocument(point), transform.documentTolerance(8f)))
-                }
-            }
-            .pointerInput(value) {
-                detectTransformGestures { _, panChange, zoomChange, _ ->
-                    controller.transform(panChange, zoomChange)
-                }
-            },
-    ) {
-        @Suppress("UNUSED_VARIABLE") val redraw = revision
-        drawRect(checkerLight)
-        val checkerSize = 10.dp.toPx()
-        val columns = ceil(size.width / checkerSize).toInt()
-        val rows = ceil(size.height / checkerSize).toInt()
-        repeat(rows) { row ->
-            repeat(columns) { column ->
-                if ((row + column) % 2 == 0) {
-                    drawRect(
-                        color = checkerDark,
-                        topLeft = Offset(column * checkerSize, row * checkerSize),
-                        size = Size(checkerSize, checkerSize),
-                    )
-                }
-            }
-        }
-        val transform = value.viewportTransform(size.width, size.height, zoom, pan)
-        drawIntoCanvas { composeCanvas ->
-            val canvas = composeCanvas.nativeCanvas
-            canvas.save()
-            canvas.translate(transform.origin.x + pan.x, transform.origin.y + pan.y)
-            canvas.scale(transform.scale, transform.scale)
-            canvas.translate(-value.viewBox.left, -value.viewBox.top)
-            value.shapes.forEachIndexed { index, shape ->
-                if (shape.deleted) return@forEachIndexed
-                shape.draw(canvas)
-                if (selected == index) {
-                    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        style = Paint.Style.STROKE
-                        color = accent.toArgb()
-                        strokeWidth = 2.2f / transform.scale
-                    }
-                    canvas.drawPath(shape.path, paint)
-                }
-            }
-            canvas.restore()
-        }
-    }
-}
-
-@Composable
-internal fun CreationSvgEditorControls(
-    controller: CreationSvgDocumentController,
-    common: CreationCommonLocale,
-    strings: CreationSvgLocale,
-    accent: Color,
-    onSave: () -> Unit,
-) {
-    val swatches = listOf(
-        "none" to Color.Transparent,
-        "#111111" to Color(0xff111111),
-        "#ffffff" to Color.White,
-        "#1976d2" to Color(0xff1976d2),
-        "#00a38c" to Color(0xff00a38c),
-        "#e14d72" to Color(0xffe14d72),
-        "#f4b400" to Color(0xfff4b400),
+    CreationSvgFullFidelitySurface(
+        svg = source,
+        document = document,
+        controller = controller,
+        revision = revision,
+        modifier = modifier.fillMaxSize(),
     )
-    androidx.compose.foundation.layout.Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            ViewerIconButton(R.drawable.ms_open_in_full, strings.fit, controller::fit)
-            ViewerIconButton(R.drawable.ms_remove, strings.zoomOut, controller::zoomOut)
-            ViewerIconButton(R.drawable.ms_add, strings.zoomIn, controller::zoomIn)
-            ViewerIconButton(R.drawable.ms_arrow_back, strings.undo, controller::undo)
-            ViewerIconButton(R.drawable.ms_arrow_forward, strings.redo, controller::redo)
-            ViewerIconButton(R.drawable.ms_delete, common.delete, controller::deleteSelected)
-            FilledTonalButton(onClick = onSave) {
-                Icon(painterResource(R.drawable.ms_check), null, Modifier.size(18.dp))
-                androidx.compose.foundation.layout.Spacer(Modifier.size(6.dp))
-                Text(strings.saveEdits)
-            }
-        }
-        PaintSwatches(strings.fill, swatches, accent) { controller.setFill(it) }
-        PaintSwatches(strings.stroke, swatches, accent) { controller.setStroke(it) }
-    }
-}
-
-@Composable
-private fun ViewerIconButton(icon: Int, label: String, action: () -> Unit) {
-    IconButton(onClick = action, modifier = Modifier.size(40.dp)) {
-        Icon(painterResource(icon), contentDescription = label)
-    }
-}
-
-@Composable
-private fun PaintSwatches(
-    label: String,
-    swatches: List<Pair<String, Color>>,
-    accent: Color,
-    onSelect: (String) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.size(48.dp, 24.dp))
-        FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            swatches.forEach { (value, color) ->
-                Box(
-                    Modifier
-                        .size(25.dp)
-                        .background(if (color == Color.Transparent) MaterialTheme.colorScheme.surface else color, CircleShape)
-                        .border(1.dp, if (color == Color.Transparent) accent else MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                        .clickable { onSelect(value) },
-                )
-            }
-        }
-    }
 }
 
 internal data class NativeSvgDocument(
+    val originalSvg: String,
     val viewBox: RectF,
     val width: String?,
     val height: String?,
-    val definitions: String,
     val shapes: MutableList<NativeSvgShape>,
+    val editable: Boolean,
 ) {
     fun viewportTransform(width: Float, height: Float, zoom: Float, pan: Offset): SvgViewportTransform {
         val base = min(width / viewBox.width().coerceAtLeast(1f), height / viewBox.height().coerceAtLeast(1f)) * 0.94f
@@ -333,32 +104,21 @@ internal data class NativeSvgDocument(
         !shape.deleted && shape.contains(point, tolerance)
     }
 
-    fun snapshot(selected: Int?) = SvgSnapshot(
-        shapes.map { SvgShapeEdit(it.fill, it.stroke, it.deleted) },
-        selected,
+    fun editAt(index: Int): SvgShapeEdit? = shapes.getOrNull(index)?.edit()
+
+    fun applyEdit(index: Int, edit: SvgShapeEdit) {
+        shapes.getOrNull(index)?.apply(edit)
+    }
+
+    fun serialize(): String = serializeEditedSvg(originalSvg, shapes)
+
+    fun serializationSnapshot(): NativeSvgDocument = copy(
+        shapes = shapes.map { it.copy() }.toMutableList(),
     )
-
-    fun restore(snapshot: SvgSnapshot) {
-        shapes.zip(snapshot.shapes).forEach { (shape, edit) ->
-            shape.fill = edit.fill
-            shape.stroke = edit.stroke
-            shape.deleted = edit.deleted
-        }
-    }
-
-    fun serialize(): String = buildString {
-        append("<svg xmlns=\"http://www.w3.org/2000/svg\"")
-        width?.let { append(" width=\"").append(xmlEscape(it)).append('"') }
-        height?.let { append(" height=\"").append(xmlEscape(it)).append('"') }
-        append(" viewBox=\"").append(viewBox.left).append(' ').append(viewBox.top).append(' ')
-            .append(viewBox.width()).append(' ').append(viewBox.height()).append("\">")
-        append(definitions)
-        shapes.filterNot { it.deleted }.forEach { append(it.serialize()) }
-        append("</svg>")
-    }
 }
 
 internal data class NativeSvgShape(
+    val documentIndex: Int,
     val tag: String,
     val geometry: Map<String, String>,
     val matrix: Matrix,
@@ -368,27 +128,8 @@ internal data class NativeSvgShape(
     val strokeWidth: Float,
     val opacity: Float,
     var deleted: Boolean = false,
+    val originalEdit: SvgShapeEdit = SvgShapeEdit(fill, stroke, deleted),
 ) {
-    fun draw(canvas: android.graphics.Canvas) {
-        svgColor(fill)?.let { color ->
-            canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.FILL
-                this.color = color
-                alpha = (AndroidColor.alpha(color) * opacity).toInt().coerceIn(0, 255)
-            })
-        }
-        svgColor(stroke)?.let { color ->
-            canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeJoin = Paint.Join.ROUND
-                strokeCap = Paint.Cap.ROUND
-                this.color = color
-                alpha = (AndroidColor.alpha(color) * opacity).toInt().coerceIn(0, 255)
-                this.strokeWidth = strokeWidth.coerceAtLeast(0.25f)
-            })
-        }
-    }
-
     fun contains(point: Offset, tolerance: Float): Boolean {
         val bounds = RectF()
         path.computeBounds(bounds, true)
@@ -403,26 +144,12 @@ internal data class NativeSvgShape(
         return Region().apply { setPath(path, clip) }.contains(point.x.toInt(), point.y.toInt())
     }
 
-    fun serialize(): String = buildString {
-        append('<').append(tag)
-        geometry.forEach { (name, value) ->
-            append(' ').append(name).append("=\"").append(xmlEscape(value)).append('"')
-        }
-        val values = FloatArray(9).also(matrix::getValues)
-        if (!matrix.isIdentity) {
-            append(" transform=\"matrix(")
-                .append(values[Matrix.MSCALE_X]).append(' ')
-                .append(values[Matrix.MSKEW_Y]).append(' ')
-                .append(values[Matrix.MSKEW_X]).append(' ')
-                .append(values[Matrix.MSCALE_Y]).append(' ')
-                .append(values[Matrix.MTRANS_X]).append(' ')
-                .append(values[Matrix.MTRANS_Y]).append(")\"")
-        }
-        append(" fill=\"").append(xmlEscape(fill)).append('"')
-        append(" stroke=\"").append(xmlEscape(stroke)).append('"')
-        append(" stroke-width=\"").append(strokeWidth).append('"')
-        if (opacity < 1f) append(" opacity=\"").append(opacity).append('"')
-        append("/>")
+    fun edit() = SvgShapeEdit(fill, stroke, deleted)
+
+    fun apply(edit: SvgShapeEdit) {
+        fill = edit.fill
+        stroke = edit.stroke
+        deleted = edit.deleted
     }
 }
 
@@ -439,11 +166,18 @@ internal data class SvgViewportTransform(
     fun documentTolerance(screenPixels: Float) = screenPixels / scale.coerceAtLeast(0.001f)
 }
 
-internal data class SvgSnapshot(val shapes: List<SvgShapeEdit>, val selected: Int?)
 internal data class SvgShapeEdit(val fill: String, val stroke: String, val deleted: Boolean)
 
-private object NativeSvgParser {
-    private val shapeTags = setOf("path", "rect", "circle", "ellipse", "line", "polyline", "polygon")
+internal object NativeSvgParser {
+    internal val shapeTags = setOf(
+        "path",
+        "rect",
+        "circle",
+        "ellipse",
+        "line",
+        "polyline",
+        "polygon",
+    )
     private val transformPattern = Regex("([a-zA-Z]+)\\s*\\(([^)]*)\\)")
     private val numberPattern = Regex("[-+]?(?:\\d*\\.)?\\d+(?:[eE][-+]?\\d+)?")
 
@@ -458,6 +192,9 @@ private object NativeSvgParser {
         val matrices = ArrayDeque<Matrix>()
         val styles = ArrayDeque<SvgStyle>()
         val shapes = mutableListOf<NativeSvgShape>()
+        val withinByteBudget =
+            svg.encodeToByteArray().size.toLong() <= CreationContract.MAXIMUM_EDITABLE_SVG_BYTES
+        var geometryElements = 0
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
@@ -474,7 +211,20 @@ private object NativeSvgParser {
                     val style = (styles.lastOrNull() ?: SvgStyle()).merged(parser)
                     matrices.addLast(matrix)
                     styles.addLast(style)
-                    if (tag in shapeTags) createShape(tag, parser, matrix, style)?.let(shapes::add)
+                    if (tag in shapeTags) {
+                        geometryElements += 1
+                        if (withinByteBudget &&
+                            geometryElements <= CreationContract.MAXIMUM_EDITABLE_SVG_GEOMETRY
+                        ) {
+                            createShape(
+                                geometryElements - 1,
+                                tag,
+                                parser,
+                                matrix,
+                                style,
+                            )?.let(shapes::add)
+                        }
+                    }
                 }
                 XmlPullParser.END_TAG -> {
                     matrices.removeLastOrNull()
@@ -483,13 +233,19 @@ private object NativeSvgParser {
             }
             event = parser.next()
         }
-        require(shapes.isNotEmpty()) { "SVG contains no supported vector paths" }
-        val definitions = Regex("<defs(?:\\s[^>]*)?>[\\s\\S]*?</defs>", RegexOption.IGNORE_CASE)
-            .find(svg)?.value.orEmpty()
-        return NativeSvgDocument(viewBox, width, height, definitions, shapes)
+        val editable = withinByteBudget &&
+            geometryElements <= CreationContract.MAXIMUM_EDITABLE_SVG_GEOMETRY
+        if (!editable) shapes.clear()
+        return NativeSvgDocument(svg, viewBox, width, height, shapes, editable)
     }
 
-    private fun createShape(tag: String, parser: XmlPullParser, matrix: Matrix, style: SvgStyle): NativeSvgShape? {
+    private fun createShape(
+        documentIndex: Int,
+        tag: String,
+        parser: XmlPullParser,
+        matrix: Matrix,
+        style: SvgStyle,
+    ): NativeSvgShape? {
         val geometryNames = when (tag) {
             "path" -> listOf("d")
             "rect" -> listOf("x", "y", "width", "height", "rx", "ry")
@@ -526,6 +282,7 @@ private object NativeSvgParser {
         val values = FloatArray(9).also(matrix::getValues)
         val lineScale = ((hypot(values[0].toDouble(), values[3].toDouble()) + hypot(values[1].toDouble(), values[4].toDouble())) / 2.0).toFloat()
         return NativeSvgShape(
+            documentIndex = documentIndex,
             tag = tag,
             geometry = geometry,
             matrix = Matrix(matrix),
@@ -609,18 +366,35 @@ private fun Map<String, String>.number(name: String): Float = get(name)?.let(::s
 private fun svgLength(value: String): Float = Regex("[-+]?(?:\\d*\\.)?\\d+(?:[eE][-+]?\\d+)?")
     .find(value)?.value?.toFloatOrNull() ?: 0f
 
-private fun svgColor(value: String): Int? {
-    val clean = value.trim()
-    if (clean.equals("none", true) || clean.startsWith("url(", true)) return null
-    if (clean.startsWith("rgb(", true)) {
-        val values = Regex("[\\d.]+").findAll(clean).map { it.value.toFloat() }.toList()
-        if (values.size >= 3) return AndroidColor.rgb(values[0].toInt(), values[1].toInt(), values[2].toInt())
+private fun serializeEditedSvg(svg: String, shapes: List<NativeSvgShape>): String {
+    if (shapes.none { it.edit() != it.originalEdit }) return svg
+    val document = safeSvgDocumentBuilderFactory()
+        .newDocumentBuilder()
+        .parse(svg.byteInputStream())
+    val shapesByDocumentIndex = shapes.associateBy(NativeSvgShape::documentIndex)
+    var documentIndex = 0
+    val elements = document.getElementsByTagName("*")
+    for (index in 0 until elements.length) {
+        val element = elements.item(index) as? org.w3c.dom.Element ?: continue
+        if (element.localName?.lowercase(Locale.ROOT) !in NativeSvgParser.shapeTags) continue
+        val currentDocumentIndex = documentIndex++
+        val shape = shapesByDocumentIndex[currentDocumentIndex] ?: continue
+        val additions = buildList {
+            if (shape.fill != shape.originalEdit.fill) add("fill:${shape.fill}")
+            if (shape.stroke != shape.originalEdit.stroke) add("stroke:${shape.stroke}")
+            if (shape.deleted) add("display:none")
+        }
+        if (additions.isNotEmpty()) {
+            val originalStyle = element.getAttribute("style").trim().trimEnd(';')
+            element.setAttribute(
+                "style",
+                (listOf(originalStyle).filter(String::isNotBlank) + additions).joinToString(";"),
+            )
+        }
     }
-    return runCatching { AndroidColor.parseColor(clean) }.getOrNull()
+    val output = StringWriter()
+    TransformerFactory.newInstance().newTransformer().apply {
+        setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes")
+    }.transform(DOMSource(document), StreamResult(output))
+    return output.toString()
 }
-
-private fun xmlEscape(value: String): String = value
-    .replace("&", "&amp;")
-    .replace("\"", "&quot;")
-    .replace("<", "&lt;")
-    .replace(">", "&gt;")

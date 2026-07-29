@@ -195,6 +195,7 @@ class VisualToolHandlersTest {
                     grid = if (clean) null else grid(bounds, windowId),
                 ),
                 screenPayload = payload,
+                imageBytes = byteArrayOf(1),
             )
         }
 

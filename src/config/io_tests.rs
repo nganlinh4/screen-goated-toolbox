@@ -472,6 +472,61 @@ fn retired_builtin_migrates_to_its_replacement_in_every_profile() {
 }
 
 #[test]
+fn accurate_retranslate_retirement_uses_the_standard_retranslate_chain() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/preset-system/catalog-overrides.json"
+    )))
+    .unwrap();
+    let retirement = fixture["retired_builtins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["preset_id"] == "preset_extract_retrans_retrans")
+        .unwrap();
+    let retired_id = retirement["preset_id"].as_str().unwrap();
+    let replacement_id = retirement["replacement_id"].as_str().unwrap();
+    assert!(retirement["transfer_unique_hotkeys"].as_bool().unwrap());
+    assert!(retirement["transfer_favorite"].as_bool().unwrap());
+    assert!(retirement["redirect_active_selection"].as_bool().unwrap());
+
+    let migrated_hotkey = Hotkey::new(0x72, "F3", 0);
+    let mut config = legacy_config_with_presets(vec![
+        Preset {
+            id: replacement_id.to_string(),
+            ..Default::default()
+        },
+        Preset {
+            id: retired_id.to_string(),
+            hotkeys: vec![migrated_hotkey.clone()],
+            is_favorite: true,
+            ..Default::default()
+        },
+    ]);
+    config.active_preset_idx = 1;
+    let priority_chains = config.model_priority_chains.clone();
+
+    migrate_config(&mut config);
+
+    assert_eq!(config.model_priority_chains, priority_chains);
+    assert!(config.presets.iter().all(|preset| preset.id != retired_id));
+    assert!(
+        config.preset_profiles[0]
+            .presets
+            .iter()
+            .all(|preset| preset.id != retired_id)
+    );
+    assert_eq!(config.presets[config.active_preset_idx].id, replacement_id);
+    let replacement = config
+        .presets
+        .iter()
+        .find(|preset| preset.id == replacement_id)
+        .unwrap();
+    assert!(replacement.is_favorite);
+    assert_eq!(replacement.hotkeys, vec![migrated_hotkey]);
+}
+
+#[test]
 fn add_preset_profile_clones_active_preset_config() {
     let mut preset = Preset {
         id: "profile_source_preset".to_string(),

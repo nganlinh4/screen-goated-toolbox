@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -20,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.ui.UtilityStatusChip
 import dev.screengoated.toolbox.mobile.ui.i18n.CreationCommonLocale
@@ -55,6 +58,7 @@ internal fun CreationActiveSettings(
             onGenerationMode = viewModel::setGenerationMode,
             onPolycount = viewModel::setPolycount,
             onAutoSegment = viewModel::setAutoSegment,
+            onInstruction = viewModel::setInstruction,
         )
         CreationTool.IMAGE_TO_SVG -> CreationSvgSettings(
             item = item,
@@ -62,6 +66,7 @@ internal fun CreationActiveSettings(
             accent = accent,
             enabled = enabled,
             onModel = viewModel::setModel,
+            onBackgroundMode = viewModel::setSvgBackgroundMode,
         )
         CreationTool.IMAGE_CREATOR -> CreationImageSettings(
             item = item,
@@ -107,6 +112,7 @@ internal fun CreationActiveWorkbench(
         emptyList()
     }
     val controller = remember(outputPath) { CreationSvgDocumentController() }
+    var svgEditingRequested by remember(outputPath) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Column(
@@ -136,13 +142,17 @@ internal fun CreationActiveWorkbench(
                                 status = item?.status,
                                 common = locale.creationApps.common,
                                 accent = accent,
-                                hasDepthPreview = true,
                             )
                         }
                     }
                 }
                 outputPath != null && tool == CreationTool.IMAGE_TO_SVG -> {
-                    CreationSvgDocument(outputPath, viewModel, controller)
+                    CreationSvgDocument(
+                        outputPath = outputPath,
+                        viewModel = viewModel,
+                        controller = controller,
+                        editingRequested = svgEditingRequested,
+                    )
                 }
                 outputPath != null && tool == CreationTool.IMAGE_CREATOR -> {
                     CreationImageResult(
@@ -168,13 +178,12 @@ internal fun CreationActiveWorkbench(
                                 status = item.status,
                                 common = locale.creationApps.common,
                                 accent = accent,
-                                hasDepthPreview = item.referencePaths.isNotEmpty(),
                             )
                         }
                     }
                 }
                 item != null -> {
-                    CreationSourceWorkbench(tool, item)
+                    CreationSourceWorkbench(item)
                     if (item.stage in setOf(
                             CreationNativeStage.QUEUED,
                             CreationNativeStage.RUNNING,
@@ -184,14 +193,37 @@ internal fun CreationActiveWorkbench(
                             status = item.status,
                             common = locale.creationApps.common,
                             accent = accent,
-                            hasDepthPreview = item.depthPreviewPath != null,
                         )
                     }
                 }
                 else -> CreationEmptyWorkbench(locale.creationApps.common, accent, onPickImages)
             }
         }
-        if (outputPath != null && tool == CreationTool.IMAGE_TO_SVG) {
+        item?.status?.error
+            ?.takeIf { item.stage == CreationNativeStage.FAILED }
+            ?.let { message ->
+                Text(
+                    text = publicCreationErrorText(message, locale.creationApps.common),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        if (outputPath != null &&
+            tool == CreationTool.IMAGE_TO_SVG &&
+            !svgEditingRequested
+        ) {
+            FilledTonalButton(
+                onClick = { svgEditingRequested = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(painterResource(dev.screengoated.toolbox.mobile.R.drawable.ms_edit), null)
+                Text(locale.creationApps.svg.editPaths)
+            }
+        }
+        if (outputPath != null &&
+            tool == CreationTool.IMAGE_TO_SVG &&
+            controller.isEditable
+        ) {
             CreationSvgEditorControls(
                 controller = controller,
                 common = locale.creationApps.common,
@@ -231,7 +263,6 @@ private fun CreationResultSummary(
     val history = state.selectedHistory
     val common = locale.creationApps.common
     var rename by remember(history?.id) { mutableStateOf(false) }
-    var delete by remember(history?.id) { mutableStateOf(false) }
     val faces = item?.status?.faces ?: history.longMetadata("faces")
     val vertices = item?.status?.vertices ?: history.longMetadata("vertices")
     val width = item?.status?.width ?: history.intMetadata("width")
@@ -285,7 +316,9 @@ private fun CreationResultSummary(
             TextButton(onClick = { path?.let(viewModel::openOutput) }) { Text(common.open) }
             if (history != null) {
                 TextButton(onClick = { rename = true }) { Text(common.rename) }
-                TextButton(onClick = { delete = true }) { Text(common.delete) }
+                TextButton(onClick = { viewModel.deleteHistory(history.id) }) {
+                    Text(common.delete)
+                }
             }
         }
     }
@@ -297,26 +330,6 @@ private fun CreationResultSummary(
             onRename = {
                 viewModel.renameHistory(history.id, it)
                 rename = false
-            },
-        )
-    }
-    if (delete && history != null) {
-        AlertDialog(
-            onDismissRequest = { delete = false },
-            title = { Text(common.delete) },
-            text = { Text(common.deleteConfirm) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.deleteHistory(history.id)
-                        delete = false
-                    },
-                ) {
-                    Text(common.delete)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { delete = false }) { Text(common.dismiss) }
             },
         )
     }

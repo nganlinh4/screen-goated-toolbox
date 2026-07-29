@@ -8,6 +8,7 @@
     "postinstall": "node ../scripts/ensure-rollup-native.mjs",
     "prebuild": "node ../scripts/ensure-rollup-native.mjs",
     "build": "tsc --noEmit && vite build",
+    "test": "node --test ../ui-shared/creation-history-order.test.ts src/async-asset-cache.test.ts src/explicit-submission.test.ts src/poll-presentation.test.ts src/queue-dispatch.test.ts src/settings-control.test.ts src/svg-asset-loader.test.ts src/svg-canvas-input.test.ts src/svg-display-policy.test.ts src/svg-security.test.ts",
     "preview": "vite preview"
   },
   "devDependencies": {

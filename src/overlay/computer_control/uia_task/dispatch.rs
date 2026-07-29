@@ -4,6 +4,8 @@
 
 use super::*;
 
+mod context_tools;
+
 impl Brain {
     /// Execute one tool call (NOT `done`). Returns the action result JSON; polls
     /// `cancel` (set on barge-in) between micro-steps via the humanized executor.
@@ -42,6 +44,9 @@ impl Brain {
             return self.finish_dispatch(action, name, args, blocked, t0);
         }
         if let Some(result) = self.dispatch_browser_tool(name, args, cancel) {
+            return self.finish_dispatch(action, name, args, result, t0);
+        }
+        if let Some(result) = self.dispatch_context_tool(name, args) {
             return self.finish_dispatch(action, name, args, result, t0);
         }
         let result = match name {
@@ -200,6 +205,20 @@ impl Brain {
                 } else {
                     match locate_in_view(self.view, desc, ctx, cancel) {
                         Ok(loc) => {
+                            if let Err(error) = revalidate_visual_locations(self.view, &[&loc]) {
+                                return self.finish_dispatch(
+                                    action,
+                                    name,
+                                    args,
+                                    json!({
+                                        "ok": false,
+                                        "code": "ERR_STALE_VISUAL_TARGET",
+                                        "effect_may_have_occurred": false,
+                                        "error": error.to_string(),
+                                    }),
+                                    t0,
+                                );
+                            }
                             let (sx, sy) = self.view.to_screen_px(loc.x, loc.y);
                             self.last_click = Some((sx, sy));
                             self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
@@ -268,11 +287,22 @@ impl Brain {
                 {
                     browser_drag(browser_target, from, to, ctx, cancel)
                 } else {
-                    match (
-                        locate_in_view(self.view, from, ctx, cancel),
-                        locate_in_view(self.view, to, ctx, cancel),
-                    ) {
-                        (Ok(f), Ok(t)) => {
+                    match drag_in_view(self.view, from, to, ctx, cancel) {
+                        Ok((f, t)) => {
+                            if let Err(error) = revalidate_visual_locations(self.view, &[&f, &t]) {
+                                return self.finish_dispatch(
+                                    action,
+                                    name,
+                                    args,
+                                    json!({
+                                        "ok": false,
+                                        "code": "ERR_STALE_VISUAL_TARGET",
+                                        "effect_may_have_occurred": false,
+                                        "error": error.to_string(),
+                                    }),
+                                    t0,
+                                );
+                            }
                             let (fsx, fsy) = self.view.to_screen_px(f.x, f.y);
                             let (tsx, tsy) = self.view.to_screen_px(t.x, t.y);
                             self.last_click = Some((tsx, tsy));
@@ -299,11 +329,8 @@ impl Brain {
                             );
                             json!({"ok": true, "from": f.note, "to": t.note, "drag": r})
                         }
-                        (Err(e), _) => {
-                            json!({"ok": false, "error": format!("could not locate from '{from}': {e}")})
-                        }
-                        (_, Err(e)) => {
-                            json!({"ok": false, "error": format!("could not locate to '{to}': {e}")})
+                        Err(e) => {
+                            json!({"ok": false, "error": format!("could not locate drag endpoints: {e}")})
                         }
                     }
                 }
@@ -323,6 +350,20 @@ impl Brain {
                     .clamp(0.0, 10.0);
                 match locate_in_view(self.view, desc, ctx, cancel) {
                     Ok(loc) => {
+                        if let Err(error) = revalidate_visual_locations(self.view, &[&loc]) {
+                            return self.finish_dispatch(
+                                action,
+                                name,
+                                args,
+                                json!({
+                                    "ok": false,
+                                    "code": "ERR_STALE_VISUAL_TARGET",
+                                    "effect_may_have_occurred": false,
+                                    "error": error.to_string(),
+                                }),
+                                t0,
+                            );
+                        }
                         let (sx, sy) = self.view.to_screen_px(loc.x, loc.y);
                         self.last_click = Some((sx, sy)); // mark where we pointed on the next frame
                         append_click(
@@ -532,44 +573,6 @@ impl Brain {
                     Ok(ok) => json!({"ok": ok}),
                     Err(error) => window_error(error),
                 }
-            }
-            "search_memory" => {
-                let query = args.get("query").and_then(Value::as_str).unwrap_or("");
-                let hits = super::super::memory::search(query, 5);
-                if hits.is_empty() {
-                    json!({"ok": true, "results": [], "note": "no matching past conversation"})
-                } else {
-                    let results: Vec<Value> = hits
-                        .iter()
-                        .map(|h| {
-                            json!({"id": h.id.to_string(), "when": h.timestamp, "title": h.title, "snippet": h.snippet})
-                        })
-                        .collect();
-                    json!({"ok": true, "results": results, "instruction": "Results are ranked by relevance + recency; each has a 'when' timestamp. For 'the last/most recent/previous conversation', pick the one with the newest 'when'. Then open_memory(id) to read it in full."})
-                }
-            }
-            "open_memory" => {
-                let id = args.get("id").and_then(Value::as_str).unwrap_or("");
-                match id.parse::<i64>().ok().and_then(super::super::memory::open) {
-                    Some(transcript) => json!({"ok": true, "transcript": transcript}),
-                    None => json!({"ok": false, "error": "no saved conversation with that id"}),
-                }
-            }
-            "list_app_integrations" => super::super::mcp::list_tool(),
-            "setup_app_integration" => super::super::mcp::setup_tool(
-                args.get("id").and_then(Value::as_str).unwrap_or(""),
-                args.get("confirmed")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            ),
-            "app_integration_status" => {
-                super::super::mcp::status_tool(args.get("id").and_then(Value::as_str).unwrap_or(""))
-            }
-            "read_app_integration_docs" => {
-                super::super::mcp::docs_tool(args.get("id").and_then(Value::as_str).unwrap_or(""))
-            }
-            "remove_app_integration" => {
-                super::super::mcp::remove_tool(args.get("id").and_then(Value::as_str).unwrap_or(""))
             }
             // Local artifact tools and installed MCP tools are dynamic-ish surfaces.
             _ => {

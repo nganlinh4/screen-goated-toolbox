@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -21,28 +22,164 @@ class CreationParityContractTest {
         val fixture = fixture("image-to-3d")
         val limits = fixture["limits"]!!.jsonObject
         val defaults = fixture["defaults"]!!.jsonObject
+        val modelSafety = fixture["modelSafety"]!!.jsonObject
         val names = fixture["names"]!!.jsonObject
         val presentation = fixture["presentation"]!!.jsonObject
         val lifecycle = fixture["hostLifecycle"]!!.jsonObject
+        val distribution = fixture["distribution"]!!.jsonObject
 
         assertEquals(CreationContract.MINIMUM_POLYCOUNT, limits.int("minimumPolycount"))
         assertEquals(CreationContract.MAXIMUM_POLYCOUNT, limits.int("maximumPolycount"))
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.int("maximumParallelJobs"))
-        assertEquals(
-            CreationContract.MAXIMUM_CONCURRENT_PREPARATIONS,
-            limits.int("maximumConcurrentPreparations"),
-        )
-        assertEquals(
-            CreationContract.MINIMUM_PREPARATION_INTERVAL_SECONDS,
-            limits.int("minimumPreparationIntervalSeconds"),
-        )
-        assertEquals(CreationContract.IMAGE_TO_3D_WORKSPACES, limits.int("preparedWorkspaces"))
         assertEquals(CreationContract.DEFAULT_POLYCOUNT, defaults.int("polycount"))
+        assertTrue(modelSafety.boolean("staticTriangleGeometryOnly"))
+        assertEquals(
+            CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES,
+            modelSafety.int("maximumGlbBytes").toLong(),
+        )
+        assertEquals(CREATION_GLB_MAXIMUM_JSON_BYTES, modelSafety.int("maximumJsonBytes"))
+        assertEquals(
+            CREATION_GLB_MAXIMUM_DATA_URI_CHARACTERS,
+            modelSafety.int("maximumEmbeddedUriCharacters"),
+        )
+        assertEquals(CREATION_GLB_MAXIMUM_BUFFERS, modelSafety.int("maximumBuffers"))
+        assertEquals(
+            CREATION_GLB_MAXIMUM_BUFFER_VIEWS,
+            modelSafety.int("maximumBufferViews"),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_AGGREGATE_BUFFER_VIEW_BYTES,
+            modelSafety.int("maximumAggregateBufferViewBytes").toLong(),
+        )
+        assertEquals(CREATION_GLB_MAXIMUM_ACCESSORS, modelSafety.int("maximumAccessors"))
+        assertEquals(
+            CREATION_GLB_MAXIMUM_ACCESSOR_ELEMENTS,
+            modelSafety.int("maximumAccessorElements").toLong(),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_ABSOLUTE_RENDERER_VALUE,
+            modelSafety.double("maximumAbsoluteRendererValue"),
+            0.0,
+        )
+        assertEquals(
+            CREATION_GLB_POSITION_BOUNDS_ABSOLUTE_TOLERANCE,
+            modelSafety.double("maximumPositionBoundsAbsoluteTolerance"),
+            0.0,
+        )
+        assertEquals(
+            CREATION_GLB_POSITION_BOUNDS_RELATIVE_TOLERANCE,
+            modelSafety.double("maximumPositionBoundsRelativeTolerance"),
+            0.0,
+        )
+        assertEquals(CREATION_GLB_MAXIMUM_NODES, modelSafety.int("maximumNodes"))
+        assertEquals(CREATION_GLB_MAXIMUM_SCENES, modelSafety.int("maximumScenes"))
+        assertEquals(CREATION_GLB_MAXIMUM_MESHES, modelSafety.int("maximumMeshes"))
+        assertEquals(CREATION_GLB_MAXIMUM_PRIMITIVES, modelSafety.int("maximumPrimitives"))
+        assertEquals(CREATION_GLB_MAXIMUM_MATERIALS, modelSafety.int("maximumMaterials"))
+        assertEquals(
+            CREATION_GLB_MAXIMUM_VERTICES,
+            modelSafety.int("maximumVertices").toLong(),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_INDICES,
+            modelSafety.int("maximumIndices").toLong(),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_MORPH_TARGETS,
+            modelSafety.int("maximumMorphTargets"),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_MORPH_ELEMENTS,
+            modelSafety.int("maximumMorphElements").toLong(),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_PRIMITIVE_ATTRIBUTES,
+            modelSafety.int("maximumPrimitiveAttributes"),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_MORPH_ATTRIBUTES,
+            modelSafety.int("maximumMorphAttributes"),
+        )
+        assertEquals(CREATION_GLB_MAXIMUM_IMAGES, modelSafety.int("maximumImages"))
+        assertEquals(CREATION_GLB_MAXIMUM_TEXTURES, modelSafety.int("maximumTextures"))
+        assertEquals(CREATION_GLB_MAXIMUM_SAMPLERS, modelSafety.int("maximumSamplers"))
+        assertEquals(
+            CREATION_GLB_MAXIMUM_IMAGE_DIMENSION,
+            modelSafety.int("maximumTextureAxisPixels"),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_IMAGE_PIXELS,
+            modelSafety.int("maximumPixelsPerTextureImage").toLong(),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_DECODED_IMAGE_PIXELS,
+            modelSafety.int("maximumDecodedImagePixels").toLong(),
+        )
+        assertEquals(
+            CREATION_GLB_MAXIMUM_REFERENCED_TEXTURE_PIXELS,
+            modelSafety.int("maximumReferencedTexturePixels").toLong(),
+        )
+        assertTrue(modelSafety.boolean("bufferByteLengthIsExactLogicalBytes"))
+        assertTrue(modelSafety.boolean("binaryChunkUsesZeroAlignmentPadding"))
+        assertTrue(modelSafety.boolean("binaryChunkMustBackBufferZero"))
+        assertEquals(3, modelSafety.int("maximumBinaryAlignmentPaddingBytes"))
+        assertEquals("2.0", modelSafety.string("exactAssetVersion"))
+        assertEquals(32, modelSafety.int("jsonChunkPaddingByte"))
+        assertEquals(CREATION_GLB_MAXIMUM_NODE_DEPTH, modelSafety.int("maximumNodeDepth"))
+        listOf(
+            "accessorAbsoluteAlignmentRequired",
+            "vertexAccessorFourByteAlignmentRequired",
+            "loaderInterleavedTailCoverageRequired",
+            "accessorBoundsValidated",
+            "positionBoundsContainBinaryValues",
+            "rendererBinaryFloatValuesMustBeFinite",
+            "primitiveElementCountMultipleOfThree",
+            "primitiveIndicesWithinPositionAccessor",
+            "texturePayloadMustDecode",
+            "materialTextureReferencesValidated",
+            "materialNumericValuesBounded",
+            "materialRendererValueTypesValidated",
+            "textureClonePixelsCharged",
+            "textureTransformValuesBounded",
+            "samplerEnumsValidated",
+            "bufferUriMimeContextRequired",
+            "presentationRevalidatesCommittedBytesBeforeLoad",
+            "selectedSceneMustContainGeometry",
+            "sceneRootsUniqueAcrossScenes",
+            "nodeTransformsAndMorphWeightsBounded",
+            "extensionBodiesMustBeObjects",
+        ).forEach { field -> assertTrue(field, modelSafety.boolean(field)) }
+        assertFalse(modelSafety.boolean("externalResourcesAllowed"))
+        assertEquals(
+            setOf("image/png", "image/jpeg", "image/webp"),
+            modelSafety.getValue("embeddedImageMimeTypes").jsonArray
+                .map { it.jsonPrimitive.content }
+                .toSet(),
+        )
+        assertFalse(modelSafety.boolean("animatedPngAllowed"))
+        assertFalse(modelSafety.boolean("animatedWebpAllowed"))
+        assertFalse(modelSafety.boolean("sparseAccessorsAllowed"))
+        assertFalse(modelSafety.boolean("animationsAllowed"))
+        assertFalse(modelSafety.boolean("skinsAllowed"))
+        assertFalse(modelSafety.boolean("authoredCamerasAllowed"))
+        assertEquals("acyclic_single_parent", modelSafety.string("nodeGraphPolicy"))
+        assertTrue(modelSafety.boolean("extensionsFailClosed"))
+        assertTrue(modelSafety.boolean("extensionsUsedMustBeUnique"))
+        assertTrue(modelSafety.boolean("extensionsRequiredMustBeUsed"))
+        assertTrue(modelSafety.boolean("extensionBodiesMustBeDeclared"))
+        assertEquals(
+            CREATION_GLB_ALLOWED_EXTENSIONS,
+            modelSafety.getValue("allowedExtensions").jsonArray
+                .map { it.jsonPrimitive.content }
+                .toSet(),
+        )
         assertTrue(presentation.boolean("sharedIconCatalog"))
-        assertTrue(presentation.boolean("unchangedPollPreservesQueueDom"))
-        assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesPolling"))
-        assertTrue(lifecycle.boolean("closeCancelsToolJobs"))
-        assertTrue(lifecycle.boolean("closeDestroysWebSurface"))
+        assertTrue(presentation.boolean("unchangedStatusRefreshPreservesSessionList"))
+        assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesStatusRefresh"))
+        assertTrue(lifecycle.boolean("closeCancelsOnlyOwnerJobs"))
+        assertTrue(lifecycle.boolean("closeDestroysProductSurface"))
+        assertTrue(distribution.boolean("behaviorIdentical"))
+        assertTrue(distribution.boolean("featureSetIdentical"))
         assertEquals(names.string("en"), MobileLocaleText.forLanguage("en").appImageTo3dTitle)
         assertEquals(names.string("ko"), MobileLocaleText.forLanguage("ko").appImageTo3dTitle)
         assertEquals(names.string("vi"), MobileLocaleText.forLanguage("vi").appImageTo3dTitle)
@@ -53,27 +190,70 @@ class CreationParityContractTest {
         val fixture = fixture("image-to-svg")
         val limits = fixture["limits"]!!.jsonObject
         val models = fixture["models"]!!.jsonObject
+        val viewer = fixture["viewer"]!!.jsonObject
+        val pathSelection = viewer["pathSelection"]!!.jsonObject
         val presentation = fixture["presentation"]!!.jsonObject
         val lifecycle = fixture["hostLifecycle"]!!.jsonObject
+        val recovery = fixture["recovery"]!!.jsonObject
+        val distribution = fixture["distribution"]!!.jsonObject
 
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.int("maximumParallelJobs"))
-        assertEquals(
-            CreationContract.MAXIMUM_CONCURRENT_PREPARATIONS,
-            limits.int("maximumConcurrentPreparations"),
-        )
-        assertEquals(
-            CreationContract.MINIMUM_PREPARATION_INTERVAL_SECONDS,
-            limits.int("minimumPreparationIntervalSeconds"),
-        )
-        assertEquals(CreationContract.IMAGE_TO_SVG_WORKSPACES, limits.int("preparedWorkspaces"))
         assertEquals(setOf("simple", "detail"), models.keys)
         assertTrue(models.getValue("simple").jsonObject.boolean("selectable"))
         assertTrue(models.getValue("detail").jsonObject.boolean("selectable"))
+        assertEquals(
+            CREATION_SVG_MAXIMUM_DOCUMENT_DEPTH,
+            viewer.int("maximumDocumentDepth"),
+        )
+        assertEquals(
+            CREATION_SVG_MAXIMUM_PATH_COMMANDS,
+            viewer.int("maximumPathCommands"),
+        )
+        assertEquals(
+            CREATION_SVG_MAXIMUM_GEOMETRY_NUMBERS,
+            viewer.int("maximumGeometryNumbers"),
+        )
+        assertEquals(
+            CREATION_SVG_MAXIMUM_COORDINATE_MAGNITUDE,
+            viewer.double("maximumCoordinateMagnitude"),
+            0.0,
+        )
+        assertEquals(
+            CREATION_SVG_MAXIMUM_LOCAL_REFERENCE_EDGES,
+            viewer.int("maximumLocalReferenceEdges"),
+        )
+        assertEquals(
+            CREATION_SVG_MAXIMUM_LOCAL_REFERENCE_DEPTH,
+            viewer.int("maximumLocalReferenceDepth"),
+        )
+        assertEquals(
+            CREATION_SVG_MAXIMUM_LOCAL_IDENTIFIER_BYTES,
+            viewer.int("maximumLocalIdentifierBytes"),
+        )
+        assertTrue(viewer.boolean("rejectDuplicateLocalIdentifiers"))
+        assertTrue(viewer.boolean("rejectCyclicLocalReferences"))
+        assertTrue(viewer.boolean("rejectEncodedLocalReferenceAliases"))
+        assertFalse(viewer.boolean("allowStylesheetLocalReferences"))
+        assertTrue(viewer.boolean("rejectCssMotion"))
+        assertTrue(pathSelection.boolean("stationaryPrimaryPressSelectsGeometry"))
+        assertTrue(pathSelection.boolean("pointerCaptureBeginsAfterPanThreshold"))
+        assertTrue(pathSelection.boolean("captureCannotRetargetSelection"))
+        assertTrue(pathSelection.boolean("panDoesNotChangeSelection"))
         assertTrue(presentation.boolean("sharedIconCatalog"))
-        assertTrue(presentation.boolean("unchangedPollPreservesQueueDom"))
-        assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesPolling"))
-        assertTrue(lifecycle.boolean("closeCancelsToolJobs"))
-        assertTrue(lifecycle.boolean("closeDestroysWebSurface"))
+        assertTrue(presentation.boolean("unchangedStatusRefreshPreservesSessionList"))
+        assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesStatusRefresh"))
+        assertTrue(lifecycle.boolean("closeCancelsOnlyOwnerJobs"))
+        assertTrue(lifecycle.boolean("closeDestroysProductSurface"))
+        assertTrue(recovery.boolean("preparationRetriesAreBounded"))
+        assertTrue(recovery.boolean("retryUsesFreshExecutionState"))
+        assertTrue(recovery.boolean("uncleanWorkspaceIsQuarantined"))
+        assertTrue(recovery.boolean("transientCapacityFailureIsCapabilityScoped"))
+        assertTrue(recovery.boolean("temporaryCapacityPauseWaitIsBounded"))
+        assertTrue(recovery.boolean("recoveryStorageCannotPermanentlyBlockPreparation"))
+        assertTrue(recovery.boolean("inactivePreparationStateReclaimedBeforeAdmission"))
+        assertTrue(recovery.boolean("liveAndAcceptedRecoveryStateProtected"))
+        assertTrue(distribution.boolean("behaviorIdentical"))
+        assertTrue(distribution.boolean("featureSetIdentical"))
     }
 
     @Test
@@ -83,8 +263,9 @@ class CreationParityContractTest {
         val references = fixture["request"]!!.jsonObject["references"]!!.jsonObject
         val locales = fixture["locales"]!!.jsonObject
         val presentation = fixture["presentation"]!!.jsonObject
-        val surface = fixture["androidSurface"]!!.jsonObject
         val behavior = fixture["behavior"]!!.jsonObject
+        val recovery = fixture["recovery"]!!.jsonObject
+        val distribution = fixture["distribution"]!!.jsonObject
         val copyPolicy = fixture["publicCopyPolicy"]!!.jsonObject
 
         assertEquals("image", fixture.string("tool"))
@@ -92,14 +273,6 @@ class CreationParityContractTest {
         assertEquals(
             CreationContract.IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS,
             fixture.int("maximumParallelJobs"),
-        )
-        assertEquals(
-            CreationContract.IMAGE_CREATOR_WORKSPACES,
-            fixture.int("preparedWorkspaces"),
-        )
-        assertEquals(
-            CreationContract.MAXIMUM_CONCURRENT_PREPARATIONS,
-            fixture.int("maximumConcurrentPreparations"),
         )
         assertEquals(
             CreationContract.IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS,
@@ -116,35 +289,33 @@ class CreationParityContractTest {
         assertEquals(1, presentation.int("iconFill"))
         assertFalse(presentation.boolean("appSpecificTheme"))
         assertTrue(presentation.boolean("sharedIconCatalog"))
-        assertTrue(presentation.boolean("unchangedPollPreservesQueueDom"))
-        assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesPolling"))
-        assertTrue(presentation.boolean("focusedInputSurvivesStatusPolling"))
-        assertTrue(presentation.boolean("imeCompositionSurvivesStatusPolling"))
+        assertTrue(presentation.boolean("matchesSharedCreationExperience"))
+        assertTrue(presentation.boolean("unchangedStatusRefreshPreservesSessionList"))
+        assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesStatusRefresh"))
+        assertTrue(presentation.boolean("focusedInputSurvivesStatusRefresh"))
+        assertTrue(presentation.boolean("imeCompositionSurvivesStatusRefresh"))
         val estimatedProgress = presentation["estimatedProgress"]!!.jsonObject
         assertTrue(estimatedProgress.boolean("usesRuntimeEstimate"))
         assertTrue(estimatedProgress.boolean("usesElapsedTimeCurve"))
         assertTrue(estimatedProgress.boolean("monotonic"))
         assertEquals(0.94, estimatedProgress.double("maximumBeforeCompletion"), 0.0)
         assertTrue(estimatedProgress.boolean("showsLocalizedEta"))
-        assertEquals(
-            CreationContract.IMAGE_CREATOR_WORKSPACES,
-            surface.int("isolatedWorkers"),
-        )
-        assertFalse(surface.boolean("implementationDetailsVisible"))
         assertEquals("feature_only", copyPolicy.string("vocabulary"))
         assertFalse(copyPolicy.boolean("implementationDetailsVisible"))
         assertFalse(copyPolicy.boolean("rawImplementationErrorsVisible"))
         assertTrue(copyPolicy.boolean("referenceUploadCopyRequiresReferences"))
         assertTrue(behavior.boolean("cancellationIsMonotonic"))
         assertTrue(behavior.boolean("lateSuccessCannotPublishAfterCancellation"))
-        assertTrue(behavior.boolean("acceptedRequestIsNotRepeatedDuringRecovery"))
         assertTrue(behavior.boolean("retryCreatesNewJob"))
         assertTrue(behavior.boolean("retryPreservesPreviousResult"))
-        assertTrue(behavior.boolean("closingUiCancelsToolJobs"))
-        assertTrue(behavior.boolean("closingUiTerminatesTrackedProcessTrees"))
-        assertTrue(behavior.boolean("closingUiDestroysWebSurface"))
-        assertTrue(behavior.boolean("sharedPreparationSurvivesMiniAppClose"))
+        assertTrue(behavior.boolean("closeCancelsOnlyOwnerJobs"))
+        assertTrue(behavior.boolean("closeReleasesOwnerExecutionResources"))
+        assertTrue(behavior.boolean("closeDestroysProductSurface"))
         assertTrue(behavior.boolean("failureRemainsBoundToJob"))
+        assertTrue(recovery.boolean("acceptedRequestResumedWithoutResubmit"))
+        assertTrue(recovery.boolean("replayMatchesOnlySameDispatchId"))
+        assertTrue(distribution.boolean("behaviorIdentical"))
+        assertTrue(distribution.boolean("featureSetIdentical"))
         assertEquals(locales.string("en"), MobileLocaleText.forLanguage("en").appImageCreatorTitle)
         assertEquals(locales.string("ko"), MobileLocaleText.forLanguage("ko").appImageCreatorTitle)
         assertEquals(locales.string("vi"), MobileLocaleText.forLanguage("vi").appImageCreatorTitle)

@@ -20,7 +20,6 @@ type BindControlOptions = {
   updateUi: () => void;
   addImages: () => Promise<void>;
   addImagePaths: (paths: string[]) => Promise<void>;
-  closeConfirmation: (accepted: boolean) => void;
   closeReferencePreview: () => void;
 };
 
@@ -28,7 +27,7 @@ export function bindControls(options: BindControlOptions) {
   const {
     state, nodes, viewer, presentation, jobRunner, invoke, selectedItem,
     isConfigurable, isRerunnable, batchItems, normalizeSettings, updateUi,
-    addImages, addImagePaths, closeConfirmation, closeReferencePreview,
+    addImages, addImagePaths, closeReferencePreview,
   } = options;
 
   window.applyHostContext = (context: HostContext) => {
@@ -69,7 +68,9 @@ export function bindControls(options: BindControlOptions) {
   nodes.segmentButton.addEventListener("click", () => void jobRunner.segmentSelected());
   nodes.cancelButton.addEventListener("click", async () => {
     const item = selectedItem();
-    if (item?.result?.stage === "segmenting" && item.result.jobId) {
+    if (!item) return;
+    item.cancelRequested = true;
+    if (item.result?.jobId) {
       const status = await invoke<JobStatus>("cancel_job", { jobId: item.result.jobId });
       item.result = status;
       item.state = "cancelled";
@@ -77,13 +78,9 @@ export function bindControls(options: BindControlOptions) {
       updateUi();
       return;
     }
-    state.cancelRequested = true;
-    await invoke("cancel_job");
-  });
-  nodes.confirmCancel.addEventListener("click", () => closeConfirmation(false));
-  nodes.confirmAccept.addEventListener("click", () => closeConfirmation(true));
-  nodes.confirmDialog.addEventListener("click", (event) => {
-    if (event.target === nodes.confirmDialog) closeConfirmation(false);
+    item.state = "cancelled";
+    state.runningIds.delete(item.id);
+    updateUi();
   });
   nodes.modeButtons.forEach((button) => button.addEventListener("click", () => {
     const item = selectedItem();
@@ -131,6 +128,20 @@ export function bindControls(options: BindControlOptions) {
       });
     }
     updateUi();
+  });
+  nodes.instructionInput.addEventListener("input", () => {
+    const item = selectedItem();
+    if (!item || !isConfigurable(item)) return;
+    const value = nodes.instructionInput.value;
+    const update = (member: QueueItem) => {
+      member.instruction = value;
+    };
+    if (isRerunnable(item)) update(item);
+    else {
+      batchItems(item.batchId).forEach((member) => {
+        if (member.state === "queued" && !member.submitted) update(member);
+      });
+    }
   });
   nodes.shadingButtons.forEach((button) => button.addEventListener("click", () => {
     viewer.setShading(button.dataset.shading as ShadingMode);

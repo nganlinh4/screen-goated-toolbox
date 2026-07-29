@@ -23,14 +23,7 @@ struct SavedWindowSize {
 }
 
 fn is_supported_image(path: &std::path::Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "webp"
-            )
-        })
+    crate::overlay::three_d_generator::file_dialogs::is_supported_image_path(path)
 }
 
 fn set_file_drag_active(active: bool) {
@@ -51,9 +44,9 @@ fn handle_file_drop(event: DragDropEvent) -> bool {
         }
         DragDropEvent::Drop { paths, .. } => {
             set_file_drag_active(false);
-            let paths = paths
+            let paths = super::admit_dropped_images(paths)
+                .unwrap_or_default()
                 .into_iter()
-                .filter(|path| is_supported_image(path))
                 .map(|path| path.to_string_lossy().into_owned())
                 .collect::<Vec<_>>();
             if !paths.is_empty()
@@ -77,6 +70,7 @@ pub(super) fn show() {
     unsafe {
         if !super::IS_READY {
             if !super::IS_INITIALIZING {
+                crate::overlay::creation_close::reset_product(super::product_key());
                 super::IS_INITIALIZING = true;
                 std::thread::spawn(internal_create_loop_entry);
             }
@@ -148,15 +142,26 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             WM_CLOSE => {
+                if wparam.0 != 0 && !crate::overlay::creation_close::accept_retry(hwnd, wparam.0) {
+                    return LRESULT(0);
+                }
                 save_window_size(hwnd);
                 crate::overlay::creation_preview::unregister_async_target(hwnd);
-                let _ = super::runtime::cancel_job(None);
-                let _ = DestroyWindow(hwnd);
+                if super::shutdown() {
+                    crate::overlay::creation_close::clear(hwnd);
+                    let _ = DestroyWindow(hwnd);
+                } else {
+                    crate::log_info!(
+                        "[Creation window] Close is waiting for durable cancellation."
+                    );
+                    crate::overlay::creation_close::schedule(hwnd);
+                }
                 LRESULT(0)
             }
             WM_DESTROY => {
+                crate::overlay::creation_close::clear(hwnd);
                 crate::overlay::creation_preview::unregister_async_target(hwnd);
-                let _ = super::runtime::cancel_job(None);
+                let _ = super::shutdown();
                 super::WEBVIEW.with(|webview| {
                     *webview.borrow_mut() = None;
                 });
@@ -305,11 +310,21 @@ unsafe fn internal_create_loop() {
         let webview_result = {
             let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
             let url = page_url.as_deref().unwrap_or("about:blank");
+            let allowed_url = url.to_string();
             let mut builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
                 .with_background_color(background)
+                .with_custom_protocol("sgtcreation".to_string(), |_id, request| {
+                    crate::overlay::creation_preview_protocol::handle(request)
+                })
                 .with_initialization_script(&init_script)
                 .with_ipc_handler(move |request: wry::http::Request<String>| {
                     super::ipc::handle_ipc(hwnd, request.body());
+                })
+                .with_navigation_handler(move |requested: String| {
+                    requested
+                        .split('#')
+                        .next()
+                        .is_some_and(|value| value == allowed_url)
                 })
                 .with_drag_drop_handler(handle_file_drop)
                 .with_url(url);

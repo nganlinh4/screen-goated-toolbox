@@ -8,13 +8,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed as rowItemsIndexed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.ui.UtilityExpressiveCard
@@ -73,12 +70,30 @@ internal fun CreationImageSettings(
                     key = { index, path -> "$index:$path" },
                 ) { index, path ->
                     Box(Modifier.size(82.dp)) {
-                        CreationImageThumbnail(
-                            path = path,
+                        Surface(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clip(MaterialTheme.shapes.medium),
-                        )
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ms_image),
+                                    contentDescription = null,
+                                    tint = accent,
+                                )
+                                Text(
+                                    File(path).name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                         if (enabled) {
                             IconButton(
                                 onClick = { onRemoveReference(index) },
@@ -173,20 +188,21 @@ internal fun CreationImageSource(
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize().padding(12.dp),
         )
-        else -> LazyVerticalGrid(
-            columns = GridCells.Adaptive(112.dp),
-            modifier = Modifier.fillMaxSize().padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            gridItemsIndexed(
-                items = referencePaths,
-                key = { index, path -> "$index:$path" },
-            ) { _, path ->
-                CreationImageThumbnail(
-                    path = path,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.height(112.dp).clip(MaterialTheme.shapes.medium),
+        else -> Box(Modifier.fillMaxSize()) {
+            CreationImageThumbnail(
+                path = referencePaths.first(),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().padding(12.dp),
+            )
+            Surface(
+                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+            ) {
+                Text(
+                    strings.referenceCount.replace("{}", referencePaths.size.toString()),
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelSmall,
                 )
             }
         }
@@ -241,18 +257,10 @@ internal fun CreationImageResult(
                     outputFile?.absolutePath,
                     Modifier.weight(1f),
                 )
-                Text(strings.references, style = MaterialTheme.typography.labelMedium)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    rowItemsIndexed(referencePaths) { index, path ->
-                        CreationImageThumbnail(
-                            path = path,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .size(72.dp)
-                                .clip(MaterialTheme.shapes.small),
-                        )
-                    }
-                }
+                Text(
+                    strings.referenceCount.replace("{}", referencePaths.size.toString()),
+                    style = MaterialTheme.typography.labelMedium,
+                )
             }
         }
     }

@@ -14,7 +14,7 @@ pub(crate) const MIN_VERIFICATION_CONFIDENCE: u64 = 70;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GroundingRequest {
     pub prompt: String,
-    pub response_schema: serde_json::Value,
+    pub response_schema: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -24,24 +24,62 @@ pub(crate) struct VerificationDecision {
     pub note: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GroundingPoint {
+    pub id: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    pub label: String,
+}
+
 pub(crate) fn point_request(description: &str, context: &str) -> GroundingRequest {
     GroundingRequest {
         prompt: format!(
-            "{}Find this target in the image: {description}. Output ONLY JSON \
-             {{\"x\": <int>, \"y\": <int>, \"what\": \"<2-4 words: what is AT that location, e.g. empty cell, an X, a button>\"}} \
-             - x,y are the CENTER on a 0-1000 grid (x: 0 left to 1000 right; y: 0 top to 1000 bottom). If the target is not \
-             visible, output {{\"error\": \"not visible\"}}.",
+            "{}Find this visible target in the image: {description}\n\
+             Output exactly one line and nothing else:\n\
+             M|target|x|y|short visible label\n\
+             x and y are integer CENTER coordinates on a 0-1000 grid (x left to \
+             right, y top to bottom). If it is not visible, output N|target. \
+             Do not use markdown or add a second line.",
             context_prefix(context)
         ),
-        response_schema: serde_json::json!({
-            "type": "object",
-            "properties": {
-                "x": {"type": "integer"},
-                "y": {"type": "integer"},
-                "what": {"type": "string"},
-                "error": {"type": "string"}
-            }
-        }),
+        response_schema: None,
+    }
+}
+
+pub(crate) fn marks_request(description: &str, context: &str) -> GroundingRequest {
+    GroundingRequest {
+        prompt: format!(
+            "{}Map every distinct visible actionable target relevant to: {description}\n\
+             Output only records in reading order, at most 30:\n\
+             M|short visible label|x|y\n\
+             x and y are integer CENTER coordinates on a 0-1000 grid (x left to \
+             right, y top to bottom). Use one record per target. If none are \
+             visible, output N. Do not use markdown, prose, or duplicate points.",
+            context_prefix(context)
+        ),
+        response_schema: None,
+    }
+}
+
+pub(crate) fn drag_request(
+    from_description: &str,
+    to_description: &str,
+    context: &str,
+) -> GroundingRequest {
+    GroundingRequest {
+        prompt: format!(
+            "{}Locate both drag endpoints in this same image.\n\
+             Start: {from_description}\nDestination: {to_description}\n\
+             Output exactly two lines and nothing else:\n\
+             M|from|x|y|short visible label\n\
+             M|to|x|y|short visible label\n\
+             x and y are integer CENTER coordinates on a 0-1000 grid (x left to \
+             right, y top to bottom). If an endpoint is not visible, output only \
+             N|from or N|to for that missing endpoint. Do not use markdown.",
+            context_prefix(context)
+        ),
+        response_schema: None,
     }
 }
 
@@ -54,16 +92,157 @@ pub(crate) fn verification_request(description: &str, context: &str) -> Groundin
              elsewhere in the crop is false.",
             context_prefix(context)
         ),
-        response_schema: serde_json::json!({
+        response_schema: Some(serde_json::json!({
             "type": "object",
             "properties": {
                 "matches": {"type": "boolean"},
-                "confidence": {"type": "integer"},
-                "what": {"type": "string"}
+                "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+                "what": {"type": "string", "minLength": 1, "maxLength": 160}
             },
-            "required": ["matches", "confidence", "what"]
-        }),
+            "required": ["matches", "confidence", "what"],
+            "additionalProperties": false
+        })),
     }
+}
+
+pub(crate) fn parse_named_grounding_records(
+    response: &str,
+    expected_ids: &[&str],
+) -> Option<Vec<GroundingPoint>> {
+    if expected_ids.is_empty() || grounding_reports_not_visible(response, expected_ids) {
+        return None;
+    }
+    let mut points = Vec::with_capacity(expected_ids.len());
+    for line in strict_record_lines(response)? {
+        let fields = record_fields(line);
+        if fields.len() != 5 || fields[0] != "M" {
+            return None;
+        }
+        let id = fields[1];
+        if !expected_ids.contains(&id)
+            || points
+                .iter()
+                .any(|point: &GroundingPoint| point.id.as_deref() == Some(id))
+        {
+            return None;
+        }
+        points.push(GroundingPoint {
+            id: Some(id.to_string()),
+            x: parse_grid_coordinate(fields[2])?,
+            y: parse_grid_coordinate(fields[3])?,
+            label: parse_label(fields[4])?,
+        });
+    }
+    if points.len() != expected_ids.len()
+        || expected_ids
+            .iter()
+            .any(|id| !points.iter().any(|point| point.id.as_deref() == Some(id)))
+    {
+        return None;
+    }
+    Some(points)
+}
+
+pub(crate) fn parse_open_grounding_records(response: &str) -> Option<Vec<GroundingPoint>> {
+    if response.trim() == "N" {
+        return Some(Vec::new());
+    }
+    let lines = strict_record_lines(response)?;
+    if lines.len() > 30 {
+        return None;
+    }
+    let mut points = Vec::with_capacity(lines.len());
+    for line in lines {
+        let fields = record_fields(line);
+        if fields.len() != 4 || fields[0] != "M" {
+            return None;
+        }
+        let point = GroundingPoint {
+            id: None,
+            label: parse_label(fields[1])?,
+            x: parse_grid_coordinate(fields[2])?,
+            y: parse_grid_coordinate(fields[3])?,
+        };
+        if points.iter().any(|existing: &GroundingPoint| {
+            let dx = existing.x - point.x;
+            let dy = existing.y - point.y;
+            dx * dx + dy * dy < 100.0
+        }) {
+            return None;
+        }
+        points.push(point);
+    }
+    Some(points)
+}
+
+pub(crate) fn grounding_reports_not_visible(response: &str, expected_ids: &[&str]) -> bool {
+    let Some(lines) = strict_record_lines(response) else {
+        return false;
+    };
+    if lines.len() == 1 {
+        let fields = record_fields(lines[0]);
+        if fields.as_slice() == ["N"] {
+            return true;
+        }
+    }
+    if expected_ids.is_empty() || lines.len() != expected_ids.len() {
+        return false;
+    }
+    let mut seen_ids = Vec::with_capacity(expected_ids.len());
+    let mut missing_count = 0;
+    for line in lines {
+        let fields = record_fields(line);
+        let id = match fields.as_slice() {
+            ["N", id] if expected_ids.contains(id) => {
+                missing_count += 1;
+                *id
+            }
+            ["M", id, x, y, label]
+                if expected_ids.contains(id)
+                    && parse_grid_coordinate(x).is_some()
+                    && parse_grid_coordinate(y).is_some()
+                    && parse_label(label).is_some() =>
+            {
+                *id
+            }
+            _ => return false,
+        };
+        if seen_ids.contains(&id) {
+            return false;
+        }
+        seen_ids.push(id);
+    }
+    missing_count > 0
+        && expected_ids
+            .iter()
+            .all(|expected| seen_ids.contains(expected))
+}
+
+fn strict_record_lines(response: &str) -> Option<Vec<&str>> {
+    let trimmed = response.trim();
+    if trimmed.is_empty() || trimmed.contains("```") {
+        return None;
+    }
+    let lines = trimmed.lines().map(str::trim).collect::<Vec<_>>();
+    (!lines.is_empty() && lines.iter().all(|line| !line.is_empty())).then_some(lines)
+}
+
+fn record_fields(line: &str) -> Vec<&str> {
+    let mut fields = line.split('|').map(str::trim).collect::<Vec<_>>();
+    if fields.last() == Some(&"") {
+        fields.pop();
+    }
+    fields
+}
+
+fn parse_grid_coordinate(value: &str) -> Option<f64> {
+    let parsed = value.parse::<u16>().ok()?;
+    (parsed <= 1000).then_some(f64::from(parsed))
+}
+
+fn parse_label(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty() && value.chars().count() <= 160).then(|| value.to_string())
 }
 
 pub(crate) fn context_prefix(context: &str) -> String {
@@ -132,39 +311,28 @@ pub(crate) fn crosshair_crop(jpeg: &[u8], x_1000: f64, y_1000: f64) -> Result<Ve
     encode_jpeg(&image::DynamicImage::ImageRgb8(crop))
 }
 
-pub(crate) fn parse_point(response: &str) -> Option<(f64, f64)> {
-    let x = number_after_key(response, b'x')?;
-    let y = number_after_key(response, b'y')?;
-    Some((x.clamp(0.0, 1000.0), y.clamp(0.0, 1000.0)))
-}
-
 pub(crate) fn parse_verification(response: &str) -> Option<VerificationDecision> {
-    let start = response.find('{')?;
-    let end = response.rfind('}')?;
-    let value: serde_json::Value = serde_json::from_str(&response[start..=end]).ok()?;
+    let value: serde_json::Value = serde_json::from_str(response.trim()).ok()?;
+    let object = value.as_object()?;
+    if object.len() != 3
+        || !object.contains_key("matches")
+        || !object.contains_key("confidence")
+        || !object.contains_key("what")
+    {
+        return None;
+    }
+    let note = value.get("what").and_then(serde_json::Value::as_str)?;
+    if note.trim().is_empty() || note.chars().count() > 160 {
+        return None;
+    }
     Some(VerificationDecision {
         matches: value.get("matches").and_then(serde_json::Value::as_bool)?,
         confidence: value
             .get("confidence")
-            .and_then(serde_json::Value::as_u64)?
-            .min(100),
-        note: value
-            .get("what")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string),
+            .and_then(serde_json::Value::as_u64)
+            .filter(|confidence| *confidence <= 100)?,
+        note: Some(note.trim().to_string()),
     })
-}
-
-pub(crate) fn parse_string_field(response: &str, key: &str) -> Option<String> {
-    let lower = response.to_ascii_lowercase();
-    let key_start = lower.find(&format!("\"{key}\""))?;
-    let after_key = &response[key_start..];
-    let colon = after_key.find(':')?;
-    let rest = &after_key[colon + 1..];
-    let opening_quote = rest.find('"')?;
-    let closing_quote = rest[opening_quote + 1..].find('"')?;
-    let value = rest[opening_quote + 1..opening_quote + 1 + closing_quote].trim();
-    (!value.is_empty()).then(|| value.to_string())
 }
 
 pub(crate) fn response_reports_not_visible(response: &str) -> bool {
@@ -177,41 +345,6 @@ pub(crate) fn response_reports_not_visible(response: &str) -> bool {
         .is_some_and(|error| !error.trim().is_empty())
 }
 
-fn number_after_key(response: &str, key: u8) -> Option<f64> {
-    let lower = response.to_ascii_lowercase();
-    let bytes = lower.as_bytes();
-    let key = key.to_ascii_lowercase();
-    let mut index = 0;
-    let mut found = None;
-    while index < bytes.len() {
-        if bytes[index] == key && (index == 0 || !bytes[index - 1].is_ascii_alphanumeric()) {
-            let mut cursor = index + 1;
-            while cursor < bytes.len() && matches!(bytes[cursor], b'"' | b'\'' | b' ' | b'\t') {
-                cursor += 1;
-            }
-            if cursor < bytes.len() && matches!(bytes[cursor], b':' | b'=') {
-                cursor += 1;
-                while cursor < bytes.len() && matches!(bytes[cursor], b'"' | b'\'' | b' ' | b'\t') {
-                    cursor += 1;
-                }
-                let start = cursor;
-                while cursor < bytes.len()
-                    && (bytes[cursor].is_ascii_digit() || bytes[cursor] == b'.')
-                {
-                    cursor += 1;
-                }
-                if cursor > start
-                    && let Ok(value) = lower[start..cursor].parse::<f64>()
-                {
-                    found = Some(value);
-                }
-            }
-        }
-        index += 1;
-    }
-    found
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,14 +353,33 @@ mod tests {
     fn point_and_verification_contracts_are_fail_closed() {
         let point = point_request("Save button", "Save the document");
         assert!(point.prompt.contains("Context (for disambiguation only"));
-        assert!(point.prompt.contains(r#"{"error": "not visible"}"#));
-        assert!(point.response_schema["properties"]["error"].is_object());
+        assert!(point.prompt.contains("M|target|x|y|short visible label"));
+        assert!(point.prompt.contains("N|target"));
+        assert!(point.response_schema.is_none());
 
         let verification = verification_request("Save button", "Save the document");
         assert!(verification.prompt.contains("CROSSHAIR CENTER"));
         assert_eq!(
-            verification.response_schema["required"],
+            verification.response_schema.unwrap()["required"],
             serde_json::json!(["matches", "confidence", "what"])
+        );
+        assert!(
+            parse_verification(r#"{"matches":true,"confidence":91,"what":"Save button"}"#)
+                .is_some()
+        );
+        assert!(
+            parse_verification(r#"prose {"matches":true,"confidence":91,"what":"Save button"}"#)
+                .is_none()
+        );
+        assert!(
+            parse_verification(r#"{"matches":true,"confidence":101,"what":"Save button"}"#)
+                .is_none()
+        );
+        assert!(
+            parse_verification(
+                r#"{"matches":true,"confidence":91,"what":"Save button","extra":1}"#
+            )
+            .is_none()
         );
     }
 
@@ -248,14 +400,5 @@ mod tests {
         let bytes = encode_jpeg(&large).unwrap();
         let decoded = image::load_from_memory(&bytes).unwrap();
         assert_eq!((decoded.width(), decoded.height()), (2133, 1600));
-    }
-
-    #[test]
-    fn point_parser_matches_the_tolerant_production_contract() {
-        assert_eq!(
-            parse_point("reasoning x=0 y=0; final {\"y\":250,\"x\":150}"),
-            Some((150.0, 250.0))
-        );
-        assert_eq!(parse_point(r#"{"error":"not visible"}"#), None);
     }
 }

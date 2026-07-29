@@ -1,592 +1,596 @@
 package dev.screengoated.toolbox.mobile.creation
 
 import android.content.Context
-import android.graphics.BitmapFactory
 import java.io.File
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonArray
+import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-
 internal class CreationJobManager private constructor(context: Context) {
     val files = CreationFileStore(context)
     val history = CreationHistoryStore(context, files)
-    private val diagnostics = CreationDiagnostics(context, "manager")
+    private val finisher = CreationJobFinisher(files, history)
+    private val cancellations = CreationCancellationStore(context)
+    private val ownerCloses = CreationOwnerCloseStore(context)
+    private val deliveries = CreationDeliveryStore(context, files, cancellations)
+    private val diagnostics = CreationDiagnostics(context)
     private val workers = CreationWorkerPool.get(context)
+    private val journal = CreationJobJournal(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val startup = CompletableDeferred<Unit>()
+    private val journalWriter = CreationManagerJournalWriter(journal, scope)
+    private val eventSignal = Channel<Unit>(Channel.CONFLATED)
+    private val deliveryRetrySignal = Channel<Unit>(Channel.CONFLATED)
+    private val eventBuffer = CreationWorkerEventBuffer()
+    private val dispatchQueue = CreationDispatchQueue(MAXIMUM_PENDING_JOBS_PER_TOOL)
+    private val eventLock = Any()
+    private val mutationLock = Any()
     private val lock = Any()
-    private val jobs = linkedMapOf<String, CreationJobStatus>()
-    private val requests = mutableMapOf<String, CreationWorkerRequest>()
-    private val startedAt = mutableMapOf<String, Long>()
-    private val continuations = mutableMapOf<String, Continuation>()
-    private val workerKeys = mutableMapOf<String, String>()
-
-    fun startPreparation(priority: CreationTool? = null): String {
-        workers.startPreparation(priority)
-        return "preparing"
+    private val memory = CreationManagerMemory()
+    private val jobs = memory.jobs
+    private val requests = memory.requests
+    private val startedAt = memory.startedAt
+    private val continuations = memory.continuations
+    private val engineIds = memory.engineIds
+    private val owners = memory.owners
+    private val destinations = memory.destinations
+    private val recoveryLeases = CreationRecoveryWorkerLeases(workers)
+    private val ownerCloseCoordinator = CreationOwnerCloseCoordinator(
+        ownerCloses, cancellations, files, workers, journalWriter, memory,
+        dispatchQueue, mutationLock, lock, recoveryLeases,
+    )
+    private val durableStateReadable = creationDurableStateIsReadable(context.filesDir)
+    private val deliveryCoordinator by lazy {
+        CreationDeliveryCoordinator(
+            deliveries, finisher, journal, journalWriter, memory,
+            dispatchQueue, mutationLock, lock,
+        )
     }
-
-    fun preparationStatus(tool: CreationTool): String = workers.preparationStatus(tool)
-
-    fun removeRuntime() = workers.removeRuntime()
-
-    fun startJob(tool: CreationTool, args: JsonObject): CreationJobStatus {
-        synchronized(lock) {
-            require(runningCount(tool) < CreationContract.maximumParallelJobs(tool)) {
-                if (tool == CreationTool.IMAGE_CREATOR) {
-                    "Two images are already being created"
-                } else {
-                    "Both creation workers are busy"
+    private val historyCoordinator by lazy {
+        CreationManagerHistoryCoordinator(
+            history,
+            files,
+            memory,
+            mutationLock,
+            lock,
+            journalWriter,
+        )
+    }
+    private val dispatcher = CreationJobDispatcher(
+        scope = scope,
+        workers = workers,
+        pendingSnapshot = { synchronized(lock) { dispatchQueue.snapshot() } },
+        requestFor = { jobId ->
+            synchronized(lock) {
+                requests[jobId]?.takeIf {
+                    jobs[jobId]?.stage?.let(::creationStageIsBusy) == true
+                }
+            }
+        },
+        removePending = { jobId ->
+            synchronized(mutationLock) {
+                synchronized(lock) { dispatchQueue.remove(jobId) }
+            }
+        },
+        onAssigned = ::recordAssignment,
+        isCancelled = { jobId -> synchronized(lock) { jobs[jobId]?.stage == "cancelled" } },
+        onEvent = ::handleWorkerEvent,
+        onDispatched = { request ->
+            diagnostics.event(
+                "job_dispatched",
+                request.tool,
+                jobId = request.jobId,
+                stage = "preparing",
+            )
+        },
+    )
+    init {
+        scope.launch {
+            runCatching {
+                if (durableStateReadable) {
+                    restoreJournal()
+                    ownerCloseCoordinator.reconcileAll()
+                    historyCoordinator.reconcileAtStartup()
+                    deliveryCoordinator.reconcileAtStartup().forEach(recoveryLeases::release)
+                    files.prunePresentationArtifacts()
+                    history.maintain()
+                }
+                val deliveryJobs = deliveries.pendingJobIds()
+                synchronized(lock) {
+                    requests.values.filter { request ->
+                        request.jobId !in deliveryJobs &&
+                            jobs[request.jobId]?.stage?.let(::creationStageIsBusy) == true
+                    }.forEach { request ->
+                        check(
+                            dispatchQueue.offer(
+                                CreationPendingDispatch(
+                                    request.jobId,
+                                    CreationTool.fromWireName(request.tool)
+                                        ?: return@forEach,
+                                    engineIds[request.jobId],
+                                ),
+                            ),
+                        ) { "Restored creation queue exceeds the product limit" }
+                    }
+                }
+                startup.complete(Unit)
+                dispatcher.signal()
+                if (deliveryJobs.isNotEmpty()) deliveryRetrySignal.trySend(Unit)
+            }.onFailure(startup::completeExceptionally)
+        }
+        scope.launch {
+            for (ignored in eventSignal) {
+                while (true) {
+                    val envelope = synchronized(eventLock) { eventBuffer.poll() } ?: break
+                    runCatching { processWorkerEvent(envelope.engineId, envelope.event) }
+                        .onFailure {
+                            envelope.event.jobId?.let(::fail)
+                        }
                 }
             }
         }
-        val jobId = nextJobId(tool)
-        val draft = CreationJobFactory.create(tool, args, files, jobId)
-        val request = draft.request
-        val status = draft.status
-        synchronized(lock) {
-            jobs[jobId] = status
-            requests[jobId] = request
-            startedAt[jobId] = System.currentTimeMillis()
+        scope.launch {
+            for (ignored in deliveryRetrySignal) {
+                var backoffMs = 250L
+                while (deliveries.pendingJobIds().isNotEmpty()) {
+                    runCatching { deliveryCoordinator.reconcileInProcess() }
+                        .getOrDefault(emptyMap())
+                        .forEach(recoveryLeases::release)
+                    if (deliveries.pendingJobIds().isEmpty()) break
+                    delay(backoffMs)
+                    backoffMs = (backoffMs * 2).coerceAtMost(30_000L)
+                }
+            }
         }
+    }
+    suspend fun awaitStartup() = startup.await()
+    fun acquireSurface(tool: CreationTool, ownerId: String): String =
+        "preparing".also { workers.acquire(tool, "surface:$ownerId") }
+    fun releaseSurface(tool: CreationTool, ownerId: String) =
+        workers.release(tool, "surface:$ownerId")
+    fun closeOwner(tool: CreationTool, ownerId: String) =
+        ownerCloseCoordinator.requestWithRetry(scope, ownerId, tool)
+    fun startOneShotPreparation() = workers.startOneShotPreparation()
+    fun preparationStatus(tool: CreationTool): String = workers.preparationStatus(tool)
+    fun supportsOptionalInstruction(mode: String): Boolean =
+        workers.supportsOptionalInstruction(mode)
+    fun removeRuntime() = workers.removeRuntime()
+    fun startJob(
+        ownerId: String,
+        tool: CreationTool,
+        args: JsonObject,
+    ): CreationSubmissionOutcome {
+        if (!durableStateReadable) {
+            return CreationSubmissionOutcome.Rejected(
+                CreationSubmissionFailure.STORAGE_UNAVAILABLE,
+            )
+        }
+        var reservedOutputPath: String? = null
+        var reservedInputs = emptyList<String>()
+        return runCatching {
+        val jobId = nextJobId(tool)
+        val dispatchId = nextDispatchId(tool)
+        val destination = files.outputDestinationSnapshot()
+        val requestedMode = CreationGenerationMode.fromWireName(
+            args["generationMode"]?.toString()?.trim('"'),
+        )
+        val draft = CreationJobFactory.create(
+            tool,
+            args,
+            files,
+            ownerId,
+            jobId,
+            dispatchId,
+            destination,
+            optionalInstructionAllowed = tool == CreationTool.IMAGE_TO_3D &&
+                supportsOptionalInstruction(requestedMode.wireName),
+        )
+        val request = draft.request
+        reservedOutputPath = request.outputPath
+        reservedInputs = request.imagePaths
+        val status = draft.status
+        val accepted = synchronized(mutationLock) {
+            var rollback: (() -> Unit)? = null
+            val journalSnapshot = synchronized(lock) {
+                cancellations.reserveAcceptance(request.dispatchId)
+                rollback = applyCreationJobSubmission(
+                    memory,
+                    dispatchQueue,
+                    draft,
+                    ownerId,
+                    destination,
+                    request.acceptedAtMs,
+                    MAXIMUM_QUEUED_JOBS_PER_TOOL,
+                )
+                rollback?.let { journalWriter.snapshot(memory) }
+            }
+            if (journalSnapshot == null) {
+                false
+            } else {
+                runCatching { journalWriter.writeRequired(journalSnapshot) }.onFailure {
+                    synchronized(lock) { requireNotNull(rollback).invoke() }
+                }.getOrThrow()
+                pruneTerminalDurably()
+                true
+            }
+        }
+        if (!accepted) {
+            files.deleteReservedStagingFile(tool, request.outputPath)
+            files.releaseJobInputs(request.imagePaths)
+            reservedOutputPath = null
+            reservedInputs = emptyList()
+            return@runCatching CreationSubmissionOutcome.Rejected(
+                CreationSubmissionFailure.QUEUE_FULL,
+            )
+        }
+        reservedOutputPath = null
+        reservedInputs = emptyList()
         diagnostics.event(
             "job_queued",
             tool.wireName,
             jobId = jobId,
             stage = "preparing",
-            generationMode = request.generationMode,
-            provider = request.provider,
         )
-        dispatchWhenAvailable(request)
-        return status
+        dispatcher.signal()
+        CreationSubmissionOutcome.Accepted(status)
+        }.getOrElse { failure ->
+            reservedOutputPath?.let { files.deleteReservedStagingFile(tool, it) }
+            files.releaseJobInputs(reservedInputs)
+            CreationSubmissionOutcome.Rejected(
+                creationSubmissionFailure(failure),
+            )
+        }
     }
-
-    fun startSegmentation(continuationId: String): CreationJobStatus {
-        val continuation = synchronized(lock) {
-            require(runningCount(CreationTool.IMAGE_TO_3D) < CreationContract.MAXIMUM_PARALLEL_JOBS) {
-                "Both creation workers are busy"
-            }
-            continuations.remove(continuationId)
+    suspend fun startSegmentation(ownerId: String, continuationId: String): CreationJobStatus {
+        awaitStartup()
+        if (!durableStateReadable) throw CreationStorageUnavailableException()
+        val snapshot = synchronized(lock) {
+            val current = continuations[continuationId]
                 ?: error("This model can no longer be separated into parts")
-        }
-        check(continuation.provider == CreationProvider.TRIPO.wireName) {
-            "This result cannot be separated after generation"
-        }
-        val jobId = nextJobId(CreationTool.IMAGE_TO_3D)
-        val output = files.stagingFile(CreationTool.IMAGE_TO_3D, continuation.sourcePath, "glb")
-        val request = CreationWorkerRequest(
-            jobId = jobId,
-            tool = CreationTool.IMAGE_TO_3D.wireName,
-            generationMode = CreationGenerationMode.QUALITY.wireName,
-            provider = continuation.provider,
-            operation = "segment",
-            imagePath = continuation.sourcePath,
-            outputPath = output.absolutePath,
-            outputName = output.name,
-            autoSegment = true,
-            continuationToken = continuation.token,
-            previousOutputPath = continuation.outputPath,
-        )
-        val status = CreationJobFactory.initialStatus(CreationTool.IMAGE_TO_3D, request).copy(
-            stage = "segmenting",
-            progressText = "Separating model parts.",
-            phase = "separation",
-            outputPath = continuation.outputPath,
-            outputName = continuation.outputName,
-        )
-        synchronized(lock) {
-            val affected = jobs.values.filter { current ->
-                current.jobId != null && continuations[current.jobId]?.workerKey == continuation.workerKey
-            }.mapNotNull(CreationJobStatus::jobId)
-            affected.forEach { affectedId ->
-                jobs[affectedId]?.let { jobs[affectedId] = it.copy(canSegment = false) }
+            require(current.ownerId == ownerId) { "This result belongs to another session" }
+            require(
+                creationContinuationIsLive(
+                    current.createdAtMs,
+                    System.currentTimeMillis(),
+                    CONTINUATION_LIFETIME_MS,
+                )
+            ) {
+                "This model can no longer be separated into parts"
             }
-            continuations.entries.removeAll { it.value.workerKey == continuation.workerKey }
-            jobs[jobId] = status
-            requests[jobId] = request
-            startedAt[jobId] = System.currentTimeMillis()
+            CreationSegmentationSnapshot(continuationId, current)
         }
+        val destination = files.outputDestinationSnapshot()
+        val draft = CreationJobFactory.createSegmentation(
+            snapshot.continuation,
+            files,
+            ownerId,
+            nextJobId(CreationTool.IMAGE_TO_3D),
+            nextDispatchId(CreationTool.IMAGE_TO_3D),
+            destination,
+        )
+        var retiredContinuationInputs = emptyList<String>()
+        try {
+            synchronized(mutationLock) {
+                lateinit var rollback: () -> Unit
+                val journalSnapshot = synchronized(lock) {
+                    cancellations.reserveAcceptance(draft.request.dispatchId)
+                    retiredContinuationInputs = continuations.values
+                        .filter { it.engineId == snapshot.continuation.engineId }
+                        .map(CreationContinuation::sourcePath)
+                    rollback = applyCreationSegmentationSubmission(
+                        memory = memory,
+                        dispatchQueue = dispatchQueue,
+                        snapshot = snapshot,
+                        draft = draft,
+                        ownerId = ownerId,
+                        destination = destination,
+                        startedAtMs = draft.request.acceptedAtMs,
+                        maximumQueuedJobs = MAXIMUM_QUEUED_JOBS_PER_TOOL,
+                    )
+                    journalWriter.snapshot(memory)
+                }
+                runCatching { journalWriter.writeRequired(journalSnapshot) }.onFailure {
+                    synchronized(lock) { rollback() }
+                }.getOrThrow()
+                pruneTerminalDurably()
+            }
+        } catch (failure: Throwable) {
+            files.deleteReservedStagingFile(CreationTool.IMAGE_TO_3D, draft.request.outputPath)
+            files.releaseJobInputs(draft.request.imagePaths)
+            throw failure
+        }
+        files.releaseJobInputs(retiredContinuationInputs)
         diagnostics.event(
             "job_queued",
             CreationTool.IMAGE_TO_3D.wireName,
-            jobId = jobId,
+            jobId = draft.request.jobId,
             stage = "segmenting",
-            generationMode = request.generationMode,
-            provider = request.provider,
         )
-        dispatchWhenAvailable(request, continuation.workerKey)
-        return status
+        dispatcher.signal()
+        return draft.status
     }
-
-    fun status(tool: CreationTool, jobId: String?): CreationJobStatus = synchronized(lock) {
-        val current = jobId?.let(jobs::get)
-            ?: jobs.values.lastOrNull { requestTool(it.jobId) == tool }
-            ?: CreationJobFactory.idleStatus(tool)
-        withElapsed(current)
-    }
-
-    fun statuses(tool: CreationTool): List<CreationJobStatus> = synchronized(lock) {
-        jobs.values.filter { requestTool(it.jobId) == tool }.map(::withElapsed)
-    }
-
-    fun cancel(tool: CreationTool, jobId: String?): List<CreationJobStatus> {
-        val targets = synchronized(lock) {
-            val ids = if (jobId != null) listOf(jobId) else jobs.values
-                .filter { requestTool(it.jobId) == tool && creationStageIsBusy(it.stage) }
-                .mapNotNull { it.jobId }
-            val transitioned = mutableListOf<String>()
-            ids.forEach { id ->
-                jobs[id]?.takeIf { creationStageIsBusy(it.stage) }?.let {
-                    jobs[id] = it.copy(stage = "cancelled", progressText = "Cancelled.")
-                    transitioned += id
-                }
-                requests[id]?.outputPath?.let(::File).let { file -> if (file?.length() == 0L) file.delete() }
+    fun status(ownerId: String, tool: CreationTool, jobId: String?): CreationJobStatus =
+        synchronized(lock) {
+        val current = jobId?.takeIf { owners[it] == ownerId }?.let(jobs::get)
+            ?: jobs.values.lastOrNull {
+                requestTool(it.jobId) == tool && owners[it.jobId] == ownerId
             }
-            transitioned
+            ?: CreationJobFactory.idleStatus(tool)
+        current.withCreationElapsed(current.jobId?.let(startedAt::get), System.currentTimeMillis())
+    }
+
+    fun statuses(ownerId: String, tool: CreationTool): List<CreationJobStatus> = synchronized(lock) {
+        jobs.values.filter {
+            requestTool(it.jobId) == tool && owners[it.jobId] == ownerId
+        }.map {
+            it.withCreationElapsed(it.jobId?.let(startedAt::get), System.currentTimeMillis())
+        }
+    }
+
+    fun cancel(ownerId: String, tool: CreationTool, jobId: String?): List<CreationJobStatus> {
+        val (targets, cancelledRequests) = synchronized(mutationLock) {
+            val selected = synchronized(lock) {
+                val ids = creationCancellationJobIds(memory, ownerId, tool, jobId)
+                ids.mapNotNull { id ->
+                    requests[id]?.takeIf { jobs[id]?.stage?.let(::creationStageIsBusy) == true }
+                }
+            }
+            cancellations.record(selected)
+            val snapshot = synchronized(lock) {
+                val transitioned = mutableListOf<String>()
+                selected.forEach { request ->
+                    val id = request.jobId
+                    jobs[id]?.takeIf { creationStageIsBusy(it.stage) }?.let {
+                        jobs[id] = it.copy(stage = "cancelled", progressText = "Cancelled.")
+                        transitioned += id
+                    }
+                    dispatchQueue.remove(id)
+                }
+                transitioned to journalWriter.snapshot(memory)
+            }
+            runCatching { journalWriter.writeRequired(snapshot.second) }.onFailure {
+                synchronized(lock) { schedulePersistLocked() }
+            }.onSuccess {
+                pruneTerminalDurably()
+            }
+            snapshot.first to selected
         }
         targets.forEach(workers::cancel)
-        return statuses(tool)
+        cancelledRequests.forEach(files::retireCancelledCreationRequest)
+        targets.forEach { recoveryLeases.release(it, tool) }
+        dispatcher.signal()
+        if (deliveries.pendingJobIds().isNotEmpty()) deliveryRetrySignal.trySend(Unit)
+        return statuses(ownerId, tool)
     }
 
-    fun renameHistory(tool: CreationTool, id: String, name: String): CreationHistoryEntry {
-        val previous = history.list(tool).firstOrNull { it.id == id }
-            ?: error("Result is no longer in history")
-        val updated = history.rename(id, name)
-        synchronized(lock) {
-            jobs.replaceAll { _, status ->
-                if (status.outputPath == previous.outputPath) {
-                    status.copy(outputPath = updated.outputPath, outputName = updated.outputName)
-                } else status
+    fun renameHistory(tool: CreationTool, id: String, name: String): CreationHistoryEntry =
+        historyCoordinator.rename(tool, id, name)
+
+    fun deleteHistory(tool: CreationTool, id: String) =
+        historyCoordinator.delete(tool, id)
+
+    fun deleteAllHistory(tool: CreationTool) =
+        historyCoordinator.deleteAll(tool)
+    private fun recordAssignment(request: CreationWorkerRequest, assignedEngine: String) {
+        val retired = synchronized(mutationLock) {
+            lateinit var change: CreationWorkerAssignmentChange
+            val snapshot = synchronized(lock) {
+                change = applyCreationWorkerAssignment(memory, request, assignedEngine)
+                journalWriter.snapshot(memory)
             }
-            continuations.replaceAll { _, value ->
-                if (value.outputPath == previous.outputPath) {
-                    value.copy(outputPath = updated.outputPath, outputName = updated.outputName)
-                } else value
-            }
+            runCatching { journalWriter.writeRequired(snapshot) }.onFailure {
+                synchronized(lock) { change.rollback() }
+            }.getOrThrow()
+            change.retiredInputPaths
         }
-        return updated
+        files.releaseJobInputs(retired)
     }
 
-    fun deleteHistory(tool: CreationTool, id: String) {
-        val previous = history.list(tool).firstOrNull { it.id == id }
-            ?: error("Result is no longer in history")
-        history.delete(id)
-        synchronized(lock) {
-            jobs.replaceAll { _, status ->
-                if (status.outputPath == previous.outputPath) {
-                    status.copy(outputPath = null, outputName = null, canSegment = false)
-                } else status
-            }
-            continuations.entries.removeAll { it.value.outputPath == previous.outputPath }
+    private fun handleWorkerEvent(engineId: String, event: CreationWorkerEvent) {
+        if (event.jobId == null) return
+        synchronized(eventLock) {
+            eventBuffer.offer(CreationWorkerEnvelope(engineId, event))
         }
+        eventSignal.trySend(Unit)
     }
-
-    private fun dispatchWhenAvailable(request: CreationWorkerRequest, preferred: String? = null) {
-        scope.launch {
-            var waitingSeconds = 0
-            while (true) {
-                if (synchronized(lock) { jobs[request.jobId]?.stage == "cancelled" }) return@launch
-                val worker = workers.dispatch(
-                    request,
-                    preferred,
-                    ::handleWorkerEvent,
-                ) { assignedWorker ->
-                    synchronized(lock) {
-                        workerKeys[request.jobId] = assignedWorker
-                        if (request.operation == "generate") {
-                            val invalidated = continuations
-                                .filterValues { it.workerKey == assignedWorker }
-                                .keys
-                                .toSet()
-                            continuations.keys.removeAll(invalidated)
-                            invalidated.forEach { id ->
-                                jobs[id]?.let { jobs[id] = it.copy(canSegment = false) }
-                            }
-                        }
-                    }
-                }
-                if (worker != null) {
-                    diagnostics.event(
-                        "job_dispatched",
-                        request.tool,
-                        jobId = request.jobId,
-                        stage = "preparing",
-                        generationMode = request.generationMode,
-                        provider = request.provider,
-                    )
-                    return@launch
-                }
-                waitingSeconds += 1
-                if (waitingSeconds % DISPATCH_WAIT_LOG_SECONDS == 0) {
-                    diagnostics.event(
-                        "job_waiting_for_workspace",
-                        request.tool,
-                        jobId = request.jobId,
-                        stage = "preparing",
-                        generationMode = request.generationMode,
-                        provider = request.provider,
-                    )
-                }
-                delay(1_000)
-            }
-        }
-    }
-
-    private fun handleWorkerEvent(workerKey: String, event: CreationWorkerEvent) {
+    private fun processWorkerEvent(engineId: String, event: CreationWorkerEvent) {
         val jobId = event.jobId ?: return
-        scope.launch {
-            val expectedRequest = synchronized(lock) { requests[jobId] }
-            val expectedProvider = expectedRequest?.provider
-            if (expectedRequest?.generationMode != null &&
-                event.generationMode != null &&
-                event.generationMode != expectedRequest.generationMode
-            ) {
-                fail(jobId, "Creation runtime returned a conflicting mode")
-                return@launch
-            }
-            if (expectedProvider != null &&
-                event.provider != null &&
-                event.provider != expectedProvider
-            ) {
-                fail(jobId, "Creation runtime returned a conflicting provider")
-                return@launch
-            }
-            when (event.event) {
-                "success" -> finish(workerKey, jobId, event)
-                "failure" -> {
-                    val error = event.error ?: "Creation failed"
-                    val publicError = if (expectedRequest?.tool == CreationTool.IMAGE_CREATOR.wireName) {
-                        publicImageCreationFailure()
-                    } else {
-                        error
-                    }
-                    val route = runCatching {
-                        routeCreationWorkerFailure(expectedProvider, error)
-                    }.getOrElse { invalidOwner ->
-                        fail(jobId, invalidOwner.message ?: "Creation failed")
-                        return@launch
-                    }
-                    when (route) {
-                        CreationWorkerFailureRoute.Fail -> fail(jobId, publicError)
-                        is CreationWorkerFailureRoute.Redispatch -> {
-                            val request = synchronized(lock) { requests[jobId] }
-                                ?: return@launch
-                            diagnostics.event(
-                                "job_recovery_redirected",
-                                request.tool,
-                                jobId = jobId,
-                                stage = route.preferredWorker,
-                                generationMode = request.generationMode,
-                                provider = request.provider,
-                            )
-                            dispatchWhenAvailable(
-                                request,
-                                preferred = route.preferredWorker,
-                            )
-                        }
+        val expectedRequest = synchronized(lock) { requests[jobId] } ?: return
+        val expectedEngine = synchronized(lock) { engineIds[jobId] }
+        if (expectedEngine != null && expectedEngine != engineId) return
+        if (expectedRequest.generationMode != null &&
+            event.generationMode != null &&
+            event.generationMode != expectedRequest.generationMode
+        ) {
+            fail(jobId)
+            return
+        }
+        when (event.event) {
+            "success" -> finish(engineId, jobId, event)
+            "failure" -> fail(jobId, event.failureCode)
+            "execution_lost" -> {
+                synchronized(mutationLock) {
+                    synchronized(lock) {
+                        dispatchQueue.offer(
+                            CreationPendingDispatch(
+                                jobId,
+                                CreationTool.fromWireName(expectedRequest.tool) ?: return,
+                                expectedEngine,
+                            ),
+                        )
                     }
                 }
-                "cancelled" -> cancel(requestTool(jobId) ?: return@launch, jobId)
-                else -> updateProgress(jobId, event)
+                dispatcher.signal()
             }
+            "cancelled" -> {
+                val ownerId = synchronized(lock) { owners[jobId] } ?: return
+                cancel(ownerId, requestTool(jobId) ?: return, jobId)
+            }
+            else -> updateProgress(jobId, event)
         }
     }
 
     private fun updateProgress(jobId: String, event: CreationWorkerEvent) {
-        var changedStage: String? = null
-        val tool = synchronized(lock) {
-            val current = jobs[jobId] ?: return@synchronized null
-            if (current.stage == "cancelled") return@synchronized null
-            val requestTool = requests[jobId]?.tool
-            val isImageCreator = requestTool == CreationTool.IMAGE_CREATOR.wireName
-            val hasImageReferences = requests[jobId]?.let { request ->
-                request.imagePaths.any(String::isNotBlank) || request.imagePath.isNotBlank()
-            } == true
-            val observedStage = event.stage ?: current.stage
-            val nextStage = if (isImageCreator) {
-                publicImageCreationStage(observedStage)
-            } else {
-                observedStage
+        val update = synchronized(mutationLock) {
+            synchronized(lock) {
+                applyCreationProgressUpdate(memory, jobId, event)?.also {
+                    if (it.stageChanged) schedulePersistLocked()
+                }
             }
-            if (nextStage != current.stage || event.progressKey != null) {
-                changedStage = if (isImageCreator) "image.$nextStage" else event.progressKey ?: nextStage
-            }
-            jobs[jobId] = current.copy(
-                stage = nextStage,
-                progressText = if (isImageCreator) {
-                    publicImageCreationText(nextStage, hasImageReferences)
-                } else {
-                    event.progressText?.let(::publicCreationText) ?: current.progressText
-                },
-                phase = if (isImageCreator) nextStage else event.phase ?: current.phase,
-                workspaceState = if (isImageCreator) null else {
-                    event.workspaceState ?: current.workspaceState
-                },
-                progressRatio = event.progressRatio ?: current.progressRatio,
-                estimatedTotalMs = event.estimatedTotalMs ?: current.estimatedTotalMs,
-                timingSampleCount = event.timingSampleCount ?: current.timingSampleCount,
-                generationMode = event.generationMode ?: current.generationMode,
-                provider = event.provider ?: current.provider,
-                outputPath = event.outputPath ?: current.outputPath,
-                outputName = event.outputName ?: current.outputName,
-                mimeType = event.mimeType ?: current.mimeType,
-                width = event.width ?: current.width,
-                height = event.height ?: current.height,
-                isSegmented = event.isSegmented ?: current.isSegmented,
-                canSegment = event.canSegment ?: current.canSegment,
-                faces = event.faces ?: current.faces,
-                vertices = event.vertices ?: current.vertices,
-            )
-            requestTool
         }
-        changedStage?.let { stage ->
+        update?.diagnosticStage?.let { stage ->
             diagnostics.event(
                 "job_progress",
-                tool,
+                update.tool,
                 jobId = jobId,
                 stage = stage,
-                generationMode = synchronized(lock) { requests[jobId]?.generationMode },
-                provider = synchronized(lock) { requests[jobId]?.provider },
             )
         }
     }
 
-    private fun finish(workerKey: String, jobId: String, event: CreationWorkerEvent) {
-        val completion = runCatching {
-            synchronized(lock) {
-                val request = requests[jobId] ?: return
-                val current = jobs[jobId] ?: error("Creation job disappeared")
-                if (!creationStageIsBusy(current.stage)) {
-                    if (current.stage == "cancelled") File(request.outputPath).delete()
-                    return
-                }
-                val staging = File(request.outputPath)
-                require(
-                    event.outputPath == null ||
-                        File(event.outputPath).canonicalFile == staging.canonicalFile,
-                ) { "Creation runtime returned a conflicting output path" }
-                require(staging.isFile && staging.length() > 0L) {
-                    "Creation ended without an output file"
-                }
-                val mime = when (request.tool) {
-                    CreationTool.IMAGE_TO_3D.wireName -> "model/gltf-binary"
-                    CreationTool.IMAGE_TO_SVG.wireName -> "image/svg+xml"
-                    CreationTool.IMAGE_CREATOR.wireName -> {
-                        require(event.mimeType == null || event.mimeType == "image/png") {
-                            "Creation runtime returned an unsupported image type"
-                        }
-                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeFile(staging.absolutePath, bounds)
-                        require(bounds.outWidth > 0 && bounds.outHeight > 0) {
-                            "Creation runtime returned an invalid image"
-                        }
-                        require(
-                            event.width == bounds.outWidth && event.height == bounds.outHeight,
-                        ) { "Creation runtime returned conflicting image dimensions" }
-                        "image/png"
-                    }
-                    else -> error("Unsupported creation tool")
-                }
-                val published = files.publish(staging, request.outputName, mime)
-                request.previousOutputPath?.takeIf(files::exists)?.let(files::delete)
-                val segmented = request.provider == CreationProvider.MESHY.wireName ||
-                    (event.isSegmented ?: request.autoSegment)
-                val updated = current.copy(
-                    stage = "done",
-                    progressText = when (request.tool) {
-                        CreationTool.IMAGE_TO_3D.wireName -> "Model ready."
-                        CreationTool.IMAGE_TO_SVG.wireName -> "Vector ready"
-                        else -> "Image ready"
-                    },
-                    phase = "complete",
-                    progressRatio = 1.0,
-                    outputPath = published,
-                    outputName = request.outputName,
-                    mimeType = mime,
-                    width = event.width,
-                    height = event.height,
-                    generationMode = request.generationMode,
-                    provider = request.provider,
-                    isSegmented = segmented,
-                    canSegment = request.tool == CreationTool.IMAGE_TO_3D.wireName &&
-                        request.operation == "generate" &&
-                        CreationContract.canContinueSegmentation(
-                            request.provider,
-                            segmented,
-                            event.canSegment != false,
-                        ),
-                    faces = event.faces,
-                    vertices = event.vertices,
-                    error = null,
-                )
-                jobs[jobId] = updated
-                if (updated.canSegment && event.continuationToken != null) {
-                    continuations[jobId] = Continuation(
-                        workerKey,
-                        event.continuationToken,
-                        request.imagePath,
-                        published,
-                        request.outputName,
-                        requireNotNull(request.provider),
-                    )
-                }
-                Completion(request, segmented, published)
-            }
+    private fun finish(engineId: String, jobId: String, event: CreationWorkerEvent) {
+        val snapshot = synchronized(lock) {
+            val request = requests[jobId] ?: return
+            val current = jobs[jobId] ?: return
+            if (!creationStageIsBusy(current.stage)) return
+            CreationCompletionSnapshot(
+                request,
+                current,
+                owners[jobId] ?: return,
+                destinations[jobId],
+            )
+        }
+        val prepared = runCatching {
+            finisher.prepare(
+                engineId,
+                snapshot.ownerId,
+                snapshot.request,
+                snapshot.status,
+                event,
+            )
         }.getOrElse {
-            fail(jobId, it.message ?: "Could not save creation result")
+            fail(jobId)
             return
         }
-        val request = completion.request
-        val tool = CreationTool.fromWireName(request.tool) ?: return
-        val metadata = buildJsonObject {
-            if (tool == CreationTool.IMAGE_TO_3D) {
-                put("isSegmented", completion.segmented)
-                request.generationMode?.let { put("generationMode", it) }
-                request.provider?.let { put("provider", it) }
-                event.faces?.let { put("faces", it) }
-                event.vertices?.let { put("vertices", it) }
-            } else if (tool == CreationTool.IMAGE_TO_SVG) {
-                put("model", request.model)
+        val stillLive = synchronized(lock) {
+            requests[jobId] == snapshot.request &&
+                jobs[jobId]?.stage?.let(::creationStageIsBusy) == true
+        }
+        if (!stillLive) {
+            files.deleteManagedPath(prepared.stagingPath)
+            return
+        }
+        val completed = runCatching {
+            synchronized(mutationLock) { cancellations.ifActive(snapshot.request) {
+                val completed = deliveryCoordinator.deliver(prepared, snapshot.destination)
+                finisher.recordHistory(
+                    completed,
+                    event,
+                    protectedPaths = synchronized(lock) { memory.liveArtifactPaths() },
+                )
+                deliveries.markHistoryCommitted(completed.request.dispatchId)
+                var previous: CreationJobStatus? = null
+                val durable = synchronized(lock) {
+                    val current = jobs[jobId]
+                    require(
+                        requests[jobId] == snapshot.request &&
+                            current?.stage?.let(::creationStageIsBusy) == true,
+                    ) { "Creation job changed before terminal commit" }
+                    previous = current
+                    jobs[jobId] = completed.status
+                    completed.continuation?.let { continuations[jobId] = it }
+                    journalWriter.snapshot(memory)
+                }
+                runCatching { journalWriter.writeRequired(durable) }.onFailure {
+                    synchronized(lock) {
+                        jobs[jobId] = requireNotNull(previous)
+                        continuations.remove(jobId)
+                    }
+                }.getOrThrow()
+                pruneTerminalDurably()
+                if (!deliveries.complete(completed.request.dispatchId)) {
+                    deliveryRetrySignal.trySend(Unit)
+                }
+                files.releaseJobInputs(
+                    creationJobInputPathsReleasedAfterCommit(
+                        completed.request,
+                        retainedByContinuation = completed.continuation != null,
+                    ),
+                )
+                completed
+            } }
+        }.getOrElse {
+            val action = runCatching {
+                creationDeliveryFailureAction(
+                    deliveries.containsDispatch(snapshot.request.dispatchId),
+                )
+            }.getOrDefault(CreationDeliveryFailureAction.RETRY)
+            if (action == CreationDeliveryFailureAction.RETRY) {
+                deliveryRetrySignal.trySend(Unit)
             } else {
-                put("operation", request.operation)
-                put("prompt", requireNotNull(request.prompt))
-                put("sourceImagePaths", JsonArray(request.imagePaths.map(::JsonPrimitive)))
-                put("mimeType", "image/png")
-                event.width?.let { put("width", it) }
-                event.height?.let { put("height", it) }
+                fail(jobId)
             }
+            return
         }
-        runCatching {
-            history.record(
-                tool,
-                request.imagePath,
-                completion.publishedPath,
-                request.outputName,
-                metadata,
-            )
-        }.onFailure { error ->
-            diagnostics.event(
-                "history_record_failed",
-                request.tool,
-                jobId = jobId,
-                stage = "done",
-                failureMessage = error.message,
-                generationMode = request.generationMode,
-                provider = request.provider,
-            )
-        }
+        recoveryLeases.release(jobId, CreationTool.fromWireName(completed.request.tool))
         diagnostics.event(
             "job_succeeded",
-            request.tool,
+            completed.request.tool,
             jobId = jobId,
             stage = "done",
-            generationMode = request.generationMode,
-            provider = request.provider,
         )
+        dispatcher.signal()
     }
 
-    private fun fail(jobId: String, message: String) {
-        val failure = synchronized(lock) {
-            val current = jobs[jobId] ?: return
-            if (current.stage == "cancelled") return
-            val request = requests[jobId]
-            val publicMessage = if (request?.tool == CreationTool.IMAGE_CREATOR.wireName) {
-                publicImageCreationFailure()
-            } else {
-                publicCreationText(message)
+    private fun fail(jobId: String, failureCode: String? = null) {
+        val transition = synchronized(mutationLock) {
+            val applied = synchronized(lock) {
+                applyCreationFailure(memory, jobId, failureCode) ?: return
             }
-            request?.outputPath?.let(::File)?.delete()
-            jobs[jobId] = current.copy(
-                stage = "failed",
-                progressText = "Could not create result.",
-                phase = "failed",
-                error = publicMessage,
-            )
-            FailureRecord(
-                request?.tool,
-                publicMessage,
-                request?.generationMode,
-                request?.provider,
-            )
+            pruneTerminalDurably()
+            applied
         }
+        val tool = CreationTool.fromWireName(transition.record.tool)
+        if (tool != null) {
+            transition.outputPath?.let { files.deleteReservedStagingFile(tool, it) }
+        }
+        files.releaseJobInputs(transition.inputPaths)
+        recoveryLeases.release(jobId, tool)
         diagnostics.event(
             "job_failed",
-            failure.tool,
+            transition.record.tool,
             jobId = jobId,
             stage = "failed",
-            failureMessage = failure.message,
-            generationMode = failure.generationMode,
-            provider = failure.provider,
+            failureCategory = transition.record.category,
+        )
+        dispatcher.signal()
+    }
+
+    private fun restoreJournal() {
+        restoreCreationManagerJournal(
+            journal, files, cancellations, memory, recoveryLeases,
+            CONTINUATION_LIFETIME_MS, MAXIMUM_TERMINAL_JOBS,
         )
     }
 
-    private fun withElapsed(status: CreationJobStatus): CreationJobStatus {
-        val id = status.jobId ?: return status
-        val start = startedAt[id] ?: return status
-        return if (creationStageIsBusy(status.stage)) {
-            status.copy(elapsedMs = System.currentTimeMillis() - start)
-        } else {
-            status
-        }
-    }
-
-    private fun runningCount(tool: CreationTool): Int = jobs.values.count {
-        requestTool(it.jobId) == tool && creationStageIsBusy(it.stage)
-    }
+    private fun schedulePersistLocked() = journalWriter.schedule(journalWriter.snapshot(memory))
 
     private fun requestTool(jobId: String?): CreationTool? = jobId?.let(requests::get)
-        ?.tool
-        ?.let { CreationTool.fromWireName(it) }
-
-    private fun nextJobId(tool: CreationTool): String =
-        "${tool.wireName}_${System.currentTimeMillis()}_${sequence.getAndIncrement()}"
-
-    private data class Continuation(
-        val workerKey: String,
-        val token: String,
-        val sourcePath: String,
-        val outputPath: String,
-        val outputName: String,
-        val provider: String,
-    )
-
-    private data class Completion(
-        val request: CreationWorkerRequest,
-        val segmented: Boolean,
-        val publishedPath: String,
-    )
-
-    private data class FailureRecord(
-        val tool: String?,
-        val message: String,
-        val generationMode: String?,
-        val provider: String?,
+        ?.tool?.let(CreationTool::fromWireName)
+    private fun pruneTerminalDurably() = pruneCreationManagerTerminalDurably(
+        memory, journalWriter, files, lock, System.currentTimeMillis(),
+        CONTINUATION_LIFETIME_MS, MAXIMUM_TERMINAL_JOBS,
     )
 
     companion object {
-        private const val DISPATCH_WAIT_LOG_SECONDS = 60
-        private val sequence = AtomicLong()
         @Volatile private var instance: CreationJobManager? = null
 
         fun get(context: Context): CreationJobManager = instance ?: synchronized(this) {
             instance ?: CreationJobManager(context.applicationContext).also { instance = it }
         }
-
     }
 }
-
-internal fun creationStageIsBusy(stage: String): Boolean = stage in setOf(
-    "preparing",
-    "uploading",
-    "visualizing",
-    "generating",
-    "segmenting",
-    "finalizing",
-)

@@ -44,6 +44,8 @@ import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.node.ModelNode
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private enum class MobileModelShading { ORIGINAL, TOON, PARTS }
 
@@ -55,12 +57,10 @@ internal fun CreationModelViewer(
     accent: Color,
     modifier: Modifier = Modifier,
 ) {
-    val previewFiles by produceState<Result<ModelPreviewFiles>?>(null, outputPath) {
-        value = runCatching {
-            ModelPreviewFiles(
-                model = viewModel.previewFile(outputPath, "glb"),
-                wireframe = runCatching { viewModel.wireframePreviewFile(outputPath) },
-            )
+    val previewFile by produceState<Result<File>?>(null, outputPath) {
+        value = null
+        value = withContext(Dispatchers.IO) {
+            runCatching { viewModel.previewFile(outputPath, "glb") }
         }
     }
     var showGrid by remember(outputPath) { mutableStateOf(true) }
@@ -73,6 +73,14 @@ internal fun CreationModelViewer(
     val runtimeNodes = remember(outputPath) { arrayOfNulls<ModelNode>(2) }
     var materialController by remember(outputPath) { mutableStateOf<ModelMaterialController?>(null) }
     var lineController by remember(outputPath) { mutableStateOf<ModelLineMaterialController?>(null) }
+    var wireframeFile by remember(outputPath) { mutableStateOf<Result<File>?>(null) }
+    LaunchedEffect(outputPath, wireframe, outline) {
+        if ((wireframe || outline) && wireframeFile == null) {
+            wireframeFile = withContext(Dispatchers.IO) {
+                runCatching { viewModel.wireframePreviewFile(outputPath) }
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -80,23 +88,23 @@ internal fun CreationModelViewer(
             .background(MaterialTheme.colorScheme.surfaceContainerLowest),
         contentAlignment = Alignment.Center,
     ) {
-        val fileResult = previewFiles
+        val fileResult = previewFile
         if (fileResult == null) {
             CircularProgressIndicator()
         } else if (fileResult.isFailure) {
             Text(strings.previewUnavailable, color = MaterialTheme.colorScheme.error)
         } else {
-            val files = fileResult.getOrThrow()
+            val modelFile = fileResult.getOrThrow()
             if (showGrid) ModelGrid(accent)
             val engine = rememberEngine()
             val modelLoader = rememberModelLoader(engine)
-            val modelInstance = remember(files.model, modelLoader) {
-                runCatching { modelLoader.createModelInstance(files.model) }
+            val modelInstance = remember(modelFile, modelLoader) {
+                runCatching { modelLoader.createModelInstance(modelFile) }
             }
-            val wireframeInstance = remember(files.wireframe, modelLoader) {
-                files.wireframe.mapCatching { file ->
+            val wireframeInstance = remember(wireframeFile, modelLoader) {
+                wireframeFile?.mapCatching { file ->
                     modelLoader.createModelInstance(file)
-                }
+                } ?: Result.failure(IllegalStateException("Wireframe is not loaded"))
             }
             val instance = modelInstance.getOrNull()
             val lineInstance = wireframeInstance.getOrNull()
@@ -244,11 +252,6 @@ internal fun CreationModelViewer(
         }
     }
 }
-
-private data class ModelPreviewFiles(
-    val model: File,
-    val wireframe: Result<File>,
-)
 
 @Composable
 private fun ModelGestureLayer(

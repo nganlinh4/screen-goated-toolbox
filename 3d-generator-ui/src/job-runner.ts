@@ -6,6 +6,16 @@ import type {
   StartJobRequest,
 } from "./types";
 import type { GenerationMode } from "./generation-mode";
+import {
+  advanceMissingStatusPoll,
+  dispatchAllSubmissions,
+} from "./durable-dispatch";
+import { frozenGenerationSettings } from "./recovery-settings";
+import {
+  canSubmitItem,
+  freshSubmissionSession,
+  needsFreshSubmissionSession,
+} from "./submission-policy";
 
 type NormalizedSettings = {
   mode: GenerationMode;
@@ -16,71 +26,61 @@ type NormalizedSettings = {
 type JobRunnerOptions = {
   state: AppState;
   busyStages: Set<JobStatus["stage"]>;
-  maxParallelJobs: number;
   invoke: <T = unknown>(cmd: string, args?: unknown) => Promise<T>;
   normalizeSettings: (item: QueueItem) => NormalizedSettings;
   selectedItem: () => QueueItem | undefined;
-  pendingItems: () => QueueItem[];
-  activeJobCount: () => number;
   pathLeaf: (path: string) => string;
   displayItem: (item: QueueItem) => Promise<void>;
-  loadDepthFor: (item: QueueItem, path: string) => Promise<void>;
   refreshHistory: () => Promise<void>;
   updateUi: () => void;
   beginProgress: (item: QueueItem, estimateMs: number) => void;
 };
+
+const MAX_MISSING_STATUS_POLLS = 75;
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 export class JobRunner {
+  private monitorActive = false;
+  private readonly missingStatusPolls = new Map<string, number>();
+
   constructor(private readonly options: JobRunnerOptions) {}
 
   submitSelected() {
     const { state, selectedItem, updateUi } = this.options;
     const item = selectedItem();
-    if (!item) return;
-    if (item.state === "queued" && !item.submitted) {
+    if (!item || !canSubmitItem(item)) return;
+    if (!needsFreshSubmissionSession(item)) {
+      item.createdAtMs = Date.now();
       item.submitted = true;
-    } else if (item.state === "done" || item.state === "failed" || item.state === "cancelled") {
-      item.state = "queued";
-      item.submitted = true;
-      item.historyId = undefined;
-      item.createdAtMs = undefined;
-      item.result = undefined;
-      item.modelStats = undefined;
+      item.outputDir = state.outputDir;
+      item.cancelRequested = false;
+    } else {
+      const submission = freshSubmissionSession(
+        item,
+        `submission_${crypto.randomUUID()}`,
+        state.outputDir,
+      );
+      state.items.push(submission);
+      state.selectedId = submission.id;
     }
     updateUi();
-    if (!state.queueActive) void this.processQueue();
+    void this.processQueue();
   }
 
   async processQueue() {
-    const {
-      state, pendingItems, activeJobCount, maxParallelJobs, updateUi,
-    } = this.options;
+    const { state, updateUi } = this.options;
     if (state.queueActive) return;
     state.queueActive = true;
     state.cancelRequested = false;
     updateUi();
-    const active = new Map<string, Promise<void>>();
-    while (!state.cancelRequested) {
-      while (activeJobCount() < maxParallelJobs) {
-        const next = pendingItems()[0];
-        if (!next) break;
-        const operation = this.runItem(next).finally(() => active.delete(next.id));
-        active.set(next.id, operation);
-      }
-      if (!active.size) {
-        if (pendingItems().length && activeJobCount() >= maxParallelJobs) {
-          await delay(400);
-          continue;
-        }
-        break;
-      }
-      await Promise.race(active.values());
-    }
-    await Promise.allSettled(active.values());
+    await dispatchAllSubmissions(
+      state.items,
+      (item) => this.runItem(item),
+      () => state.cancelRequested,
+    );
     state.queueActive = false;
     state.cancelRequested = false;
     updateUi();
@@ -88,15 +88,13 @@ export class JobRunner {
 
   async segmentSelected() {
     const {
-      state, selectedItem, activeJobCount, maxParallelJobs, beginProgress,
-      invoke, displayItem, refreshHistory, pendingItems, updateUi,
+      state, selectedItem, beginProgress, invoke, updateUi,
     } = this.options;
     const item = selectedItem();
     if (
       !item?.result?.jobId
       || item.result.isSegmented
       || !item.result.canSegment
-      || activeJobCount() >= maxParallelJobs
     ) return;
     const continuationId = item.result.jobId;
     state.runningIds.add(item.id);
@@ -105,47 +103,24 @@ export class JobRunner {
     updateUi();
     try {
       const initial = await invoke<JobStatus>("segment_model", { continuationId });
-      const final = await this.waitForJob(item, initial);
-      item.result = final;
-      item.state = final.stage === "done" ? "done" : "failed";
-      if (item.state === "done") {
-        await displayItem(item);
-        await refreshHistory();
+      if (!initial.jobId) throw new Error("The model job did not return an ID.");
+      this.applyJobStatus(item, initial);
+      if (this.options.busyStages.has(initial.stage)) {
+        this.startJobMonitor();
+      } else {
+        await this.finishTrackedItem(item, initial);
       }
-    } catch (error) {
+    } catch {
       item.state = "failed";
       item.result = {
         stage: "failed",
-        progressText: String(error),
-        error: String(error),
+        progressText: t("interrupted"),
+        error: "interrupted",
       };
-    } finally {
       state.runningIds.delete(item.id);
+    } finally {
       updateUi();
-      this.startPreparationPolling();
-      if (pendingItems().length && !state.queueActive) void this.processQueue();
     }
-  }
-
-  startPreparationPolling() {
-    const { state, invoke, updateUi } = this.options;
-    window.clearTimeout(state.preparationTimer);
-    const token = ++state.preparationPollToken;
-    const check = async () => {
-      try {
-        state.preparationStatus = await invoke<string>("runtime_preparation_status");
-      } catch {
-        state.preparationStatus = "not_ready";
-      }
-      if (token !== state.preparationPollToken) return;
-      updateUi();
-      const delayMs =
-        state.preparationStatus === "preparing" || state.preparationStatus === "not_ready"
-          ? 1_000
-          : 15_000;
-      state.preparationTimer = window.setTimeout(check, delayMs);
-    };
-    void check();
   }
 
   async restoreCurrentJobs() {
@@ -157,25 +132,36 @@ export class JobRunner {
       const recoverable = new Map<string, JobStatus>();
       for (const status of statuses) {
         if (
-          status.sourceImagePath
+          status.jobId
+          && status.sourceImagePath
+          && frozenGenerationSettings(status)
           && (busyStages.has(status.stage) || status.stage === "done" && status.outputPath)
         ) {
-          recoverable.set(status.sourceImagePath, status);
+          recoverable.set(status.jobId, status);
         }
       }
-      const items = [...recoverable.values()].map((status, index): QueueItem => {
+      const knownJobIds = new Set(
+        state.items.map((item) => item.result?.jobId).filter(Boolean),
+      );
+      const items = [...recoverable.values()]
+        .filter((status) => !knownJobIds.has(status.jobId))
+        .map((status, index): QueueItem => {
         const path = status.sourceImagePath!;
         const name = pathLeaf(path);
         const running = busyStages.has(status.stage);
+        const settings = frozenGenerationSettings(status)!;
         return {
           id: `recovered_${Date.now()}_${index}`,
           batchId: `recovered_batch_${Date.now()}_${index}`,
           path,
+          sourceProvenance: "presentation",
           name,
           extension: name.split(".").pop()?.toUpperCase() || t("image"),
-          generationMode: status.generationMode || "quality",
-          polycount: 5_000,
-          autoSegment: Boolean(status.isSegmented),
+          generationMode: settings.generationMode,
+          polycount: settings.polycount,
+          autoSegment: settings.autoSegment,
+          instruction: settings.instruction,
+          outputDir: settings.outputDir,
           submitted: true,
           state: running ? "running" : "done",
           result: status,
@@ -183,6 +169,7 @@ export class JobRunner {
             running ? Date.now() - Math.max(0, status.elapsedMs || 0) : undefined,
           estimatedTotalMs: status.estimatedTotalMs || 240_000,
           displayedProgress: status.progressRatio || 0,
+          createdAtMs: Date.now() - Math.max(0, status.elapsedMs || 0),
         };
       });
       if (!items.length) {
@@ -192,44 +179,20 @@ export class JobRunner {
       const latest = items[items.length - 1];
       state.items.push(...items);
       state.selectedId = latest.id;
-      state.backendStatus = latest.result!;
+      state.selectedStatus = latest.result!;
       for (const item of items) {
         if (item.state === "running") state.runningIds.add(item.id);
       }
       updateUi();
       await displayItem(latest);
-      await Promise.all(items
-        .filter((item) => item.state === "running")
-        .map(async (item) => {
-          try {
-            const final = await this.waitForJob(item, item.result!);
-            item.result = final;
-            item.state =
-              final.stage === "done"
-                ? "done"
-                : final.stage === "cancelled"
-                  ? "cancelled"
-                  : "failed";
-            if (state.selectedId === item.id && item.state === "done") await displayItem(item);
-          } catch (error) {
-            item.state = "failed";
-            item.result = {
-              stage: "failed",
-              progressText: String(error),
-              error: String(error),
-            };
-          } finally {
-            state.runningIds.delete(item.id);
-            updateUi();
-          }
-        }));
+      this.startJobMonitor();
     } catch {
       updateUi();
     }
   }
 
-  private applyBackendStatus(item: QueueItem, status: JobStatus) {
-    const { state, busyStages, loadDepthFor, displayItem, updateUi } = this.options;
+  private applyJobStatus(item: QueueItem, status: JobStatus) {
+    const { state, busyStages, displayItem, updateUi } = this.options;
     if (busyStages.has(status.stage)) {
       if (!item.operationStartedAt) {
         item.operationStartedAt = Date.now() - Math.max(0, status.elapsedMs || 0);
@@ -237,40 +200,30 @@ export class JobRunner {
       }
       if (status.estimatedTotalMs) item.estimatedTotalMs = status.estimatedTotalMs;
     }
-    if (state.selectedId === item.id) state.backendStatus = status;
+    if (state.selectedId === item.id) state.selectedStatus = status;
     item.result = status;
-    if (status.previewPath) void loadDepthFor(item, status.previewPath);
     if (status.outputPath && state.selectedId === item.id) void displayItem(item);
     updateUi();
   }
 
-  private async waitForJob(item: QueueItem, initial: JobStatus) {
-    const { busyStages, invoke } = this.options;
-    let status = initial;
-    this.applyBackendStatus(item, status);
-    const jobId = status.jobId;
-    if (!jobId) throw new Error("The model job did not return an ID.");
-    while (busyStages.has(status.stage)) {
-      await delay(800);
-      status = await invoke<JobStatus>("job_status", { jobId });
-      this.applyBackendStatus(item, status);
-    }
-    return status;
-  }
-
   private async runItem(item: QueueItem) {
     const {
-      state, normalizeSettings, beginProgress, displayItem, invoke,
-      refreshHistory, updateUi,
+      state, normalizeSettings, beginProgress, displayItem, invoke, updateUi,
     } = this.options;
     const settings = normalizeSettings(item);
     state.runningIds.add(item.id);
     item.state = "running";
     beginProgress(item, 240_000);
     if (state.selectedId === item.id) await displayItem(item);
+    if (item.cancelRequested) {
+      item.state = "cancelled";
+      state.runningIds.delete(item.id);
+      updateUi();
+      return;
+    }
     const request: StartJobRequest = {
       imagePath: item.path,
-      outputDir: state.outputDir || null,
+      outputDir: item.outputDir || state.outputDir || null,
       polycount: settings.polycount,
       mode: "topology_mesh",
       generationMode: settings.mode,
@@ -278,28 +231,114 @@ export class JobRunner {
       autoSegment: settings.autoSegment,
       segmentationMode: settings.autoSegment ? "parts" : "none",
     };
+    if (
+      state.generationCapabilities.ready
+      && state.generationCapabilities.optionalInstruction[settings.mode]
+      && item.instruction?.trim()
+    ) {
+      request.instruction = item.instruction.trim();
+    }
     try {
       const initial = await invoke<JobStatus>("start_job", request);
-      const final = await this.waitForJob(item, initial);
-      item.result = final;
-      if (final.stage === "done") {
-        item.state = "done";
-        if (state.selectedId === item.id) await displayItem(item);
-        await refreshHistory();
-      } else if (final.stage === "cancelled") item.state = "cancelled";
-      else item.state = "failed";
-    } catch (error) {
+      if (!initial.jobId) throw new Error("The model job did not return an ID.");
+      if (item.cancelRequested && initial.jobId) {
+        const cancelled = await invoke<JobStatus>("cancel_job", { jobId: initial.jobId });
+        await this.finishTrackedItem(item, cancelled);
+        return;
+      }
+      this.applyJobStatus(item, initial);
+      if (this.options.busyStages.has(initial.stage)) this.startJobMonitor();
+      else await this.finishTrackedItem(item, initial);
+    } catch {
       item.state = "failed";
       item.result = {
         stage: "failed",
-        progressText: String(error),
-        error: String(error),
-        runtimeStatus: state.backendStatus.runtimeStatus,
+        progressText: t("interrupted"),
+        error: "interrupted",
+        runtimeStatus: state.selectedStatus.runtimeStatus,
       };
-    } finally {
       state.runningIds.delete(item.id);
       updateUi();
-      this.startPreparationPolling();
     }
+  }
+
+  private startJobMonitor() {
+    if (this.monitorActive) return;
+    this.monitorActive = true;
+    void this.monitorJobs();
+  }
+
+  private async monitorJobs() {
+    const { state, invoke, busyStages } = this.options;
+    try {
+      while (state.runningIds.size) {
+        await delay(800);
+        let statuses: JobStatus[];
+        try {
+          statuses = await invoke<JobStatus[]>("job_statuses");
+        } catch {
+          continue;
+        }
+        const byId = new Map(statuses.map((status) => [status.jobId, status]));
+        for (const itemId of [...state.runningIds]) {
+          const item = state.items.find((candidate) => candidate.id === itemId);
+          if (!item) {
+            state.runningIds.delete(itemId);
+            this.missingStatusPolls.delete(itemId);
+            continue;
+          }
+          if (!item.result?.jobId) {
+            this.missingStatusPolls.delete(itemId);
+            continue;
+          }
+          const status = byId.get(item.result.jobId);
+          if (!status) {
+            const missing = advanceMissingStatusPoll(
+              this.missingStatusPolls.get(itemId) || 0,
+              MAX_MISSING_STATUS_POLLS,
+            );
+            if (!missing.timedOut) {
+              this.missingStatusPolls.set(itemId, missing.count);
+              continue;
+            }
+            item.state = "failed";
+            item.result = {
+              ...item.result,
+              stage: "failed",
+              progressText: t("interrupted"),
+              error: "interrupted",
+            };
+            state.runningIds.delete(itemId);
+            this.missingStatusPolls.delete(itemId);
+            this.options.updateUi();
+            continue;
+          }
+          this.missingStatusPolls.delete(itemId);
+          this.applyJobStatus(item, status);
+          if (!busyStages.has(status.stage)) await this.finishTrackedItem(item, status);
+        }
+      }
+    } finally {
+      this.monitorActive = false;
+      if (state.runningIds.size) this.startJobMonitor();
+    }
+  }
+
+  private async finishTrackedItem(item: QueueItem, status: JobStatus) {
+    const { state, displayItem, refreshHistory, updateUi } = this.options;
+    item.result = status;
+    item.state =
+      status.stage === "done"
+        ? "done"
+        : status.stage === "cancelled"
+          ? "cancelled"
+          : "failed";
+    state.runningIds.delete(item.id);
+    this.missingStatusPolls.delete(item.id);
+    if (item.state === "done") {
+      if (state.selectedId === item.id) await displayItem(item);
+      await refreshHistory();
+    }
+    updateUi();
   }
 }

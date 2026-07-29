@@ -159,6 +159,41 @@ pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
     }
 }
 
+fn should_queue_markdown_creation(
+    showing: bool,
+    is_markdown_mode: bool,
+    has_webview: bool,
+) -> bool {
+    showing && is_markdown_mode && !has_webview
+}
+
+pub unsafe fn handle_show_window(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        let showing = wparam.0 != 0;
+        let is_markdown_mode = showing && {
+            let states = WINDOW_STATES.lock().unwrap();
+            states
+                .get(&(hwnd.0 as isize))
+                .is_some_and(|state| state.is_markdown_mode)
+        };
+        let has_webview = is_markdown_mode && markdown_view::has_markdown_webview(hwnd);
+
+        if should_queue_markdown_creation(showing, is_markdown_mode, has_webview) {
+            // Post instead of creating synchronously: ShowWindow must finish
+            // attaching the layered parent before WebView2 creates its child HWND.
+            let _ = PostMessageW(Some(hwnd), WM_CREATE_WEBVIEW, WPARAM(0), LPARAM(0));
+        }
+
+        if showing {
+            // Starting the update timer here also prevents pending initial text
+            // from constructing a WebView while the result window is hidden.
+            SetTimer(Some(hwnd), 3, 16, None);
+        }
+
+        DefWindowProcW(hwnd, WM_SHOWWINDOW, wparam, lparam)
+    }
+}
+
 pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
     unsafe {
         let (full_text, is_hovered, bg_color, is_markdown_mode) = {
@@ -178,6 +213,12 @@ pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
         // A rapid second toggle can leave an already-posted create message in the
         // queue. Never resurrect Markdown after state has returned to plain text.
         if !is_markdown_mode {
+            return LRESULT(0);
+        }
+
+        // This can also be posted by a rapid toggle. If the parent was hidden
+        // before the message arrived, the next WM_SHOWWINDOW will queue it again.
+        if !IsWindowVisible(hwnd).as_bool() {
             return LRESULT(0);
         }
 
@@ -310,4 +351,17 @@ pub unsafe fn handle_broom_drag_start(hwnd: HWND) -> LRESULT {
 pub unsafe fn handle_close_group_click(hwnd: HWND) -> LRESULT {
     crate::overlay::result::trigger_close_group(hwnd);
     LRESULT(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_queue_markdown_creation;
+
+    #[test]
+    fn markdown_creation_waits_for_a_visible_parent() {
+        assert!(!should_queue_markdown_creation(false, true, false));
+        assert!(!should_queue_markdown_creation(true, false, false));
+        assert!(!should_queue_markdown_creation(true, true, true));
+        assert!(should_queue_markdown_creation(true, true, false));
+    }
 }

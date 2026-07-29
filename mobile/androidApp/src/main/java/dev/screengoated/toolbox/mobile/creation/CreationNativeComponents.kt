@@ -2,7 +2,6 @@
 
 package dev.screengoated.toolbox.mobile.creation
 
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,22 +32,24 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.ui.UtilityStatusChip
 import dev.screengoated.toolbox.mobile.ui.i18n.CreationCommonLocale
-import java.io.File
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.awaitCancellation
 
 @Composable
 internal fun CreationQueueStrip(
@@ -61,6 +62,7 @@ internal fun CreationQueueStrip(
     onAdd: () -> Unit,
     addLabel: String,
     itemLabel: (CreationNativeItem) -> String,
+    showArtworkPreviews: Boolean,
 ) {
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
@@ -69,13 +71,14 @@ internal fun CreationQueueStrip(
         item(key = "add") {
             AddImageTile(label = addLabel, accent = accent, onClick = onAdd)
         }
-        items(items, key = { it.id }) { item ->
+        items(items.sortedByDescending(CreationNativeItem::createdAtMs), key = { it.id }) { item ->
             QueueItemTile(
                 item = item,
                 selected = item.id == selectedId,
                 accent = accent,
                 common = common,
                 displayName = itemLabel(item),
+                showArtworkPreview = showArtworkPreviews,
                 onClick = { onSelect(item.id) },
                 onRemove = { onRemove(item.id) },
             )
@@ -207,6 +210,7 @@ private fun QueueItemTile(
     accent: Color,
     common: CreationCommonLocale,
     displayName: String,
+    showArtworkPreview: Boolean,
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -230,9 +234,10 @@ private fun QueueItemTile(
                 .padding(7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (item.sourcePath.isNotBlank()) {
+            if (showArtworkPreview && item.sourcePath.isNotBlank()) {
                 CreationImageThumbnail(
                     path = item.sourcePath,
+                    maximumEdgePixels = 128,
                     modifier = Modifier
                         .size(50.dp)
                         .clip(MaterialTheme.shapes.small),
@@ -246,7 +251,13 @@ private fun QueueItemTile(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        painterResource(R.drawable.ms_auto_awesome),
+                        painterResource(
+                            if (item.sourcePath.isBlank()) {
+                                R.drawable.ms_auto_awesome
+                            } else {
+                                R.drawable.ms_image
+                            },
+                        ),
                         contentDescription = null,
                         tint = accent,
                     )
@@ -285,28 +296,29 @@ internal fun CreationImageThumbnail(
     path: String,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    maximumEdgePixels: Int = 1_600,
 ) {
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, path) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(path, bounds)
-                val largest = maxOf(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
-                val sample = Integer.highestOneBit((largest / 512).coerceAtLeast(1))
-                BitmapFactory.decodeFile(
-                    path,
-                    BitmapFactory.Options().apply { inSampleSize = sample },
-                )?.asImageBitmap()
-            }.getOrNull()
+    val context = LocalContext.current
+    val bitmap by produceState<android.graphics.Bitmap?>(
+        null,
+        path,
+        maximumEdgePixels,
+    ) {
+        val loaded = decodeCreationThumbnail(context, path, maximumEdgePixels)
+        value = loaded
+        try {
+            awaitCancellation()
+        } finally {
+            loaded?.recycle()
         }
     }
     Box(
-        modifier = modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        modifier = modifier.background(Color.Transparent),
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null) {
             Image(
-                bitmap = requireNotNull(bitmap),
+                bitmap = requireNotNull(bitmap).asImageBitmap(),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = contentScale,
@@ -381,20 +393,11 @@ internal fun CreationEmptyWorkbench(
 }
 
 @Composable
-internal fun CreationSourceWorkbench(tool: CreationTool, item: CreationNativeItem) {
-    val depthPath = item.depthPreviewPath
-    if (depthPath != null && item.stage in setOf(
-            CreationNativeStage.QUEUED,
-            CreationNativeStage.RUNNING,
-        )
-    ) {
-        CreationDepthPreview(tool, item.sourcePath, depthPath)
-    } else {
-        CreationImageThumbnail(
-            path = item.sourcePath,
-            modifier = Modifier.fillMaxSize(),
-        )
-    }
+internal fun CreationSourceWorkbench(item: CreationNativeItem) {
+    CreationImageThumbnail(
+        path = item.sourcePath,
+        modifier = Modifier.fillMaxSize(),
+    )
 }
 
 @Composable
@@ -402,17 +405,16 @@ internal fun CreationProgressOverlay(
     status: CreationJobStatus?,
     common: CreationCommonLocale,
     accent: Color,
-    hasDepthPreview: Boolean,
 ) {
     val stage = status?.toNativeStage() ?: CreationNativeStage.QUEUED
-    val providerQueued = status?.workspaceState == "provider_queue"
-    val progress = estimatedProgress(status)
+    val candidate = estimatedProgress(status)
+    val progressFloor = remember(status?.jobId) { mutableFloatStateOf(0.04f) }
+    val progress = maxOf(progressFloor.floatValue, candidate)
+    LaunchedEffect(progress) { progressFloor.floatValue = progress }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                MaterialTheme.colorScheme.scrim.copy(alpha = if (hasDepthPreview) 0.18f else 0.42f),
-            ),
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)),
         contentAlignment = Alignment.BottomCenter,
     ) {
         Column(
@@ -422,24 +424,17 @@ internal fun CreationProgressOverlay(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                if (providerQueued) common.providerQueued else nativeStageLabel(stage, common),
+                nativeStageLabel(stage, common),
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
             )
-            if (providerQueued) {
-                LinearWavyProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    color = accent,
-                    trackColor = Color.White.copy(alpha = 0.25f),
-                )
-            } else {
-                LinearWavyProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    color = accent,
-                    trackColor = Color.White.copy(alpha = 0.25f),
-                )
-                Row(
+            LinearWavyProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(6.dp),
+                color = accent,
+                trackColor = Color.White.copy(alpha = 0.25f),
+            )
+            Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
@@ -453,7 +448,6 @@ internal fun CreationProgressOverlay(
                         style = MaterialTheme.typography.labelMedium,
                         color = Color.White.copy(alpha = 0.84f),
                     )
-                }
             }
         }
     }
@@ -462,9 +456,16 @@ internal fun CreationProgressOverlay(
 @Composable
 internal fun CreationReadinessChip(status: String, common: CreationCommonLocale, accent: Color) {
     UtilityStatusChip(
-        text = if (status == "ready" || status == "partial") common.ready else common.preparing,
-        accent = if (status == "ready" || status == "partial") accent
-        else MaterialTheme.colorScheme.tertiary,
+        text = when (status) {
+            "ready" -> common.ready
+            "unavailable" -> common.failed
+            else -> common.preparing
+        },
+        accent = when (status) {
+            "ready" -> accent
+            "unavailable" -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.tertiary
+        },
     )
 }
 

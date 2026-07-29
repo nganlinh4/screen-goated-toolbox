@@ -6,9 +6,7 @@ use super::*;
 use base64::{Engine as _, engine::general_purpose};
 
 mod input;
-mod semantic_marks;
 pub(super) use input::*;
-use semantic_marks::semantic_filter_detector_marks;
 
 /// The view the model is grounded on. DEFAULT = the ACTIVE window (precise clicks,
 /// no whole-screen ambiguity) - the target window if `target` is set, else the
@@ -62,8 +60,6 @@ pub(super) struct RenderRequest<'a> {
     pub reason: &'a str,
     pub action: Option<super::super::telemetry::ActionTrace>,
     pub existing_marks: &'a [(i32, i32, u32)],
-    pub detector_start_id: Option<u32>,
-    pub excluded_rects: &'a [[i32; 4]],
     pub show_grid: bool,
 }
 
@@ -76,7 +72,6 @@ pub(super) struct Rendered {
     pub source: FrameSource,
     pub fixed_view_retained: bool,
     pub perception_matched: bool,
-    pub detected: Vec<super::super::detector::DetBox>,
 }
 
 pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
@@ -94,8 +89,6 @@ pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
         reason,
         action,
         existing_marks,
-        detector_start_id,
-        excluded_rects,
         show_grid,
     } = request;
     use super::super::telemetry;
@@ -125,75 +118,14 @@ pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
     let perception_matched = perception_matches(perception_surface, &source.surface);
     let surface = source.surface.clone();
     let capture_ms = capture_t0.elapsed().as_millis();
-    let detector_start_id = perception_matched.then_some(detector_start_id).flatten();
-    let excluded_rects = if perception_matched {
-        excluded_rects
-    } else {
-        &[]
-    };
     let existing_marks = if perception_matched {
         existing_marks
     } else {
         &[]
     };
-    let mut detected = detector_start_id
-        .map(|_| super::super::detector::detect_capture(&cap, view, frame_id))
-        .unwrap_or_default();
-    let detected_before_filter = detected.len();
-    detected.retain(|item| {
-        !excluded_rects.iter().any(|rect| {
-            item.cx >= rect[0] && item.cx <= rect[2] && item.cy >= rect[1] && item.cy <= rect[3]
-        })
-    });
-    if detected.len() != detected_before_filter {
-        telemetry::event(
-            "detector_anchor_filter",
-            "detector",
-            telemetry::Privacy::Safe,
-            json!({
-                "frame_id": frame_id,
-                "before": detected_before_filter,
-                "after": detected.len(),
-                "reason": "center_overlaps_accessible_control",
-            }),
-        );
-    }
-    let filtered_count = detected.len();
-    detected =
-        super::super::detector::select_marks(detected, view, super::super::detector::DISPLAY_MARKS);
-    if detected.len() != filtered_count {
-        telemetry::event(
-            "detector_anchor_cap",
-            "detector",
-            telemetry::Privacy::Safe,
-            json!({
-                "frame_id": frame_id,
-                "before": filtered_count,
-                "after": detected.len(),
-                "strategy": "spatial_coverage_then_confidence",
-            }),
-        );
-    }
-    if let Some(first_id) = detector_start_id {
-        detected = semantic_filter_detector_marks(&cap, view, frame_id, first_id, detected);
-    }
-    let detector_marks: Vec<(i32, i32, u32)> = detector_start_id
-        .map(|first| {
-            detected
-                .iter()
-                .enumerate()
-                .map(|(index, item)| (item.cx, item.cy, first.saturating_add(index as u32)))
-                .collect()
-        })
-        .unwrap_or_default();
-    let marks = if detector_start_id.is_some() {
-        detector_marks.as_slice()
-    } else {
-        existing_marks
-    };
     // One coordinate vocabulary per frame: mark IDs are precise, while drawing
     // the coarse grid at the same time doubles label noise and creates collisions.
-    let shown_grid = (perception_matched && show_grid && marks.is_empty()).then_some(grid);
+    let shown_grid = (perception_matched && show_grid && existing_marks.is_empty()).then_some(grid);
     let encode_t0 = Instant::now();
     let (jpeg, shown) = match session::encode_view(
         &cap,
@@ -201,7 +133,7 @@ pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
         VIEW_SHORT,
         shown_grid,
         marker,
-        Some(marks),
+        Some(existing_marks),
     ) {
         Ok(encoded) => encoded,
         Err(error) => {
@@ -265,7 +197,6 @@ pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
         source,
         fixed_view_retained,
         perception_matched,
-        detected,
     })
 }
 
@@ -446,9 +377,9 @@ pub(super) fn format_state(
     let controls = indexed_controls.unwrap_or(&clickable);
     let spatial = if show_grid { ", with grid cell" } else { "" };
     let blind_route = if show_grid {
-        "use a detector mark when present, otherwise zoom a grid cell before click_at"
+        "use a vision mark when present, otherwise zoom a grid cell before click_at"
     } else {
-        "use a detector mark when present, otherwise use the vision targeting tools"
+        "use a vision mark when present, otherwise use the vision targeting tools"
     };
     format!(
         "WINDOW: {title}\n\nREADOUTS (live values{spatial}):\n{readouts}\nINDEXED CONTROLS \

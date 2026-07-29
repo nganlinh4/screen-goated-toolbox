@@ -22,6 +22,8 @@ export function collectNodes(): AppNodes {
     modeButtons: [...document.querySelectorAll<HTMLButtonElement>("[data-generation-mode]")],
     autoSegmentSection: query("#autoSegmentSection"),
     autoSegmentInput: query("#autoSegmentInput"),
+    instructionSection: query("#instructionSection"),
+    instructionInput: query("#instructionInput"),
     generateButton: query("#generateButton"),
     generateLabel: query("#generateLabel"),
     cancelButton: query("#cancelButton"),
@@ -54,10 +56,6 @@ export function collectNodes(): AppNodes {
     referencePreviewName: query("#referencePreviewName"),
     referencePreviewImage: query("#referencePreviewImage"),
     referencePreviewClose: query("#referencePreviewClose"),
-    confirmDialog: query("#confirmDialog"),
-    confirmMessage: query("#confirmMessage"),
-    confirmCancel: query("#confirmCancel"),
-    confirmAccept: query("#confirmAccept"),
     appToast: query("#appToast"),
   };
 }

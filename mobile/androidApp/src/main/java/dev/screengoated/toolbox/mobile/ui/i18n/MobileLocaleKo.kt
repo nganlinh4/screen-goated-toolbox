@@ -56,7 +56,7 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 ready = "준비됨",
                 preparing = "준비 중",
                 queued = "대기 중",
-                providerQueued = "서비스 대기열에 있음",
+                waiting = "대기 중",
                 working = "생성 중",
                 progress = CreationProgressLocale(
                     almostThere = "거의 완료되었습니다",
@@ -71,18 +71,21 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 open = "열기",
                 rename = "이름 바꾸기",
                 delete = "삭제",
-                deleteConfirm = "이 결과를 삭제할까요?",
+                deleteAll = "모든 결과 삭제",
+                deleteAllConfirm = "이 앱의 저장된 결과를 모두 삭제할까요?",
                 dismiss = "닫기",
                 noResults = "저장된 결과가 없습니다",
                 selectedImages = "이미지 {}개",
                 interrupted = "생성을 완료하지 못했습니다.",
-                previewTools = "생성 미리보기",
-                creationRuntime = "제작 도구",
-                creationRuntimeDescription =
-                    "참조 이미지로 3D 모델, SVG 및 새 이미지를 만듭니다.",
-                depthPreviewModel = "Depth Anything 3 Small",
-                depthPreviewDescription =
-                    "3D와 SVG 결과를 생성하는 동안 움직이는 깊이 미리보기를 표시합니다.",
+                sourceUnavailable = "원본 이미지를 다시 선택한 후 재시도하세요.",
+                storageUnavailable =
+                    "저장 공간을 확보한 후 다시 시도하세요. 기존 결과는 그대로 보존되었습니다.",
+                tools = CreationToolsLocale(
+                    previewTools = "생성 미리보기",
+                    creationRuntime = "제작 도구",
+                    creationRuntimeDescription =
+                        "참조 이미지로 3D 모델, SVG 및 새 이미지를 만듭니다.",
+                ),
             ),
             model3d = Creation3dLocale(
                 mode = "모드",
@@ -92,6 +95,8 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 light = "가벼움 (게임/웹)",
                 detailed = "정밀함 (렌더/출력)",
                 autoSeparate = "자동 파트 분리",
+                instruction = "선택 지시사항",
+                instructionHint = "강조할 형태나 세부 사항을 설명하세요",
                 generate = "모델 생성",
                 generateAgain = "다시 생성",
                 separate = "파트 분리",
@@ -114,6 +119,10 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 simpleDescription = "깔끔한 도형, 작은 파일",
                 detail = "정밀",
                 detailDescription = "더 많은 패스와 섬세한 가장자리",
+                transparentBackground = "투명 배경",
+                backgroundAuto = "자동",
+                backgroundOn = "켜기",
+                backgroundOff = "끄기",
                 generate = "SVG 생성",
                 generateAgain = "다시 생성",
                 vectorReady = "SVG 준비 완료",
@@ -124,6 +133,7 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 zoomOut = "축소",
                 undo = "실행 취소",
                 redo = "다시 실행",
+                editPaths = "패스 편집",
                 saveEdits = "편집 저장",
             ),
             image = CreationImageLocale(

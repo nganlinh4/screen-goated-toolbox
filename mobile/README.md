@@ -114,8 +114,8 @@ path installs a bundletool local-testing AAB so the test can request real
 on-demand modules. The user-scoped installer keeps other Android users untouched
 while reproducing bundletool's local-testing contract: install the base splits,
 stage every non-base-master split in the declared directory, and finalize that
-directory as app-readable. The acceptance test proves the Play ORT runtime and
-bundled UI-DETR model by running inference on the current device frame.
+directory as app-readable. Phone Control grounding uses the shared current-frame
+Gemini chain in both flavors, so it has no flavor-specific visual ML asset.
 
 Pass `-IncludeExternalSetupTests` when the selected device may open Android-owned
 setup surfaces. The Shizuku probe then verifies the real install handoff when the
@@ -191,10 +191,10 @@ Copied outputs:
 
 The `play` bundle keeps large native payloads out of the base module and delivers
 the ASR/ORT engines and shared C++ runtime through on-demand dynamic features
-under `feature_*`. Its ORT feature also carries the validated UI-DETR model. The
-`full` artifact bundles the exact verified ORT archive and uses verified downloads
-for the UI-DETR model and remaining native runtimes. This delivery difference does
-not change Phone Control's catalog, runtime, provider routes, or authority.
+under `feature_*`. The `full` artifact bundles the exact verified ORT archive and
+uses verified downloads for remaining native runtimes. Phone Control has no
+flavor-specific grounding runtime; both distributions use the same current-frame
+vision contract, catalog, provider routes, and authority.
 
 Build or install a locally deliverable Play debug bundle with:
 

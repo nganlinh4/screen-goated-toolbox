@@ -1,11 +1,29 @@
 import "./styles.css";
 import "../../ui-shared/creation-shell-layout.css";
+import { confirmDestructive } from "../../ui-shared/destructive-confirmation";
+import { DemandPoller } from "../../ui-shared/demand-poller";
 import { setLanguage, t, type MessageKey } from "./i18n";
 import { svgAppMarkup, SVG_ICONS } from "./layout";
 import { SvgCanvasController } from "./svg-canvas";
 import { SvgQueueView } from "./queue-view";
-import type { Asset, HistoryEntry, HostContext, Item, JobStatus, Model, Stage } from "./types";
-
+import {
+  advanceMissingStatusPoll,
+  claimNextQueued,
+  releaseDispatchClaim,
+} from "./queue-dispatch";
+import {
+  canActivatePrimaryAction,
+  canSubmitItem,
+  freshSubmissionSession,
+  needsFreshSubmissionSession,
+} from "./explicit-submission";
+import { createSvgAssetLoader } from "./svg-asset-loader";
+import {
+  svgHistoryPresentationSignature,
+  svgStatusChangesPresentation,
+} from "./poll-presentation";
+import { normalizeBackgroundMode, SvgSettingsControl } from "./settings-control";
+import type { HistoryEntry, HostContext, Item, JobStatus, Stage } from "./types";
 declare global {
   interface Window {
     invoke?: <T = unknown>(cmd: string, args?: unknown) => Promise<T>;
@@ -15,13 +33,13 @@ declare global {
     handleNativeFileDrag?: (active: boolean) => void;
   }
 }
-
 const hostContext = window.__SGT_CONTEXT__ || {};
 const pageParams = new URLSearchParams(location.search);
 const activeLanguage = pageParams.get("lang") || hostContext.language || "en";
 setLanguage(activeLanguage);
 document.documentElement.dataset.theme =
   (import.meta.env.DEV && pageParams.get("theme")) || hostContext.theme || "dark";
+document.documentElement.dataset.creationShellOnly = "false";
 
 function invoke<T = unknown>(cmd: string, args: unknown = {}): Promise<T> {
   if (window.invoke) return window.invoke<T>(cmd, args);
@@ -33,26 +51,21 @@ app.innerHTML = svgAppMarkup();
 const query = <T extends Element>(selector: string) => document.querySelector<T>(selector)!;
 const queueList = query<HTMLElement>("#queueList");
 const folderPath = query<HTMLElement>("#folderPath");
-const sourceThumb = query<HTMLElement>("#sourceThumb");
 const statusTitle = query<HTMLElement>("#statusTitle");
 const statusDetail = query<HTMLElement>("#statusDetail");
 const statusEta = query<HTMLElement>("#statusEta");
 const progressTrack = query<HTMLElement>("#progressTrack");
 const progressFill = query<HTMLElement>("#progressFill");
-const confirmDialog = query<HTMLElement>("#confirmDialog");
-const confirmMessage = query<HTMLElement>("#confirmMessage");
-const confirmCancel = query<HTMLButtonElement>("#confirmCancel");
-const confirmAccept = query<HTMLButtonElement>("#confirmAccept");
 const appToast = query<HTMLElement>("#appToast");
 
 let items: Item[] = [];
 let selectedId = "";
 let outputDir = "";
-let defaultModel: Model = "simple";
 let pumping = false;
 let historyRefreshing = false;
-let confirmResolver: ((accepted: boolean) => void) | undefined;
 let toastTimer = 0;
+const MAX_IMPORT_SESSIONS = 100;
+const MAX_MISSING_STATUS_POLLS = 85;
 
 function basename(path: string) {
   return path.split(/[\\/]/).pop() || path;
@@ -63,7 +76,8 @@ function selected() {
 }
 
 function busy(item: Item) {
-  return ["preparing", "generating", "finalizing"].includes(item.stage);
+  return ["preparing", "generating", "finalizing"].includes(item.stage)
+    || (item.stage === "queued" && Boolean(item.submitted));
 }
 
 function stageLabel(stage: Stage) {
@@ -75,23 +89,6 @@ function stageLabel(stage: Stage) {
   return t("creating");
 }
 
-function confirmInApp(message: string) {
-  confirmResolver?.(false);
-  confirmMessage.textContent = message;
-  confirmDialog.hidden = false;
-  confirmAccept.focus();
-  return new Promise<boolean>((resolve) => {
-    confirmResolver = resolve;
-  });
-}
-
-function closeConfirmation(accepted: boolean) {
-  confirmDialog.hidden = true;
-  const resolve = confirmResolver;
-  confirmResolver = undefined;
-  resolve?.(accepted);
-}
-
 function showToast(message: string) {
   window.clearTimeout(toastTimer);
   appToast.textContent = message;
@@ -100,22 +97,17 @@ function showToast(message: string) {
 }
 
 const progressKeys: Record<string, MessageKey> = {
-  "svg.preparingWorkspace": "preparingWorkspace",
-  "svg.confirmingWorkspace": "confirmingWorkspace",
-  "svg.workspaceReady": "workspaceReady",
-  "svg.openingWorkspace": "openingWorkspace",
-  "svg.imageReady": "imageReady",
-  "svg.creatingPaths": "creatingPaths",
-  "svg.vectorReady": "finishingVector",
-  "svg.waitingWorkspace": "waitingWorkspace",
+  "svg.preparing": "preparing",
+  "svg.creating": "creatingPaths",
+  "svg.finalizing": "finishingVector",
+  "svg.done": "done",
   "svg.failed": "failedHint",
 };
 
 function localizedProgress(item: Item) {
   const key = item.progressKey && progressKeys[item.progressKey];
   if (key) return t(key);
-  if (item.previewPath && busy(item)) return t("readingDepth");
-  if (item.stage === "preparing") return t("preparingWorkspace");
+  if (item.stage === "preparing") return t("preparing");
   if (item.stage === "generating") return t("creatingPaths");
   if (item.stage === "finalizing") return t("finishingVector");
   if (item.stage === "failed") return t("failedHint");
@@ -162,26 +154,19 @@ function updateProgressUi() {
     elapsedMs >= estimateMs ? t("takingLonger") : formatRemaining(estimateMs - elapsedMs);
 }
 
-async function loadSource(item: Item) {
-  if (item.sourceUrl) return item.sourceUrl;
-  const asset = await invoke<Asset>("read_image_preview", { path: item.path, maxEdge: 1_600 });
-  item.sourceUrl = asset.dataUrl;
-  return item.sourceUrl || "";
-}
-
+const assets = createSvgAssetLoader(invoke);
 let canvas!: SvgCanvasController;
 const queueView = new SvgQueueView({
   queueList,
-  sourceThumb,
   getItems: () => items,
   getSelectedId: () => selectedId,
   stageLabel,
-  invoke,
   onSelect: (item) => {
+    if (selectedId === item.id) return;
     selectedId = item.id;
     canvas.invalidate();
     render();
-    void canvas.showItem(item);
+    void canvas.showItem(item, false);
   },
   onRename: (item, name) => void renameHistoryItem(item, name),
   onDelete: (item) => void deleteHistoryItem(item),
@@ -191,25 +176,28 @@ canvas = new SvgCanvasController({
   getItems: () => items,
   isSelected: (id) => selectedId === id,
   busy,
-  loadSource,
+  loadSource: assets.loadSource,
+  loadVectorPreview: assets.loadVectorPreview,
+  loadVectorText: assets.loadVectorText,
+  cacheVector: assets.cacheVector,
+  invalidateVectorPreview: assets.invalidateVectorPreview,
   invoke,
   imageIcon: SVG_ICONS.image,
   vectorIcon: SVG_ICONS.vector,
-  holdPreviews: (milliseconds) => queueView.holdPreviews(milliseconds),
-  setPreviewInteraction: (active) => queueView.setInteractionActive(active),
+});
+const settings = new SvgSettingsControl({
+  getItems: () => items,
+  getSelected: selected,
+  render,
 });
 
 function render() {
   queueView.render();
   const item = selected();
-  query<HTMLButtonElement>("#generate").disabled = !item || item.stage !== "draft";
+  query<HTMLButtonElement>("#generate").disabled = !canActivatePrimaryAction(item);
   query<HTMLButtonElement>("#cancel").hidden = !item || !busy(item);
   query<HTMLButtonElement>("#openFolder").hidden = !item?.outputPath;
-  document.querySelectorAll<HTMLButtonElement>("[data-model]").forEach((button) => {
-    const model = button.dataset.model as Model;
-    button.classList.toggle("active", (item?.model || defaultModel) === model);
-    button.disabled = Boolean(item && item.stage !== "draft");
-  });
+  settings.sync(item);
   if (item) {
     statusTitle.textContent = stageLabel(item.stage);
     statusDetail.textContent = localizedProgress(item);
@@ -229,8 +217,8 @@ async function renameHistoryItem(item: Item, newName: string) {
     item.outputPath = entry.outputPath;
     item.outputName = entry.outputName;
     if (item.id === selectedId) canvas.invalidate();
-  } catch (error) {
-    showToast(`${t("renameFailed")}: ${String(error)}`);
+  } catch {
+    showToast(t("renameFailed"));
   } finally {
     queueView.finishRename();
     render();
@@ -238,7 +226,7 @@ async function renameHistoryItem(item: Item, newName: string) {
 }
 
 async function deleteHistoryItem(item: Item) {
-  if (!item.historyId || !await confirmInApp(t("deleteResultConfirm"))) return;
+  if (!item.historyId) return;
   try {
     await invoke("delete_history_result", { id: item.historyId });
     const index = items.indexOf(item);
@@ -251,8 +239,30 @@ async function deleteHistoryItem(item: Item) {
     }
     render();
     if (selected()) await canvas.showItem(selected());
-  } catch (error) {
-    showToast(`${t("deleteFailed")}: ${String(error)}`);
+  } catch {
+    showToast(t("deleteFailed"));
+  }
+}
+
+async function deleteAllHistory() {
+  if (!await confirmDestructive({
+    message: t("deleteAllConfirm"),
+    confirmLabel: t("deleteAll"),
+    cancelLabel: t("cancel"),
+  })) return;
+  try {
+    await invoke("delete_all_history_results");
+    items = items.filter((item) => !item.historyId);
+    if (!items.some((item) => item.id === selectedId)) {
+      selectedId = items[0]?.id || "";
+      canvas.clear();
+      canvas.invalidate();
+    }
+    render();
+    if (selected()) await canvas.showItem(selected());
+    else canvas.showEmpty();
+  } catch {
+    showToast(t("deleteFailed"));
   }
 }
 
@@ -264,6 +274,7 @@ async function refreshHistory() {
   if (historyRefreshing || !window.invoke) return;
   historyRefreshing = true;
   try {
+    const before = svgHistoryPresentationSignature(items, selectedId);
     const entries = await invoke<HistoryEntry[]>("history_results");
     const validIds = new Set(entries.map((entry) => entry.id));
     const validPaths = new Set(entries.map((entry) => comparablePath(entry.outputPath)));
@@ -279,12 +290,15 @@ async function refreshHistory() {
         continue;
       }
       const model = entry.metadata?.model === "detail" ? "detail" : "simple";
+      const backgroundMode = normalizeBackgroundMode(entry.metadata?.backgroundMode);
       item = {
         id: `history_${entry.id}`,
         batchId: `history_${entry.id}`,
         path: entry.sourcePath,
+        sourceProvenance: "presentation",
         name: basename(entry.sourcePath || entry.outputName),
         model,
+        backgroundMode,
         outputDir: entry.outputPath.replace(/[\\/][^\\/]+$/, ""),
         stage: "done",
         outputPath: entry.outputPath,
@@ -302,7 +316,7 @@ async function refreshHistory() {
         || validPaths.has(comparablePath(item.outputPath));
     });
     if (!items.some((item) => item.id === selectedId)) selectedId = items[0]?.id || "";
-    render();
+    if (svgHistoryPresentationSignature(items, selectedId) !== before) render();
     if (selectedId && selectedId !== selectedBefore) {
       canvas.invalidate();
       await canvas.showItem(selected());
@@ -318,24 +332,27 @@ async function restoreCurrentJobs() {
   try {
     const statuses = await invoke<JobStatus[]>("job_statuses");
     for (const status of statuses.filter((value) =>
-      ["preparing", "generating", "finalizing"].includes(value.stage))) {
+      ["queued", "preparing", "generating", "finalizing"].includes(value.stage))) {
       if (items.some((item) => item.jobId === status.jobId)) continue;
       items.push({
         id: `recovered_${status.jobId}`,
         batchId: `recovered_${status.jobId}`,
         path: status.sourceImagePath,
+        sourceProvenance: "presentation",
         name: basename(status.sourceImagePath),
         model: status.model,
-        outputDir,
+        backgroundMode: status.backgroundMode,
+        outputDir: status.outputDir,
         stage: status.stage,
+        submitted: true,
         jobId: status.jobId,
         progress: status.progressRatio,
         progressText: status.progressText,
         progressKey: status.progressKey,
         phase: status.phase,
-        previewPath: status.previewPath,
         operationStartedAt: Date.now() - Math.max(0, status.elapsedMs || 0),
         estimatedTotalMs: status.estimatedTotalMs,
+        createdAtMs: Date.now() - Math.max(0, status.elapsedMs || 0),
       });
     }
     if (!selectedId && items.length) selectedId = items[0].id;
@@ -346,25 +363,24 @@ async function restoreCurrentJobs() {
 
 async function addImagePaths(paths: string[]) {
   if (!paths.length) return;
-  const existing = new Set(items
-    .filter((item) => item.stage === "draft" || item.stage === "queued" || busy(item))
-    .map((item) => item.path.toLowerCase()));
-  const uniquePaths = paths.filter((path) => {
-    const key = path.toLowerCase();
-    if (existing.has(key)) return false;
-    existing.add(key);
-    return true;
-  });
-  if (!uniquePaths.length) return;
+  if (paths.length > MAX_IMPORT_SESSIONS) {
+    showToast(t("importLimit", { count: MAX_IMPORT_SESSIONS }));
+    return;
+  }
+  const accepted = paths.map((path) => path.trim()).filter(Boolean);
+  if (!accepted.length) return;
   const batchId = `batch-${Date.now()}`;
-  const created = uniquePaths.map((path, index): Item => ({
+  const created = accepted.map((path, index): Item => ({
     id: `${batchId}-${index}`,
     batchId,
     path,
+    sourceProvenance: "surface-import",
     name: basename(path),
-    model: defaultModel,
+    model: settings.model,
+    backgroundMode: settings.backgroundMode,
     outputDir,
     stage: "draft",
+    createdAtMs: Date.now() - index,
   }));
   items.push(...created);
   selectedId = created[0].id;
@@ -377,35 +393,19 @@ async function addImages() {
   await addImagePaths(await invoke<string[]>("pick_images"));
 }
 
-async function loadDepthFor(item: Item, path: string) {
-  if (!path || item.previewPath === path && item.depthUrl) return;
-  item.previewPath = path;
-  try {
-    item.depthUrl = (await invoke<Asset>("read_image_preview", {
-      path,
-      maxEdge: 1_024,
-    })).dataUrl;
-    if (item.id === selectedId && busy(item)) {
-      canvas.invalidate();
-      await canvas.showItem(item);
-    }
-  } catch {
-    item.depthUrl = "";
-  }
-}
-
 async function pump() {
   if (pumping) return;
   pumping = true;
   try {
-    while (items.filter(busy).length < 2) {
-      const item = items.find((value) => value.stage === "queued");
+    for (;;) {
+      const item = claimNextQueued(items);
       if (!item) break;
       try {
         const status = await invoke<JobStatus>("start_job", {
           imagePath: item.path,
           outputDir: item.outputDir,
           model: item.model,
+          backgroundMode: item.backgroundMode,
         });
         item.jobId = status.jobId;
         item.stage = status.stage;
@@ -413,25 +413,30 @@ async function pump() {
         item.progressKey = status.progressKey;
         item.phase = status.phase;
         beginProgress(item, status);
-        if (status.previewPath) void loadDepthFor(item, status.previewPath);
-      } catch (error) {
+      } catch {
+        releaseDispatchClaim(item);
         item.stage = "failed";
-        item.error = error instanceof Error ? error.message : String(error);
+        item.error = t("failed");
       }
       render();
     }
   } finally {
     pumping = false;
+    jobMonitor.start();
   }
 }
 
 async function poll() {
   try {
     const statuses = await invoke<JobStatus[]>("job_statuses");
+    let presentationChanged = false;
+    const returnedJobIds = new Set(statuses.map((status) => status.jobId));
     for (const status of statuses) {
       const item = items.find((value) => value.jobId === status.jobId);
       if (!item) continue;
+      item.missingStatusPolls = 0;
       const changed = item.stage !== status.stage;
+      presentationChanged ||= svgStatusChangesPresentation(item, status);
       item.stage = status.stage;
       item.progress = status.progressRatio;
       item.progressText = status.progressText;
@@ -444,21 +449,43 @@ async function poll() {
         if (!item.operationStartedAt) beginProgress(item, status);
         if (status.estimatedTotalMs) item.estimatedTotalMs = status.estimatedTotalMs;
       }
-      if (status.previewPath) void loadDepthFor(item, status.previewPath);
       if (changed && item.id === selectedId) {
         canvas.invalidate();
         void canvas.showItem(item);
       }
       if (changed && status.stage === "done") void refreshHistory();
     }
-    render();
+    for (const item of items) {
+      if (!item.jobId || !busy(item) || returnedJobIds.has(item.jobId)) continue;
+      const missing = advanceMissingStatusPoll(
+        item.missingStatusPolls || 0,
+        MAX_MISSING_STATUS_POLLS,
+      );
+      item.missingStatusPolls = missing.count;
+      if (!missing.timedOut) continue;
+      item.stage = "failed";
+      item.error = t("failed");
+      item.progressText = t("failedHint");
+      presentationChanged = true;
+    }
+    if (presentationChanged) render();
     void pump();
   } catch {
     // The host may be closing.
   }
 }
 
+const jobMonitor = new DemandPoller({
+  hasWork: () => items.some(busy),
+  poll,
+  present: updateProgressUi,
+  pollEveryMs: 700,
+  presentEveryMs: 250,
+});
+window.addEventListener("pagehide", () => jobMonitor.dispose(), { once: true });
+
 query("#addImages").addEventListener("click", () => void addImages());
+query("#deleteAllHistory").addEventListener("click", () => void deleteAllHistory());
 query("#chooseImages").addEventListener("click", () => void addImages());
 query("#chooseFolder").addEventListener("click", async () => {
   const chosen = await invoke<string | null>("pick_output_dir");
@@ -473,9 +500,18 @@ query("#chooseFolder").addEventListener("click", async () => {
   }
 });
 query("#generate").addEventListener("click", () => {
-  const item = selected();
-  if (!item || item.stage !== "draft") return;
-  item.stage = "queued";
+  let item = selected();
+  if (!item || !canActivatePrimaryAction(item)) return;
+  if (needsFreshSubmissionSession(item)) {
+    item = freshSubmissionSession(item, `submission_${crypto.randomUUID()}`);
+    items.push(item);
+    selectedId = item.id;
+    canvas.clear();
+    canvas.invalidate();
+  } else {
+    item.createdAtMs = Date.now();
+    item.stage = "queued";
+  }
   render();
   void pump();
 });
@@ -488,30 +524,11 @@ query("#openFolder").addEventListener("click", () => {
   const item = selected();
   void invoke("open_output", { path: item?.outputPath || outputDir });
 });
-document.querySelectorAll<HTMLButtonElement>("[data-model]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const model = button.dataset.model as Model;
-    defaultModel = model;
-    const item = selected();
-    if (item?.stage === "draft") {
-      items
-        .filter((value) => value.batchId === item.batchId && value.stage === "draft")
-        .forEach((value) => value.model = model);
-    }
-    render();
-  });
-});
 query("#minimize").addEventListener("click", () => void invoke("minimize_window"));
 query("#close").addEventListener("click", () => void invoke("close_window"));
 query("#dragRegion").addEventListener("mousedown", (event) => {
   if (!(event.target as Element).closest("button")) void invoke("start_drag");
 });
-confirmCancel.addEventListener("click", () => closeConfirmation(false));
-confirmAccept.addEventListener("click", () => closeConfirmation(true));
-confirmDialog.addEventListener("click", (event) => {
-  if (event.target === confirmDialog) closeConfirmation(false);
-});
-
 window.handleNativeFileDrag = (active) => document.body.classList.toggle("file-dragging", active);
 window.handleNativeFileDrop = (paths) => {
   document.body.classList.remove("file-dragging");
@@ -527,8 +544,8 @@ window.applyHostContext = (next) => {
 };
 
 async function boot() {
-  outputDir = await invoke<string>("default_output_dir").catch(() => "Downloads");
-  folderPath.textContent = outputDir;
+  outputDir = await invoke<string>("default_output_dir").catch(() => "");
+  folderPath.textContent = outputDir || t("creationLibrary");
   const demoMode = import.meta.env.DEV && pageParams.has("demo");
   if (demoMode) {
     const svg = `<svg viewBox="0 0 640 480" xmlns="http://www.w3.org/2000/svg"><path fill="#edf2ff" d="M70 60h500v360H70z"/><path fill="#315fce" d="M112 120h182v96H112z"/><path fill="#ff7b6b" d="M330 120h198v44H330z"/><path fill="#55cda7" d="M330 184h140v32H330z"/><path fill="#252c39" d="M112 252h416v24H112z"/><path fill="#8da8ef" d="M112 300h310v20H112z"/><path fill="#cad4e7" d="M112 340h370v20H112z"/></svg>`;
@@ -536,8 +553,10 @@ async function boot() {
       id: "demo",
       batchId: "demo",
       path: "sample.png",
+      sourceProvenance: pageParams.has("history") ? "presentation" : "surface-import",
       name: "sample.png",
       model: "simple",
+      backgroundMode: "opaque",
       outputDir,
       stage: "done",
       outputPath: "demo.svg",
@@ -550,22 +569,11 @@ async function boot() {
   } else if (window.invoke) {
     await restoreCurrentJobs();
     await refreshHistory();
-    window.setInterval(() => void refreshHistory(), 5_000);
   }
-  const updateReady = async () => {
-    const status = await invoke<string>("runtime_preparation_status").catch(() => "preparing");
-    const badge = query<HTMLElement>("#readiness");
-    badge.className = `readiness ${status === "ready" ? "" : "busy"}`;
-    query("#readyText").textContent =
-      status === "ready" ? t("ready") : status === "partial" ? t("oneWorker") : t("preparing");
-  };
-  void invoke("prepare_runtime");
-  void updateReady();
-  window.setInterval(updateReady, 2_500);
-  window.setInterval(poll, 700);
-  window.setInterval(updateProgressUi, 250);
   render();
   await canvas.showItem(selected());
+  jobMonitor.start();
+  void invoke("prepare_runtime").catch(() => undefined);
   if (demoMode && selected()) {
     const demoZoom = Number(pageParams.get("zoom"));
     if (Number.isFinite(demoZoom) && demoZoom > 0) canvas.setZoom(demoZoom);

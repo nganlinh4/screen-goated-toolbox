@@ -21,6 +21,6 @@ class SgtMobileApplication : Application() {
         if (CreationWorkerProcess.isWorkerProcess()) return
         PhoneControlLog.initialize(this)
         appContainer = AppContainer(this)
-        CreationJobManager.get(this).startPreparation()
+        CreationJobManager.get(this).startOneShotPreparation()
     }
 }

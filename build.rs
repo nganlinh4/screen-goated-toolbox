@@ -1,3 +1,5 @@
+#[path = "build_support/creation_runtime_delivery.rs"]
+mod creation_runtime_delivery;
 #[path = "build_support/model_catalog.rs"]
 mod model_catalog;
 
@@ -17,6 +19,7 @@ fn main() {
         &model_manifest_path,
         &out_dir.join("model_catalog_generated.rs"),
     );
+    creation_runtime_delivery::generate(&manifest_dir, &out_dir);
 
     // Moonshine Voice SDK: loaded dynamically at runtime via libloading
     // to avoid CRT mismatch (Moonshine libs use /MD, project uses /MT).
@@ -70,6 +73,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/presentation.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/vision.rs");
+    println!("cargo:rerun-if-changed=build_support/creation_runtime_delivery.rs");
     println!("cargo:rerun-if-changed={}", model_manifest_path.display());
 }
 

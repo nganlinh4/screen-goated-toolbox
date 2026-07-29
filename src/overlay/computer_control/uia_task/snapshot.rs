@@ -36,9 +36,8 @@ pub(in crate::overlay::computer_control) fn snapshot(
         }
     };
     super::frame_identity::validate_current(target, &surface)?;
-    let show_grid = !browser_structured
-        && accessibility_observed
-        && accessible_rects(&elements, view).is_empty();
+    let show_grid =
+        !browser_structured && accessibility_observed && !has_accessible_action(&elements, view);
     let grid = Grid::from_env();
     let (jpeg, _) = session::encode_view(
         &cap,

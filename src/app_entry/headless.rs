@@ -7,7 +7,6 @@ const COMPUTER_CONTROL_RUN_FLAG: &str = "--computer-control-run";
 const COORD_TEST_FLAG: &str = "--cc-coord-test";
 const UIA_DUMP_FLAG: &str = "--cc-uia-dump";
 const VISION_TEST_FLAG: &str = "--cc-vision-test";
-const DETECTOR_TEST_FLAG: &str = "--cc-detector-test";
 const CURSOR_DEMO_FLAG: &str = "--cc-cursor-demo";
 const GRID_TEST_FLAG: &str = "--cc-grid-test";
 const UIA_TASK_FLAG: &str = "--cc-uia-task";
@@ -22,7 +21,6 @@ const POST_UNPACK_MODE_FLAGS: &[&str] = &[
     COORD_TEST_FLAG,
     UIA_DUMP_FLAG,
     VISION_TEST_FLAG,
-    DETECTOR_TEST_FLAG,
     CURSOR_DEMO_FLAG,
     GRID_TEST_FLAG,
     UIA_TASK_FLAG,
@@ -129,16 +127,6 @@ pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
         return Some(report_result(
             crate::overlay::computer_control::run_vision_test_cli(target.as_deref(), &question),
             "vision-test",
-        ));
-    }
-
-    if args.has(DETECTOR_TEST_FLAG) {
-        let target = args
-            .value("--cc-window")
-            .or_else(|| std::env::var("CC_UIA_WINDOW").ok());
-        return Some(report_result(
-            crate::overlay::computer_control::run_detector_test_cli(target.as_deref()),
-            "detector-test",
         ));
     }
 

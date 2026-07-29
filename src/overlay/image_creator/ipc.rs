@@ -63,14 +63,16 @@ pub(super) fn flush_preview_replies(hwnd: HWND) {
 fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
     match cmd {
         "pick_images" => {
-            crate::overlay::three_d_generator::file_dialogs::pick_images_dialog().map(|paths| {
-                Value::Array(
-                    paths
-                        .into_iter()
-                        .map(|path| Value::String(path.to_string_lossy().to_string()))
-                        .collect(),
-                )
-            })
+            crate::overlay::three_d_generator::file_dialogs::pick_reference_images_dialog().map(
+                |paths| {
+                    Value::Array(
+                        paths
+                            .into_iter()
+                            .map(|path| Value::String(path.to_string_lossy().to_string()))
+                            .collect(),
+                    )
+                },
+            )
         }
         "pick_output_dir" => {
             crate::overlay::three_d_generator::file_dialogs::pick_output_dir_dialog().map(|path| {
@@ -83,6 +85,10 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .to_string_lossy()
                 .to_string(),
         )),
+        "image_preview_url" => crate::overlay::creation_preview_protocol::issue_from_args(args),
+        "image_asset_url" => {
+            crate::overlay::creation_preview_protocol::issue_source_image_from_args(args)
+        }
         "start_job" => {
             let request: super::runtime::StartJobRequest =
                 serde_json::from_value(args.clone()).map_err(|error| error.to_string())?;
@@ -102,7 +108,8 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
             serde_json::to_value(super::runtime::job_statuses()).map_err(|error| error.to_string())
         }
         "history_results" => {
-            serde_json::to_value(crate::overlay::generation_history::list("image")?)
+            let entries = crate::overlay::generation_history::list("image")?;
+            serde_json::to_value(crate::overlay::generation_history::public_entries(&entries))
                 .map_err(|error| error.to_string())
         }
         "rename_history_result" => {
@@ -120,7 +127,8 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .ok_or_else(|| "Result is no longer in history.".to_string())?;
             let updated = crate::overlay::generation_history::rename("image", id, new_name)?;
             super::runtime::remap_result_path(&previous.output_path, &updated.output_path);
-            serde_json::to_value(updated).map_err(|error| error.to_string())
+            serde_json::to_value(crate::overlay::generation_history::public_entry(&updated))
+                .map_err(|error| error.to_string())
         }
         "delete_history_result" => {
             let id = args
@@ -135,12 +143,13 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
             super::runtime::forget_result_path(&previous.output_path);
             Ok(Value::Null)
         }
-        "read_asset" => {
-            let path = args
-                .get("path")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "path is required".to_string())?;
-            super::runtime::read_asset(path)
+        "delete_all_history_results" => {
+            let previous = crate::overlay::generation_history::list("image")?;
+            let deleted = crate::overlay::generation_history::delete_all("image")?;
+            for entry in previous {
+                super::runtime::forget_result_path(&entry.output_path);
+            }
+            Ok(Value::from(deleted as u64))
         }
         "open_output" => {
             let path = args.get("path").and_then(Value::as_str);
@@ -178,7 +187,7 @@ fn send_reply(id: &str, result: Result<Value, String>) {
     }
     let payload = match result {
         Ok(value) => json!({ "id": id, "result": value }),
-        Err(error) => json!({ "id": id, "error": error }),
+        Err(_error) => json!({ "id": id, "error": "operation_failed" }),
     };
     let script =
         format!("window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {payload} }}));");

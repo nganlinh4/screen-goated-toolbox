@@ -211,9 +211,8 @@
   padding: 8px 11px 11px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  background: var(--surface);
   box-shadow: 0 9px 28px rgba(3, 8, 18, 0.25);
-  backdrop-filter: blur(12px);
 }
 .status-icon { color: var(--cobalt); font-size: 20px; }
 .status-copy { min-width: 0; display: grid; gap: 2px; }

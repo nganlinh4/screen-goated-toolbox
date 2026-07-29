@@ -7,6 +7,90 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import org.gradle.api.artifacts.VersionCatalogsExtension
 
+data class CreationRuntimeBundleEntry(
+    val bundlePath: String,
+    val fileName: String,
+    val sizeBytes: Long,
+    val sha256: String,
+)
+
+data class CreationRuntimeBundleContract(
+    val source: File,
+    val featureEntries: List<CreationRuntimeBundleEntry>,
+    val factorySignature: String,
+)
+
+fun Map<*, *>.requiredCreationMap(name: String): Map<*, *> =
+    this[name] as? Map<*, *> ?: error("Creation runtime manifest is missing $name")
+
+fun Map<*, *>.requiredCreationString(name: String): String =
+    (this[name] as? String)?.takeIf { it.isNotBlank() }
+        ?: error("Creation runtime manifest is missing $name")
+
+fun loadCreationRuntimeBundleContract(repoRoot: File): CreationRuntimeBundleContract {
+    val configured = System.getenv("SGT_CREATION_RUNTIME_DELIVERY_MANIFEST")
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::File)
+    val source = configured ?: repoRoot.resolve(
+        "local-runtime-bundles/sgt_creation_runtime/sgt_creation_runtime.delivery.json",
+    )
+    require(source.isFile) {
+        "Play compliance requires the private creation runtime delivery manifest"
+    }
+    @Suppress("UNCHECKED_CAST")
+    val root = JsonSlurper().parse(source) as Map<*, *>
+    val android = root.requiredCreationMap("android")
+    val rawEntries = android["entries"] as? List<*>
+        ?: error("Creation runtime manifest is missing Android entries")
+    val nativeEntries = rawEntries.map { raw ->
+        val entry = raw as? Map<*, *>
+            ?: error("Creation runtime manifest contains an invalid Android entry")
+        entry
+    }.filter { entry ->
+        entry.requiredCreationString("role") == "native_library"
+    }.map { entry ->
+        val installPath = entry.requiredCreationString("installPath")
+            .replace('\\', '/')
+        require(
+            !installPath.startsWith('/') &&
+                installPath.split('/').none { part ->
+                    part.isEmpty() || part == "." || part == ".."
+                },
+        ) { "Creation runtime native install path is unsafe" }
+        val fileName = installPath.substringAfterLast('/')
+        val sizeBytes = (entry["sizeBytes"] as? Number)?.toLong()
+            ?.takeIf { it > 0L }
+            ?: error("Creation runtime manifest has an invalid native byte count")
+        val sha256 = entry.requiredCreationString("sha256").lowercase()
+        require(
+            sha256.length == 64 &&
+                sha256.all { it.isDigit() || it in 'a'..'f' },
+        ) { "Creation runtime manifest has an invalid native checksum" }
+        CreationRuntimeBundleEntry(
+            bundlePath = "feature_creation_runtime/$installPath",
+            fileName = fileName,
+            sizeBytes = sizeBytes,
+            sha256 = sha256,
+        )
+    }
+    require(nativeEntries.isNotEmpty()) {
+        "Creation runtime manifest has no native feature entries"
+    }
+    require(nativeEntries.map { it.bundlePath }.distinct().size == nativeEntries.size) {
+        "Creation runtime manifest repeats a native feature path"
+    }
+    val factoryClass = android.requiredCreationString("factoryClass")
+    val factorySignature = factoryClass.substringAfterLast('.')
+    require(factorySignature.isNotBlank() && factorySignature != factoryClass) {
+        "Creation runtime manifest has an invalid factory class"
+    }
+    return CreationRuntimeBundleContract(
+        source = source,
+        featureEntries = nativeEntries,
+        factorySignature = factorySignature,
+    )
+}
+
 val kotlinRuntimeVersion = rootProject.extensions
     .getByType(VersionCatalogsExtension::class.java)
     .named("libs")
@@ -154,6 +238,8 @@ tasks.register("verifyPlayReleaseCompliance") {
             .asFile
         require(bundle.isFile) { "Missing Play bundle: ${bundle.absolutePath}" }
 
+        val creationRuntimeContract =
+            loadCreationRuntimeBundleContract(rootProject.projectDir.parentFile)
         val forbiddenBaseNativeNames = listOf(
             "libc++_shared.so",
             "libonnxruntime.so",
@@ -166,8 +252,7 @@ tasks.register("verifyPlayReleaseCompliance") {
             "libffmpeg.so",
             "libffmpeg.zip.so",
             "libffprobe.so",
-            "libsgt_creation_glb.so",
-        )
+        ) + creationRuntimeContract.featureEntries.map { it.fileName }
         val forbiddenDexStrings = listOf(
             "api.github.com/repos/nganlinh4/screen-goated-toolbox",
             "api.github.com/repos/yt-dlp",
@@ -176,9 +261,7 @@ tasks.register("verifyPlayReleaseCompliance") {
             "browser_download_url",
             "YoutubeDLUpdater",
             "updateYoutubeDL",
-            "CreationAutomationEngine",
-            "MeshoptNative",
-        )
+        ) + creationRuntimeContract.factorySignature
         val allowedFeatureModules = setOf(
             "feature_asr_ort",
             "feature_asr_moonshine",
@@ -212,20 +295,8 @@ tasks.register("verifyPlayReleaseCompliance") {
         }
         val nativeRuntimeContractAsset = "base/assets/native-runtime/contract.json"
         val forbiddenBaseResources = listOf("base/res/raw/ytdlp")
-        val detectorAssetPath = "feature_asr_ort/assets/ui_detector/ui-detr-1.onnx"
-        val detectorAssetBytes = 131_216_489L
-        val detectorAssetSha256 =
-            "1892092320cd55fd182c6afd76ae5bb0fb9695f5fcdf0ba875c1f68d49792ff4"
-        val creationNativePath =
-            "feature_creation_runtime/lib/arm64-v8a/libsgt_creation_glb.so"
-        val creationNativeBytes = 342_304L
-        val creationNativeSha256 =
-            "6520b51e703b953ffed3509310f693c68ceb107b37908dfac4c44eb9f42c55cc"
-        val creationRuntimeSignatures = listOf(
-            "AndroidCreationRuntimeFactory",
-            "CreationAutomationEngine",
-            "MeshoptNative",
-        )
+        val creationRuntimeDeliveryAsset =
+            "feature_creation_runtime/assets/creation-runtime/delivery.json"
 
         val playManifest = project.file("src/play/AndroidManifest.xml")
         val manifestDocument = DocumentBuilderFactory.newInstance().apply {
@@ -303,30 +374,28 @@ tasks.register("verifyPlayReleaseCompliance") {
                     "Play native checksum mismatch for $fileName: $actualSha256"
                 }
             }
-            val creationNativeEntries = entries.filter { entry ->
-                entry.name.endsWith("/libsgt_creation_glb.so")
-            }
-            require(creationNativeEntries.map { it.name } == listOf(creationNativePath)) {
-                "Play creation native ownership mismatch: ${creationNativeEntries.map { it.name }}"
-            }
-            val creationNative = creationNativeEntries.single()
-            require(creationNative.size == creationNativeBytes) {
-                "Play creation native byte count mismatch: ${creationNative.size}"
-            }
-            val creationDigest = MessageDigest.getInstance("SHA-256")
-            zip.getInputStream(creationNative).use { input ->
-                val buffer = ByteArray(1024 * 1024)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    creationDigest.update(buffer, 0, read)
+            for (contractEntry in creationRuntimeContract.featureEntries) {
+                val packaged = requireNotNull(zip.getEntry(contractEntry.bundlePath)) {
+                    "Play creation runtime feature is missing ${contractEntry.bundlePath}"
                 }
-            }
-            val actualCreationSha256 = creationDigest.digest().joinToString("") { byte ->
-                "%02x".format(byte)
-            }
-            require(actualCreationSha256 == creationNativeSha256) {
-                "Play creation native checksum mismatch: $actualCreationSha256"
+                require(packaged.size == contractEntry.sizeBytes) {
+                    "Play creation runtime byte count mismatch for ${contractEntry.bundlePath}"
+                }
+                val digest = MessageDigest.getInstance("SHA-256")
+                zip.getInputStream(packaged).use { input ->
+                    val buffer = ByteArray(1024 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        digest.update(buffer, 0, read)
+                    }
+                }
+                val actualSha256 = digest.digest().joinToString("") { byte ->
+                    "%02x".format(byte)
+                }
+                require(actualSha256 == contractEntry.sha256) {
+                    "Play creation runtime checksum mismatch for ${contractEntry.bundlePath}"
+                }
             }
             require(zip.getEntry("base/lib/arm64-v8a/libonnxruntime4j_jni.so") != null) {
                 "Play base is missing the Java ORT JNI bridge"
@@ -338,32 +407,15 @@ tasks.register("verifyPlayReleaseCompliance") {
                 zip.getInputStream(packagedRuntimeContract).use { input -> input.readBytes() }
                     .contentEquals(nativeRuntimeContractFile.readBytes()),
             ) { "Play packaged native runtime contract differs from its shared owner" }
-
-            val detectorEntries = entries.filter { entry ->
-                entry.name.endsWith("/assets/ui_detector/ui-detr-1.onnx")
+            val packagedCreationDelivery = requireNotNull(
+                zip.getEntry(creationRuntimeDeliveryAsset),
+            ) {
+                "Play creation runtime feature is missing its delivery contract"
             }
-            require(detectorEntries.map { it.name } == listOf(detectorAssetPath)) {
-                "Play detector ownership mismatch: ${detectorEntries.map { it.name }}"
-            }
-            val detectorEntry = detectorEntries.single()
-            require(detectorEntry.size == detectorAssetBytes) {
-                "Play detector size mismatch: ${detectorEntry.size}"
-            }
-            val detectorDigest = MessageDigest.getInstance("SHA-256")
-            zip.getInputStream(detectorEntry).use { input ->
-                val buffer = ByteArray(1024 * 1024)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    detectorDigest.update(buffer, 0, read)
-                }
-            }
-            val actualDetectorSha256 = detectorDigest.digest().joinToString("") { byte ->
-                "%02x".format(byte)
-            }
-            require(actualDetectorSha256 == detectorAssetSha256) {
-                "Play detector checksum mismatch: $actualDetectorSha256"
-            }
+            require(
+                zip.getInputStream(packagedCreationDelivery).use { input -> input.readBytes() }
+                    .contentEquals(creationRuntimeContract.source.readBytes()),
+            ) { "Play packaged creation runtime delivery differs from its private owner" }
 
             val baseDexEntries = entries.filter { entry: ZipEntry ->
                 entry.name.matches(Regex("base/dex/classes\\d*\\.dex"))
@@ -390,9 +442,8 @@ tasks.register("verifyPlayReleaseCompliance") {
                     input.readBytes().toString(Charsets.ISO_8859_1)
                 }
             }
-            val missingCreationSignatures = creationRuntimeSignatures.filterNot(creationDexText::contains)
-            require(missingCreationSignatures.isEmpty()) {
-                "Play creation runtime feature is incomplete: $missingCreationSignatures"
+            require(creationDexText.contains(creationRuntimeContract.factorySignature)) {
+                "Play creation runtime feature is missing its manifest-declared factory"
             }
         }
     }

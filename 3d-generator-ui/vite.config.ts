@@ -22,9 +22,10 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "dist",
+    outDir: "../src/overlay/three_d_generator/dist",
     emptyOutDir: true,
     assetsDir: "assets",
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       input: "index.html",
       output: {

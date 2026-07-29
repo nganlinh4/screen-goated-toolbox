@@ -10,6 +10,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.captu
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
 import dev.screengoated.toolbox.mobile.phonecontrol.session.buildPhoneControlScreenPayload
+import dev.screengoated.toolbox.mobile.phonecontrol.session.encodePhoneControlScreenImage
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -57,6 +58,7 @@ internal suspend fun captureProjectionOnlyStreamingFrame(): VisualProviderResult
                 val revision =
                     PhoneControlAccessibilityProvider.currentVisualRevision.coerceAtLeast(1L)
                 val bounds = TargetBounds(0, 0, bitmap.width, bitmap.height)
+                val imageBytes = encodePhoneControlScreenImage(bitmap)
                 VisualProviderResult.Success(
                     VisualFrame(
                         identity = VisualFrameIdentity(
@@ -76,7 +78,8 @@ internal suspend fun captureProjectionOnlyStreamingFrame(): VisualProviderResult
                             grid = null,
                             captureProvider = "media_projection",
                         ),
-                        screenPayload = buildPhoneControlScreenPayload(bitmap),
+                        screenPayload = buildPhoneControlScreenPayload(imageBytes),
+                        imageBytes = imageBytes,
                     ),
                 )
             } finally {
@@ -98,6 +101,7 @@ internal suspend fun captureLeaseFreeWindowStreamingFrame(): VisualProviderResul
             val frame = captured.value
             val screenshot = frame.screenshot
             try {
+                val imageBytes = encodePhoneControlScreenImage(screenshot.bitmap)
                 VisualProviderResult.Success(
                     VisualFrame(
                         identity = VisualFrameIdentity(
@@ -117,7 +121,8 @@ internal suspend fun captureLeaseFreeWindowStreamingFrame(): VisualProviderResul
                             grid = null,
                             captureProvider = screenshot.captureProvider,
                         ),
-                        screenPayload = buildPhoneControlScreenPayload(screenshot.bitmap),
+                        screenPayload = buildPhoneControlScreenPayload(imageBytes),
+                        imageBytes = imageBytes,
                     ),
                 )
             } finally {

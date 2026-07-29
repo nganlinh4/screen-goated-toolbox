@@ -3,6 +3,7 @@ import { locale, t, type MessageKey } from "./i18n";
 import { ICONS } from "./layout";
 import type { AppNodes, AppState, QueueItem, Stage } from "./types";
 import type { ModelViewer, ModelStats, ShadingMode } from "./viewer";
+import { canSubmitItem } from "./submission-policy";
 
 type PresentationOptions = {
   state: AppState;
@@ -14,7 +15,6 @@ type PresentationOptions = {
   isConfigurable: (item?: QueueItem) => boolean;
   isDraft: (item?: QueueItem) => boolean;
   normalizeSettings: (item: QueueItem) => ReturnType<typeof generationSettings>;
-  maxParallelJobs: number;
   renderQueue: () => void;
   stripExtension: (name: string) => string;
 };
@@ -33,6 +33,9 @@ export class ModelPresentation {
     });
     document.querySelectorAll<HTMLElement>("[data-i18n-aria]").forEach((node) => {
       node.setAttribute("aria-label", t(node.dataset.i18nAria as MessageKey));
+    });
+    document.querySelectorAll<HTMLElement>("[data-i18n-placeholder]").forEach((node) => {
+      node.setAttribute("placeholder", t(node.dataset.i18nPlaceholder as MessageKey));
     });
     const { state, nodes, stripExtension } = this.options;
     const referenceItem = state.items.find((item) => item.id === state.referencePreviewItemId);
@@ -56,7 +59,6 @@ export class ModelPresentation {
     nodes.progressTrack.classList.toggle("visible", busy);
     nodes.statusEta.classList.toggle("visible", busy);
     if (!busy) {
-      nodes.progressTrack.classList.remove("provider-queued");
       nodes.progressTrack.removeAttribute("aria-valuetext");
       const done = selectedItem()?.state === "done";
       nodes.progressTrack.setAttribute("aria-valuenow", done ? "100" : "0");
@@ -67,15 +69,6 @@ export class ModelPresentation {
     if (!item) return;
     const elapsedMs = Math.max(0, Date.now() - (item.operationStartedAt || Date.now()));
     const estimateMs = Math.max(10_000, item.estimatedTotalMs || 240_000);
-    const providerQueued = item.result?.workspaceState === "provider_queue";
-    nodes.progressTrack.classList.toggle("provider-queued", providerQueued);
-    if (providerQueued) {
-      nodes.progressTrack.removeAttribute("aria-valuenow");
-      nodes.progressTrack.setAttribute("aria-valuetext", t("providerQueueEta"));
-      nodes.progressFill.style.width = "34%";
-      nodes.statusEta.textContent = t("providerQueueEta");
-      return;
-    }
     nodes.progressTrack.removeAttribute("aria-valuetext");
     const curved = Math.min(0.94, 0.9 * (1 - Math.exp((-3 * elapsedMs) / estimateMs)));
     const reported = Math.max(0, Math.min(0.94, item.result?.progressRatio || 0));
@@ -105,13 +98,13 @@ export class ModelPresentation {
   updateUi() {
     const {
       state, nodes, selectedItem, activeJobCount, batchItems, isConfigurable, isDraft,
-      normalizeSettings, maxParallelJobs, renderQueue, stripExtension,
+      normalizeSettings, renderQueue, stripExtension,
     } = this.options;
     const item = selectedItem();
     const status = this.friendlyStatus();
     const busy = activeJobCount() > 0;
     const missing =
-      item?.result?.runtimeStatus === "missing" || state.backendStatus.runtimeStatus === "missing";
+      item?.result?.runtimeStatus === "missing" || state.selectedStatus.runtimeStatus === "missing";
     nodes.statusTitle.textContent = status.title;
     nodes.statusDetail.textContent = status.detail;
     nodes.stageStatus.dataset.stage = status.stage;
@@ -150,21 +143,29 @@ export class ModelPresentation {
     });
     nodes.autoSegmentSection.hidden = !settings.showAutoSegment;
     nodes.autoSegmentInput.checked = settings.autoSegment;
+    const instructionAvailable =
+      state.generationCapabilities.ready
+      && state.generationCapabilities.optionalInstruction[settings.mode];
+    nodes.instructionSection.hidden = !instructionAvailable;
+    if (nodes.instructionInput.value !== (item?.instruction || "")) {
+      nodes.instructionInput.value = item?.instruction || "";
+    }
     const locked = !isConfigurable(item);
     nodes.modeButtons.forEach((button) => {
       button.disabled = locked;
     });
     nodes.polycountRange.disabled = locked;
     nodes.autoSegmentInput.disabled = locked;
+    nodes.instructionInput.disabled = locked;
     const selectedDraft = isDraft(item);
-    nodes.generateButton.disabled = !item || missing || item.state === "running";
+    nodes.generateButton.disabled = missing || !canSubmitItem(item);
     nodes.generateButton.classList.toggle("is-busy", busy);
     const rerun =
       item ? item.state === "done" || item.state === "failed" || item.state === "cancelled" : false;
     nodes.generateLabel.textContent = selectedDraft && busy
       ? t("addToQueue")
-      : item?.state === "running"
-        ? t("creatingModel")
+      : item?.state === "running" || item?.state === "queued" && item.submitted
+        ? t("generateAgain")
         : rerun
           ? t("generateAgain")
           : t("generateModel");
@@ -174,8 +175,7 @@ export class ModelPresentation {
     const canSegment = item?.state === "done"
       && item.result?.canSegment
       && item.result?.jobId
-      && !item.result?.isSegmented
-      && activeJobCount() < maxParallelJobs;
+      && !item.result?.isSegmented;
     nodes.segmentButton.classList.toggle("visible", Boolean(canSegment));
     const hasModel = Boolean(item?.result?.outputPath && item.loadedModelPath);
     nodes.resultSummary.classList.toggle("visible", hasModel);
@@ -191,15 +191,13 @@ export class ModelPresentation {
     this.updateProgressUi();
   }
 
-  private friendlyError(message: string) {
-    const text = message.toLowerCase();
-    if (text.includes("rate limit") || text.includes("retry after")) return t("serviceBusy");
-    if (text.includes("runtime_missing") || text.includes("runtime") && text.includes("missing")) {
-      return t("engineMissing");
+  private friendlyError(code?: string | null) {
+    switch (code) {
+      case "engine_unavailable": return t("toolUnavailable");
+      case "timed_out": return t("timedOut");
+      case "separation_failed": return t("separationFailed");
+      default: return t("interrupted");
     }
-    if (text.includes("timed out") || text.includes("timeout")) return t("timedOut");
-    if (text.includes("segment")) return t("separationFailed");
-    return t("interrupted");
   }
 
   private friendlyStatus() {
@@ -216,7 +214,7 @@ export class ModelPresentation {
     if (item.state === "failed") {
       return {
         title: t("couldNotCreate"),
-        detail: this.friendlyError(item.result?.error || item.result?.progressText || ""),
+        detail: this.friendlyError(item.result?.error),
         stage: "failed" as Stage,
       };
     }
@@ -229,24 +227,10 @@ export class ModelPresentation {
     if (item.state !== "running") {
       return { title: t("ready"), detail: t("adjustThenGenerate"), stage: "idle" as Stage };
     }
-    const status = item.result || state.backendStatus;
-    if (status.workspaceState === "waiting") {
-      return {
-        title: t("preparingWorkspace"),
-        detail: t("finishingPreparation"),
-        stage: status.stage,
-      };
-    }
-    if (status.workspaceState === "provider_queue") {
-      return {
-        title: t("providerQueueTitle"),
-        detail: t("providerQueueDetail"),
-        stage: status.stage,
-      };
-    }
+    const status = item.result || state.selectedStatus;
     if (status.stage === "preparing") {
       return {
-        title: t("preparingWorkspace"),
+        title: t("preparing"),
         detail: t("gettingEverythingReady"),
         stage: status.stage,
       };
@@ -258,7 +242,6 @@ export class ModelPresentation {
       return { title: t("finishingModel"), detail: t("preparingGeometry"), stage: status.stage };
     }
     const details: Record<string, MessageKey> = {
-      depth_preview: "readingDepth",
       model_setup: "preparingImage",
       model_creation: "shapingGeometry",
       separation: "findingPieces",
@@ -266,7 +249,7 @@ export class ModelPresentation {
     };
     return {
       title: t("creatingModel"),
-      detail: t(details[status.phase || ""] || (status.previewPath ? "shapingGeometry" : "readingDepth")),
+      detail: t(details[status.phase || ""] || "preparingImage"),
       stage: status.stage,
     };
   }

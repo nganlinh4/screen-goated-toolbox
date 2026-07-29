@@ -1,13 +1,19 @@
 interface AssetResult {
-  dataUrl: string;
+  url: string;
 }
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
 class LruCache {
   private readonly values = new Map<string, string>();
+  private readonly capacity: number;
+  private readonly maxBytes: number;
+  private bytes = 0;
 
-  constructor(private readonly capacity: number) {}
+  constructor(capacity: number, maxBytes: number) {
+    this.capacity = capacity;
+    this.maxBytes = maxBytes;
+  }
 
   get(key: string): string | undefined {
     const value = this.values.get(key);
@@ -18,53 +24,48 @@ class LruCache {
   }
 
   set(key: string, value: string) {
+    const previous = this.values.get(key);
+    if (previous) this.bytes -= this.weight(previous);
     this.values.delete(key);
     this.values.set(key, value);
-    while (this.values.size > this.capacity) {
+    this.bytes += this.weight(value);
+    while (this.values.size > this.capacity || this.bytes > this.maxBytes) {
       const oldest = this.values.keys().next().value;
       if (oldest === undefined) break;
+      this.bytes -= this.weight(this.values.get(oldest) || "");
       this.values.delete(oldest);
     }
   }
 
-  retainPaths(paths: Set<string>) {
-    for (const key of this.values.keys()) {
-      const separator = key.indexOf(":");
-      if (!paths.has(key.slice(separator + 1))) this.values.delete(key);
-    }
+  private weight(value: string) {
+    return value.length;
   }
 }
 
 export class PreviewStore {
-  private readonly thumbnails = new LruCache(256);
-  private readonly stages = new LruCache(24);
+  private readonly stages = new LruCache(24, 24 * 1024 * 1024);
   private readonly pending = new Map<string, Promise<string>>();
+  private readonly invoke: Invoke;
 
-  constructor(private readonly invoke: Invoke) {}
-
-  thumbnail(path: string): Promise<string> {
-    return this.load(this.thumbnails, "thumb", path, 128);
+  constructor(invoke: Invoke) {
+    this.invoke = invoke;
   }
 
   stage(path: string, maxEdge: number): Promise<string> {
-    return this.load(this.stages, "stage", path, maxEdge);
+    return this.load(this.stages, path, maxEdge);
   }
 
-  retainStagePaths(paths: string[]) {
-    this.stages.retainPaths(new Set(paths));
-  }
-
-  private async load(cache: LruCache, group: string, path: string, maxEdge: number) {
+  private async load(cache: LruCache, path: string, maxEdge: number) {
     const key = `${maxEdge}:${path}`;
     const cached = cache.get(key);
     if (cached) return cached;
-    const pendingKey = `${group}:${key}`;
+    const pendingKey = key;
     const current = this.pending.get(pendingKey);
     if (current) return current;
-    const request = this.invoke<AssetResult>("read_image_preview", { path, maxEdge })
+    const request = this.invoke<AssetResult>("image_asset_url", { path })
       .then((result) => {
-        cache.set(key, result.dataUrl);
-        return result.dataUrl;
+        cache.set(key, result.url);
+        return result.url;
       })
       .finally(() => this.pending.delete(pendingKey));
     this.pending.set(pendingKey, request);

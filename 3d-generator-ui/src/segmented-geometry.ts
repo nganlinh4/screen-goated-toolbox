@@ -1,6 +1,8 @@
 import * as THREE from "three";
 
 const MAX_VIEWER_PARTS = 1_024;
+const MAX_SEGMENTATION_VERTICES = 500_000;
+const MAX_SEGMENTATION_INDICES = 1_500_000;
 
 class DisjointVertices {
   private parent: Int32Array;
@@ -35,7 +37,15 @@ class DisjointVertices {
 function disconnectedTriangleIndices(geometry: THREE.BufferGeometry): number[][] {
   const position = geometry.getAttribute("position");
   const index = geometry.getIndex();
-  if (!position || !index || index.count < 6 || index.count % 3 !== 0 || geometry.groups.length > 1) return [];
+  if (
+    !position
+    || !index
+    || position.count > MAX_SEGMENTATION_VERTICES
+    || index.count > MAX_SEGMENTATION_INDICES
+    || index.count < 6
+    || index.count % 3 !== 0
+    || geometry.groups.length > 1
+  ) return [];
 
   const vertices = new DisjointVertices(position.count);
   for (let offset = 0; offset < index.count; offset += 3) {
@@ -128,10 +138,5 @@ export function prepareSegmentedGeometry(root: THREE.Object3D, segmented: boolea
 }
 
 export function meshVertexCount(geometry: THREE.BufferGeometry) {
-  const position = geometry.getAttribute("position");
-  const index = geometry.getIndex();
-  if (!position || !index) return position?.count || 0;
-  const used = new Set<number>();
-  for (let offset = 0; offset < index.count; offset += 1) used.add(index.getX(offset));
-  return used.size;
+  return geometry.getAttribute("position")?.count || 0;
 }

@@ -45,11 +45,13 @@ export interface Copy {
   openFolder: string;
   rename: string;
   delete: string;
-  deleteConfirm: string;
+  deleteAll: string;
+  deleteAllConfirm: string;
   renameTitle: string;
   dismiss: string;
   save: string;
   promptRequired: string;
+  reselectReferences: string;
   referenceReady: string;
   savedResult: string;
   minimize: string;
@@ -102,11 +104,13 @@ const copies: Record<Language, Copy> = {
     openFolder: "Show in folder",
     rename: "Rename",
     delete: "Delete",
-    deleteConfirm: "Delete this result?",
+    deleteAll: "Delete all results",
+    deleteAllConfirm: "Delete all saved results from this app?",
     renameTitle: "Rename result",
     dismiss: "Cancel",
     save: "Save",
     promptRequired: "Write the image instructions first.",
+    reselectReferences: "Add the reference images again to create a new result.",
     referenceReady: "Ready to create",
     savedResult: "Saved result",
     minimize: "Minimize",
@@ -157,11 +161,13 @@ const copies: Record<Language, Copy> = {
     openFolder: "폴더에서 보기",
     rename: "이름 바꾸기",
     delete: "삭제",
-    deleteConfirm: "이 결과를 삭제할까요?",
+    deleteAll: "모든 결과 삭제",
+    deleteAllConfirm: "이 앱의 저장된 결과를 모두 삭제할까요?",
     renameTitle: "결과 이름 바꾸기",
     dismiss: "취소",
     save: "저장",
     promptRequired: "먼저 이미지 지시를 작성하세요.",
+    reselectReferences: "새 결과를 만들려면 참조 이미지를 다시 추가하세요.",
     referenceReady: "생성 준비 완료",
     savedResult: "저장된 결과",
     minimize: "최소화",
@@ -212,11 +218,13 @@ const copies: Record<Language, Copy> = {
     openFolder: "Hiện trong thư mục",
     rename: "Đổi tên",
     delete: "Xóa",
-    deleteConfirm: "Xóa kết quả này?",
+    deleteAll: "Xóa mọi kết quả",
+    deleteAllConfirm: "Xóa mọi kết quả đã lưu của ứng dụng này?",
     renameTitle: "Đổi tên kết quả",
     dismiss: "Hủy",
     save: "Lưu",
     promptRequired: "Hãy viết yêu cầu cho ảnh trước.",
+    reselectReferences: "Hãy thêm lại ảnh tham chiếu để tạo kết quả mới.",
     referenceReady: "Sẵn sàng tạo",
     savedResult: "Kết quả đã lưu",
     minimize: "Thu nhỏ",

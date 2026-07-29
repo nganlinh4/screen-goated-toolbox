@@ -1,4 +1,4 @@
-//! Frontend bundle (`image-to-svg-ui/dist/`) inlined into a single page.
+//! Generated frontend bundle inlined into a single page.
 
 const INDEX_HTML: &[u8] = include_bytes!("dist/index.html");
 const ASSET_INDEX_JS: &[u8] = include_bytes!("dist/assets/index.js");

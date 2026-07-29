@@ -16,6 +16,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -49,9 +50,10 @@ internal fun Creation3dSettings(
     onGenerationMode: (String) -> Unit,
     onPolycount: (Int) -> Unit,
     onAutoSegment: (Boolean) -> Unit,
+    onInstruction: (String) -> Unit,
 ) {
     val mode = CreationGenerationMode.fromWireName(item.generationMode)
-    val route = CreationContract.route3dProvider(mode, item.polycount, item.autoSegment)
+    val route = CreationContract.route3dMode(mode, item.polycount, item.autoSegment)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         UtilityExpressiveCard(accent = accent) {
             UtilityHeaderRow(
@@ -82,6 +84,24 @@ internal fun Creation3dSettings(
                     accent = accent,
                     onClick = { onGenerationMode(CreationGenerationMode.QUALITY.wireName) },
                     modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        if (item.allowsInstruction) {
+            UtilityExpressiveCard(accent = accent) {
+                UtilityHeaderRow(
+                    icon = R.drawable.ms_edit,
+                    title = strings.instruction,
+                    accent = accent,
+                )
+                OutlinedTextField(
+                    value = item.instruction,
+                    onValueChange = onInstruction,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 5,
+                    placeholder = { Text(strings.instructionHint) },
                 )
             }
         }
@@ -191,60 +211,97 @@ internal fun CreationSvgSettings(
     accent: Color,
     enabled: Boolean,
     onModel: (String) -> Unit,
+    onBackgroundMode: (String) -> Unit,
 ) {
     val simpleSelected = item.model != "detail"
     val detailSelected = !simpleSelected
-    UtilityExpressiveCard(accent = accent) {
-        UtilityHeaderRow(
-            icon = R.drawable.ms_auto_awesome,
-            title = strings.model,
-            accent = accent,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-        ) {
-            ToggleButton(
-                checked = simpleSelected,
-                onCheckedChange = { if (it) onModel("simple") },
-                enabled = enabled,
-                shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-                colors = modelToggleColors(simpleSelected, accent),
-                modifier = Modifier.weight(1f),
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        UtilityExpressiveCard(accent = accent) {
+            UtilityHeaderRow(
+                icon = R.drawable.ms_auto_awesome,
+                title = strings.model,
+                accent = accent,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
             ) {
-                Column(horizontalAlignment = Alignment.Start) {
-                    Text(
-                        strings.simple,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = modelToggleTextColor(simpleSelected, accent),
-                    )
-                    Text(
-                        strings.simpleDescription,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = modelToggleTextColor(simpleSelected, accent).copy(alpha = 0.82f),
-                        maxLines = 2,
-                    )
+                ToggleButton(
+                    checked = simpleSelected,
+                    onCheckedChange = { if (it) onModel("simple") },
+                    enabled = enabled,
+                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                    colors = modelToggleColors(simpleSelected, accent),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Column(horizontalAlignment = Alignment.Start) {
+                        Text(
+                            strings.simple,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = modelToggleTextColor(simpleSelected, accent),
+                        )
+                        Text(
+                            strings.simpleDescription,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = modelToggleTextColor(simpleSelected, accent).copy(alpha = 0.82f),
+                            maxLines = 2,
+                        )
+                    }
+                }
+                ToggleButton(
+                    checked = detailSelected,
+                    onCheckedChange = { if (it) onModel("detail") },
+                    enabled = enabled,
+                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                    colors = modelToggleColors(detailSelected, accent),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Column(horizontalAlignment = Alignment.Start) {
+                        Text(
+                            strings.detail,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = modelToggleTextColor(detailSelected, accent),
+                        )
+                        Text(
+                            strings.detailDescription,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = modelToggleTextColor(detailSelected, accent).copy(alpha = 0.82f),
+                            maxLines = 2,
+                        )
+                    }
                 }
             }
-            ToggleButton(
-                checked = detailSelected,
-                onCheckedChange = { if (it) onModel("detail") },
-                enabled = enabled,
-                shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
-                colors = modelToggleColors(detailSelected, accent),
-                modifier = Modifier.weight(1f),
+        }
+        UtilityExpressiveCard(accent = accent) {
+            UtilityHeaderRow(
+                icon = R.drawable.ms_image,
+                title = strings.transparentBackground,
+                accent = accent,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
             ) {
-                Column(horizontalAlignment = Alignment.Start) {
-                    Text(
-                        strings.detail,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = modelToggleTextColor(detailSelected, accent),
-                    )
-                    Text(
-                        strings.detailDescription,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = modelToggleTextColor(detailSelected, accent).copy(alpha = 0.82f),
-                        maxLines = 2,
+                listOf(
+                    "auto" to strings.backgroundAuto,
+                    "transparent" to strings.backgroundOn,
+                    "opaque" to strings.backgroundOff,
+                ).forEachIndexed { index, (mode, label) ->
+                    val selected = item.backgroundMode == mode
+                    ModeToggle(
+                        selected = selected,
+                        label = label,
+                        enabled = enabled,
+                        shapes = when (index) {
+                            0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                            2 -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                            else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                        },
+                        accent = accent,
+                        onClick = { onBackgroundMode(mode) },
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }

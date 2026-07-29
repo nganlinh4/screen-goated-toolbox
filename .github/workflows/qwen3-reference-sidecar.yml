@@ -30,8 +30,8 @@ jobs:
 
       - name: Upload to runtime-bundles release
         # The sidecar is a runtime bundle, not a per-version artifact, so it lives on the
-        # dedicated `sgt-runtime-bundles` release alongside the other runtime bundles
-        # (vieneu, ui-detr, …) instead of being attached to each tagged app release.
+        # dedicated `sgt-runtime-bundles` release alongside the other voice runtimes
+        # instead of being attached to each tagged app release.
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

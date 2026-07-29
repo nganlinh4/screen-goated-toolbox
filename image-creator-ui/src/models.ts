@@ -1,3 +1,5 @@
+import type { CreationSourceProvenance } from "../../ui-shared/creation-source-provenance";
+
 export const MAX_REFERENCES = 20;
 
 export interface JobStatus {
@@ -12,10 +14,12 @@ export interface JobStatus {
   outputName?: string;
   sourceImagePath?: string;
   sourceImagePaths?: string[];
+  outputDir: string;
   prompt: string;
   width?: number;
   height?: number;
   error?: string;
+  createdAtMs?: number;
 }
 
 export interface HistoryEntry {
@@ -36,12 +40,14 @@ export interface DraftSession {
   key: string;
   referencePaths: string[];
   prompt: string;
+  createdAtMs: number;
 }
 
 export interface Selection {
   key: string;
   kind: "draft" | "job" | "history";
   referencePaths: string[];
+  sourceProvenance: CreationSourceProvenance;
   output?: string;
   title: string;
   prompt: string;
@@ -50,7 +56,7 @@ export interface Selection {
 }
 
 export interface DialogState {
-  kind: "rename" | "delete";
+  kind: "rename";
   entry: HistoryEntry;
   value: string;
 }
@@ -71,25 +77,18 @@ export function escapeHtml(value: string): string {
 
 export function jobReferences(job: JobStatus): string[] {
   if (Array.isArray(job.sourceImagePaths)) {
-    return uniquePaths(job.sourceImagePaths).slice(0, MAX_REFERENCES);
+    return orderedPaths(job.sourceImagePaths).slice(0, MAX_REFERENCES);
   }
   return job.sourceImagePath ? [job.sourceImagePath] : [];
 }
 
 export function historyReferences(entry: HistoryEntry): string[] {
   if (Array.isArray(entry.metadata?.sourceImagePaths)) {
-    return uniquePaths(entry.metadata.sourceImagePaths).slice(0, MAX_REFERENCES);
+    return orderedPaths(entry.metadata.sourceImagePaths).slice(0, MAX_REFERENCES);
   }
   return entry.sourcePath ? [entry.sourcePath] : [];
 }
 
-export function uniquePaths(paths: string[]): string[] {
-  const seen = new Set<string>();
-  return paths.filter((path) => {
-    const trimmed = path.trim();
-    const key = trimmed.toLocaleLowerCase();
-    if (!trimmed || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+export function orderedPaths(paths: string[]): string[] {
+  return paths.map((path) => path.trim()).filter(Boolean);
 }

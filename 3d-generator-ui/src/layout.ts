@@ -40,7 +40,7 @@ export function appMarkup() {
       <aside class="queue-rail">
         <div class="queue-header">
           <span class="control-label" data-i18n="queue"></span>
-          <button class="icon-button add-button" id="addImagesButton" type="button" data-i18n-title="addImages">${ICONS.add}</button>
+          <span class="rail-actions"><button class="icon-button" id="deleteAllHistory" type="button" data-i18n-title="deleteAll">${ICONS.trash}</button><button class="icon-button add-button" id="addImagesButton" type="button" data-i18n-title="addImages">${ICONS.add}</button></span>
         </div>
         <div class="queue-list" id="queueList"></div>
         <div class="queue-footer" id="queueFooter"></div>
@@ -98,6 +98,10 @@ export function appMarkup() {
             <button type="button" data-generation-mode="quality" data-i18n="quality"></button>
           </div>
         </div>
+        <div class="control-section instruction-section" id="instructionSection" hidden>
+          <label class="control-label" for="instructionInput" data-i18n="optionalInstruction"></label>
+          <textarea id="instructionInput" maxlength="1000" data-i18n-placeholder="optionalInstructionHint"></textarea>
+        </div>
         <div class="control-section">
           <div class="control-heading">
             <label for="polycountRange" data-i18n="topology"></label>
@@ -126,15 +130,6 @@ export function appMarkup() {
         <button class="cancel-action" id="cancelButton" type="button"><span>${ICONS.stop}</span><span id="cancelLabel" data-i18n="cancel"></span></button>
       </aside>
     </main>
-    <div class="app-dialog" id="confirmDialog" role="dialog" aria-modal="true" hidden>
-      <div class="dialog-surface">
-        <strong id="confirmMessage"></strong>
-        <div class="dialog-actions">
-          <button class="secondary-action" id="confirmCancel" type="button" data-i18n="cancel"></button>
-          <button class="danger-action" id="confirmAccept" type="button" data-i18n="deleteResult"></button>
-        </div>
-      </div>
-    </div>
     <div class="app-toast" id="appToast" role="status" aria-live="polite"></div>
   </section>`;
 }

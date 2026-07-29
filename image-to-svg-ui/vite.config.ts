@@ -14,7 +14,7 @@ export default defineConfig({
   }],
   server: { fs: { allow: [resolve(__dirname, "..")] } },
   build: {
-    outDir: "dist",
+    outDir: "../src/overlay/image_to_svg/dist",
     emptyOutDir: true,
     assetsDir: "assets",
     rollupOptions: {

@@ -1,23 +1,47 @@
 //! Managed native sidecar shared by creation mini apps.
 
-use std::io::{Read as _, Write as _};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::process::Command;
+use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-const RUNTIME_ASSET: &str = "sgt-creation-runtime-windows-x64.exe";
-const RUNTIME_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64.exe";
-const RUNTIME_BYTES: u64 = 1_218_048;
-const RUNTIME_SHA256: &str = "b69bf3c68a5a2e4abab26a9b8eddafbca675ed52d9a0662fa1da751a96a58636";
-type RuntimeValidationCache = (PathBuf, u64, u128, bool);
+mod capability_probe;
+mod download;
+mod process_query;
+
+pub(crate) use capability_probe::supports_optional_3d_instruction;
+pub(crate) use download::download_runtime;
+
+#[derive(Clone, Copy)]
+struct RuntimeDelivery {
+    version: &'static str,
+    features: &'static [&'static str],
+    asset: &'static str,
+    download_url: &'static str,
+    size_bytes: u64,
+    sha256: &'static str,
+}
+
+include!(concat!(env!("OUT_DIR"), "/creation_runtime_delivery.rs"));
 
 pub(crate) const DOWNLOAD_TITLE: &str = "Downloading creation engine";
+
+#[cfg(windows)]
+struct VerifiedInstalledRuntime {
+    path: PathBuf,
+    _lease: std::fs::File,
+}
+
+#[cfg(windows)]
+static VERIFIED_INSTALLED_RUNTIME: LazyLock<Mutex<Option<VerifiedInstalledRuntime>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 pub(crate) fn runtime_bundle_dir() -> PathBuf {
     crate::paths::app_local_data_dir()
@@ -29,40 +53,35 @@ pub(crate) fn runtime_exe_path() -> PathBuf {
     runtime_bundle_dir().join("sgt_creation_runtime.exe")
 }
 
-fn validate_runtime(path: &Path) -> Result<()> {
-    let metadata =
-        std::fs::metadata(path).map_err(|error| anyhow!("Creation engine unavailable: {error}"))?;
-    if !metadata.is_file() || metadata.len() != RUNTIME_BYTES {
+fn open_runtime_for_validation(path: &Path) -> Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        const FILE_SHARE_READ: u32 = 0x0000_0001;
+        options.share_mode(FILE_SHARE_READ);
+    }
+    Ok(options.open(path)?)
+}
+
+fn validate_open_runtime(file: &mut std::fs::File) -> Result<()> {
+    let delivery = RUNTIME_DELIVERY
+        .as_ref()
+        .ok_or_else(|| anyhow!("Creation engine is not included in this build."))?;
+    if delivery.version.is_empty() {
+        bail!("Creation engine delivery metadata is invalid.");
+    }
+    let metadata = file
+        .metadata()
+        .map_err(|error| anyhow!("Creation engine unavailable: {error}"))?;
+    if !metadata.is_file() || metadata.len() != delivery.size_bytes {
         bail!(
-            "Creation engine size {} does not match expected {RUNTIME_BYTES}",
-            metadata.len()
+            "Creation engine size {} does not match this build.",
+            metadata.len(),
         );
     }
 
-    let modified_ms = metadata
-        .modified()
-        .ok()
-        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|value| value.as_millis())
-        .unwrap_or(0);
-    static CACHE: OnceLock<Mutex<Option<RuntimeValidationCache>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(None));
-    if let Some((cached_path, bytes, modified, valid)) = cache
-        .lock()
-        .unwrap_or_else(|value| value.into_inner())
-        .as_ref()
-        && cached_path == path
-        && *bytes == metadata.len()
-        && *modified == modified_ms
-    {
-        return if *valid {
-            Ok(())
-        } else {
-            bail!("Creation engine checksum mismatch")
-        };
-    }
-
-    let mut file = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 128 * 1024];
     loop {
@@ -72,28 +91,118 @@ fn validate_runtime(path: &Path) -> Result<()> {
         }
         hasher.update(&buffer[..read]);
     }
-    let valid = format!("{:x}", hasher.finalize()) == RUNTIME_SHA256;
-    *cache.lock().unwrap_or_else(|value| value.into_inner()) =
-        Some((path.to_path_buf(), metadata.len(), modified_ms, valid));
-    if !valid {
+    if format!("{:x}", hasher.finalize()) != delivery.sha256 {
         bail!("Creation engine checksum mismatch");
     }
     Ok(())
 }
 
+fn validate_runtime(path: &Path) -> Result<()> {
+    let mut file = open_runtime_for_validation(path)?;
+    validate_open_runtime(&mut file)
+}
+
+fn verified_installed_runtime_path() -> Result<PathBuf> {
+    #[cfg(not(windows))]
+    {
+        let path = runtime_exe_path();
+        validate_runtime(&path)?;
+        return Ok(path);
+    }
+    #[cfg(windows)]
+    {
+        let mut cached = VERIFIED_INSTALLED_RUNTIME
+            .lock()
+            .unwrap_or_else(|value| value.into_inner());
+        if let Some(runtime) = cached.as_ref() {
+            return Ok(runtime.path.clone());
+        }
+        let path = runtime_exe_path();
+        let mut lease = open_runtime_for_validation(&path)?;
+        validate_open_runtime(&mut lease)?;
+        *cached = Some(VerifiedInstalledRuntime {
+            path: path.clone(),
+            _lease: lease,
+        });
+        Ok(path)
+    }
+}
+
+fn invalidate_verified_runtime() {
+    #[cfg(windows)]
+    {
+        VERIFIED_INSTALLED_RUNTIME
+            .lock()
+            .unwrap_or_else(|value| value.into_inner())
+            .take();
+    }
+}
+
 pub(crate) fn is_runtime_installed() -> bool {
-    validate_runtime(&runtime_exe_path()).is_ok()
+    verified_installed_runtime_path().is_ok()
 }
 
 pub(crate) fn remove_runtime() -> Result<()> {
+    invalidate_verified_runtime();
     let dir = runtime_bundle_dir();
-    if dir.exists() {
-        std::fs::remove_dir_all(dir)?;
+    cleanup_runtime_files(true)?;
+    if dir.is_dir() {
+        let _ = std::fs::remove_dir(&dir);
     }
     Ok(())
 }
 
+fn cleanup_runtime_files(include_installed: bool) -> Result<()> {
+    let dir = runtime_bundle_dir();
+    let Ok(metadata) = std::fs::symlink_metadata(&dir) else {
+        return Ok(());
+    };
+    if !metadata.is_dir() || is_reparse_point(&metadata) {
+        bail!("Creation engine folder is not a regular directory.");
+    }
+    for (index, entry) in std::fs::read_dir(&dir)?.enumerate() {
+        if index >= 64 {
+            bail!("Creation engine folder contains too many entries.");
+        }
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let removable =
+            include_installed && name == "sgt_creation_runtime.exe" || is_known_partial_name(&name);
+        if !removable {
+            continue;
+        }
+        let metadata = std::fs::symlink_metadata(entry.path())?;
+        if metadata.is_file() && !is_reparse_point(&metadata) {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn is_known_partial_name(name: &str) -> bool {
+    name.starts_with("sgt_creation_runtime")
+        && name.ends_with(".download")
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+}
+
+#[cfg(windows)]
+fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+    metadata.file_attributes() & 0x400 != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
+}
+
 pub(crate) fn update_installed_runtime_in_background() {
+    if RUNTIME_DELIVERY.is_none() {
+        return;
+    }
     let path = runtime_exe_path();
     if !path.is_file() || is_runtime_installed() {
         return;
@@ -107,34 +216,15 @@ pub(crate) fn update_installed_runtime_in_background() {
     });
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SharedMaintenanceResult {
-    Ready,
-    Refilled,
-    Deferred,
-}
-
-#[cfg(debug_assertions)]
-fn newest_development_runtime_candidate(
-    candidates: impl IntoIterator<Item = (PathBuf, std::time::SystemTime)>,
-) -> Option<PathBuf> {
-    candidates
-        .into_iter()
-        .max_by_key(|(_, modified)| *modified)
-        .map(|(path, _)| path)
-}
-
 #[cfg(debug_assertions)]
 pub(crate) fn development_runtime_path() -> Option<PathBuf> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("native")
         .join("sgt_3d_generator_runtime")
-        .join("target");
-    newest_development_runtime_candidate(["debug", "release"].into_iter().filter_map(|profile| {
-        let path = root.join(profile).join("sgt_creation_runtime.exe");
-        let modified = path.metadata().ok()?.modified().ok()?;
-        Some((path, modified))
-    }))
+        .join("target")
+        .join("debug")
+        .join("sgt_creation_runtime.exe");
+    path.is_file().then_some(path)
 }
 
 #[cfg(not(debug_assertions))]
@@ -146,98 +236,246 @@ pub(crate) fn shared_runtime_path() -> Option<PathBuf> {
     development_runtime_path().or_else(|| is_runtime_installed().then(runtime_exe_path))
 }
 
-pub(crate) struct RuntimePreparationStatus {
-    pub(crate) state: String,
-    pub(crate) needs_preparation: bool,
+fn supported_readiness_tool(tool: &str) -> bool {
+    matches!(tool, "3d" | "svg" | "image")
 }
 
-pub(crate) fn query_preparation_status(tool: &str) -> Option<RuntimePreparationStatus> {
-    if !matches!(tool, "3d" | "svg" | "image") {
-        return None;
-    }
-    let mut command = Command::new(shared_runtime_path()?);
-    command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    hide_command_window(&mut command);
-    let mut child = command.spawn().ok()?;
-    let request = json!({
-        "id": "preparation-status",
-        "cmd": "preparation_status",
-        "args": { "tool": tool },
-    });
-    writeln!(child.stdin.take()?, "{request}").ok()?;
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .rev()
-        .find_map(|line| serde_json::from_str::<Value>(line).ok())
-        .and_then(|value| {
-            let result = value.get("result")?;
-            Some(RuntimePreparationStatus {
-                state: result.get("state")?.as_str()?.to_string(),
-                needs_preparation: result.get("needsPreparation")?.as_bool()?,
-            })
-        })
-}
-
-fn parse_shared_maintenance(output: &[u8]) -> SharedMaintenanceResult {
+fn parse_readiness(output: &[u8]) -> Option<String> {
     String::from_utf8_lossy(output)
         .lines()
         .rev()
         .find_map(|line| serde_json::from_str::<Value>(line).ok())
         .and_then(|value| {
-            let result = value.get("result")?;
-            if result.get("ready").and_then(Value::as_bool) == Some(true) {
-                Some(SharedMaintenanceResult::Ready)
-            } else if result.get("refilled").and_then(Value::as_bool) == Some(true) {
-                Some(SharedMaintenanceResult::Refilled)
-            } else {
-                Some(SharedMaintenanceResult::Deferred)
+            let result = value.get("result")?.as_object()?;
+            if result.len() != 1 {
+                return None;
+            }
+            match result.get("state")?.as_str()? {
+                state @ ("ready" | "preparing" | "unavailable") => Some(state.to_string()),
+                _ => None,
             }
         })
-        .unwrap_or(SharedMaintenanceResult::Deferred)
 }
 
-fn run_shared_maintenance(path: &Path) -> SharedMaintenanceResult {
+pub(crate) fn readiness(tool: &str) -> String {
+    if !supported_readiness_tool(tool) {
+        return "unavailable".to_string();
+    }
+    let Some(path) = shared_runtime_path() else {
+        return "unavailable".to_string();
+    };
     let mut command = Command::new(path);
-    command
-        .arg("--maintain-shared-preparation-headless")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .stdout(Stdio::piped());
     hide_command_window(&mut command);
-    command
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| parse_shared_maintenance(&output.stdout))
-        .unwrap_or(SharedMaintenanceResult::Deferred)
+    let request = json!({ "id": "readiness", "cmd": "readiness", "args": { "tool": tool } });
+    let input = format!("{request}\n");
+    process_query::run(
+        &mut command,
+        Some(input.as_bytes()),
+        Duration::from_secs(5),
+        64 * 1024,
+    )
+    .filter(|output| output.status.success() && !output.truncated)
+    .and_then(|output| parse_readiness(&output.bytes))
+    .unwrap_or_else(|| "unavailable".to_string())
 }
 
-pub(crate) fn start_shared_preparation_maintainer() {
-    static STARTED: OnceLock<()> = OnceLock::new();
-    if STARTED.set(()).is_err() {
+const BASE_READINESS_CAPACITY: usize = 4;
+const MAX_READINESS_CAPACITY: usize = 6;
+const READINESS_RESERVE: usize = 2;
+
+struct ReadinessTask {
+    stop: Arc<AtomicBool>,
+    desired: AtomicUsize,
+    install_if_missing: AtomicBool,
+}
+
+static READINESS_IN_FLIGHT: LazyLock<Mutex<std::collections::HashMap<String, Arc<ReadinessTask>>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static RUNTIME_PROCESSES: LazyLock<Mutex<std::collections::HashSet<u32>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+static RUNTIME_SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
+pub(super) fn runtime_shutting_down() -> bool {
+    RUNTIME_SHUTTING_DOWN.load(Ordering::Acquire)
+}
+
+pub(super) fn register_runtime_process(pid: u32) -> bool {
+    if runtime_shutting_down() {
+        return false;
+    }
+    let mut processes = RUNTIME_PROCESSES
+        .lock()
+        .unwrap_or_else(|value| value.into_inner());
+    if runtime_shutting_down() {
+        return false;
+    }
+    processes.insert(pid);
+    true
+}
+
+pub(super) fn unregister_runtime_process(pid: u32) {
+    RUNTIME_PROCESSES
+        .lock()
+        .unwrap_or_else(|value| value.into_inner())
+        .remove(&pid);
+}
+
+pub(crate) fn shutdown() {
+    RUNTIME_SHUTTING_DOWN.store(true, Ordering::Release);
+    for task in READINESS_IN_FLIGHT
+        .lock()
+        .unwrap_or_else(|value| value.into_inner())
+        .drain()
+        .map(|(_, task)| task)
+    {
+        task.stop.store(true, Ordering::Release);
+    }
+    let processes = {
+        let mut processes = RUNTIME_PROCESSES
+            .lock()
+            .unwrap_or_else(|value| value.into_inner());
+        processes.drain().collect::<Vec<_>>()
+    };
+    for pid in processes {
+        crate::overlay::creation_recovery::terminate_process_tree(pid);
+    }
+}
+
+pub(crate) fn cancel_readiness(tool: &str) {
+    if !supported_readiness_tool(tool) {
         return;
     }
-    std::thread::spawn(|| {
-        loop {
-            let (result, runtime_available) = shared_runtime_path()
-                .map(|path| (run_shared_maintenance(&path), true))
-                .unwrap_or((SharedMaintenanceResult::Deferred, false));
-            let delay = match (result, runtime_available) {
-                (SharedMaintenanceResult::Ready, _) => Duration::from_secs(15 * 60),
-                (SharedMaintenanceResult::Refilled, _) => Duration::from_secs(15),
-                (SharedMaintenanceResult::Deferred, true) => Duration::from_secs(15 * 60),
-                (SharedMaintenanceResult::Deferred, false) => Duration::from_secs(60),
-            };
-            std::thread::sleep(delay);
-        }
+    if let Some(task) = READINESS_IN_FLIGHT
+        .lock()
+        .unwrap_or_else(|value| value.into_inner())
+        .remove(tool)
+    {
+        task.stop.store(true, Ordering::Release);
+    }
+}
+
+fn remove_readiness_if_current(
+    in_flight: &mut std::collections::HashMap<String, Arc<ReadinessTask>>,
+    tool: &str,
+    task: &Arc<ReadinessTask>,
+) {
+    if in_flight
+        .get(tool)
+        .is_some_and(|current| Arc::ptr_eq(current, task))
+    {
+        in_flight.remove(tool);
+    }
+}
+
+fn desired_readiness_capacity(active_demand: usize) -> usize {
+    active_demand
+        .saturating_add(READINESS_RESERVE)
+        .clamp(BASE_READINESS_CAPACITY, MAX_READINESS_CAPACITY)
+}
+
+fn send_live_capacity_request(tool: String, desired: usize) {
+    std::thread::spawn(move || {
+        let Some(path) = shared_runtime_path() else {
+            return;
+        };
+        let desired = desired.to_string();
+        let mut command = Command::new(path);
+        command.args([
+            "--request-readiness-capacity",
+            "--tool",
+            &tool,
+            "--desired-capacity",
+            &desired,
+        ]);
+        let _ = process_query::run(&mut command, None, Duration::from_secs(5), 16 * 1024);
     });
+}
+
+pub(crate) fn maintain_readiness_for_demand(
+    tool: &str,
+    active_demand: usize,
+    install_if_missing: bool,
+) {
+    if !supported_readiness_tool(tool) {
+        return;
+    }
+    let desired = desired_readiness_capacity(active_demand);
+    let task;
+    {
+        let mut in_flight = READINESS_IN_FLIGHT
+            .lock()
+            .unwrap_or_else(|value| value.into_inner());
+        if let Some(current) = in_flight.get(tool) {
+            current.desired.fetch_max(desired, Ordering::AcqRel);
+            if install_if_missing {
+                current.install_if_missing.store(true, Ordering::Release);
+            }
+            send_live_capacity_request(tool.to_string(), desired);
+            return;
+        }
+        task = Arc::new(ReadinessTask {
+            stop: Arc::new(AtomicBool::new(false)),
+            desired: AtomicUsize::new(desired),
+            install_if_missing: AtomicBool::new(install_if_missing),
+        });
+        in_flight.insert(tool.to_string(), task.clone());
+    }
+    let tool = tool.to_string();
+    std::thread::spawn(move || {
+        loop {
+            let desired = task.desired.swap(0, Ordering::AcqRel);
+            if shared_runtime_path().is_none() && task.install_if_missing.load(Ordering::Acquire) {
+                let _ = download_runtime(task.stop.clone(), true);
+            }
+            if task.stop.load(Ordering::Acquire) {
+                break;
+            }
+            let Some(path) = shared_runtime_path() else {
+                break;
+            };
+            let desired = desired.max(BASE_READINESS_CAPACITY).to_string();
+            let parent_pid = std::process::id().to_string();
+            let mut command = Command::new(path);
+            command.args([
+                "--maintain-readiness",
+                "--tool",
+                &tool,
+                "--desired-capacity",
+                &desired,
+                "--parent-pid",
+                &parent_pid,
+                "--headless",
+            ]);
+            hide_command_window(&mut command);
+            let _ = process_query::run_cancellable(
+                &mut command,
+                None,
+                Duration::from_secs(30 * 60),
+                64 * 1024,
+                || task.stop.load(Ordering::Acquire),
+            );
+            if task.desired.load(Ordering::Acquire) == 0 {
+                break;
+            }
+        }
+        remove_readiness_if_current(
+            &mut READINESS_IN_FLIGHT
+                .lock()
+                .unwrap_or_else(|value| value.into_inner()),
+            &tool,
+            &task,
+        );
+    });
+}
+
+pub(crate) fn maintain_readiness(tool: &str, install_if_missing: bool) {
+    maintain_readiness_for_demand(tool, 0, install_if_missing);
+}
+
+pub(crate) fn maintain_all_readiness() {
+    for tool in ["3d", "svg", "image"] {
+        maintain_readiness(tool, false);
+    }
 }
 
 #[cfg(windows)]
@@ -249,141 +487,67 @@ fn hide_command_window(command: &mut Command) {
 #[cfg(not(windows))]
 fn hide_command_window(_command: &mut Command) {}
 
-pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
-    use crate::overlay::auto_copy_badge::{
-        NotificationType, hide_progress_notification, show_detailed_notification,
-        show_error_notification, show_progress_notification,
-    };
-    use crate::overlay::realtime_webview::state::REALTIME_STATE;
-
-    static DOWNLOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let _guard = DOWNLOAD_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|value| value.into_inner());
-    if is_runtime_installed() {
-        return Ok(());
-    }
-
-    let path = runtime_exe_path();
-    let partial = runtime_bundle_dir().join(format!("{RUNTIME_ASSET}.download"));
-    std::fs::create_dir_all(runtime_bundle_dir())?;
-    if path.exists() {
-        std::fs::remove_file(&path)?;
-    }
-    if partial.exists() {
-        std::fs::remove_file(&partial)?;
-    }
-
-    let badge = crate::overlay::auto_copy_badge::locale_text();
-    let title = crate::overlay::auto_copy_badge::format_locale(
-        badge.downloading_runtime_fmt,
-        &[("name", "Creation tools")],
-    );
-    let preparing = crate::overlay::auto_copy_badge::format_locale(
-        badge.preparing_runtime_fmt,
-        &[("name", "Creation tools")],
-    );
-    if let Ok(mut state) = REALTIME_STATE.lock() {
-        state.is_downloading = true;
-        state.download_title = DOWNLOAD_TITLE.to_string();
-        state.download_message = preparing.clone();
-        state.download_progress = 0.0;
-    }
-    if use_badge {
-        show_progress_notification(&title, &preparing, 0.0);
-    }
-
-    let result = crate::api::realtime_audio::model_loader::download_file_with_progress(
-        RUNTIME_URL,
-        &partial,
-        &stop,
-        |downloaded, total| {
-            let progress = if total > 0 {
-                downloaded as f32 / total as f32 * 100.0
-            } else {
-                0.0
-            };
-            if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = title.clone();
-                state.download_progress = progress;
-            }
-            if use_badge {
-                show_progress_notification(&title, &title, progress);
-            }
-        },
-    )
-    .and_then(|()| validate_runtime(&partial))
-    .and_then(|()| {
-        std::fs::rename(&partial, &path)
-            .map_err(|error| anyhow!("Could not install creation engine: {error}"))
-    })
-    .and_then(|()| validate_runtime(&path));
-
-    if result.is_err() {
-        let _ = std::fs::remove_file(&partial);
-    }
-    if let Ok(mut state) = REALTIME_STATE.lock() {
-        state.is_downloading = false;
-        state.download_progress = if result.is_ok() { 100.0 } else { 0.0 };
-    }
-    if use_badge {
-        hide_progress_notification();
-        if result.is_ok() {
-            let ready = crate::overlay::auto_copy_badge::format_locale(
-                badge.model_ready_fmt,
-                &[("name", "Creation tools")],
-            );
-            let installed = crate::overlay::auto_copy_badge::format_locale(
-                badge.model_installed_fmt,
-                &[("name", "Creation engine")],
-            );
-            show_detailed_notification(&ready, &installed, NotificationType::Success);
-        } else {
-            let failed = crate::overlay::auto_copy_badge::format_locale(
-                badge.model_download_failed_fmt,
-                &[("name", "Creation engine")],
-            );
-            show_error_notification(&failed);
-        }
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[cfg(debug_assertions)]
     #[test]
-    fn development_runtime_uses_the_newest_binary() {
-        let older = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1);
-        let newer = std::time::UNIX_EPOCH + std::time::Duration::from_secs(2);
-
-        let selected = newest_development_runtime_candidate([
-            (PathBuf::from("debug.exe"), older),
-            (PathBuf::from("release.exe"), newer),
-        ]);
-
-        assert_eq!(selected, Some(PathBuf::from("release.exe")));
+    fn readiness_parser_accepts_only_the_public_state_contract() {
+        assert_eq!(
+            parse_readiness(br#"{"ok":true,"result":{"state":"ready"}}"#).as_deref(),
+            Some("ready")
+        );
+        assert_eq!(
+            parse_readiness(
+                br#"{"event":"progress"}
+{"ok":true,"result":{"state":"preparing"}}"#,
+            )
+            .as_deref(),
+            Some("preparing")
+        );
+        assert!(parse_readiness(br#"{"ok":true,"result":{"state":"ready","extra":1}}"#).is_none());
+        assert!(parse_readiness(br#"{"ok":true,"result":{"state":"unknown"}}"#).is_none());
     }
 
     #[test]
-    fn shared_maintenance_parser_distinguishes_ready_refill_and_failure() {
-        assert_eq!(
-            parse_shared_maintenance(br#"{"ok":true,"result":{"ready":true,"refilled":false}}"#,),
-            SharedMaintenanceResult::Ready
-        );
-        assert_eq!(
-            parse_shared_maintenance(
-                br#"{"event":"progress"}
-{"ok":true,"result":{"ready":false,"refilled":true}}"#,
-            ),
-            SharedMaintenanceResult::Refilled
-        );
-        assert_eq!(
-            parse_shared_maintenance(br#"{"ok":false,"error":"unavailable"}"#),
-            SharedMaintenanceResult::Deferred
-        );
+    fn accepted_demand_expands_only_the_bounded_warm_reserve() {
+        assert_eq!(desired_readiness_capacity(0), 4);
+        assert_eq!(desired_readiness_capacity(2), 4);
+        assert_eq!(desired_readiness_capacity(3), 5);
+        assert_eq!(desired_readiness_capacity(4), 6);
+        assert_eq!(desired_readiness_capacity(100), 6);
+    }
+
+    #[test]
+    fn partial_cleanup_accepts_only_confined_runtime_file_names() {
+        assert!(is_known_partial_name(
+            "sgt_creation_runtime-windows-x64.exe.download"
+        ));
+        assert!(!is_known_partial_name("../sgt_creation_runtime.download"));
+        assert!(!is_known_partial_name("unrelated.download"));
+        assert!(!is_known_partial_name(
+            "sgt_creation_runtime.download/child"
+        ));
+    }
+
+    #[test]
+    fn an_old_readiness_worker_cannot_remove_its_replacement() {
+        let task = |stopped| {
+            Arc::new(ReadinessTask {
+                stop: Arc::new(AtomicBool::new(stopped)),
+                desired: AtomicUsize::new(4),
+                install_if_missing: AtomicBool::new(false),
+            })
+        };
+        let previous = task(true);
+        let replacement = task(false);
+        let mut in_flight =
+            std::collections::HashMap::from([("image".to_string(), replacement.clone())]);
+
+        remove_readiness_if_current(&mut in_flight, "image", &previous);
+        assert!(Arc::ptr_eq(in_flight.get("image").unwrap(), &replacement));
+
+        remove_readiness_if_current(&mut in_flight, "image", &replacement);
+        assert!(!in_flight.contains_key("image"));
     }
 }

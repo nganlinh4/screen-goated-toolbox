@@ -56,18 +56,25 @@ function Sync-Frontend {
     if (-not $SkipNpmInstall) {
         Run-Npm $source @("install")
     }
+    $buildStartedUtc = [DateTime]::UtcNow.AddSeconds(-2)
     Run-Npm $source @("run", "build")
 
     if ($BuildsDirectlyToTarget) {
-        if (-not (Test-Path -LiteralPath $target)) {
-            throw "$Name build did not create $target"
+        $newestTarget = Get-ChildItem -LiteralPath $target -File -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+        if (-not $newestTarget -or $newestTarget.LastWriteTimeUtc -lt $buildStartedUtc) {
+            throw "$Name build did not refresh $target"
         }
         Write-Host "$Name assets built directly into $target" -ForegroundColor Green
         return
     }
 
-    if (-not (Test-Path $dist)) {
-        throw "$dist was not created"
+    $newestDist = Get-ChildItem -LiteralPath $dist -File -Recurse -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    if (-not $newestDist -or $newestDist.LastWriteTimeUtc -lt $buildStartedUtc) {
+        throw "$Name build did not refresh $dist; mark direct-to-target builds explicitly"
     }
 
     if (Test-Path $target) {
@@ -136,8 +143,8 @@ try {
         Sync-Frontend "PromptDJ" "promptdj-midi" "src\overlay\prompt_dj\dist"
         Sync-Frontend "Translation Gummy" "translation-gummy-ui" "src\overlay\translation_gummy\dist"
         Sync-Frontend "Screen Record" "screen-record" "src\overlay\screen_record\dist"
-        Sync-Frontend "3D Generator" "3d-generator-ui" "src\overlay\three_d_generator\dist"
-        Sync-Frontend "Image to SVG" "image-to-svg-ui" "src\overlay\image_to_svg\dist"
+        Sync-Frontend "3D Generator" "3d-generator-ui" "src\overlay\three_d_generator\dist" -BuildsDirectlyToTarget
+        Sync-Frontend "Image to SVG" "image-to-svg-ui" "src\overlay\image_to_svg\dist" -BuildsDirectlyToTarget
         Sync-Frontend "Image Creator" "image-creator-ui" "src\overlay\image_creator\dist" -BuildsDirectlyToTarget
         Sync-Frontend "TTS Playground" "tts-playground-ui" "src\overlay\tts_playground\dist"
     }

@@ -2,9 +2,12 @@ package dev.screengoated.toolbox.mobile.creation.runtime
 
 import android.content.Context
 import dalvik.system.DexClassLoader
+import dev.screengoated.toolbox.mobile.creation.creationChildDirectoriesNoFollow
+import dev.screengoated.toolbox.mobile.creation.deleteCreationTreeNoFollow
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.UUID
 import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -24,11 +27,18 @@ internal class CreationRuntimeProvider(private val context: Context) {
     private val mutableStatus = MutableStateFlow(computeStatus())
     private var installJob: Job? = null
     @Volatile private var loadedFactory: CreationRuntimeFactory? = null
+    private val delivery: CreationRuntimeDelivery? by lazy {
+        loadCreationRuntimeDelivery(context)
+    }
 
     val status: StateFlow<CreationRuntimeStatus> = mutableStatus.asStateFlow()
 
     fun startInstall() {
         if (factory() != null || installJob?.isActive == true) return
+        if (delivery == null) {
+            mutableStatus.value = CreationRuntimeStatus.Failed(CREATION_RUNTIME_INSTALL_FAILURE)
+            return
+        }
         installJob = scope.launch {
             mutableStatus.value = CreationRuntimeStatus.Downloading(0f)
             try {
@@ -38,10 +48,8 @@ internal class CreationRuntimeProvider(private val context: Context) {
                 mutableStatus.value = CreationRuntimeStatus.Ready(installedBytes())
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Throwable) {
-                mutableStatus.value = CreationRuntimeStatus.Failed(
-                    error.message ?: "Creation runtime installation failed",
-                )
+            } catch (_: Throwable) {
+                mutableStatus.value = CreationRuntimeStatus.Failed(CREATION_RUNTIME_INSTALL_FAILURE)
             } finally {
                 installJob = null
             }
@@ -61,10 +69,10 @@ internal class CreationRuntimeProvider(private val context: Context) {
         installJob?.cancel()
         installJob = null
         loadedFactory = null
-        runtimeDex().delete()
-        nativeLibrary().delete()
+        deleteRuntimeTree(context.filesDir, runtimeRoot())
+        deleteRuntimeTree(context.codeCacheDir, optimizedRoot())
         bundlePartial().delete()
-        mutableStatus.value = CreationRuntimeStatus.Missing
+        mutableStatus.value = computeStatus()
     }
 
     private fun computeStatus(): CreationRuntimeStatus = if (installedFilesAreValid()) {
@@ -74,15 +82,16 @@ internal class CreationRuntimeProvider(private val context: Context) {
     }
 
     private fun installBundle() {
+        val spec = requireNotNull(delivery) { "Creation engine is not included in this build" }
         if (installedFilesAreValid()) return
         val partial = bundlePartial()
         partial.parentFile?.mkdirs()
         partial.delete()
-        val request = Request.Builder().url(RUNTIME_URL).build()
+        val request = Request.Builder().url(spec.downloadUrl).build()
         httpClient.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "Creation runtime HTTP ${response.code}" }
             val declared = response.body.contentLength()
-            check(declared < 0L || declared == BUNDLE_BYTES) {
+            check(declared < 0L || declared == spec.sizeBytes) {
                 "Creation runtime response has an unexpected size"
             }
             var downloaded = 0L
@@ -93,17 +102,19 @@ internal class CreationRuntimeProvider(private val context: Context) {
                         val read = input.read(buffer)
                         if (read < 0) break
                         downloaded += read
-                        check(downloaded <= BUNDLE_BYTES) { "Creation runtime download is oversized" }
+                        check(downloaded <= spec.sizeBytes) {
+                            "Creation runtime download is oversized"
+                        }
                         output.write(buffer, 0, read)
                         mutableStatus.value = CreationRuntimeStatus.Downloading(
-                            downloaded.toFloat() / BUNDLE_BYTES,
+                            downloaded.toFloat() / spec.sizeBytes,
                         )
                     }
                     output.fd.sync()
                 }
             }
         }
-        check(validFile(partial, BUNDLE_BYTES, BUNDLE_SHA256)) {
+        check(validFile(partial, spec.sizeBytes, spec.sha256)) {
             "Creation runtime bundle failed validation"
         }
         extractBundle(partial)
@@ -112,25 +123,60 @@ internal class CreationRuntimeProvider(private val context: Context) {
     }
 
     private fun extractBundle(bundle: File) {
-        val targets = mapOf(
-            DEX_ENTRY to runtimeDex(),
-            NATIVE_ENTRY to nativeLibrary(),
-        )
-        val installed = mutableSetOf<String>()
-        ZipInputStream(bundle.inputStream().buffered()).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                val target = targets[entry.name]
-                if (target != null && !entry.isDirectory) {
-                    target.parentFile?.mkdirs()
-                    FileOutputStream(target).use { output -> zip.copyTo(output, BUFFER_BYTES) }
-                    check(target.setReadOnly()) { "Could not lock ${target.name}" }
-                    installed += entry.name
-                }
-                zip.closeEntry()
-            }
+        val spec = requireNotNull(delivery)
+        val staging = File(runtimeRoot(), ".install-${UUID.randomUUID()}").apply {
+            deleteRuntimeTree(runtimeRoot(), this)
+            mkdirs()
         }
-        check(installed == targets.keys) { "Creation runtime bundle is incomplete" }
+        val targets = spec.entries.associate { entry ->
+            entry.archivePath to safeInstalledFile(staging, entry.installPath)
+        }
+        val installed = mutableSetOf<String>()
+        var entryCount = 0
+        var uncompressedBytes = 0L
+        try {
+            ZipInputStream(bundle.inputStream().buffered()).use { zip ->
+                while (true) {
+                    val archiveEntry = zip.nextEntry ?: break
+                    entryCount += 1
+                    check(entryCount <= MAXIMUM_ARCHIVE_ENTRIES) {
+                        "Creation runtime bundle has too many entries"
+                    }
+                    val target = targets[archiveEntry.name]
+                    if (target != null && !archiveEntry.isDirectory) {
+                        check(installed.add(archiveEntry.name)) {
+                            "Creation runtime bundle contains a duplicate entry"
+                        }
+                        target.parentFile?.mkdirs()
+                        val contract = spec.entries.single { it.archivePath == archiveEntry.name }
+                        check(
+                            contract.sizeBytes <= MAXIMUM_UNCOMPRESSED_BYTES - uncompressedBytes,
+                        ) {
+                            "Creation runtime bundle expands beyond its limit"
+                        }
+                        uncompressedBytes += copyBounded(zip, target, contract.sizeBytes)
+                        check(validFile(target, contract.sizeBytes, contract.sha256)) {
+                            "Creation runtime entry failed validation"
+                        }
+                        check(target.setReadOnly()) { "Could not lock ${target.name}" }
+                    } else if (!archiveEntry.isDirectory ||
+                        archiveEntry.name !in allowedArchiveDirectories(targets.keys)
+                    ) {
+                        error("Creation runtime bundle contains an unknown entry")
+                    }
+                    zip.closeEntry()
+                }
+            }
+            check(installed == targets.keys) { "Creation runtime bundle is incomplete" }
+            val destination = versionDirectory()
+            deleteRuntimeTree(runtimeRoot(), destination)
+            check(staging.renameTo(destination)) { "Could not commit creation runtime" }
+            creationChildDirectoriesNoFollow(runtimeRoot())
+                .filter { it != destination }
+                .forEach { deleteRuntimeTree(runtimeRoot(), it) }
+        } finally {
+            deleteRuntimeTree(runtimeRoot(), staging)
+        }
     }
 
     private fun loadFactory(): CreationRuntimeFactory? = runCatching {
@@ -142,13 +188,20 @@ internal class CreationRuntimeProvider(private val context: Context) {
             nativeLibrary().parentFile?.absolutePath,
             context.classLoader,
         )
-        val type = Class.forName(FACTORY_CLASS, true, loader)
+        val type = Class.forName(requireNotNull(delivery).factoryClass, true, loader)
         type.getDeclaredConstructor().newInstance() as CreationRuntimeFactory
     }.getOrNull()
 
-    private fun installedFilesAreValid(): Boolean =
-        validFile(runtimeDex(), DEX_BYTES, DEX_SHA256) &&
-            validFile(nativeLibrary(), NATIVE_BYTES, NATIVE_SHA256)
+    private fun installedFilesAreValid(): Boolean {
+        val spec = delivery ?: return false
+        return spec.entries.all { entry ->
+            validFile(
+                safeInstalledFile(versionDirectory(), entry.installPath),
+                entry.sizeBytes,
+                entry.sha256,
+            )
+        }
+    }
 
     private fun validFile(file: File, bytes: Long, sha256: String): Boolean {
         if (!file.isFile || file.length() != bytes) return false
@@ -164,26 +217,70 @@ internal class CreationRuntimeProvider(private val context: Context) {
         return digest.digest().joinToString("") { "%02x".format(it) } == sha256
     }
 
-    private fun installedBytes(): Long = runtimeDex().length() + nativeLibrary().length()
-    private fun runtimeDirectory() = File(context.filesDir, "creation/runtime")
-    private fun runtimeDex() = File(runtimeDirectory(), "sgt-creation-runtime.dex.jar")
-    private fun nativeLibrary() = File(runtimeDirectory(), "lib/arm64-v8a/libsgt_creation_glb.so")
-    private fun optimizedDirectory() = File(context.codeCacheDir, "creation-runtime")
-    private fun bundlePartial() = File(context.cacheDir, "sgt-creation-runtime-android-arm64.zip.part")
+    private fun installedBytes(): Long =
+        delivery?.entries?.sumOf { safeInstalledFile(versionDirectory(), it.installPath).length() }
+            ?: 0L
+    private fun runtimeRoot() = File(context.filesDir, "creation/runtime")
+    private fun versionDirectory() = File(runtimeRoot(), requireNotNull(delivery).version)
+    private fun runtimeDex() = installedEntry(ROLE_FACTORY_DEX)
+    private fun nativeLibrary() = installedEntry(ROLE_NATIVE_LIBRARY)
+    private fun installedEntry(role: String): File {
+        val entry = requireNotNull(delivery).entry(role)
+        return safeInstalledFile(versionDirectory(), entry.installPath)
+    }
+    private fun optimizedRoot() = File(context.codeCacheDir, "creation-runtime")
+    private fun optimizedDirectory() =
+        File(optimizedRoot(), requireNotNull(delivery).version)
+    private fun bundlePartial() = File(
+        context.cacheDir,
+        "${delivery?.asset ?: "creation-runtime"}.part",
+    )
 
     private companion object {
-        const val FACTORY_CLASS =
-            "dev.screengoated.toolbox.creation.runtime.AndroidCreationRuntimeFactory"
-        const val RUNTIME_URL =
-            "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-arm64.zip"
-        const val BUNDLE_BYTES = 388_418L
-        const val BUNDLE_SHA256 = "7f018e1669e5828d2e1f885492b7981cb55bc91a3f73441f53d16f4ad8d49d30"
-        const val DEX_ENTRY = "runtime/sgt-creation-runtime.dex.jar"
-        const val DEX_BYTES = 276_019L
-        const val DEX_SHA256 = "250d81cec7dea2b4a83bf7f3a12a2abcc98149875560ee8412416f1ffaebd2b9"
-        const val NATIVE_ENTRY = "lib/arm64-v8a/libsgt_creation_glb.so"
-        const val NATIVE_BYTES = 342_304L
-        const val NATIVE_SHA256 = "6520b51e703b953ffed3509310f693c68ceb107b37908dfac4c44eb9f42c55cc"
         const val BUFFER_BYTES = 128 * 1024
+        const val MAXIMUM_ARCHIVE_ENTRIES = 64
+        const val MAXIMUM_UNCOMPRESSED_BYTES = 1024L * 1024 * 1024
+    }
+}
+
+private fun safeInstalledFile(root: File, relative: String): File {
+    val rootPath = root.canonicalFile
+    val target = File(rootPath, relative).canonicalFile
+    require(target.path.startsWith(rootPath.path + File.separator)) {
+        "Creation runtime entry escapes its install root"
+    }
+    return target
+}
+
+private fun copyBounded(input: ZipInputStream, target: File, expectedBytes: Long): Long {
+    var written = 0L
+    FileOutputStream(target).use { output ->
+        val buffer = ByteArray(128 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            written += read
+            check(written <= expectedBytes) { "Creation runtime entry is oversized" }
+            output.write(buffer, 0, read)
+        }
+        output.fd.sync()
+        check(written == expectedBytes) { "Creation runtime entry is incomplete" }
+    }
+    return written
+}
+
+private fun deleteRuntimeTree(root: File, target: File) {
+    check(!target.exists() || deleteCreationTreeNoFollow(root, target)) {
+        "Creation runtime directory could not be removed safely"
+    }
+}
+
+private fun allowedArchiveDirectories(paths: Set<String>): Set<String> = buildSet {
+    paths.forEach { path ->
+        var parent = path.substringBeforeLast('/', "")
+        while (parent.isNotEmpty()) {
+            add("$parent/")
+            parent = parent.substringBeforeLast('/', "")
+        }
     }
 }

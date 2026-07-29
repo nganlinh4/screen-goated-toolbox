@@ -1,6 +1,32 @@
 use std::path::PathBuf;
 
+pub(crate) const MAX_BATCH_IMAGES: usize = 100;
+pub(crate) const MAX_BATCH_BYTES: u64 = 512 * 1024 * 1024;
+pub(crate) const MAX_REFERENCE_IMAGES: usize = 20;
+pub(crate) const MAX_REFERENCE_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
+
 pub(crate) fn pick_image_dialog() -> Result<Option<PathBuf>, String> {
+    let selected = raw_pick_image_dialog()?;
+    selected
+        .map(|path| admit_image_paths(vec![path], 1, MAX_BATCH_BYTES))
+        .transpose()
+        .map(|paths| paths.and_then(|mut paths| paths.pop()))
+}
+
+pub(crate) fn pick_images_dialog() -> Result<Vec<PathBuf>, String> {
+    admit_image_paths(raw_pick_images_dialog()?, MAX_BATCH_IMAGES, MAX_BATCH_BYTES)
+}
+
+pub(crate) fn pick_reference_images_dialog() -> Result<Vec<PathBuf>, String> {
+    admit_image_paths(
+        raw_pick_images_dialog()?,
+        MAX_REFERENCE_IMAGES,
+        MAX_REFERENCE_BYTES,
+    )
+}
+
+fn raw_pick_image_dialog() -> Result<Option<PathBuf>, String> {
     #[cfg(windows)]
     {
         pick_image_dialog_windows()
@@ -11,7 +37,7 @@ pub(crate) fn pick_image_dialog() -> Result<Option<PathBuf>, String> {
     }
 }
 
-pub(crate) fn pick_images_dialog() -> Result<Vec<PathBuf>, String> {
+fn raw_pick_images_dialog() -> Result<Vec<PathBuf>, String> {
     #[cfg(windows)]
     {
         pick_images_dialog_windows()
@@ -20,6 +46,43 @@ pub(crate) fn pick_images_dialog() -> Result<Vec<PathBuf>, String> {
     {
         Ok(Vec::new())
     }
+}
+
+pub(crate) fn is_supported_image_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "webp"
+            )
+        })
+}
+
+pub(crate) fn admit_image_paths(
+    paths: Vec<PathBuf>,
+    max_count: usize,
+    max_total_bytes: u64,
+) -> Result<Vec<PathBuf>, String> {
+    if paths.len() > max_count {
+        return Err(format!("Select no more than {max_count} images at once."));
+    }
+    let mut total = 0_u64;
+    for path in &paths {
+        if !is_supported_image_path(path) {
+            return Err("Images must be PNG, JPEG, or WebP.".to_string());
+        }
+        let metadata =
+            std::fs::metadata(path).map_err(|_| "A selected image is unavailable.".to_string())?;
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_IMAGE_BYTES {
+            return Err("A selected image is empty or exceeds 25 MiB.".to_string());
+        }
+        total = total
+            .checked_add(metadata.len())
+            .filter(|total| *total <= max_total_bytes)
+            .ok_or_else(|| "The selected images are too large in total.".to_string())?;
+    }
+    Ok(paths)
 }
 
 pub(crate) fn pick_output_dir_dialog() -> Result<Option<PathBuf>, String> {
@@ -62,19 +125,11 @@ fn pick_image_dialog_windows() -> Result<Option<PathBuf>, String> {
             CoCreateInstance(&FileOpenDialog, None, CLSCTX_ALL).map_err(|err| err.to_string())?;
         let _ = dialog.SetOptions(FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM);
         let image_name = wide("Image files");
-        let image_pattern = wide("*.png;*.jpg;*.jpeg;*.webp;*.bmp");
-        let all_name = wide("All files");
-        let all_pattern = wide("*.*");
-        let file_types = [
-            COMDLG_FILTERSPEC {
-                pszName: PCWSTR(image_name.as_ptr()),
-                pszSpec: PCWSTR(image_pattern.as_ptr()),
-            },
-            COMDLG_FILTERSPEC {
-                pszName: PCWSTR(all_name.as_ptr()),
-                pszSpec: PCWSTR(all_pattern.as_ptr()),
-            },
-        ];
+        let image_pattern = wide("*.png;*.jpg;*.jpeg;*.webp");
+        let file_types = [COMDLG_FILTERSPEC {
+            pszName: PCWSTR(image_name.as_ptr()),
+            pszSpec: PCWSTR(image_pattern.as_ptr()),
+        }];
         let _ = dialog.SetFileTypes(&file_types);
         if let Ok(pictures_path) =
             SHGetKnownFolderPath(&FOLDERID_Pictures, KNOWN_FOLDER_FLAG(0), None)
@@ -124,7 +179,7 @@ fn pick_images_dialog_windows() -> Result<Vec<PathBuf>, String> {
             FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM,
         );
         let image_name = wide("Image files");
-        let image_pattern = wide("*.png;*.jpg;*.jpeg;*.webp;*.bmp");
+        let image_pattern = wide("*.png;*.jpg;*.jpeg;*.webp");
         let file_types = [COMDLG_FILTERSPEC {
             pszName: PCWSTR(image_name.as_ptr()),
             pszSpec: PCWSTR(image_pattern.as_ptr()),
@@ -209,5 +264,57 @@ fn pick_output_dir_dialog_windows() -> Result<Option<PathBuf>, String> {
         CoTaskMemFree(Some(path.0 as *const _));
         CoUninitialize();
         Ok((!path_str.is_empty()).then(|| PathBuf::from(path_str)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admission_rejects_the_101st_batch_item_before_io() {
+        let paths = (0..=MAX_BATCH_IMAGES)
+            .map(|index| PathBuf::from(format!("{index}.png")))
+            .collect();
+        assert!(admit_image_paths(paths, MAX_BATCH_IMAGES, MAX_BATCH_BYTES).is_err());
+    }
+
+    #[test]
+    fn admission_rejects_unsupported_extensions() {
+        assert!(!is_supported_image_path(
+            PathBuf::from("image.bmp").as_path()
+        ));
+        assert!(!is_supported_image_path(
+            PathBuf::from("image.svg").as_path()
+        ));
+        assert!(is_supported_image_path(
+            PathBuf::from("image.WEBP").as_path()
+        ));
+    }
+
+    #[test]
+    fn admission_counts_duplicate_occurrences_toward_the_aggregate_limit() {
+        let path = std::env::temp_dir().join(format!(
+            "sgt-admission-aggregate-{}.png",
+            std::process::id()
+        ));
+        std::fs::File::create(&path)
+            .and_then(|file| file.set_len(MAX_IMAGE_BYTES))
+            .unwrap();
+        assert!(
+            admit_image_paths(
+                vec![
+                    path.clone(),
+                    path.clone(),
+                    path.clone(),
+                    path.clone(),
+                    path.clone(),
+                ],
+                MAX_REFERENCE_IMAGES,
+                MAX_REFERENCE_BYTES,
+            )
+            .is_err()
+        );
+        std::fs::remove_file(path).unwrap();
     }
 }

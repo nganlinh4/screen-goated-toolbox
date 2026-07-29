@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicLong
 class HistoryRepository internal constructor(
     private val persistence: HistoryPersistence,
     ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val onMaxItemsChanged: () -> Unit = {},
 ) {
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val mutex = Mutex()
@@ -157,6 +158,7 @@ class HistoryRepository internal constructor(
                 persistence.saveSettings(settings)
                 val prunedItems = pruneItems(current.items, clamped)
                 persistItems(prunedItems, maxItems = clamped)
+                onMaxItemsChanged()
             }
         }
     }
@@ -168,6 +170,7 @@ class HistoryRepository internal constructor(
                 persistence.saveSettings(settings)
                 val prunedItems = pruneItems(_state.value.items, settings.maxItems)
                 persistItems(prunedItems, maxItems = settings.maxItems)
+                onMaxItemsChanged()
             }
         }
     }

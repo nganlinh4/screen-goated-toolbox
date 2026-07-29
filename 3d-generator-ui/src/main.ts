@@ -1,5 +1,7 @@
 import "./styles.css";
+import "./stage.css";
 import "../../ui-shared/creation-shell-layout.css";
+import { confirmDestructive } from "../../ui-shared/destructive-confirmation";
 import { setLocale, t } from "./i18n";
 import { generationSettings } from "./generation-mode";
 import { ModelViewer } from "./viewer";
@@ -10,6 +12,9 @@ import { ModelPresentation } from "./presentation";
 import { JobRunner } from "./job-runner";
 import { DevHarness } from "./dev-harness";
 import { bindControls } from "./bind-controls";
+import { frozenGenerationSettings } from "./recovery-settings";
+import { ModelDisplayLane } from "./model-display";
+import { LatestOnlyLane } from "./latest-only-lane";
 import type {
   AppState,
   AssetPayload,
@@ -37,13 +42,13 @@ declare global {
 }
 
 const BUSY_STAGES = new Set<JobStatus["stage"]>([
+  "queued",
   "preparing",
-  "visualizing",
   "generating",
   "segmenting",
   "finalizing",
 ]);
-const MAX_PARALLEL_JOBS = 2;
+const MAX_IMPORT_SESSIONS = 100;
 const initialContext = window.__SGT_CONTEXT__ || {};
 const devParams = import.meta.env.DEV ? new URLSearchParams(window.location.search) : null;
 setLocale(devParams?.get("lang") || initialContext.language);
@@ -52,6 +57,7 @@ document.documentElement.dataset.theme =
   || initialContext.theme
   || document.documentElement.dataset.theme
   || "dark";
+document.documentElement.dataset.creationShellOnly = "false";
 
 function invoke<T = unknown>(cmd: string, args: unknown = {}): Promise<T> {
   if (window.invoke) return window.invoke<T>(cmd, args);
@@ -63,6 +69,12 @@ if (!app) throw new Error("App root not found");
 app.innerHTML = appMarkup();
 const nodes = collectNodes();
 const viewer = new ModelViewer(nodes.canvas, nodes.stage);
+const modelDisplay = new ModelDisplayLane(viewer, invoke);
+const referencePreviewLane = new LatestOnlyLane<AssetPayload>();
+window.addEventListener("pagehide", () => {
+  referencePreviewLane.invalidate();
+  modelDisplay.dispose();
+}, { once: true });
 const state: AppState = {
   items: [],
   selectedId: "",
@@ -70,10 +82,8 @@ const state: AppState = {
   outputDir: "",
   queueActive: false,
   cancelRequested: false,
-  backendStatus: { stage: "idle", progressText: "", runtimeStatus: "checking" },
-  preparationStatus: "preparing",
-  preparationTimer: 0,
-  preparationPollToken: 0,
+  selectedStatus: { stage: "idle", progressText: "", runtimeStatus: "checking" },
+  preparationStatus: "ready",
   displayToken: 0,
   displayedItemId: "",
   displayedModelPath: "",
@@ -86,10 +96,19 @@ const state: AppState = {
   historyRefreshing: false,
   referencePreviewItemId: "",
   referencePreviewToken: 0,
+  generationCapabilities: {
+    ready: false,
+    optionalInstruction: { fast: false, quality: false },
+  },
 };
 
 function pathLeaf(path: string) {
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
+function pathParent(path: string) {
+  const separator = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return separator > 0 ? path.slice(0, separator) : "";
 }
 
 function stripExtension(name: string) {
@@ -98,10 +117,6 @@ function stripExtension(name: string) {
 
 function selectedItem() {
   return state.items.find((item) => item.id === state.selectedId);
-}
-
-function pendingItems() {
-  return state.items.filter((item) => item.state === "queued" && item.submitted);
 }
 
 function batchItems(batchId: string) {
@@ -117,7 +132,11 @@ function isDraft(item?: QueueItem) {
 }
 
 function isRerunnable(item?: QueueItem) {
-  return Boolean(item && ["done", "failed", "cancelled"].includes(item.state));
+  return Boolean(
+    item
+      && ["done", "failed", "cancelled"].includes(item.state)
+      && item.sourceProvenance === "surface-import",
+  );
 }
 
 function isConfigurable(item?: QueueItem) {
@@ -132,25 +151,7 @@ function normalizeGenerationSettings(item: QueueItem) {
   return settings;
 }
 
-let confirmResolver: ((accepted: boolean) => void) | undefined;
 let toastTimer = 0;
-
-function confirmInApp(message: string) {
-  confirmResolver?.(false);
-  nodes.confirmMessage.textContent = message;
-  nodes.confirmDialog.hidden = false;
-  nodes.confirmAccept.focus();
-  return new Promise<boolean>((resolve) => {
-    confirmResolver = resolve;
-  });
-}
-
-function closeConfirmation(accepted: boolean) {
-  nodes.confirmDialog.hidden = true;
-  const resolve = confirmResolver;
-  confirmResolver = undefined;
-  resolve?.(accepted);
-}
 
 function showToast(message: string) {
   window.clearTimeout(toastTimer);
@@ -160,6 +161,7 @@ function showToast(message: string) {
 }
 
 function closeReferencePreview() {
+  referencePreviewLane.invalidate();
   state.referencePreviewToken += 1;
   state.referencePreviewItemId = "";
   nodes.referencePreview.hidden = true;
@@ -174,7 +176,12 @@ async function openReferencePreview(item: QueueItem) {
   nodes.referencePreviewImage.alt = t("referenceImageAlt", { name: stripExtension(item.name) });
   nodes.referencePreview.hidden = false;
   try {
-    const previewUrl = (await readImagePreview(item.path, 1_600)).dataUrl;
+    const preview = await referencePreviewLane.run(
+      () => readImagePreview(item.path, 1_600),
+      () => undefined,
+    );
+    if (!preview) return;
+    const previewUrl = preview.dataUrl;
     if (token !== state.referencePreviewToken || state.referencePreviewItemId !== item.id) return;
     nodes.referencePreviewImage.src = previewUrl;
   } catch {
@@ -184,28 +191,8 @@ async function openReferencePreview(item: QueueItem) {
   }
 }
 
-async function readAsset(path: string) {
-  return invoke<AssetPayload>("read_asset", { path });
-}
-
 async function readImagePreview(path: string, maxEdge: number) {
   return invoke<AssetPayload>("read_image_preview", { path, maxEdge });
-}
-
-function readModelAsset(item: QueueItem, path: string) {
-  if (item.modelAssetPath !== path || !item.modelAssetPromise) {
-    item.modelAssetPath = path;
-    const promise = readAsset(path);
-    item.modelAssetPromise = promise;
-    const clear = () => {
-      if (item.modelAssetPromise === promise) {
-        item.modelAssetPromise = undefined;
-        item.modelAssetPath = undefined;
-      }
-    };
-    void promise.then(clear, clear);
-  }
-  return item.modelAssetPromise;
 }
 
 function comparablePath(path?: string | null) {
@@ -219,14 +206,12 @@ const queueView = new ModelQueueView({
   nodes,
   batchItems,
   stripExtension,
-  readImagePreview,
   onSelect: (id) => void selectItem(id),
   onOpenReference: (item) => void openReferencePreview(item),
   onRemove: removeItem,
   onRename: (item, name) => void renameHistoryItem(item, name),
   onDelete: (item) => void deleteHistoryItem(item),
 });
-viewer.onInteractionChange((active) => queueView.setInteractionActive(active, 220));
 presentation = new ModelPresentation({
   state,
   nodes,
@@ -237,7 +222,6 @@ presentation = new ModelPresentation({
   isConfigurable,
   isDraft,
   normalizeSettings: normalizeGenerationSettings,
-  maxParallelJobs: MAX_PARALLEL_JOBS,
   renderQueue: () => queueView.render(),
   stripExtension,
 });
@@ -257,8 +241,8 @@ async function renameHistoryItem(item: QueueItem, newName: string) {
       item.result.outputPath = entry.outputPath;
       item.result.outputName = entry.outputName;
     }
-  } catch (error) {
-    showToast(`${t("renameFailed")}: ${String(error)}`);
+  } catch {
+    showToast(t("renameFailed"));
   } finally {
     queueView.finishRename();
     updateUi();
@@ -266,12 +250,34 @@ async function renameHistoryItem(item: QueueItem, newName: string) {
 }
 
 async function deleteHistoryItem(item: QueueItem) {
-  if (!item.historyId || !await confirmInApp(t("deleteResultConfirm"))) return;
+  if (!item.historyId) return;
   try {
     await invoke("delete_history_result", { id: item.historyId });
     removeItem(item.id);
-  } catch (error) {
-    showToast(`${t("deleteFailed")}: ${String(error)}`);
+  } catch {
+    showToast(t("deleteFailed"));
+  }
+}
+
+async function deleteAllHistory() {
+  if (!await confirmDestructive({
+    message: t("deleteAllConfirm"),
+    confirmLabel: t("deleteAll"),
+    cancelLabel: t("cancel"),
+    cancelClass: "secondary-action",
+  })) return;
+  try {
+    await invoke("delete_all_history_results");
+    state.items = state.items.filter((item) => !item.historyId);
+    if (!state.items.some((item) => item.id === state.selectedId)) {
+      state.selectedId = state.items[0]?.id || "";
+    }
+    closeReferencePreview();
+    updateUi();
+    const item = selectedItem();
+    if (item) await displayItem(item);
+  } catch {
+    showToast(t("deleteFailed"));
   }
 }
 
@@ -282,16 +288,39 @@ async function refreshHistory() {
     const entries = await invoke<HistoryEntry[]>("history_results");
     const validIds = new Set(entries.map((entry) => entry.id));
     for (const entry of entries) {
+      const frozen = frozenGenerationSettings(entry.metadata || {});
+      const legacy = generationSettings(
+        entry.metadata?.generationMode || "quality",
+        Number.NaN,
+        false,
+      );
+      const settings = frozen || {
+        generationMode: legacy.mode,
+        polycount: legacy.polycount,
+        autoSegment: legacy.autoSegment,
+        instruction: undefined,
+        outputDir: pathParent(entry.outputPath),
+      };
       let item = state.items.find((candidate) => candidate.historyId === entry.id)
         || state.items.find((candidate) =>
           comparablePath(candidate.result?.outputPath) === comparablePath(entry.outputPath));
       if (item) {
         item.historyId = entry.id;
         item.createdAtMs = entry.createdAtMs;
+        item.generationMode = settings.generationMode;
+        item.polycount = settings.polycount;
+        item.autoSegment = settings.autoSegment;
+        item.instruction = settings.instruction;
+        item.outputDir = settings.outputDir;
         if (item.result) {
           item.result.outputPath = entry.outputPath;
           item.result.outputName = entry.outputName;
           item.result.isSegmented = Boolean(entry.metadata?.isSegmented);
+          item.result.outputDir = settings.outputDir;
+          item.result.generationMode = settings.generationMode;
+          item.result.polycount = settings.polycount;
+          item.result.autoSegment = settings.autoSegment;
+          item.result.instruction = settings.instruction;
         }
         continue;
       }
@@ -301,11 +330,14 @@ async function refreshHistory() {
         id: `history_${entry.id}`,
         batchId: `history_${entry.id}`,
         path: sourcePath,
+        sourceProvenance: "presentation",
         name,
         extension: name.split(".").pop()?.toUpperCase() || t("image"),
-        generationMode: entry.metadata?.generationMode || "quality",
-        polycount: 5_000,
-        autoSegment: Boolean(entry.metadata?.isSegmented),
+        generationMode: settings.generationMode,
+        polycount: settings.polycount,
+        autoSegment: settings.autoSegment,
+        instruction: settings.instruction,
+        outputDir: settings.outputDir,
         submitted: true,
         state: "done",
         historyId: entry.id,
@@ -316,6 +348,11 @@ async function refreshHistory() {
           outputPath: entry.outputPath,
           outputName: entry.outputName,
           sourceImagePath: sourcePath,
+          outputDir: settings.outputDir,
+          generationMode: settings.generationMode,
+          polycount: settings.polycount,
+          autoSegment: settings.autoSegment,
+          instruction: settings.instruction,
           isSegmented: Boolean(entry.metadata?.isSegmented),
           canSegment: false,
         },
@@ -344,23 +381,20 @@ async function refreshHistory() {
 
 async function addImagePaths(paths: string[]) {
   if (!paths.length) return;
-  const existing = new Set(state.items
-    .filter((item) => item.state === "queued" || item.state === "running")
-    .map((item) => item.path.toLowerCase()));
-  const unique = paths.filter((path) => {
-    const key = path.toLowerCase();
-    if (existing.has(key)) return false;
-    existing.add(key);
-    return true;
-  });
-  if (!unique.length) return;
+  if (paths.length > MAX_IMPORT_SESSIONS) {
+    showToast(t("importLimit", { count: MAX_IMPORT_SESSIONS }));
+    return;
+  }
+  const accepted = paths.map((path) => path.trim()).filter(Boolean);
+  if (!accepted.length) return;
   const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const created = unique.map((path): QueueItem => {
+  const created = accepted.map((path, index): QueueItem => {
     const name = pathLeaf(path);
     return {
       id: `image_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       batchId,
       path,
+      sourceProvenance: "surface-import",
       name,
       extension: name.split(".").pop()?.toUpperCase() || t("image"),
       generationMode: "quality",
@@ -368,6 +402,7 @@ async function addImagePaths(paths: string[]) {
       autoSegment: false,
       submitted: false,
       state: "queued",
+      createdAtMs: Date.now() - index,
     };
   });
   closeReferencePreview();
@@ -427,28 +462,22 @@ function displayItem(item: QueueItem): Promise<void> {
   const token = ++state.displayToken;
   const operation = (async () => {
     try {
-      if (modelPath) {
-        const asset = await readModelAsset(item, modelPath);
-        if (token !== state.displayToken || state.selectedId !== item.id) return;
-        const stats = await viewer.setModel(asset.dataUrl, Boolean(item.result?.isSegmented));
-        if (!stats) return;
-        item.modelStats = stats;
+      const outcome = await modelDisplay.display(
+        modelPath,
+        Boolean(item.result?.isSegmented),
+      );
+      if (!outcome || token !== state.displayToken || state.selectedId !== item.id) return;
+      if (outcome.kind === "model" && modelPath) {
+        item.modelStats = outcome.stats;
         item.loadedModelPath = modelPath;
-        if (token !== state.displayToken || state.selectedId !== item.id) return;
         state.displayedItemId = item.id;
         state.displayedModelPath = modelPath;
         updateUi();
         return;
       }
-      const sourcePreview = (await readImagePreview(item.path, 1_600)).dataUrl;
-      if (token !== state.displayToken || state.selectedId !== item.id) return;
-      await viewer.setSource(sourcePreview);
-      if (token !== state.displayToken || state.selectedId !== item.id) return;
       state.displayedItemId = item.id;
       state.displayedModelPath = "";
       item.loadedModelPath = "";
-      item.loadedDepthPath = "";
-      if (item.result?.previewPath) await loadDepthFor(item, item.result.previewPath);
     } catch {
       // The status surface remains usable even if preview loading fails.
     }
@@ -465,28 +494,14 @@ function displayItem(item: QueueItem): Promise<void> {
   return operation;
 }
 
-async function loadDepthFor(item: QueueItem, path: string) {
-  if (!path || item.loadedDepthPath === path || state.selectedId !== item.id) return;
-  item.loadedDepthPath = path;
-  try {
-    await viewer.setDepth((await readImagePreview(path, 1_024)).dataUrl);
-  } catch {
-    item.loadedDepthPath = "";
-  }
-}
-
 jobRunner = new JobRunner({
   state,
   busyStages: BUSY_STAGES,
-  maxParallelJobs: MAX_PARALLEL_JOBS,
   invoke,
   normalizeSettings: normalizeGenerationSettings,
   selectedItem,
-  pendingItems,
-  activeJobCount,
   pathLeaf,
   displayItem,
-  loadDepthFor,
   refreshHistory,
   updateUi,
   beginProgress: (item, estimateMs) => presentation.beginProgress(item, estimateMs),
@@ -518,22 +533,34 @@ bindControls({
   updateUi,
   addImages,
   addImagePaths,
-  closeConfirmation,
   closeReferencePreview,
 });
+document.querySelector("#deleteAllHistory")
+  ?.addEventListener("click", () => void deleteAllHistory());
 
 async function loadDefaultOutputDir() {
   try {
     state.outputDir = await invoke<string>("default_output_dir");
     updateUi();
   } catch {
-    // Browser-only previews have no native output directory.
+    // Standalone previews have no selected output directory.
+  }
+}
+
+async function refreshGenerationCapabilities() {
+  try {
+    state.generationCapabilities = await invoke("generation_capabilities");
+    updateUi();
+  } catch {
+    state.generationCapabilities = {
+      ready: false,
+      optionalInstruction: { fast: false, quality: false },
+    };
   }
 }
 
 presentation.applyTranslations();
 updateUi();
-window.setInterval(() => presentation.updateProgressUi(), 250);
 const devModelUrl = devParams?.get("model");
 if (devParams?.get("output")) {
   state.outputDir = devParams.get("output") || "";
@@ -546,14 +573,16 @@ if (devParams?.get("parallel") === "1") {
 } else if (devModelUrl) {
   void devHarness?.loadModelPreview(devModelUrl);
 } else if (window.invoke) {
-  void invoke("prepare_runtime")
-    .catch(() => undefined)
-    .finally(() => jobRunner.startPreparationPolling());
   void (async () => {
     await loadDefaultOutputDir();
     await jobRunner.restoreCurrentJobs();
     await refreshHistory();
-    window.setInterval(() => void refreshHistory(), 5_000);
+    void invoke("prepare_runtime").catch(() => undefined);
+    void refreshGenerationCapabilities();
+    window.setTimeout(() => void refreshGenerationCapabilities(), 1_000);
   })();
 }
-window.addEventListener("focus", () => void refreshHistory());
+window.addEventListener("focus", () => {
+  void refreshHistory();
+  void refreshGenerationCapabilities();
+});

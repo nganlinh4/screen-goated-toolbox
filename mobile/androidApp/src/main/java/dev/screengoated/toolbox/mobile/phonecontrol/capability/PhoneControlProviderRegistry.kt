@@ -9,10 +9,10 @@ import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
+import dev.screengoated.toolbox.mobile.preset.GeneratedPresetModelCatalogData
 import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProjectionProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.browser.AndroidChromeCdpAuthority
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorModelManager
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.detector.UiDetectorReadiness
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
@@ -158,7 +158,7 @@ internal object PhoneControlProviderRegistry {
             "No SGT-owned browser surface is active.",
         )
         "browser_cdp" -> probeBrowserCdp(context)
-        "local_ui_detector" -> probeLocalDetector(context)
+        "current_frame_vision" -> probeCurrentFrameVision(context)
         "device_owner" -> probeDeviceOwner(context)
         "privileged_system" -> if (Process.myUid() == Process.SYSTEM_UID) {
             Probe(CapabilityState.READY)
@@ -225,13 +225,16 @@ internal object PhoneControlProviderRegistry {
         )
     }
 
-    private fun probeLocalDetector(context: Context): Probe =
-        when (val readiness = UiDetectorModelManager.get(context).readiness()) {
-            UiDetectorReadiness.Ready -> Probe(CapabilityState.READY)
-            is UiDetectorReadiness.Downloading -> Probe(CapabilityState.DEGRADED, readiness.message)
-            is UiDetectorReadiness.Missing -> Probe(CapabilityState.UNAVAILABLE, readiness.message)
-            is UiDetectorReadiness.Failed -> Probe(CapabilityState.DEGRADED, readiness.message)
+    private fun probeCurrentFrameVision(context: Context): Probe {
+        val app = context.applicationContext as SgtMobileApplication
+        return when {
+            GeneratedPresetModelCatalogData.computerControlGroundingModelChain.isEmpty() ->
+                Probe(CapabilityState.UNAVAILABLE, "No visual grounding model is configured.")
+            app.appContainer.repository.currentApiKey().isBlank() ->
+                Probe(CapabilityState.NEEDS_USER_STEP, "Configure the Gemini API key.")
+            else -> Probe(CapabilityState.READY)
         }
+    }
 
     private fun isAccessibilityEnabled(context: Context): Boolean {
         val expected = "${context.packageName}/${SgtAccessibilityService::class.java.name}"

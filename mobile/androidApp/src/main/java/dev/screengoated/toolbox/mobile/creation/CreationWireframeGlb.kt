@@ -3,23 +3,24 @@ package dev.screengoated.toolbox.mobile.creation
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 
 internal object CreationWireframeGlb {
     fun create(source: File, target: File): File {
-        require(source.isFile && source.length() in MINIMUM_GLB_BYTES..MAXIMUM_GLB_BYTES) {
+        CreationArtifactValidator.validateGlb(source)
+        require(source.length() in MINIMUM_GLB_BYTES..MAXIMUM_WIREFRAME_SOURCE_BYTES) {
             "Model preview is unavailable"
         }
-        val bytes = source.readBytes()
-        val parsed = parse(bytes)
+        val parsed = parse(source)
         val document = parsed.document
-        val binary = ByteArrayOutputStream(parsed.binary.size + 256 * 1024).apply {
-            write(parsed.binary)
-        }
+        val appended = ByteArrayOutputStream()
         val accessors = document.optJSONArray("accessors") ?: JSONArray().also {
             document.put("accessors", it)
         }
@@ -44,12 +45,16 @@ internal object CreationWireframeGlb {
                 )
                 val edges = uniqueEdges(triangles)
                 if (edges.isEmpty()) continue
-                align(binary)
-                val offset = binary.size()
+                align(appended)
+                val offset = Math.addExact(parsed.binary.size, appended.size())
                 val maximumIndex = edges.maxOf { maxOf(it.first, it.second) }
                 val componentType = if (maximumIndex <= U16_MAXIMUM) UNSIGNED_SHORT else UNSIGNED_INT
-                writeEdges(binary, edges, componentType)
-                val byteLength = binary.size() - offset
+                val before = appended.size()
+                writeEdges(appended, edges, componentType)
+                require(appended.size() <= MAXIMUM_WIREFRAME_ADDED_BYTES) {
+                    "Model is too complex for wireframe preview"
+                }
+                val byteLength = appended.size() - before
                 val viewIndex = bufferViews.length()
                 bufferViews.put(
                     JSONObject()
@@ -64,7 +69,7 @@ internal object CreationWireframeGlb {
                         .put("bufferView", viewIndex)
                         .put("byteOffset", 0)
                         .put("componentType", componentType)
-                        .put("count", edges.size * 2)
+                        .put("count", Math.multiplyExact(edges.size, 2))
                         .put("type", "SCALAR"),
                 )
                 primitive.put("indices", accessorIndex)
@@ -73,11 +78,10 @@ internal object CreationWireframeGlb {
             }
         }
         require(converted > 0) { "Model has no triangle geometry for wireframe preview" }
-        val binaryBytes = binary.toByteArray()
-        document.getJSONArray("buffers").getJSONObject(0).put("byteLength", binaryBytes.size)
-        val output = encode(document, binaryBytes)
-        require(output.size.toLong() <= MAXIMUM_GLB_BYTES) { "Wireframe preview is too large" }
-        writeAtomic(target, output)
+        val appendedBytes = appended.toByteArray()
+        document.getJSONArray("buffers").getJSONObject(0)
+            .put("byteLength", Math.addExact(parsed.binary.size, appendedBytes.size))
+        writeAtomic(target, document, parsed.binary, appendedBytes)
         return target
     }
 
@@ -90,13 +94,19 @@ internal object CreationWireframeGlb {
     ): IntArray {
         val accessorIndex = primitive.optInt("indices", -1)
         if (accessorIndex < 0) {
-            require(positionCount % 3 == 0) { "Non-indexed triangle geometry is incomplete" }
+            require(
+                positionCount > 0 &&
+                    positionCount % 3 == 0 &&
+                    positionCount <= MAXIMUM_TRIANGLE_INDICES,
+            ) { "Non-indexed triangle geometry is too complex" }
             return IntArray(positionCount) { it }
         }
         val accessor = accessors.getJSONObject(accessorIndex)
         require(!accessor.has("sparse")) { "Sparse wireframe indices are unsupported" }
         val count = accessor.getInt("count")
-        require(count > 0 && count % 3 == 0) { "Triangle index count is invalid" }
+        require(count > 0 && count % 3 == 0 && count <= MAXIMUM_TRIANGLE_INDICES) {
+            "Model is too complex for wireframe preview"
+        }
         val componentType = accessor.getInt("componentType")
         val componentBytes = when (componentType) {
             UNSIGNED_BYTE -> 1
@@ -108,13 +118,26 @@ internal object CreationWireframeGlb {
         require(view.optInt("buffer", 0) == 0) { "Wireframe source is not embedded in the GLB" }
         val stride = view.optInt("byteStride", componentBytes)
         require(stride >= componentBytes) { "Triangle index stride is invalid" }
-        val start = view.optInt("byteOffset", 0) + accessor.optInt("byteOffset", 0)
-        require(start >= 0 && start + (count - 1) * stride + componentBytes <= binary.size) {
+        val start = checkedWireframeAdd(
+            view.optLong("byteOffset", 0L),
+            accessor.optLong("byteOffset", 0L),
+        )
+        val end = checkedWireframeAdd(
+            start,
+            checkedWireframeAdd(
+                checkedWireframeMultiply(count - 1L, stride.toLong()),
+                componentBytes.toLong(),
+            ),
+        )
+        require(start >= 0L && end <= binary.size.toLong()) {
             "Triangle indices exceed the GLB buffer"
         }
         val source = ByteBuffer.wrap(binary).order(ByteOrder.LITTLE_ENDIAN)
         return IntArray(count) { index ->
-            val offset = start + index * stride
+            val offset = checkedWireframeAdd(
+                start,
+                checkedWireframeMultiply(index.toLong(), stride.toLong()),
+            ).toInt()
             val value = when (componentType) {
                 UNSIGNED_BYTE -> binary[offset].toInt() and 0xff
                 UNSIGNED_SHORT -> source.getShort(offset).toInt() and 0xffff
@@ -143,7 +166,11 @@ internal object CreationWireframeGlb {
         if (left == right) return
         val minimum = minOf(left, right)
         val maximum = maxOf(left, right)
-        keys += (minimum.toLong() shl 32) or (maximum.toLong() and 0xffff_ffffL)
+        val key = (minimum.toLong() shl 32) or (maximum.toLong() and 0xffff_ffffL)
+        require(key in keys || keys.size < MAXIMUM_UNIQUE_EDGES) {
+            "Model is too complex for wireframe preview"
+        }
+        keys += key
     }
 
     private fun writeEdges(
@@ -152,7 +179,9 @@ internal object CreationWireframeGlb {
         componentType: Int,
     ) {
         val componentBytes = if (componentType == UNSIGNED_SHORT) 2 else 4
-        val buffer = ByteBuffer.allocate(edges.size * 2 * componentBytes)
+        val buffer = ByteBuffer.allocate(
+            Math.multiplyExact(Math.multiplyExact(edges.size, 2), componentBytes),
+        )
             .order(ByteOrder.LITTLE_ENDIAN)
         edges.forEach { (left, right) ->
             if (componentType == UNSIGNED_SHORT) {
@@ -166,52 +195,34 @@ internal object CreationWireframeGlb {
         output.write(buffer.array())
     }
 
-    private fun parse(bytes: ByteArray): ParsedGlb {
-        require(bytes.size >= MINIMUM_GLB_BYTES) { "Model is not a GLB" }
-        val header = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        require(header.int == GLB_MAGIC && header.int == GLB_VERSION && header.int == bytes.size) {
-            "Model GLB header is invalid"
-        }
-        var offset = 12
-        var document: JSONObject? = null
-        var binary: ByteArray? = null
-        while (offset + 8 <= bytes.size) {
-            val length = header.getInt(offset)
-            val type = header.getInt(offset + 4)
-            offset += 8
-            require(length >= 0 && offset + length <= bytes.size) { "Model GLB chunk is invalid" }
-            val chunk = bytes.copyOfRange(offset, offset + length)
-            when (type) {
-                JSON_CHUNK -> document = JSONObject(
-                    chunk.toString(Charsets.UTF_8).trimEnd('\u0000', ' ', '\t', '\r', '\n'),
-                )
-                BIN_CHUNK -> binary = chunk
-            }
-            offset += length
-        }
-        val parsedDocument = requireNotNull(document) { "Model GLB has no JSON document" }
-        val parsedBinary = requireNotNull(binary) { "Model GLB has no embedded buffer" }
+    private fun parse(file: File): ParsedGlb = RandomAccessFile(file, "r").use { input ->
+        val length = input.length()
+        val header = ByteArray(12).also(input::readFully).littleEndian()
         require(
-            parsedDocument.getJSONArray("buffers").getJSONObject(0).optString("uri").isEmpty(),
-        ) { "Model GLB uses an external buffer" }
-        return ParsedGlb(parsedDocument, parsedBinary)
-    }
-
-    private fun encode(document: JSONObject, rawBinary: ByteArray): ByteArray {
-        val json = document.toString().toByteArray(Charsets.UTF_8).padToFour(' '.code.toByte())
-        val binary = rawBinary.padToFour(0)
-        val total = 12 + 8 + json.size + 8 + binary.size
-        return ByteBuffer.allocate(total).order(ByteOrder.LITTLE_ENDIAN).apply {
-            putInt(GLB_MAGIC)
-            putInt(GLB_VERSION)
-            putInt(total)
-            putInt(json.size)
-            putInt(JSON_CHUNK)
-            put(json)
-            putInt(binary.size)
-            putInt(BIN_CHUNK)
-            put(binary)
-        }.array()
+            header.int == GLB_MAGIC &&
+                header.int == GLB_VERSION &&
+                (header.int.toLong() and 0xffff_ffffL) == length,
+        ) { "Model GLB header is invalid" }
+        val jsonLength = readChunkHeader(
+            input,
+            JSON_CHUNK,
+            length,
+            MAXIMUM_JSON_BYTES.toLong(),
+        )
+        val document = JSONObject(
+            ByteArray(jsonLength).also(input::readFully)
+                .toString(Charsets.UTF_8)
+                .trimEnd('\u0000', ' ', '\t', '\r', '\n'),
+        )
+        val binaryLength = readChunkHeader(
+            input,
+            BIN_CHUNK,
+            length,
+            MAXIMUM_WIREFRAME_SOURCE_BYTES,
+        )
+        val binary = ByteArray(binaryLength).also(input::readFully)
+        require(input.filePointer == length) { "Model GLB has unsupported chunks" }
+        ParsedGlb(document, binary)
     }
 
     private fun ByteArray.padToFour(value: Byte): ByteArray =
@@ -223,17 +234,63 @@ internal object CreationWireframeGlb {
         repeat((4 - output.size() % 4) % 4) { output.write(0) }
     }
 
-    private fun writeAtomic(target: File, bytes: ByteArray) {
+    private fun readChunkHeader(
+        input: RandomAccessFile,
+        expectedType: Int,
+        fileLength: Long,
+        maximumLength: Long,
+    ): Int {
+        require(fileLength - input.filePointer >= 8) { "Model GLB chunk is missing" }
+        val chunk = ByteArray(8).also(input::readFully).littleEndian()
+        val length = chunk.int.toLong() and 0xffff_ffffL
+        require(
+            chunk.int == expectedType &&
+                length % 4L == 0L &&
+                length <= maximumLength &&
+                length <= fileLength - input.filePointer,
+        ) { "Model GLB chunk is invalid" }
+        return length.toInt()
+    }
+
+    private fun writeAtomic(
+        target: File,
+        document: JSONObject,
+        originalBinary: ByteArray,
+        appendedBinary: ByteArray,
+    ) {
+        val json = document.toString().toByteArray(Charsets.UTF_8).padToFour(' '.code.toByte())
+        require(json.size <= MAXIMUM_JSON_BYTES) { "Wireframe preview metadata is too large" }
+        val binaryLength = Math.addExact(originalBinary.size, appendedBinary.size)
+        val binaryPadding = (4 - binaryLength % 4) % 4
+        val paddedBinaryLength = Math.addExact(binaryLength, binaryPadding)
+        val total = listOf(12, 8, json.size, 8, paddedBinaryLength)
+            .fold(0, Math::addExact)
+        require(total.toLong() <= MAXIMUM_GLB_BYTES) { "Wireframe preview is too large" }
         target.parentFile?.mkdirs()
         val temporary = File(target.parentFile, "${target.name}.tmp-${UUID.randomUUID()}")
         try {
             FileOutputStream(temporary).use { output ->
-                output.write(bytes)
+                output.write(littleEndian(GLB_MAGIC, GLB_VERSION, total, json.size, JSON_CHUNK))
+                output.write(json)
+                output.write(littleEndian(paddedBinaryLength, BIN_CHUNK))
+                output.write(originalBinary)
+                output.write(appendedBinary)
+                repeat(binaryPadding) { output.write(0) }
                 output.fd.sync()
             }
-            if (!temporary.renameTo(target)) {
-                temporary.copyTo(target, overwrite = true)
-                temporary.delete()
+            runCatching {
+                Files.move(
+                    temporary.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }.getOrElse {
+                Files.move(
+                    temporary.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
             }
         } finally {
             temporary.delete()
@@ -242,8 +299,29 @@ internal object CreationWireframeGlb {
 
     private data class ParsedGlb(val document: JSONObject, val binary: ByteArray)
 
+    private fun checkedWireframeAdd(left: Long, right: Long): Long =
+        runCatching { Math.addExact(left, right) }
+            .getOrElse { error("Wireframe preview metadata is too large") }
+
+    private fun checkedWireframeMultiply(left: Long, right: Long): Long =
+        runCatching { Math.multiplyExact(left, right) }
+            .getOrElse { error("Wireframe preview metadata is too large") }
+
+    private fun ByteArray.littleEndian(): ByteBuffer =
+        ByteBuffer.wrap(this).order(ByteOrder.LITTLE_ENDIAN)
+
+    private fun littleEndian(vararg values: Int): ByteArray =
+        ByteBuffer.allocate(values.size * Int.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+            .apply { values.forEach(::putInt) }
+            .array()
+
     private const val MINIMUM_GLB_BYTES = 20L
-    private const val MAXIMUM_GLB_BYTES = 200L * 1024 * 1024
+    private const val MAXIMUM_GLB_BYTES = CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES
+    private const val MAXIMUM_WIREFRAME_SOURCE_BYTES = 32L * 1024 * 1024
+    private const val MAXIMUM_JSON_BYTES = 8 * 1024 * 1024
+    private const val MAXIMUM_TRIANGLE_INDICES = 300_000
+    private const val MAXIMUM_UNIQUE_EDGES = 300_000
+    private const val MAXIMUM_WIREFRAME_ADDED_BYTES = 8 * 1024 * 1024
     private const val GLB_MAGIC = 0x46546c67
     private const val GLB_VERSION = 2
     private const val JSON_CHUNK = 0x4e4f534a

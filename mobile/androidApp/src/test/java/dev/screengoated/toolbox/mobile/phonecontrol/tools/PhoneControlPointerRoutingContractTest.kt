@@ -22,7 +22,7 @@ class PhoneControlPointerRoutingContractTest {
     }
 
     @Test
-    fun targetToolsKeepDetectorAsGroundingOwnerAndEffectBackendsAsDependencies() {
+    fun targetToolsKeepVisionAsGroundingOwnerAndEffectBackendsAsDependencies() {
         val expectedDependencies = setOf(
             "accessibility",
             "sgt_adb_bridge",
@@ -32,7 +32,7 @@ class PhoneControlPointerRoutingContractTest {
 
         listOf("click_target", "click_mark", "drag_target").forEach { tool ->
             val spec = PhoneControlToolRegistry.byName.getValue(tool)
-            assertEquals(listOf("local_ui_detector"), spec.providerIds)
+            assertEquals(listOf("current_frame_vision"), spec.providerIds)
             assertEquals(expectedDependencies, spec.dependencyProviderIds)
         }
     }

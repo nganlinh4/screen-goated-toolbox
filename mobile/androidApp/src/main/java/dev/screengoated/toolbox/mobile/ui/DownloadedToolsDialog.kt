@@ -37,8 +37,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
-import dev.screengoated.toolbox.mobile.creation.DepthPreviewModelManager
-import dev.screengoated.toolbox.mobile.creation.DepthPreviewModelStatus
 import dev.screengoated.toolbox.mobile.creation.CreationJobManager
 import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeManager
 import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeStatus
@@ -59,8 +57,6 @@ internal fun DownloadedToolsDialog(
     val moonshineManager = remember { MoonshineModelManager(context) }
     val moonshineStatuses by moonshineManager.moonshineStatuses.collectAsState()
     val zipformerStatuses by moonshineManager.zipformerStatuses.collectAsState()
-    val depthPreviewManager = remember { DepthPreviewModelManager.get(context) }
-    val depthPreviewStatus by depthPreviewManager.status.collectAsState()
     val creationRuntimeManager = remember { CreationRuntimeManager.get(context) }
     val creationRuntimeStatus by creationRuntimeManager.status.collectAsState()
 
@@ -252,12 +248,12 @@ internal fun DownloadedToolsDialog(
 
             ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.tertiary) {
                 Text(
-                    text = locale.creationApps.common.previewTools,
+                    text = locale.creationApps.common.tools.previewTools,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                 )
                 DownloadedToolRow(
-                    name = locale.creationApps.common.creationRuntime,
+                    name = locale.creationApps.common.tools.creationRuntime,
                     icon = R.drawable.ms_deployed_code,
                     statusText = when (val status = creationRuntimeStatus) {
                         CreationRuntimeStatus.Missing -> locale.dlDepsNotInstalled
@@ -274,8 +270,8 @@ internal fun DownloadedToolsDialog(
                     },
                     accent = MaterialTheme.colorScheme.tertiary,
                     onHelpClick = {
-                        helpDialog = locale.creationApps.common.creationRuntime to
-                            locale.creationApps.common.creationRuntimeDescription
+                        helpDialog = locale.creationApps.common.tools.creationRuntime to
+                            locale.creationApps.common.tools.creationRuntimeDescription
                     },
                     progressFraction = (creationRuntimeStatus as? CreationRuntimeStatus.Downloading)
                         ?.progress,
@@ -292,44 +288,6 @@ internal fun DownloadedToolsDialog(
                             onClick = { CreationJobManager.get(context).removeRuntime() },
                         )
                         is CreationRuntimeStatus.Downloading -> null
-                    },
-                )
-                DownloadedToolRow(
-                    name = locale.creationApps.common.depthPreviewModel,
-                    icon = R.drawable.ms_layers,
-                    statusText = when (val status = depthPreviewStatus) {
-                        DepthPreviewModelStatus.Missing -> locale.dlDepsNotInstalled
-                        is DepthPreviewModelStatus.Downloading ->
-                            downloadingStatus(locale, status.progress)
-                        is DepthPreviewModelStatus.Ready ->
-                            installedStatus(locale, status.sizeBytes)
-                        is DepthPreviewModelStatus.Failed -> status.message
-                    },
-                    statusColor = when (depthPreviewStatus) {
-                        is DepthPreviewModelStatus.Ready -> MaterialTheme.colorScheme.tertiary
-                        is DepthPreviewModelStatus.Failed -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    accent = MaterialTheme.colorScheme.tertiary,
-                    onHelpClick = {
-                        helpDialog = locale.creationApps.common.depthPreviewModel to
-                            locale.creationApps.common.depthPreviewDescription
-                    },
-                    progressFraction = (depthPreviewStatus as? DepthPreviewModelStatus.Downloading)
-                        ?.progress,
-                    action = when (depthPreviewStatus) {
-                        DepthPreviewModelStatus.Missing,
-                        is DepthPreviewModelStatus.Failed -> ToolAction(
-                            text = locale.dlDepsInstall,
-                            role = ToolActionRole.TONAL,
-                            onClick = depthPreviewManager::startInstall,
-                        )
-                        is DepthPreviewModelStatus.Ready -> ToolAction(
-                            text = locale.downloader.toolDelete,
-                            role = ToolActionRole.DESTRUCTIVE,
-                            onClick = depthPreviewManager::delete,
-                        )
-                        is DepthPreviewModelStatus.Downloading -> null
                     },
                 )
             }

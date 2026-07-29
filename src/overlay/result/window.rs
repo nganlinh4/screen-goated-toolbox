@@ -206,25 +206,6 @@ pub fn create_result_window(params: ResultWindowParams<'_>) -> HWND {
         )
         .unwrap_or_default();
 
-        // Markdown windows create their WebView before later window messages can race
-        // initialization; the shared WebView context/mutex owns serialization.
-        let markdown_webview_created = if markdown_requested {
-            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
-            // The WebView is transparent. Seed the full parent surface before the
-            // child exists; later WS_CLIPCHILDREN paints preserve this background.
-            prime_markdown_background(hwnd, custom_bg_color);
-            let created = super::markdown_view::create_markdown_webview(hwnd, &initial_text, false);
-            let _ =
-                SetLayeredWindowAttributes(hwnd, COLORREF(0), favorite_overlay_alpha, LWA_ALPHA);
-            created
-        } else {
-            false
-        };
-        let is_any_markdown_mode = markdown_requested && markdown_webview_created;
-        if markdown_requested && !markdown_webview_created {
-            set_markdown_parent_clipping(hwnd, false);
-        }
-
         let mut physics = CursorPhysics::default();
 
         // Initialize physics with current cursor position to prevent (0,0) glitch
@@ -292,7 +273,7 @@ pub fn create_result_window(params: ResultWindowParams<'_>) -> HWND {
                     cancellation_token: None,
                     chain_id: None,
                     // Markdown mode state
-                    is_markdown_mode: is_any_markdown_mode,
+                    is_markdown_mode: markdown_requested,
                     is_markdown_streaming: render_mode == "markdown_stream",
                     on_markdown_btn: false,
                     is_browsing: false,
@@ -324,12 +305,6 @@ pub fn create_result_window(params: ResultWindowParams<'_>) -> HWND {
         if start_editing {
             // Just activate the window, let the button canvas handle the UI
             let _ = SetForegroundWindow(hwnd);
-        }
-
-        SetTimer(Some(hwnd), 3, 16, None);
-        if is_any_markdown_mode {
-            SetTimer(Some(hwnd), 2, 30, None);
-            // WebView was already created immediately after window creation (see above)
         }
 
         let _ = InvalidateRect(Some(hwnd), None, false);
@@ -385,5 +360,12 @@ mod tests {
     #[test]
     fn markdown_background_rgb_is_converted_to_colorref() {
         assert_eq!(rgb_to_colorref(0x0011_2233).0, 0x0033_2211);
+    }
+
+    #[test]
+    fn result_window_stays_hidden_until_the_caller_shows_it() {
+        let (_, style) = result_window_styles(true);
+
+        assert_eq!(style.0 & WS_VISIBLE.0, 0);
     }
 }

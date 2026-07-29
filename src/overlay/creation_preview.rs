@@ -18,11 +18,14 @@ const MIN_MAX_EDGE: u32 = 64;
 const MAX_MAX_EDGE: u32 = 2_048;
 const MAX_SOURCE_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_SOURCE_DIMENSION: u32 = 32_768;
-const MAX_SOURCE_PIXELS: u64 = 64 * 1024 * 1024;
-const MAX_DECODE_BYTES: u64 = 320 * 1024 * 1024;
+const MAX_SOURCE_PIXELS: u64 = 32 * 1024 * 1024;
+const MAX_DECODE_BYTES: u64 = 160 * 1024 * 1024;
+const MAX_PREVIEW_ENCODED_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PENDING_REPLY_BYTES: usize = 8 * 1024 * 1024;
 const JPEG_QUALITY: u8 = 82;
-const PREVIEW_WORKERS: usize = 2;
-const MAX_PENDING_PREVIEWS: usize = 256;
+const PREVIEW_WORKERS: usize = 1;
+const MAX_PENDING_PREVIEWS: usize = 64;
+const MAX_REPLY_ID_BYTES: usize = 256;
 
 struct PreviewRequest {
     hwnd: SendHwnd,
@@ -34,10 +37,22 @@ struct PreviewRequest {
 }
 
 #[derive(Default)]
+struct ReplyBucket {
+    scripts: VecDeque<PendingReply>,
+    bytes: usize,
+}
+
+struct PendingReply {
+    script: String,
+    fallback: String,
+    degraded: bool,
+}
+
+#[derive(Default)]
 struct AsyncPreviewState {
     next_generation: u64,
     active_targets: HashMap<isize, u64>,
-    replies: HashMap<(isize, u64), Vec<String>>,
+    replies: HashMap<(isize, u64), ReplyBucket>,
 }
 
 static ASYNC_PREVIEW_STATE: LazyLock<Mutex<AsyncPreviewState>> =
@@ -83,6 +98,9 @@ pub fn request_async_preview(
     if id.is_empty() {
         return Ok(());
     }
+    if id.len() > MAX_REPLY_ID_BYTES {
+        return Err("Preview request identifier is too long.".to_string());
+    }
     let key = hwnd.0 as isize;
     let generation = ASYNC_PREVIEW_STATE
         .lock()
@@ -123,7 +141,17 @@ pub fn take_async_replies(hwnd: HWND) -> Vec<String> {
     let Some(generation) = state.active_targets.get(&key).copied() else {
         return Vec::new();
     };
-    state.replies.remove(&(key, generation)).unwrap_or_default()
+    state
+        .replies
+        .remove(&(key, generation))
+        .map(|bucket| {
+            bucket
+                .scripts
+                .into_iter()
+                .map(|reply| reply.script)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn preview_worker() {
@@ -161,11 +189,15 @@ fn async_target_is_current(request: &PreviewRequest) -> bool {
 
 fn queue_async_reply(request: PreviewRequest, result: std::result::Result<Value, String>) {
     let payload = match result {
-        Ok(value) => json!({ "id": request.id, "result": value }),
-        Err(error) => json!({ "id": request.id, "error": error }),
+        Ok(value) => json!({ "id": &request.id, "result": value }),
+        Err(_error) => json!({ "id": &request.id, "error": "preview_unavailable" }),
     };
     let script =
         format!("window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {payload} }}));");
+    let fallback_payload = json!({ "id": &request.id, "error": "preview_unavailable" });
+    let fallback = format!(
+        "window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {fallback_payload} }}));"
+    );
     let key = request.hwnd.as_isize();
     {
         let mut state = ASYNC_PREVIEW_STATE
@@ -174,11 +206,8 @@ fn queue_async_reply(request: PreviewRequest, result: std::result::Result<Value,
         if state.active_targets.get(&key) != Some(&request.generation) {
             return;
         }
-        state
-            .replies
-            .entry((key, request.generation))
-            .or_default()
-            .push(script);
+        let bucket = state.replies.entry((key, request.generation)).or_default();
+        push_bounded_reply(bucket, script, fallback, MAX_PENDING_REPLY_BYTES);
     }
     if unsafe {
         PostMessageW(
@@ -194,8 +223,57 @@ fn queue_async_reply(request: PreviewRequest, result: std::result::Result<Value,
     }
 }
 
+fn push_bounded_reply(bucket: &mut ReplyBucket, script: String, fallback: String, limit: usize) {
+    bucket.bytes += script.len();
+    bucket.scripts.push_back(PendingReply {
+        script,
+        fallback,
+        degraded: false,
+    });
+    while bucket.bytes > limit {
+        let Some(reply) = bucket.scripts.iter_mut().find(|reply| !reply.degraded) else {
+            break;
+        };
+        bucket.bytes = bucket
+            .bytes
+            .saturating_sub(reply.script.len())
+            .saturating_add(reply.fallback.len());
+        reply.script = std::mem::take(&mut reply.fallback);
+        reply.degraded = true;
+    }
+}
+
 pub fn read_image_preview(path: &str, max_edge: Option<u32>) -> Result<Value> {
-    let source = Path::new(path);
+    let preview = encode_image_preview(Path::new(path), max_edge)?;
+    Ok(json!({
+        "dataUrl": format!(
+            "data:{};base64,{}",
+            preview.mime,
+            general_purpose::STANDARD.encode(&preview.encoded)
+        ),
+        "sourceSizeBytes": preview.source_size_bytes,
+        "previewSizeBytes": preview.encoded.len(),
+        "width": preview.width,
+        "height": preview.height,
+        "previewWidth": preview.preview_width,
+        "previewHeight": preview.preview_height
+    }))
+}
+
+pub(super) struct EncodedImagePreview {
+    pub(super) mime: &'static str,
+    pub(super) encoded: Vec<u8>,
+    source_size_bytes: u64,
+    width: u32,
+    height: u32,
+    preview_width: u32,
+    preview_height: u32,
+}
+
+pub(super) fn encode_image_preview(
+    source: &Path,
+    max_edge: Option<u32>,
+) -> Result<EncodedImagePreview> {
     let metadata = std::fs::metadata(source)
         .with_context(|| format!("Could not inspect image: {}", source.display()))?;
     if !metadata.is_file() {
@@ -219,17 +297,36 @@ pub fn read_image_preview(path: &str, max_edge: Option<u32>) -> Result<Value> {
     reader.limits(limits);
     let image = reader.decode().context("Could not decode the image.")?;
     validate_dimensions(image.width(), image.height())?;
-    let edge = max_edge
+    let mut edge = max_edge
         .unwrap_or(DEFAULT_MAX_EDGE)
         .clamp(MIN_MAX_EDGE, MAX_MAX_EDGE);
-    let preview = image.thumbnail(edge, edge);
+    let (preview, mime, encoded) = loop {
+        let preview = image.thumbnail(edge, edge);
+        let (mime, encoded) = encode_preview(&preview)?;
+        if encoded.len() <= MAX_PREVIEW_ENCODED_BYTES || edge == MIN_MAX_EDGE {
+            break (preview, mime, encoded);
+        }
+        edge = (edge * 3 / 4).max(MIN_MAX_EDGE);
+    };
 
-    let (mime, encoded) = if preview.color().has_alpha() {
+    Ok(EncodedImagePreview {
+        mime,
+        encoded,
+        source_size_bytes: metadata.len(),
+        width,
+        height,
+        preview_width: preview.width(),
+        preview_height: preview.height(),
+    })
+}
+
+fn encode_preview(preview: &image::DynamicImage) -> Result<(&'static str, Vec<u8>)> {
+    if preview.color().has_alpha() {
         let mut encoded = Cursor::new(Vec::new());
         preview
             .write_to(&mut encoded, image::ImageFormat::Png)
             .context("Could not encode the image preview.")?;
-        ("image/png", encoded.into_inner())
+        Ok(("image/png", encoded.into_inner()))
     } else {
         let rgb = preview.to_rgb8();
         let mut encoded = Vec::new();
@@ -241,21 +338,8 @@ pub fn read_image_preview(path: &str, max_edge: Option<u32>) -> Result<Value> {
                 ExtendedColorType::Rgb8,
             )
             .context("Could not encode the image preview.")?;
-        ("image/jpeg", encoded)
-    };
-
-    Ok(json!({
-        "dataUrl": format!(
-            "data:{mime};base64,{}",
-            general_purpose::STANDARD.encode(&encoded)
-        ),
-        "sourceSizeBytes": metadata.len(),
-        "previewSizeBytes": encoded.len(),
-        "width": width,
-        "height": height,
-        "previewWidth": preview.width(),
-        "previewHeight": preview.height()
-    }))
+        Ok(("image/jpeg", encoded))
+    }
 }
 
 fn image_dimensions(source: &Path) -> Result<(u32, u32)> {
@@ -282,10 +366,41 @@ fn validate_dimensions(width: u32, height: u32) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::read_image_preview;
+    use super::{ReplyBucket, push_bounded_reply, read_image_preview};
     use base64::{Engine as _, engine::general_purpose};
-    use image::{ImageBuffer, Rgb};
+    use image::{ImageBuffer, Rgb, Rgba};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn pending_reply_pressure_preserves_every_accepted_identity() {
+        let mut bucket = ReplyBucket::default();
+        for id in 0..8 {
+            let fallback = format!("reply:{id}:preview_unavailable");
+            push_bounded_reply(
+                &mut bucket,
+                format!("reply:{id}:{}", "x".repeat(200)),
+                fallback,
+                500,
+            );
+        }
+
+        assert!(bucket.bytes <= 500);
+        assert_eq!(bucket.scripts.len(), 8);
+        for id in 0..8 {
+            assert!(
+                bucket
+                    .scripts
+                    .iter()
+                    .any(|reply| reply.script.starts_with(&format!("reply:{id}:")))
+            );
+        }
+        assert!(
+            bucket
+                .scripts
+                .iter()
+                .any(|reply| reply.script.contains("preview_unavailable"))
+        );
+    }
 
     #[test]
     fn preview_is_bounded_and_decodable() {
@@ -313,6 +428,37 @@ mod tests {
         let decoded = general_purpose::STANDARD.decode(encoded).unwrap();
         let preview = image::load_from_memory(&decoded).unwrap();
         assert_eq!((preview.width(), preview.height()), (128, 64));
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn alpha_preview_is_adaptively_downscaled_to_encoded_budget() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "sgt-creation-preview-alpha-{}-{unique}.png",
+            std::process::id()
+        ));
+        let source = ImageBuffer::from_fn(1_024, 1_024, |x, y| {
+            let value = x
+                .wrapping_mul(1_664_525)
+                .wrapping_add(y.wrapping_mul(1_013_904_223));
+            Rgba([
+                value as u8,
+                (value >> 8) as u8,
+                (value >> 16) as u8,
+                ((value >> 24) as u8).max(1),
+            ])
+        });
+        source.save(&path).unwrap();
+
+        let value = read_image_preview(path.to_str().unwrap(), Some(1_600)).unwrap();
+        assert!(value["previewSizeBytes"].as_u64().unwrap() <= 2 * 1024 * 1024);
+        assert!(value["previewWidth"].as_u64().unwrap() < 1_024);
+        assert!(value["previewHeight"].as_u64().unwrap() < 1_024);
 
         std::fs::remove_file(path).unwrap();
     }

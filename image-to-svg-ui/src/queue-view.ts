@@ -1,15 +1,13 @@
 import { t } from "./i18n";
 import { SVG_ICONS } from "./layout";
-import type { Asset, Item, Stage } from "./types";
-import { VisiblePreviewScheduler } from "../../ui-shared/visible-preview-scheduler";
+import type { Item, Stage } from "./types";
+import { newestSessionsFirst } from "../../ui-shared/creation-history-order";
 
 type QueueViewOptions = {
   queueList: HTMLElement;
-  sourceThumb: HTMLElement;
   getItems: () => Item[];
   getSelectedId: () => string;
   stageLabel: (stage: Stage) => string;
-  invoke: <T>(cmd: string, args?: unknown) => Promise<T>;
   onSelect: (item: Item) => void;
   onRename: (item: Item, name: string) => void;
   onDelete: (item: Item) => void;
@@ -18,39 +16,8 @@ type QueueViewOptions = {
 export class SvgQueueView {
   private signature = "";
   private renamingId = "";
-  private readonly scheduler: VisiblePreviewScheduler;
 
-  constructor(private readonly options: QueueViewOptions) {
-    this.scheduler = new VisiblePreviewScheduler(options.queueList, async (itemId) => {
-      const item = options.getItems().find((candidate) => candidate.id === itemId);
-      if (!item || item.thumbnailUrl || !item.path) return;
-      item.thumbnailUrl = (await options.invoke<Asset>("read_image_preview", {
-        path: item.path,
-        maxEdge: 128,
-      })).dataUrl;
-      const row = [...options.queueList.querySelectorAll<HTMLElement>("[data-item-id]")]
-        .find((candidate) => candidate.dataset.itemId === item.id);
-      const thumb = row?.querySelector<HTMLElement>(".queue-thumb");
-      if (thumb && item.thumbnailUrl) {
-        const image = document.createElement("img");
-        image.src = item.thumbnailUrl;
-        image.alt = "";
-        thumb.replaceChildren(image);
-        if (row) row.dataset.previewReady = "true";
-      }
-      if (item.id === options.getSelectedId() && item.thumbnailUrl) {
-        options.sourceThumb.innerHTML = `<img src="${item.thumbnailUrl}" alt="" />`;
-      }
-    });
-  }
-
-  holdPreviews(milliseconds: number) {
-    this.scheduler.hold(milliseconds);
-  }
-
-  setInteractionActive(active: boolean) {
-    this.scheduler.setInteractionActive(active);
-  }
+  constructor(private readonly options: QueueViewOptions) {}
 
   invalidate() {
     this.signature = "";
@@ -73,6 +40,7 @@ export class SvgQueueView {
         item.name,
         item.outputName || "",
         item.historyId || "",
+        item.createdAtMs || 0,
       ]),
     });
     if (signature !== this.signature) {
@@ -83,10 +51,8 @@ export class SvgQueueView {
         empty.className = "queue-empty";
         empty.textContent = t("emptyQueue");
         queueList.append(empty);
-        this.scheduler.bind([]);
       } else {
-        items.forEach((item) => queueList.append(this.createRow(item)));
-        this.scheduleHydration();
+        newestSessionsFirst(items).forEach((item) => queueList.append(this.createRow(item)));
       }
     }
     this.syncRows();
@@ -103,7 +69,7 @@ export class SvgQueueView {
     main.setAttribute("role", "button");
     const thumb = document.createElement("span");
     thumb.className = "queue-thumb";
-    thumb.innerHTML = item.thumbnailUrl ? `<img src="${item.thumbnailUrl}" alt=""/>` : SVG_ICONS.image;
+    thumb.innerHTML = SVG_ICONS.image;
     const copy = document.createElement("span");
     copy.className = "queue-copy";
     const strong = document.createElement("strong");
@@ -196,17 +162,5 @@ export class SvgQueueView {
       const stateDot = row.querySelector<HTMLElement>(".queue-state");
       if (stateDot) stateDot.className = `queue-state state ${item.stage}`;
     });
-    this.scheduler.prioritize(this.options.getSelectedId());
-  }
-
-  private scheduleHydration() {
-    const targets = [...this.options.queueList.querySelectorAll<HTMLElement>("[data-item-id]")]
-      .flatMap((element) => {
-        const key = element.dataset.itemId || "";
-        const item = this.options.getItems().find((candidate) => candidate.id === key);
-        return item && !item.thumbnailUrl && item.path ? [{ key, element }] : [];
-      });
-    const selectedId = this.options.getSelectedId();
-    this.scheduler.bind(targets, selectedId ? [selectedId] : []);
   }
 }

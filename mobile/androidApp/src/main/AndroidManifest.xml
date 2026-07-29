@@ -207,14 +207,6 @@
             android:exported="false"
             android:process=":sgt_creation_3d_1" />
         <service
-            android:name=".creation.worker.ImageTo3dWorker2Service"
-            android:exported="false"
-            android:process=":sgt_creation_3d_2" />
-        <service
-            android:name=".creation.worker.ImageTo3dWorker3Service"
-            android:exported="false"
-            android:process=":sgt_creation_3d_3" />
-        <service
             android:name=".creation.worker.ImageToSvgWorker0Service"
             android:exported="false"
             android:process=":sgt_creation_svg_0" />
@@ -230,14 +222,6 @@
             android:name=".creation.worker.ImageCreatorWorker1Service"
             android:exported="false"
             android:process=":sgt_creation_image_1" />
-        <service
-            android:name=".creation.worker.ImageCreatorWorker2Service"
-            android:exported="false"
-            android:process=":sgt_creation_image_2" />
-        <service
-            android:name=".creation.worker.ImageCreatorWorker3Service"
-            android:exported="false"
-            android:process=":sgt_creation_image_3" />
     </application>
 
 </manifest>
