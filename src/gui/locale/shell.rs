@@ -45,4 +45,5 @@ pub struct ShellLocaleText {
     pub image_to_svg_title: &'static str,
     pub image_creator_btn: &'static str,
     pub image_creator_title: &'static str,
+    pub coming_soon_label: &'static str,
 }

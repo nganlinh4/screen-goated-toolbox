@@ -45,6 +45,8 @@ pub(crate) fn run() -> eframe::Result<()> {
     }
 
     let screen_record_wry_smoke = startup_args.configure_screen_record_wry_smoke();
+    let creation_ui_test = startup_args.configure_creation_ui_test();
+    let isolated_ui_test = screen_record_wry_smoke || creation_ui_test.is_some();
     crate::startup_launch::maybe_delay_for_windows_autostart(startup_args.raw());
 
     crate::initialization::cleanup_temporary_files();
@@ -68,7 +70,7 @@ pub(crate) fn run() -> eframe::Result<()> {
 
     // The handle must remain alive through the full eframe loop. Moving this
     // guard inside `single_instance::acquire` would silently disable enforcement.
-    let primary_instance = match single_instance::acquire(&startup_args, screen_record_wry_smoke) {
+    let primary_instance = match single_instance::acquire(&startup_args, isolated_ui_test) {
         InstanceOutcome::Primary(instance) => instance,
         InstanceOutcome::SecondaryNotified => return Ok(()),
     };
@@ -78,7 +80,7 @@ pub(crate) fn run() -> eframe::Result<()> {
         crate::app_activation::start_listener();
     }
 
-    if !screen_record_wry_smoke {
+    if !isolated_ui_test {
         std::thread::spawn(crate::hotkey::run_hotkey_listener);
     }
 
@@ -115,10 +117,10 @@ pub(crate) fn run() -> eframe::Result<()> {
         }
     }
 
-    if !screen_record_wry_smoke {
+    if !isolated_ui_test {
         crate::initialization::spawn_warmup_thread();
     }
     crate::runtime_support::show_startup_compatibility_notice_if_needed();
 
-    settings_window::run(screen_record_wry_smoke, pending_file_path)
+    settings_window::run(screen_record_wry_smoke, creation_ui_test, pending_file_path)
 }

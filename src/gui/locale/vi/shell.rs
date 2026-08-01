@@ -48,5 +48,6 @@ pub(super) fn get() -> ShellLocaleText {
         image_to_svg_title: "Ảnh sang SVG",
         image_creator_btn: "Tạo/edit ảnh",
         image_creator_title: "Tạo/edit ảnh",
+        coming_soon_label: "Sắp ra mắt",
     }
 }

@@ -28,6 +28,7 @@ interface MobileShellText {
     val appFeatureUnsupportedMessage: String
     val appDjTitle: String
     val appTranslationGummyTitle: String
+    val appPhoneControlTitle: String
     val toolsCategoryImage: String
     val toolsCategoryTextSelect: String
     val toolsCategoryTextInput: String

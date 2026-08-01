@@ -48,5 +48,6 @@ pub(super) fn get() -> ShellLocaleText {
         image_to_svg_title: "이미지를 SVG로 변환",
         image_creator_btn: "이미지 생성/편집",
         image_creator_title: "이미지 생성/편집",
+        coming_soon_label: "곧 출시",
     }
 }

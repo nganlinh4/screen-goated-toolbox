@@ -3,6 +3,15 @@ use std::path::{Path, PathBuf};
 pub(super) const PROCESS_WITH_SGT_FLAG: &str = "--process-with-sgt";
 const SCREEN_RECORD_WRY_SMOKE_FLAG: &str = "--screen-record-wry-smoke";
 const SCREEN_RECORD_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--screen-record-webview2-debug-port";
+const CREATION_UI_TEST_FLAG: &str = "--creation-ui-test";
+const CREATION_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--creation-webview2-debug-port";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CreationUiTestApp {
+    ThreeD,
+    Image,
+    Svg,
+}
 
 pub(crate) struct StartupArgs {
     raw: Vec<String>,
@@ -73,6 +82,47 @@ impl StartupArgs {
         crate::log_info!("[WrySmoke] Enabled WebView2 remote debugging on port {port}");
         smoke_enabled
     }
+
+    pub(crate) fn configure_creation_ui_test(&self) -> Option<CreationUiTestApp> {
+        let app = parse_creation_ui_test_app(self.value(CREATION_UI_TEST_FLAG).as_deref())?;
+        if app == CreationUiTestApp::Image
+            && !crate::creation_feature_availability::image_creator_release_enabled()
+        {
+            crate::log_info!(
+                "[CreationUiTest] Release-gated image entry does not require WebView2 debugging"
+            );
+            return Some(app);
+        }
+        let Some(port) = self.value(CREATION_WEBVIEW2_DEBUG_PORT_FLAG) else {
+            crate::log_info!("[CreationUiTest] Missing WebView2 debug port");
+            return None;
+        };
+        if !is_valid_webview2_debug_port(&port) {
+            crate::log_info!("[CreationUiTest] Ignoring invalid WebView2 debug port: {port}");
+            return None;
+        }
+
+        let remote_arg =
+            format!("--remote-debugging-port={port} --remote-debugging-address=127.0.0.1");
+        let next_args = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+            Ok(existing) if !existing.trim().is_empty() => format!("{existing} {remote_arg}"),
+            _ => remote_arg,
+        };
+        unsafe {
+            std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", next_args);
+            if std::env::var("SGT_CREATION_WEBVIEW2_DATA_DIR").is_err() {
+                std::env::set_var(
+                    "SGT_CREATION_WEBVIEW2_DATA_DIR",
+                    std::env::temp_dir()
+                        .join(format!("sgt-creation-ui-test-webview2-{port}"))
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
+        }
+        crate::log_info!("[CreationUiTest] Enabled WebView2 remote debugging on port {port}");
+        Some(app)
+    }
 }
 
 fn find_process_with_sgt_file(
@@ -94,6 +144,15 @@ fn find_process_with_sgt_file(
 
 fn is_valid_webview2_debug_port(port: &str) -> bool {
     port.parse::<u16>().ok().is_some_and(|value| value > 0)
+}
+
+fn parse_creation_ui_test_app(value: Option<&str>) -> Option<CreationUiTestApp> {
+    match value {
+        Some("3d") => Some(CreationUiTestApp::ThreeD),
+        Some("image") => Some(CreationUiTestApp::Image),
+        Some("svg") => Some(CreationUiTestApp::Svg),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -155,6 +214,25 @@ mod tests {
         }
         for port in ["1", "9222", "65535", "0001"] {
             assert!(is_valid_webview2_debug_port(port), "port={port}");
+        }
+    }
+
+    #[test]
+    fn creation_ui_test_app_accepts_only_supported_public_apps() {
+        assert_eq!(
+            parse_creation_ui_test_app(Some("3d")),
+            Some(CreationUiTestApp::ThreeD)
+        );
+        assert_eq!(
+            parse_creation_ui_test_app(Some("image")),
+            Some(CreationUiTestApp::Image)
+        );
+        assert_eq!(
+            parse_creation_ui_test_app(Some("svg")),
+            Some(CreationUiTestApp::Svg)
+        );
+        for value in [None, Some(""), Some("3D"), Some("unknown")] {
+            assert_eq!(parse_creation_ui_test_app(value), None);
         }
     }
 }

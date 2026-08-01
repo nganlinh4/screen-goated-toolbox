@@ -28,6 +28,7 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
             appFeatureUnsupportedMessage = "이 버전에서는 지원되지 않는 기능입니다.",
             appDjTitle = "DJ 되기",
             appTranslationGummyTitle = "통역 곤약",
+            appPhoneControlTitle = "휴대폰 제어",
             toolsCategoryImage = "이미지",
             toolsCategoryTextSelect = "텍스트 선택",
             toolsCategoryTextInput = "텍스트 입력",

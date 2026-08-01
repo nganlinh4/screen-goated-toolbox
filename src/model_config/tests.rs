@@ -14,10 +14,10 @@ fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "google");
     assert_eq!(model.full_name, "gemini-3.5-flash-lite");
     assert_eq!(model.intelligence_tier, Some(6));
-    assert_eq!(model.typical_latency_ms, Some(976));
+    assert_eq!(model.typical_latency_ms, Some(1247));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-07-26-protocol6:ocr-small-1024")
+        Some("benchmark-2026-07-29-protocol6:ocr-small-1024")
     );
     assert_eq!(PRESET_IMAGE_ACCURATE_MODEL_ID, DEFAULT_IMAGE_MODEL_ID);
     assert_eq!(
@@ -102,24 +102,24 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "cerebras");
     assert_eq!(model.full_name, "zai-glm-4.7");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(414));
+    assert_eq!(model.typical_latency_ms, Some(349));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-07-26-protocol6:text")
+        Some("benchmark-2026-07-29-protocol6:text")
     );
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(1).copied(),
-        Some("groq-llama-3-3-70b-text")
+        Some("groq-gpt-oss-120b-text")
     );
     assert_eq!(
-        default_text_to_text_priority_chain_ids().get(3).copied(),
+        default_text_to_text_priority_chain_ids().get(4).copied(),
         Some("openrouter-ling-3-0-flash-text")
     );
     let ling = get_model_by_id("openrouter-ling-3-0-flash-text").expect("Ling text model exists");
     assert_eq!(ling.full_name, "inclusionai/ling-3.0-flash:free");
     assert_eq!(ling.name_vi, "O Ổn định");
     assert_eq!(ling.intelligence_tier, Some(5));
-    assert_eq!(ling.typical_latency_ms, Some(833));
+    assert_eq!(ling.typical_latency_ms, Some(763));
     assert_eq!(
         ordinary_reasoning_policy("openrouter", "inclusionai/ling-3.0-flash:free"),
         OrdinaryReasoningPolicy::OpenAiEffort("none")
@@ -223,10 +223,10 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
     assert_eq!(qwen.max_output_tokens, Some(512));
     assert_eq!(qwen.structured_output, StructuredOutputPolicy::JsonObject);
     let qwen_model = get_model_by_id("groq-qwen-3-6-27b-vision").expect("Qwen vision model exists");
-    assert_eq!(qwen_model.typical_latency_ms, Some(935));
+    assert_eq!(qwen_model.typical_latency_ms, Some(795));
     assert_eq!(
         qwen_model.performance_source.as_deref(),
-        Some("benchmark-2026-07-26-protocol6:ocr-small-1024")
+        Some("benchmark-2026-07-29-protocol6:ocr-small-1024")
     );
 
     let nemotron = vision_request_profile(
@@ -249,10 +249,10 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         &default_image_to_text_priority_chain_ids()[..5],
         &[
             "google-gemini-3-5-flash-lite-vision",
-            "google-gemini-3-1-flash-lite-vision",
-            "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
             "cerebras-gemma-4-31b-vision",
             "groq-qwen-3-6-27b-vision",
+            "google-gemini-3-1-flash-lite-vision",
+            "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
         ]
     );
 

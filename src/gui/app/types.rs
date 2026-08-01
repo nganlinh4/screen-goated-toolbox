@@ -126,6 +126,7 @@ pub struct SettingsApp {
     pub(crate) show_translation_gummy: bool,
     pub(crate) show_tts_playground: bool,
     pub(crate) show_computer_control_dialog: bool,
+    pub(crate) show_image_creator_coming_soon_dialog: bool,
 
     // --- ARGUMENT HANDLING ---
     pub(crate) pending_file_path: Option<std::path::PathBuf>,

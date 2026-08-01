@@ -33,6 +33,7 @@ fn desktop_startup_phases_remain_in_dependency_order() {
             "unpack_dlls::unpack_dlls",
             "headless::run_post_unpack",
             "configure_screen_record_wry_smoke",
+            "configure_creation_ui_test",
             "maybe_delay_for_windows_autostart",
             "start_webview2_runtime_install",
             "init_com_and_dpi",

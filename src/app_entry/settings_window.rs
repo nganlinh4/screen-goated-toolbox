@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use super::arguments::CreationUiTestApp;
 use crate::config::ThemeMode;
 use crate::gui::locale::LocaleText;
 use crate::{APP, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, gui};
@@ -27,6 +28,7 @@ fn native_options_for_wgpu(viewport: eframe::egui::ViewportBuilder) -> eframe::N
 
 pub(super) fn run(
     screen_record_wry_smoke: bool,
+    creation_ui_test: Option<CreationUiTestApp>,
     pending_file_path: Option<PathBuf>,
 ) -> eframe::Result<()> {
     let initial_config = APP.lock().unwrap().config.clone();
@@ -89,6 +91,21 @@ pub(super) fn run(
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     crate::log_info!("[WrySmoke] Opening SGT Record window");
                     crate::overlay::screen_record::show_screen_record();
+                });
+            }
+            if let Some(app) = creation_ui_test {
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    crate::log_info!("[CreationUiTest] Opening creation window");
+                    match app {
+                        CreationUiTestApp::ThreeD => {
+                            crate::overlay::three_d_generator::show_three_d_generator()
+                        }
+                        CreationUiTestApp::Image => {
+                            crate::overlay::image_creator::show_image_creator()
+                        }
+                        CreationUiTestApp::Svg => crate::overlay::image_to_svg::show_image_to_svg(),
+                    }
                 });
             }
 

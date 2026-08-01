@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "feature": "phone-control-localization",
+  "uiLanguageSource": "in_app_setting",
+  "fallbackLocale": "en",
+  "locales": [
+    {
+      "code": "en",
+      "androidQualifier": "values",
+      "appCardTitle": "Phone Control"
+    },
+    {
+      "code": "ko",
+      "androidQualifier": "values-ko",
+      "appCardTitle": "휴대폰 제어"
+    },
+    {
+      "code": "vi",
+      "androidQualifier": "values-vi",
+      "appCardTitle": "Điều khiển điện thoại"
+    }
+  ],
+  "invariants": {
+    "appCardUsesInAppLanguage": true,
+    "osSurfacedTextUsesInAppLanguage": true,
+    "localizedResourceKeysMatchDefault": true,
+    "localizedFormatArgumentsMatchDefault": true,
+    "unsupportedUiLocaleFallsBackToDefault": true
+  }
+}

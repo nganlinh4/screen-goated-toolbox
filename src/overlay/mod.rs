@@ -78,7 +78,9 @@ pub use realtime_webview::{
 /// Get a WebView2 data directory path.
 /// If subdir is provided, returns a component-specific folder to avoid file-lock contention.
 pub fn get_shared_webview_data_dir(subdir: Option<&str>) -> std::path::PathBuf {
-    let mut path = crate::paths::app_sgt_dir().join("webview_data");
+    let mut path = std::env::var_os("SGT_CREATION_WEBVIEW2_DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| crate::paths::app_sgt_dir().join("webview_data"));
     if let Some(s) = subdir {
         path.push(s);
     }
