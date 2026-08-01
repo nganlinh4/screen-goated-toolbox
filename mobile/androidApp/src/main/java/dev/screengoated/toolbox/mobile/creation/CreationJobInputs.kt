@@ -55,14 +55,13 @@ internal fun materializeCreationJobInputs(
     var aggregate = 0L
     try {
         sourceHandles.forEachIndexed { index, handle ->
-            val target = File(directory, "$index.img")
             val remaining = maximumAggregateBytes - aggregate
             require(remaining > 0L) { "Selected images exceed the job input limit" }
-            val copied = if (linkInput(handle, target)) {
-                target.length()
-            } else {
-                val pending = File(directory, ".${target.name}.pending-${UUID.randomUUID()}")
-                try {
+            val pending = File(directory, ".$index.pending-${UUID.randomUUID()}")
+            try {
+                val copied = if (linkInput(handle, pending)) {
+                    pending.length()
+                } else {
                     val bytes = openInput(handle).use {
                         copyCreationInputBounded(
                             it,
@@ -70,17 +69,17 @@ internal fun materializeCreationJobInputs(
                             minOf(CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES, remaining),
                         )
                     }
-                    validateImportedCreationImage(pending)
-                    Files.move(pending.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
                     bytes
-                } finally {
-                    pending.delete()
                 }
+                require(copied <= remaining) { "Selected images exceed the job input limit" }
+                val mimeType = validateImportedCreationImage(pending)
+                val target = File(directory, "$index.${creationImageExtension(mimeType)}")
+                Files.move(pending.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                aggregate += copied
+                outputs += target.absolutePath
+            } finally {
+                pending.delete()
             }
-            require(copied <= remaining) { "Selected images exceed the job input limit" }
-            validateImportedCreationImage(target)
-            aggregate += copied
-            outputs += target.absolutePath
         }
         return outputs
     } catch (failure: Throwable) {

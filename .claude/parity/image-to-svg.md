@@ -223,6 +223,14 @@
 - Android Full and Play tests read the same product fixture and verify session
   isolation, concurrency, the preview contract, SVG result behavior, and
   history.
+- Real UI acceptance submits one Simple job on Windows, Android Full, and
+  Android Play. It selects the source and setting through the product surface,
+  waits for a terminal state, and validates the committed SVG.
+- A failed real UI case retains bounded terminal diagnostics, triggers private
+  execution-readiness investigation and repair, then reruns in a fresh evidence
+  directory. Acceptance is incomplete until the repaired build completes the
+  real job and the committed SVG validates; repeated repair failures never
+  cancel the required rerun.
 
 ## Platform Deviations
 

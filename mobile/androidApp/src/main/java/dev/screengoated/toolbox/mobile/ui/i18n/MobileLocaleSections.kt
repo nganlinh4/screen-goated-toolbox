@@ -28,6 +28,7 @@ data class MobileShellLocale(
     override val appFeatureUnsupportedMessage: String,
     override val appDjTitle: String,
     override val appTranslationGummyTitle: String,
+    override val appPhoneControlTitle: String,
     override val toolsCategoryImage: String,
     override val toolsCategoryTextSelect: String,
     override val toolsCategoryTextInput: String,

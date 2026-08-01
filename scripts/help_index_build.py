@@ -12,8 +12,9 @@ import json, os, sys, time, math, requests, pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 INDEX_PATH = ROOT / "help-index.json"
 EMBED_SERVER_URL = os.environ.get("KALM_EMBED_SERVER_URL", "http://127.0.0.1:8400/api/embed")
-MAX_CHARS_PER_CHUNK = 32000  # ~8k tokens per chunk
+MAX_CHARS_PER_CHUNK = 16000  # ~4k tokens; served with memory-efficient attention
 BATCH_SIZE = 50  # chunks per batch (Ollama handles sequentially, no rate limit)
+VECTOR_DECIMALS = 6  # Compact enough for GitHub; negligible cosine-ranking error.
 
 # Full codebase — everything users might ask about
 INCLUDE_DIRS = [
@@ -87,18 +88,17 @@ def chunk_file(path: pathlib.Path):
     if len(text) <= MAX_CHARS_PER_CHUNK:
         chunks.append({"path": rel, "text": text})
     else:
-        lines = text.split("\n")
-        buf, buf_len = [], 0
+        start = 0
         part = 0
-        for line in lines:
-            if buf_len + len(line) > MAX_CHARS_PER_CHUNK and buf:
-                chunks.append({"path": f"{rel}#part{part}", "text": "\n".join(buf)})
-                part += 1
-                buf, buf_len = [], 0
-            buf.append(line)
-            buf_len += len(line) + 1
-        if buf:
-            chunks.append({"path": f"{rel}#part{part}" if part > 0 else rel, "text": "\n".join(buf)})
+        while start < len(text):
+            end = min(start + MAX_CHARS_PER_CHUNK, len(text))
+            if end < len(text):
+                newline = text.rfind("\n", start, end)
+                if newline > start + MAX_CHARS_PER_CHUNK // 2:
+                    end = newline + 1
+            chunks.append({"path": f"{rel}#part{part}", "text": text[start:end]})
+            start = end
+            part += 1
     return chunks
 
 
@@ -108,7 +108,7 @@ def embed_one(text: str) -> list[float]:
         try:
             resp = requests.post(
                 EMBED_SERVER_URL,
-                json={"input": text[:16000]},
+                json={"input": text[:MAX_CHARS_PER_CHUNK]},
                 timeout=120,
             )
             if resp.status_code == 200:
@@ -145,6 +145,13 @@ def main():
     # Group small files in same directory into single chunks
     merged = []
     dir_buf = {}
+    dir_group = {}
+
+    def new_dir_chunk(directory: str) -> dict[str, str]:
+        group = dir_group.get(directory, 0)
+        dir_group[directory] = group + 1
+        return {"path": f"{directory}/*#group{group}", "text": ""}
+
     for c in chunks:
         d = c["path"].rsplit("/", 1)[0] if "/" in c["path"] else ""
         if len(c["text"]) > 8000:
@@ -152,11 +159,12 @@ def main():
             merged.append(c)
         else:
             if d not in dir_buf:
-                dir_buf[d] = {"path": d + "/*", "text": ""}
+                dir_buf[d] = new_dir_chunk(d)
             combined = dir_buf[d]["text"] + f"\n\n// === {c['path']} ===\n" + c["text"]
             if len(combined) > MAX_CHARS_PER_CHUNK:
                 merged.append(dir_buf[d])
-                dir_buf[d] = {"path": d + "/*", "text": f"// === {c['path']} ===\n" + c["text"]}
+                dir_buf[d] = new_dir_chunk(d)
+                dir_buf[d]["text"] = f"// === {c['path']} ===\n" + c["text"]
             else:
                 dir_buf[d]["text"] = combined
     for leftover in dir_buf.values():
@@ -165,27 +173,47 @@ def main():
     chunks = merged
     print(f"After merging small files: {len(chunks)} chunks")
 
-    # Resume from partial index if exists
-    index = []
-    done_paths = set()
+    # Reuse only entries whose source text is unchanged. Treating a matching
+    # path as complete would leave stale vectors whenever that file is edited.
+    existing_by_path = {}
     if INDEX_PATH.exists():
         existing = json.loads(INDEX_PATH.read_text(encoding="utf-8"))
-        index = existing
-        done_paths = {e["path"] for e in existing}
-        print(f"Resuming: {len(done_paths)} chunks already embedded")
-    chunks = [c for c in chunks if c["path"] not in done_paths]
-    print(f"Remaining: {len(chunks)} chunks to embed")
+        existing_by_path = {entry["path"]: entry for entry in existing}
+
+    reusable = {
+        chunk["path"]: existing_by_path[chunk["path"]]
+        for chunk in chunks
+        if chunk["path"] in existing_by_path
+        and existing_by_path[chunk["path"]].get("text") == chunk["text"]
+        and existing_by_path[chunk["path"]].get("vector")
+    }
+    remaining = len(chunks) - len(reusable)
+    print(f"Reusing: {len(reusable)} unchanged chunks")
+    print(f"Remaining: {remaining} changed or new chunks to embed")
 
     # Embed each chunk via the configured KaLM-compatible server.
-    for i, chunk in enumerate(chunks):
+    index = []
+    embedded = 0
+    for chunk in chunks:
+        if chunk["path"] in reusable:
+            index.append(reusable[chunk["path"]])
+            continue
+
         embed_text = f"File: {chunk['path']}\n\n{chunk['text']}"
         vec = embed_one(embed_text)
         if not vec:
             print(f"  SKIP {chunk['path']} (embed failed)")
             continue
         index.append({"path": chunk["path"], "text": chunk["text"], "vector": vec})
-        if (i + 1) % 50 == 0 or i == len(chunks) - 1:
-            print(f"  [{i+1}/{len(chunks)}] {len(index)} embedded")
+        embedded += 1
+        if embedded % 50 == 0 or embedded == remaining:
+            print(f"  [{embedded}/{remaining}] changed or new chunks embedded")
+
+    # Quantizing the stored vectors avoids preserving Python's long float
+    # spellings. Six decimal places keeps cosine ranking stable while keeping
+    # the tracked index comfortably below GitHub's per-file size limit.
+    for entry in index:
+        entry["vector"] = [round(float(value), VECTOR_DECIMALS) for value in entry["vector"]]
 
     # Save
     INDEX_PATH.write_text(json.dumps(index), encoding="utf-8")

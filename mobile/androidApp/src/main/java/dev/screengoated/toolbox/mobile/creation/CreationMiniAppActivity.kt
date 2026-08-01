@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.creation
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -25,6 +26,7 @@ class CreationMiniAppActivity : ComponentActivity() {
     private val imagePicker = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
+        Log.d("CreationImageImport", "Picker returned ${uris.size} image(s)")
         if (uris.isEmpty()) return@registerForActivityResult
         lifecycleScope.launch {
             runCatching {
@@ -60,8 +62,10 @@ class CreationMiniAppActivity : ComponentActivity() {
                     )
                 }
             }.onSuccess { paths ->
+                Log.d("CreationImageImport", "Imported ${paths.size} image(s)")
                 viewModel.addImages(paths)
             }.onFailure { error ->
+                Log.e("CreationImageImport", "Image import failed", error)
                 viewModel.showError(error)
             }
         }
@@ -76,6 +80,10 @@ class CreationMiniAppActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tool = CreationTool.fromWireName(intent.getStringExtra(EXTRA_TOOL)) ?: run {
+            finish()
+            return
+        }
+        if (!creationToolReleased(tool)) {
             finish()
             return
         }

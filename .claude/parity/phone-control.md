@@ -160,9 +160,14 @@ never encode user phrases, languages, applications, or device identities.
 
 Phone Control UI strings have complete default-English, Korean, and Vietnamese
 resource sets; Android's normal default-resource fallback serves every other UI
-locale. The live model is not pinned to the app locale or a language list. Input
-and output transcription stay enabled and provider-detected, so speech meaning,
-planning, and replies remain multilingual without language-specific routing.
+locale. The Apps card title resolves from the same in-app language catalog as
+the rest of the carousel, rather than Compose's device-locale resource context.
+OS-surfaced Phone Control text resolves through the in-app locale-aware Android
+resource context. `parity-fixtures/phone-control/localization-contract.json`
+records the supported titles, fallback, and resource parity invariants. The live
+model is not pinned to the app locale or a language list. Input and output
+transcription stay enabled and provider-detected, so speech meaning, planning,
+and replies remain multilingual without language-specific routing.
 
 ## Behavior Contract
 

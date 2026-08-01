@@ -1,9 +1,19 @@
 {
   "schema": "sgt.creation.image",
-  "fixtureVersion": 36,
+  "fixtureVersion": 44,
   "tool": "image",
   "jobIdPrefix": "image_",
   "operation": "create_image",
+  "releaseAvailability": {
+    "enabled": false,
+    "entryBehavior": "coming_soon_dialog",
+    "dialogTitleUsesLocalizedAppName": true,
+    "dialogMessageKey": "coming_soon",
+    "startsSurface": false,
+    "startsReadiness": false,
+    "preservesPreparedCapacity": true,
+    "platforms": ["windows", "android_full", "android_play"]
+  },
   "maximumParallelJobs": 2,
   "maximumJobRuntimeMs": 7200000,
   "request": {
@@ -57,7 +67,14 @@
     "expansionIsBounded": true,
     "consumptionStartsBackgroundReplenishment": true,
     "readyWorkDoesNotWaitForReplenishment": true,
-    "toolCapacityIsIsolated": true
+    "toolCapacityIsIsolated": true,
+    "usesCanonicalVisibleEntrySequence": true,
+    "intermediateNavigationIsNotReadiness": true,
+    "authenticatedWorkspaceRequired": true,
+    "temporarySignOutRetainsWorkspace": true,
+    "temporaryUnavailabilitySchedulesRecheck": true,
+    "existingWorkspaceReconciledBeforeReplacement": true,
+    "freshPreparationRequiresPermanentInvalidation": true
   },
   "surfaceActivity": {
     "firstPaintPrecedesReadinessRequest": true,
@@ -240,6 +257,27 @@
     "behaviorIdentical": true,
     "featureSetIdentical": true,
     "integrityValidatedBeforeUse": true
+  },
+  "qualityControl": {
+    "realUiPlatforms": ["windows", "android_full", "android_play"],
+    "cases": ["text_only"],
+    "disabledReleaseCase": "coming_soon_entry",
+    "availabilityGateSupersedesGenerationWhileDisabled": true,
+    "disabledReleaseProvesSurfaceNotStarted": true,
+    "disabledReleaseProvesReadinessNotStarted": true,
+    "promptEnteredThroughProductSurface": true,
+    "promptAcceptedByEditorStateBeforeSubmit": true,
+    "terminalStateRequired": true,
+    "committedArtifactValidated": true,
+    "terminalFailureEvidenceRequired": true,
+    "consequentialTransitionUsesRealControlInteraction": true,
+    "intermediateNavigationIsNotReadinessProof": true,
+    "transientPreparationRetryIsBounded": true,
+    "transientPreparationRetryUsesFreshCapacity": true,
+    "acceptedRequestIsNotRepeatedByPreparationRetry": true,
+    "exhaustedPreparationFailsWaitingJobsOnce": true,
+    "exhaustedPreparationDoesNotRestartAutomatically": true,
+    "laterExplicitSubmissionStartsFreshPreparation": true
   },
   "locales": {
     "en": "Create/edit image",

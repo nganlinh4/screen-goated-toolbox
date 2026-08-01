@@ -83,5 +83,25 @@ class CreationRuntimeHostAbiTest {
                 CreationWorkerEvent(event = "ready", ready = true),
             ),
         )
+        assertEquals(
+            CreationPreparationEventDisposition.IN_PROGRESS,
+            creationPreparationEventDisposition(
+                CreationWorkerEvent(event = "progress", progressRatio = 0.2),
+            ),
+        )
+        assertEquals(
+            CreationPreparationEventDisposition.READY,
+            creationPreparationEventDisposition(
+                CreationWorkerEvent(event = "ready", ready = true),
+            ),
+        )
+        assertEquals(
+            CreationPreparationEventDisposition.RETRY,
+            creationPreparationEventDisposition(CreationWorkerEvent(event = "failure")),
+        )
+        assertEquals(
+            CreationPreparationEventDisposition.RETRY,
+            creationPreparationEventDisposition(null),
+        )
     }
 }

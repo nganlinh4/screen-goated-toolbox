@@ -20,6 +20,8 @@
   - Quality / 품질 / Tốt supports 500–20,000 polygons and offers optional
     automatic separation. Quality is the default.
 
+- The runtime submits the frozen polygon count exactly. It never substitutes an
+  integration default or depends on an interactive control continuing to exist.
 - The selected mode, topology, separation choice, source, output destination,
   and any optional instruction advertised by a product capability are frozen
   before a request enters the queue. An instruction control is absent when the
@@ -205,6 +207,12 @@
   newer execution.
 - A success event is emitted only after the output has been validated and
   committed.
+- A prepared execution slot remains live until its assigned job finishes.
+  Failed preparation retires that execution instance before the slot retries.
+- A recovery-reserved slot is checked against the exact request before
+  assignment and cannot consume or fail an unrelated queued job.
+- Every finished assignment retires its execution instance before that slot is
+  prepared for another job.
 - A creation surface may contain multiple independent sessions. Closing it
   cancels its queued and running jobs, releases their owned execution resources,
   destroys the product surface, and prevents a late completion from publishing.
@@ -216,6 +224,14 @@
   visibility, queue state, cancellation, result validation, and history.
 - Android Full and Play tests read the same product fixture and verify session
   isolation, the preview contract, concurrency, and result behavior.
+- Real UI acceptance submits one Fast and one Quality job on Windows, Android
+  Full, and Android Play. It selects the source and mode through the product
+  surface, waits for a terminal state, and validates the committed GLB.
+- A failed real UI case retains bounded terminal diagnostics, triggers private
+  execution-readiness investigation and repair, then reruns in a fresh evidence
+  directory. Acceptance is incomplete until the repaired build completes the
+  real job and the committed GLB validates; repeated repair failures never
+  cancel the required rerun.
 
 ## Platform Deviations
 

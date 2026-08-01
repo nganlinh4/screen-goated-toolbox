@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.creation.worker
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.os.Process
 import dev.screengoated.toolbox.mobile.creation.CreationTool
 import dev.screengoated.toolbox.mobile.creation.CreationContract
 import dev.screengoated.toolbox.mobile.creation.CreationWorkerEvent
@@ -49,15 +50,20 @@ internal abstract class CreationWorkerService : Service() {
                     return@launch
                 }
                 var terminalEmitted = false
+                var prepared = false
                 runCatching {
                     activeEngine.prepare(
                         eventSink(callback) { event ->
                             if (event.event == "ready" || event.event == "failure") {
                                 terminalEmitted = true
                             }
+                            if (event.event == "ready" && event.ready == true) {
+                                prepared = true
+                            }
                         },
                     )
                     check(terminalEmitted) { "Creation preparation returned no terminal event" }
+                    check(prepared) { "Creation preparation did not make the engine ready" }
                 }
                     .onFailure {
                         activeEngine.destroy()
@@ -72,6 +78,9 @@ internal abstract class CreationWorkerService : Service() {
                     }
             }
         }
+
+        override fun supportsRequest(requestJson: String): Boolean =
+            runCatching { engine().supportsRequest(requestJson) }.getOrDefault(false)
 
         override fun runJob(requestJson: String, callback: ICreationWorkerCallback) {
             val request = runCatching {
@@ -166,6 +175,8 @@ internal abstract class CreationWorkerService : Service() {
                     )
                 } finally {
                     jobs.remove(request.jobId)
+                    activeEngine.destroy()
+                    if (engine === activeEngine) engine = null
                 }
             }
         }
@@ -182,6 +193,7 @@ internal abstract class CreationWorkerService : Service() {
         engine = null
         scope.cancel()
         super.onDestroy()
+        Process.killProcess(Process.myPid())
     }
 
     private fun engine(): CreationRuntimeEngine = engine ?: run {

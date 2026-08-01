@@ -23,3 +23,19 @@ internal fun decodeCreationWorkerEvent(eventJson: String): CreationWorkerEvent? 
 
 internal fun creationPreparationEventIsReady(event: CreationWorkerEvent?): Boolean =
     event?.event == "ready" && event.ready == true
+
+internal enum class CreationPreparationEventDisposition {
+    IN_PROGRESS,
+    READY,
+    RETRY,
+}
+
+internal fun creationPreparationEventDisposition(
+    event: CreationWorkerEvent?,
+): CreationPreparationEventDisposition = when {
+    event == null -> CreationPreparationEventDisposition.RETRY
+    creationPreparationEventIsReady(event) -> CreationPreparationEventDisposition.READY
+    event.event == "ready" || event.event == "failure" ->
+        CreationPreparationEventDisposition.RETRY
+    else -> CreationPreparationEventDisposition.IN_PROGRESS
+}

@@ -124,7 +124,7 @@
     "PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID": "google-gemini-3-5-flash-lite-vision",
     "PRESET_IMAGE_ACCURATE_MODEL_ID": "google-gemini-3-5-flash-lite-vision",
     "PRESET_TRANSLATE_ARENA_GTX_MODEL_ID": "google-gtx-translate-text",
-    "PRESET_TEXT_ARENA_FAST_MODEL_ID": "groq-llama-3-3-70b-text",
+    "PRESET_TEXT_ARENA_FAST_MODEL_ID": "groq-gpt-oss-120b-text",
     "PRESET_TEXT_GAME_MODEL_ID": "google-gemini-3-5-flash-lite-text",
     "PRESET_SEARCH_MODEL_ID": "groq-compound-mini-search",
     "PRESET_AUDIO_TRANSCRIBE_MODEL_ID": "groq-whisper-large-v3-audio",
@@ -142,27 +142,27 @@
   "priority_chains": {
     "image_to_text": [
       "google-gemini-3-5-flash-lite-vision",
-      "google-gemini-3-1-flash-lite-vision",
-      "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
       "cerebras-gemma-4-31b-vision",
       "groq-qwen-3-6-27b-vision",
-      "google-gemini-3-6-flash-vision",
-      "google-gemini-robotics-er-1-6-vision",
-      "google-gemma-4-31b-vision",
+      "google-gemini-3-1-flash-lite-vision",
+      "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
       "google-gemini-3-flash-vision",
+      "google-gemini-3-6-flash-vision",
+      "google-gemma-4-31b-vision",
+      "google-gemini-2-5-flash-lite-vision",
       "google-gemma-4-26b-a4b-vision"
     ],
     "text_to_text": [
       "cerebras-zai-glm-4-7-text",
+      "groq-gpt-oss-120b-text",
       "groq-llama-3-3-70b-text",
       "google-gemini-3-5-flash-lite-text",
       "openrouter-ling-3-0-flash-text",
       "cerebras-gpt-oss-120b-text",
-      "groq-gpt-oss-120b-text",
+      "google-gemini-3-flash-text",
       "google-gemini-3-1-flash-lite-text",
       "google-gemini-2-5-flash-lite-text",
-      "google-gemini-3-flash-text",
-      "google-gemma-4-31b-text"
+      "google-gemma-4-26b-a4b-text"
     ]
   },
   "feature_model_chains": {
@@ -794,8 +794,8 @@
       "full_name": "translate.googleapis.com/gtx",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 705,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 720,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "qrserver-qr-scanner-vision",
@@ -812,8 +812,8 @@
       "full_name": "gemma-4-31b",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 1758,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 1313,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "groq-qwen-3-6-27b-vision",
@@ -821,8 +821,8 @@
       "full_name": "qwen/qwen3.6-27b",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 935,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 795,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "google-gemini-2-5-live-vision",
@@ -830,8 +830,8 @@
       "full_name": "gemini-2.5-flash-native-audio-preview-12-2025",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 4307,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 4242,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "google-gemini-3-1-live-vision",
@@ -839,8 +839,8 @@
       "full_name": "gemini-3.1-flash-live-preview",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 3333,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 3411,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "google-gemma-4-26b-a4b-vision",
@@ -848,8 +848,8 @@
       "full_name": "gemma-4-26b-a4b-it",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 4236,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 3486,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "google-gemma-4-31b-vision",
@@ -857,8 +857,8 @@
       "full_name": "gemma-4-31b-it",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 2264,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 2281,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "google-gemini-2-5-flash-lite-vision",
@@ -866,8 +866,8 @@
       "full_name": "gemini-2.5-flash-lite",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 2103,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 2419,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "google-gemini-3-1-flash-lite-vision",
@@ -875,8 +875,8 @@
       "full_name": "gemini-3.1-flash-lite",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 1473,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 1259,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "google-gemini-3-5-flash-lite-vision",
@@ -884,8 +884,8 @@
       "full_name": "gemini-3.5-flash-lite",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 976,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 1247,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "google-gemini-robotics-er-1-6-vision",
@@ -902,8 +902,8 @@
       "full_name": "gemini-3-flash-preview",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 3397,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 1907,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "google-gemini-3-5-flash-vision",
@@ -929,8 +929,8 @@
       "full_name": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 1135,
-      "performance_source": "benchmark-2026-07-26-protocol6:ocr-small-1024"
+      "typical_latency_ms": 1100,
+      "performance_source": "benchmark-2026-07-29-protocol6:ocr-small-1024"
     },
     {
       "id": "taalas-llama-3-1-8b-text",
@@ -938,8 +938,8 @@
       "full_name": "taalas/llama-3.1-8b",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 646,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 645,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "openrouter-nemotron-3-nano-omni-30b-a3b-text",
@@ -947,8 +947,8 @@
       "full_name": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 493,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 643,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "openrouter-ling-3-0-flash-text",
@@ -956,8 +956,8 @@
       "full_name": "inclusionai/ling-3.0-flash:free",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 833,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 763,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "groq-gpt-oss-120b-text",
@@ -965,8 +965,8 @@
       "full_name": "openai/gpt-oss-120b",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 601,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 458,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "groq-llama-3-3-70b-text",
@@ -974,8 +974,8 @@
       "full_name": "llama-3.3-70b-versatile",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 344,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 416,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "groq-compound-mini-search",
@@ -983,8 +983,8 @@
       "full_name": "groq/compound-mini",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1083,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 1248,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "groq-compound-search",
@@ -992,8 +992,8 @@
       "full_name": "groq/compound",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1981,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 1239,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "cerebras-gpt-oss-120b-text",
@@ -1001,8 +1001,8 @@
       "full_name": "gpt-oss-120b",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 347,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 356,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "cerebras-zai-glm-4-7-text",
@@ -1010,8 +1010,8 @@
       "full_name": "zai-glm-4.7",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 414,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 349,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemini-2-5-live-text",
@@ -1019,8 +1019,8 @@
       "full_name": "gemini-2.5-flash-native-audio-preview-12-2025",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 3284,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 3680,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemini-3-1-live-text",
@@ -1028,8 +1028,8 @@
       "full_name": "gemini-3.1-flash-live-preview",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 2715,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 2331,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemma-4-26b-a4b-text",
@@ -1037,8 +1037,8 @@
       "full_name": "gemma-4-26b-a4b-it",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1275,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 1352,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemma-4-31b-text",
@@ -1046,8 +1046,8 @@
       "full_name": "gemma-4-31b-it",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1366,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 1527,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemini-2-5-flash-lite-text",
@@ -1055,8 +1055,8 @@
       "full_name": "gemini-2.5-flash-lite",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 708,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 1238,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemini-3-1-flash-lite-text",
@@ -1064,8 +1064,8 @@
       "full_name": "gemini-3.1-flash-lite",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 632,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 805,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemini-3-5-flash-lite-text",
@@ -1073,8 +1073,8 @@
       "full_name": "gemini-3.5-flash-lite",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 624,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 747,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemini-robotics-er-1-6-text",
@@ -1082,8 +1082,8 @@
       "full_name": "gemini-robotics-er-1.6-preview",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1001,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 1149,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemini-3-flash-text",
@@ -1091,8 +1091,8 @@
       "full_name": "gemini-3-flash-preview",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1006,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 1030,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemini-3-5-flash-text",
@@ -1100,8 +1100,8 @@
       "full_name": "gemini-3.5-flash",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 3537,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 2718,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "google-gemini-3-6-flash-text",
@@ -1109,8 +1109,8 @@
       "full_name": "gemini-3.6-flash",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 949,
-      "performance_source": "benchmark-2026-07-26-protocol6:text"
+      "typical_latency_ms": 1261,
+      "performance_source": "benchmark-2026-07-29-protocol6:text"
     },
     {
       "id": "groq-whisper-large-v3-turbo-audio",

@@ -40,6 +40,20 @@ class CreationSvgSafetyTest {
     }
 
     @Test
+    fun `portable XML preflight accepts UTF-8 declarations only`() {
+        CreationArtifactValidator.validateSvgText(
+            """<?xml version="1.0" encoding="UTF-8"?>""" +
+                """<svg xmlns="http://www.w3.org/2000/svg"/>""",
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            CreationArtifactValidator.validateSvgText(
+                """<?xml version="1.0" encoding="UTF-16"?>""" +
+                    """<svg xmlns="http://www.w3.org/2000/svg"/>""",
+            )
+        }
+    }
+
+    @Test
     fun `validator rejects animation scripts and external CSS bypasses`() {
         val attacks = listOf(
             """<svg xmlns="http://www.w3.org/2000/svg"><animate attributeName="x"/></svg>""",

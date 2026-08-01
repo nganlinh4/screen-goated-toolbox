@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -74,7 +75,9 @@ internal fun Creation3dSettings(
                     shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
                     accent = accent,
                     onClick = { onGenerationMode(CreationGenerationMode.FAST.wireName) },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("creation-mode-fast"),
                 )
                 ModeToggle(
                     selected = mode == CreationGenerationMode.QUALITY,
@@ -83,7 +86,9 @@ internal fun Creation3dSettings(
                     shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
                     accent = accent,
                     onClick = { onGenerationMode(CreationGenerationMode.QUALITY.wireName) },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("creation-mode-quality"),
                 )
             }
         }
@@ -233,7 +238,9 @@ internal fun CreationSvgSettings(
                     enabled = enabled,
                     shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
                     colors = modelToggleColors(simpleSelected, accent),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("creation-svg-simple"),
                 ) {
                     Column(horizontalAlignment = Alignment.Start) {
                         Text(

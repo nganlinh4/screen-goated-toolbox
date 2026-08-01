@@ -87,8 +87,10 @@ internal class CreationJobManager private constructor(context: Context) {
                 stage = "preparing",
             )
         },
+        onPreparationFailed = { jobId -> fail(jobId, "runtime_unavailable") },
     )
     init {
+        workers.setPreparationStateListener(dispatcher::signal)
         scope.launch {
             runCatching {
                 if (durableStateReadable) {
@@ -229,6 +231,8 @@ internal class CreationJobManager private constructor(context: Context) {
         }
         reservedOutputPath = null
         reservedInputs = emptyList()
+        workers.restartPreparation(tool)
+        recoveryLeases.acquire(jobId, tool)
         diagnostics.event(
             "job_queued",
             tool.wireName,
@@ -304,6 +308,7 @@ internal class CreationJobManager private constructor(context: Context) {
             throw failure
         }
         files.releaseJobInputs(retiredContinuationInputs)
+        recoveryLeases.acquire(draft.request.jobId, CreationTool.IMAGE_TO_3D)
         diagnostics.event(
             "job_queued",
             CreationTool.IMAGE_TO_3D.wireName,
@@ -545,7 +550,6 @@ internal class CreationJobManager private constructor(context: Context) {
         )
         dispatcher.signal()
     }
-
     private fun fail(jobId: String, failureCode: String? = null) {
         val transition = synchronized(mutationLock) {
             val applied = synchronized(lock) {

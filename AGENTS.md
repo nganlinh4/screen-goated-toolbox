@@ -29,6 +29,12 @@
 - Windows targets: `scripts/validate-windows-targets.ps1` when target-sensitive.
 - Frontend: run package typecheck/tests named in subsystem README.
 - Docs: verify every path/command against current tree. Do not edit vendored upstream docs unless SGT owns overlay note.
+- Real UI acceptance is complete only after the repaired build succeeds
+  end-to-end and its committed artifact is validated. After each failure,
+  inspect fresh evidence, diagnose, repair, run focused checks, and rerun with a
+  new evidence directory. Never abandon the rerun because an earlier repair
+  also failed. Stop only for a safety boundary or a genuinely external blocker;
+  report that state as blocked, never passed or complete.
 
 ## Computer Control
 

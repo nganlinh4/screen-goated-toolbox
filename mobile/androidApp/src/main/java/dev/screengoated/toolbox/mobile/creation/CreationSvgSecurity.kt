@@ -10,14 +10,58 @@ import org.xml.sax.SAXException
 import org.xml.sax.helpers.DefaultHandler
 
 internal fun validateCreationSvgSecurityPreflight(bytes: ByteArray) {
+    validateCreationSvgMarkupDeclarations(bytes)
     val factory = SAXParserFactory.newInstance().apply {
         isNamespaceAware = true
-        setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-        setFeature("http://xml.org/sax/features/external-general-entities", false)
-        setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-        setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        runCatching {
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        }
+        runCatching {
+            setFeature("http://xml.org/sax/features/external-general-entities", false)
+        }
+        runCatching {
+            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+        }
+        runCatching {
+            setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        }
     }
     factory.newSAXParser().parse(ByteArrayInputStream(bytes), CreationSvgSecurityHandler())
+}
+
+internal fun validateCreationSvgMarkupDeclarations(bytes: ByteArray) {
+    val text = bytes.decodeToString(throwOnInvalidSequence = true)
+    require('\u0000' !in text) { "The vector result is invalid" }
+    var cursor = if (text.startsWith('\uFEFF')) 1 else 0
+    if (text.startsWith("<?xml", cursor)) {
+        val end = text.indexOf("?>", cursor + 5)
+        require(end in (cursor + 6)..(cursor + 256)) { "The vector result is invalid" }
+        val declaration = text.substring(cursor, end + 2)
+        val encoding = XML_DECLARATION_ENCODING.find(declaration)?.groupValues?.get(2)
+        require(encoding == null || encoding.equals("utf-8", ignoreCase = true)) {
+            "The vector result is invalid"
+        }
+        cursor = end + 2
+    }
+    while (true) {
+        val start = text.indexOf('<', cursor)
+        if (start < 0) return
+        when {
+            text.startsWith("<!--", start) -> {
+                cursor = text.indexOf("-->", start + 4)
+                require(cursor >= 0) { "The vector result is invalid" }
+                cursor += 3
+            }
+            text.startsWith("<![CDATA[", start) -> {
+                cursor = text.indexOf("]]>", start + 9)
+                require(cursor >= 0) { "The vector result is invalid" }
+                cursor += 3
+            }
+            text.startsWith("<!", start) || text.startsWith("<?", start) ->
+                error("The vector result contains active XML declarations")
+            else -> cursor = start + 1
+        }
+    }
 }
 
 private class CreationSvgSecurityHandler : DefaultHandler() {
@@ -72,6 +116,9 @@ private class CreationSvgSecurityHandler : DefaultHandler() {
         rejectSvgComplexity(false)
     }
 }
+
+private val XML_DECLARATION_ENCODING =
+    Regex("""\bencoding\s*=\s*(['"])([^'"]+)\1""", RegexOption.IGNORE_CASE)
 
 internal fun validateCreationSvgReferenceGraph(root: Element) {
     val state = SvgReferenceGraphState()

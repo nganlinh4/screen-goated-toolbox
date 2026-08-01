@@ -42,7 +42,7 @@ internal fun readCreationBytesBounded(input: InputStream, maximumBytes: Long): B
     return output.toByteArray()
 }
 
-internal fun validateImportedCreationImage(file: File) {
+internal fun validateImportedCreationImage(file: File): String {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(file.absolutePath, bounds)
     require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Selected file is not an image" }
@@ -69,4 +69,12 @@ internal fun validateImportedCreationImage(file: File) {
             BitmapFactory.Options().apply { inSampleSize = sample },
         ),
     ) { "Selected file is not a complete image" }.recycle()
+    return requireNotNull(bounds.outMimeType)
+}
+
+internal fun creationImageExtension(mimeType: String): String = when (mimeType) {
+    "image/png" -> "png"
+    "image/jpeg" -> "jpg"
+    "image/webp" -> "webp"
+    else -> error("Selected image type is not supported")
 }

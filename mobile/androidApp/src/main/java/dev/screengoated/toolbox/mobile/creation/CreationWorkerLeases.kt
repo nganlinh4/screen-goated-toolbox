@@ -31,8 +31,8 @@ internal fun selectCreationPreparationTool(
     surfacePriority: List<CreationTool>,
     startup: CreationTool?,
 ): CreationTool? {
-    if (active != null) return active
     return surfacePriority.firstOrNull { it in retained && it !in ready }
+        ?: active
         ?: startup?.takeIf { it in retained && it !in ready }
         ?: retained.firstOrNull { it !in ready }
 }

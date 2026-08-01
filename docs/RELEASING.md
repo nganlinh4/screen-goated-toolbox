@@ -67,6 +67,23 @@ Run relevant frontend/mobile tests for changed subsystems. Do not waive failures
 For a release containing the creation mini apps, build the separately tracked
 runtime first and point all host builds at its generated delivery manifest:
 
+### Mandatory creation-runtime release checkpoint
+
+This is a blocking release requirement. Do not proceed to the Windows or
+Android host builds until every item is complete:
+
+1. Rebuild the Windows creation runtime from the reviewed private source.
+2. Rebuild both Android creation-runtime distributions from that same source.
+3. Regenerate the Windows, Android, and combined delivery manifests only after
+   all runtime artifacts have been rebuilt. Never reuse an earlier manifest.
+4. Replace every creation-runtime binary and manifest on the existing GitHub
+   runtime-bundles release. An Android-only refresh or a local-only build is not
+   a completed runtime release.
+5. Query the GitHub release again and verify every uploaded asset's name, size,
+   and checksum against the newly generated manifests.
+6. Use that exact verified combined delivery manifest for all subsequent
+   Windows, Android Full, and Android Play app builds.
+
 ```powershell
 $env:SGT_CREATION_RUNTIME_DELIVERY_MANIFEST = 'C:\secure\sgt_creation_runtime.delivery.json'
 ```

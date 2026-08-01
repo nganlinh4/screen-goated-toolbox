@@ -14,15 +14,16 @@ internal sealed interface CreationRuntimeStatus {
 }
 
 internal class CreationRuntimeManager private constructor(context: Context) {
-    private val delivery = CreationRuntimeProvider(context.applicationContext)
-    private val expectedProduct = loadCreationRuntimeProductDescriptor(context.applicationContext)
+    private val applicationContext = context.applicationContext
+    private val delivery = CreationRuntimeProvider(applicationContext)
 
     val status: StateFlow<CreationRuntimeStatus> = delivery.status
 
     fun startInstall() = delivery.startInstall()
 
     fun factory(): CreationRuntimeFactory? {
-        val expected = expectedProduct ?: return null
+        // Play delivery can add this descriptor after the manager is constructed.
+        val expected = loadCreationRuntimeProductDescriptor(applicationContext) ?: return null
         return delivery.factory()?.takeIf {
             isCompatibleCreationRuntimeManifest(it.runtimeManifest(), expected)
         }

@@ -31,7 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
@@ -165,7 +164,7 @@ private fun AppsItemContent(
                 val isRunning = PhoneControlService.state.value.running
                 SessionAppCarouselTile(
                     slot = appSlots[1],
-                    title = stringResource(R.string.phone_control_title),
+                    title = locale.appPhoneControlTitle,
                     drawableRes = R.drawable.ms_smart_toy,
                     isRunning = isRunning,
                     onSessionToggle = {
@@ -220,7 +219,10 @@ private fun AppsVerticalCarousel(
         VerticalUncontainedCarousel(
             itemCount = appSlots.size,
             itemHeight = itemHeight,
-            modifier = Modifier.fillMaxWidth().height(carouselHeight),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(carouselHeight)
+                .testTag("apps-carousel"),
             itemSpacing = 8.dp,
             contentPadding = PaddingValues(top = 4.dp, bottom = fadeSize),
         ) { index ->
@@ -279,6 +281,7 @@ private fun AppsHorizontalCarousel(
             itemWidth = itemWidth,
             modifier = Modifier
                 .fillMaxSize()
+                .testTag("apps-carousel")
                 .lockPagerForCarouselDrag(
                     canScrollBackward = { carouselState.canScrollBackward },
                     canScrollForward = { carouselState.canScrollForward },

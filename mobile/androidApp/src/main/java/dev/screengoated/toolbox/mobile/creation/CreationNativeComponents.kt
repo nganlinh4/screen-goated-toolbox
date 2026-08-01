@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -178,6 +179,7 @@ private fun AddImageTile(
     Surface(
         modifier = Modifier
             .size(width = 104.dp, height = 66.dp)
+            .testTag("creation-add-input")
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.medium,
         color = accent.copy(alpha = 0.12f),
@@ -219,6 +221,7 @@ private fun QueueItemTile(
         modifier = Modifier
             .width(168.dp)
             .height(66.dp)
+            .testTag(if (selected) "creation-selected-input" else "creation-input")
             .then(
                 if (selected) Modifier.border(2.dp, accent, MaterialTheme.shapes.medium)
                 else Modifier

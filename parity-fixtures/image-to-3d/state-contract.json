@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 30,
+  "schemaVersion": 31,
   "tool": "image-to-3d",
   "names": {
     "en": "Image to 3D",
@@ -175,6 +175,7 @@
     "default": "quality",
     "selectionVisible": true,
     "implementationBrandingVisible": false,
+    "requestedPolycountForwardedExactly": true,
     "cases": [
       {
         "mode": "fast",
@@ -260,6 +261,7 @@
   },
   "recovery": {
     "intentRecordedBeforeSubmit": true,
+    "requestEligibilityCheckedBeforeWorkerAssignment": true,
     "dispatchIdentityGeneratedByHost": true,
     "contentFingerprintIsNotDispatchIdentity": true,
     "replayMatchesOnlySameDispatchId": true,
@@ -398,5 +400,13 @@
     "behaviorIdentical": true,
     "featureSetIdentical": true,
     "integrityValidatedBeforeUse": true
+  },
+  "qualityControl": {
+    "realUiPlatforms": ["windows", "android_full", "android_play"],
+    "cases": ["fast", "quality"],
+    "sourceSelectedThroughProductSurface": true,
+    "terminalStateRequired": true,
+    "committedArtifactValidated": true,
+    "terminalFailureEvidenceRequired": true
   }
 }

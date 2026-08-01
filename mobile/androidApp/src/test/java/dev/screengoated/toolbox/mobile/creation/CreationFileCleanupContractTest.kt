@@ -208,6 +208,28 @@ class CreationFileCleanupContractTest {
     }
 
     @Test
+    fun `concurrent job input cleanup accepts an already removed target`() {
+        val filesDir = createTempDirectory("creation-job-input-race").toFile()
+        val root = File(filesDir, "creation/job-inputs").apply { mkdirs() }
+        val removed = File(root, "already-removed")
+
+        assertTrue(deleteCreationJobInputOrConfirmAbsent(root, removed))
+        filesDir.deleteRecursively()
+    }
+
+    @Test
+    fun `job input cleanup removes a direct ordinary directory`() {
+        val filesDir = createTempDirectory("creation-job-input-delete").toFile()
+        val root = File(filesDir, "creation/job-inputs").apply { mkdirs() }
+        val target = File(root, "orphan").apply { mkdirs() }
+        File(target, "0.img").writeBytes(byteArrayOf(1, 2, 3))
+
+        assertTrue(deleteCreationJobInputOrConfirmAbsent(root, target))
+        assertFalse(target.exists())
+        filesDir.deleteRecursively()
+    }
+
+    @Test
     fun `job input reconciliation remains bounded beyond four thousand directories`() {
         val directories = (0 until 4_105).map { index ->
             CreationJobInputDirectory("job-$index", index.toLong())

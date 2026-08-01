@@ -237,7 +237,8 @@ pub(crate) fn shared_runtime_path() -> Option<PathBuf> {
 }
 
 fn supported_readiness_tool(tool: &str) -> bool {
-    matches!(tool, "3d" | "svg" | "image")
+    matches!(tool, "3d" | "svg")
+        || tool == "image" && crate::creation_feature_availability::image_creator_release_enabled()
 }
 
 fn parse_readiness(output: &[u8]) -> Option<String> {
@@ -493,6 +494,7 @@ mod tests {
 
     #[test]
     fn readiness_parser_accepts_only_the_public_state_contract() {
+        assert!(!supported_readiness_tool("image"));
         assert_eq!(
             parse_readiness(br#"{"ok":true,"result":{"state":"ready"}}"#).as_deref(),
             Some("ready")

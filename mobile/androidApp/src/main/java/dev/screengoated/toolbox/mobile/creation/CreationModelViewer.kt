@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.creation
 
 import android.view.MotionEvent
 import android.view.View
+import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -57,6 +59,18 @@ internal fun CreationModelViewer(
     accent: Color,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    if (!supportsNative3dPreview(Build.SUPPORTED_ABIS.toList(), context.applicationInfo.nativeLibraryDir)) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceContainerLowest),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(strings.previewUnavailable, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
     val previewFile by produceState<Result<File>?>(null, outputPath) {
         value = null
         value = withContext(Dispatchers.IO) {
@@ -251,6 +265,17 @@ internal fun CreationModelViewer(
             }
         }
     }
+}
+
+internal fun supportsNative3dPreview(deviceAbis: List<String>, nativeLibraryDir: String): Boolean {
+    val installedAbi = File(nativeLibraryDir).name
+    val deviceAbi = deviceAbis.firstOrNull() ?: return true
+    fun normalize(value: String): String = when (value.lowercase()) {
+        "arm64", "arm64-v8a" -> "arm64"
+        "arm", "armeabi-v7a" -> "arm"
+        else -> value.lowercase()
+    }
+    return installedAbi.isBlank() || normalize(installedAbi) == normalize(deviceAbi)
 }
 
 @Composable

@@ -134,6 +134,30 @@ class CreationMiniAppLifetimeTest {
     }
 
     @Test
+    fun `accepted job owns preparation until its terminal release`() {
+        val acquired = mutableListOf<Pair<CreationTool, String>>()
+        val released = mutableListOf<Pair<CreationTool, String>>()
+        val leases = CreationRecoveryWorkerLeases(
+            acquireWorker = { tool, owner -> acquired += tool to owner },
+            releaseWorker = { tool, owner -> released += tool to owner },
+        )
+
+        leases.acquire("image-job", CreationTool.IMAGE_CREATOR)
+        leases.acquire("image-job", CreationTool.IMAGE_CREATOR)
+        assertEquals(
+            listOf(CreationTool.IMAGE_CREATOR to "recovery:image-job"),
+            acquired,
+        )
+
+        leases.release("image-job", CreationTool.IMAGE_CREATOR)
+        leases.release("image-job", CreationTool.IMAGE_CREATOR)
+        assertEquals(
+            listOf(CreationTool.IMAGE_CREATOR to "recovery:image-job"),
+            released,
+        )
+    }
+
+    @Test
     fun `surface priority preempts remaining sequential startup preparation`() {
         val selected = selectCreationPreparationTool(
             active = null,
@@ -146,7 +170,17 @@ class CreationMiniAppLifetimeTest {
         assertEquals(CreationTool.IMAGE_CREATOR, selected)
         assertEquals(2, CreationContract.maximumParallelJobs(requireNotNull(selected)))
         assertEquals(
-            CreationTool.IMAGE_TO_3D,
+            CreationTool.IMAGE_CREATOR,
+            selectCreationPreparationTool(
+                active = CreationTool.IMAGE_TO_3D,
+                retained = CreationTool.entries.toSet(),
+                ready = emptySet(),
+                surfacePriority = listOf(CreationTool.IMAGE_CREATOR),
+                startup = CreationTool.IMAGE_TO_3D,
+            ),
+        )
+        assertEquals(
+            CreationTool.IMAGE_CREATOR,
             selectCreationPreparationTool(
                 active = CreationTool.IMAGE_TO_3D,
                 retained = CreationTool.entries.toSet(),

@@ -28,6 +28,7 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
             appFeatureUnsupportedMessage = "This feature is not supported in this version.",
             appDjTitle = "Be a DJ",
             appTranslationGummyTitle = "Translation Gummy",
+            appPhoneControlTitle = "Phone Control",
             toolsCategoryImage = "Image",
             toolsCategoryTextSelect = "Text selection",
             toolsCategoryTextInput = "Text input",

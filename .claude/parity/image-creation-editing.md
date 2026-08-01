@@ -14,6 +14,10 @@
 ## Product Contract
 
 - The app is named Create/edit image / 이미지 생성/편집 / Tạo/edit ảnh.
+- Release availability is owned by the shared product fixture. While disabled,
+  selecting the app shows the localized app name with the shared localized
+  “Coming soon” dialog, does not open the creation surface, and does not start
+  readiness or preparation work. Existing prepared capacity is preserved.
 - Its stable tool identifier is `image`, its operation is `create_image`, and
   its public job prefix is `image_`. References are optional and do not change
   the operation.
@@ -37,6 +41,14 @@
   capacity, and consuming prepared capacity starts background replenishment.
   Existing ready work never waits for replenishment, and demand in another
   creation tool cannot consume this tool's reserve.
+- Preparation follows the canonical visible entry sequence of the supported
+  creation surface. Intermediate navigation is never treated as readiness; a
+  slot becomes ready only after the authenticated workspace is visibly usable.
+- Reusable prepared capacity survives temporary sign-out and temporary
+  unavailability. The existing workspace is reconciled before replacement,
+  and a transient reconciliation failure schedules a later recheck instead of
+  destroying the workspace. Fresh preparation replaces only capacity proven
+  permanently unusable.
 - Opening the surface paints the product UI before requesting readiness work.
   Idle surfaces do not poll jobs, history, or readiness. Job status and
   estimated-progress refreshes run only while accepted or recovered work is
@@ -182,6 +194,30 @@
   normalization, cancellation, artifact validation, and history.
 - Android Full and Play tests read the same product fixture and verify
   independent sessions with a two-job concurrency ceiling.
+- Windows, Android Full, and Android Play entry tests read the shared release
+  availability flag and verify that the localized dialog appears without
+  starting the creation surface or readiness work.
+- While release availability is disabled, real UI acceptance selects the app
+  on Windows, Android Full, and Android Play, verifies the localized coming-soon
+  dialog, and proves that neither the surface nor readiness starts. When the
+  shared flag is enabled, acceptance instead submits one text-only job, waits
+  for a terminal state, and validates the committed image.
+- Prompt entry is accepted by the surface's editor state before submission;
+  matching rendered text alone is not sufficient acceptance evidence.
+- A failed real UI case retains bounded terminal diagnostics, triggers private
+  execution-readiness investigation and repair, then reruns in a fresh evidence
+  directory. Acceptance is incomplete until the repaired build completes the
+  real job and the committed image validates; repeated repair failures never
+  cancel the required rerun.
+- Preparation advances only after the consequential transition is visibly
+  complete. Intermediate navigation is not readiness proof, and the transition
+  uses the same real control interaction as the canonical Windows path.
+- A transient preparation-delivery failure retries once with fresh isolated
+  capacity. It never repeats an accepted image request, and exhaustion fails
+  through the normal bounded preparation path.
+- Exhausted preparation fails every job waiting on that tool exactly once and
+  does not automatically start another preparation cycle. A later explicit
+  submission may start a fresh bounded cycle.
 - Frontend validation covers the shared font and icon system, public
   vocabulary, light/dark rendering, and focused Vietnamese IME input across
   repeated status updates.

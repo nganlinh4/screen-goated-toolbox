@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 29,
+  "schemaVersion": 30,
   "tool": "image-to-svg",
   "states": [
     "draft",
@@ -245,5 +245,13 @@
     "behaviorIdentical": true,
     "featureSetIdentical": true,
     "integrityValidatedBeforeUse": true
+  },
+  "qualityControl": {
+    "realUiPlatforms": ["windows", "android_full", "android_play"],
+    "cases": ["simple"],
+    "sourceSelectedThroughProductSurface": true,
+    "terminalStateRequired": true,
+    "committedArtifactValidated": true,
+    "terminalFailureEvidenceRequired": true
   }
 }

@@ -15,6 +15,7 @@ internal class CreationJobDispatcher(
     private val isCancelled: (String) -> Boolean,
     private val onEvent: (String, CreationWorkerEvent) -> Unit,
     private val onDispatched: (CreationWorkerRequest) -> Unit,
+    private val onPreparationFailed: (String) -> Unit,
 ) {
     private val signal = Channel<Unit>(Channel.CONFLATED)
 
@@ -40,16 +41,24 @@ internal class CreationJobDispatcher(
                 removePending(pending.jobId)
                 return@forEach
             }
-            val worker = workers.dispatch(
+            val result = workers.dispatch(
                 request,
                 pending.preferredEngineId,
                 onEvent,
             ) { assigned -> onAssigned(request, assigned) }
-            if (worker != null) {
-                removePending(request.jobId)
-                if (isCancelled(request.jobId)) workers.cancel(request.jobId)
-                onDispatched(request)
-                dispatched = true
+            when (result) {
+                is CreationWorkerDispatchResult.Assigned -> {
+                    removePending(request.jobId)
+                    if (isCancelled(request.jobId)) workers.cancel(request.jobId)
+                    onDispatched(request)
+                    dispatched = true
+                }
+                CreationWorkerDispatchResult.PreparationFailed -> {
+                    removePending(request.jobId)
+                    onPreparationFailed(request.jobId)
+                    dispatched = true
+                }
+                CreationWorkerDispatchResult.Waiting -> Unit
             }
         }
         return dispatched

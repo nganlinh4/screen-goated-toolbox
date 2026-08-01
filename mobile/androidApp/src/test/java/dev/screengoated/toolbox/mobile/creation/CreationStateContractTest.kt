@@ -266,6 +266,7 @@ class CreationStateContractTest {
         val locales = fixture.objectAt("locales")
         val presentation = fixture.objectAt("presentation")
         val behavior = fixture.objectAt("behavior")
+        val qualityControl = fixture.objectAt("qualityControl")
         val required = request.getValue("required").jsonArray
             .map { it.jsonPrimitive.content }
             .toSet()
@@ -386,6 +387,9 @@ class CreationStateContractTest {
         assertTrue(recovery.booleanAt("acceptedRequestResumedWithoutResubmit"))
         assertTrue(recovery.booleanAt("replayMatchesOnlySameDispatchId"))
         assertTrue(recovery.booleanAt("durableIntentRecordedBeforeSubmit"))
+        assertTrue(qualityControl.booleanAt("exhaustedPreparationFailsWaitingJobsOnce"))
+        assertTrue(qualityControl.booleanAt("exhaustedPreparationDoesNotRestartAutomatically"))
+        assertTrue(qualityControl.booleanAt("laterExplicitSubmissionStartsFreshPreparation"))
         assertTrue(behavior.booleanAt("retryCreatesNewJob"))
         assertTrue(behavior.booleanAt("retryPreservesPreviousResult"))
         assertTrue(behavior.booleanAt("closeReleasesOwnerExecutionResources"))

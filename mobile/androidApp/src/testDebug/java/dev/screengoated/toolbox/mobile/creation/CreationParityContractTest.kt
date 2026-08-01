@@ -27,6 +27,7 @@ class CreationParityContractTest {
         val presentation = fixture["presentation"]!!.jsonObject
         val lifecycle = fixture["hostLifecycle"]!!.jsonObject
         val distribution = fixture["distribution"]!!.jsonObject
+        val qualityControl = fixture["qualityControl"]!!.jsonObject
 
         assertEquals(CreationContract.MINIMUM_POLYCOUNT, limits.int("minimumPolycount"))
         assertEquals(CreationContract.MAXIMUM_POLYCOUNT, limits.int("maximumPolycount"))
@@ -180,6 +181,7 @@ class CreationParityContractTest {
         assertTrue(lifecycle.boolean("closeDestroysProductSurface"))
         assertTrue(distribution.boolean("behaviorIdentical"))
         assertTrue(distribution.boolean("featureSetIdentical"))
+        assertRealUiQualityControl(qualityControl, setOf("fast", "quality"))
         assertEquals(names.string("en"), MobileLocaleText.forLanguage("en").appImageTo3dTitle)
         assertEquals(names.string("ko"), MobileLocaleText.forLanguage("ko").appImageTo3dTitle)
         assertEquals(names.string("vi"), MobileLocaleText.forLanguage("vi").appImageTo3dTitle)
@@ -196,6 +198,7 @@ class CreationParityContractTest {
         val lifecycle = fixture["hostLifecycle"]!!.jsonObject
         val recovery = fixture["recovery"]!!.jsonObject
         val distribution = fixture["distribution"]!!.jsonObject
+        val qualityControl = fixture["qualityControl"]!!.jsonObject
 
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.int("maximumParallelJobs"))
         assertEquals(setOf("simple", "detail"), models.keys)
@@ -254,18 +257,30 @@ class CreationParityContractTest {
         assertTrue(recovery.boolean("liveAndAcceptedRecoveryStateProtected"))
         assertTrue(distribution.boolean("behaviorIdentical"))
         assertTrue(distribution.boolean("featureSetIdentical"))
+        assertRealUiQualityControl(qualityControl, setOf("simple"))
     }
 
     @Test
     fun `image creator Android contract matches shared fixture`() {
         val fixture = fixture("image-creation-editing")
+        val availability = fixture["releaseAvailability"]!!.jsonObject
         val prompt = fixture["request"]!!.jsonObject["prompt"]!!.jsonObject
         val references = fixture["request"]!!.jsonObject["references"]!!.jsonObject
         val locales = fixture["locales"]!!.jsonObject
+        assertFalse(availability["enabled"]!!.jsonPrimitive.boolean)
+        assertEquals(
+            "coming_soon_dialog",
+            availability["entryBehavior"]!!.jsonPrimitive.content,
+        )
+        assertFalse(availability["startsSurface"]!!.jsonPrimitive.boolean)
+        assertFalse(availability["startsReadiness"]!!.jsonPrimitive.boolean)
+        assertTrue(availability["preservesPreparedCapacity"]!!.jsonPrimitive.boolean)
         val presentation = fixture["presentation"]!!.jsonObject
         val behavior = fixture["behavior"]!!.jsonObject
+        val readiness = fixture["readiness"]!!.jsonObject
         val recovery = fixture["recovery"]!!.jsonObject
         val distribution = fixture["distribution"]!!.jsonObject
+        val qualityControl = fixture["qualityControl"]!!.jsonObject
         val copyPolicy = fixture["publicCopyPolicy"]!!.jsonObject
 
         assertEquals("image", fixture.string("tool"))
@@ -312,10 +327,19 @@ class CreationParityContractTest {
         assertTrue(behavior.boolean("closeReleasesOwnerExecutionResources"))
         assertTrue(behavior.boolean("closeDestroysProductSurface"))
         assertTrue(behavior.boolean("failureRemainsBoundToJob"))
+        assertTrue(readiness.boolean("usesCanonicalVisibleEntrySequence"))
+        assertTrue(readiness.boolean("intermediateNavigationIsNotReadiness"))
+        assertTrue(readiness.boolean("authenticatedWorkspaceRequired"))
         assertTrue(recovery.boolean("acceptedRequestResumedWithoutResubmit"))
         assertTrue(recovery.boolean("replayMatchesOnlySameDispatchId"))
         assertTrue(distribution.boolean("behaviorIdentical"))
         assertTrue(distribution.boolean("featureSetIdentical"))
+        assertRealUiQualityControl(qualityControl, setOf("text_only"))
+        assertTrue(qualityControl.boolean("consequentialTransitionUsesRealControlInteraction"))
+        assertTrue(qualityControl.boolean("intermediateNavigationIsNotReadinessProof"))
+        assertTrue(qualityControl.boolean("transientPreparationRetryIsBounded"))
+        assertTrue(qualityControl.boolean("transientPreparationRetryUsesFreshCapacity"))
+        assertTrue(qualityControl.boolean("acceptedRequestIsNotRepeatedByPreparationRetry"))
         assertEquals(locales.string("en"), MobileLocaleText.forLanguage("en").appImageCreatorTitle)
         assertEquals(locales.string("ko"), MobileLocaleText.forLanguage("ko").appImageCreatorTitle)
         assertEquals(locales.string("vi"), MobileLocaleText.forLanguage("vi").appImageCreatorTitle)
@@ -324,6 +348,25 @@ class CreationParityContractTest {
     private fun fixture(tool: String) = json.parseToJsonElement(
         File(repoRoot(), "parity-fixtures/$tool/state-contract.json").readText(),
     ).jsonObject
+
+    private fun assertRealUiQualityControl(
+        contract: kotlinx.serialization.json.JsonObject,
+        cases: Set<String>,
+    ) {
+        assertEquals(
+            setOf("windows", "android_full", "android_play"),
+            contract.getValue("realUiPlatforms").jsonArray
+                .map { it.jsonPrimitive.content }
+                .toSet(),
+        )
+        assertEquals(
+            cases,
+            contract.getValue("cases").jsonArray.map { it.jsonPrimitive.content }.toSet(),
+        )
+        assertTrue(contract.boolean("terminalStateRequired"))
+        assertTrue(contract.boolean("committedArtifactValidated"))
+        assertTrue(contract.boolean("terminalFailureEvidenceRequired"))
+    }
 
     private fun repoRoot(): File {
         var directory = File(requireNotNull(System.getProperty("user.dir"))).canonicalFile

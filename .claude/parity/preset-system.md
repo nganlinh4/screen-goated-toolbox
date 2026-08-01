@@ -28,6 +28,12 @@
   stable default. Catalog availability or priority-chain membership does not
   make a model a built-in preset default. Authority-bearing Computer/Phone
   Control keeps its separate catalog-owned model chain.
+- The fast text-arena seed uses Groq GPT-OSS 120B. The general image retry
+  chain keeps Gemini 3.5 Flash Lite first, then prioritizes the fast reliable
+  Cerebras and Groq OCR endpoints before higher-variance fallbacks. The text
+  chain keeps Cerebras GLM first, then favors the stable low-latency Groq
+  endpoints before Gemini and OpenRouter fallbacks. Exact order remains owned
+  only by the shared catalog and fixture.
 - The Windows one-time post-update recommendation prompt compares the staged
   preset models, priority chains, and recommended-provider defaults. Applying
   updates changed built-in model slots, restores both priority chains, and

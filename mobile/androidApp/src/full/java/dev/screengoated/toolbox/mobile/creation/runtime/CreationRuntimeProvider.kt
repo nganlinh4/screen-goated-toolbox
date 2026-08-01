@@ -24,12 +24,12 @@ import okhttp3.Request
 internal class CreationRuntimeProvider(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val httpClient = OkHttpClient()
-    private val mutableStatus = MutableStateFlow(computeStatus())
-    private var installJob: Job? = null
-    @Volatile private var loadedFactory: CreationRuntimeFactory? = null
     private val delivery: CreationRuntimeDelivery? by lazy {
         loadCreationRuntimeDelivery(context)
     }
+    private val mutableStatus = MutableStateFlow(computeStatus())
+    private var installJob: Job? = null
+    @Volatile private var loadedFactory: CreationRuntimeFactory? = null
 
     val status: StateFlow<CreationRuntimeStatus> = mutableStatus.asStateFlow()
 
@@ -181,7 +181,6 @@ internal class CreationRuntimeProvider(private val context: Context) {
 
     private fun loadFactory(): CreationRuntimeFactory? = runCatching {
         check(installedFilesAreValid()) { "Creation runtime is not installed" }
-        System.load(nativeLibrary().absolutePath)
         val loader = DexClassLoader(
             runtimeDex().absolutePath,
             optimizedDirectory().apply { mkdirs() }.absolutePath,

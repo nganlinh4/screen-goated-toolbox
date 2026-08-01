@@ -25,12 +25,12 @@ class CreationProductContractTest {
             "integrityValidatedBeforeUse",
         )
         val fixtures = listOf(
-            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 30),
-            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 29),
+            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 31),
+            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 30),
             Triple(
                 "parity-fixtures/image-creation-editing/state-contract.json",
                 "fixtureVersion",
-                36,
+                44,
             ),
         )
         fixtures.forEach { (path, versionField, version) ->

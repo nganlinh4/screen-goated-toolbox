@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
@@ -57,6 +58,7 @@ internal fun CreationBottomActions(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .testTag("creation-selected-stage-${item.stage.name.lowercase()}")
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -83,7 +85,9 @@ internal fun CreationBottomActions(
                         item.prompt.isNotBlank() ||
                         item.stage == CreationNativeStage.RUNNING),
                 cancel = item.stage == CreationNativeStage.RUNNING,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("creation-primary-action"),
             )
         }
     }

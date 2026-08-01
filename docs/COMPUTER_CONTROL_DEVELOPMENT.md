@@ -77,8 +77,17 @@ permission logic. Do not silently reroute the model's requested tool.
 - Require exactly one final response, settled idle, no post-completion effect,
   and no unrelated state change.
 - Scripted idle starts only after queued turn cleanup is acknowledged.
-- Hard stop: one initial live run and at most one repair rerun per acceptance
-  task. A second failure becomes a blocker report, not another broad loop.
+- Keep every individual live execution bounded, but continue the
+  diagnose-repair-rerun cycle until the acceptance task succeeds. Each failure
+  gets fresh evidence, competing-cause review, a focused repair, focused
+  verification, and a new evidence directory before rerunning.
+- Never report acceptance complete from unit, compile, lint, or dry-run results
+  alone. Require the repaired build to complete the real task and validate its
+  committed artifact.
+- Stop only at a safety boundary or a genuinely external blocker that cannot be
+  resolved within the task's authority. Preserve the evidence and report
+  `blocked`; never turn a repeated failure into a pass or abandon the required
+  rerun.
 - Keep benchmark names and artifacts out of production prompts and logic.
 
 ## Verify

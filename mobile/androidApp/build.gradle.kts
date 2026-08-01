@@ -1,3 +1,4 @@
+import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -72,6 +73,11 @@ fun extractCargoPackageVersion(cargoToml: File): String {
 }
 
 val canonicalAppVersion = extractCargoPackageVersion(rootProject.projectDir.parentFile.resolve("Cargo.toml"))
+val imageCreationContractFile = rootProject.projectDir.parentFile
+    .resolve("parity-fixtures/image-creation-editing/state-contract.json")
+val imageCreationContract = JsonSlurper().parse(imageCreationContractFile) as Map<*, *>
+val imageCreatorReleaseEnabled =
+    ((imageCreationContract["releaseAvailability"] as Map<*, *>)["enabled"] as Boolean)
 
 /** Convert semver string to an integer versionCode: "4.9.0" → 40900, "4.10.1" → 41001. */
 fun semverToVersionCode(version: String): Int {
@@ -361,6 +367,11 @@ android {
         buildConfigField("String", "PARITY_PROFILE", "\"windows-live-translate-v2\"")
         // Overlay (float-over-other-apps) shipped on every distribution, including Play.
         buildConfigField("boolean", "OVERLAY_SUPPORTED", "true")
+        buildConfigField(
+            "boolean",
+            "IMAGE_CREATOR_RELEASE_ENABLED",
+            imageCreatorReleaseEnabled.toString(),
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

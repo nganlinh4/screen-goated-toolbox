@@ -2,7 +2,11 @@ package dev.screengoated.toolbox.mobile.creation
 
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.FileVisitResult
 import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 
 internal data class CreationJobInputDirectory(
     val path: String,
@@ -80,12 +84,59 @@ internal fun reconcileCreationJobInputDirectories(
         JOB_INPUT_ORPHAN_GRACE_MS,
         MAXIMUM_RECONCILE_DELETES,
     )
-    planned.forEach { path ->
-        check(deleteCreationTreeNoFollow(root, File(path))) {
-            CREATION_STORAGE_UNAVAILABLE_ERROR_KEY
-        }
+    val reconciled = planned.count { path ->
+        deleteCreationJobInputOrConfirmAbsent(root, File(path))
     }
-    return planned.size == MAXIMUM_RECONCILE_DELETES
+    return reconciled == MAXIMUM_RECONCILE_DELETES
+}
+
+internal fun deleteCreationJobInputOrConfirmAbsent(root: File, target: File): Boolean =
+    deleteCreationTreeNoFollow(root, target) ||
+        deleteCreationJobInputTreeNoFollow(root, target) ||
+        Files.notExists(target.toPath(), LinkOption.NOFOLLOW_LINKS)
+
+private fun deleteCreationJobInputTreeNoFollow(root: File, target: File): Boolean {
+    val rootPath = root.toPath().toAbsolutePath().normalize()
+    val targetPath = target.toPath().toAbsolutePath().normalize()
+    if (targetPath.parent != rootPath ||
+        isCreationLink(rootPath) ||
+        isCreationLink(targetPath) ||
+        !Files.isDirectory(targetPath, LinkOption.NOFOLLOW_LINKS)
+    ) return false
+    var complete = true
+    runCatching {
+        Files.walkFileTree(
+            targetPath,
+            object : SimpleFileVisitor<Path>() {
+                override fun visitFile(
+                    file: Path,
+                    attrs: BasicFileAttributes,
+                ): FileVisitResult {
+                    if (file.parent != targetPath ||
+                        isCreationLink(file) ||
+                        !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
+                    ) {
+                        complete = false
+                        return FileVisitResult.TERMINATE
+                    }
+                    complete = Files.deleteIfExists(file) && complete
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun postVisitDirectory(
+                    dir: Path,
+                    error: java.io.IOException?,
+                ): FileVisitResult {
+                    complete = error == null &&
+                        dir == targetPath &&
+                        Files.deleteIfExists(dir) &&
+                        complete
+                    return FileVisitResult.CONTINUE
+                }
+            },
+        )
+    }.onFailure { complete = false }
+    return complete
 }
 
 internal const val JOB_INPUT_ORPHAN_GRACE_MS = 10L * 60 * 1_000

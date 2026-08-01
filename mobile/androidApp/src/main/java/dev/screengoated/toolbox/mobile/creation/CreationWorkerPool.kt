@@ -45,15 +45,18 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     private val handler = Handler(context.mainLooper)
     private val jobWorkers = ConcurrentHashMap<String, String>()
     private val leases = CreationWorkerLeaseRegistry()
+    private val preparationFailures = CreationPreparationFailureRegistry()
     private val leaseLock = Any()
-    private val startupQueue = ArrayDeque(CreationTool.entries)
+    private val startupQueue = ArrayDeque(CreationTool.entries.filter(::creationToolReleased))
     private val surfacePriority = ArrayDeque<CreationTool>()
     private var startupActive: CreationTool? = null
     private var activePreparationTool: CreationTool? = null
     private var startupStarted = false
     @Volatile private var runtimeAwaiting = false
+    @Volatile private var preparationStateListener: (() -> Unit)? = null
 
     fun acquire(tool: CreationTool, owner: String) {
+        if (!creationToolReleased(tool)) return
         synchronized(leaseLock) {
             leases.acquire(tool, owner)
             if (owner != STARTUP_LEASE) {
@@ -76,13 +79,27 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         }
     }
 
+    fun restartPreparation(tool: CreationTool) {
+        val restarted = synchronized(leaseLock) { preparationFailures.restart(tool) }
+        if (restarted) schedulePreparation()
+    }
+
+    fun setPreparationStateListener(listener: () -> Unit) {
+        preparationStateListener = listener
+    }
+
     fun startOneShotPreparation() {
-        val start = synchronized(leaseLock) {
+        synchronized(leaseLock) {
             if (startupStarted) return
             startupStarted = true
-            nextStartupToolLocked()
         }
-        start?.let { acquire(it, STARTUP_LEASE) }
+        handler.postDelayed(
+            {
+                val start = synchronized(leaseLock) { nextStartupToolLocked() }
+                start?.let { acquire(it, STARTUP_LEASE) }
+            },
+            STARTUP_PREPARATION_DELAY_MS,
+        )
     }
 
     private fun schedulePreparation() {
@@ -96,25 +113,48 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                 workers.filter { it.tool == tool }.all { it.ready }
             }
         }
-        val selected = synchronized(leaseLock) {
-            selectCreationPreparationTool(
+        val (selected, displaced) = synchronized(leaseLock) {
+            val previous = activePreparationTool
+            val next = selectCreationPreparationTool(
                 activePreparationTool,
-                leases.retainedTools(),
+                preparationFailures.available(leases.retainedTools()),
                 ready,
                 surfacePriority.toList(),
                 startupActive,
-            )?.also { activePreparationTool = it }
-        } ?: return
-        workers.filter { it.tool == selected }.forEach(::bind)
+            )
+            activePreparationTool = next
+            next to previous?.takeIf { it != next }
+        }
+        selected ?: return
+        displaced?.let(::shutdownTool)
+        val nextWorker = synchronized(workers) {
+            val matching = workers.filter { it.tool == selected }
+            val slot = nextCreationPreparationSlot(
+                matching.map {
+                    CreationPreparationSlotState(
+                        connected = it.binder != null,
+                        binding = it.binding,
+                        ready = it.ready,
+                        busy = it.busy,
+                    )
+                },
+            )
+            slot?.let(matching::get)
+        }
+        nextWorker?.let(::bind)
     }
 
     fun preparationStatus(tool: CreationTool): String {
+        if (!creationToolReleased(tool)) return "unavailable"
         when (runtime.status.value) {
             is CreationRuntimeStatus.Downloading -> return "busy"
             is CreationRuntimeStatus.Missing,
             is CreationRuntimeStatus.Failed,
             -> return "unavailable"
             is CreationRuntimeStatus.Ready -> Unit
+        }
+        if (synchronized(leaseLock) { preparationFailures.isFailed(tool) }) {
+            return "unavailable"
         }
         val matching = workers.filter { it.tool == tool }
         return synchronized(workers) {
@@ -137,12 +177,27 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         preferredWorker: String? = null,
         onEvent: (String, CreationWorkerEvent) -> Unit,
         onAssigned: (String) -> Unit = {},
-    ): String? {
-        val tool = CreationTool.fromWireName(request.tool) ?: return null
+    ): CreationWorkerDispatchResult {
+        val tool = CreationTool.fromWireName(request.tool)
+            ?: return CreationWorkerDispatchResult.PreparationFailed
+        if (!creationToolReleased(tool)) {
+            return CreationWorkerDispatchResult.PreparationFailed
+        }
+        if (synchronized(leaseLock) { preparationFailures.isFailed(tool) }) {
+            return CreationWorkerDispatchResult.PreparationFailed
+        }
         val requestJson = json.encodeToString(CreationWorkerRequest.serializer(), request)
-        val assignment = synchronized(workers) {
-            val candidates = workers.filter {
+        val supported = synchronized(workers) {
+            workers.filter {
                 it.tool == tool && it.binder != null && it.ready && !it.busy
+            }
+        }.filter { worker ->
+            runCatching { worker.binder?.supportsRequest(requestJson) == true }
+                .getOrDefault(false)
+        }
+        val assignment = synchronized(workers) {
+            val candidates = supported.filter {
+                it.binder != null && it.ready && !it.busy
             }
             val worker = preferredWorker
                 ?.let { preferred -> candidates.firstOrNull { it.key == preferred } }
@@ -154,21 +209,21 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             worker.assignment.claim(request.jobId, onEvent)
             jobWorkers[request.jobId] = worker.key
             Assignment(worker, binder)
-        } ?: return null
+        } ?: return CreationWorkerDispatchResult.Waiting
         val worker = assignment.worker
         val callback = callback(worker, request.jobId, onEvent)
         if (runCatching { onAssigned(worker.key) }.isFailure) {
             release(worker, request.jobId)
             requestPrepare(worker)
-            return null
+            return CreationWorkerDispatchResult.Waiting
         }
         return try {
             assignment.binder.runJob(requestJson, callback)
-            worker.key
+            CreationWorkerDispatchResult.Assigned(worker.key)
         } catch (_: RemoteException) {
             release(worker, request.jobId)
             handleWorkerLoss(worker, worker.connectionEpoch)
-            null
+            CreationWorkerDispatchResult.Waiting
         }
     }
 
@@ -184,7 +239,10 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     }
 
     private fun shutdown() {
-        synchronized(leaseLock) { leases.clear() }
+        synchronized(leaseLock) {
+            leases.clear()
+            preparationFailures.clear()
+        }
         shutdownWorkers(workers)
     }
 
@@ -293,6 +351,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     }
 
     private fun requestPrepare(worker: Worker, delayMs: Long = 0L) {
+        if (!creationToolReleased(worker.tool)) return
         val epoch = synchronized(workers) {
             if (worker.prepareScheduled || worker.preparing || worker.busy || worker.ready ||
                 worker.binder == null
@@ -342,37 +401,61 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                 worker.connectionEpoch == call.epoch && worker.binder === call.binder
             }
             if (!current) return
-            if (creationPreparationEventIsReady(event)) {
-                synchronized(workers) {
-                    worker.ready = true
-                    worker.preparing = false
+            when (creationPreparationEventDisposition(event)) {
+                CreationPreparationEventDisposition.IN_PROGRESS -> return
+                CreationPreparationEventDisposition.READY -> {
+                    synchronized(workers) {
+                        worker.ready = true
+                        worker.preparing = false
+                    }
+                    synchronized(leaseLock) { preparationFailures.restart(worker.tool) }
+                    completeToolPreparation(worker.tool)
+                    return
                 }
-                completeToolPreparation(worker.tool)
-                return
+                CreationPreparationEventDisposition.RETRY -> Unit
             }
             synchronized(workers) {
                 worker.ready = false
                 worker.preparing = false
             }
             if (event?.event == "failure") {
-                    Log.w(
-                        TAG,
-                        "Creation engine preparation failed: " +
-                            publicCreationFailureCategory(event.failureCode),
-                    )
+                Log.w(
+                    TAG,
+                    "Creation engine preparation failed: " +
+                        publicCreationFailureCategory(event.failureCode),
+                )
             }
-            schedulePrepare(worker)
+            val failedStartup = synchronized(leaseLock) {
+                preparationFailures.markFailed(worker.tool)
+                activePreparationTool = activeCreationPreparationAfterFailure(
+                    activePreparationTool,
+                    worker.tool,
+                )
+                if (startupActive == worker.tool) {
+                    startupActive = null
+                    true
+                } else {
+                    false
+                }
+            }
+            handleWorkerLoss(worker, call.epoch)
+            if (failedStartup) {
+                release(worker.tool, STARTUP_LEASE)
+                val next = synchronized(leaseLock) { nextStartupToolLocked() }
+                next?.let { acquire(it, STARTUP_LEASE) }
+            }
+            preparationStateListener?.invoke()
         }
     }
-
-    private fun schedulePrepare(worker: Worker) =
-        requestPrepare(worker, PREPARATION_RETRY_DELAY_MS)
 
     private fun completeToolPreparation(tool: CreationTool) {
         val ready = synchronized(workers) {
             workers.filter { it.tool == tool }.all { it.ready }
         }
-        if (!ready) return
+        if (!ready) {
+            schedulePreparation()
+            return
+        }
         val startupCompleted = synchronized(leaseLock) {
             if (activePreparationTool != tool) return
             activePreparationTool = null
@@ -471,7 +554,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     }
 
     private fun toolIsRequested(tool: CreationTool): Boolean =
-        synchronized(leaseLock) { leases.retained(tool) }
+        creationToolReleased(tool) && synchronized(leaseLock) { leases.retained(tool) }
 
     private data class Worker(
         val key: String,
@@ -505,6 +588,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         private const val TAG = "CreationWorkerPool"
         private const val STARTUP_LEASE = "startup"
         private const val PREPARATION_RETRY_DELAY_MS = 15_000L
+        private const val STARTUP_PREPARATION_DELAY_MS = 2_000L
         private val TERMINAL_EVENTS = setOf("success", "failure", "cancelled")
         @Volatile private var instance: CreationWorkerPool? = null
 
