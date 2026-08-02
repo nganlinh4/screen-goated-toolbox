@@ -59,7 +59,7 @@ Confirm `help-index.json` changed for the intended source tree and contains no l
 ```powershell
 cargo test
 cargo clippy --all-targets -- -D warnings
-.\scripts\validate-windows-targets.ps1 -Arch all
+.\scripts\validate-windows-targets.ps1 -Arch x64
 ```
 
 Run relevant frontend/mobile tests for changed subsystems. Do not waive failures to cut a release.
@@ -97,18 +97,14 @@ report that the creation engine is not included.
 ## 6. Build Windows
 
 ```powershell
-.\build.ps1 -Arch x64
-.\build.ps1 -Arch arm64
-# or both
-.\build.ps1 -Arch all
+.\build.ps1
 ```
 
 Expected build artifacts:
 
 - `target/x86_64-pc-windows-msvc/release/ScreenGoatedToolbox_v<VERSION>.exe`
-- `target/aarch64-pc-windows-msvc/release/ScreenGoatedToolbox_v<VERSION>-arm64.exe`
 
-Smoke-test each architecture on suitable hardware. GitHub currently publishes x64; attach ARM64 only when its release boundary has been explicitly approved.
+Smoke-test the x64 artifact on suitable hardware. GitHub publishes the x64 artifact only.
 
 ## 7. Build Android
 
@@ -150,8 +146,6 @@ gh release create v<VERSION> `
   --notes-file "tmp-release-notes-<VERSION>.txt" `
   "target/x86_64-pc-windows-msvc/release/ScreenGoatedToolbox_v<VERSION>.exe"
 ```
-
-If ARM64 is approved for that release, append its built artifact explicitly.
 
 Review title, body, binaries, sizes, and checksums in GitHub UI. Publish only after owner approval.
 

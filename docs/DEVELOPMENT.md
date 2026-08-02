@@ -133,12 +133,10 @@ Keep one owner per fact. Link to source/configuration for volatile versions, mod
 
 ## Release builds
 
-Owner workflow only:
+The release wrapper builds Windows x64 only:
 
 ```powershell
-.\build.ps1 -Arch x64
-.\build.ps1 -Arch arm64
-.\build.ps1 -Arch all
+.\build.ps1
 ```
 
-Artifacts remain under target-specific release directories. Full release checklist: [`RELEASING.md`](RELEASING.md).
+The artifact remains under the x64 target release directory. Full release checklist: [`RELEASING.md`](RELEASING.md).

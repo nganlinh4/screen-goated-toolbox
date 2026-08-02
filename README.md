@@ -34,7 +34,7 @@ Download the current installer/executable from [GitHub Releases](https://github.
 
 - x64: `ScreenGoatedToolbox_v<VERSION>.exe`
 
-Public releases currently ship Windows x64. ARM64 source compilation/packaging is available but remains a validation target with runtime caveats; see [`docs/WINDOWS_ARM64_SUPPORT.md`](docs/WINDOWS_ARM64_SUPPORT.md).
+Public releases ship Windows x64 only. ARM64 remains a source compile-validation target with runtime caveats; see [`docs/WINDOWS_ARM64_SUPPORT.md`](docs/WINDOWS_ARM64_SUPPORT.md).
 
 WebView-based surfaces require the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 
@@ -50,7 +50,7 @@ Windows prerequisites:
 - Visual Studio 2022 Build Tools, Desktop development with C++ workload.
 - Node.js + npm for embedded web frontends.
 - WebView2 Runtime.
-- LLVM/Clang plus ARM64 MSVC components only for Windows ARM64 builds.
+- LLVM/Clang plus ARM64 MSVC components only for optional ARM64 compile validation.
 
 ```powershell
 git clone https://github.com/nganlinh4/screen-goated-toolbox.git
@@ -60,12 +60,10 @@ cd screen-goated-toolbox
 .\run-dev.ps1
 ```
 
-Release packaging is owner-controlled:
+Release packaging produces the Windows x64 artifact:
 
 ```powershell
-.\build.ps1 -Arch x64
-.\build.ps1 -Arch arm64
-.\build.ps1 -Arch all
+.\build.ps1
 ```
 
 See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for validation, frontend, Android, and help-index workflows.
