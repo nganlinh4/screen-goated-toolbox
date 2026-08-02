@@ -16,8 +16,8 @@ import java.io.File
 /**
  * Per-engine native library download and loading.
  *
- * Full-delivery native libraries. ORT is an immutable bundled asset; the other
- * runtimes are downloaded only when their exact checked-in archive identity is met.
+ * Full-delivery native libraries are downloaded from the runtime-bundles release
+ * and installed only when their exact shared archive identity is verified.
  */
 class NativeLibManager(private val context: Context) {
 
@@ -174,30 +174,21 @@ class NativeLibManager(private val context: Context) {
         val contract = archiveContract(engine)
         val zipFile = File(context.cacheDir, contract.fileName)
         try {
-            if (contract.fullDelivery == "bundled_asset") {
-                require(engine == Engine.ORT) { "Only ORT has a bundled Full runtime" }
-                context.assets.open(NativeRuntimeContract.FULL_ORT_ASSET_PATH).use { source ->
-                    VerifiedNativeArchive.materialize(source, zipFile, contract) { progress ->
-                        flow.value = Status.Downloading(progress * 0.9f)
-                    }
+            require(contract.fullDelivery == "verified_download") {
+                "Unsupported Full native delivery: ${contract.fullDelivery}"
+            }
+            val request = Request.Builder().url("$BASE_URL/${contract.fileName}").build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                val contentLength = response.body.contentLength()
+                require(contentLength < 0L || contentLength == contract.byteCount) {
+                    "${contract.fileName} HTTP byte count differs: $contentLength"
                 }
-            } else {
-                require(contract.fullDelivery == "verified_download") {
-                    "Unsupported Full native delivery: ${contract.fullDelivery}"
-                }
-                val request = Request.Builder().url("$BASE_URL/${contract.fileName}").build()
-                httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-                    val contentLength = response.body.contentLength()
-                    require(contentLength < 0L || contentLength == contract.byteCount) {
-                        "${contract.fileName} HTTP byte count differs: $contentLength"
-                    }
-                    VerifiedNativeArchive.materialize(
-                        response.body.byteStream(),
-                        zipFile,
-                        contract,
-                    ) { progress -> flow.value = Status.Downloading(progress * 0.9f) }
-                }
+                VerifiedNativeArchive.materialize(
+                    response.body.byteStream(),
+                    zipFile,
+                    contract,
+                ) { progress -> flow.value = Status.Downloading(progress * 0.9f) }
             }
             flow.value = Status.Downloading(0.95f)
             VerifiedNativeArchive.install(zipFile, libDir, contract)
@@ -291,7 +282,7 @@ class NativeLibManager(private val context: Context) {
         private var ortLoaded = false
 
         private const val BASE_URL =
-            "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/mobile/androidApp/libs"
+            "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles"
 
         @Synchronized
         fun ensureOrtLoaded(context: Context): Boolean {

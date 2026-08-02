@@ -12,7 +12,11 @@ class NativeRuntimeContractTest {
 
         assertEquals("arm64-v8a", manifest.abi)
         assertEquals(setOf("ort", "moonshine", "sherpa"), manifest.archives.map { it.engine }.toSet())
-        assertEquals("bundled_asset", manifest.archive("ort").fullDelivery)
+        assertEquals("verified_download", manifest.archive("ort").fullDelivery)
+        assertEquals(
+            setOf("verified_download"),
+            manifest.archives.map { it.fullDelivery }.toSet(),
+        )
         manifest.archives.forEach { archive ->
             assertEquals(archive.entries.size, archive.entries.map { it.fileName }.toSet().size)
             archive.entries.forEach { entry -> requireFlatLibraryName(entry.fileName) }

@@ -60,13 +60,9 @@ tasks.register("verifyNativeRuntimeArchives") {
             val engine = archive["engine"] as String
             require(expectedEngines.add(engine)) { "Duplicate native runtime engine: $engine" }
             val fullDelivery = archive["fullDelivery"] as String
-            require(fullDelivery in setOf("bundled_asset", "verified_download")) {
-                "Unsupported Full native delivery for $engine: $fullDelivery"
+            require(fullDelivery == "verified_download") {
+                "Full native runtime must use verified download delivery for $engine"
             }
-            require(
-                (engine == "ort" && fullDelivery == "bundled_asset") ||
-                    (engine != "ort" && fullDelivery == "verified_download"),
-            ) { "Native runtime delivery differs for $engine" }
             val fileName = archive["fileName"] as String
             require(fileName == File(fileName).name && fileName.endsWith("-runtime.zip")) {
                 "Native runtime archive name must be flat: $fileName"

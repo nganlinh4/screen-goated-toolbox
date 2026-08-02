@@ -191,8 +191,9 @@ Copied outputs:
 
 The `play` bundle keeps large native payloads out of the base module and delivers
 the ASR/ORT engines and shared C++ runtime through on-demand dynamic features
-under `feature_*`. The `full` artifact bundles the exact verified ORT archive and
-uses verified downloads for remaining native runtimes. Phone Control has no
+under `feature_*`. The `full` artifact downloads those exact native runtime
+archives from the SGT runtime-bundles release and verifies their declared size
+and SHA-256 before installation. Phone Control has no
 flavor-specific grounding runtime; both distributions use the same current-frame
 vision contract, catalog, provider routes, and authority.
 

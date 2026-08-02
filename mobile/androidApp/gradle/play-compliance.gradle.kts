@@ -257,7 +257,7 @@ tasks.register("verifyPlayReleaseCompliance") {
             "api.github.com/repos/nganlinh4/screen-goated-toolbox",
             "api.github.com/repos/yt-dlp",
             "youtubedl-android/releases/download",
-            "raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/mobile/androidApp/libs",
+            "github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles",
             "browser_download_url",
             "YoutubeDLUpdater",
             "updateYoutubeDL",

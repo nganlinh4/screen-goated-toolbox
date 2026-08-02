@@ -55,6 +55,11 @@ around those contracts.
 - Distribution may change only delivery mechanics for large offline assets. Use
   Play Asset Delivery/dynamic-feature splits where appropriate; a missing module
   is a typed provider state and never a smaller catalog or weaker agent.
+- Full distribution downloads shared native runtime archives from the SGT
+  runtime-bundles release and verifies their exact identity before installation.
+  Play distribution receives the same payloads through Google-hosted on-demand
+  feature modules. Lightweight application and mini-app frontend code remains
+  embedded in both distributions.
 - Store listing and policy compliance are release-review concerns, not runtime
   phrase gates or source-set feature removal. Keep policy declarations and user
   disclosures truthful without changing requested semantics.
