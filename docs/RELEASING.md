@@ -147,6 +147,12 @@ GitHub UI. Publish only after owner approval.
 
 ## 10. Publish Google Play
 
+Explicit owner approval after review is the publication gate for both release
+channels. Once approval is given, publish the reviewed GitHub draft and submit
+the reviewed AAB to the Google Play production track without requesting a second
+confirmation. Until then, keep the GitHub release as a draft and do not commit a
+Play release edit.
+
 Upload the AAB in Play Console, or use the repository helper:
 
 ```powershell
