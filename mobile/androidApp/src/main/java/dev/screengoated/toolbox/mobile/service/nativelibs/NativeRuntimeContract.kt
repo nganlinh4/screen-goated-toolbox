@@ -29,7 +29,6 @@ internal data class NativeRuntimeManifest(
 
 internal object NativeRuntimeContract {
     const val ASSET_PATH = "native-runtime/contract.json"
-    const val FULL_ORT_ASSET_PATH = "native-runtime/ort-runtime.zip"
 
     fun load(context: Context): NativeRuntimeManifest =
         context.assets.open(ASSET_PATH).bufferedReader(Charsets.UTF_8).use { reader ->
@@ -87,7 +86,7 @@ internal object NativeRuntimeContract {
                 val fileName = raw.getString("fileName")
                 requireFlatArchiveName(fileName)
                 val delivery = raw.getString("fullDelivery")
-                require(delivery in setOf("bundled_asset", "verified_download")) {
+                require(delivery == "verified_download") {
                     "Invalid Full native delivery: $delivery"
                 }
                 add(
@@ -111,8 +110,8 @@ internal object NativeRuntimeContract {
         require(archives.map { it.engine }.toSet() == setOf("ort", "moonshine", "sherpa")) {
             "Native runtime contract has an unexpected engine set"
         }
-        require(archives.single { it.engine == "ort" }.fullDelivery == "bundled_asset") {
-            "Full ORT must use the bundled archive"
+        require(archives.all { it.fullDelivery == "verified_download" }) {
+            "Full native runtimes must use verified downloads"
         }
         return NativeRuntimeManifest(abi = abi, archives = archives)
     }

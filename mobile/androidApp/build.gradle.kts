@@ -95,13 +95,10 @@ val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/pr
 val generatedPhoneControlContract = layout.buildDirectory.dir("generated/phoneControlContract")
 val generatedNativeRuntimeContractAssets =
     layout.buildDirectory.dir("generated/nativeRuntimeContractAssets")
-val generatedFullNativeRuntimeAssets =
-    layout.buildDirectory.dir("generated/fullNativeRuntimeAssets")
 val generatedFullCreationRuntimeDeliveryAssets =
     layout.buildDirectory.dir("generated/fullCreationRuntimeDeliveryAssets")
 val nativeRuntimeContractSource = rootProject.projectDir.parentFile
     .resolve("parity-fixtures/phone-control/native-runtime-contract.json")
-val checkedInOrtRuntime = projectDir.resolve("libs/ort-runtime.zip")
 val creationRuntimeDeliveryManifest = System.getenv("SGT_CREATION_RUNTIME_DELIVERY_MANIFEST")
     ?.takeIf { it.isNotBlank() }
     ?.let { file(it) }
@@ -113,12 +110,6 @@ val stageNativeRuntimeContract by tasks.registering(Sync::class) {
     dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
     from(nativeRuntimeContractSource) { rename { "contract.json" } }
     into(generatedNativeRuntimeContractAssets.map { it.dir("native-runtime") })
-}
-
-val stageFullOrtRuntimeAsset by tasks.registering(Sync::class) {
-    dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
-    from(checkedInOrtRuntime)
-    into(generatedFullNativeRuntimeAssets.map { it.dir("native-runtime") })
 }
 
 val stageFullCreationRuntimeDelivery by tasks.registering(Sync::class) {
@@ -478,7 +469,6 @@ android {
         assets.srcDir(generatedNativeRuntimeContractAssets)
     }
     sourceSets.named("full") {
-        assets.srcDir(generatedFullNativeRuntimeAssets)
         assets.srcDir(generatedFullCreationRuntimeDeliveryAssets)
     }
     sourceSets.maybeCreate("testFullDebug").java.srcDir("src/testDebug/java")
@@ -496,7 +486,6 @@ tasks.matching {
 tasks.matching {
     it.name.startsWith("mergeFull") && it.name.endsWith("Assets")
 }.configureEach {
-    dependsOn(stageFullOrtRuntimeAsset)
     dependsOn(stageFullCreationRuntimeDelivery)
 }
 
@@ -522,7 +511,6 @@ tasks.matching {
     dependsOn(generatePresetModelCatalog)
     dependsOn(stageNativeRuntimeContract)
     if (name.contains("Full")) {
-        dependsOn(stageFullOrtRuntimeAsset)
         dependsOn(stageFullCreationRuntimeDelivery)
     }
 }

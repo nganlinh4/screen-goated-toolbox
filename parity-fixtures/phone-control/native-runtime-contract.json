@@ -7,7 +7,7 @@
       "fileName": "ort-runtime.zip",
       "byteCount": 10535076,
       "sha256": "481f8f44fbcb5f9607af3c7a95c8666061d8441af33e5df1e3e3c7a2a8501900",
-      "fullDelivery": "bundled_asset",
+      "fullDelivery": "verified_download",
       "entries": [
         {
           "fileName": "libc++_shared.so",
