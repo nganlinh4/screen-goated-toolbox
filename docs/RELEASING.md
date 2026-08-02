@@ -25,23 +25,16 @@ rg -n 'version\s*=|FILEVERSION|ProductVersion' Cargo.toml app.rc mobile
 
 ## 3. Draft release notes
 
-Create gitignored `tmp-release-notes-<VERSION>.txt`:
-
-1. English bullets.
-2. `---` separator.
-3. Vietnamese section headed `_Phiên bản tiếng Việt:_`.
-4. Support-group line if still current.
-5. Donation footer:
-
-```text
----
-
-💙 **Ủng hộ tác giả** — Người dùng Việt Nam có thể ủng hộ qua VietQR: [bấm vào đây](https://img.vietqr.io/image/970418-8850273958-compact2.png?accountName=NGUYEN%20BAO%20LINH&addInfo=Ung%20ho%20SGT).
-```
+Create gitignored `tmp-release-notes-<VERSION>-github.txt` using the established
+GitHub format: plain English bullets with no added release heading, followed by
+the current Zalo support-group line. Never include Vietnamese release notes,
+Google Play notes, store metadata, or donation copy in a GitHub release body.
 
 Map every bullet to a real commit. Owner reviews notes before any publish step.
 
-Google Play release notes have a 500-character limit per language; maintain a separate short file when publishing to Play.
+Google Play release notes have a 500-character limit per language. Keep each
+locale in a separate gitignored Play-only file and never reuse those files as
+GitHub release notes.
 
 ## 4. Refresh help index
 
@@ -143,11 +136,14 @@ gh release create v<VERSION> `
   --verify-tag `
   --draft `
   --title "Screen Goated Toolbox v<VERSION>" `
-  --notes-file "tmp-release-notes-<VERSION>.txt" `
-  "target/x86_64-pc-windows-msvc/release/ScreenGoatedToolbox_v<VERSION>.exe"
+  --notes-file "tmp-release-notes-<VERSION>-github.txt" `
+  "target/x86_64-pc-windows-msvc/release/ScreenGoatedToolbox_v<VERSION>.exe" `
+  "target/release/ScreenGoatedToolbox_v<VERSION>.apk"
 ```
 
-Review title, body, binaries, sizes, and checksums in GitHub UI. Publish only after owner approval.
+Every GitHub release must attach both the Windows x64 executable and the Full
+Android APK. Review title, English-only body, binaries, sizes, and checksums in
+GitHub UI. Publish only after owner approval.
 
 ## 10. Publish Google Play
 
