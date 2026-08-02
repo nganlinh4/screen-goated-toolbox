@@ -40,7 +40,7 @@ WebView-based surfaces require the [Microsoft Edge WebView2 Runtime](https://dev
 
 ### Android
 
-Install the Play flavor from [Google Play](https://play.google.com/store/apps/details?id=dev.screengoated.toolbox.mobile). Development/full-flavor APK workflow is documented in [`mobile/README.md`](mobile/README.md).
+Install the Play flavor from [Google Play](https://play.google.com/store/apps/details?id=dev.screengoated.toolbox.mobile), or download the Full APK attached to the corresponding GitHub release. Development/full-flavor APK workflow is documented in [`mobile/README.md`](mobile/README.md).
 
 ## Build from source
 
