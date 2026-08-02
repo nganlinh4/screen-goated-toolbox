@@ -1,6 +1,6 @@
 # Windows ARM64 Boundary
 
-The repository compiles and packages Windows x64 and ARM64. Public GitHub releases currently ship x64; ARM64 remains a source and validation target until its release boundary is approved.
+The repository packages Windows x64 only. ARM64 remains an optional source compile-validation target and is not produced or uploaded by the release workflow.
 
 ## What Validation Proves
 

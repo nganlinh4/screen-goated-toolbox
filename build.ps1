@@ -1,8 +1,3 @@
-param(
-    [ValidateSet("x64", "arm64", "all")]
-    [string]$Arch = "x64"
-)
-
 # Re-patch egui-snarl to ensure custom scroll-to-zoom is applied
 Write-Host "Setting up patched egui-snarl..." -ForegroundColor Cyan
 $snarlDir = Join-Path $PSScriptRoot "libs\egui-snarl"
@@ -246,10 +241,9 @@ else {
 
 $targetMap = @{
     "x64" = "x86_64-pc-windows-msvc"
-    "arm64" = "aarch64-pc-windows-msvc"
 }
 
-$selectedArchs = if ($Arch -eq "all") { @("x64", "arm64") } else { @($Arch) }
+$selectedArchs = @("x64")
 $builtArtifacts = @()
 
 # Keep build-machine paths out of panic locations and release debug metadata. The encoded form
@@ -287,6 +281,38 @@ if (-not [string]::IsNullOrEmpty($previousEncodedRustFlags)) {
 }
 $encodedReleaseRustFlags = $releaseRustFlags -join $rustFlagSeparator
 
+# Native dependencies can embed absolute __FILE__ paths independently of rustc.
+$nativePathMappings = @(
+    [PSCustomObject]@{ Source = $workspaceRoot; Destination = "/sgt" },
+    [PSCustomObject]@{ Source = $cargoHome; Destination = "/cargo" }
+)
+if (-not [string]::IsNullOrWhiteSpace($userProfile)) {
+    $nativePathMappings += [PSCustomObject]@{ Source = $userProfile; Destination = "/build-user" }
+}
+$previousCFlags = [Environment]::GetEnvironmentVariable("CFLAGS", [EnvironmentVariableTarget]::Process)
+$previousCxxFlags = [Environment]::GetEnvironmentVariable("CXXFLAGS", [EnvironmentVariableTarget]::Process)
+$previousCmakeCFlags = [Environment]::GetEnvironmentVariable("CMAKE_C_FLAGS", [EnvironmentVariableTarget]::Process)
+$previousCmakeCxxFlags = [Environment]::GetEnvironmentVariable("CMAKE_CXX_FLAGS", [EnvironmentVariableTarget]::Process)
+
+function Join-NativeReleaseFlags {
+    param(
+        [string]$Existing,
+        [string[]]$Additional
+    )
+    return (@($Existing, ($Additional -join " ")) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join " "
+}
+
+function Get-NativeReleaseFlags {
+    $flags = @($nativePathMappings | ForEach-Object {
+        "/pathmap:$($_.Source)=$($_.Destination)"
+    })
+    $flags += @($nativePathMappings | ForEach-Object {
+        "/d1trimfile:$($_.Source)\"
+    })
+    return $flags
+}
+
 function Assert-ReleaseBinaryPrivacy {
     param(
         [Parameter(Mandatory = $true)]
@@ -314,23 +340,20 @@ foreach ($archName in $selectedArchs) {
     $targetTriple = $targetMap[$archName]
     $targetDir = "target/$targetTriple/release"
     $exePathRelease = Join-Path $targetDir "screen-goated-toolbox.exe"
-    $outputExeName = if ($archName -eq "x64") {
-        "ScreenGoatedToolbox_v$version.exe"
-    } else {
-        "ScreenGoatedToolbox_v$version-$archName.exe"
-    }
+    $outputExeName = "ScreenGoatedToolbox_v$version.exe"
     $outputPath = Join-Path $targetDir $outputExeName
-    $legacyX64Path = if ($archName -eq "x64") {
-        Join-Path $targetDir "ScreenGoatedToolbox_v$version-x64.exe"
-    } else {
-        $null
-    }
+    $legacyX64Path = Join-Path $targetDir "ScreenGoatedToolbox_v$version-x64.exe"
 
     Write-Host ""
     Write-Host "=== Building ScreenGoatedToolbox v$version ($archName) ===" -ForegroundColor Cyan
     Write-Host "Using 'release' profile (LTO + stripped)..." -ForegroundColor Gray
     Write-Host "Remapping private build paths in release metadata..." -ForegroundColor Gray
+    $nativeReleaseFlags = Get-NativeReleaseFlags
     $env:CARGO_ENCODED_RUSTFLAGS = $encodedReleaseRustFlags
+    $env:CFLAGS = Join-NativeReleaseFlags $previousCFlags $nativeReleaseFlags
+    $env:CXXFLAGS = Join-NativeReleaseFlags $previousCxxFlags $nativeReleaseFlags
+    $env:CMAKE_C_FLAGS = Join-NativeReleaseFlags $previousCmakeCFlags $nativeReleaseFlags
+    $env:CMAKE_CXX_FLAGS = Join-NativeReleaseFlags $previousCmakeCxxFlags $nativeReleaseFlags
     $cargoExitCode = 0
     try {
         cargo build --release --target $targetTriple
@@ -342,6 +365,30 @@ foreach ($archName in $selectedArchs) {
         }
         else {
             $env:CARGO_ENCODED_RUSTFLAGS = $previousEncodedRustFlags
+        }
+        if ($null -eq $previousCFlags) {
+            Remove-Item Env:CFLAGS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:CFLAGS = $previousCFlags
+        }
+        if ($null -eq $previousCxxFlags) {
+            Remove-Item Env:CXXFLAGS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:CXXFLAGS = $previousCxxFlags
+        }
+        if ($null -eq $previousCmakeCFlags) {
+            Remove-Item Env:CMAKE_C_FLAGS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:CMAKE_C_FLAGS = $previousCmakeCFlags
+        }
+        if ($null -eq $previousCmakeCxxFlags) {
+            Remove-Item Env:CMAKE_CXX_FLAGS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:CMAKE_CXX_FLAGS = $previousCmakeCxxFlags
         }
     }
     if ($cargoExitCode -ne 0) {
