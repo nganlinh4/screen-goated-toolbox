@@ -43,10 +43,16 @@ fn desktop_startup_phases_remain_in_dependency_order() {
             "init_tts",
             "init_gemini_live",
             "clear_webview_permissions",
-            "spawn_warmup_thread",
             "settings_window::run",
         ],
     );
+}
+
+#[test]
+fn desktop_startup_leaves_optional_overlays_on_demand() {
+    let source = read_source("src/app_entry.rs");
+    assert!(!source.contains("spawn_warmup_thread"));
+    assert!(!source.contains("warm_up_orb"));
 }
 
 #[test]

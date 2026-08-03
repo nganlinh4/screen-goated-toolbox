@@ -41,11 +41,6 @@ mod vision_reader;
 pub(crate) use mcp::{ui_install, ui_list, ui_remove, ui_remove_all};
 pub use overlay::{is_active, show_overlay, stop_overlay};
 
-/// Start the hidden orb host without starting a Computer Control session.
-pub(crate) fn warm_up_orb() {
-    orb::ensure_started();
-}
-
 /// CLI entry for the de-risk probe. Multiple tasks run in one real Live session,
 /// which exercises conversation-state behavior without enabling input execution.
 pub fn run_probe_cli(tasks: &[String]) -> Result<(), String> {
