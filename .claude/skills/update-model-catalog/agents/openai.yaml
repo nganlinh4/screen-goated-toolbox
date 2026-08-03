@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update Model Catalog"
+  short_description: "Discover, benchmark, and maintain provider models"
+  default_prompt: "Use $update-model-catalog to audit current provider models, benchmark viable candidates through production paths, and safely update the shared SGT catalog."
