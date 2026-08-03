@@ -41,6 +41,14 @@ permission logic. Do not silently reroute the model's requested tool.
 - Independent correctness belongs in the test oracle, not in a production
   completion quorum. A model claim is never the test oracle.
 
+## Startup
+
+- A missing or explicitly rejected Gemini API key does not leave a Computer
+  Control orb running. Show the localized error through the shared notification
+  badge so hotkey and footer launches have the same visible outcome.
+- Classify credentials only from explicit provider evidence. Network, quota,
+  model, and generic setup failures must not be mislabeled as key failures.
+
 ## Speech
 
 - Audio belongs to its generation.
