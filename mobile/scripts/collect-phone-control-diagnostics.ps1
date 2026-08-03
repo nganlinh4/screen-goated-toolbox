@@ -75,6 +75,11 @@ function ConvertTo-StructuralRecord {
     }
     return [pscustomobject][ordered]@{
         schema_version = $schema
+        process_role = if ($Record.PSObject.Properties["process_role"]) {
+            [string]$Record.process_role
+        } else {
+            "primary_legacy"
+        }
         session_id = if ($Record.PSObject.Properties["session_id"]) {
             [string]$Record.session_id
         } else {
@@ -136,13 +141,18 @@ New-Item -ItemType Directory -Path $resolvedOutput -Force | Out-Null
 $remoteDirectory = "/sdcard/Android/data/$packageName/files/phone-control-diagnostics"
 $remoteListing = & $adb -s $Serial shell ls -1 $remoteDirectory 2>$null
 if ($LASTEXITCODE -eq 0) {
-    foreach ($fileName in @("events.jsonl", "events.previous.jsonl")) {
-        if (@($remoteListing) -contains $fileName) {
-            $remotePath = "$remoteDirectory/$fileName"
-            & $adb -s $Serial pull $remotePath (Join-Path $resolvedOutput $fileName) | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                throw "Failed to pull $remotePath from $Serial."
+    $journalFileNames = @(
+        $remoteListing |
+            ForEach-Object { ([string]$_).Trim() } |
+            Where-Object {
+                $_ -match '^events(?:\.[a-z0-9-]+)?(?:\.previous)?\.jsonl$'
             }
+    )
+    foreach ($fileName in $journalFileNames) {
+        $remotePath = "$remoteDirectory/$fileName"
+        & $adb -s $Serial pull $remotePath (Join-Path $resolvedOutput $fileName) | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to pull $remotePath from $Serial."
         }
     }
 }
@@ -166,10 +176,11 @@ $parseErrors = 0
 $legacyInvalidationRecordsCompacted = 0L
 $legacyHardInvalidationCount = 0L
 $legacySemanticInvalidationCount = 0L
-foreach ($journalName in @("events.previous.jsonl", "events.jsonl")) {
-    $journalPath = Join-Path $resolvedOutput $journalName
-    if (-not (Test-Path -LiteralPath $journalPath)) { continue }
-    foreach ($line in [System.IO.File]::ReadLines($journalPath)) {
+foreach ($journalPath in @(
+    Get-ChildItem -LiteralPath $resolvedOutput -File -Filter "events*.jsonl" |
+        Sort-Object @{ Expression = { -not $_.Name.Contains(".previous.") } }, Name
+)) {
+    foreach ($line in [System.IO.File]::ReadLines($journalPath.FullName)) {
         if (-not $line.Trim()) { continue }
         if ($line.Contains('"event":"invalidation_summary')) {
             $legacyInvalidationRecordsCompacted += 1L
@@ -188,7 +199,7 @@ foreach ($journalName in @("events.previous.jsonl", "events.jsonl")) {
         }
     }
 }
-$orderedRecords = @($records | Sort-Object timestamp_ms, sequence)
+$orderedRecords = @($records | Sort-Object timestamp_ms, session_id, sequence)
 $maxTimelineRecords = 600
 $timelineRecords = @($orderedRecords | Select-Object -Last $maxTimelineRecords)
 $timelineOmittedCount = [Math]::Max(0, $orderedRecords.Count - $timelineRecords.Count)
@@ -202,7 +213,8 @@ $timelineFields = @(
     "certainty", "effect_status", "effect_verified", "snapshot_invalidated",
     "retryable", "fresh_observation_required", "fresh_observation_attached",
     "state_reconciled", "required_user_step", "hard", "semantic_since_hard",
-    "event_type", "window_id", "visual_revision", "reason", "visited_nodes"
+    "event_type", "window_id", "visual_revision", "reason", "result", "ready",
+    "verified", "uid", "pairing_established", "visited_nodes"
 )
 $timeline = foreach ($record in $timelineRecords) {
     $hardInvalidations = if ($record.fields.Contains("hard")) {
@@ -222,7 +234,7 @@ $timeline = foreach ($record in $timelineRecords) {
         }
     }
     $suffix = if (@($pairs).Count -gt 0) { " " + ($pairs -join " ") } else { "" }
-    "$when $($record.level) $($record.event)$suffix"
+    "$when [$($record.process_role)] $($record.level) $($record.event)$suffix"
 }
 @($timeline) | Set-Content -LiteralPath (
     Join-Path $resolvedOutput "timeline.txt"
@@ -260,6 +272,7 @@ $summary = [ordered]@{
     legacy_semantic_invalidation_count = $legacySemanticInvalidationCount
     sessions = New-CountMap -Records $orderedRecords -Selector { $_.session_id }
     record_schemas = New-CountMap -Records $orderedRecords -Selector { $_.schema_version }
+    process_roles = New-CountMap -Records $orderedRecords -Selector { $_.process_role }
     events = New-CountMap -Records $orderedRecords -Selector { $_.event }
     tool_receipt_codes = New-CountMap -Records $toolReceipts -Selector {
         if ($_.fields.Contains("code")) { $_.fields["code"] } else { "unknown" }

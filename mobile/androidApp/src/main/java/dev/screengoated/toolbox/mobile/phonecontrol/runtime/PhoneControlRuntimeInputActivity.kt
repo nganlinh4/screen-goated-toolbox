@@ -30,6 +30,16 @@ internal class PhoneControlRuntimeInputActivity(
         observe(level, SystemClock.elapsedRealtime())
     }
 
+    fun reset() {
+        voiceActivity.reset()
+        synchronized(burstLock) {
+            activeEpoch = 0L
+            activeSinceMs = 0L
+            activeFrames = 0L
+        }
+        onLevel(0f)
+    }
+
     internal fun observe(level: Float, nowMs: Long) {
         val started = voiceActivity.observe(level, nowMs)
         var ended: SpeechBurstEvidence? = null

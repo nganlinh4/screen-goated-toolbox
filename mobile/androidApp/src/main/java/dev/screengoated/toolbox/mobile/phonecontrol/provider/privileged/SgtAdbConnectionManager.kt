@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.AdbPairingRequiredException
 import java.io.IOException
@@ -11,6 +12,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal class SgtAdbConnectionManager(
     context: Context,
@@ -36,18 +38,26 @@ internal class SgtAdbConnectionManager(
     override fun getDeviceName(): String = deviceName
 
     suspend fun pairAndConnect(pairingCode: String, timeoutMs: Long): SgtAdbPairResult {
-        val pairingEndpoint = SgtAdbDiscovery.pairing(appContext, timeoutMs)
+        val deadlineMs = monotonicDeadline(timeoutMs)
+        val pairingEndpoint = SgtAdbDiscovery.pairing(
+            appContext,
+            remainingTimeMs(deadlineMs),
+        )
             ?: return SgtAdbPairResult(SgtAdbPairStatus.PAIRING_ENDPOINT_UNAVAILABLE)
         val pairingHost = pairingEndpoint.address.hostAddress
             ?: return SgtAdbPairResult(SgtAdbPairStatus.PAIRING_ENDPOINT_UNAVAILABLE)
         val paired = try {
-            withContext(Dispatchers.IO) {
-                pair(
-                    pairingHost,
-                    pairingEndpoint.port,
-                    pairingCode,
-                )
-            }
+            val remainingMs = remainingTimeMs(deadlineMs)
+            if (remainingMs <= 0L) false else withTimeoutOrNull(remainingMs) {
+                withContext(Dispatchers.IO) {
+                    setTimeout(remainingMs, TimeUnit.MILLISECONDS)
+                    pair(
+                        pairingHost,
+                        pairingEndpoint.port,
+                        pairingCode,
+                    )
+                }
+            } == true
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
@@ -60,7 +70,7 @@ internal class SgtAdbConnectionManager(
                 pairingEstablished = true,
             )
         }
-        return if (connectDiscovered(timeoutMs).connected) {
+        return if (connectDiscoveredUntil(deadlineMs).connected) {
             SgtAdbPairResult(
                 SgtAdbPairStatus.CONNECTED,
                 pairingEstablished = true,
@@ -75,21 +85,35 @@ internal class SgtAdbConnectionManager(
         }
     }
 
-    suspend fun connectDiscovered(timeoutMs: Long): SgtAdbConnectResult {
+    suspend fun connectDiscovered(timeoutMs: Long): SgtAdbConnectResult =
+        connectDiscoveredUntil(monotonicDeadline(timeoutMs))
+
+    private suspend fun connectDiscoveredUntil(deadlineMs: Long): SgtAdbConnectResult {
         if (isConnected) return SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTED)
         val deviceIdentity = SgtAdbPairingStore.deviceIdentity(appContext)
             ?: return SgtAdbConnectResult(SgtAdbConnectStatus.PAIRING_STATE_MISSING)
+        val discoveryTimeMs = remainingTimeMs(deadlineMs)
+        if (discoveryTimeMs <= 0L) {
+            return SgtAdbConnectResult(SgtAdbConnectStatus.ENDPOINT_NOT_DISCOVERED)
+        }
         val endpoint = SgtAdbDiscovery.connection(
             appContext,
             expectedServiceName = deviceIdentity,
-            timeoutMs = timeoutMs,
+            timeoutMs = discoveryTimeMs,
         ) ?: return SgtAdbConnectResult(SgtAdbConnectStatus.ENDPOINT_NOT_DISCOVERED)
         val host = endpoint.address.hostAddress
             ?: return SgtAdbConnectResult(SgtAdbConnectStatus.ENDPOINT_ADDRESS_MISSING)
         return try {
-            val connected = withContext(Dispatchers.IO) {
-                connect(host, endpoint.port) || isConnected
+            val remainingMs = remainingTimeMs(deadlineMs)
+            if (remainingMs <= 0L) {
+                return SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTION_INTERRUPTED)
             }
+            val connected = withTimeoutOrNull(remainingMs) {
+                withContext(Dispatchers.IO) {
+                    setTimeout(remainingMs, TimeUnit.MILLISECONDS)
+                    connect(host, endpoint.port) || isConnected
+                }
+            } ?: return SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTION_INTERRUPTED)
             SgtAdbConnectResult(
                 if (connected) {
                     SgtAdbConnectStatus.CONNECTED
@@ -118,6 +142,14 @@ internal class SgtAdbConnectionManager(
         const val CONNECTION_TIMEOUT_MS = 10_000L
     }
 }
+
+internal fun monotonicDeadline(timeoutMs: Long, nowMs: Long = SystemClock.elapsedRealtime()): Long =
+    nowMs + timeoutMs.coerceAtLeast(0L)
+
+internal fun remainingTimeMs(
+    deadlineMs: Long,
+    nowMs: Long = SystemClock.elapsedRealtime(),
+): Long = (deadlineMs - nowMs).coerceAtLeast(0L)
 
 internal data class SgtAdbPairResult(
     val status: SgtAdbPairStatus,

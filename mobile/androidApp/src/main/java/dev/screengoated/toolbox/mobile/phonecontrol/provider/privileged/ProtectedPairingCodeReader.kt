@@ -6,45 +6,95 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointReadiness
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointToken
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import kotlinx.coroutines.delay
 
 internal object ProtectedPairingCodeReader {
+    fun surfaceReadiness(context: Context): PhoneControlProtectedCheckpointReadiness {
+        val service = SgtAccessibilityService.instance
+            ?: return ProtectedPairingCodeFailure.ACCESSIBILITY_UNAVAILABLE.notReady()
+        val settingsPackage = settingsPackage(context)
+            ?: return ProtectedPairingCodeFailure.SETTINGS_HANDLER_UNAVAILABLE.notReady()
+        val roots = accessibilityRoots(service)
+            .filter { it.packageName?.toString() == settingsPackage }
+        if (roots.isEmpty()) {
+            return ProtectedPairingCodeFailure.SETTINGS_SURFACE_UNAVAILABLE.notReady()
+        }
+        return if (roots.any { protectedPairingSurfaceReady(accessibilitySurfaceValues(it)) }) {
+            PhoneControlProtectedCheckpointReadiness.Ready
+        } else {
+            ProtectedPairingCodeFailure.PAIRING_SURFACE_NOT_READY.notReady()
+        }
+    }
+
     suspend fun await(
         context: Context,
         token: PhoneControlProtectedCheckpointToken,
         timeoutMs: Long = DEFAULT_TIMEOUT_MS,
-    ): CharArray? {
-        val service = SgtAccessibilityService.instance ?: return null
-        val settingsPackage = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-            .resolveActivity(context.packageManager)
-            ?.packageName
-            ?: return null
+    ): ProtectedPairingCodeReadResult {
+        val service = SgtAccessibilityService.instance
+            ?: return ProtectedPairingCodeReadResult.Unavailable(
+                ProtectedPairingCodeFailure.ACCESSIBILITY_UNAVAILABLE,
+            )
+        val settingsPackage = settingsPackage(context)
+            ?: return ProtectedPairingCodeReadResult.Unavailable(
+                ProtectedPairingCodeFailure.SETTINGS_HANDLER_UNAVAILABLE,
+            )
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        var settingsSurfaceSeen = false
+        var pairingSurfaceSeen = false
         do {
-            if (!PhoneControlProtectedCheckpointRegistry.owns(token)) return null
-            val candidates = accessibilityRoots(service)
+            if (!PhoneControlProtectedCheckpointRegistry.owns(token)) {
+                return ProtectedPairingCodeReadResult.Unavailable(
+                    ProtectedPairingCodeFailure.CHECKPOINT_OWNER_LOST,
+                )
+            }
+            val roots = accessibilityRoots(service)
                 .filter { it.packageName?.toString() == settingsPackage }
-                .mapNotNull { root ->
-                    protectedPairingCode(
-                        accessibilityNodes(root).map { node ->
-                            ProtectedPairingSurfaceValue(
-                                text = node.text,
-                                resourceId = node.viewIdResourceName,
-                                editable = node.isEditable,
-                            )
-                        },
-                    )
-                }
+            settingsSurfaceSeen = settingsSurfaceSeen || roots.isNotEmpty()
+            val surfaces = roots.map(::accessibilitySurfaceValues)
+            pairingSurfaceSeen = pairingSurfaceSeen || surfaces.any(::protectedPairingSurfaceReady)
+            val candidates = surfaces.mapNotNull(::protectedPairingCode)
             val result = uniqueAsciiOneTimeCode(candidates.map(CharArray::concatToString))
             candidates.forEach { it.fill('\u0000') }
-            result?.let { return it }
+            result?.let { return ProtectedPairingCodeReadResult.Available(it) }
             delay(POLL_INTERVAL_MS)
         } while (SystemClock.elapsedRealtime() < deadline)
-        return null
+        val failure = when {
+            !settingsSurfaceSeen -> ProtectedPairingCodeFailure.SETTINGS_SURFACE_UNAVAILABLE
+            !pairingSurfaceSeen -> ProtectedPairingCodeFailure.PAIRING_SURFACE_NOT_READY
+            else -> ProtectedPairingCodeFailure.PAIRING_CODE_UNAVAILABLE
+        }
+        return ProtectedPairingCodeReadResult.Unavailable(failure)
     }
+
+    private fun settingsPackage(context: Context): String? =
+        Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+            .resolveActivity(context.packageManager)
+            ?.packageName
 }
+
+internal sealed interface ProtectedPairingCodeReadResult {
+    data class Available(val code: CharArray) : ProtectedPairingCodeReadResult
+
+    data class Unavailable(
+        val failure: ProtectedPairingCodeFailure,
+    ) : ProtectedPairingCodeReadResult
+}
+
+internal enum class ProtectedPairingCodeFailure(val code: String) {
+    ACCESSIBILITY_UNAVAILABLE("accessibility_unavailable"),
+    SETTINGS_HANDLER_UNAVAILABLE("settings_handler_unavailable"),
+    SETTINGS_SURFACE_UNAVAILABLE("settings_surface_unavailable"),
+    PAIRING_SURFACE_NOT_READY("pairing_surface_not_ready"),
+    PAIRING_CODE_UNAVAILABLE("pairing_code_unavailable"),
+    CHECKPOINT_OWNER_LOST("checkpoint_owner_lost"),
+}
+
+private fun ProtectedPairingCodeFailure.notReady() =
+    PhoneControlProtectedCheckpointReadiness.NotReady(code)
 
 internal fun accessibilityRoots(
     service: SgtAccessibilityService,
@@ -82,12 +132,19 @@ internal data class ProtectedPairingSurfaceValue(
     val editable: Boolean,
 )
 
-internal fun protectedPairingCode(
+private fun accessibilitySurfaceValues(
+    root: AccessibilityNodeInfo,
+): List<ProtectedPairingSurfaceValue> = accessibilityNodes(root).map { node ->
+    ProtectedPairingSurfaceValue(
+        text = node.text,
+        resourceId = node.viewIdResourceName,
+        editable = node.isEditable,
+    )
+}
+
+internal fun protectedPairingSurfaceReady(
     values: List<ProtectedPairingSurfaceValue>,
-): CharArray? {
-    val code = uniqueAsciiOneTimeCode(
-        values.filterNot(ProtectedPairingSurfaceValue::editable).map { it.text },
-    ) ?: return null
+): Boolean {
     val resourceEntries = values.mapNotNull { it.resourceId?.substringAfterLast('/') }
     val canonicalStructure =
         PAIRING_CODE_RESOURCE in resourceEntries &&
@@ -95,8 +152,30 @@ internal fun protectedPairingCode(
             PAIRING_ADDRESS_RESOURCE in resourceEntries
     val genericStructure =
         values.none(ProtectedPairingSurfaceValue::editable) &&
-            values.any { isPairingEndpoint(it.text?.toString().orEmpty()) }
-    if (canonicalStructure || genericStructure) return code
+            values.any { isPairingEndpoint(it.text?.toString().orEmpty()) } &&
+            hasUniqueOneTimeCode(values)
+    return canonicalStructure || genericStructure
+}
+
+private fun hasUniqueOneTimeCode(values: List<ProtectedPairingSurfaceValue>): Boolean {
+    var candidate: CharSequence? = null
+    values.forEach { value ->
+        val text = value.text ?: return@forEach
+        if (text.length != ONE_TIME_CODE_LENGTH || text.any { it !in '0'..'9' }) return@forEach
+        val prior = candidate
+        if (prior != null && prior.toString() != text.toString()) return false
+        candidate = text
+    }
+    return candidate != null
+}
+
+internal fun protectedPairingCode(
+    values: List<ProtectedPairingSurfaceValue>,
+): CharArray? {
+    val code = uniqueAsciiOneTimeCode(
+        values.filterNot(ProtectedPairingSurfaceValue::editable).map { it.text },
+    ) ?: return null
+    if (protectedPairingSurfaceReady(values)) return code
     code.fill('\u0000')
     return null
 }

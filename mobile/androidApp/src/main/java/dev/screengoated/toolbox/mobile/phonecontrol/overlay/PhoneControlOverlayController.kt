@@ -49,14 +49,8 @@ internal class PhoneControlOverlayController(
     }
     private val orbSize = context.dp(128)
     private val edgeMargin = context.dp(12)
-    private val dismissBubble = DismissBubbleController(
-        context = context.applicationContext,
-        windowManager = context.getSystemService(WindowManager::class.java),
-        showDismissAll = false,
-        coordinateScaleOverride = 1f,
-    )
-
     private var host = PhoneControlOverlayWindowHost.resolve(context)
+    private var dismissBubble = createDismissBubble(host)
     private var orb: PhoneControlOrbView? = null
     private var touchTarget: View? = null
     private var powerPrompt: PhoneControlPowerPromptView? = null
@@ -192,6 +186,7 @@ internal class PhoneControlOverlayController(
         if (host.sameOwner(next)) return
         detachWindows()
         host = next
+        dismissBubble = createDismissBubble(next)
         PhoneControlLog.i(TAG, "overlay_host_changed host=${host.describe()}")
     }
 
@@ -473,6 +468,18 @@ internal class PhoneControlOverlayController(
         powerPrompt = null
         powerPromptParams = null
     }
+
+    private fun createDismissBubble(owner: PhoneControlOverlayWindowHost) =
+        DismissBubbleController(
+            context = owner.context,
+            windowManager = owner.windowManager,
+            showDismissAll = false,
+            coordinateScaleOverride = 1f,
+            windowType = owner.windowType,
+            onAttachFailure = {
+                PhoneControlLog.e(TAG, "overlay_attach_failed surface=dismiss_target")
+            },
+        )
 
     private fun overlayLayoutParams(width: Int, height: Int, flags: Int) =
         WindowManager.LayoutParams(

@@ -12,8 +12,8 @@ import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlSetupNotificatio
 import dev.screengoated.toolbox.mobile.phonecontrol.phoneControlString
 import dev.screengoated.toolbox.mobile.phonecontrol.showPhoneControlToast
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PlatformUserStepSlot
-import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbCommandBridge
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbBridgeProbe
 import java.io.Closeable
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -28,6 +28,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
     private var externalStepActive = false
     private var powerObserver: Closeable? = null
     private var reconnectJob: Job? = null
+    private var lastAttempt: PhoneControlSgtAdbSetupAttempt? = null
 
     fun start() {
         powerObserver = PhoneControlPowerPreferences.observe(activity) { choice ->
@@ -51,7 +52,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
         powerObserver = null
     }
 
-    private fun advance(trigger: String) {
+    private fun advance(trigger: String, knownProbe: SgtAdbBridgeProbe? = null) {
         if (closed || activity.isFinishing || activity.isDestroyed) return
         if (PhoneControlService.captureSuspended) {
             PhoneControlLog.i(
@@ -65,20 +66,44 @@ internal class PhoneControlSgtAdbSetupCoordinator(
             cancelForAuthorityChange()
             return
         }
-        val probe = SgtAdbCommandBridge.probe(activity)
+        val probe = knownProbe ?: SgtAdbCommandBridge.probe(activity)
+        val attempt = phoneControlSgtAdbSetupAttempt(probe)
         PhoneControlLog.i(
             TAG,
             "authority_setup_step provider=$PROVIDER_ID trigger=$trigger " +
                 "condition=${probe.condition.name.lowercase()} state=${probe.state.wireName}",
         )
-        when (probe.state) {
-            CapabilityState.READY -> complete()
-            CapabilityState.UNSUPPORTED -> leavePending()
-            CapabilityState.DEGRADED -> reconnectThenContinue()
-            CapabilityState.NEEDS_USER_STEP,
-            CapabilityState.REVOKED,
-            CapabilityState.UNAVAILABLE,
-            -> openWirelessDebugging()
+        when (
+            phoneControlSgtAdbRepeatDisposition(
+                attempt = attempt,
+                previous = lastAttempt,
+                stepActive = externalStepActive || reconnectJob?.isActive == true,
+            )
+        ) {
+            PhoneControlSgtAdbRepeatDisposition.WAIT_FOR_RETURN -> {
+                PhoneControlLog.i(
+                    TAG,
+                    "authority_setup_waiting provider=$PROVIDER_ID " +
+                        "condition=${attempt.condition.name.lowercase()}",
+                )
+                return
+            }
+            PhoneControlSgtAdbRepeatDisposition.LEAVE_SELECTED_PENDING -> {
+                PhoneControlLog.i(
+                    TAG,
+                    "authority_setup_unchanged provider=$PROVIDER_ID " +
+                        "condition=${attempt.condition.name.lowercase()}",
+                )
+                leavePending()
+                return
+            }
+            PhoneControlSgtAdbRepeatDisposition.DISPATCH -> lastAttempt = attempt
+        }
+        when (attempt.action) {
+            PhoneControlSgtAdbSetupAction.COMPLETE -> complete()
+            PhoneControlSgtAdbSetupAction.LEAVE_PENDING -> leavePending()
+            PhoneControlSgtAdbSetupAction.RECONNECT -> reconnectThenContinue()
+            PhoneControlSgtAdbSetupAction.OPEN_SETTINGS -> openWirelessDebugging()
         }
     }
 
@@ -96,7 +121,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
                 reportGuidance(
                     R.string.phone_control_sgt_adb_setup,
                     requestAutomation = true,
-                    captureHandoffAfterAutomation = true,
+                    monitorProtectedCheckpoint = true,
                 )
             }
             .onFailure {
@@ -110,16 +135,13 @@ internal class PhoneControlSgtAdbSetupCoordinator(
         reportGuidance(
             R.string.phone_control_sgt_adb_pending,
             requestAutomation = false,
-            captureHandoffAfterAutomation = false,
+            monitorProtectedCheckpoint = false,
         )
         reconnectJob = activity.lifecycleScope.launch {
             val probe = SgtAdbCommandBridge.reconnect(activity)
             if (closed) return@launch
-            if (probe.state == CapabilityState.READY) {
-                complete()
-            } else {
-                openWirelessDebugging()
-            }
+            reconnectJob = null
+            advance("reconnect_result", probe)
         }
     }
 
@@ -132,7 +154,11 @@ internal class PhoneControlSgtAdbSetupCoordinator(
                 PhoneControlActivity.activationIntent(activity)
             else -> null
         }
-        PhoneControlService.clearAuthoritySetup(activity, PROVIDER_ID)
+        PhoneControlService.clearAuthoritySetup(
+            activity,
+            PROVIDER_ID,
+            verifiedReady = true,
+        )
         activity.showPhoneControlToast(R.string.phone_control_sgt_adb_ready_toast)
         PhoneControlLog.i(TAG, "authority_setup_result provider=$PROVIDER_ID ready=true")
         if (continuation != null) {
@@ -153,7 +179,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
         reportGuidance(
             R.string.phone_control_sgt_adb_pending,
             requestAutomation = false,
-            captureHandoffAfterAutomation = false,
+            monitorProtectedCheckpoint = false,
         )
         activity.showPhoneControlToast(R.string.phone_control_sgt_adb_pending_toast)
         PhoneControlLog.i(TAG, "authority_setup_result provider=$PROVIDER_ID pending=true")
@@ -163,7 +189,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
     private fun reportGuidance(
         messageResource: Int,
         requestAutomation: Boolean,
-        captureHandoffAfterAutomation: Boolean,
+        monitorProtectedCheckpoint: Boolean,
     ) {
         val guidance = activity.phoneControlString(messageResource)
         PhoneControlSetupNotification.show(
@@ -176,7 +202,7 @@ internal class PhoneControlSgtAdbSetupCoordinator(
             providerId = PROVIDER_ID,
             guidance = guidance,
             requestAutomation = requestAutomation,
-            captureHandoffAfterAutomation = captureHandoffAfterAutomation,
+            monitorProtectedCheckpoint = monitorProtectedCheckpoint,
         )
     }
 

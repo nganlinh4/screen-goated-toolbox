@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.annotation.StringRes
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCapturePolicy
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointReadiness
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointToken
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupAdapter
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupNavigationContract
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuProtectedSetupAdapter
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbProtectedSetupAdapter
@@ -41,6 +43,13 @@ internal class PhoneControlProtectedSetupCoordinator(
 
     fun capturePolicy(providerId: String): PhoneControlProtectedCapturePolicy? =
         adapters[providerId]?.capturePolicy
+
+    fun checkpointReadiness(providerId: String): PhoneControlProtectedCheckpointReadiness =
+        adapters[providerId]?.checkpointReadiness(context)
+            ?: PhoneControlProtectedCheckpointReadiness.NotReady("adapter_unavailable")
+
+    fun navigationContract(providerId: String): PhoneControlProtectedSetupNavigationContract? =
+        adapters[providerId]?.navigationContract
 
     fun start(providerId: String, token: PhoneControlProtectedCheckpointToken) {
         cancel()
@@ -105,7 +114,7 @@ internal class PhoneControlProtectedSetupCoordinator(
                 "reason=${if (shouldResume) "provider_progress" else "awaiting_external_progress"}",
         )
         if (!shouldResume) return
-        authoritySetup.clear(reason = "projection_restored")
+        authoritySetup.clearForReadyProbe(reason = "projection_restored")
         authoritySetup.resumeSelectedAuthoritySetup(announceReady = true) {
             resumeSelectedSetup()
         }

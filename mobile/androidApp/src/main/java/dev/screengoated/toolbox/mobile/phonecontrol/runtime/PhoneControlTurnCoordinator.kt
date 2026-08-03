@@ -1,5 +1,4 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.runtime
-
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlEffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlGenerationId
@@ -19,7 +18,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-
 internal class PhoneControlTurnCoordinator(
     executor: PhoneControlToolExecutor,
     scope: CoroutineScope,
@@ -143,6 +141,13 @@ internal class PhoneControlTurnCoordinator(
         tools.cancelAll()
         heldToolRejections.reset()
         pendingTerminalDone = null
+    }
+    fun retireForProtectedCheckpoint(): Boolean {
+        if (tools.pendingCount > 0) return false
+        sink.interruptPlayback()
+        sink.discardQueuedPlayback()
+        interruptGeneration()
+        return true
     }
     fun retireTransportInterruptedTurn(): Boolean {
         if (!lifecycle.turnRemainsActive || currentGeneration == null || tools.pendingCount > 0) {

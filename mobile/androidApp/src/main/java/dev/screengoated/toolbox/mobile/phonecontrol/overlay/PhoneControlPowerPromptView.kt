@@ -91,7 +91,7 @@ internal class PhoneControlPowerPromptView(
             includeFontPadding = false
             minHeight = dp(46)
             setPadding(dp(8), 0, dp(8), 0)
-            background = choiceBackground(presentation.selected, presentation.recommended)
+            background = choiceBackground(presentation.selected)
             isSelected = presentation.selected
             if (presentation.recommended) {
                 setCompoundDrawablesRelative(recommendedIcon(), null, null, null)
@@ -136,7 +136,7 @@ internal class PhoneControlPowerPromptView(
         setOnClickListener { onClick() }
     }
 
-    private fun choiceBackground(selected: Boolean, recommended: Boolean): Drawable {
+    private fun choiceBackground(selected: Boolean): Drawable {
         val shape = if (selected) {
             GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
@@ -146,10 +146,7 @@ internal class PhoneControlPowerPromptView(
             GradientDrawable().apply { setColor(CHOICE_COLOR) }
         }.apply {
             cornerRadius = dp(15).toFloat()
-            setStroke(
-                dp(1),
-                if (recommended) RECOMMENDED_STROKE_COLOR else CHOICE_STROKE_COLOR,
-            )
+            setStroke(dp(1), CHOICE_STROKE_COLOR)
         }
         return RippleDrawable(
             ColorStateList.valueOf(Color.argb(52, 255, 255, 255)),
@@ -185,7 +182,6 @@ internal class PhoneControlPowerPromptView(
         val CHOICE_STROKE_COLOR: Int = Color.argb(95, 160, 151, 185)
         val RECOMMENDED_START_COLOR: Int = Color.rgb(91, 77, 163)
         val RECOMMENDED_END_COLOR: Int = Color.rgb(127, 78, 178)
-        val RECOMMENDED_STROKE_COLOR: Int = Color.rgb(226, 190, 105)
         val RECOMMENDED_ICON_COLOR: Int = Color.rgb(255, 216, 112)
         val SECONDARY_TEXT_COLOR: Int = Color.rgb(190, 194, 211)
     }

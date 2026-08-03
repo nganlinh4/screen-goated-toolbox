@@ -70,11 +70,28 @@ internal class PhoneControlRuntime(
     private val audioFramesSent = AtomicLong(0L)
     private val screenFramesSent = AtomicLong(0L)
     private val serverFramesReceived = AtomicLong(0L)
+    private val protectedCheckpointGoalId = AtomicLong(NO_PROTECTED_CHECKPOINT_GOAL)
     private val userInterfaceGoals = PhoneControlUserInterfaceGoalQueue()
     private val audioCapture = AudioCaptureController(appContext, projectionConsentStore)
     private val audioPlayer = AudioTrackPlayer(appContext)
     private val playbackGate = GenerationPlaybackGate()
     private val outboundSender = PhoneControlOutboundSender()
+    private val setupSession = PhoneControlSetupSessionRuntime(
+        onBegin = {
+            purgeMicrophoneFrames()
+            inputActivity.reset()
+            playbackGate.interrupt(audioPlayer::stopImmediate)
+            playback.discard()
+        },
+        onResetRequested = { screenRefreshRequests.trySend(Unit) },
+        onInputResumed = { source ->
+            inputActivity.reset()
+            statusPublisher.clearConversation()
+            statusPublisher.publishTurnPhase(turnCoordinator.phase)
+            screenRefreshRequests.trySend(Unit)
+            Log.i(TAG, "setup_session_state state=ready input_admitted=true source=$source")
+        },
+    )
 
     private val audioFrames = Channel<ShortArray>(
         capacity = MAX_BUFFERED_AUDIO_FRAMES,
@@ -103,6 +120,7 @@ internal class PhoneControlRuntime(
         audioFrames = audioFrames,
         bufferedAudio = bufferedAudio,
         playback = playback,
+        inputAdmitted = setupSession::inputAdmitted,
         onListeningLevel = { level -> inputActivity.observe(level) },
     )
 
@@ -176,8 +194,9 @@ internal class PhoneControlRuntime(
                 val receipt = PhoneControlBrowserLifecycle.retireTurn(turnId)
                 Log.i(
                     TAG,
-                    "browser_turn_cleanup requested=${receipt.requested} " +
-                        "verified=${receipt.verifiedClosed} unresolved=${receipt.unresolved}",
+                    "browser_turn_cleanup requested_count=${receipt.requested} " +
+                        "verified_count=${receipt.verifiedClosed} " +
+                        "unresolved_count=${receipt.unresolved}",
                 )
             }
         },
@@ -214,7 +233,11 @@ internal class PhoneControlRuntime(
             screenFramesSent = screenFramesSent,
             pendingWorkCount = turnCoordinator::pendingWorkCount,
             turnPhase = turnCoordinator::phase,
-            userSpeaking = { inputActivity.isActive(SystemClock.elapsedRealtime()) },
+            microphoneInput = setupSession.inputGate,
+            userSpeaking = {
+                setupSession.inputAdmitted &&
+                    inputActivity.isActive(SystemClock.elapsedRealtime())
+            },
             userInterfaceGoals = userInterfaceGoals,
             onInputSent = lifecycle::inputSent,
             onInputActivity = lifecycle::inputActivity,
@@ -257,6 +280,18 @@ internal class PhoneControlRuntime(
             )
         },
         onEffect = lifecycleEffects::observe,
+    )
+    private val sessionBoundary = PhoneControlRuntimeSessionBoundary(
+        lifecycle = lifecycle,
+        transportReady = transportReady,
+        discardOutboundUntilFreshConnection = discardOutboundUntilFreshConnection,
+        setupSession = setupSession,
+        userInterfaceGoals = userInterfaceGoals,
+        turnCoordinator = turnCoordinator,
+        statusPublisher = statusPublisher,
+        clearResumptionHandle = { resumptionHandle = null },
+        purgeSessionOutbound = ::purgeSessionOutbound,
+        requestScreenRefresh = { screenRefreshRequests.trySend(Unit) },
     )
 
     private var sessionJob: Job? = null
@@ -327,6 +362,16 @@ internal class PhoneControlRuntime(
             PhoneControlUiGoalPresentation.CONVERSATIONAL,
     ): Long? = uiGoalSubmission.submit(text, presentation)
 
+    fun requestProtectedCheckpointBoundary(goalId: Long): Boolean {
+        if (goalId <= 0L || !running.get() || resourcesReleased.get()) return false
+        while (true) {
+            val current = protectedCheckpointGoalId.get()
+            if (current == goalId) return true
+            if (current != NO_PROTECTED_CHECKPOINT_GOAL) return false
+            if (protectedCheckpointGoalId.compareAndSet(current, goalId)) return true
+        }
+    }
+
     fun suspendVisualEvidence() {
         visualEvidence.suspend(
             screenFrames,
@@ -338,12 +383,29 @@ internal class PhoneControlRuntime(
 
     fun resumeVisualEvidence() = visualEvidence.resume(screenRefreshRequests)
 
+    fun beginAuthoritySetupSession() {
+        setupSession.begin()
+    }
+
+    fun finishAuthoritySetupSession(waitForAnnouncement: Boolean) {
+        setupSession.finish(waitForAnnouncement)
+    }
+
+    fun authoritySetupAnnouncementFinished() {
+        setupSession.observeAnnouncementFinished()
+    }
+
     private suspend fun runTransportLoop() {
         var readyGeneration = 0L
         while (currentCoroutineContext().isActive && running.get()) {
+            if (setupSession.consumeResetRequest()) {
+                resetAuthoritySetupConversation()
+                continue
+            }
             turnCoordinator.drainToolCompletions()
+            settleProtectedCheckpointBoundary()
             settleUserInterfaceGoalIfReady()
-            if (abortOverflowedProtocolSession()) continue
+            if (sessionBoundary.abortOverflowedProtocolSession(protocolAbortRequested)) continue
             val connection = lifecycle.ensureReady()
             if (lifecycle.state.phase == GeminiLiveLifecyclePhase.FAILED) break
             if (connection == null) {
@@ -351,7 +413,7 @@ internal class PhoneControlRuntime(
                 delay(TRANSPORT_POLL_MS)
                 continue
             }
-            bindReadyConnection(connection, readyGeneration != connection.generation)
+            sessionBoundary.bindReady(connection, readyGeneration != connection.generation)
             readyGeneration = connection.generation
             val sent = runtimeOutbound.flush(connection.session)
             if (!sent) {
@@ -361,7 +423,8 @@ internal class PhoneControlRuntime(
             lifecycle.updateWorkState(
                 pendingWorkCount = turnCoordinator.pendingWorkCount.toLong(),
                 bufferedInputCount = bufferedAudio.get().coerceAtLeast(0).toLong(),
-                userSpeaking = inputActivity.isActive(SystemClock.elapsedRealtime()),
+                userSpeaking = setupSession.inputAdmitted &&
+                    inputActivity.isActive(SystemClock.elapsedRealtime()),
             )
             when (val received = connection.session.receive(RECEIVE_POLL_MS)) {
                 GeminiLiveReceiveResult.TimedOut -> lifecycle.tick()
@@ -394,35 +457,8 @@ internal class PhoneControlRuntime(
         }
     }
 
-    private fun bindReadyConnection(
-        connection: GeminiLiveLifecycleConnection,
-        becameReady: Boolean,
-    ) {
-        if (becameReady && discardOutboundUntilFreshConnection.compareAndSet(true, false)) {
-            purgeSessionOutbound()
-            turnCoordinator.freshProtocolSessionBound()
-        }
-        transportReady.set(true)
-        if (becameReady) {
-            Log.i(TAG, "transport_ready generation=${connection.generation}")
-            screenRefreshRequests.trySend(Unit)
-            statusPublisher.publishTurnPhase(turnCoordinator.phase)
-        }
-    }
-
-    private suspend fun abortOverflowedProtocolSession(): Boolean {
-        if (!protocolAbortRequested.compareAndSet(true, false)) return false
-        transportReady.set(false)
-        resumptionHandle = null
-        discardOutboundUntilFreshConnection.set(true)
-        turnCoordinator.abandonProtocolSession()
-        purgeSessionOutbound()
-        val generation = lifecycle.activeConnection?.generation ?: lifecycle.state.generation
-        Log.e(TAG, "protocol_overflow_abandon generation=$generation")
-        if (generation > 0L && lifecycle.state.phase != GeminiLiveLifecyclePhase.FAILED) {
-            lifecycle.transportFailed(generation)
-        }
-        return true
+    private suspend fun resetAuthoritySetupConversation() {
+        sessionBoundary.resetSetupConversation()
     }
 
     private fun purgeSessionOutbound() {
@@ -430,13 +466,17 @@ internal class PhoneControlRuntime(
         while (screenFrames.tryReceive().isSuccess) {
             // A fresh connection must receive a fresh screen observation.
         }
-        while (audioFrames.tryReceive().isSuccess) {
-            bufferedAudio.updateAndGet { (it - 1).coerceAtLeast(0) }
-        }
+        purgeMicrophoneFrames()
         while (screenRefreshRequests.tryReceive().isSuccess) {
             // The fresh connection requests its own capture after binding.
         }
         screenReconciliationQueued.set(false)
+    }
+
+    private fun purgeMicrophoneFrames() {
+        while (audioFrames.tryReceive().isSuccess) {
+            bufferedAudio.updateAndGet { (it - 1).coerceAtLeast(0) }
+        }
     }
 
     private suspend fun observeServerFrame(
@@ -495,6 +535,18 @@ internal class PhoneControlRuntime(
         )?.let(onUserInterfaceGoalFinished)
     }
 
+    private fun settleProtectedCheckpointBoundary() {
+        val goalId = protectedCheckpointGoalId.get()
+        if (goalId == NO_PROTECTED_CHECKPOINT_GOAL ||
+            !turnCoordinator.retireForProtectedCheckpoint()
+        ) {
+            return
+        }
+        val completion = userInterfaceGoals.retireForProtectedCheckpoint(goalId)
+        protectedCheckpointGoalId.compareAndSet(goalId, NO_PROTECTED_CHECKPOINT_GOAL)
+        completion?.let(onUserInterfaceGoalFinished)
+    }
+
     private suspend fun observeReceiveFailure(
         connection: GeminiLiveLifecycleConnection,
         failure: GeminiLiveSessionFailure,
@@ -518,6 +570,7 @@ internal class PhoneControlRuntime(
         running.set(false)
         transportReady.set(false)
         userInterfaceGoals.clear()
+        protectedCheckpointGoalId.set(NO_PROTECTED_CHECKPOINT_GOAL)
         memoryTurnRecorder.finalizeSession()
         turnCoordinator.stop()
         audioFrames.close()
@@ -537,5 +590,6 @@ internal class PhoneControlRuntime(
 
     private companion object {
         const val TAG = "SGTPhoneControl"
+        const val NO_PROTECTED_CHECKPOINT_GOAL = -1L
     }
 }

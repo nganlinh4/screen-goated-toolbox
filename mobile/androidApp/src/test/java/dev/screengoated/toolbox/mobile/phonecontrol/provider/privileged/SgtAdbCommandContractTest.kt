@@ -13,6 +13,15 @@ import org.junit.Test
 
 class SgtAdbCommandContractTest {
     @Test
+    fun `pairing stages consume one monotonic deadline`() {
+        val deadline = monotonicDeadline(timeoutMs = 10_000, nowMs = 2_000)
+
+        assertEquals(12_000, deadline)
+        assertEquals(7_500, remainingTimeMs(deadline, nowMs = 4_500))
+        assertEquals(0, remainingTimeMs(deadline, nowMs = 13_000))
+    }
+
+    @Test
     fun `shell quoting preserves every exact argument as one word`() {
         assertEquals("''", shellQuote(""))
         assertEquals("'plain'", shellQuote("plain"))

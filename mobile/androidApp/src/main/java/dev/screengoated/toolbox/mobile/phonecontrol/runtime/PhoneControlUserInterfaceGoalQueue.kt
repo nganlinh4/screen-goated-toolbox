@@ -22,6 +22,7 @@ internal enum class PhoneControlUiGoalFlush {
 internal enum class PhoneControlUiGoalOutcome {
     COMPLETED,
     INTERRUPTED,
+    PROTECTED_CHECKPOINT,
 }
 
 internal enum class PhoneControlUiGoalPresentation {
@@ -155,6 +156,23 @@ internal class PhoneControlUserInterfaceGoalQueue(
         if (!inFlight.compareAndSet(active, null)) return null
         terminalBoundaryId.compareAndSet(active.id, NO_GOAL)
         return PhoneControlUiGoalCompletion(active.id, PhoneControlUiGoalOutcome.COMPLETED)
+    }
+
+    fun retireForProtectedCheckpoint(goalId: Long): PhoneControlUiGoalCompletion? {
+        val queued = pending.get()
+        if (queued?.id == goalId && pending.compareAndSet(queued, null)) {
+            return PhoneControlUiGoalCompletion(
+                goalId,
+                PhoneControlUiGoalOutcome.PROTECTED_CHECKPOINT,
+            )
+        }
+        val active = inFlight.get()?.takeIf { it.id == goalId } ?: return null
+        if (!inFlight.compareAndSet(active, null)) return null
+        terminalBoundaryId.compareAndSet(goalId, NO_GOAL)
+        return PhoneControlUiGoalCompletion(
+            goalId,
+            PhoneControlUiGoalOutcome.PROTECTED_CHECKPOINT,
+        )
     }
 
     fun clear() {

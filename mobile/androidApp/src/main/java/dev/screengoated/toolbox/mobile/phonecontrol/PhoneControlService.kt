@@ -45,7 +45,9 @@ class PhoneControlService : Service() {
     private lateinit var overlayController: PhoneControlOverlayController
     private lateinit var sessionNotification: PhoneControlSessionNotification
     private lateinit var authoritySetup: PhoneControlAuthoritySetupController
+    private lateinit var authoritySetupAnnouncer: PhoneControlAuthoritySetupAnnouncer
     private lateinit var protectedSetup: PhoneControlProtectedSetupCoordinator
+    private lateinit var protectedHandoff: PhoneControlProtectedCheckpointHandoff
     private val protectedCheckpoint = PhoneControlProtectedCheckpointController()
     private var runtime: PhoneControlRuntime? = null
     private var preserveFailureOnDestroy = false
@@ -57,18 +59,39 @@ class PhoneControlService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "service_created")
+        protectedSetup = PhoneControlProtectedSetupCoordinator(
+            this,
+            { providerId, guidance -> authoritySetup.replaceGuidance(providerId, guidance) },
+            ::restoreRetainedProjection,
+        )
+        protectedHandoff = PhoneControlProtectedCheckpointHandoff(
+            context = this,
+            setup = protectedSetup,
+            checkpoint = protectedCheckpoint,
+            runtime = { runtime },
+            projectionActive = { projectionActive },
+            releaseProjection = ::releaseProjection,
+            continueNavigation = { providerId, previousGoalId, reason ->
+                authoritySetup.continueProtectedNavigation(
+                    providerId,
+                    previousGoalId,
+                    reason,
+                )
+            },
+            navigationExhausted = { providerId, reason ->
+                authoritySetup.onProtectedNavigationExhausted(providerId, reason)
+            },
+        )
+        authoritySetupAnnouncer = PhoneControlAuthoritySetupAnnouncer(this) { runtime }
         authoritySetup = PhoneControlAuthoritySetupController(
             context = this,
             runtime = { runtime },
             publishGuidance = { guidance ->
                 publish(mutableState.value.copy(authorityGuidance = guidance))
             },
-            enterProtectedCheckpoint = ::enterProtectedCheckpoint,
-        )
-        protectedSetup = PhoneControlProtectedSetupCoordinator(
-            this,
-            authoritySetup::replaceGuidance,
-            ::restoreRetainedProjection,
+            navigationContract = protectedSetup::navigationContract,
+            protectedHandoff = protectedHandoff,
+            onSetupSessionEvent = authoritySetupAnnouncer::onSetupSessionEvent,
         )
         overlayController = PhoneControlOverlayController(
             context = this,
@@ -98,7 +121,14 @@ class PhoneControlService : Service() {
             ACTION_AUTHORITY_SETUP_CLEAR ->
                 if (intent.getStringExtra(EXTRA_AUTHORITY_PROVIDER_ID).isNullOrBlank()) {
                     selectPowerChoice(PhoneControlPowerChoice.STANDARD)
-                } else authoritySetup.clear(intent.getStringExtra(EXTRA_AUTHORITY_PROVIDER_ID))
+                } else {
+                    val providerId = intent.getStringExtra(EXTRA_AUTHORITY_PROVIDER_ID).orEmpty()
+                    if (intent.getBooleanExtra(EXTRA_AUTHORITY_SETUP_VERIFIED_READY, false)) {
+                        authoritySetup.completeIfVerifiedReady(providerId)
+                    } else {
+                        authoritySetup.clear(providerId)
+                    }
+                }
             else -> {
                 if (runtime == null) {
                     stopReason = "runtime_terminal"
@@ -114,6 +144,8 @@ class PhoneControlService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "service_destroyed reason=$stopReason")
+        protectedHandoff.close()
+        authoritySetupAnnouncer.close()
         runtime?.stop()
         runtime = null
         PhoneControlBrowserLifecycle.close()
@@ -284,23 +316,6 @@ class PhoneControlService : Service() {
         PhoneControlProjectionProvider.stop()
     }
 
-    private fun enterProtectedCheckpoint(providerId: String): Boolean {
-        val candidate = runtime ?: return false
-        val policy = protectedSetup.capturePolicy(providerId)
-        if (!projectionActive || protectedCheckpoint.active || policy == null) {
-            Log.w(TAG, "protected_checkpoint_enter accepted=false reason=state_or_adapter")
-            return false
-        }
-        val token = protectedCheckpoint.begin(
-            providerId,
-            policy,
-            candidate,
-            ::releaseProjection,
-        ) ?: return false
-        protectedSetup.start(providerId, token)
-        return true
-    }
-
     private fun attachProjection(intent: Intent) {
         val candidate = runtime
         val token = protectedCheckpoint.activeToken
@@ -345,6 +360,7 @@ class PhoneControlService : Service() {
     }
 
     private fun selectPowerChoice(choice: PhoneControlPowerChoice) {
+        protectedHandoff.cancelIfAuthorityChanged(choice.elevatedProviderId)
         authoritySetup.onPowerChoiceSelected(choice)
         val freshProjectionRequired = protectedCheckpoint.freshProjectionRequired
         if (protectedCheckpoint.active) {
@@ -383,7 +399,7 @@ class PhoneControlService : Service() {
         ) {
             return
         }
-        authoritySetup.clear(reason = "retained_projection_restored")
+        authoritySetup.clearForReadyProbe(reason = "retained_projection_restored")
         resumeSelectedAuthoritySetup(announceReady = true)
     }
     private fun resumeSelectedAuthoritySetup(announceReady: Boolean = false) {
@@ -441,7 +457,7 @@ class PhoneControlService : Service() {
             running = snapshot.running,
             phase = snapshot.phase,
             code = snapshot.code,
-            userMessage = localizedRuntimeMessage(snapshot.code),
+            userMessage = phoneControlRuntimeMessage(snapshot.code),
             inputCaption = snapshot.inputCaption,
             outputCaption = snapshot.outputCaption,
             listeningLevel = snapshot.listeningLevel,
@@ -473,33 +489,6 @@ class PhoneControlService : Service() {
         sessionNotification.enterForeground(phoneControlString(R.string.phone_control_status_starting))
     }
 
-    private fun localizedRuntimeMessage(code: PhoneControlRuntimeCode): String = phoneControlString(
-        when (code) {
-            PhoneControlRuntimeCode.STOPPED -> R.string.phone_control_status_stopped
-            PhoneControlRuntimeCode.STARTING -> R.string.phone_control_status_starting
-            PhoneControlRuntimeCode.CONNECTING -> R.string.phone_control_status_connecting
-            PhoneControlRuntimeCode.READY -> R.string.phone_control_status_ready
-            PhoneControlRuntimeCode.WORKING -> R.string.phone_control_status_working
-            PhoneControlRuntimeCode.FINALIZING -> R.string.phone_control_status_finalizing
-            PhoneControlRuntimeCode.RECONNECTING -> R.string.phone_control_status_reconnecting
-            PhoneControlRuntimeCode.ACCESSIBILITY_UNAVAILABLE ->
-                R.string.phone_control_status_accessibility_unavailable
-            PhoneControlRuntimeCode.SCREEN_CAPTURE_FAILED ->
-                R.string.phone_control_status_capture_failed
-            PhoneControlRuntimeCode.SCREEN_SHARE_REQUIRED ->
-                R.string.phone_control_status_projection_required
-            PhoneControlRuntimeCode.API_KEY_REQUIRED ->
-                R.string.phone_control_status_api_key_required
-            PhoneControlRuntimeCode.CONFIGURATION_FAILED ->
-                R.string.phone_control_status_configuration_failed
-            PhoneControlRuntimeCode.MICROPHONE_FAILED ->
-                R.string.phone_control_status_microphone_failed
-            PhoneControlRuntimeCode.TRANSPORT_FAILED ->
-                R.string.phone_control_status_transport_failed
-            PhoneControlRuntimeCode.RUNTIME_FAILED -> R.string.phone_control_status_runtime_failed
-        },
-    )
-
     private fun stoppedState() = PhoneControlServiceState(
         running = false,
         phase = PhoneControlRuntimePhase.STOPPED,
@@ -519,6 +508,8 @@ class PhoneControlService : Service() {
         private const val ACTION_AUTHORITY_SETUP_CLEAR =
             "dev.screengoated.toolbox.mobile.phonecontrol.AUTHORITY_SETUP_CLEAR"
         private const val EXTRA_STOP_SOURCE = "dev.screengoated.toolbox.mobile.phonecontrol.STOP_SOURCE"
+        private const val EXTRA_AUTHORITY_SETUP_VERIFIED_READY =
+            "dev.screengoated.toolbox.mobile.phonecontrol.AUTHORITY_SETUP_VERIFIED_READY"
         private val mutableState = mutableStateOf(stoppedPhoneControlServiceState())
         internal val state: State<PhoneControlServiceState> = mutableState
 
@@ -560,7 +551,7 @@ class PhoneControlService : Service() {
             providerId: String,
             guidance: String,
             requestAutomation: Boolean,
-            captureHandoffAfterAutomation: Boolean,
+            monitorProtectedCheckpoint: Boolean,
         ) {
             if (!state.value.running) return
             context.startService(
@@ -570,19 +561,24 @@ class PhoneControlService : Service() {
                     .putExtra(EXTRA_AUTHORITY_GUIDANCE, guidance)
                     .putExtra(EXTRA_AUTHORITY_AUTOMATION_REQUESTED, requestAutomation)
                     .putExtra(
-                        EXTRA_CAPTURE_HANDOFF_AFTER_AUTOMATION,
-                        captureHandoffAfterAutomation,
+                        EXTRA_PROTECTED_CHECKPOINT_MONITORING,
+                        monitorProtectedCheckpoint,
                     ),
             )
         }
 
-        internal fun clearAuthoritySetup(context: Context, providerId: String? = null) {
+        internal fun clearAuthoritySetup(
+            context: Context,
+            providerId: String? = null,
+            verifiedReady: Boolean = false,
+        ) {
             PhoneControlSetupNotification.clear(context)
             if (!state.value.running) return
             context.startService(
                 Intent(context, PhoneControlService::class.java)
                     .setAction(ACTION_AUTHORITY_SETUP_CLEAR)
-                    .putExtra(EXTRA_AUTHORITY_PROVIDER_ID, providerId.orEmpty()),
+                    .putExtra(EXTRA_AUTHORITY_PROVIDER_ID, providerId.orEmpty())
+                    .putExtra(EXTRA_AUTHORITY_SETUP_VERIFIED_READY, verifiedReady),
             )
         }
 

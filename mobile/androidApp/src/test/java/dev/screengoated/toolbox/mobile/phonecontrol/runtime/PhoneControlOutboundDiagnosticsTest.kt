@@ -215,6 +215,59 @@ class PhoneControlOutboundDiagnosticsTest {
     }
 
     @Test
+    fun `protected checkpoint retires only its exact queued UI goal`() {
+        val queue = PhoneControlUserInterfaceGoalQueue()
+        val offered = queue.offer(
+            "navigate to protected checkpoint",
+            runtimeReady = true,
+            presentation = PhoneControlUiGoalPresentation.SILENT,
+        )
+        val goalId = requireNotNull(offered.id)
+
+        assertNull(queue.retireForProtectedCheckpoint(goalId + 1))
+        assertEquals(
+            PhoneControlUiGoalCompletion(goalId, PhoneControlUiGoalOutcome.PROTECTED_CHECKPOINT),
+            queue.retireForProtectedCheckpoint(goalId),
+        )
+        assertFalse(queue.conversationSurfaceSuppressed)
+    }
+
+    @Test
+    fun `protected checkpoint retires an in flight silent UI goal`() {
+        val queue = PhoneControlUserInterfaceGoalQueue()
+        val goalId = requireNotNull(
+            queue.offer(
+                "navigate to protected checkpoint",
+                runtimeReady = true,
+                presentation = PhoneControlUiGoalPresentation.SILENT,
+            ).id,
+        )
+        assertEquals(
+            PhoneControlUiGoalFlush.SENT,
+            queue.flush(
+                phase = PhoneControlTurnPhase.IDLE,
+                pendingWorkCount = 0,
+                userSpeaking = false,
+                send = { true },
+            ),
+        )
+        assertTrue(queue.conversationSurfaceSuppressed)
+
+        assertEquals(
+            PhoneControlUiGoalCompletion(goalId, PhoneControlUiGoalOutcome.PROTECTED_CHECKPOINT),
+            queue.retireForProtectedCheckpoint(goalId),
+        )
+        assertFalse(queue.conversationSurfaceSuppressed)
+        assertNull(
+            queue.settle(
+                phase = PhoneControlTurnPhase.IDLE,
+                pendingWorkCount = 0,
+                playbackDrained = true,
+            ),
+        )
+    }
+
+    @Test
     fun `rejected silent goal send rolls back conversation suppression`() {
         val queue = PhoneControlUserInterfaceGoalQueue(maximumChars = 64)
         queue.offer(

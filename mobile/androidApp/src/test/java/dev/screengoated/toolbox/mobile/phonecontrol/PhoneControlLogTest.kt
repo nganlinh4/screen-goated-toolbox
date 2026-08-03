@@ -77,6 +77,67 @@ class PhoneControlLogTest {
     }
 
     @Test
+    fun `browser cleanup remains a typed event`() {
+        val parsed = PhoneControlLog.parseDiagnosticEvent(
+            "browser_turn_cleanup requested_count=2 verified_count=2 unresolved_count=0",
+        )
+
+        assertEquals("browser_turn_cleanup", parsed.name)
+        assertEquals(2L, parsed.fields["requested_count"])
+        assertEquals(2L, parsed.fields["verified_count"])
+        assertEquals(0L, parsed.fields["unresolved_count"])
+    }
+
+    @Test
+    fun `setup session diagnostics preserve only structural admission state`() {
+        val parsed = PhoneControlLog.parseDiagnosticEvent(
+            "setup_session_state state=reset_requested input_admitted=false " +
+                "announcement_pending=true private=discarded",
+        )
+
+        assertEquals("setup_session_state", parsed.name)
+        assertEquals("reset_requested", parsed.fields["state"])
+        assertEquals(false, parsed.fields["input_admitted"])
+        assertEquals(true, parsed.fields["announcement_pending"])
+        assertFalse(parsed.fields.containsKey("private"))
+    }
+
+    @Test
+    fun `process roles own separate bounded journal pairs`() {
+        assertEquals(
+            "events.jsonl",
+            PhoneControlDiagnosticProcessRole.PRIMARY.currentFileName,
+        )
+        assertEquals(
+            "events.previous.jsonl",
+            PhoneControlDiagnosticProcessRole.PRIMARY.previousFileName,
+        )
+        assertEquals(
+            "events.authority-bridge.jsonl",
+            PhoneControlDiagnosticProcessRole.AUTHORITY_BRIDGE.currentFileName,
+        )
+        assertEquals(
+            "events.authority-bridge.previous.jsonl",
+            PhoneControlDiagnosticProcessRole.AUTHORITY_BRIDGE.previousFileName,
+        )
+    }
+
+    @Test
+    fun `bridge terminal events retain outcomes but reject secrets`() {
+        val parsed = PhoneControlLog.parseDiagnosticEvent(
+            "pair_result result=connected provider=sgt_adb_bridge " +
+                "pairing_established=true pairing_code=123456 endpoint=private",
+        )
+
+        assertEquals("pair_result", parsed.name)
+        assertEquals("connected", parsed.fields["result"])
+        assertEquals("sgt_adb_bridge", parsed.fields["provider"])
+        assertEquals(true, parsed.fields["pairing_established"])
+        assertFalse(parsed.fields.containsKey("pairing_code"))
+        assertFalse(parsed.fields.containsKey("endpoint"))
+    }
+
+    @Test
     fun `console throwable summary omits the exception message`() {
         val error = IllegalStateException("private credential")
         error.stackTrace = arrayOf(

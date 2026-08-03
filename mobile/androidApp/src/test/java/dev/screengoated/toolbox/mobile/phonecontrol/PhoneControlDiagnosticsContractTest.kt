@@ -18,6 +18,8 @@ class PhoneControlDiagnosticsContractTest {
         val root = Json.parseToJsonElement(fixture().readText()).jsonObject
         val journal = root.getValue("journal").jsonObject
         val fieldAdmission = journal.getValue("fieldAdmission").jsonObject
+        val processJournals = journal.getValue("processJournals").jsonObject
+        val bridgeEvents = journal.getValue("authorityBridgeEvents").jsonObject
         val legacyCompaction = journal.getValue("legacyInvalidationCompaction").jsonObject
         val timelineTail = journal.getValue("timelineTail").jsonObject
         val toolEvents = root.getValue("toolEvents").jsonObject
@@ -28,7 +30,7 @@ class PhoneControlDiagnosticsContractTest {
         val recovery = root.getValue("sameGenerationTargetRecovery").jsonObject
         val postconditions = root.getValue("postconditions").jsonObject
 
-        assertEquals(7L, root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(8L, root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals(
             PhoneControlLog.RECORD_SCHEMA_VERSION.toLong(),
             journal.getValue("recordSchemaVersion").jsonPrimitive.long,
@@ -36,6 +38,34 @@ class PhoneControlDiagnosticsContractTest {
         assertFalse(journal.getValue("persistsTranscriptText").jsonPrimitive.boolean)
         assertFalse(journal.getValue("persistsFreeFormMessage").jsonPrimitive.boolean)
         assertFalse(journal.getValue("semanticOnlyPeriodicRecords").jsonPrimitive.boolean)
+        assertEquals(
+            false,
+            processJournals.getValue("crossProcessSharedWriter").jsonPrimitive.boolean,
+        )
+        assertEquals(
+            "timestamp_then_session_sequence",
+            processJournals.getValue("mergeOrder").jsonPrimitive.content,
+        )
+        assertEquals(
+            listOf("connect_result", "pair_result", "authority_result"),
+            bridgeEvents.getValue("terminalPhases").jsonArray.map {
+                it.jsonPrimitive.content
+            },
+        )
+        assertEquals(
+            "elapsed_ms",
+            bridgeEvents.getValue("terminalTimingField").jsonPrimitive.content,
+        )
+        assertEquals(
+            listOf("result", "verified", "uid", "pairing_established", "elapsed_ms"),
+            bridgeEvents.getValue("timelineFields").jsonArray.map {
+                it.jsonPrimitive.content
+            },
+        )
+        assertFalse(bridgeEvents.getValue("persistsPairingCode").jsonPrimitive.boolean)
+        assertFalse(
+            bridgeEvents.getValue("initializesFullApplicationContainer").jsonPrimitive.boolean,
+        )
         assertEquals(
             "typed_allowlist",
             fieldAdmission.getValue("mode").jsonPrimitive.content,

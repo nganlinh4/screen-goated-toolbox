@@ -65,6 +65,8 @@
     <string name="phone_control_power_recommended">%1$s, nên dùng</string>
     <string name="phone_control_authority_ready">%1$s đã sẵn sàng.</string>
     <string name="phone_control_authority_ready_toast">%1$s đã sẵn sàng.</string>
+    <string name="phone_control_setup_voice_start">Đang thiết lập quyền điều khiển nâng cao. Vui lòng đừng làm gián đoạn.</string>
+    <string name="phone_control_setup_voice_success">Thiết lập đã thành công. Vui lòng đợi vài giây, sau đó bạn có thể dùng Điều khiển điện thoại bình thường.</string>
     <string name="phone_control_sgt_adb_ready_toast">Cầu nối SGT đã sẵn sàng.</string>
     <string name="phone_control_sgt_adb_ready_resume">Cầu nối SGT đã sẵn sàng. Nhấn để chia sẻ lại màn hình và tiếp tục Điều khiển điện thoại.</string>
     <string name="phone_control_sgt_adb_setup">SGT sẽ mở Gỡ lỗi không dây và điều hướng đến màn hình ghép nối. Khung hình gửi đến mô hình sẽ tạm dừng trong lúc SGT ghép nối cục bộ; chia sẻ màn hình vẫn hoạt động. Bạn vẫn tự xác nhận bước bật hoặc tin cậy do Android quản lý.</string>

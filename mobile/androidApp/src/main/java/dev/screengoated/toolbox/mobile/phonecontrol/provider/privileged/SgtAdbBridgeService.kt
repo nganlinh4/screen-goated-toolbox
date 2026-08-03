@@ -6,7 +6,9 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.Process
-import android.util.Log
+import android.os.SystemClock
+import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlDiagnosticProcessRole
+import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -26,12 +28,19 @@ internal class SgtAdbBridgeService : Service() {
     private val binder = object : IPhoneControlAdbService.Stub() {
         override fun connectAndVerify(timeoutMs: Long): String =
             runBlocking(Dispatchers.IO) {
-                val connection = runCatching {
+                val startedAt = SystemClock.elapsedRealtime()
+                val attempt = runCatching {
                     manager().connectDiscovered(timeoutMs)
-                }.getOrElse {
+                }
+                val connection = attempt.getOrElse {
                     SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTION_FAILED)
                 }
-                Log.i(TAG, "connect_result status=${connection.status.name.lowercase()}")
+                recordTerminal(
+                    "connect_result result=${connection.status.name.lowercase()} " +
+                        "provider=$PROVIDER " +
+                        "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}",
+                    attempt.exceptionOrNull(),
+                )
                 if (!connection.connected) {
                     connection.toProbeResult()
                 } else {
@@ -41,16 +50,27 @@ internal class SgtAdbBridgeService : Service() {
 
         override fun pairAndVerify(pairingCode: String, timeoutMs: Long): String {
             if (!pairingCode.isAsciiPairingCode()) {
+                PhoneControlLog.i(
+                    TAG,
+                    "pair_result result=pairing_code_invalid provider=$PROVIDER " +
+                        "pairing_established=false",
+                )
                 return probeResult("needs_user_step", "pairing_code_invalid").toString()
             }
             return runBlocking(Dispatchers.IO) {
-                val result = runCatching {
+                val startedAt = SystemClock.elapsedRealtime()
+                val attempt = runCatching {
                     manager().pairAndConnect(pairingCode, timeoutMs)
-                }.getOrDefault(SgtAdbPairResult(SgtAdbPairStatus.PAIRING_FAILED))
-                Log.i(
-                    TAG,
+                }
+                val result = attempt.getOrDefault(
+                    SgtAdbPairResult(SgtAdbPairStatus.PAIRING_FAILED),
+                )
+                recordTerminal(
                     "pair_result result=${result.status.name.lowercase()} " +
-                        "pairing_established=${result.pairingEstablished}",
+                        "provider=$PROVIDER " +
+                        "pairing_established=${result.pairingEstablished} " +
+                        "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}",
+                    attempt.exceptionOrNull(),
                 )
                 when (result.status) {
                     SgtAdbPairStatus.PAIRING_ENDPOINT_UNAVAILABLE ->
@@ -93,14 +113,18 @@ internal class SgtAdbBridgeService : Service() {
 
         override fun openBrowserTunnel(timeoutMs: Long): String =
             runBlocking(Dispatchers.IO) {
-                val connection = runCatching {
+                val startedAt = SystemClock.elapsedRealtime()
+                val attempt = runCatching {
                     manager().connectDiscovered(timeoutMs)
-                }.getOrElse {
+                }
+                val connection = attempt.getOrElse {
                     SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTION_FAILED)
                 }
-                Log.i(
-                    TAG,
-                    "browser_connect_result status=${connection.status.name.lowercase()}",
+                recordTerminal(
+                    "browser_connect_result result=${connection.status.name.lowercase()} " +
+                        "provider=$PROVIDER " +
+                        "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}",
+                    attempt.exceptionOrNull(),
                 )
                 if (!connection.connected) {
                     return@runBlocking connection.toProbeResult().toString()
@@ -113,7 +137,10 @@ internal class SgtAdbBridgeService : Service() {
                     browserTunnel?.takeIf(SgtAdbBrowserTunnel::isOpen)
                         ?: SgtAdbBrowserTunnel(manager()).also { browserTunnel = it }
                 }.lease
-                Log.i(TAG, "browser_tunnel_result ready=true")
+                PhoneControlLog.i(
+                    TAG,
+                    "browser_tunnel_result provider=$PROVIDER ready=true",
+                )
                 buildJsonObject {
                     put("state", "ready")
                     put("code", "ready")
@@ -153,7 +180,10 @@ internal class SgtAdbBridgeService : Service() {
                 true
             }.getOrDefault(false)
             SgtAdbPairingStore.clear(this@SgtAdbBridgeService)
-            Log.i(TAG, "forget_result deleted=$deleted")
+            PhoneControlLog.i(
+                TAG,
+                "forget_result provider=$PROVIDER deleted=$deleted",
+            )
             if (deleted) {
                 Handler(Looper.getMainLooper()).postDelayed(
                     { Process.killProcess(Process.myPid()) },
@@ -167,7 +197,19 @@ internal class SgtAdbBridgeService : Service() {
         }
     }
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onCreate() {
+        super.onCreate()
+        PhoneControlLog.initialize(
+            this,
+            PhoneControlDiagnosticProcessRole.AUTHORITY_BRIDGE,
+        )
+        PhoneControlLog.i(TAG, "service_created provider=$PROVIDER")
+    }
+
+    override fun onBind(intent: Intent?): IBinder {
+        PhoneControlLog.i(TAG, "service_bound provider=$PROVIDER")
+        return binder
+    }
 
     override fun onDestroy() {
         synchronized(lock) {
@@ -177,6 +219,7 @@ internal class SgtAdbBridgeService : Service() {
             runner = null
             manager = null
         }
+        PhoneControlLog.i(TAG, "service_destroyed provider=$PROVIDER")
         super.onDestroy()
     }
 
@@ -196,6 +239,7 @@ internal class SgtAdbBridgeService : Service() {
         pairingEstablished: Boolean = false,
         deviceIdentity: String? = SgtAdbPairingStore.deviceIdentity(this),
     ): JsonObject {
+        val startedAt = SystemClock.elapsedRealtime()
         val receipt = runner().run(
             operationId = "adb-authority-${UUID.randomUUID()}",
             program = ID_PROGRAM,
@@ -205,7 +249,12 @@ internal class SgtAdbBridgeService : Service() {
         )
         val uid = receipt["output"]?.jsonPrimitive?.content?.trim()?.toIntOrNull()
         val verified = isVerifiedAdbShellReceipt(receipt)
-        Log.i(TAG, "authority_result verified=$verified uid=${uid ?: "unknown"}")
+        PhoneControlLog.i(
+            TAG,
+            "authority_result provider=$PROVIDER verified=$verified " +
+                "uid=${uid ?: "unknown"} " +
+                "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}",
+        )
         return if (verified) {
             probeResult(
                 "ready",
@@ -262,6 +311,14 @@ internal class SgtAdbBridgeService : Service() {
     private fun String.isAsciiPairingCode(): Boolean =
         length == PAIRING_CODE_LENGTH && all { it in '0'..'9' }
 
+    private fun recordTerminal(message: String, error: Throwable?) {
+        if (error == null) {
+            PhoneControlLog.i(TAG, message)
+        } else {
+            PhoneControlLog.e(TAG, message, error)
+        }
+    }
+
     private companion object {
         const val PAIRING_CODE_LENGTH = 6
         const val ID_PROGRAM = "/system/bin/id"
@@ -270,6 +327,7 @@ internal class SgtAdbBridgeService : Service() {
         const val MIN_VERIFY_TIMEOUT_MS = 1_000L
         const val MAX_VERIFY_TIMEOUT_MS = 30_000L
         const val PROCESS_RESET_DELAY_MS = 150L
+        const val PROVIDER = "sgt_adb_bridge"
         const val TAG = "SGTPhoneControlAdb"
     }
 }

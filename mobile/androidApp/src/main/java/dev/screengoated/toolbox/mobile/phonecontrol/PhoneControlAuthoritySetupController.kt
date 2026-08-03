@@ -6,11 +6,11 @@ import android.os.Handler
 import android.os.Looper
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupNavigationContract
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntime
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlUiGoalCompletion
-import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlUiGoalOutcome
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlUiGoalPresentation
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerChoice
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
@@ -19,6 +19,12 @@ internal enum class PhoneControlAuthorityResumeDisposition {
     NONE,
     READY,
     RESUME_SETUP,
+}
+
+internal enum class PhoneControlAuthoritySetupSessionEvent {
+    STARTED,
+    SUCCEEDED,
+    ENDED,
 }
 
 internal fun phoneControlAuthorityResumeDisposition(
@@ -35,7 +41,9 @@ internal class PhoneControlAuthoritySetupController(
     private val context: Context,
     private val runtime: () -> PhoneControlRuntime?,
     private val publishGuidance: (String) -> Unit,
-    private val enterProtectedCheckpoint: (String) -> Boolean,
+    private val navigationContract: (String) -> PhoneControlProtectedSetupNavigationContract?,
+    private val protectedHandoff: PhoneControlProtectedCheckpointHandoff,
+    private val onSetupSessionEvent: (PhoneControlAuthoritySetupSessionEvent) -> Unit = {},
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val automationOwner = PhoneControlAuthorityAutomationOwner()
@@ -45,6 +53,7 @@ internal class PhoneControlAuthoritySetupController(
 
     private var providerId: String? = null
     private var readyFeedbackGeneration = 0L
+    private var setupSessionActive = false
 
     fun update(intent: Intent) {
         val requestedProvider = intent.getStringExtra(EXTRA_AUTHORITY_PROVIDER_ID).orEmpty()
@@ -63,6 +72,10 @@ internal class PhoneControlAuthoritySetupController(
             )
             return
         }
+        if (!setupSessionActive) {
+            setupSessionActive = true
+            onSetupSessionEvent(PhoneControlAuthoritySetupSessionEvent.STARTED)
+        }
         readyFeedbackGeneration += 1
         guidance = intent.getStringExtra(EXTRA_AUTHORITY_GUIDANCE).orEmpty().trim()
         providerId = requestedProvider
@@ -71,10 +84,11 @@ internal class PhoneControlAuthoritySetupController(
             EXTRA_AUTHORITY_AUTOMATION_REQUESTED,
             false,
         )
-        val handoffRequested = intent.getBooleanExtra(
-            EXTRA_CAPTURE_HANDOFF_AFTER_AUTOMATION,
+        val checkpointMonitoringRequested = intent.getBooleanExtra(
+            EXTRA_PROTECTED_CHECKPOINT_MONITORING,
             false,
         )
+        val setupContract = navigationContract(requestedProvider)
         val automationDisposition = automationOwner.disposition(
             automationRequested = automationRequested,
             requestedProvider = requestedProvider,
@@ -83,34 +97,84 @@ internal class PhoneControlAuthoritySetupController(
             PhoneControlAuthorityAutomationDisposition.NONE -> null
             PhoneControlAuthorityAutomationDisposition.SUBMIT -> runtime()
                 ?.submitUserInterfaceGoal(
-                    authoritySetupGoal(requestedProvider),
+                    authoritySetupGoal(
+                        requestedProvider,
+                        setupContract.takeIf { checkpointMonitoringRequested },
+                    ),
                     PhoneControlUiGoalPresentation.SILENT,
                 )
                 ?.let { submittedId ->
                     automationOwner.begin(
                         goalId = submittedId,
                         providerId = requestedProvider,
-                        captureHandoff = handoffRequested,
+                        checkpointMonitoring = checkpointMonitoringRequested,
                     )
                 }
             PhoneControlAuthorityAutomationDisposition.COALESCE ->
-                automationOwner.coalesce(requestedProvider, handoffRequested)
+                automationOwner.coalesce(requestedProvider, checkpointMonitoringRequested)
             PhoneControlAuthorityAutomationDisposition.BLOCKED -> null
         }
-        val automationAccepted =
-            automationDisposition != PhoneControlAuthorityAutomationDisposition.BLOCKED
+        val automationAccepted = when (automationDisposition) {
+            PhoneControlAuthorityAutomationDisposition.NONE -> true
+            PhoneControlAuthorityAutomationDisposition.SUBMIT,
+            PhoneControlAuthorityAutomationDisposition.COALESCE,
+            -> ownership != null
+            PhoneControlAuthorityAutomationDisposition.BLOCKED -> false
+        }
+        val monitoringAccepted = ownership?.takeIf { it.checkpointMonitoring }?.let {
+            protectedHandoff.arm(requestedProvider, it.goalId)
+        } ?: !checkpointMonitoringRequested
+        if (!monitoringAccepted) {
+            ownership?.goalId?.let { runtime()?.requestProtectedCheckpointBoundary(it) }
+        }
         PhoneControlLog.i(
             TAG,
-            "authority_setup_progress accepted=$automationAccepted " +
+            "authority_setup_progress accepted=${automationAccepted && monitoringAccepted} " +
                 "provider=$requestedProvider " +
                 "automation_requested=$automationRequested " +
                 "automation_goal=${ownership?.goalId ?: "none"} " +
                 "automation_disposition=${automationDisposition.name.lowercase()} " +
-                "capture_handoff=${ownership?.captureHandoff == true}",
+                "checkpoint_monitoring=${ownership?.checkpointMonitoring == true}",
         )
     }
 
     fun clear(requestedProvider: String? = null, reason: String? = null) {
+        clearInternal(requestedProvider, reason, endSetupSession = true)
+    }
+
+    fun clearForReadyProbe(reason: String) {
+        clearInternal(requestedProvider = null, reason = reason, endSetupSession = false)
+    }
+
+    fun completeIfVerifiedReady(requestedProvider: String) {
+        if (!setupSessionActive) {
+            PhoneControlLog.i(
+                TAG,
+                "authority_setup_result provider=$requestedProvider ready=true feedback=already_published",
+            )
+            return
+        }
+        val selected = PhoneControlPowerPreferences.current(context)
+        val provider = PrivilegedCommandProviderRegistry.find(requestedProvider)
+        val ready = selected?.elevatedProviderId == requestedProvider &&
+            provider?.probe(context)?.state == CapabilityState.READY
+        if (ready) {
+            publishVerifiedReady(selected)
+        } else {
+            clear(requestedProvider, reason = "ready_verification_failed")
+            PhoneControlLog.w(
+                TAG,
+                "authority_setup_result provider=$requestedProvider ready=false " +
+                    "reason=fresh_probe_not_ready",
+            )
+        }
+    }
+
+    private fun clearInternal(
+        requestedProvider: String?,
+        reason: String?,
+        endSetupSession: Boolean,
+    ) {
         if (!requestedProvider.isNullOrBlank() &&
             providerId != null &&
             providerId != requestedProvider
@@ -123,11 +187,15 @@ internal class PhoneControlAuthoritySetupController(
             return
         }
         readyFeedbackGeneration += 1
+        protectedHandoff.cancel(providerId, reason ?: "authority_setup_clear")
         guidance = ""
         providerId = null
-        automationOwner.clear()
+        automationOwner.clear()?.goalId?.let { runtime()?.requestProtectedCheckpointBoundary(it) }
         PhoneControlSetupNotification.clear(context)
         publishGuidance("")
+        if (endSetupSession) {
+            finishSetupSession(PhoneControlAuthoritySetupSessionEvent.ENDED)
+        }
         PhoneControlLog.i(
             TAG,
             "authority_setup_clear accepted=true provider=${requestedProvider.orEmpty().ifBlank {
@@ -153,7 +221,7 @@ internal class PhoneControlAuthoritySetupController(
         readyFeedbackGeneration += 1
         guidance = normalized
         providerId = requestedProvider
-        automationOwner.clear()
+        automationOwner.clear()?.goalId?.let { runtime()?.requestProtectedCheckpointBoundary(it) }
         publishGuidance(normalized)
         PhoneControlLog.i(
             TAG,
@@ -170,29 +238,68 @@ internal class PhoneControlAuthoritySetupController(
 
     fun onUserInterfaceGoalFinished(completion: PhoneControlUiGoalCompletion) {
         val ownership = automationOwner.complete(completion.id) ?: return
-        if (!ownership.captureHandoff) return
-        val requestedProvider = ownership.providerId
-        if (completion.outcome != PhoneControlUiGoalOutcome.COMPLETED) {
-            PhoneControlLog.i(
-                TAG,
-                "protected_checkpoint_handoff accepted=false reason=goal_interrupted " +
-                    "provider=$requestedProvider",
-            )
-            return
+        if (ownership.checkpointMonitoring) {
+            protectedHandoff.navigationFinished(ownership.providerId, completion)
         }
-        if (PhoneControlPowerPreferences.current(context)?.elevatedProviderId !=
-            requestedProvider
+        PhoneControlLog.i(
+            TAG,
+            "ui_goal_finished provider=${ownership.providerId} " +
+                "outcome=${completion.outcome.name.lowercase()} " +
+                "checkpoint_monitoring=${ownership.checkpointMonitoring}",
+        )
+    }
+
+    fun continueProtectedNavigation(
+        requestedProvider: String,
+        previousGoalId: Long,
+        reason: String,
+    ): Long? {
+        val selectedProvider = PhoneControlPowerPreferences.current(context)?.elevatedProviderId
+        val candidate = runtime()
+        val contract = navigationContract(requestedProvider)
+        if (requestedProvider.isBlank() ||
+            providerId != requestedProvider ||
+            selectedProvider != requestedProvider ||
+            candidate == null ||
+            contract == null ||
+            automationOwner.disposition(true, requestedProvider) !=
+            PhoneControlAuthorityAutomationDisposition.SUBMIT
         ) {
             PhoneControlLog.w(
                 TAG,
-                "protected_checkpoint_handoff accepted=false reason=provider_not_selected",
+                "authority_setup_navigation_retry accepted=false provider=$requestedProvider " +
+                    "goal_id=$previousGoalId reason=state_changed",
             )
-            return
+            return null
         }
-        val accepted = enterProtectedCheckpoint(requestedProvider)
+        val nextGoalId = candidate.submitUserInterfaceGoal(
+            authoritySetupGoal(requestedProvider, contract, reason),
+            PhoneControlUiGoalPresentation.SILENT,
+        ) ?: return null
+        automationOwner.begin(
+            goalId = nextGoalId,
+            providerId = requestedProvider,
+            checkpointMonitoring = true,
+        )
         PhoneControlLog.i(
             TAG,
-            "protected_checkpoint_handoff accepted=$accepted provider=$requestedProvider",
+            "authority_setup_navigation_retry accepted=true provider=$requestedProvider " +
+                "goal_id=$nextGoalId reason=$reason",
+        )
+        return nextGoalId
+    }
+
+    fun onProtectedNavigationExhausted(requestedProvider: String, reason: String) {
+        if (providerId != requestedProvider) return
+        automationOwner.clear()?.goalId?.let { runtime()?.requestProtectedCheckpointBoundary(it) }
+        readyFeedbackGeneration += 1
+        guidance = ""
+        PhoneControlSetupNotification.clear(context)
+        publishGuidance("")
+        finishSetupSession(PhoneControlAuthoritySetupSessionEvent.ENDED)
+        PhoneControlLog.w(
+            TAG,
+            "authority_setup_result provider=$requestedProvider pending=true reason=$reason",
         )
     }
 
@@ -237,6 +344,7 @@ internal class PhoneControlAuthoritySetupController(
             R.string.phone_control_authority_ready_toast,
             providerLabel,
         )
+        finishSetupSession(PhoneControlAuthoritySetupSessionEvent.SUCCEEDED)
         PhoneControlLog.i(
             TAG,
             "authority_setup_result provider=$selectedProvider ready=true feedback=local",
@@ -246,6 +354,12 @@ internal class PhoneControlAuthoritySetupController(
                 clear(selectedProvider, reason = "ready_visual_complete")
             }
         }, READY_VISUAL_DURATION_MS)
+    }
+
+    private fun finishSetupSession(event: PhoneControlAuthoritySetupSessionEvent) {
+        if (!setupSessionActive) return
+        setupSessionActive = false
+        onSetupSessionEvent(event)
     }
 
     private fun PhoneControlPowerChoice.labelResource(): Int = when (this) {
@@ -267,15 +381,31 @@ internal const val EXTRA_AUTHORITY_GUIDANCE =
     "dev.screengoated.toolbox.mobile.phonecontrol.AUTHORITY_GUIDANCE"
 internal const val EXTRA_AUTHORITY_AUTOMATION_REQUESTED =
     "dev.screengoated.toolbox.mobile.phonecontrol.AUTHORITY_AUTOMATION_REQUESTED"
-internal const val EXTRA_CAPTURE_HANDOFF_AFTER_AUTOMATION =
-    "dev.screengoated.toolbox.mobile.phonecontrol.CAPTURE_HANDOFF_AFTER_AUTOMATION"
+internal const val EXTRA_PROTECTED_CHECKPOINT_MONITORING =
+    "dev.screengoated.toolbox.mobile.phonecontrol.PROTECTED_CHECKPOINT_MONITORING"
 
-private fun authoritySetupGoal(providerId: String): String =
+private fun authoritySetupGoal(
+    providerId: String,
+    contract: PhoneControlProtectedSetupNavigationContract?,
+    continuationReason: String? = null,
+): String =
     "The user selected Phone Control authority provider `$providerId` and expects setup to " +
         "continue as a silent app-owned automation turn. Do not narrate progress or results. " +
+        contract?.let {
+            "The provider setup contract requires ${it.platformCapability}. Navigate to " +
+                "${it.destinationState}. "
+        }.orEmpty() +
+        continuationReason?.let {
+            "A previous navigation generation ended, but the local structural verifier " +
+                "proved that the required checkpoint was absent ($it). Continue from a " +
+                "fresh observation of the current surface and choose a different next action " +
+                "when prior evidence did not establish progress. "
+        }.orEmpty() +
         "Use the normal full tool catalog on the current visible Android setup " +
         "surface. Automate reversible navigation and diagnosis to the exact user-owned " +
-        "checkpoint surface. Opening that surface is allowed. Stop before reading, filling, " +
-        "submitting, or approving protected content or an OS-owned confirmation. If screen " +
-        "sharing hides the checkpoint, leave the nearest relevant surface visible and finish " +
-        "the bounded goal. Do not claim the provider is ready until a fresh probe says so."
+        "checkpoint surface. A parent settings page, search result, or unchanged screen is " +
+        "not completion. Opening the exact checkpoint surface is allowed. Stop before reading, " +
+        "filling, " +
+        "submitting, or approving protected content or an OS-owned confirmation. The local " +
+        "checkpoint monitor owns protected-value handling. Do not claim the provider is ready " +
+        "until a fresh probe says so."

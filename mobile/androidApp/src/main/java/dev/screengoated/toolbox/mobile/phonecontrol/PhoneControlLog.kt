@@ -20,6 +20,9 @@ internal object PhoneControlLog {
     @Volatile
     private var diagnosticSessionId: String = "uninitialized"
 
+    @Volatile
+    private var diagnosticProcessRole = PhoneControlDiagnosticProcessRole.PRIMARY
+
     private val sequence = AtomicLong()
     private val writer = ThreadPoolExecutor(
         1,
@@ -36,7 +39,11 @@ internal object PhoneControlLog {
         ThreadPoolExecutor.DiscardOldestPolicy(),
     )
 
-    fun initialize(context: Context) {
+    fun initialize(
+        context: Context,
+        processRole: PhoneControlDiagnosticProcessRole =
+            PhoneControlDiagnosticProcessRole.PRIMARY,
+    ) {
         if (diagnosticDirectory != null) return
         synchronized(this) {
             if (diagnosticDirectory == null) {
@@ -44,7 +51,9 @@ internal object PhoneControlLog {
                     context.getExternalFilesDir(DIRECTORY_NAME)
                         ?: File(context.filesDir, DIRECTORY_NAME)
                     ).also { directory -> runCatching { directory.mkdirs() } }
-                diagnosticSessionId = "${Process.myPid()}-${SystemClock.elapsedRealtime()}"
+                diagnosticProcessRole = processRole
+                diagnosticSessionId =
+                    "${processRole.wireName}-${Process.myPid()}-${SystemClock.elapsedRealtime()}"
                 sequence.set(0)
                 diagnosticDirectory = directory
             }
@@ -111,6 +120,7 @@ internal object PhoneControlLog {
                 runCatching {
                     val record = JSONObject()
                         .put("schema_version", RECORD_SCHEMA_VERSION)
+                        .put("process_role", diagnosticProcessRole.wireName)
                         .put("session_id", diagnosticSessionId)
                         .put("sequence", recordSequence)
                         .put("timestamp_ms", timestamp)
@@ -132,9 +142,9 @@ internal object PhoneControlLog {
 
     private fun appendRecord(directory: File, json: String) {
         if (!directory.exists() && !directory.mkdirs()) return
-        val current = File(directory, CURRENT_FILE_NAME)
+        val current = File(directory, diagnosticProcessRole.currentFileName)
         if (current.length() >= MAX_FILE_BYTES) {
-            val previous = File(directory, PREVIOUS_FILE_NAME)
+            val previous = File(directory, diagnosticProcessRole.previousFileName)
             previous.delete()
             if (!current.renameTo(previous)) current.delete()
         }
@@ -211,9 +221,7 @@ internal object PhoneControlLog {
 
     private const val INTERNAL_TAG = "SGTPhoneControlDiagnostics"
     private const val DIRECTORY_NAME = "phone-control-diagnostics"
-    private const val CURRENT_FILE_NAME = "events.jsonl"
-    private const val PREVIOUS_FILE_NAME = "events.previous.jsonl"
-    internal const val RECORD_SCHEMA_VERSION = 2
+    internal const val RECORD_SCHEMA_VERSION = 3
     private const val MAX_PENDING_RECORDS = 512
     private const val MAX_FILE_BYTES = 1_048_576L
     private const val MAX_TAG_CHARS = 96
@@ -239,12 +247,16 @@ internal object PhoneControlLog {
         "activation_user_step_opened",
         "activation_user_step_returned",
         "audio_uplink_started",
+        "browser_turn_cleanup",
+        "browser_connect_result",
+        "browser_tunnel_result",
         "authority_result",
         "authority_setup_clear",
         "authority_setup_deferred",
         "authority_setup_dispatch",
         "authority_setup_event",
         "authority_setup_guidance",
+        "authority_setup_navigation_retry",
         "authority_setup_progress",
         "authority_setup_result",
         "authority_setup_resume",
@@ -300,7 +312,10 @@ internal object PhoneControlLog {
         "projection_terminal",
         "protected_checkpoint_enter",
         "protected_checkpoint_exit",
-        "protected_checkpoint_handoff",
+        "protected_checkpoint_monitor",
+        "protected_checkpoint_navigation_retry",
+        "protected_checkpoint_detected",
+        "protected_checkpoint_boundary",
         "protected_setup_continue",
         "protected_setup_projection_resume",
         "protected_setup_result",
@@ -319,11 +334,14 @@ internal object PhoneControlLog {
         "screen_capture_route",
         "screen_capture_waiting",
         "screen_uplink_started",
+        "setup_session_state",
+        "setup_voice_result",
         "screenshot_route",
         "screenshot_window_stale",
         "server_activity_started",
         "service_command",
         "service_created",
+        "service_bound",
         "service_destroyed",
         "service_start_failed",
         "settings_navigation",
@@ -350,6 +368,7 @@ internal object PhoneControlLog {
         "turn_started",
         "ui_goal_queued",
         "ui_goal_sent",
+        "ui_goal_finished",
         "unparsed_server_frame",
         "visual_evidence_resumed",
         "visual_evidence_suspended",
@@ -361,7 +380,7 @@ internal object PhoneControlLog {
         "active",
         "active_root",
         "automation_requested",
-        "capture_handoff",
+        "checkpoint_monitoring",
         "capture_resume_dispatched",
         "capture_resume_requested",
         "checked",
@@ -372,11 +391,14 @@ internal object PhoneControlLog {
         "crashed",
         "deleted",
         "effect_verified",
+        "ended",
         "external_step_active",
         "focused",
         "fresh_frame_requested",
         "fresh_observation_attached",
         "fresh_observation_required",
+        "input_admitted",
+        "announcement_pending",
         "listed_root",
         "overlay_mutated",
         "pairing_established",
@@ -429,6 +451,7 @@ internal object PhoneControlLog {
         "epoch",
         "event_type",
         "generation",
+        "goal_id",
         "hard",
         "height",
         "index",
@@ -443,6 +466,7 @@ internal object PhoneControlLog {
         "rate",
         "reentry_sequence",
         "refresh_requests",
+        "requested_count",
         "row_stride",
         "samples_per_frame",
         "screen_frames",
@@ -468,6 +492,8 @@ internal object PhoneControlLog {
         "window",
         "window_count",
         "window_id",
+        "unresolved_count",
+        "verified_count",
     )
     private val SYMBOL_FIELD_NAMES = setOf(
         "action",
@@ -496,6 +522,7 @@ internal object PhoneControlLog {
         "name",
         "next",
         "origin",
+        "outcome",
         "owner",
         "phase",
         "presentation",
@@ -520,4 +547,20 @@ internal object PhoneControlLog {
         "type",
         "user_step",
     )
+}
+
+internal enum class PhoneControlDiagnosticProcessRole(
+    val wireName: String,
+    private val journalSuffix: String?,
+) {
+    PRIMARY("primary", null),
+    AUTHORITY_BRIDGE("authority_bridge", "authority-bridge"),
+    ;
+
+    val currentFileName: String
+        get() = journalSuffix?.let { "events.$it.jsonl" } ?: "events.jsonl"
+
+    val previousFileName: String
+        get() = journalSuffix?.let { "events.$it.previous.jsonl" }
+            ?: "events.previous.jsonl"
 }

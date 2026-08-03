@@ -115,6 +115,31 @@ class PhoneControlRuntimeWiringTest {
     }
 
     @Test
+    fun `protected checkpoint boundary waits for the owned tool receipt`() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val executor = RecordingExecutor()
+        val sink = RecordingSink()
+        val coordinator = PhoneControlTurnCoordinator(executor, scope, sink)
+
+        try {
+            dispatch(coordinator, beginTurn = true, call("owned-action", "act"))
+            executor.awaitRequest("owned-action")
+            val interruptsBeforeBoundary = sink.playbackInterrupts
+            assertFalse(coordinator.retireForProtectedCheckpoint())
+            assertEquals(interruptsBeforeBoundary, sink.playbackInterrupts)
+
+            executor.complete("owned-action", toolResult())
+            coordinator.drainToolCompletions()
+            assertTrue(coordinator.retireForProtectedCheckpoint())
+            assertTrue(sink.playbackInterrupts > interruptsBeforeBoundary)
+            assertTrue(sink.playbackDiscards > 0)
+        } finally {
+            coordinator.stop()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `visual grounding gestures are mutating before dispatch completes`() = runBlocking {
         listOf("click_target", "drag_target").forEach { tool ->
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

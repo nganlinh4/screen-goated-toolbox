@@ -19,6 +19,18 @@ internal class PhoneControlRuntimeStatusPublisher(
         updateSnapshot { it.copy(listeningLevel = 0f) }
     }
 
+    fun clearConversation() {
+        updateSnapshot {
+            it.copy(
+                inputCaption = "",
+                outputCaption = "",
+                listeningLevel = 0f,
+                orbStateLabel = GeneratedPhoneControlContract.ORB_STATE_IDLE,
+                orbIconOverride = null,
+            )
+        }
+    }
+
     fun updateOrbPresentation(
         stateLabel: String,
         iconOverride: String?,

@@ -65,6 +65,8 @@
     <string name="phone_control_power_recommended">추천: %1$s</string>
     <string name="phone_control_authority_ready">%1$s 준비 완료.</string>
     <string name="phone_control_authority_ready_toast">%1$s 준비 완료.</string>
+    <string name="phone_control_setup_voice_start">향상된 제어를 설정하고 있습니다. 잠시 방해하지 말아 주세요.</string>
+    <string name="phone_control_setup_voice_success">설정이 완료되었습니다. 몇 초만 기다리면 휴대폰 제어를 정상적으로 사용할 수 있습니다.</string>
     <string name="phone_control_sgt_adb_ready_toast">SGT 브리지 준비 완료.</string>
     <string name="phone_control_sgt_adb_ready_resume">SGT 브리지가 준비되었습니다. 화면을 다시 공유하고 휴대폰 제어를 계속하려면 탭하세요.</string>
     <string name="phone_control_sgt_adb_setup">SGT가 무선 디버깅을 열고 페어링 화면으로 이동합니다. SGT가 로컬로 페어링하는 동안 모델에 보이는 프레임만 잠시 멈추고 화면 공유는 유지됩니다. Android가 소유한 사용 설정 또는 신뢰 확인은 사용자가 직접 완료합니다.</string>

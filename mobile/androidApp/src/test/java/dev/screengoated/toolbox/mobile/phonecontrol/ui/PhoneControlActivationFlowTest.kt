@@ -1,9 +1,6 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.ui
 
 import java.io.File
-import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuBridgeCondition
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuBridgeProbe
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
@@ -19,7 +16,7 @@ class PhoneControlActivationFlowTest {
     @Test
     fun `activation reducer and launcher contract match the shared fixture`() {
         val fixture = Json.parseToJsonElement(fixtureFile().readText()).jsonObject
-        assertEquals(21L, fixture.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(27L, fixture.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals(
             PhoneControlActivationStep.entries.map(PhoneControlActivationStep::wireName),
             fixture.getValue("requiredOrder").jsonArray.map { it.jsonPrimitive.content },
@@ -99,6 +96,34 @@ class PhoneControlActivationFlowTest {
             "restore_normal_conversation_before_new_turn",
             internalAutomation.string("userInterruption"),
         )
+        val setupBoundary = invariants.getValue("setupSessionBoundary").jsonObject
+        assertEquals(
+            "one_localized_app_owned_voice_message",
+            setupBoundary.string("startAnnouncement"),
+        )
+        assertEquals(
+            "discard_locally_while_setup_active",
+            setupBoundary.string("microphoneSamples"),
+        )
+        assertFalse(setupBoundary.boolean("modelMicrophoneInput"))
+        assertEquals(
+            "fresh_non_resumed_live_session",
+            setupBoundary.string("successConversation"),
+        )
+        assertEquals(
+            "only_after_fresh_session_ready_and_success_announcement_finished",
+            setupBoundary.string("microphoneResume"),
+        )
+        assertFalse(setupBoundary.boolean("internalTurnPersistence"))
+        val dismissTarget = invariants.getValue("orbDismissTarget").jsonObject
+        assertEquals(
+            "same_current_overlay_host_as_orb_renderer",
+            dismissTarget.string("windowOwner"),
+        )
+        assertEquals("same_as_orb_renderer", dismissTarget.string("windowType"))
+        assertEquals("attached_after_orb_renderer", dismissTarget.string("zOrder"))
+        assertEquals("not_visible", dismissTarget.string("attachmentFailure"))
+        assertEquals("same_as_normal_runtime", dismissTarget.string("setupVisibility"))
         val setupFeedback = invariants.getValue("setupFeedback").jsonObject
         assertEquals(
             "localized_short_state_only_max_32_characters",
@@ -341,6 +366,10 @@ class PhoneControlActivationFlowTest {
             "star_icon_without_selected_fill",
             powerPresentation.string("recommendedMarker"),
         )
+        assertEquals(
+            "same_as_ordinary_unselected_choice",
+            powerPresentation.string("recommendedBorder"),
+        )
         val forgetPairing = powerPresentation.getValue("forgetPairing").jsonObject
         assertEquals(
             "compact_secondary_action_when_paired",
@@ -380,7 +409,10 @@ class PhoneControlActivationFlowTest {
             "immediate_short_localized_orb_caption_and_toast",
             readyFeedback.string("visual"),
         )
-        assertEquals("none", readyFeedback.string("voice"))
+        assertEquals(
+            "one_localized_app_owned_voice_message",
+            readyFeedback.string("voice"),
+        )
         assertEquals(
             "once_per_verified_ready_transition",
             readyFeedback.string("deduplication"),
@@ -445,111 +477,7 @@ class PhoneControlActivationFlowTest {
                 .map { it.jsonPrimitive.content }
             assertEquals(expected.singleOrNull(), choice.elevatedProviderId)
         }
-        val shizuku = invariants.getValue("shizukuSetup").jsonObject
-        assertTrue(shizuku.boolean("feedbackBeforeExternalStep"))
-        assertEquals(
-            listOf("orb_caption", "ongoing_notification"),
-            shizuku.getValue("durableFeedbackSurfaces").jsonArray.map {
-                it.jsonPrimitive.content
-            },
-        )
-        val guidancePresentation = shizuku.getValue("guidancePresentation").jsonObject
-        assertEquals(
-            "compact_non_obscuring_status",
-            guidancePresentation.string("orbCaption"),
-        )
-        assertEquals(
-            "full_persistent_instruction",
-            guidancePresentation.string("ongoingNotification"),
-        )
-        assertEquals("short_state_only", guidancePresentation.string("toast"))
-        assertEquals("structural_probe_state", shizuku.string("plannerInput"))
-        val liveAutomation = shizuku.getValue("liveAutomation").jsonObject
-        assertEquals("user_power_authority_selection", liveAutomation.string("trigger"))
-        assertEquals(
-            "one_bounded_goal_when_idle",
-            liveAutomation.string("turnBoundary"),
-        )
-        assertEquals("normal_full_catalog", liveAutomation.string("catalog"))
-        assertEquals("silent_internal_turn", liveAutomation.string("presentation"))
-        assertEquals(
-            "normal_semantic_and_vision_tools",
-            liveAutomation.string("navigation"),
-        )
-        assertFalse(liveAutomation.boolean("providerSpecificClickScript"))
-        assertEquals("remain_pending", liveAutomation.string("busyTurn"))
-        assertEquals(
-            "expose_surface_without_entry_or_approval",
-            liveAutomation.string("checkpointNavigation"),
-        )
-        assertEquals(
-            "finish_seal_visuals_then_release_capture",
-            liveAutomation.string("screenShareProtectedCheckpoint"),
-        )
-        assertEquals(
-            "local_ephemeral_adapter_without_model_visibility",
-            liveAutomation.string("privateRelay"),
-        )
-        assertEquals("user_step", liveAutomation.string("systemOwnedConfirmation"))
-        assertEquals("until_ready_or_authority_changed", shizuku.string("lifetime"))
-        assertEquals("complete", shizuku.string("ready"))
-        assertEquals("request_permission", shizuku.string("binderReadyPermissionMissing"))
-        assertEquals("open_manager", shizuku.string("installedServiceStoppedOrGrantRevoked"))
-        assertEquals(
-            "open_store_with_official_download_fallback",
-            shizuku.string("packageMissingOrApiUnsupported"),
-        )
-        assertEquals(
-            "on_package_change_external_return_or_binder_event",
-            shizuku.string("reprobe"),
-        )
-        assertEquals("open_manager_without_reselection", shizuku.string("packageInstalled"))
-        assertEquals(
-            "remain_selected_pending_without_reopening",
-            shizuku.string("unchangedExternalState"),
-        )
-        assertEquals("user_step", shizuku.string("androidPlayInstallConfirmation"))
-        assertEquals("user_step", shizuku.string("androidOwnedPairingAndTrust"))
-        assertEquals(
-            "sealed_local_adapter_or_user_step",
-            shizuku.string("oneTimePairingCodeTransfer"),
-        )
-        val shizukuCases = shizuku.getValue("cases").jsonArray
-        assertEquals(ShizukuBridgeCondition.entries.size, shizukuCases.size)
-        shizukuCases.forEach { element ->
-            val case = element.jsonObject
-            val condition = ShizukuBridgeCondition.entries.single {
-                it.wireName == case.string("condition")
-            }
-            val actual = nextPhoneControlShizukuSetupAction(
-                ShizukuBridgeProbe(
-                    state = CapabilityState.NEEDS_USER_STEP,
-                    condition = condition,
-                ),
-            )
-            assertEquals(case.string("expect"), actual.wireName)
-        }
-        val firstPartyAdb = invariants.getValue("firstPartyAdbSetup").jsonObject
-        assertEquals(
-            "sealed_model_evidence_with_projection_retained",
-            firstPartyAdb.string("captureLifecycle"),
-        )
-        assertEquals(
-            "serialize_then_forget_abandoned_client_key_after_terminal_return",
-            firstPartyAdb.string("cancelDuringPairing"),
-        )
-        assertEquals(
-            "persist_pairing_then_bounded_reconnect_without_code_reentry",
-            firstPartyAdb.string("pairingEstablishedBeforeConnect"),
-        )
-        assertEquals(
-            "unseal_existing_projection_then_fresh_probe",
-            firstPartyAdb.string("postPairingProjectionResume"),
-        )
-        assertEquals(
-            "paired_client_key_and_persisted_adb_mdns_identity_family",
-            firstPartyAdb.string("reconnect"),
-        )
+        assertElevatedSetupContracts(invariants)
 
         fixture.getValue("cases").jsonArray.forEach { element ->
             val case = element.jsonObject

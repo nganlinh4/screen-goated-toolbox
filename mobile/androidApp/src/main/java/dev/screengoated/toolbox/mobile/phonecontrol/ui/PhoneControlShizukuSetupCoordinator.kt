@@ -169,7 +169,11 @@ internal class PhoneControlShizukuSetupCoordinator(
                 PhoneControlActivity.activationIntent(activity)
             else -> null
         }
-        PhoneControlService.clearAuthoritySetup(activity, SHIZUKU_PROVIDER_ID)
+        PhoneControlService.clearAuthoritySetup(
+            activity,
+            SHIZUKU_PROVIDER_ID,
+            verifiedReady = true,
+        )
         activity.showPhoneControlToast(R.string.phone_control_shizuku_ready_toast)
         PhoneControlLog.i(TAG, "authority_setup_result provider=shizuku ready=true")
         if (continuation != null) {
@@ -215,7 +219,7 @@ internal class PhoneControlShizukuSetupCoordinator(
         reportGuidance(
             R.string.phone_control_shizuku_request_permission,
             requestAutomation = false,
-            captureHandoffAfterAutomation = false,
+            monitorProtectedCheckpoint = false,
         )
         activity.showPhoneControlToast(
             R.string.phone_control_shizuku_request_permission_toast,
@@ -286,7 +290,7 @@ internal class PhoneControlShizukuSetupCoordinator(
                 reportGuidance(
                     condition.messageResource(),
                     requestAutomation = true,
-                    captureHandoffAfterAutomation =
+                    monitorProtectedCheckpoint =
                         attempt.action == PhoneControlShizukuSetupAction.OPEN_MANAGER,
                 )
                 PhoneControlLog.i(
@@ -310,7 +314,7 @@ internal class PhoneControlShizukuSetupCoordinator(
         reportGuidance(
             R.string.phone_control_shizuku_still_needs_user_step,
             requestAutomation = false,
-            captureHandoffAfterAutomation = false,
+            monitorProtectedCheckpoint = false,
         )
         activity.showPhoneControlToast(R.string.phone_control_shizuku_pending_toast)
         PhoneControlLog.i(
@@ -337,7 +341,7 @@ internal class PhoneControlShizukuSetupCoordinator(
     private fun reportGuidance(
         messageResource: Int,
         requestAutomation: Boolean,
-        captureHandoffAfterAutomation: Boolean,
+        monitorProtectedCheckpoint: Boolean,
     ) {
         val guidance = activity.phoneControlString(messageResource)
         PhoneControlSetupNotification.show(
@@ -353,7 +357,7 @@ internal class PhoneControlShizukuSetupCoordinator(
             providerId = SHIZUKU_PROVIDER_ID,
             guidance = guidance,
             requestAutomation = requestAutomation,
-            captureHandoffAfterAutomation = captureHandoffAfterAutomation,
+            monitorProtectedCheckpoint = monitorProtectedCheckpoint,
         )
     }
 
