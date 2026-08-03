@@ -35,9 +35,33 @@ pub(super) fn load_key() -> Result<String> {
         .filter(|k| !k.is_empty())
         .unwrap_or_else(|| crate::load_config().gemini_api_key.trim().to_string());
     if key.is_empty() {
-        anyhow::bail!("no Gemini key (set GEMINI_API_KEY or configure it in app settings)");
+        anyhow::bail!("NO_API_KEY:gemini");
     }
     Ok(key)
+}
+
+/// Classify only explicit Gemini credential failures. Network, quota, model,
+/// and generic setup failures must not be mislabeled as a bad key.
+pub(super) fn api_key_error_code(error: &anyhow::Error) -> Option<&'static str> {
+    error
+        .chain()
+        .find_map(|cause| api_key_error_code_text(&cause.to_string()))
+}
+
+fn api_key_error_code_text(message: &str) -> Option<&'static str> {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("no_api_key") {
+        return Some("NO_API_KEY:gemini");
+    }
+    if lower.contains("invalid_api_key")
+        || lower.contains("api key not valid")
+        || lower.contains("api key is not valid")
+        || lower.contains("invalid api key")
+        || lower.contains("api key is invalid")
+    {
+        return Some("INVALID_API_KEY:gemini");
+    }
+    None
 }
 
 /// Connect through the shared Gemini Live transport, but with the WS
@@ -463,7 +487,30 @@ pub(super) fn fingerprint_change(a: &[u8], b: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod view_tests {
-    use super::{View, target_fingerprint_matches};
+    use super::{View, api_key_error_code, target_fingerprint_matches};
+
+    #[test]
+    fn classifies_only_explicit_startup_credential_failures() {
+        let missing = anyhow::anyhow!("NO_API_KEY:gemini");
+        assert_eq!(api_key_error_code(&missing), Some("NO_API_KEY:gemini"));
+
+        let rejected = anyhow::anyhow!(
+            "server closed during setup: API key not valid. Please pass a valid API key."
+        );
+        assert_eq!(
+            api_key_error_code(&rejected),
+            Some("INVALID_API_KEY:gemini")
+        );
+
+        for unrelated in [
+            "timed out waiting for setupComplete",
+            "HTTP error: 400 Bad Request",
+            "quota exceeded",
+            "connection reset",
+        ] {
+            assert_eq!(api_key_error_code(&anyhow::anyhow!(unrelated)), None);
+        }
+    }
 
     #[test]
     fn normalized_edges_stay_inside_the_view() {

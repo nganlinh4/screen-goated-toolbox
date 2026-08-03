@@ -80,6 +80,11 @@ pub fn show_overlay() {
     if CC_ACTIVE.swap(true, Ordering::SeqCst) {
         return;
     }
+    if let Err(error) = super::session::load_key() {
+        CC_ACTIVE.store(false, Ordering::SeqCst);
+        show_startup_credential_error(&error);
+        return;
+    }
     CC_STOP.store(false, Ordering::SeqCst);
     super::orb::show_orb();
     set_orb_state(OrbState::Idle, None);
@@ -93,6 +98,18 @@ pub fn show_overlay() {
     // fast/free Taalas LLM and show the matching glyph. Exits when the session ends.
     let stop_sentiment = CC_STOP.clone();
     std::thread::spawn(move || sentiment_loop(stop_sentiment));
+}
+
+pub(super) fn show_startup_credential_error(error: &anyhow::Error) -> bool {
+    let Some(code) = super::session::api_key_error_code(error) else {
+        return false;
+    };
+    let language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    crate::overlay::utils::show_api_key_error_notification(code, &language);
+    true
 }
 
 /// Signal the running session to stop (the runtime thread clears CC_ACTIVE).

@@ -39,6 +39,9 @@ fn run_with_turns(stop: Arc<AtomicBool>, turns: Option<Vec<String>>) {
             // transport/setup failures must remain visible.
             if message == "stopped" {
                 overlay::set_status("stopped");
+            } else if overlay::show_startup_credential_error(&error) {
+                overlay::push_log("Gemini API key was rejected during startup".to_string());
+                overlay::set_status("error");
             } else if message.contains("quota")
                 || message.contains("exceeded")
                 || message.contains("resource_exhausted")

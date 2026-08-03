@@ -97,7 +97,10 @@ pub(super) fn connect_initial_session(key: &str, stop: &Arc<AtomicBool>) -> anyh
     let setup_with_search = uia_task::build_setup(None, true, true);
     telemetry::record_model_setup(&setup_with_search, "initial_search");
     send(&mut socket, setup_with_search)?;
-    if wait_for_setup(&mut socket, stop).is_err() {
+    if let Err(error) = wait_for_setup(&mut socket, stop) {
+        if session::api_key_error_code(&error).is_some() {
+            return Err(error);
+        }
         let _ = socket.close(None);
         overlay::push_log(
             "(Google Search unavailable on this key; starting without it)".to_string(),
